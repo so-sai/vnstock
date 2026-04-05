@@ -171,6 +171,8 @@ Thumbs.db
 
 # Database files
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 
@@ -193,3 +195,6 @@ vnstock/common/.DS_Store
 vnstock/explorer/.DS_Store
 vnstock/core/.DS_Store
 debug_*.py
+# .kit Memory Store
+.kit/brain.db-*
+.kit/brain.db.bak

@@ -1,0 +1,20 @@
+🛡️ ALPHA V4.5 - CHIẾN LỆNH NGÀY 05/04/2026
+==================================================
+🔴 TRẠNG THÁI VĨ MÔ: SAFE
+🟡 KHẨU VỊ RỦI RO: LONG
+📊 MỤC TIÊU NAV: 100% (FULL)
+--------------------------------------------------
+
+🟢 DANH SÁCH THEO DÕI MUA (TOP RS + LIQUIDITY):
+- MUA: GTD   | RS: 99.8 | Gia hien tai:     167 VNĐ
+- MUA: BVH   | RS: 94.8 | Gia hien tai:      85 VNĐ
+- MUA: FOX   | RS: 93.1 | Gia hien tai:      82 VNĐ
+- MUA: DSH   | RS: 90.1 | Gia hien tai:      14 VNĐ
+- MUA: DCL   | RS: 89.2 | Gia hien tai:      57 VNĐ
+- MUA: CRC   | RS: 88.4 | Gia hien tai:      10 VNĐ
+- MUA: CAP   | RS: 87.6 | Gia hien tai:      46 VNĐ
+- MUA: CST   | RS: 83.9 | Gia hien tai:      15 VNĐ
+- MUA: BMS   | RS: 83.6 | Gia hien tai:      14 VNĐ
+- MUA: GEG   | RS: 80.7 | Gia hien tai:      16 VNĐ
+
+⚠️ LƯU Ý: Kiem tra stop-loss -5% tai cho neu co bien dong vol lon (Rumor Shield).
