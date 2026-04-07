@@ -14,7 +14,7 @@ def _hydrate_path():
         root_path = current
         while current != current.parent:
             # Săn lùng Root dựa trên các điểm neo độc bản
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -74,9 +74,10 @@ def calculate_sector_stats():
     pivot_price = df_ohlcv.pivot(index='date', columns='symbol', values='close').ffill()
     pivot_vol = df_ohlcv.pivot(index='date', columns='symbol', values='volume').ffill()
     
-    # Tính Liquidity Value (Price * Volume * 1000)
+    # Tinh Liquidity Value (Price * Volume * 1000)
     pivot_value = pivot_price * pivot_vol * 1000
-    avg_value_20d = pivot_value.rolling(20).mean().iloc[-1]
+    avg_value_20d = pivot_value.rolling(20).mean().iloc[-1]   # Trung binh 20 phien
+    value_latest = pivot_value.iloc[-1]                        # Gia tri phien gan nhat
     
     # Tính Momentum RS (1M=50%, 3M=50% cho Sector focus)
     perf_1m = pivot_price.pct_change(21).iloc[-1]
@@ -108,13 +109,29 @@ def calculate_sector_stats():
         latest_ma20 = sector_ma20.iloc[-1]
         latest_rs = rs_combined[valid_symbols]
         
-        bullish_members = (latest_rs > 60) & (latest_prices > latest_ma20)
-        diffusion_index = (bullish_members.sum() / len(valid_symbols)) * 100
+        # --- V4.6 IRON GATE: Diffusion Index chi tinh tren cac ma vuot cua 5B ---
+        # Loc ra cac ma vuot ca 2 cua (TB 20 phien >= 5B VA phien hom nay >= 5B)
+        iron_gate_mask = (
+            (avg_value_20d[valid_symbols] >= 5_000_000_000) &
+            (value_latest[valid_symbols] >= 5_000_000_000)
+        )
+        diamond_symbols = [s for s in valid_symbols if iron_gate_mask.get(s, False)]
 
-        # Diamond Mid-caps: Mã trong ngành có thanh khoản > 2B
-        # Đảm bảo index trùng khớp
-        sector_values = avg_value_20d.get(valid_symbols, pd.Series(0, index=valid_symbols))
-        liquidity_depth = (sector_values >= 2_000_000_000).sum()
+        # Diffusion Index chi tinh tren Diamond symbols
+        if diamond_symbols:
+            diamond_prices = sector_prices[diamond_symbols]
+            diamond_ma20  = sector_ma20[diamond_symbols]
+            diamond_latest_prices = diamond_prices.iloc[-1]
+            diamond_latest_ma20   = diamond_ma20.iloc[-1]
+            diamond_rs = rs_combined[diamond_symbols]
+            bullish_members = (diamond_rs > 60) & (diamond_latest_prices > diamond_latest_ma20)
+            diffusion_index = (bullish_members.sum() / len(diamond_symbols)) * 100
+        else:
+            bullish_members  = pd.Series(dtype=bool)
+            diffusion_index  = 0.0
+
+        # Dem so Diamond (ca 2 cua >= 5B)
+        liquidity_depth = len(diamond_symbols)
         
         sector_data.append({
             'Sector': sector,
@@ -122,7 +139,7 @@ def calculate_sector_stats():
             'RS 3M': avg_rs_3m,
             'Combined': (avg_rs_1m + avg_rs_3m) / 2,
             'Diffusion (%)': diffusion_index,
-            'Diamonds (>2B)': int(liquidity_depth),
+            'Diamonds (>5B)': int(liquidity_depth),
             'Total': len(valid_symbols)
         })
 
@@ -133,7 +150,7 @@ def calculate_sector_stats():
     df_sectors = pd.DataFrame(sector_data).sort_values(by='Combined', ascending=False)
 
     # 4. In bảng kết quả
-    print(f"{'NHÓM NGÀNH (ICB)':<25} | {'RS 1M':>6} | {'RS 3M':>6} | {'SCORE':>6} | {'DIFF.':>6} | {'DIAMONDS':>8}")
+    print(f"{'NHOM NGANH (ICB)':<25} | {'RS 1M':>6} | {'RS 3M':>6} | {'SCORE':>6} | {'DIFF.':>6} | {'DIAMONDS (>5B)':>14}")
     print("-" * 80)
     for _, row in df_sectors.iterrows():
         # Đánh dấu "Hội tụ" nếu DI >= 40%
@@ -141,9 +158,10 @@ def calculate_sector_stats():
         # Xóa marker để tránh Encoding crash trên Windows, dùng dấu star
         marker = "(*)" if row['Diffusion (%)'] >= 40 else "   "
         
-        print(f"{row['Sector']:<25} | {row['RS 1M']:>6.1f} | {row['RS 3M']:>6.1f} | {row['Combined']:>6.1f} | {row['Diffusion (%)']:>5.0f}% | {row['Diamonds (>2B)']:>3}/{row['Total']:<3} {marker}")
+        print(f"{row['Sector']:<25} | {row['RS 1M']:>6.1f} | {row['RS 3M']:>6.1f} | {row['Combined']:>6.1f} | {row['Diffusion (%)']:>5.0f}% | {row['Diamonds (>5B)']:>3}/{row['Total']:<3} {marker}")
     print("=" * 80)
     print("DEBUG: (*) Hoi tu (Diffusion Index >= 40%). Score: (RS 1M + RS 3M) / 2.")
 
 if __name__ == "__main__":
     calculate_sector_stats()
+

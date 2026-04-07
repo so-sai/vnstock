@@ -22,7 +22,7 @@ PROJECT_ROOT = _hydrate_path()
 import src.config
 from src.engine.breadth_engine import run_breadth_analysis
 from src.engine.heatmap_engine import run_sector_heatmap
-from src.engine.rs_engine import calculate_rs_score
+from src.engine.rs_ranker import calculate_rs_score
 from src.engine.screener_logic import run_screener
 
 def main():

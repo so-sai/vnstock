@@ -10,7 +10,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -111,3 +111,4 @@ if __name__ == "__main__":
     engine.update_foreign_history(['HPG', 'SSI', 'VNM'])
     acc = engine.get_accumulation('HPG', 10)
     print(f"✅ HPG 10D Foreign Accumulation: {acc:.2f} tỷ VNĐ")
+

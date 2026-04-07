@@ -10,7 +10,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -47,3 +47,4 @@ class Deduplicator:
     def clean_industry_data(df):
         if df.empty: return df
         return df.sort_values('icb_name4', na_position='last').drop_duplicates('symbol', keep='first')
+

@@ -11,7 +11,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -74,3 +74,4 @@ def run_hell_fire_stress_test():
 
 if __name__ == "__main__":
     run_hell_fire_stress_test()
+

@@ -12,7 +12,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -46,3 +46,4 @@ if root_path not in sys.path:
     sys.path.insert(0, root_path)
 
 # [SAFEGUARD]: DO NOT REMOVE DEBUG PRINTS HERE - Use env var DEBUG=1 to enable
+

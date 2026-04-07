@@ -12,8 +12,8 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            # Săn lùng Root dựa trên các điểm neo độc bản (seed_data.py, .kit)
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            # Săn lùng Root dựa trên các điểm neo độc bản (screener.py, .kit)
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -87,3 +87,4 @@ def check_macro_exceptions():
 
 if __name__ == "__main__":
     check_macro_exceptions()
+

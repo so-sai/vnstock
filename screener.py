@@ -11,7 +11,7 @@ def _hydrate_path():
         root_path = current
         while current != current.parent:
             # Săn lùng Root dựa trên các điểm neo độc bản
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -27,7 +27,53 @@ import random
 import argparse
 import pandas as pd
 from datetime import datetime
+import json
 from src.database.db_core import get_connection, optimize_sqlite_engine, save_data_upsert
+
+class EliteArmor:
+    """
+    Giáp Trụ Sentinel v1.0: Throttling & Negative Caching (7-day TTL).
+    Hệ thống phòng thủ API tích hợp.
+    """
+    def __init__(self, cache_file=".negative_cache.json"):
+        self.cache_file = os.path.join(PROJECT_ROOT, cache_file)
+        self.cache = self._load_cache()
+
+    def _load_cache(self):
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    # Cleanup old entries (> 7 days)
+                    now = time.time()
+                    return {k: v for k, v in data.items() if now - v < 7 * 24 * 3600}
+            except: return {}
+        return {}
+
+    def save_cache(self):
+        with open(self.cache_file, "w", encoding="utf-8") as f:
+            json.dump(self.cache, f)
+
+    def is_blacklisted(self, symbol):
+        return symbol in self.cache
+
+    def blacklist(self, symbol):
+        self.cache[symbol] = time.time()
+
+    def wait(self, duration=None, is_error=False):
+        """
+        Request Collapsing: Ngủ ngẫu nhiên để tránh burst limit.
+        Negative Caching: Ngủ 60s+ nếu API báo lỗi.
+        """
+        if is_error:
+            cooldown = random.uniform(45.0, 75.0)
+            print(f"\n🚨 API ARMOR: Phat hien rủi ro (429/5xx). Cooldown {cooldown:.1f}s...")
+            time.sleep(cooldown)
+        else:
+            sleep_time = duration if duration else random.uniform(1.8, 4.2)
+            time.sleep(sleep_time)
+
+ARMOR = EliteArmor()
 
 from vnstock import Listing, Quote
 
@@ -149,6 +195,10 @@ def full_market_seeding():
     
     for symbol in todo_symbols:
         count += 1
+        if ARMOR.is_blacklisted(symbol):
+            print(f"[{count}/{total_todo}] Skipping (Blacklisted): {symbol}...", end='\r')
+            continue
+
         print(f"[{count}/{total_todo}] Đang xử lý: {symbol}...", end='\r')
         
         try:
@@ -183,8 +233,9 @@ def full_market_seeding():
                 stats["success"] += 1
             else:
                 stats["no_data"] += 1
+                ARMOR.blacklist(symbol) # Negative cache for no data
             
-            time.sleep(random.uniform(1.8, 3.8))
+            ARMOR.wait()
             
             if count % 50 == 0:
                 cooldown = random.uniform(30, 60)
@@ -194,12 +245,15 @@ def full_market_seeding():
         except ValueError as ve:
             if "Không tìm thấy dữ liệu" in str(ve):
                 stats["no_data"] += 1
+                ARMOR.blacklist(symbol)
             else:
                 stats["failed"] += 1
         except Exception as e:
             stats["failed"] += 1
             print(f"\n⚠️ Lỗi nghiêm trọng tại {symbol}: {e}")
-            time.sleep(5)
+            ARMOR.wait(is_error=True) # Negative caching trigger
+
+    ARMOR.save_cache()
 
     duration = (time.time() - start_time) / 60
     
@@ -225,6 +279,10 @@ def fetch_keyless_macro():
     tickers = {
         'DXY': 'DX-Y.NYB',
         'USD_VND': 'USDVND=X',
+        'USD_CNY': 'CNY=X',
+        'USD_CNH': 'CNH=X',
+        'SH_COMP': '000001.SS',
+        'COPPER_HG': 'HG=F',
         'US10Y': '^TNX',
         'BRENT_OIL': 'BZ=F',
         'WTI_OIL': 'CL=F',
@@ -254,7 +312,7 @@ def fetch_keyless_macro():
             
         print(f"✅ Đã nạp thành công {len(df_melted)} điểm dữ liệu Vĩ mô (BTC, Gold, Dầu) vào Vault.")
         # 4. Kích hoạt Cảm biến Ngoại lệ (V4.4 Sentinel)
-        from src.engine.macro_alert import check_macro_exceptions
+        from src.utils.macro_sensors import check_macro_exceptions # Sync import
         check_macro_exceptions()
         
     except Exception as e:

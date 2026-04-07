@@ -10,7 +10,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -42,7 +42,7 @@ def run_screener():
         )
 
     if df.empty:
-        print("❌ Lỗi: Không có dữ liệu để quét. Hãy chạy 'python seed_data.py' trước.")
+        print("❌ Lỗi: Không có dữ liệu để quét. Hãy chạy 'python screener.py' trước.")
         return pd.DataFrame()
 
     # --- SENTINEL SAFE PATTERN ---
@@ -90,3 +90,4 @@ def run_screener():
 
 if __name__ == "__main__":
     run_screener()
+

@@ -10,7 +10,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -64,3 +64,4 @@ if __name__ == "__main__":
     norm = UnitNormalizer(show_log=True)
     norm.update_macro_data("OMO", 5000.0)
     print(f"🌍 Market Condition (Phase 0): {norm.get_market_condition()}")
+

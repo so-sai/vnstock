@@ -12,8 +12,8 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            # Săn lùng Root dựa trên các điểm neo độc bản (seed_data.py, .kit)
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            # Săn lùng Root dựa trên các điểm neo độc bản (screener.py, .kit)
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -129,3 +129,4 @@ def save_data_upsert(table_name, df, conn):
     data = [tuple(x) for x in df_save.values]
     cursor.executemany(sql, data)
     conn.commit()
+

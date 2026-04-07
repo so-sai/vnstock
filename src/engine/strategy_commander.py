@@ -10,7 +10,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -23,7 +23,7 @@ import logging
 import pandas as pd
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from src.engine.rs_engine import load_rs_data
+from src.engine.rs_ranker import load_rs_data
 from src.engine.money_flow_engine import MoneyFlowEngine
 from src.engine.unit_normalizer import UnitNormalizer
 
@@ -82,3 +82,4 @@ if __name__ == "__main__":
     commander = StrategyCommander(show_log=True)
     report = commander.analyze_battle_map(['HPG', 'SSI', 'VNM'])
     print(report.to_string(index=False))
+

@@ -10,7 +10,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -47,3 +47,4 @@ class CircuitBreaker:
         """Ghi nhận lỗi từ API để kích hoạt Cooldown."""
         cls._failure_log[source] = time.time()
         print(f"🛑 [Circuit Breaker] Tripped for {source}. Cooling down for {cls.COOLDOWN_SECONDS}s.")
+

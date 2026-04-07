@@ -10,8 +10,8 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            # Săn lùng Root dựa trên các điểm neo độc bản (seed_data.py, .kit)
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            # Săn lùng Root dựa trên các điểm neo độc bản (screener.py, .kit)
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -55,7 +55,7 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
     # 2. Nạp dữ liệu RS Rating
     rs_path: str = os.path.join(src.config.DATA_DIR, "market_rs.json")
     if not os.path.exists(rs_path):
-        print("⚠️ Không tìm thấy market_rs.json. Hãy chạy rs_engine.py trước.")
+        print("⚠️ Không tìm thấy market_rs.json. Hãy chạy rs_ranker.py trước.")
         return pd.DataFrame()
     
     rs_df: pd.DataFrame = pd.read_json(rs_path)
@@ -152,3 +152,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     run_elite_scanner(deep_scan=args.deep)
+

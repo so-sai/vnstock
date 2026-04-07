@@ -13,8 +13,8 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            # Săn lùng Root dựa trên các điểm neo độc bản (seed_data.py, .kit)
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            # Săn lùng Root dựa trên các điểm neo độc bản (screener.py, .kit)
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -32,11 +32,12 @@ from src.database.db_core import get_connection
 
 def generate_daily_orders():
     """
-    Alpha V4.5 - Execution Widget: Xuat lenh tac chien hang ngay.
+    Alpha V4.6 - Execution Widget: Xuat lenh tac chien hang ngay.
+    Iron Gate: Loc 2 lop (TB 20 phien >= 5B + Phien hom nay >= 5B).
     Dung de bridge tu Terminal sang App giao dich (TCBS/VNDirect).
     """
     print("\n" + "="*65)
-    print("🚀  TRẠM LỆNH TÁC CHIẾN ALPHA V4.6 (THE SNIPER)")
+    print("🚀  TRẠM LỆNH TÁC CHIẾN ALPHA V4.6 (THE SNIPER — IRON GATE)")
     print("="*65)
 
     # 1. Tai du lieu moi nhat
@@ -55,12 +56,15 @@ def generate_daily_orders():
         print("❌ Vault trong. Hay chay seeding truoc.")
         return
 
-    # 2. Tinh toan RS va Diffusion (Logic V4.5)
+    # 2. Tinh toan RS va Diffusion (Logic V4.6)
     df_ohlcv['date'] = pd.to_datetime(df_ohlcv['date'], format='ISO8601', errors='coerce')
-    pivot_price = df_ohlcv.pivot(index='date', columns='symbol', values='close').ffill()
-    pivot_vol = df_ohlcv.pivot(index='date', columns='symbol', values='volume').ffill()
-    
-    avg_value_20d = (pivot_price * pivot_vol * 1000).rolling(20).mean().iloc[-1]
+    pivot_price = df_ohlcv.pivot_table(index='date', columns='symbol', values='close', aggfunc='last').ffill()
+    pivot_vol = df_ohlcv.pivot_table(index='date', columns='symbol', values='volume', aggfunc='last').ffill()
+
+    # --- V4.6 IRON GATE: Gia tri giao dich thuc te (Price * Volume * 1000) ---
+    pivot_value = pivot_price * pivot_vol * 1000
+    avg_value_20d = pivot_value.rolling(20).mean().iloc[-1]   # Trung binh 20 phien
+    value_today = pivot_value.iloc[-1]                         # Gia tri phien hien tai
     
     # --- V4.6: CẢNH BÁO XU HƯỚNG (MA20 TREND FILTER) ---
     pivot_ma20 = pivot_price.rolling(20).mean().iloc[-1]
@@ -74,7 +78,7 @@ def generate_daily_orders():
     allow_buy = True
     
     if not df_macro.empty:
-        df_macro_p = df_macro.pivot(index='date', columns='variable', values='value').ffill()
+        df_macro_p = df_macro.pivot_table(index='date', columns='variable', values='value', aggfunc='last').ffill()
         latest_macro = df_macro_p.iloc[-1]
         ma20_macro = df_macro_p.rolling(20).mean().iloc[-1]
         
@@ -106,9 +110,18 @@ def generate_daily_orders():
         if not is_macro_safe:
             f.write("🚨 HÀNH ĐỘNG: BÁN TOÀN BỘ DANH MỤC - THU TIỀN VỀ (CASH-OUT).\n")
         else:
-            # V4.6 SNIPER: Rebalance logic - Added Price > MA20 filter
+            # V4.6 IRON GATE: Double-Gate Liquidity Filter
+            # Cua 1: TB 20 phien >= 5 Ty (Suc manh lich su)
+            # Cua 2: Phien hom nay  >= 5 Ty (Suc manh hien tai)
+            # Cua 3: Gia > MA20 (Xu huong tang)
+            # Cua 4: Gia >= 10k (Loc penny)
             price_latest = pivot_price.iloc[-1]
-            valid_universe = (price_latest >= 10) & (avg_value_20d >= 2_000_000_000) & (price_latest > pivot_ma20)
+            valid_universe = (
+                (price_latest >= 10) &
+                (avg_value_20d >= 5_000_000_000) &
+                (value_today >= 5_000_000_000) &
+                (price_latest > pivot_ma20)
+            )
             candidates = rs_combined[valid_universe].sort_values(ascending=False).head(10)
             
             f.write("🟢 DANH SÁCH THEO DÕI MUA (TOP RS + LIQUIDITY):\n")
@@ -123,3 +136,4 @@ def generate_daily_orders():
 
 if __name__ == "__main__":
     generate_daily_orders()
+

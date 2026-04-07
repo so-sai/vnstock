@@ -10,8 +10,8 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            # Săn lùng Root dựa trên các điểm neo độc bản (seed_data.py, .kit)
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "seed_data.py").exists():
+            # Săn lùng Root dựa trên các điểm neo độc bản (screener.py, .kit)
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
                 root_path = current
                 break
             current = current.parent
@@ -136,39 +136,37 @@ def load_rs_data():
         data = json.load(f)
     return {item['symbol']: item for item in data}
 
-def compute_rs_matrix(df_ohlcv: pd.DataFrame) -> pd.DataFrame:
+def compute_rs_components(df_ohlcv: pd.DataFrame) -> dict:
     """
-    Tính toán Ma trận RS (Symbol x Date) sử dụng Vectorization (Pandas).
-    Phục vụ Backtest v2.2 (Elite VN-Tuned: 40-30-20-10).
+    Tính toán các thành phần Momentum (1M, 3M, 6M, 1Y) dưới dạng Ma trận (Symbol x Date).
+    Phục vụ cho việc gán trọng số động (Adaptive Weighting) trong Backtest v1.0.1.
     """
-    # 0. BẮT BUỘC: Ép kiểu số & Giữ lại các cột tối thiểu
     df_ohlcv = df_ohlcv.copy()
-    # V4.6 SENTINEL: Nếu adj_close không có, fallback về close
     if 'adj_close' not in df_ohlcv.columns or df_ohlcv['adj_close'].isna().all():
         df_ohlcv['adj_close'] = df_ohlcv.get('close', pd.Series(dtype=float))
-    # Loại bỏ các hàng trùng lặp hoặc rác
+    
     df_ohlcv = df_ohlcv.dropna(subset=['symbol', 'date', 'adj_close'])
     df_ohlcv['adj_close'] = pd.to_numeric(df_ohlcv['adj_close'], errors='coerce')
-    # Giữ lại các cột chuẩn để tránh lỗi pivot các cột rác
     df_ohlcv = df_ohlcv[['symbol', 'date', 'adj_close']]
     
-    # 1. Pivot dữ liệu sang Ma trận (Index: Date, Columns: Symbol)
     pivot_df = df_ohlcv.pivot_table(index='date', columns='symbol', values='adj_close', aggfunc='max')
-    
-    # 2. Tính toán hiệu suất các khung thời gian (Momentum) - ffill trước để tránh FutureWarning
     pivot_filled = pivot_df.ffill()
-    perf_1y = pivot_filled.pct_change(252)
-    perf_6m = pivot_filled.pct_change(126)
-    perf_3m = pivot_filled.pct_change(63)
-    perf_1m = pivot_filled.pct_change(21)
     
-    # 3. Tính điểm Weighted RS (v2.2: 1M=40%, 3M=30%, 6M=20%, 1Y=10%)
-    rs_score = (perf_1m * 0.4 + perf_3m * 0.3 + perf_6m * 0.2 + perf_1y * 0.1)
-    
-    # 4. Xếp hạng Percentile Rank theo hàng (từng ngày)
-    rs_matrix = rs_score.rank(pct=True, axis=1) * 100
-    
-    return rs_matrix
+    return {
+        '1m': pivot_filled.pct_change(21),
+        '3m': pivot_filled.pct_change(63),
+        '6m': pivot_filled.pct_change(126),
+        '1y': pivot_filled.pct_change(252)
+    }
+
+def compute_rs_matrix(df_ohlcv: pd.DataFrame) -> pd.DataFrame:
+    """
+    Hàm Legacy: Phục vụ tương thích ngược với V1.0 (Fixed weights: 40-30-20-10).
+    """
+    comps = compute_rs_components(df_ohlcv)
+    rs_score = (comps['1m'] * 0.4 + comps['3m'] * 0.3 + comps['6m'] * 0.2 + comps['1y'] * 0.1)
+    return rs_score.rank(pct=True, axis=1) * 100
 
 if __name__ == "__main__":
     calculate_rs_score()
+
