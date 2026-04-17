@@ -1,8 +1,10 @@
 {
-    "date": "2026-04-03",
-    "total_active": 148,
-    "advancers": 27,
-    "decliners": 96,
-    "unchanged": 25,
-    "health_score_ma20": 44.59
+    "date": "2026-04-17",
+    "total_active": 236,
+    "advancers": 82,
+    "decliners": 101,
+    "unchanged": 53,
+    "health_score_ma20": 58.9,
+    "nh10_count": 10,
+    "nh10_consistency_3d": 0
 }

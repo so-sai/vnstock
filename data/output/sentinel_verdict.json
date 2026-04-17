@@ -1,0 +1,18 @@
+{
+    "timestamp": "2026-04-17 15:16:12",
+    "market_date": "2026-04-17",
+    "layer1_mom_expansion": {
+        "value": 0,
+        "threshold": 150,
+        "status": "FAIL"
+    },
+    "layer2_nh10_consistency": {
+        "value": 0,
+        "threshold": 3,
+        "status": "FAIL"
+    },
+    "layer3_foreign_absorption": {
+        "status": "FAIL"
+    },
+    "final_status": "RED (STANDBY - PHANTOM CITADEL)"
+}
