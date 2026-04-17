@@ -47,7 +47,7 @@ def run_screener():
 
     # --- SENTINEL SAFE PATTERN ---
     df = df.copy()
-    df.loc[:, "date"] = pd.to_datetime(df["date"])
+    df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values(["symbol", "date"])
 
     # === VECTORIZED ENGINE V1 (SENTINEL VERSION) ===
