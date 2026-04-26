@@ -1,0 +1,151 @@
+
+import os
+import json
+import pandas as pd
+from datetime import datetime
+from pathlib import Path
+
+# Sentinel v2.1 (Anchor Fix)
+def _hydrate_path():
+    import sys
+    if getattr(sys, 'frozen', False):
+        root_path = Path(sys.executable).resolve().parent
+    else:
+        current = Path(__file__).resolve().parent
+        root_path = current
+        while current != current.parent:
+            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+                root_path = current
+                break
+            current = current.parent
+    if str(root_path) not in sys.path:
+        sys.path.insert(0, str(root_path))
+    return root_path
+
+PROJECT_ROOT = _hydrate_path()
+import src.config
+from src.engine.regime_engine import detect_regime
+from src.engine.meanrev_engine import run_meanrev_scan
+from src.engine.recovery_engine import evaluate_recovery_status
+from src.database.timeline_manager import calculate_breadth_velocity
+
+def merge_decisions(model_a_verdict=None, target_date=None):
+    """
+    Decision Engine: The Boardroom (v1.0 Institutional).
+    Merges Regime, Model A (Momentum), and Model B (Mean Rev).
+    Includes [LOCK 4] Macro Confidence Dampening.
+    Supports Point-in-time accuracy via target_date.
+    """
+    print("\n" + "="*50)
+    print(f"DECISION ENGINE: {'HISTORICAL REPLAY' if target_date else 'BOARDROOM CONSENSUS'}")
+    print("="*50)
+
+    # 1. Get Regime
+    regime = detect_regime(target_date=target_date)
+    rs = regime['regime_score']
+    status = regime['status']
+
+    # 1.1 Calculate Breadth Velocity (5D)
+    breadth_velocity = calculate_breadth_velocity(regime['details']['breadth_pct'], days=5)
+    regime['breadth_velocity'] = breadth_velocity
+
+    # 1.2 Evaluate Recovery Status
+    recovery = evaluate_recovery_status(regime, breadth_velocity, target_date=target_date)
+    regime['recovery_active'] = recovery['is_recovery']
+    
+    # 2. Get Model B Picks
+    model_b_picks = run_meanrev_scan(regime, target_date=target_date)
+
+    # 3. Model A Data (From Sentinel Alert Verdict or provided)
+    if model_a_verdict is None:
+        sentinel_path = Path(src.config.DATA_DIR) / "output" / "sentinel_verdict.json"
+        if sentinel_path.exists():
+            with open(sentinel_path, "r", encoding="utf-8") as f:
+                model_a_verdict = json.load(f)
+        else:
+            model_a_verdict = {"final_status": "UNKNOWN", "layer1_mom_expansion": {"status": "FAIL"}}
+
+    # 4. [LOCK 4] Macro Confidence Dampening
+    # Check China Risk (Simulated for now, can fetch from a global state file)
+    china_risk_flag = False
+    china_nexus_path = Path(src.config.DATA_DIR) / "output" / "china_sensitivity.json"
+    if china_nexus_path.exists():
+        # In a real scenario, we'd check if SSEC is crashing or USDCNH is spiking
+        china_risk_flag = False # Logic placeholder
+    
+    # Calculate Confidence
+    # confidence = RS * SignalStrength (0.5-1.0)
+    base_confidence = rs * 1.0 
+    if china_risk_flag:
+        print("[LOCK 4] MACRO DAMPENING: China Risk Flag High. Reducing confidence.")
+        base_confidence *= 0.7
+    
+    # 5. Dominance Logic
+    active_model = "NONE"
+    consensus = "CASH / STANDBY"
+    
+    if status == "TRENDING":
+        active_model = "A (MOMENTUM)"
+        if model_a_verdict.get("final_status", "").startswith("GREEN"):
+            consensus = "CONVICTION BUY"
+        else:
+            consensus = "HOLD / CAUTIOUS"
+    elif status == "RANGING":
+        active_model = "B (MEAN REVERSION)"
+        if model_b_picks:
+            consensus = "CAUTIOUS BUY (PULLBACK)"
+        else:
+            consensus = "WAIT FOR NICHES"
+    else: # CRISIS
+        if recovery['is_recovery']:
+            active_model = "B (PILOT RECOVERY)"
+            consensus = "PILOT BUY (OVERSOLD REBOUND)"
+            base_confidence = 0.4 # Moderate confidence for recovery start
+        elif recovery['status'] == "PILOT_ABORT":
+            active_model = "NONE"
+            consensus = "PILOT ABORT (EXIT IMMEDIATELY)"
+            base_confidence = 0.0
+        else:
+            active_model = "NONE"
+            consensus = "CASH (PROTECT CAPITAL)"
+            base_confidence = 0.0 # Force zero confidence in crisis
+
+    # 6. Final Verdict
+    board_decision = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S") if not target_date else target_date,
+        "date": regime['date'],
+        "regime_score": rs,
+        "market_status": status,
+        "active_model": active_model,
+        "consensus": consensus,
+        "confidence": round(base_confidence, 2),
+        "breadth_velocity": round(regime.get('breadth_velocity', 0.0), 2),
+        "details": regime['details'],
+        "model_a": {
+            "status": model_a_verdict.get("final_status", "UNKNOWN"),
+            "mom_expansion": model_a_verdict.get("layer1_mom_expansion", {}).get("value", 0)
+        },
+        "model_b": {
+            "picks_count": len(model_b_picks),
+            "top_picks": model_b_picks[:5]
+        },
+        "recovery": recovery
+    }
+
+    # Output
+    output_path = Path(src.config.DATA_DIR) / "output" / "decision_board.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(board_decision, f, indent=4, ensure_ascii=False)
+    
+    print("\n--- FINAL CONSENSUS ---")
+    print(f"REGIME:     {status} ({rs:.2f})")
+    print(f"DOMINANCE:  {active_model}")
+    print(f"VERDICT:    {consensus}")
+    print(f"CONFIDENCE: {board_decision['confidence']}")
+    print("-" * 30)
+    
+    return board_decision
+
+if __name__ == "__main__":
+    merge_decisions()

@@ -1,0 +1,270 @@
+{
+  "version": "v1.2.4",
+  "commands": {
+    "hygiene": {
+      "name": "hygiene",
+      "namespace": "diagnostic",
+      "description": "Workspace Governance: Audit codebase hygiene and artifact entropy",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "init": {
+      "name": "init",
+      "namespace": "core",
+      "description": "Initialize a new .kit memory space",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "init-env": {
+      "name": "init-env",
+      "namespace": "core",
+      "description": "Standardize VSCode and .env for relative path anchoring (v1.2.4)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "learn": {
+      "name": "learn",
+      "namespace": "memory",
+      "description": "Ingest a new observation",
+      "input_schema": {
+        "content": "string (or STDIN)",
+        "tag": [
+          "invariant",
+          "decision",
+          "friction",
+          "preference",
+          "note",
+          "legacy",
+          "skill",
+          "pattern",
+          "hypothesis"
+        ],
+        "namespace": "string (default: shared)",
+        "importance": "float (0.0 - 1.0)",
+        "symbol": "string (semantic node)"
+      },
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "recall": {
+      "name": "recall",
+      "namespace": "memory",
+      "description": "Recall ranked context (Project + Global)",
+      "input_schema": {
+        "entities": "list[string] (optional keywords)",
+        "limit": "int (default: 15)",
+        "query": "string (FTS search)",
+        "here": "bool (limit to project scope)",
+        "since": "relative date (e.g., 2d, 1h)"
+      },
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "context": {
+      "name": "context",
+      "namespace": "memory",
+      "description": "Alias for recall --here (Project context awareness)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "search": {
+      "name": "search",
+      "namespace": "search",
+      "description": "Hybrid FTS5 keyword search",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "stats": {
+      "name": "stats",
+      "namespace": "diagnostic",
+      "description": "Show AI Kernel health and Quality Index (GQI 2.0)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "retention": {
+      "name": "retention",
+      "namespace": "core",
+      "description": "Execute snapshot lifecycle (tiered retention policy)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "metrics": {
+      "name": "metrics",
+      "namespace": "diagnostic",
+      "description": "Alias for stats (Longevity Metrics)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "status": {
+      "name": "status",
+      "namespace": "diagnostic",
+      "description": "Alias for stats --verbose",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "preflight": {
+      "name": "preflight",
+      "namespace": "memory",
+      "description": "Run cognitive governance checks before committing",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "compact": {
+      "name": "compact",
+      "namespace": "core",
+      "description": "Consolidate semantically redundant memories into Canonical entries",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "repair": {
+      "name": "repair",
+      "namespace": "diagnostic",
+      "description": "Auto-repair symbol debt using cognitive heuristics",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "where": {
+      "name": "where",
+      "namespace": "runtime",
+      "description": "Show current memory context and brain path",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "doctor": {
+      "name": "doctor",
+      "namespace": "diagnostic",
+      "description": "System Self-Healing: Audit and repair common workspace/kernel issues",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "flow": {
+      "name": "flow",
+      "namespace": "core",
+      "description": "Unified interactive loop (ask/run/learn/status)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "seal": {
+      "name": "seal",
+      "namespace": "core",
+      "description": "Freeze memory kernel and generate structural seal",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "introspect": {
+      "name": "introspect",
+      "namespace": "meta",
+      "description": "Output the machine-readable command registry schema",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "ingest": {
+      "name": "ingest",
+      "namespace": "memory",
+      "description": "Consume structural events from Vantage stream (Bridge Layer)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "reconcile": {
+      "name": "reconcile",
+      "namespace": "memory",
+      "description": "Analyze symbol drift and list evolution proposals (Audit Mode)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    },
+    "evolve": {
+      "name": "evolve",
+      "namespace": "memory",
+      "description": "Authorize symbol evolution and update the Evolution Graph",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "unseal": {
+      "name": "unseal",
+      "namespace": "core",
+      "description": "Unlock memory kernel for modification",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "snapshot": {
+      "name": "snapshot",
+      "namespace": "core",
+      "description": "Create a physical point-in-time snapshot with lineage tracking",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "restore": {
+      "name": "restore",
+      "namespace": "core",
+      "description": "Restore memory kernel from a physical snapshot",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "run-skill": {
+      "name": "run-skill",
+      "namespace": "runtime",
+      "description": "Execute a cognitive skill or automation routine",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "MUTATION",
+      "io_safe": true
+    },
+    "verify-release": {
+      "name": "verify-release",
+      "namespace": "diagnostic",
+      "description": "Tiered TDD Release Gate (P0/P1/P2)",
+      "input_schema": {},
+      "output_schema": {},
+      "side_effect": "READ_ONLY",
+      "io_safe": true
+    }
+  }
+}
