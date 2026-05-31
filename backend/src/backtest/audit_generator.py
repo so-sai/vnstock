@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import pandas as pd
 import numpy as np
@@ -12,12 +12,15 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
+    backend_dir = root_path / "backend"
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
     return root_path
 
 PROJECT_ROOT = _hydrate_path()

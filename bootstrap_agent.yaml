@@ -1,0 +1,16 @@
+flow:
+  id: "agent_bootstrap"
+  name: "Agent Handshake & Initialization"
+  steps:
+    - id: "identity_check"
+      command: "kit recall project_identity"
+      idempotent: true
+      retry: 3
+    
+    - id: "hygiene_audit"
+      command: "kit hygiene"
+      retry: 1
+
+    - id: "log_arrival"
+      command: 'kit learn --uid agent_join_event --content "External agent has successfully joined the workspace and synchronized with v1.2.4-TITANIUM contract." --tag note'
+      idempotent: true

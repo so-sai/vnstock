@@ -1,4 +1,4 @@
-
+﻿
 import os
 import json
 import pandas as pd
@@ -14,7 +14,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -127,7 +127,11 @@ def merge_decisions(model_a_verdict=None, target_date=None):
         },
         "model_b": {
             "picks_count": len(model_b_picks),
-            "top_picks": model_b_picks[:5]
+            "top_picks": model_b_picks[:5],
+            "context": regime.get('details', {}).get('vnindex_vs_ma200', 'UNKNOWN'),
+            "breadth_pct": regime.get('details', {}).get('breadth_pct', 0),
+            "breadth_std": regime.get('details', {}).get('breadth_std_10d', 0),
+            "breadth_velocity": round(regime.get('breadth_velocity', 0.0), 2),
         },
         "recovery": recovery
     }

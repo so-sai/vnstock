@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ptck-backend
+    restart: unless-stopped
+    volumes:
+      - backend-data:/app/backend/data
+      - backend-portfolio:/app/backend/src/portfolio
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - ptck-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1234/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ptck-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ptck-net
+
+volumes:
+  backend-data:
+  backend-portfolio:
+
+networks:
+  ptck-net:
+    driver: bridge

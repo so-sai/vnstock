@@ -1,8 +1,8 @@
-import sys
+﻿import sys
 from pathlib import Path
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
 
-# Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -10,7 +10,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -21,17 +21,30 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.models.models import MacroStatus
+from src.services.macro_service import get_macro_status, get_regime_history
 
 router = APIRouter()
 
-@router.get("/", response_model=MacroStatus)
-async def get_macro_data():
-    # Mock data for initial testing
-    return {
-        "usd_cnh": 7.24,
-        "copper_price": 9500.0,
-        "dxy_index": 104.5,
-        "interbank_rate": 4.2,
-        "sbv_action": "Neutral",
-        "risk_level": "Emerald"
-    }
+
+@router.get("/")
+async def get_macro_data(target_date: Optional[str] = Query(None, description="YYYY-MM-DD")):
+    """
+    Lấy trạng thái Vĩ mô + Regime Score.
+    Nếu không truyền target_date, lấy ngày giao dịch gần nhất.
+    """
+    try:
+        data = get_macro_status(target_date=target_date)
+        return MacroStatus(**data).model_dump(by_alias=True)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Macro engine error: {str(e)}")
+
+
+@router.get("/history")
+async def get_macro_history(limit: int = Query(90, ge=1, le=365)):
+    """Lấy lịch sử Regime Score để vẽ biểu đồ Timeline."""
+    try:
+        return get_regime_history(limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

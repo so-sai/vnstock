@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { toast } from 'sonner';
 import { 
   Card, 
   Table, 
@@ -10,90 +11,202 @@ import {
   Text, 
   Title, 
   Badge,
-  Icon
+  Icon,
 } from '@tremor/react';
-import { Diamond } from 'lucide-react';
-import { useScreener } from '../hooks/useApi';
-import { useUIStore } from '../stores/uiStore';
-import QuickViewPanel from '../components/QuickViewPanel';
+import { Diamond, Info, RefreshCw, List, Columns } from 'lucide-react';
+import { useScreener, useHeatmap } from '../hooks/useApi';
+import HeatmapMatrix from '../components/HeatmapMatrix';
+import XRayDrawer from '../components/XRayDrawer';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { TableSkeleton } from '../components/Skeletons';
+import { formatPrice } from '../utils/formatter';
+import { ThreeSecondDecisionStrip } from '../components/ThreeSecondDecisionStrip';
+import { AsiaFlowMap } from '../components/AsiaFlowMap';
+
+const getChangeColor = (changePercent: number) => {
+  if (changePercent > 0) return 'text-stock-up';
+  if (changePercent < 0) return 'text-stock-down';
+  return 'text-stock-ref';
+};
 
 const ScreenerPage: React.FC = () => {
-  const { data: candidates, isLoading, error } = useScreener();
-  const { setSelectedCandidate, setPanelOpen } = useUIStore();
+  const { data: candidates, isLoading, error, refetch } = useScreener(50);
+  const { data: heatmapData } = useHeatmap(50);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [selectedSignal, setSelectedSignal] = useState<string | undefined>(undefined);
+  const [viewMode, setViewMode] = useState<'table' | 'decision'>('table');
 
-  if (isLoading) return <div className="p-8 text-japandi-earth">Scanning for Diamonds...</div>;
-  if (error) return <div className="p-8 text-japandi-rust">Error loading screener data</div>;
+  const heatmapMap = new Map((heatmapData || []).map((h) => [h.symbol, h.rsHistory]));
 
   const handleRowClick = (candidate: any) => {
-    setSelectedCandidate(candidate);
-    setPanelOpen(true);
+    setSelectedSymbol(candidate.symbol);
+    setSelectedSignal(candidate.signalV1);
+  };
+
+  const handleRefresh = () => {
+    toast.info('Đang làm mới dữ liệu...', { duration: 2000 });
+    refetch();
   };
 
   return (
     <div className="p-8 bg-japandi-oat min-h-screen relative overflow-hidden">
-      <div className="mb-8 flex items-center">
-        <Icon icon={Diamond} size="xl" className="text-japandi-moss mr-4" />
-        <div>
-          <Title className="text-japandi-earth text-3xl font-bold">Diamond Screener</Title>
-          <Text className="text-japandi-earth/60">Top-tier candidates filtered by Sniper & Deep Dive models</Text>
+      <div className="mb-8 flex items-center justify-between">
+        <div className="flex items-center">
+          <Icon icon={Diamond} size="xl" className="text-japandi-moss mr-4" />
+          <div>
+            <Title className="text-japandi-earth text-3xl font-bold">Bộ lọc Kim cương</Title>
+            <Text className="text-japandi-earth/60">
+              {candidates?.length ?? 0} mã — {candidates?.[0]?.signalV1 === 'Breakout' ? 'Tín hiệu Đột phá' : 'Xếp hạng RS (Dự phòng Khủng hoảng)'}
+            </Text>
+            <p className="text-[10px] text-japandi-muted-clay font-mono tracking-wider uppercase mt-0.5">
+              CẬP NHẬT: PHIÊN EOD 21/05/2026
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setViewMode(viewMode === 'table' ? 'decision' : 'table')}
+            className="flex items-center gap-2 px-3 py-2 bg-japandi-warm-sand text-japandi-earth rounded-lg hover:bg-japandi-earth hover:text-japandi-oat transition-all text-xs"
+          >
+            {viewMode === 'table' ? <Columns size={14} /> : <List size={14} />}
+            {viewMode === 'table' ? 'Xem Quyết định' : 'Xem Bảng'}
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-japandi-warm-sand text-japandi-earth rounded-lg hover:bg-japandi-earth hover:text-japandi-oat transition-all disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+            Làm mới
+          </button>
         </div>
       </div>
 
-      <Card className="bg-white border-none shadow-sm overflow-hidden p-0">
-        <Table>
-          <TableHead className="bg-japandi-warm-sand/50">
-            <TableRow>
-              <TableHeaderCell className="text-japandi-earth">Symbol</TableHeaderCell>
-              <TableHeaderCell className="text-japandi-earth">Price</TableHeaderCell>
-              <TableHeaderCell className="text-japandi-earth">Change %</TableHeaderCell>
-              <TableHeaderCell className="text-japandi-earth">Return (6M)</TableHeaderCell>
-              <TableHeaderCell className="text-japandi-earth">Signal</TableHeaderCell>
-              <TableHeaderCell className="text-japandi-earth text-right">Vol Ratio</TableHeaderCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {candidates?.map((item) => (
-              <TableRow 
-                key={item.symbol} 
-                className="hover:bg-japandi-oat/50 transition-colors cursor-pointer"
-                onClick={() => handleRowClick(item)}
-              >
-                <TableCell className="font-bold text-japandi-earth">{item.symbol}</TableCell>
-                <TableCell>
-                  <Text className="text-japandi-earth">{item.price.toLocaleString()} VND</Text>
-                </TableCell>
-                <TableCell>
-                  <Text className={item.changePercent >= 0 ? "text-japandi-moss" : "text-japandi-rust"}>
-                    {item.changePercent >= 0 ? '+' : ''}{item.changePercent}%
-                  </Text>
-                </TableCell>
-                <TableCell>
-                  <Text className="text-japandi-earth">{item.return6m}%</Text>
-                </TableCell>
-                <TableCell>
-                  <Badge 
-                    color={item.signalV1 === 'Breakout' ? 'emerald' : 'slate'}
-                    className={item.signalV1 === 'Breakout' ? "bg-japandi-moss/20 text-japandi-moss border-none" : ""}
+      <ErrorBoundary>
+        <AsiaFlowMap />
+      </ErrorBoundary>
+
+      <ErrorBoundary>
+        <Card className="bg-white border-none shadow-sm overflow-hidden p-0">
+          {isLoading ? (
+            <div className="p-6">
+              <TableSkeleton rows={8} />
+            </div>
+          ) : error ? (
+            <div className="p-8 text-center">
+              <p className="text-stock-down font-medium">Lỗi tải dữ liệu: {error.message}</p>
+              <button onClick={() => refetch()} className="mt-4 px-4 py-2 bg-japandi-earth text-japandi-oat rounded-lg hover:bg-japandi-earth/90">
+                Thử lại
+              </button>
+            </div>
+          ) : (
+            <Table>
+              <TableHead className="bg-japandi-warm-sand/50">
+                <TableRow>
+                  <TableHeaderCell className="text-japandi-earth">Mã</TableHeaderCell>
+                  <TableHeaderCell className="text-japandi-earth">Giá</TableHeaderCell>
+                  <TableHeaderCell className="text-japandi-earth">Đổi %</TableHeaderCell>
+                  <TableHeaderCell className="text-japandi-earth">6 Tháng</TableHeaderCell>
+                  <TableHeaderCell className="text-japandi-earth">Tín hiệu</TableHeaderCell>
+                  <TableHeaderCell className="text-japandi-earth">RS Rating</TableHeaderCell>
+                  <TableHeaderCell className="text-japandi-earth">
+                    <div className="flex items-center gap-1">
+                      RS 10D <span title="Diễn biến RS 10 phiên gần nhất"><Info size={12} className="text-japandi-muted-clay inline" /></span>
+                    </div>
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-japandi-earth">Ngành</TableHeaderCell>
+                  <TableHeaderCell className="text-japandi-earth text-right">Vol Ratio</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {candidates?.map((item) => (
+                  <TableRow 
+                    key={item.symbol} 
+                    className="hover:bg-japandi-oat/50 transition-colors cursor-pointer"
+                    onClick={() => handleRowClick(item)}
                   >
-                    {item.signalV1}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Text className="text-japandi-earth">{item.volumeRatio}x</Text>
-                </TableCell>
-              </TableRow>
+                    <TableCell className="font-bold text-japandi-earth">{item.symbol}</TableCell>
+                    <TableCell>
+                      <Text className="text-japandi-earth">{formatPrice(item.price)}</Text>
+                    </TableCell>
+                    <TableCell>
+                      <Text className={getChangeColor(item.changePercent)}>
+                        {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
+                      </Text>
+                    </TableCell>
+                    <TableCell>
+                      <Text className={item.return6m >= 0 ? "text-stock-up" : "text-stock-down"}>
+                        {item.return6m >= 0 ? '+' : ''}{item.return6m.toFixed(1)}%
+                      </Text>
+                    </TableCell>
+                    <TableCell>
+                      <Badge 
+                        color={item.signalV1 === 'Breakout' ? 'emerald' : 'slate'}
+                        className={item.signalV1 === 'Breakout' ? "bg-japandi-moss/20 text-japandi-moss border-none" : ""}
+                      >
+                        {item.signalV1 === 'Breakout' ? 'Đột phá' : item.signalV1}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        color={item.rsRating && item.rsRating >= 90 ? 'emerald' : item.rsRating && item.rsRating >= 70 ? 'yellow' : 'slate'}
+                        className={item.rsRating && item.rsRating >= 90 ? "bg-japandi-moss/20 text-japandi-moss border-none" : ""}
+                      >
+                        {item.rsRating ?? 'N/A'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <HeatmapMatrix history={heatmapMap.get(item.symbol) || []} />
+                    </TableCell>
+                    <TableCell>
+                      <Text className="text-japandi-earth text-sm">{item.sector ?? 'N/A'}</Text>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Text className="text-japandi-earth">{item.volumeRatio.toFixed(2)}x</Text>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+      </ErrorBoundary>
+
+      {viewMode === 'decision' && candidates && candidates.length > 0 && (
+        <div className="mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold text-japandi-earth uppercase tracking-wider font-mono">
+              🧭 TẦNG QUYẾT ĐỊNH 3 GIÂY — TOP {Math.min(5, candidates.length)} MÃ
+            </h2>
+            <span className="text-[10px] text-japandi-muted-clay font-mono tracking-wider">
+              RS + DÒNG TIỀN + CHU KỲ NGÀNH → LỆNH
+            </span>
+          </div>
+          <div className="space-y-2">
+            {candidates.slice(0, 5).map((item) => (
+              <ThreeSecondDecisionStrip
+                key={item.symbol}
+                symbol={item.symbol}
+                rsRating={item.rsRating ?? 0}
+                volRatio={item.volumeRatio}
+                sector={item.sector ?? 'N/A'}
+              />
             ))}
-          </TableBody>
-        </Table>
-      </Card>
+          </div>
+        </div>
+      )}
 
       <div className="mt-6">
         <Text className="text-xs text-japandi-muted-clay italic">
-          * Signals are updated every 15 minutes. Click on a row for deep analysis.
+          * Tín hiệu được cập nhật mỗi 15 phút. Trong chế độ khủng hoảng, chuyển sang xếp hạng RS Cao.
         </Text>
       </div>
 
-      <QuickViewPanel />
+      <XRayDrawer
+        symbol={selectedSymbol}
+        onClose={() => setSelectedSymbol(null)}
+        signalV1={selectedSignal}
+      />
     </div>
   );
 };

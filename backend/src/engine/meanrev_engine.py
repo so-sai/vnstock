@@ -1,11 +1,10 @@
-import sys
+﻿import sys
 import os
 import pandas as pd
 import numpy as np
 from datetime import datetime
 from pathlib import Path
 
-# Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -13,7 +12,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -27,146 +26,185 @@ from src.database.db_core import get_connection
 
 def run_meanrev_scan(regime_data=None, target_date=None):
     """
-    Model B: Mean Reversion Engine (T+10 to T+30).
-    Săn tìm Pullback trong Uptrend mạnh hoặc Sideway ổn định.
-    Includes [PHASE 7.5.1] Dual Context Lock (Hardened).
+    Model B v2: Controlled Pullback Continuation Engine.
+    Chuyển từ 'deep oversold reversal' sang 'institutional pullback exploitation'.
+    Kiến trúc 4 tầng: Regime Context → Pullback Quality → Participation Recovery → Xếp hạng.
     """
     print("\n" + "="*50)
-    print(f"MODEL B: {'HISTORICAL REPLAY' if target_date else 'LIVE ANALYSIS'}")
+    print(f"MODEL B V2: {'HISTORICAL REPLAY' if target_date else 'LIVE ANALYSIS'}")
     print("="*50)
 
-    # 1. Thu thập dữ liệu Regime & Breadth
+    cfg = src.config.MODEL_B_CONFIG
+    sec_cfg = cfg['secondary_context']
+
+    # 1. Regime Context
     if not regime_data:
         from src.engine.regime_engine import detect_regime
         regime_data = detect_regime(target_date=target_date)
-    
+
     details = regime_data['details']
     breadth_pct = details['breadth_pct']
     breadth_std = details['breadth_std_10d']
     breadth_mom = details['breadth_momentum']
-    
+    atr_ratio = details['atr_ratio']
+
     vnindex_above_ma200 = details['vnindex_vs_ma200'] == "ABOVE"
     vnindex_above_ma50 = details.get('vnindex_vs_ma50', 'BELOW') == "ABOVE"
     ma50_slope = details.get('ma50_slope', 0.0)
-    atr_ratio = details['atr_ratio']
 
-    # Configuration
-    cfg = src.config.MODEL_B_CONFIG
-    sec_cfg = cfg['secondary_context']
-    
-    # 2. [PHASE 7.5.1] DUAL CONTEXT LOCK (Hardened)
+    # --- LAYER 1: REGIME CONTEXT ---
     context_source = "BLOCKED"
-    
+    block_reason = ""
+
     primary_ok = vnindex_above_ma200
     secondary_ok = (
-        vnindex_above_ma50 and 
-        ma50_slope > sec_cfg['min_ma50_slope'] and 
-        breadth_pct > sec_cfg['min_breadth'] and 
+        vnindex_above_ma50 and
+        ma50_slope > sec_cfg['min_ma50_slope'] and
+        breadth_pct > sec_cfg['min_breadth'] and
         breadth_std < sec_cfg['max_breadth_std']
     )
-    
+
     if primary_ok:
         context_source = "PRIMARY_MA200"
     elif secondary_ok:
         context_source = "SECONDARY_STABLE"
-    
-    if context_source == "BLOCKED":
-        print(f"Context Lock: No valid Trend Path. Blocked by {context_source}.")
+    else:
+        reasons = []
+        if not vnindex_above_ma200: reasons.append("VNINDEX_BELOW_MA200")
+        if not vnindex_above_ma50: reasons.append("VNINDEX_BELOW_MA50")
+        if ma50_slope <= sec_cfg['min_ma50_slope']: reasons.append("SLOPE_TOO_FLAT")
+        if breadth_pct <= sec_cfg['min_breadth']: reasons.append(f"BREADTH_LOW({breadth_pct:.0f}%)")
+        if breadth_std >= sec_cfg['max_breadth_std']: reasons.append(f"STD_HIGH({breadth_std:.1f})")
+        block_reason = "|".join(reasons)
+        print(f"[BLOCKED] Context Lock: {block_reason}")
         return []
 
-    print(f">>> CONTEXT ENABLED via {context_source}")
+    print(f">>> CONTEXT: {context_source}")
 
-    # 3. Adaptive Threshold Calculation
+    # Adaptive RSI
     if atr_ratio < 0.9:
         rsi_threshold = cfg['adaptive_rsi']['low_vol']
     elif atr_ratio < 1.3:
         rsi_threshold = cfg['adaptive_rsi']['mid_vol']
     else:
         rsi_threshold = cfg['adaptive_rsi']['standard']
-    
-    z_threshold = cfg['z_score_threshold']
 
-    # [LOCK 1] Breadth Kill Switch: < 15% disable all MR
+    # Breadth Kill Switch
     if breadth_pct < 15:
-        print("[LOCK 1] BREADTH KILL SWITCH TRIGGERED (<15%). Model B Disabled.")
+        print("[KILL] Breadth < 15%. Model B disabled.")
         return []
 
-    # 4. Fetch Data & All-Symbols Calculation
+    # --- BREADTH EXPANSION CHECK ---
+    breadth_velocity = regime_data.get('breadth_velocity', 0.0)
+    adv_dec_ratio = details.get('adv_dec_ratio', 1.0)
+    expansion_ok = breadth_velocity > cfg['breadth_expansion']['min_velocity'] or adv_dec_ratio > cfg['breadth_expansion']['min_adv_dec_ratio']
+
+    if not expansion_ok:
+        print(f"[BLOCKED] No breadth expansion. velocity={breadth_velocity:.2f}, adv/dec={adv_dec_ratio:.2f}")
+        return []
+
+    # 2. Fetch Data
     with get_connection() as conn:
+        limit_days = 400
         if target_date:
-            # 300 days to ensure MA200 calculation
-            df = pd.read_sql(f"SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date <= '{target_date}' AND date >= date('{target_date}', '-300 days')", conn)
+            df = pd.read_sql(
+                "SELECT symbol, date, close, volume FROM daily_ohlcv "
+                "WHERE date <= ? AND date >= date(?, '-400 days')",
+                conn, params=(target_date, target_date)
+            )
         else:
             df = pd.read_sql("SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-06-01'", conn)
-    
+
     df['date'] = pd.to_datetime(df['date'], format='mixed')
     df = df.sort_values(['symbol', 'date'])
     current_date = pd.to_datetime(target_date) if target_date else df['date'].max()
-    
-    # Vectorized calculation for universe
+
+    # 3. Vectorized feature computation
     g = df.groupby('symbol')
     df['ma20'] = g['close'].transform(lambda x: x.rolling(20).mean())
     df['std20'] = g['close'].transform(lambda x: x.rolling(20).std())
+    df['ma50'] = g['close'].transform(lambda x: x.rolling(50).mean())
+    df['ma100'] = g['close'].transform(lambda x: x.rolling(100).mean())
     df['ma200'] = g['close'].transform(lambda x: x.rolling(200).mean())
-    df['ma100'] = g['close'].transform(lambda x: x.rolling(100).mean()) # Used for secondary strength
     df['avg_vol_20d'] = g['volume'].transform(lambda x: x.rolling(20).mean())
-    
-    # RSI(14) calculation
+
     def calc_rsi(series, period=14):
         delta = series.diff()
         gain = (delta.where(delta > 0, 0)).rolling(period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
         rs = gain / loss
         return 100 - (100 / (1 + rs))
-    
+
     df['rsi14'] = g['close'].transform(calc_rsi)
-    
-    # 5. Filter Universe
+    df['atr14'] = g['close'].transform(lambda x: (x.diff().abs()).rolling(14).mean())
+
+    # 4. Latest snapshot
     latest_df = df[df['date'] == current_date].copy()
-    
-    # Filter: Follow the leading trend indicator
-    # Note: Even in secondary context, we want stocks that are somewhat supported (MA100)
     trend_filter = latest_df['ma200'] if primary_ok else latest_df['ma100']
-    
+
     candidates = latest_df[
         (latest_df['close'] > trend_filter) &
         (latest_df['avg_vol_20d'] >= 50000)
     ].copy()
 
     if candidates.empty:
+        print("[SKIP] No symbols passing trend filter + volume threshold.")
         return []
 
-    # 6. Entry Signals
-    candidates['z_score'] = (candidates['close'] - candidates['ma20']) / candidates['std20']
-    candidates['lower_bb'] = candidates['ma20'] - (2 * candidates['std20'])
-    
-    final_picks = candidates[
-        (candidates['rsi14'] < rsi_threshold) &
-        (candidates['z_score'] < z_threshold) &
-        (candidates['close'] < candidates['lower_bb'])
+    # --- LAYER 2: PULLBACK QUALITY ---
+    candidates = candidates.dropna(subset=['ma50', 'close'])
+    candidates['distance_from_ma50'] = ((candidates['close'] - candidates['ma50']) / candidates['ma50']) * 100
+
+    pb_min = cfg['pullback_range']['min_pct']
+    pb_max = cfg['pullback_range']['max_pct']
+
+    pullback_mask = (
+        (candidates['distance_from_ma50'] > pb_min) &
+        (candidates['distance_from_ma50'] < pb_max)
+    )
+
+    pulls = candidates[pullback_mask].copy()
+    out_of_range = candidates[~pullback_mask]
+
+    deep_count = len(out_of_range[out_of_range['distance_from_ma50'] <= pb_min])
+    micro_count = len(out_of_range[out_of_range['distance_from_ma50'] >= pb_max])
+    total = len(candidates)
+
+    print(f"[PULLBACK] Valid: {len(pulls)} | Too deep: {deep_count} | Micro noise: {micro_count} | Total: {total}")
+
+    if pulls.empty:
+        print("[EMPTY] No symbols in valid pullback range.")
+        return []
+
+    # --- LAYER 3: OVERSOLD CONFIRMATION (RSI) ---
+    final = pulls[
+        (pulls['rsi14'] < rsi_threshold)
     ].copy()
 
-    print(f"Adaptive Limits: RSI < {rsi_threshold} | Z < {z_threshold} (ATR Ratio: {atr_ratio})")
-
-    if final_picks.empty:
-        print("No Mean Reversion candidates found satisfying exhaust criteria.")
+    if final.empty:
+        print(f"[EMPTY] No symbols with RSI < {rsi_threshold} in pullback range.")
         return []
 
-    # 7. [LOCK 3] Liquidity-aware Ranking
-    final_picks['vol_rank'] = final_picks['avg_vol_20d'].rank(pct=True)
-    final_picks['rank_score'] = (0.6 * final_picks['z_score'].abs()) + (0.4 * final_picks['vol_rank'])
-    
-    final_picks = final_picks.sort_values('rank_score', ascending=False)
-    
+    print(f"Adaptive: RSI < {rsi_threshold} (ATR Ratio: {atr_ratio})")
+
+    # 5. Ranking: closest_to_norm (prefer controlled pullback near equilibrium)
+    final['dist_ratio'] = 1.0 / (final['distance_from_ma50'].abs() + 1.0)
+    final['vol_rank'] = final['avg_vol_20d'].rank(pct=True)
+    final['rank_score'] = (0.5 * final['dist_ratio']) + (0.5 * final['vol_rank'])
+    final = final.sort_values('rank_score', ascending=False)
+
+    # 6. Output
     results = []
-    for _, row in final_picks.head(10).iterrows():
-        print(f"Pick: {row['symbol']} | Z: {row['z_score']:.2f} | RSI: {row['rsi14']:.1f} | Context: {context_source}")
+    for _, row in final.head(10).iterrows():
+        print(f"Pick: {row['symbol']} | MA50 dist: {row['distance_from_ma50']:.1f}% | RSI: {row['rsi14']:.1f}")
         results.append({
             "symbol": row['symbol'],
-            "z_score": round(row['z_score'], 2),
+            "distance_from_ma50": round(row['distance_from_ma50'], 2),
             "rsi": round(row['rsi14'], 1),
-            "rank_score": round(row['rank_score'], 2),
-            "context_source": context_source
+            "rank_score": round(row['rank_score'], 4),
+            "context_source": context_source,
+            "price": round(float(row['close']), 2),
+            "avg_vol_20d": int(row['avg_vol_20d']),
         })
 
     return results

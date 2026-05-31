@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import pandas as pd
 import numpy as np
@@ -13,12 +13,15 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
+    backend_dir = root_path / "backend"
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
@@ -30,28 +33,64 @@ from src.backtest.audit_generator import generate_audit_report
 class ShadowExecutionTracker:
     """
     Tracks 'Mental Trades' for Model B picks to measure Alpha Precision and Latency.
+    B2.2 Exit Stack: trailing stop, max_hold=10, momentum failure, profit decay.
     """
     def __init__(self):
-        self.active_trades = [] # List of dicts
+        self.active_trades = []
         self.completed_trades = []
+        self._atr_cache = {}
+
+    def _get_atr(self, symbol, target_date, conn):
+        key = (symbol, target_date)
+        if key in self._atr_cache:
+            return self._atr_cache[key]
+        atr_query = f"""
+            SELECT AVG(ABS(close - LAG(close, 1) OVER (ORDER BY date))) as atr14
+            FROM daily_ohlcv
+            WHERE symbol = '{symbol}' AND date <= '{target_date}'
+            ORDER BY date DESC LIMIT 14
+        """
+        try:
+            df = pd.read_sql(atr_query, conn)
+            atr_val = df.iloc[0]['atr14'] if not df.empty and df.iloc[0]['atr14'] else 0
+        except Exception:
+            atr_val = 0
+        self._atr_cache[key] = atr_val
+        return atr_val
+
+    def _get_prev_day(self, symbol, target_date, conn):
+        prev_query = f"""
+            SELECT close, volume FROM daily_ohlcv
+            WHERE symbol = '{symbol}' AND date < '{target_date}'
+            ORDER BY date DESC LIMIT 1
+        """
+        df = pd.read_sql(prev_query, conn)
+        if df.empty:
+            return None, None
+        return df.iloc[0]['close'], df.iloc[0]['volume']
 
     def log_picks(self, picks, target_date, conn):
         for p in picks:
             symbol = p['symbol']
-            # Get entry price (today's close)
             price_query = f"SELECT close FROM daily_ohlcv WHERE symbol='{symbol}' AND date = '{target_date}'"
             res = pd.read_sql(price_query, conn)
             if res.empty: continue
-            
+
             entry_price = res.iloc[0]['close']
-            
+            atr14 = self._get_atr(symbol, target_date, conn)
+
             self.active_trades.append({
                 "symbol": symbol,
                 "entry_date": target_date,
                 "entry_price": entry_price,
+                "entry_atr": atr14,
                 "t_count": 0,
-                "latency": -1, # Days to first positive move
-                "results": {} # T+5, T+10, T+20 returns
+                "latency": -1,
+                "peak_pnl": 0.0,
+                "trailing_active": False,
+                "trailing_stop": None,
+                "exit_reason": None,
+                "results": {},
             })
 
     def update_trades(self, target_date, conn):
@@ -59,42 +98,91 @@ class ShadowExecutionTracker:
         for trade in self.active_trades:
             symbol = trade['symbol']
             trade['t_count'] += 1
-            
-            # Fetch current price
-            query = f"SELECT close FROM daily_ohlcv WHERE symbol='{symbol}' AND date = '{target_date}'"
+
+            query = f"SELECT close, volume, low FROM daily_ohlcv WHERE symbol='{symbol}' AND date = '{target_date}'"
             res = pd.read_sql(query, conn)
             if res.empty: continue
-            
-            current_close = res.iloc[0]['close']
+
+            row = res.iloc[0]
+            current_close = row['close']
+            current_volume = row['volume']
+            today_low = row['low']
             ret = (current_close / trade['entry_price'] - 1) * 100
-            
-            # Hook 1: Latency Tracker (Days to first green)
-            if trade['latency'] == -1 and ret > 0.5: # Use 0.5% as meaningful 'green'
+
+            trade['results'][f"T+{trade['t_count']}"] = round(ret, 2)
+
+            # Latency Tracker
+            if trade['latency'] == -1 and ret > 0.5:
                 trade['latency'] = trade['t_count']
-                
-            # Log milestones
-            if trade['t_count'] in [5, 10, 20]:
-                trade['results'][f"T+{trade['t_count']}"] = round(ret, 2)
-                
-            # Exit at T+20 (Audit limit)
-            if trade['t_count'] >= 20:
+
+            # Track peak PNL
+            if ret > trade['peak_pnl']:
+                trade['peak_pnl'] = ret
+
+            # Trigger trailing stop at +4%
+            if not trade['trailing_active'] and ret >= 4.0:
+                trade['trailing_active'] = True
+                atr14 = self._get_atr(symbol, target_date, conn)
+                trade['trailing_stop'] = trade['entry_price'] * (1 + (ret - max(2 * atr14 / trade['entry_price'] * 100, 1.5)) / 100)
+
+            # Update trailing stop if active
+            if trade['trailing_active'] and current_close > trade['trailing_stop']:
+                atr14 = self._get_atr(symbol, target_date, conn)
+                trail_dist = max(2 * atr14 / trade['entry_price'] * 100, 1.5)
+                trade['trailing_stop'] = current_close * (1 - trail_dist / 100)
+
+            # EXIT CONDITIONS
+            exit_reason = None
+
+            # 1. Trailing stop hit
+            if trade['trailing_active'] and current_close <= trade['trailing_stop']:
+                exit_reason = "TRAILING_STOP"
+
+            # 2. Max hold = 10 sessions
+            if trade['t_count'] >= 10:
+                exit_reason = "MAX_HOLD"
+
+            # 3. Momentum failure: close < yesterday_low + volume expansion
+            if trade['peak_pnl'] > 2.0 and trade['latency'] != -1:
+                prev_close, prev_vol = self._get_prev_day(symbol, target_date, conn)
+                if prev_close and prev_vol:
+                    if current_close < prev_close and current_volume > prev_vol * 1.3:
+                        exit_reason = "MOMENTUM_FAILURE"
+
+            # 4. Profit decay: peak was > 3%, now below 1% 
+            if trade['peak_pnl'] > 3.0 and ret < 1.0 and trade['t_count'] >= 5:
+                exit_reason = "PROFIT_DECAY"
+
+            if exit_reason:
+                trade['exit_reason'] = exit_reason
+                trade['exit_return'] = round(ret, 2)
                 self.completed_trades.append(trade)
                 to_remove.append(trade)
-                
+
         for t in to_remove:
             self.active_trades.remove(t)
 
     def get_audit_summary(self):
         if not self.completed_trades:
-            return {"avg_latency": 0, "avg_t10": 0, "trade_count": 0}
-        
+            return {"avg_latency": 0, "avg_t10": 0, "avg_t5": 0, "trade_count": 0, "exit_reasons": {}}
+
         latencies = [t['latency'] for t in self.completed_trades if t['latency'] != -1]
+        t5_returns = [t['results'].get('T+5', 0) for t in self.completed_trades]
         t10_returns = [t['results'].get('T+10', 0) for t in self.completed_trades]
-        
+        exit_reasons = {}
+        for t in self.completed_trades:
+            r = t.get('exit_reason', 'UNKNOWN')
+            exit_reasons[r] = exit_reasons.get(r, 0) + 1
+
+        returns = [t.get('exit_return', 0) for t in self.completed_trades]
+
         return {
             "avg_latency": np.mean(latencies) if latencies else 0,
+            "avg_t5": np.mean(t5_returns) if t5_returns else 0,
             "avg_t10": np.mean(t10_returns) if t10_returns else 0,
-            "trade_count": len(self.completed_trades)
+            "avg_exit_return": np.mean(returns) if returns else 0,
+            "trade_count": len(self.completed_trades),
+            "exit_reasons": exit_reasons,
         }
 
 def run_stress_test(start_date, end_date):
@@ -198,8 +286,11 @@ def run_stress_test(start_date, end_date):
     df_results['dead_zone_days'] = dead_zone_days
     df_results['ranging_total'] = total_ranging
     df_results['avg_latency'] = round(summary['avg_latency'], 2)
+    df_results['avg_t5'] = round(summary['avg_t5'], 2)
     df_results['avg_t10'] = round(summary['avg_t10'], 2)
+    df_results['avg_exit_return'] = round(summary['avg_exit_return'], 2)
     df_results['shadow_trades'] = summary['trade_count']
+    df_results['exit_reasons'] = str(summary.get('exit_reasons', {}))
 
     # Max Drawdown Index calculation
     peak = df_results['idx_close'].cummax()
@@ -210,9 +301,11 @@ def run_stress_test(start_date, end_date):
     df_results.to_csv(output_path, index=False)
 
     print(f"\n{'='*60}")
-    print(f"[MISSION 2 COMPLETE]")
+    print(f"[B2.2 REPLAY COMPLETE]")
     print(f"Total Flips: {regime_flips} | Dead Zone: {dead_zone_days}/{total_ranging} days")
     print(f"Shadow Alpha (T+10): {summary['avg_t10']:.2f}% | Latency: {summary['avg_latency']:.1f} days")
+    print(f"Exit Return: {summary['avg_exit_return']:.2f}% | Trades: {summary['trade_count']}")
+    print(f"Exit Reasons: {summary.get('exit_reasons', {})}")
     print(f"{'='*60}")
 
     generate_audit_report(str(output_path))

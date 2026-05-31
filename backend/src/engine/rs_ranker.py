@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import os
 from pathlib import Path
 
@@ -11,12 +11,15 @@ def _hydrate_path():
         root_path = current
         while current != current.parent:
             # Săn lùng Root dựa trên các điểm neo độc bản (screener.py, .kit)
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
+    backend_dir = root_path / "backend"
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
@@ -31,7 +34,7 @@ def calculate_rs_score():
     """
     RS Ranking Engine Alpha V2 (v1.6 - Momentum Flavor)
     Công thức: 40% (3M) + 20% (6M) + 20% (9M) + 20% (12M)
-    Bộ lọc: Volume 20D > 100k & Value > 2 Tỷ
+    Thứ tự: Tính RS toàn thị trường → Xếp hạng Percentile (1-99) → Lọc thanh khoản đầu ra
     """
     print("\n" + "="*50)
     print("📡 ĐANG QUÉT RADAR RS (RELATIVE STRENGTH)...")
@@ -52,7 +55,11 @@ def calculate_rs_score():
 
     # --- SENTINEL SAFE PATTERN ---
     df = df.copy()
-    df.loc[:, 'date'] = pd.to_datetime(df['date'])
+    df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed')
+
+    # Chuẩn hóa đơn vị giá (VND → nghìn đồng) cho price và close
+    m = df['close'] > 500
+    df.loc[m, 'close'] = df.loc[m, 'close'] / 1000.0
     
     # 2. VECTORIZED MOMENTUM CALCULATION
     stats = []
@@ -97,17 +104,17 @@ def calculate_rs_score():
     # --- SENTINEL SAFE PATTERN ---
     rs_df = rs_df.copy()
 
-    # 3. LIQUIDITY SHIELD (Bộ lọc kỷ cương)
-    filtered_df = rs_df[(rs_df['avg_vol_20d'] >= 100000) | (rs_df['avg_value_20d'] >= 2)].copy()
+    # 3. PERCENTILE RANKING (1-99) — trên TOÀN BỘ thị trường
+    ranked_df = rs_df.dropna(subset=['rs_raw']).copy()
+    ranked_df.loc[:, 'rs_rating'] = ranked_df['rs_raw'].rank(pct=True) * 99
+    ranked_df.loc[:, 'rs_rating'] = ranked_df['rs_rating'].fillna(0).round(0).astype(int)
+
+    # 4. LIQUIDITY SHIELD (Bộ lọc đầu ra — sau khi đã xếp hạng)
+    filtered_df = ranked_df[(ranked_df['avg_vol_20d'] >= 100000) | (ranked_df['avg_value_20d'] >= 2)].copy()
 
     if filtered_df.empty:
         print("⚠️ Không có mã nào thỏa mãn bộ lọc thanh khoản (100k Vol / 2 Tỷ Value).")
         return None
-
-    # 4. PERCENTILE RANKING (1-99)
-    # Dùng loc để gán cột mới an toàn
-    filtered_df.loc[:, 'rs_rating'] = filtered_df['rs_raw'].rank(pct=True) * 99
-    filtered_df.loc[:, 'rs_rating'] = filtered_df['rs_rating'].round(0).astype(int)
 
     # 5. Xuất bản kết quả
     result = filtered_df.sort_values('rs_rating', ascending=False).copy()

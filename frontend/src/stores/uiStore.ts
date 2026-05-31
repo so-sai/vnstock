@@ -1,27 +1,23 @@
 import { create } from 'zustand';
 
-import type { DiamondCandidate } from '../types/interfaces';
-
-type Tab = 'macro' | 'screener' | 'models' | 'backtest';
+type Tab = 'macro' | 'screener' | 'models' | 'backtest' | 'portfolio';
 
 interface UIState {
   activeTab: Tab;
   sidebarOpen: boolean;
-  selectedCandidate: DiamondCandidate | null;
-  isPanelOpen: boolean;
+  xraySymbol: string | null;
   setActiveTab: (tab: Tab) => void;
   toggleSidebar: () => void;
-  setSelectedCandidate: (candidate: DiamondCandidate | null) => void;
-  setPanelOpen: (open: boolean) => void;
+  openXRay: (symbol: string) => void;
+  closeXRay: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   activeTab: 'macro',
   sidebarOpen: true,
-  selectedCandidate: null,
-  isPanelOpen: false,
+  xraySymbol: null,
   setActiveTab: (tab) => set({ activeTab: tab }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-  setSelectedCandidate: (candidate) => set({ selectedCandidate: candidate }),
-  setPanelOpen: (open) => set({ isPanelOpen: open }),
+  openXRay: (symbol) => set({ xraySymbol: symbol }),
+  closeXRay: () => set({ xraySymbol: null }),
 }));

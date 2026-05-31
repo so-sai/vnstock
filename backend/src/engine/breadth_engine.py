@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import os
 from pathlib import Path
 
@@ -10,7 +10,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -120,11 +120,14 @@ def run_breadth_analysis():
     print(f"🎯 New Highs (NH10): {nh10_count} | Consistency (3D): {consistency_count}/3")
     
     if health_pct > 70:
-        print("🚩 Trạng thái: BULLISH (Hưng phấn)")
-    elif health_pct < 30:
-        print("🚩 Trạng thái: BEARISH (Co cụm)")
-    else:
-        print("🚩 Trạng thái: NEUTRAL (Phân hóa)")
+        flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
+        print(f"{flag} Trạng thái: BULLISH (Hưng phấn)")
+
+        flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
+        print(f"{flag} Trạng thái: BEARISH (Co cụm)")
+
+        flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
+        print(f"{flag} Trạng thái: NEUTRAL (Phân hóa)")
     
     print("-" * 40)
     print(f"💡 (Dựa trên {total_active} mã có Vol 20d > {liquidity_threshold:,.00f})")

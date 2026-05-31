@@ -199,3 +199,37 @@ debug_*.py
 # .kit Memory Store
 .kit/brain.db-*
 .kit/brain.db.bak
+
+# Generated output data
+backend/data/output/
+backend/data/psr/
+backend/data/state/
+backend/data/anomaly_report.json
+backend/data/cao_readiness_report.json
+backend/data/decision_history.json
+backend/data/market_state.json
+backend/data/unit_normalization_report.json
+
+# Scratch scripts
+scratch/
+
+# IDE extensions (not project source)
+.continue/
+
+# Runtime artifacts
+runtime_call_graph.json
+
+# Root data (generated/exported)
+data/
+
+# Negative cache
+.negative_cache.json
+backend/.negative_cache.json
+
+# Kit runtime (auto-generated, not seed)
+.kit/docs/
+.kit/runtime.json
+.kit/seal_state.json
+
+# Logs
+backend/logs/

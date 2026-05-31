@@ -1,4 +1,4 @@
-
+﻿
 import sys
 import os
 import pandas as pd
@@ -14,7 +14,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -105,7 +105,8 @@ def evaluate_sentinel_status():
     else:
         final_status = "RED (STANDBY - PHANTOM CITADEL)"
 
-    print(f"🚩 HỆ THỐNG CẢNH BÁO: {final_status}")
+    flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
+    print(f"{flag} HỆ THỐNG CẢNH BÁO: {final_status}")
     print("-" * 40)
 
     # Lưu phán quyết

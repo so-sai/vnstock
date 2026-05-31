@@ -1,0 +1,12 @@
+# EXECUTION CORE — Pinned deterministic dependencies
+# Generated: 2026-05-31
+pandas==2.3.3
+numpy==2.2.6
+pydantic==2.11.3
+pytz==2025.2
+python-dateutil==2.9.0
+requests==2.32.3
+tenacity==9.1.2
+importlib-metadata==8.7.0
+packaging==25.0
+beautifulsoup4==4.14.3

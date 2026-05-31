@@ -25,7 +25,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.api.routes import macro, screener, models, breadth, portfolio, backtest, xray, replay, intelligence, flow
+from src.api.routes import macro, screener, models, breadth, portfolio, backtest, xray, replay, intelligence, flow, watchlist, market_state, gold, holdings, telemetry, weekly
 
 app = FastAPI(title="PTCK VNSTOCK API", version="1.5.2")
 
@@ -60,6 +60,12 @@ app.include_router(xray.router, prefix="/api/xray", tags=["XRay"])
 app.include_router(replay.router, prefix="/api/replay", tags=["Replay"])
 app.include_router(intelligence.router, prefix="/api/intelligence", tags=["Phase 12 - Actionable Intelligence"])
 app.include_router(flow.router, prefix="/api/v1/flow", tags=["Phase 12B - Asia Flow Map"])
+app.include_router(watchlist.router, prefix="/api/watchlist", tags=["Watchlist"])
+app.include_router(market_state.router, prefix="/api/v1/market-state", tags=["Phase 13 - Market State Coordinator"])
+app.include_router(gold.router, prefix="/api/v1/gold", tags=["Gold Macro - Phase 14"])
+app.include_router(holdings.router, prefix="/api/v1/holdings", tags=["HoldingsView - Phase 15"])
+app.include_router(telemetry.router, prefix="/api/v1/telemetry", tags=["Telemetry - Sprint 1"])
+app.include_router(weekly.router, prefix="/api/v1/weekly", tags=["Weekly Cognitive Report - Phase 16"])
 
 
 @app.get("/")
@@ -86,6 +92,28 @@ async def root():
             "/api/intelligence/scenario",
             "/api/intelligence/position-narrative/{symbol}",
             "/api/v1/flow/map",
+            "/api/watchlist/pins",
+            "/api/watchlist/pin",
+            "/api/watchlist/pin/{symbol}",
+            "/api/watchlist/is-pinned/{symbol}",
+            "/api/watchlist/recommendations",
+            "/api/watchlist/combined",
+            "/api/v1/market-state/",
+            "/api/v1/market-state/meta",
+            "/api/v1/market-state/regime",
+            "/api/v1/gold/",
+            "/api/v1/gold/regime",
+            "/api/v1/holdings/",
+            "/api/v1/holdings/exposure",
+            "/api/v1/telemetry/",
+            "/api/v1/telemetry/stats",
+            "/api/v1/telemetry/{decision_id}",
+            "/api/v1/telemetry/{decision_id}/evaluate",
+            "/api/v1/telemetry/attribution/{decision_id}",
+            "/api/v1/telemetry/attribution/{decision_id}/summary-vi",
+            "/api/v1/telemetry/engines",
+            "/api/v1/telemetry/engines/refresh",
+            "/api/v1/weekly/",
         ],
     }
 

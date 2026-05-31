@@ -1,4 +1,4 @@
-
+﻿
 import sys
 import os
 import pandas as pd
@@ -13,7 +13,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -65,7 +65,8 @@ def detect_regime(target_date=None):
         else:
             df_all = pd.read_sql("SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-10-01' AND symbol != 'VNINDEX'", conn)
     
-    df_all['date'] = pd.to_datetime(df_all['date'], format='mixed')
+    df_all = df_all.copy()
+    df_all.loc[:, 'date'] = pd.to_datetime(df_all['date'], format='mixed')
     df_all = df_all.sort_values(['symbol', 'date'])
     current_date = pd.to_datetime(target_date) if target_date else df_all['date'].max()
     
@@ -103,10 +104,32 @@ def detect_regime(target_date=None):
         else:
             df_idx = pd.read_sql("SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date", conn)
     
-    df_idx['date'] = pd.to_datetime(df_idx['date'], format='mixed')
-    df_idx['ma200'] = df_idx['close'].rolling(200).mean()
-    df_idx['ma50'] = df_idx['close'].rolling(50).mean()
-    df_idx['adx'] = _calc_adx(df_idx)
+    df_idx = df_idx.copy()
+    if df_idx.empty:
+        latest_date = (pd.to_datetime(target_date) if target_date else datetime.now()).strftime("%Y-%m-%d")
+        return {
+            "date": latest_date,
+            "regime_score": 0.5,
+            "status": "RANGING",
+            "details": {
+                "b_score": 0.5,
+                "breadth_pct": 50.0,
+                "breadth_std_10d": 0.0,
+                "breadth_momentum": 0.0,
+                "t_score": 0.5,
+                "vnindex_vs_ma200": "NO_DATA",
+                "vnindex_vs_ma50": "NO_DATA",
+                "ma50_slope": 0.0,
+                "adx": 0.0,
+                "v_score": 0.5,
+                "atr_ratio": 1.0,
+                "error": "NO_VNINDEX_DATA",
+            }
+        }
+    df_idx.loc[:, 'date'] = pd.to_datetime(df_idx['date'], format='mixed')
+    df_idx.loc[:, 'ma200'] = df_idx['close'].rolling(200).mean()
+    df_idx.loc[:, 'ma50'] = df_idx['close'].rolling(50).mean()
+    df_idx.loc[:, 'adx'] = _calc_adx(df_idx)
     latest_idx = df_idx.iloc[-1]
     
     # MA50 Slope (current vs 5 days ago)
@@ -169,7 +192,8 @@ def detect_regime(target_date=None):
     print(f"T-Score: {t_score} (VNINDEX {verdict['details']['vnindex_vs_ma200']}, ADX: {verdict['details']['adx']})")
     print(f"V-Score: {v_score} (ATR Ratio: {verdict['details']['atr_ratio']})")
     print("-" * 30)
-    print(f"🚩 FINAL REGIME SCORE: {regime_score:.2f} -> {status}")
+    flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
+    print(f"{flag} FINAL REGIME SCORE: {regime_score:.2f} -> {status}")
     print("="*50)
 
     return verdict

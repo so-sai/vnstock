@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import pandas as pd
 import sqlite3
 import numpy as np
@@ -12,7 +12,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -119,7 +119,8 @@ def evaluate_recovery_status(regime_data, velocity_5d, target_date=None):
     print(f"MA10 Reclaim: {'YES' if reclaim_ma10 else 'NO'}")
     print(f"Vol/Breadth Thrust: {'YES' if thrust_2d else 'NO'}")
     if block_reason != "NONE":
-        print(f"🚩 RECOVERY BLOCKED: {block_reason}")
+        flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
+        print(f"{flag} RECOVERY BLOCKED: {block_reason}")
     print(f"--- FINAL STATUS: {status} ---")
 
     return {

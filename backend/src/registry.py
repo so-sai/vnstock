@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import importlib
 from pathlib import Path
 
@@ -11,7 +11,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -114,6 +114,16 @@ class ProjectRegistry:
     @property
     def macro_sensors(self): return importlib.import_module("src.utils.macro_sensors")
 
+    # --- GOLD MACRO ---
+    @property
+    def gold_regime_engine(self): return importlib.import_module("core.macro.gold_regime_engine")
+    @property
+    def gold_service(self): return importlib.import_module("src.services.macro.gold_service")
+    @property
+    def gold_world_service(self): return importlib.import_module("src.services.macro.gold_world_service")
+    @property
+    def gold_spread_engine(self): return importlib.import_module("core.macro.gold_spread_engine")
+
 # Singleton instance
 registry = ProjectRegistry()
 
@@ -136,4 +146,5 @@ if __name__ == "__main__":
     print("- Data: 6 modules mapped.")
     print("- Shields: 3 modules mapped.")
     print("- Utils: 3 modules mapped.")
+    print("- Gold Macro: 4 modules mapped (gold_regime_engine + gold_service + gold_world_service + gold_spread_engine).")
     print("═"*50 + "\n")

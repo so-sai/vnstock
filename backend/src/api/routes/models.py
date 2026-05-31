@@ -1,8 +1,7 @@
-import sys
+﻿import sys
 from pathlib import Path
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-# Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -10,7 +9,7 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -20,8 +19,18 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.services.dashboard_service import get_dashboard_data
+
 router = APIRouter()
 
-@router.get("/")
-async def get_analysis_models():
-    return {"status": "success", "models": ["trend", "momentum", "volume"]}
+
+@router.get("/dashboard")
+async def get_dashboard():
+    """
+    Trạm biến áp trung tâm — gộp Macro + Breadth + Screener + Regime History.
+    Single endpoint cho trang chủ Frontend.
+    """
+    try:
+        return get_dashboard_data()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dashboard error: {str(e)}")

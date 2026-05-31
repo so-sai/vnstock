@@ -60,16 +60,18 @@ def sjc_gold_price(date=None):
             return None
 
         # Convert to DataFrame
-        df = pd.DataFrame(gold_data)
-        df = df[["TypeName", "BranchName", "BuyValue", "SellValue"]]
-        df.columns = ["name", "branch", "buy_price", "sell_price"]
+        df = pd.DataFrame(gold_data, columns=["TypeName", "BranchName", "BuyValue", "SellValue"])
+        df = df.rename(columns={
+            "TypeName": "name", "BranchName": "branch",
+            "BuyValue": "buy_price", "SellValue": "sell_price"
+        })
 
         # Add date column as datetime type
-        df["date"] = input_date
+        df.loc[:, "date"] = input_date
 
         # Ensure numerical columns are correctly formatted
-        df["buy_price"] = df["buy_price"].astype(float)
-        df["sell_price"] = df["sell_price"].astype(float)
+        df.loc[:, "buy_price"] = df["buy_price"].astype(float)
+        df.loc[:, "sell_price"] = df["sell_price"].astype(float)
 
         return df
     else:

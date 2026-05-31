@@ -16,6 +16,13 @@ const config: Config = {
           moss: '#707e57',
           earth: '#6b6445',
           rust: '#a66144',
+        },
+        stock: {
+          up: '#00b050',
+          down: '#ff0000',
+          ref: '#ffc000',
+          ceil: '#cc00ff',
+          floor: '#00b0f0',
         }
       }
     },

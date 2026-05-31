@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import os
 import sqlite3
 from pathlib import Path
@@ -13,7 +13,7 @@ def _hydrate_path():
         root_path = current
         while current != current.parent:
             # Săn lùng Root dựa trên các điểm neo độc bản (screener.py, .kit)
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -30,8 +30,9 @@ DB_PATH = str(src.config.DATA_DIR / "screener_cache.db")
 
 @contextmanager
 def get_connection():
-    """Quản lý kết nối SQLite dùng Context Manager"""
-    conn = sqlite3.connect(DB_PATH)
+    """Quản lý kết nối SQLite dùng Context Manager với timeout & busy handler"""
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.execute("PRAGMA busy_timeout=5000;")
     try:
         yield conn
     finally:
@@ -122,8 +123,63 @@ def optimize_sqlite_engine():
             )
         """)
 
+        # 8. TẠO BẢNG LỊCH SỬ CAPITAL DISPLACEMENT (Reference Case Vault)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS capital_displacement_history (
+                date TEXT PRIMARY KEY,
+                classification TEXT,
+                conviction TEXT,
+                signals TEXT,
+                top1_symbol TEXT,
+                top1_concentration REAL,
+                wl_top1_symbol TEXT,
+                wl_top1_concentration REAL,
+                top3_concentration REAL,
+                top10_concentration REAL DEFAULT 0,
+                bank_share REAL DEFAULT 0,
+                sector_breadth REAL DEFAULT 0,
+                defensive_avg_chg REAL DEFAULT 0,
+                vnindex_close REAL DEFAULT 0,
+                vnindex_chg REAL DEFAULT 0,
+                vnindex_vol_ratio REAL DEFAULT 0
+            )
+        """)
+
+        # 9. TẠO BẢNG DỰ BÁO DÒNG TIỀN (Flow Forecasting)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS flow_forecast_history (
+                date TEXT PRIMARY KEY,
+                projected_regime TEXT,
+                regime_confidence TEXT,
+                regime_prob_trending REAL,
+                regime_prob_ranging REAL,
+                regime_prob_crisis REAL,
+                flow_velocity REAL,
+                rotation_velocity REAL,
+                flow_dispersion REAL,
+                projection_summary TEXT,
+                sector_forecasts TEXT,
+                leading_sectors TEXT,
+                lagging_sectors TEXT
+            )
+        """)
+
+        # 10. TẠO BẢNG LỊCH SỬ RSI REGIME (Momentum Habitat)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rsi_regime_history (
+                date TEXT PRIMARY KEY,
+                total_scanned INTEGER,
+                bull_count INTEGER,
+                bear_count INTEGER,
+                aligned_count INTEGER,
+                misaligned_count INTEGER,
+                habitat_distribution TEXT,
+                report_json TEXT
+            )
+        """)
+
         conn.commit()
-    print("✅ Database Engine Optimized (WAL Mode Enabled & Indexed)")
+    print("[OK] Database Engine Optimized (WAL Mode Enabled & Indexed)")
 def save_data_upsert(table_name, df, conn):
     """Lưu dữ liệu vào SQLite sử dụng cơ chế INSERT OR REPLACE (UPSERT)"""
     if df.empty:

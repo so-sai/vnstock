@@ -12,7 +12,8 @@ def _hydrate_path():
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            # Anchor on AGENTS.md which only exists at true project root
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
@@ -26,10 +27,22 @@ PROJECT_ROOT = _hydrate_path()
 load_dotenv(PROJECT_ROOT / '.env')
 
 # 3. Phân bổ các khu vực chiến lược
-# Ưu tiên lấy đường dẫn từ .env, nếu không có thì dùng mặc định: PROJECT_ROOT/data
+# Ưu tiên lấy đường dẫn từ .env, nếu không có thì dùng mặc định
 data_path_env = os.getenv("CUSTOM_DATA_PATH")
-DATA_DIR = Path(data_path_env) if data_path_env else PROJECT_ROOT / "data"
-LIBS_DIR = PROJECT_ROOT / "libs"
+if data_path_env:
+    DATA_DIR = Path(data_path_env)
+elif (PROJECT_ROOT / "backend" / "data").is_dir():
+    DATA_DIR = PROJECT_ROOT / "backend" / "data"
+else:
+    DATA_DIR = PROJECT_ROOT / "data"
+
+# LIBS_DIR may be at PROJECT_ROOT/libs or PROJECT_ROOT/backend/libs
+if (PROJECT_ROOT / "libs").is_dir():
+    LIBS_DIR = PROJECT_ROOT / "libs"
+elif (PROJECT_ROOT / "backend" / "libs").is_dir():
+    LIBS_DIR = PROJECT_ROOT / "backend" / "libs"
+else:
+    LIBS_DIR = PROJECT_ROOT / "libs"
 
 # Đảm bảo thư mục Data luôn tồn tại
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -39,6 +52,11 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 vnstock_path = str(LIBS_DIR / "vnstock")
 if vnstock_path not in sys.path:
     sys.path.insert(0, vnstock_path)
+
+# Thêm backend/ vào sys.path để import được package 'src'
+backend_dir = PROJECT_ROOT / "backend"
+if backend_dir.is_dir() and str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 # Thêm Root vào để Python nhận diện thư mục src/
 root_path = str(PROJECT_ROOT)
@@ -56,18 +74,25 @@ RECOVERY_CONFIG = {
 }
 
 MODEL_B_CONFIG = {
-    "z_score_threshold": -1.5,
     "secondary_context": {
-        "min_breadth": 35.0,
-        "max_breadth_std": 10.0,
-        "min_ma50_slope": -0.02,
+        "min_breadth": 25.0,
+        "max_breadth_std": 14.0,
+        "min_ma50_slope": -0.05,
         "slope_window": 5,
         "momentum_window": 5
     },
+    "pullback_range": {
+        "min_pct": -15.0,
+        "max_pct": -3.0
+    },
+    "breadth_expansion": {
+        "min_velocity": 0.0,
+        "min_adv_dec_ratio": 1.2
+    },
     "adaptive_rsi": {
-        "low_vol": 40,   # ATR_ratio < 0.9
-        "mid_vol": 37,   # ATR_ratio < 1.3
-        "standard": 35    # ATR_ratio >= 1.3
+        "low_vol": 42,
+        "mid_vol": 39,
+        "standard": 37
     }
 }
 

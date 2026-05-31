@@ -25,8 +25,31 @@
         "mom_expansion": 0
     },
     "model_b": {
-        "picks_count": 0,
-        "top_picks": []
+        "picks_count": 2,
+        "top_picks": [
+            {
+                "symbol": "BIG",
+                "distance_from_ma50": -10.76,
+                "rsi": 36.2,
+                "rank_score": 0.5425,
+                "context_source": "PRIMARY_MA200",
+                "price": 7.71,
+                "avg_vol_20d": 381437
+            },
+            {
+                "symbol": "DBD",
+                "distance_from_ma50": -5.03,
+                "rsi": 24.1,
+                "rank_score": 0.3329,
+                "context_source": "PRIMARY_MA200",
+                "price": 41.81,
+                "avg_vol_20d": 87405
+            }
+        ],
+        "context": "ABOVE",
+        "breadth_pct": 59.8,
+        "breadth_std": 10.73,
+        "breadth_velocity": 4.8
     },
     "recovery": {
         "is_recovery": false,

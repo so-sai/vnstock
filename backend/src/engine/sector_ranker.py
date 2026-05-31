@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import os
 from pathlib import Path
 import sqlite3
@@ -14,7 +14,7 @@ def _hydrate_path():
         root_path = current
         while current != current.parent:
             # Săn lùng Root dựa trên các điểm neo độc bản
-            if (current / ".kit").exists() or (current / "src").is_dir() or (current / "screener.py").exists():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent

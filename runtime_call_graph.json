@@ -4,57 +4,22 @@
     {
       "node": "api.search",
       "status": "success",
-      "latency_ms": 2.361999999266118
+      "latency_ms": 1.2771999899996445
     },
     {
       "node": "api.recall",
       "status": "success",
-      "latency_ms": 59.476799999174546
+      "latency_ms": 61.93179999536369
     },
     {
       "node": "api.search",
       "status": "success",
-      "latency_ms": 7.773499999530031
+      "latency_ms": 1.0909999982686713
     },
     {
-      "node": "api.learn",
+      "node": "api.recall",
       "status": "success",
-      "latency_ms": 13.975199999549659
-    },
-    {
-      "node": "api.learn",
-      "status": "success",
-      "latency_ms": 10.630900000251131
-    },
-    {
-      "node": "api.learn",
-      "status": "success",
-      "latency_ms": 9.53029999982391
-    },
-    {
-      "node": "api.learn",
-      "status": "success",
-      "latency_ms": 11.576500000956003
-    },
-    {
-      "node": "api.learn",
-      "status": "success",
-      "latency_ms": 5.343699998775264
-    },
-    {
-      "node": "api.learn",
-      "status": "success",
-      "latency_ms": 20.58000000033644
-    },
-    {
-      "node": "api.learn",
-      "status": "success",
-      "latency_ms": 4.999200000384008
-    },
-    {
-      "node": "api.learn",
-      "status": "success",
-      "latency_ms": 5.1991000000271015
+      "latency_ms": 63.294699997641146
     }
   ],
   "signals": []

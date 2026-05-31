@@ -21,18 +21,35 @@ hiddenimports = [
     "anyio",
     "h11",
     "httpcore",
+    # Core cognitive modules
+    "core.signal_provenance",
+    "core.signal_provenance.models",
+    "core.signal_provenance.graph",
+    "core.signal_provenance.registry",
+    "core.presentation",
+    "core.presentation.models",
+    "core.presentation.state_labels",
+    "core.presentation.narrative_matcher",
+    "core.presentation.decision_view",
+    "core.guard",
+    "core.guard.color_engine",
+    "core.guard.safe_mode",
+    "core.guard.schema_lock",
 ]
 
 a = Analysis(
     [str(project_root / "backend" / "src" / "run_sentinel.py")],
-    pathex=[str(project_root / "backend")],
+    pathex=[
+        str(project_root / "backend"),
+        str(project_root),  # so core/ modules are discoverable
+    ],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "notebook", "matplotlib", "numpy"],
+    excludes=["tkinter", "notebook", "matplotlib"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
