@@ -179,6 +179,20 @@ def _load_risk_state() -> dict:
     }
 
 
+def _load_market_structure() -> dict:
+    raw = _load_json("market_structure.json")
+    if not raw:
+        return {"bdi_signal": "CAN_BANG", "lcr_pct": 30.0, "bdi_pct": 0.0}
+    return {
+        "bdi_signal": raw.get("bdi_signal", "CAN_BANG"),
+        "lcr_pct": raw.get("lcr_pct", 30.0),
+        "bdi_pct": raw.get("bdi_pct", 0.0),
+        "vnindex_pct": raw.get("vnindex_pct", 0.0),
+        "sbmi_pct": raw.get("sbmi_pct", 0.0),
+        "ewmi_pct": raw.get("ewmi_pct", 0.0),
+    }
+
+
 def _load_recommendations() -> dict:
     raw = _load_json("portfolio_recommendations.json")
     if not raw:
@@ -310,8 +324,43 @@ def _compute_meta_state(regime_state: dict, flow_state: dict,
 
 # ── Build unified state ────────────────────────────────────────────────────
 
+def _compute_drift_label(structure: dict) -> str:
+    if not structure:
+        return "KHONG XAC DINH"
+    bdi = abs(structure.get("bdi_pct", 0))
+    lcr = structure.get("lcr_pct", 30.0)
+    signal = structure.get("bdi_signal", "CAN_BANG")
+    if bdi > 10 and lcr > 35 and signal != "CAN_BANG":
+        return f"STRUCTURAL — index +{bdi:.0f}% lech breadth, LCR {lcr:.0f}%"
+    if bdi > 5 or lcr > 40:
+        return f"TRANSIENT — {signal}, LCR {lcr:.0f}%"
+    return "NONE — thong so dong bo"
+
+
+def _flow_status_to_bias_score(flow_status: str) -> float:
+    mapping = {
+        "MỞ_RỘNG": 1.0,
+        "MỞ_RỘNG_TÍCH_CỰC": 1.0,
+        "DUY_TRÌ": 0.65,
+        "ỔN_ĐỊNH": 0.65,
+        "TRUNG_TÍNH": 0.5,
+        "PHÂN_HÓA": 0.35,
+        "THU_HẸP": 0.1,
+        "UNKNOWN": 0.4,
+    }
+    return mapping.get(flow_status, 0.4)
+
+
 def build_market_state() -> dict:
     from core.presentation import build_opportunity_view
+    from core.presentation.trade_state_policy import compute_trade_state, compile_action_policy
+    from core.presentation.state_stability_index import compute_ssi
+    from core.presentation.asset_preference_mapping import compute_asset_preference
+    from core.presentation.decision_closure_layer import compute_dcl
+    from core.presentation.directional_bias_extractor import compute_directional_bias
+    from core.presentation.direction_persistence_layer import compute_direction_persistence
+    from core.presentation.transition_trigger_layer import compute_transition_trigger
+    from core.presentation.vi_localizer import localize_market_state
 
     regime_state = _load_regime_state()
     flow_state = _load_flow_state()
@@ -319,6 +368,7 @@ def build_market_state() -> dict:
     rsi_state = _load_rsi_state()
     risk_state = _load_risk_state()
     recommendations = _load_recommendations()
+    structure_state = _load_market_structure()
 
     warnings = _resolve_conflicts(
         regime_state, flow_state, breadth_state, rsi_state, risk_state
@@ -327,6 +377,98 @@ def build_market_state() -> dict:
     meta = _compute_meta_state(
         regime_state, flow_state, breadth_state, rsi_state, risk_state
     )
+
+    drift_label = _compute_drift_label(structure_state)
+
+    trade_state = compute_trade_state(
+        regime_status=regime_state.get("status", "UNKNOWN"),
+        regime_score=regime_state.get("score", 0.0),
+        breadth_health=breadth_state.get("health_score", 0.0),
+        lcr_pct=structure_state.get("lcr_pct"),
+        flow_status=flow_state.get("status", "UNKNOWN"),
+        risk_governor=risk_state.get("governor_state", "NORMAL"),
+        bdi_signal=structure_state.get("bdi_signal", "CAN_BANG"),
+    )
+
+    action_policy = compile_action_policy(trade_state.level)
+
+    ssi = compute_ssi(
+        regime_status=regime_state.get("status", "UNKNOWN"),
+        regime_score=regime_state.get("score", 0.0),
+        breadth_health=breadth_state.get("health_score", 0.0),
+        lcr_pct=structure_state.get("lcr_pct", 30.0),
+        bdi_signal=structure_state.get("bdi_signal", "CAN_BANG"),
+        drift_label=drift_label,
+        flow_status=flow_state.get("status", "UNKNOWN"),
+        flow_velocity=flow_state.get("flow_velocity", 0.0),
+        rotation_velocity=flow_state.get("rotation_velocity", 0.0),
+    )
+
+    sapm = compute_asset_preference(
+        trade_state_level=trade_state.level,
+        regime_status=regime_state.get("status", "UNKNOWN"),
+        drift_label=drift_label,
+        lcr_pct=structure_state.get("lcr_pct", 30.0),
+        breadth_health=breadth_state.get("health_score", 0.0),
+        bdi_signal=structure_state.get("bdi_signal", "CAN_BANG"),
+    )
+
+    sentinel_data = _load_json("sentinel_verdict.json")
+    sentinel_green = sentinel_data.get("final_status", "").startswith("GREEN") if sentinel_data else False
+    sentinel_label = sentinel_data.get("final_status", "UNKNOWN") if sentinel_data else "UNKNOWN"
+    flow_label = flow_state.get("status", "UNKNOWN")
+    flow_bias_score = _flow_status_to_bias_score(flow_label)
+
+    dcl = compute_dcl(
+        sentinel_green=sentinel_green,
+        sentinel_label=sentinel_label,
+        flow_bias_score=flow_bias_score,
+        flow_label=flow_label,
+        breadth_health=breadth_state.get("health_score", 0.0),
+        lcr_pct=structure_state.get("lcr_pct", 30.0),
+        bdi_signal=structure_state.get("bdi_signal", "CAN_BANG"),
+        ssi_score=ssi.score,
+        trade_state_level=trade_state.level,
+        trade_state_score=trade_state.score,
+    )
+
+    dbe = compute_directional_bias(
+        regime_status=regime_state.get("status", "UNKNOWN"),
+        trade_state_level=trade_state.level,
+        breadth_health=breadth_state.get("health_score", 0.0),
+        lcr_pct=structure_state.get("lcr_pct", 30.0),
+        bdi_signal=structure_state.get("bdi_signal", "CAN_BANG"),
+        flow_bias_score=flow_bias_score,
+        flow_label=flow_label,
+        ssi_score=ssi.score,
+        dcl_verdict=dcl.verdict,
+        dcl_score=dcl.score,
+        compensations_triggered=dcl.compensations_triggered,
+    )
+
+    dpl = compute_direction_persistence(dbe)
+
+    ttl = compute_transition_trigger(
+        dpl=dpl,
+        dbe=dbe,
+        regime_status=regime_state.get("status", "UNKNOWN"),
+    )
+
+    verdict_summary = None
+    try:
+        from core.cognition.investment_verdict_compiler import compile_verdicts_for_portfolio
+        from src.config import DATA_DIR
+        verdict_summary = compile_verdicts_for_portfolio(
+            regime_status=regime_state.get("status", "UNKNOWN"),
+            breadth_health=breadth_state.get("health_score", 0.0),
+            lcr_pct=structure_state.get("lcr_pct", 30.0),
+            bdi_signal=structure_state.get("bdi_signal", "CAN_BANG"),
+            ssi_score=ssi.score,
+            trade_state_level=trade_state.level,
+            dcl_report=dcl.model_dump(),
+        )
+    except Exception as e:
+        logger.warning(f"Coordinator: verdict compilation failed: {e}")
 
     opportunity_view = None
     try:
@@ -360,17 +502,36 @@ def build_market_state() -> dict:
         "breadth_state": breadth_state,
         "rsi_state": rsi_state,
         "risk_state": risk_state,
+        "market_structure": structure_state,
 
         "recommendations": recommendations,
 
         "meta_state": meta,
+
+        "trade_state": trade_state.model_dump(),
+
+        "state_stability": ssi.model_dump(),
+
+        "asset_preference": sapm.model_dump(),
+
+        "action_policy": action_policy.model_dump(),
+
+        "decision_closure": dcl.model_dump(),
+
+        "directional_bias": dbe.model_dump(),
+
+        "direction_persistence": dpl.model_dump(),
+
+        "transition_trigger": ttl.model_dump(),
+
+        "investment_verdicts": verdict_summary,
 
         "opportunity_view": opportunity_view,
 
         "warning_flags": warnings,
     }
 
-    return state
+    return localize_market_state(state)
 
 
 # ── Export ──────────────────────────────────────────────────────────────────
@@ -397,13 +558,32 @@ def run_coordinator() -> dict:
     export_market_state(state)
 
     meta = state.get("meta_state", {})
+    ts = state.get("trade_state", {})
+    ssi = state.get("state_stability", {})
+    sapm = state.get("asset_preference", {})
+    ap = state.get("action_policy", {})
+    db = state.get("directional_bias", {})
+    dp = state.get("direction_persistence", {})
+    tt = state.get("transition_trigger", {})
+    dcl = state.get("decision_closure", {})
+    vd = state.get("investment_verdicts", {})
     ov = state.get("opportunity_view", None)
-    print(f"    Market Phase:     {meta.get('market_phase', 'N/A')}")
-    print(f"    Liquidity:        {meta.get('liquidity_condition', 'N/A')}")
-    print(f"    Risk Appetite:    {meta.get('risk_appetite', 'N/A')}")
-    print(f"    Dominant Flow:    {meta.get('dominant_flow', 'N/A')}")
-    print(f"    Confidence:       {meta.get('confidence', 0.0):.0%}")
-    print(f"    Warnings:         {len(state.get('warning_flags', []))}")
+    print(f"    {ts.get('level_vi', '?')}  (score={ts.get('score', 0):.2f}, max={ts.get('max_exposure_pct', 0):.0f}%)")
+    print(f"    Tin cậy state:    {ssi.get('label_vi', '?')} (SSI={ssi.get('score', 0):.2f})")
+    print(f"    Xu hướng TS:      {sapm.get('dominant_bias_vi', '?')}")
+    print(f"    Kỷ luật GD:       {ap.get('label_vi', '?')}")
+    print(f"    DCL:              {dcl.get('verdict_vi', '?')} (score={dcl.get('score', 0):.2f}, override={dcl.get('compensations_triggered', 0)})")
+    print(f"    Hướng thị trường: {db.get('label_vi', '?')} (strength={db.get('bias_strength', 0):.2f}, confidence={db.get('bias_confidence', 0):.2f})")
+    print(f"    Lực chi phối:     {db.get('dominant_force_vi', '?')}")
+    print(f"    DPL:              {dp.get('label_vi', '?')} (stability={dp.get('dbe_stability_score', 0):.2f}, flicker={dp.get('flicker_risk_code', '?')})")
+    print(f"    TTL:              {tt.get('label_vi', '?')} (type={tt.get('transition_type_vi', '?')}, confidence={tt.get('trigger_confidence', 0):.2f})")
+    print(f"    Phán quyết:       {vd.get('allowed', 0)}/{vd.get('total_symbols', 0)} mã được giải ngân (+{vd.get('conditional', 0)} có điều kiện)")
+    print(f"    Pha thị trường:   {meta.get('market_phase', '?')}")
+    print(f"    Rủi ro:           {meta.get('risk_appetite', '?')}")
+    print(f"    Thanh khoản:      {meta.get('liquidity_condition', '?')}")
+    print(f"    Dòng tiền:        {meta.get('dominant_flow', '?')}")
+    print(f"    Tự tin:           {meta.get('confidence', 0.0):.0%}")
+    print(f"    Cảnh báo:         {len(state.get('warning_flags', []))}")
     if ov:
         print(f"    Top Picks:        {len(ov.top_picks)}")
         print(f"    Watchlist:        {len(ov.watchlist)}")

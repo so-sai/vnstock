@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { useReplayTimeline, type ReplayDay, type ReplayEvent } from '../hooks/useApi';
+import { useReplayTimeline } from '../hooks/useApi';
+import type { ReplayDay, ReplayEvent } from '../hooks/useApi';
 import { Card } from '@tremor/react';
 
 const CHART_H = 360;
@@ -219,7 +220,7 @@ const ReplayTimelinePage: React.FC = () => {
         </p>
       </header>
 
-      <Card className="bg-white border border-japandi-warm-sand shadow-none p-0 overflow-visible mb-4">
+      <Card className="bg-white/60 backdrop-blur-md border border-japandi-warm-sand shadow-none p-0 overflow-visible mb-4">
         <svg
           width="100%" height="100%"
           viewBox={`0 0 ${chart.W + PAD.l + PAD.r} ${CHART_H + PAD.b + BAND_H + INSPECTOR_H + 32}`}
@@ -305,7 +306,7 @@ const ReplayTimelinePage: React.FC = () => {
             return (
               <g key={`dz-${i}`}>
                 <rect x={chart.x(dz.start)} y={PAD.t} width={Math.max(w, 1)} height={chart.areaH}
-                  fill="#f59e0b" opacity={0.04} stroke="#f59e0b" strokeWidth={0.5} strokeDasharray="2 2" opacity={0.15} />
+                  fill="#f59e0b" opacity={0.15} stroke="#f59e0b" strokeWidth={0.5} strokeDasharray="2 2" />
                 <text x={cx} y={cy} textAnchor="middle" className="fill-amber-600/50 text-[9px] font-bold font-mono tracking-wider"
                   transform={`rotate(-90, ${cx}, ${cy})`}>
                   {DEAD_ZONE_LABELS[dz.label] || dz.label}
@@ -337,7 +338,7 @@ const ReplayTimelinePage: React.FC = () => {
             return (
               <g key={`rsb-${i}`}>
                 <rect x={b.x} y={chart.bandTop} width={Math.max(b.w, 1)} height={BAND_H}
-                  fill={b.fill} opacity={0.15} stroke={c.fill} strokeWidth={0.5} opacity={0.3} />
+                  fill={b.fill} opacity={0.3} stroke={c.fill} strokeWidth={0.5} />
                 <text x={b.x + b.w / 2} y={chart.bandTop + BAND_H / 2 + 3} textAnchor="middle"
                   className={`fill-gray-500 text-[9px] font-bold font-mono tracking-wider`}>
                   {c.label}
@@ -360,7 +361,7 @@ const ReplayTimelinePage: React.FC = () => {
       {/* === METRICS INSPECTOR PANEL (3-COLUMN) === */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
         {/* COLUMN A — MARKET STATE */}
-        <div className="bg-white border border-gray-200 rounded-sm p-3">
+        <div className="bg-white/60 backdrop-blur-md border border-gray-200 rounded-sm p-3">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">THỊ TRƯỜNG</p>
           {chart.hoverDay ? (
             <div className="space-y-1.5">
@@ -376,7 +377,7 @@ const ReplayTimelinePage: React.FC = () => {
         </div>
 
         {/* COLUMN B — DECISION STATE */}
-        <div className="bg-white border border-gray-200 rounded-sm p-3">
+        <div className="bg-white/60 backdrop-blur-md border border-gray-200 rounded-sm p-3">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">QUYẾT ĐỊNH</p>
           {chart.hoverDay ? (
             <div className="space-y-1.5">
@@ -397,7 +398,7 @@ const ReplayTimelinePage: React.FC = () => {
         </div>
 
         {/* COLUMN C — RISK / EVENTS */}
-        <div className="bg-white border border-gray-200 rounded-sm p-3">
+        <div className="bg-white/60 backdrop-blur-md border border-gray-200 rounded-sm p-3">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">SỰ KIỆN & RỦI RO</p>
           {chart.hoverDay && chart.hoverEvents.length > 0 ? (
             <div className="space-y-1.5 max-h-[140px] overflow-y-auto">

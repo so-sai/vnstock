@@ -65,15 +65,6 @@ const WaveStrengthBadge: React.FC<{ strength: string; volRatio: number }> = ({ s
   return <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-400 text-[9px] font-bold">NORMAL</span>;
 };
 
-const FlowEdge: React.FC<{ from: string; to: string; label?: string }> = ({ from, to, label }) => (
-  <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 font-mono">
-    <span className="font-bold text-zinc-600">{from}</span>
-    <span className="text-zinc-300">→</span>
-    <span className="font-bold text-zinc-600">{to}</span>
-    {label && <span className="text-zinc-300 ml-1">({label})</span>}
-  </div>
-);
-
 const FlowBanner: React.FC<{ banner: string; phase: string; rotation: string }> = ({ banner, phase, rotation }) => (
   <div className="w-full bg-gray-900 text-amber-400 text-xs font-mono font-bold px-4 py-2.5 rounded border border-amber-500/20 mb-4 flex items-center gap-2 tracking-wide">
     <span className="flex h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
@@ -87,28 +78,28 @@ const FlowBanner: React.FC<{ banner: string; phase: string; rotation: string }> 
 export const AsiaFlowMap: React.FC = () => {
   const { data: bannerData } = useQuery<FlowBanner>({
     queryKey: ['flowBanner'],
-    queryFn: () => api.get<FlowBanner>('/api/v1/flow/banner'),
+    queryFn: () => api.get<FlowBanner>('/v1/flow/banner'),
     refetchInterval: 120000,
     retry: 1,
   });
 
   const { data: liqData, isLoading: liqLoading } = useQuery<{ liquidity_phase: string; waves: LiquidityWave[] }>({
     queryKey: ['flowLiquidity'],
-    queryFn: () => api.get<any>('/api/v1/flow/liquidity'),
+    queryFn: () => api.get<any>('/v1/flow/liquidity'),
     refetchInterval: 120000,
     retry: 1,
   });
 
   const { data: secData, isLoading: secLoading } = useQuery<{ sectors: SectorNode[]; leader_follower_chains: Record<string, ChainLink> }>({
     queryKey: ['flowSector'],
-    queryFn: () => api.get<any>('/api/v1/flow/sector'),
+    queryFn: () => api.get<any>('/v1/flow/sector'),
     refetchInterval: 120000,
     retry: 1,
   });
 
   const { data: frnData, isLoading: frnLoading } = useQuery<{ total_net_10d_bn_vnd: number; market_pressure: string; top_accumulated: ForeignItem[]; top_distributed: ForeignItem[] }>({
     queryKey: ['flowForeign'],
-    queryFn: () => api.get<any>('/api/v1/flow/foreign'),
+    queryFn: () => api.get<any>('/v1/flow/foreign'),
     refetchInterval: 120000,
     retry: 1,
   });
@@ -117,7 +108,7 @@ export const AsiaFlowMap: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="w-full bg-white border border-gray-200 p-5 rounded-lg">
+      <div className="w-full bg-white/60 backdrop-blur-md border border-gray-200 p-5 rounded-lg">
         <div className="animate-pulse space-y-3">
           <div className="h-8 bg-gray-200 rounded w-full" />
           <div className="grid grid-cols-3 gap-3">
@@ -129,7 +120,7 @@ export const AsiaFlowMap: React.FC = () => {
   }
 
   return (
-    <div className="w-full bg-white border border-gray-200 p-5 rounded-lg font-sans select-none mb-6">
+    <div className="w-full bg-white/60 backdrop-blur-md border border-gray-200 p-5 rounded-lg font-sans select-none mb-6">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-[11px] font-mono font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
           🗺️ BẢN ĐỒ DÒNG CHẢY CHÂU Á
@@ -213,8 +204,8 @@ export const AsiaFlowMap: React.FC = () => {
         <div className={`border rounded-lg p-3 space-y-2 ${CHANNEL_CONFIG.foreign.color}`}>
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-700">{CHANNEL_CONFIG.foreign.label}</span>
-            <span className={`text-[9px] font-mono font-bold ${frnData?.total_net_10d_bn_vnd > 0 ? 'text-purple-600' : 'text-rose-600'}`}>
-              {frnData ? `${frnData.total_net_10d_bn_vnd >= 0 ? '+' : ''}${frnData.total_net_10d_bn_vnd.toFixed(0)} tỷ` : ''}
+            <span className={`text-[9px] font-mono font-bold ${(frnData?.total_net_10d_bn_vnd ?? 0) > 0 ? 'text-purple-600' : 'text-rose-600'}`}>
+              {frnData ? `${(frnData.total_net_10d_bn_vnd ?? 0) >= 0 ? '+' : ''}${(frnData.total_net_10d_bn_vnd ?? 0).toFixed(0)} tỷ` : ''}
             </span>
           </div>
           {!frnData ? (

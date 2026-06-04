@@ -233,3 +233,9 @@ backend/.negative_cache.json
 
 # Logs
 backend/logs/
+
+# Temporary reports & calibration files
+/hsr_full_report.json
+/report_*.json
+/rom_calibrated_*.json
+/.kit/kernel.port

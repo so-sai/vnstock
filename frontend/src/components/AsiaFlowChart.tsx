@@ -19,7 +19,7 @@ const AsiaFlowChart: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    api.get<{ ohlcvHistory: Candle[] }>('/api/xray/VNINDEX?timeframe=D').then((data) => {
+    api.get<{ ohlcvHistory: Candle[] }>('/xray/VNINDEX?timeframe=D').then((data) => {
       if (cancelled || !chartContainerRef.current) return;
       const candles = data.ohlcvHistory;
       if (!candles || candles.length === 0) {
@@ -53,7 +53,7 @@ const AsiaFlowChart: React.FC = () => {
           },
         });
 
-        const candlestickSeries = chart.addCandlestickSeries({
+        const candlestickSeries = (chart as any).addCandlestickSeries({
           upColor: '#10b981',
           downColor: '#ef4444',
           borderUpColor: '#10b981',
@@ -72,7 +72,7 @@ const AsiaFlowChart: React.FC = () => {
           }))
         );
 
-        const volumeSeries = chart.addHistogramSeries({
+        const volumeSeries = (chart as any).addHistogramSeries({
           priceFormat: { type: 'volume' },
           priceScaleId: 'volume',
         });
@@ -96,8 +96,8 @@ const AsiaFlowChart: React.FC = () => {
       }
 
       const handleResize = () => {
-        if (chartRef.current && container) {
-          chartRef.current.applyOptions({ width: container.clientWidth });
+        if (chartRef.current && chartContainerRef.current) {
+          chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
         }
       };
       window.addEventListener('resize', handleResize);

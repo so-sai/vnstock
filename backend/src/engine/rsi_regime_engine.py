@@ -140,13 +140,22 @@ def _classify_habitat(rsi_low: float, rsi_high: float, rsi_current: float,
     }
 
 
-def analyze_rsi_regime(symbol: str, lookback_days: int = LOOKBACK_DAYS) -> dict:
-    with get_connection() as conn:
-        df = pd.read_sql(
-            f"SELECT date, close FROM daily_ohlcv "
-            f"WHERE symbol = ? ORDER BY date DESC LIMIT {lookback_days}",
-            conn, params=(symbol,)
-        )
+def analyze_rsi_regime(symbol: str, lookback_days: int = LOOKBACK_DAYS,
+                       target_date: Optional[str] = None,
+                       preloaded_df: Optional[pd.DataFrame] = None) -> dict:
+    if preloaded_df is not None:
+        sym_df = preloaded_df[preloaded_df['symbol'] == symbol].copy()
+        if target_date:
+            sym_df = sym_df[sym_df['date'] <= target_date]
+        df = sym_df.sort_values('date', ascending=False).head(lookback_days).copy()
+    else:
+        with get_connection() as conn:
+            date_filter = f"AND date <= '{target_date}'" if target_date else ""
+            df = pd.read_sql(
+                f"SELECT date, close FROM daily_ohlcv "
+                f"WHERE symbol = ? {date_filter} ORDER BY date DESC LIMIT {lookback_days}",
+                conn, params=(symbol,)
+            )
 
     if df.empty or len(df) < MIN_HISTORY:
         return {
@@ -179,7 +188,7 @@ def analyze_rsi_regime(symbol: str, lookback_days: int = LOOKBACK_DAYS) -> dict:
 
     habitat_result = _classify_habitat(rsi_low, rsi_high, current_rsi, prev_low, prev_high)
 
-    rsi_weekly = _compute_weekly_rsi(symbol, lookback_days)
+    rsi_weekly = _compute_weekly_rsi(symbol, lookback_days, target_date=target_date, preloaded_df=preloaded_df)
     timeframe_alignment = _check_timeframe_alignment(habitat_result['habitat'], rsi_weekly)
 
     stability = round(min(1.0, max(0.0, 1.0 - (habitat_result['range_width'] / 60))), 2)
@@ -237,13 +246,22 @@ def analyze_rsi_regime(symbol: str, lookback_days: int = LOOKBACK_DAYS) -> dict:
     return result
 
 
-def _compute_weekly_rsi(symbol: str, lookback_days: int = 180) -> dict:
-    with get_connection() as conn:
-        df = pd.read_sql(
-            f"SELECT date, close FROM daily_ohlcv "
-            f"WHERE symbol = ? ORDER BY date DESC LIMIT {lookback_days}",
-            conn, params=(symbol,)
-        )
+def _compute_weekly_rsi(symbol: str, lookback_days: int = 180,
+                        target_date: Optional[str] = None,
+                        preloaded_df: Optional[pd.DataFrame] = None) -> dict:
+    if preloaded_df is not None:
+        sym_df = preloaded_df[preloaded_df['symbol'] == symbol].copy()
+        if target_date:
+            sym_df = sym_df[sym_df['date'] <= target_date]
+        df = sym_df.sort_values('date', ascending=False).head(lookback_days).copy()
+    else:
+        with get_connection() as conn:
+            date_filter = f"AND date <= '{target_date}'" if target_date else ""
+            df = pd.read_sql(
+                f"SELECT date, close FROM daily_ohlcv "
+                f"WHERE symbol = ? {date_filter} ORDER BY date DESC LIMIT {lookback_days}",
+                conn, params=(symbol,)
+            )
     if df.empty or len(df) < 30:
         return {'status': 'INSUFFICIENT_DATA'}
 
@@ -312,13 +330,14 @@ def _check_timeframe_alignment(daily_habitat: str, weekly: dict) -> dict:
     return {'aligned': True, 'description': 'KHÔNG XUNG ĐỘT', 'signal': 'NEUTRAL'}
 
 
-def scan_market_rsi_regime(symbols: list = None) -> list:
+def scan_market_rsi_regime(symbols: list = None, target_date: Optional[str] = None,
+                           preloaded_df: Optional[pd.DataFrame] = None) -> list:
     if symbols is None:
         symbols = CORE_SYMBOLS
     results = []
     for sym in symbols:
         try:
-            result = analyze_rsi_regime(sym)
+            result = analyze_rsi_regime(sym, target_date=target_date, preloaded_df=preloaded_df)
             if result.get('status') == 'OK':
                 results.append(result)
         except Exception as e:
@@ -327,13 +346,15 @@ def scan_market_rsi_regime(symbols: list = None) -> list:
     return results
 
 
-def generate_market_rsi_report() -> dict:
+def generate_market_rsi_report(target_date: Optional[str] = None,
+                                preloaded_df: Optional[pd.DataFrame] = None) -> dict:
+    today = target_date or datetime.now().strftime('%Y-%m-%d')
     print(f"\n{'='*70}")
     print(f"  RSI REGIME ENGINE — MARKET SCAN")
-    print(f"  Date: {datetime.now().strftime('%Y-%m-%d')}")
+    print(f"  Date: {today}")
     print(f"{'='*70}")
 
-    results = scan_market_rsi_regime()
+    results = scan_market_rsi_regime(target_date=target_date, preloaded_df=preloaded_df)
 
     habitat_counts = {}
     for r in results:
@@ -381,7 +402,7 @@ def generate_market_rsi_report() -> dict:
             print(f"  ⚠️ {r['symbol']:5s}: {w.get('description','')}")
 
     report = {
-        'date': datetime.now().strftime('%Y-%m-%d'),
+        'date': today,
         'total_scanned': total_scanned,
         'bull_count': bull_count,
         'bear_count': bear_count,

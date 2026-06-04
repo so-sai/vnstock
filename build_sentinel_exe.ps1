@@ -9,13 +9,11 @@ Write-Host "[1/5] Cleaning previous build artifacts..."
 Remove-Item -Path .\dist -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path .\build -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path .\__pycache__ -Recurse -Force -ErrorAction SilentlyContinue
-
-Write-Host "[2/5] Building frontend with Vite..."
+Write-Host "[2/5] Building frontend with Vite (using Bun)..."
 Push-Location .\frontend
-npm install
-npm run build
+bun install
+bun run build
 Pop-Location
-
 Write-Host "[3/5] Verifying frontend bundle..."
 if (-not (Test-Path .\frontend\dist)) {
     Write-Error "Frontend dist folder is missing after build. Aborting."

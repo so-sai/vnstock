@@ -19,7 +19,7 @@ const colorMap: Record<string, string> = {
 const RegimeTransitionTimeline: React.FC<RegimeTransitionTimelineProps> = ({ timeline }) => {
   if (!timeline || timeline.length === 0) {
     return (
-      <div className="p-4 bg-white rounded-sm border border-gray-200 text-center">
+      <div className="p-4 bg-white/60 backdrop-blur-md rounded-sm border border-gray-200 text-center">
         <p className="text-xs text-gray-400 font-mono">Chưa có dữ liệu lịch sử trạng thái</p>
       </div>
     );
@@ -38,7 +38,7 @@ const RegimeTransitionTimeline: React.FC<RegimeTransitionTimelineProps> = ({ tim
   }, 0);
 
   return (
-    <div className="p-4 bg-white rounded-sm border border-gray-200">
+    <div className="p-4 bg-white/60 backdrop-blur-md rounded-sm border border-gray-200">
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-wider">
           Trục dòng chảy lịch sử vĩ mô (30 phiên)

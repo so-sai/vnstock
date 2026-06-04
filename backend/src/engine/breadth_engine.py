@@ -25,19 +25,22 @@ import os
 import src.config
 from src.database.db_core import get_connection
 
-def run_breadth_analysis():
-    """
-    Phân tích Market Breadth (Độ rộng thị trường):
-    """
+def run_breadth_analysis(target_date: Optional[str] = None):
+    if target_date:
+        ref_date = target_date
+    else:
+        from datetime import datetime as _dt
+        ref_date = _dt.now().strftime('%Y-%m-%d')
+
     print("\n" + "="*50)
-    print("📊 ĐANG PHÂN TÍCH MARKET PULSE (ĐỘ RỘNG THỊ TRƯỜNG)...")
+    print(f"MARKET PULSE: {'HISTORICAL REPLAY' if target_date else 'LIVE ANALYSIS'}")
     print("="*50)
-    
+
     with get_connection() as conn:
-        df = pd.read_sql("""
+        df = pd.read_sql(f"""
             SELECT symbol, date, close, volume, high 
             FROM daily_ohlcv 
-            WHERE date >= '2025-01-01'
+            WHERE date >= date('{ref_date}', '-60 days') AND date <= '{ref_date}'
         """, conn)
 
     if df.empty:
@@ -61,8 +64,9 @@ def run_breadth_analysis():
     df.loc[:, 'is_nh10'] = (df['close'] > df['high_10']) & (df['high_10'].notna())
 
     # 3. Lấy dữ liệu phiên mới nhất
-    latest_date = df['date'].max()
-    prev_dates = sorted(df['date'].unique())[-3:] # Last 3 sessions for consistency check
+    latest_date = pd.to_datetime(ref_date)
+    all_dates = sorted(df['date'].unique())
+    prev_dates = [d for d in all_dates if d <= latest_date][-3:] if len([d for d in all_dates if d <= latest_date]) >= 3 else all_dates[-3:]
     
     latest_df = df[df['date'] == latest_date].copy()
 
@@ -120,14 +124,11 @@ def run_breadth_analysis():
     print(f"🎯 New Highs (NH10): {nh10_count} | Consistency (3D): {consistency_count}/3")
     
     if health_pct > 70:
-        flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
-        print(f"{flag} Trạng thái: BULLISH (Hưng phấn)")
-
-        flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
-        print(f"{flag} Trạng thái: BEARISH (Co cụm)")
-
-        flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
-        print(f"{flag} Trạng thái: NEUTRAL (Phân hóa)")
+        print("  Trạng thái: BULLISH (Hưng phấn)")
+    elif health_pct < 30:
+        print("  Trạng thái: BEARISH (Co cụm)")
+    else:
+        print("  Trạng thái: NEUTRAL (Phân hóa)")
     
     print("-" * 40)
     print(f"💡 (Dựa trên {total_active} mã có Vol 20d > {liquidity_threshold:,.00f})")

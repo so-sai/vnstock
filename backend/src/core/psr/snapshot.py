@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Optional
 
 from src.core.psr.models import PSRSnapshot
+from src.core.cagl.scanner import RouteScanner
+from src.core.cagl.registry import APIRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class SystemStateSnapshotter:
         """Gather current state from every active layer."""
         now = datetime.now()
         snap_id = now.strftime("SNAP_%Y%m%d_%H%M%S_%f")
+        api_data = self._capture_api_routes()
         snapshot = PSRSnapshot(
             snapshot_id=snap_id,
             timestamp=now.isoformat(),
@@ -43,6 +46,8 @@ class SystemStateSnapshotter:
             gold=self._capture_gold(),
             trust=self._capture_trust(),
             data_quality=self._capture_data_quality(),
+            api_routes=api_data,
+            api_contract_hash=api_data.get("hash", "") if api_data else "",
         )
         snapshot.snapshot_hash = self._hash(snapshot)
         return snapshot
@@ -135,6 +140,26 @@ class SystemStateSnapshotter:
             }
         except Exception as e:
             return {"error": str(e)}
+
+    @staticmethod
+    def _capture_api_routes() -> Optional[dict]:
+        try:
+            from src.api.main import app
+            scanner = RouteScanner()
+            routes = scanner.scan(app)
+            registry = APIRegistry(routes)
+            route_list = [r.to_dict() for r in sorted(registry.all(), key=lambda x: (x.path, x.method))]
+            route_hash = hashlib.sha256(
+                json.dumps(route_list, sort_keys=True, ensure_ascii=False).encode()
+            ).hexdigest()[:16]
+            return {
+                "count": len(route_list),
+                "hash": route_hash,
+                "routes": route_list,
+            }
+        except Exception as e:
+            logger.warning("[PSR] API route capture failed: %s", e)
+            return None
 
     @staticmethod
     def _hash(snapshot: PSRSnapshot) -> str:

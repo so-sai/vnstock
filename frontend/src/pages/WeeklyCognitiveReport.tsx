@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import {
-  BarChart3, TrendingUp, DollarSign, Shield, AlertTriangle,
+  BarChart3, TrendingUp, Shield, AlertTriangle,
   Loader2, RefreshCw,
 } from 'lucide-react'
 import VietnameseSemanticBlock from '../components/VietnameseSemanticBlock'

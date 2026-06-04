@@ -110,8 +110,9 @@ def _ensure_vnai_initialized():
 # Lazy check for dependency compatibility (non-blocking, compact output)
 try:
     from vnstock.core.utils.upgrade import update_notice
-
-    update_notice(verbose=False)
+    import os
+    if not os.environ.get("VNSTOCK_QUIET"):
+        update_notice(verbose=False)
 except Exception:
     # Silently fail if notice check has any issues
     pass

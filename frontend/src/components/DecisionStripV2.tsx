@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { swuc } from '../lib/swuc';
 import { Shield, TrendingUp, TrendingDown, Pause, Ban, Minus, ChevronDown, ChevronRight, Check, X, History } from 'lucide-react';
 import type { DecisionVectorV2 } from '../types/interfaces';
 
@@ -20,6 +21,15 @@ const actionColors: Record<string, string> = {
   REDUCE: 'bg-orange-700 text-orange-50 border-orange-600',
   EXIT: 'bg-rose-800 text-rose-50 border-rose-700',
   STAND_DOWN: 'bg-zinc-600 text-zinc-50 border-zinc-500',
+};
+
+const actionLabels: Record<string, string> = {
+  ENTER:      "Vào lệnh",
+  SCALE_IN:   "Tăng vị thế",
+  HOLD:       "Giữ lệnh",
+  REDUCE:     "Giảm vị thế",
+  EXIT:       "Thoát lệnh",
+  STAND_DOWN: "Đứng ngoài",
 };
 
 const riskColors: Record<string, string> = {
@@ -103,7 +113,7 @@ const DecisionStripV2: React.FC = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['decisionTensorV2'] }),
   });
 
-  const { data: history } = useQuery({
+  const { data: history } = useQuery<Record<string, any>[]>({
     queryKey: ['decisionHistory'],
     queryFn: () => api.get('/portfolio/observatory/decision-history?limit=10'),
     enabled: showHistory,
@@ -118,13 +128,13 @@ const DecisionStripV2: React.FC = () => {
   }
 
   return (
-    <div className="bg-white/60 border border-japandi-muted-clay/40 rounded-lg overflow-hidden">
+    <div className={`${swuc('DECISION', 'decision')} border border-japandi-muted-clay/40 rounded-lg overflow-hidden`}>
       <div className="flex items-stretch min-h-[52px] divide-x divide-japandi-muted-clay/20">
         <div className={`flex items-center gap-3 px-5 py-3 ${actionColors[data.action] || 'bg-zinc-100'}`}>
           {actionIcons[data.action] || <Minus size={18} />}
           <div>
             <div className="text-[10px] opacity-70 font-mono">HÀNH ĐỘNG</div>
-            <div className="font-bold text-sm tracking-wide">{data.action}</div>
+            <div className="font-bold text-sm tracking-wide">{actionLabels[data.action] ?? data.action}</div>
           </div>
         </div>
 
@@ -247,7 +257,7 @@ const DecisionStripV2: React.FC = () => {
           <div className="text-[10px] text-japandi-earth/60 font-mono mb-2 tracking-wider">LỊCH SỬ QUYẾT ĐỊNH (10 GẦN NHẤT)</div>
           {history && history.length > 0 ? (
             <div className="space-y-1">
-              {history.slice(-10).reverse().map((entry: Record<string, unknown>, i: number) => (
+              {history.slice(-10).reverse().map((entry: Record<string, any>, i: number) => (
                 <div key={i} className="flex items-center gap-3 text-[10px] font-mono">
                   <span className={`px-1.5 py-0.5 rounded font-bold ${entry.override_state === 'OVERRIDDEN' ? 'bg-rose-100 text-rose-700' : entry.override_state === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>
                     {entry.override_state}
@@ -257,7 +267,7 @@ const DecisionStripV2: React.FC = () => {
                   {entry.override_action && (
                     <span className="text-rose-600">→ {entry.override_action}</span>
                   )}
-                  <span className="text-japandi-muted-clay/40 ml-auto">{entry.timestamp?.slice(0, 16)}</span>
+                  <span className="text-japandi-muted-clay/40 ml-auto">{typeof entry.timestamp === 'string' ? entry.timestamp.slice(0, 16) : ''}</span>
                 </div>
               ))}
             </div>

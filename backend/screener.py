@@ -20,6 +20,10 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
+# Add canonical libs to path
+_LIBS = str(Path(PROJECT_ROOT) / "backend" / "libs")
+if _LIBS not in sys.path:
+    sys.path.insert(1, _LIBS)
 import src.config
 import sys
 import time
@@ -29,6 +33,11 @@ import pandas as pd
 from datetime import datetime
 import json
 from src.database.db_core import get_connection, optimize_sqlite_engine, save_data_upsert
+from canonical import CanonicalAssetRegistry, Normalizer
+from canonical.validator import ValidationError
+
+_CANON = CanonicalAssetRegistry()
+_NORM = Normalizer()
 
 class EliteArmor:
     """
@@ -306,11 +315,43 @@ def fetch_keyless_macro():
         df_melted['date'] = df_melted['date'].dt.strftime('%Y-%m-%d')
         df_melted = df_melted.dropna()
         
-        # 3. Lưu vào CSDL
+        # 3. Lưu vào CSDL (v1 — legacy path, giữ nguyên cho backward compat)
         with get_connection() as conn:
             save_data_upsert('macro_history', df_melted, conn)
-            
-        print(f"✅ Đã nạp thành công {len(df_melted)} điểm dữ liệu Vĩ mô (BTC, Gold, Dầu) vào Vault.")
+
+        # 4. Canonical shadow write — normalize + validate + insert macro_history_v2
+        v2_records = []
+        v2_rejects = 0
+        for _, row in df_melted.iterrows():
+            try:
+                rec = _NORM.normalize(
+                    variable=row['variable'],
+                    date=row['date'],
+                    raw_value=row['value'],
+                    source='yahoo',
+                )
+                v2_records.append({
+                    'variable': rec.variable,
+                    'date': rec.date,
+                    'value': rec.value,
+                    'asset_class': rec.asset_class.value,
+                    'unit': rec.unit.value,
+                    'source': rec.source.value,
+                    'raw_value': rec.raw_value,
+                    'raw_unit': rec.raw_unit,
+                    'confidence': rec.confidence,
+                })
+            except (ValueError, ValidationError):
+                v2_rejects += 1
+
+        if v2_records:
+            df_v2 = pd.DataFrame(v2_records)
+            with get_connection() as conn:
+                save_data_upsert('macro_history_v2', df_v2, conn)
+            print(f"✅ Canonical: {len(v2_records)} records → macro_history_v2 "
+                  f"(rejected: {v2_rejects})")
+        else:
+            print(f"⚠️ Canonical: 0 records written (all {v2_rejects} rejected)")
         # 4. Kích hoạt Cảm biến Ngoại lệ (V4.4 Sentinel)
         from src.utils.macro_sensors import check_macro_exceptions # Sync import
         check_macro_exceptions()

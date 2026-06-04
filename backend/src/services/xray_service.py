@@ -102,7 +102,7 @@ def _get_latest_ohlcv(symbol: str, timeframe: str = 'D') -> Optional[dict]:
         if df.empty:
             return None
 
-        df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed')
+        df['date'] = pd.to_datetime(df['date'], format='mixed')
         df = df.sort_values('date')
 
         if timeframe in ('W', 'M'):

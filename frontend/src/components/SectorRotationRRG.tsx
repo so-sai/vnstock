@@ -27,7 +27,7 @@ const phaseColors: Record<string, string> = {
 const SectorRotationRRG: React.FC = () => {
   const { data, isLoading, error } = useQuery<SectorResponse>({
     queryKey: ['sectorRotation'],
-    queryFn: () => api.get<SectorResponse>('/api/v1/flow/sector'),
+    queryFn: () => api.get<SectorResponse>('/v1/flow/sector'),
     refetchInterval: 60000,
     staleTime: 30000,
   });

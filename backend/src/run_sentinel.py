@@ -1,7 +1,37 @@
 import sys
 import socket
 import webbrowser
+import io
 from pathlib import Path
+
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+def _hydrate_path():
+    """Zero-Friction Sentinel v2.2: Anchor on AGENTS.md + backend is_dir"""
+    if getattr(sys, 'frozen', False):
+        root_path = Path(sys.executable).resolve().parent
+    else:
+        current = Path(__file__).resolve().parent
+        root_path = current
+        while current != current.parent:
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
+                root_path = current
+                break
+            current = current.parent
+    if str(root_path) not in sys.path:
+        sys.path.insert(0, str(root_path))
+    backend_dir = root_path / "backend"
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
+    # Remove script's own directory (backend/src) from sys.path to prevent shadowing the root 'core' package
+    src_dir = str(root_path / "backend" / "src")
+    while src_dir in sys.path:
+        sys.path.remove(src_dir)
+    print("[DEBUG run_sentinel] sys.path:", sys.path[:5])
+    return root_path
+
+PROJECT_ROOT = _hydrate_path()
 
 import uvicorn
 from src.api.main import app

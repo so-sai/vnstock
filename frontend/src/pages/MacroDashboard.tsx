@@ -10,13 +10,14 @@ import {
   Title,
 } from '@tremor/react';
 import { useDashboard, useBreadthStacked } from '../hooks/useApi';
+import { swuc } from '../lib/swuc';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { CardSkeleton, ChartSkeleton } from '../components/Skeletons';
 
 const MacroDashboard: React.FC = () => {
   const { data: dashboard, isLoading, error } = useDashboard();
   const { data: breadthStacked } = useBreadthStacked(60);
-  const [activeItem, setActiveItem] = React.useState<{ col: (typeof breadthStacked)[0]; idx: number } | null>(null);
+  const [activeItem, setActiveItem] = React.useState<{ col: (typeof breadthStacked extends (infer T)[] | undefined ? T : never); idx: number } | null>(null);
 
   if (error) return <div className="p-8 text-stock-down">Lỗi tải dữ liệu vĩ mô: {error.message}</div>;
   if (!dashboard) return null;
@@ -27,12 +28,6 @@ const MacroDashboard: React.FC = () => {
   const riskColor = macro.riskLevel === 'Emerald' ? 'emerald' : macro.riskLevel === 'Amber' ? 'yellow' : 'rose';
   const riskLabel = macro.riskLevel === 'Emerald' ? 'Ổn định' : macro.riskLevel === 'Amber' ? 'Thận trọng' : 'Khủng hoảng';
 
-  const goldRegimeColor: Record<string, string> = {
-    RISK_OFF: 'orange',
-    DEFENSIVE: 'yellow',
-    NEUTRAL: 'gray',
-    RISK_ON: 'green',
-  };
   const goldRegimeBg: Record<string, string> = {
     RISK_OFF: 'bg-orange-100 text-orange-800',
     DEFENSIVE: 'bg-yellow-100 text-yellow-800',
@@ -166,7 +161,7 @@ const MacroDashboard: React.FC = () => {
             <CardSkeleton count={6} />
           ) : (
             <>
-              <Card className="bg-white border-none shadow-sm p-6">
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <Text className="text-japandi-muted-clay">USD/CNH (Tỷ giá offshore)</Text>
                 <Metric className="text-japandi-earth">{macro.usdCnh?.toFixed(4)}</Metric>
                 <Flex className="mt-4">
@@ -174,7 +169,15 @@ const MacroDashboard: React.FC = () => {
                 </Flex>
               </Card>
 
-              <Card className="bg-white border-none shadow-sm p-6">
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
+                <Text className="text-japandi-muted-clay">USD/CNY (Tỷ giá onshore)</Text>
+                <Metric className="text-japandi-earth">{macro.usdCny?.toFixed(4)}</Metric>
+                <Flex className="mt-4">
+                  <Text className="text-xs text-japandi-muted-clay">Nhân dân tệ trên bờ</Text>
+                </Flex>
+              </Card>
+
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <Text className="text-japandi-muted-clay">Chỉ số DXY</Text>
                 <Metric className="text-japandi-earth">{macro.dxyIndex?.toFixed(2)}</Metric>
                 <Flex className="mt-4">
@@ -182,7 +185,7 @@ const MacroDashboard: React.FC = () => {
                 </Flex>
               </Card>
 
-              <Card className="bg-white border-none shadow-sm p-6">
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <Text className="text-japandi-muted-clay">Lãi suất Interbank O/N</Text>
                 <Metric className="text-japandi-earth">{macro.interbankRate?.toFixed(2)}%</Metric>
                 <Flex className="mt-4">
@@ -190,7 +193,7 @@ const MacroDashboard: React.FC = () => {
                 </Flex>
               </Card>
 
-              <Card className="bg-white border-none shadow-sm p-6">
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <div className="flex items-center justify-between mb-2">
                   <Text className="text-japandi-muted-clay">🟡 Vàng & Phòng thủ</Text>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${goldRegimeBg[macro.goldRegime ?? 'NEUTRAL'] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -221,7 +224,7 @@ const MacroDashboard: React.FC = () => {
                 )}
               </Card>
 
-              <Card className="bg-white border-none shadow-sm p-6">
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <Text className="text-japandi-muted-clay">BTC/USD</Text>
                 <Metric className="text-japandi-earth">${btcPrice?.toLocaleString() ?? 'N/A'}</Metric>
                 <Flex className="mt-4">
@@ -229,7 +232,7 @@ const MacroDashboard: React.FC = () => {
                 </Flex>
               </Card>
 
-              <Card className="bg-white border-none shadow-sm p-6">
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <Text className="text-japandi-muted-clay">USD/VND</Text>
                 <Metric className="text-japandi-earth">{usdVnd?.toLocaleString() ?? 'N/A'}</Metric>
                 <Flex className="mt-4">
@@ -243,7 +246,7 @@ const MacroDashboard: React.FC = () => {
 
       <ErrorBoundary>
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="bg-japandi-warm-sand border-none shadow-sm">
+          <Card className={`${swuc('LEADERSHIP_CHANGE', 'macro')} border-none shadow-sm`}>
             <Title className="text-japandi-earth">Động thái NHNN</Title>
             <Text className="mt-2 text-japandi-earth/80">
               Lập trường hiện tại: <span className="font-bold text-japandi-moss">{macro.sbvAction}</span>
@@ -253,7 +256,7 @@ const MacroDashboard: React.FC = () => {
             </Text>
           </Card>
 
-          <Card className="bg-japandi-warm-sand border-none shadow-sm">
+          <Card className={`${swuc('RANK_JUMP', 'macro')} border-none shadow-sm`}>
             <Title className="text-japandi-earth">Độ rộng Thị trường</Title>
             <div className="mt-4 grid grid-cols-3 gap-4">
               <div>

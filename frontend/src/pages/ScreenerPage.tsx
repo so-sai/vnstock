@@ -13,6 +13,7 @@ import {
   Badge,
   Icon,
 } from '@tremor/react';
+import { swuc } from '../lib/swuc';
 import { Diamond, Info, RefreshCw, List, Columns } from 'lucide-react';
 import { useScreener, useHeatmap } from '../hooks/useApi';
 import HeatmapMatrix from '../components/HeatmapMatrix';
@@ -87,7 +88,7 @@ const ScreenerPage: React.FC = () => {
       </ErrorBoundary>
 
       <ErrorBoundary>
-        <Card className="bg-white border-none shadow-sm overflow-hidden p-0">
+        <Card className={`${swuc('SCREENER', 'screener')} border-none shadow-sm overflow-hidden p-0`}>
           {isLoading ? (
             <div className="p-6">
               <TableSkeleton rows={8} />

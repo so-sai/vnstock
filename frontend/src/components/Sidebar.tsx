@@ -15,7 +15,6 @@ import {
   ClipboardList,
 } from 'lucide-react';
 import { useUIStore } from '../stores/uiStore';
-import { useRef } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -41,7 +40,7 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside className={cn(
-      "h-screen bg-japandi-warm-sand border-r border-japandi-muted-clay transition-all duration-300 ease-in-out flex flex-col",
+      "h-screen bg-japandi-warm-sand/80 backdrop-blur-xl border-r border-japandi-muted-clay/50 transition-all duration-300 ease-in-out flex flex-col",
       sidebarOpen ? "w-64" : "w-20"
     )}>
       <div className="p-6 flex items-center justify-between">
@@ -80,7 +79,7 @@ const Sidebar: React.FC = () => {
             <input
               type="text"
               placeholder="Tra cứu mã CK (Enter)..."
-              className="w-full bg-white/60 border border-japandi-warm-sand rounded-lg pl-9 pr-3 py-2 text-xs font-mono uppercase placeholder:text-japandi-muted-clay/60 focus:outline-none focus:border-japandi-earth transition-colors"
+              className="w-full bg-white/60 backdrop-blur-sm border border-japandi-warm-sand rounded-lg pl-9 pr-3 py-2 text-xs font-mono uppercase placeholder:text-japandi-muted-clay/60 focus:outline-none focus:border-japandi-earth transition-colors"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   const val = (e.target as HTMLInputElement).value.trim().toUpperCase();

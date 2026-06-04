@@ -52,7 +52,6 @@ export const ThreeSecondDecisionStrip: React.FC<DecisionStripProps> = ({
   symbol,
   rsRating,
   volRatio,
-  sector,
 }) => {
   const rsLevel = computeRsLevel(rsRating);
   const liqState = computeLiqState(volRatio);

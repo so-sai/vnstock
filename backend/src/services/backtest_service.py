@@ -52,7 +52,7 @@ def get_backtest_results(model: str = "A", start_date: str = "2023-01-01", end_d
         if df.empty:
             return {"error": "No data for backtest period"}
 
-        df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed')
+        df['date'] = pd.to_datetime(df['date'], format='mixed')
 
         results = _run_simple_backtest(df, model)
         return results
@@ -181,7 +181,7 @@ def get_stress_test_summary() -> dict:
         if df.empty:
             return {"error": "No 2022 stress test data"}
 
-        df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed')
+        df['date'] = pd.to_datetime(df['date'], format='mixed')
 
         results = []
         for symbol, group in df.groupby('symbol'):

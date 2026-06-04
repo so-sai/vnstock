@@ -8,7 +8,7 @@ const AppLayout: React.FC = () => {
   const { xraySymbol, closeXRay } = useUIStore();
 
   return (
-    <div className="flex min-h-screen bg-japandi-oat">
+    <div className="flex min-h-screen bg-japandi-oat/90 backdrop-blur-sm">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         <Outlet />

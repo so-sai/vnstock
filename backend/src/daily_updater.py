@@ -34,6 +34,15 @@ if backend_dir.is_dir() and str(backend_dir) not in sys.path:
 import src.config
 from vnstock import Trading, Quote, Listing
 from src.database.db_core import get_connection, save_data_upsert, optimize_sqlite_engine
+# Canonical Asset Registry
+_LIBS = PROJECT_ROOT / "backend" / "libs"
+if str(_LIBS) not in sys.path:
+    sys.path.insert(0, str(_LIBS))
+from canonical import CanonicalAssetRegistry, Normalizer
+from canonical.validator import ValidationError as CanonicalValidationError
+
+_CANON = CanonicalAssetRegistry()
+_NORM = Normalizer()
 
 # ============================================================
 # 1. STRUCTURED LOGGING (JSON + File + Console)
@@ -163,9 +172,18 @@ def update_vnindex(target_date: str):
                 df_idx['adj_close'] = df_idx['close']
             df_idx['date'] = pd.to_datetime(df_idx['date'], format='mixed').dt.strftime('%Y-%m-%d')
             df_idx = df_idx[['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']]
+
+            # Canonical validation: reject if VNINDEX close out of INDEX_LEVEL range
+            for _, row in df_idx.iterrows():
+                try:
+                    _NORM.normalize('VNINDEX', row['date'], row['close'], 'kbs')
+                except CanonicalValidationError as e:
+                    logger.error(f"❌ VNINDEX canonical reject: {e}")
+                    raise RuntimeError(f"VNINDEX validation failed: {e}")
+
             with get_connection() as conn:
                 save_data_upsert('daily_ohlcv', df_idx, conn)
-            logger.info(f"✅ VNINDEX: {len(df_idx)} dòng đã lưu.")
+            logger.info(f"✅ VNINDEX: {len(df_idx)} dòng đã lưu (canonical validated).")
             return len(df_idx)
         else:
             logger.info(f"⚠️ VNINDEX: Không có dữ liệu cho {target_date}.")

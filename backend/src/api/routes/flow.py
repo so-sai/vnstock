@@ -40,7 +40,7 @@ from core.flow.liquidity_concentration_engine import get_lci_dashboard
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/flow", tags=["Phase 12B - Asia Flow Layer"])
+router = APIRouter(tags=["Phase 12B - Asia Flow Layer"])
 
 
 @router.get("/liquidity")

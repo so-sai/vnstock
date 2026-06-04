@@ -1,7 +1,8 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { AlertTriangle, Shield, TrendingUp, TrendingDown, Pause, Ban, Minus } from 'lucide-react';
+import { swuc } from '../lib/swuc';
+import { TrendingUp, TrendingDown, Pause, Ban, Minus } from 'lucide-react';
 
 interface DecisionVector {
   action: string;
@@ -11,6 +12,22 @@ interface DecisionVector {
   constraint: string;
   suggested_size_mult: number;
 }
+
+const actionLabels: Record<string, string> = {
+  ENTER:      "Vào lệnh",
+  SCALE_IN:   "Tăng vị thế",
+  HOLD:       "Giữ lệnh",
+  REDUCE:     "Giảm vị thế",
+  EXIT:       "Thoát lệnh",
+  STAND_DOWN: "Đứng ngoài",
+};
+
+const riskLabels: Record<string, string> = {
+  SAFE:    "An toàn",
+  CAUTION: "Thận trọng",
+  STRESS:  "Căng thẳng",
+  LOCKED:  "Đóng băng",
+};
 
 const actionIcons: Record<string, React.ReactNode> = {
   ENTER: <TrendingUp size={18} />,
@@ -44,7 +61,7 @@ const constraintBadge: Record<string, { label: string; color: string }> = {
 const DecisionStrip: React.FC = () => {
   const { data, isLoading } = useQuery<DecisionVector>({
     queryKey: ['decisionTensor'],
-    queryFn: () => api.get(`/api/portfolio/observatory/decision`).then(r => r.json()),
+    queryFn: () => api.get<DecisionVector>('/portfolio/observatory/decision'),
     refetchInterval: 30000,
   });
 
@@ -57,14 +74,14 @@ const DecisionStrip: React.FC = () => {
   }
 
   return (
-    <div className="bg-white/60 border border-japandi-muted-clay/40 rounded-lg overflow-hidden">
+    <div className={`${swuc('DECISION', 'decision')} border border-japandi-muted-clay/40 rounded-lg overflow-hidden`}>
       <div className="flex items-stretch min-h-[52px] divide-x divide-japandi-muted-clay/20">
 
         <div className={`flex items-center gap-3 px-5 py-3 ${actionColors[data.action] || 'bg-zinc-100'}`}>
           {actionIcons[data.action] || <Minus size={18} />}
           <div>
             <div className="text-[10px] opacity-70 font-mono">HÀNH ĐỘNG</div>
-            <div className="font-bold text-sm tracking-wide">{data.action}</div>
+            <div className="font-bold text-sm tracking-wide">{actionLabels[data.action] ?? data.action}</div>
           </div>
         </div>
 
@@ -81,7 +98,7 @@ const DecisionStrip: React.FC = () => {
           <div>
             <div className="text-[10px] text-japandi-earth/60 font-mono">TIN CẬY</div>
             <div className={`text-sm font-bold ${riskColors[data.risk_state] || 'text-japandi-earth'}`}>
-              {data.risk_state}
+              {riskLabels[data.risk_state] ?? data.risk_state}
             </div>
           </div>
         </div>

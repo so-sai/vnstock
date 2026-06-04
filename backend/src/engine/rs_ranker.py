@@ -55,7 +55,7 @@ def calculate_rs_score():
 
     # --- SENTINEL SAFE PATTERN ---
     df = df.copy()
-    df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed')
+    df['date'] = pd.to_datetime(df['date'], format='mixed')
 
     # Chuẩn hóa đơn vị giá (VND → nghìn đồng) cho price và close
     m = df['close'] > 500

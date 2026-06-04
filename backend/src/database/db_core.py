@@ -188,7 +188,7 @@ def save_data_upsert(table_name, df, conn):
     # --- SENTINEL SAFE PATTERN: Data Sanitization ---
     df_save = df.copy()
     if 'date' in df_save.columns:
-        df_save.loc[:, 'date'] = df_save['date'].astype(str)
+        df_save['date'] = df_save['date'].astype(str)
     
     cursor = conn.cursor()
     columns = df_save.columns.tolist()

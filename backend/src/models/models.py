@@ -19,6 +19,7 @@ class AlphaBaseModel(BaseModel):
 # 1. Tầng Vĩ mô (The Macro Nexus)
 class MacroStatus(AlphaBaseModel):
     usd_cnh: float = Field(..., description="Tỷ giá Nhân dân tệ hải ngoại")
+    usd_cny: float = Field(..., description="Tỷ giá Nhân dân tệ trên bờ")
     copper_price: float = Field(..., description="Giá đồng (LME/COMEX)")
     dxy_index: float = Field(..., description="Chỉ số sức mạnh đồng USD")
     interbank_rate: float = Field(..., description="Lãi suất liên ngân hàng O/N")

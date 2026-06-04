@@ -46,11 +46,11 @@ export function useObservatoryRiskPath(days = 30) {
   });
 }
 
-export function useBacktest(model = 'A', startDate = '2023-01-01', endDate = '2026-04-17') {
+export function useBacktest(model = 'A', startDate = '2025-01-01', endDate = '2026-04-17') {
   return useQuery({
     queryKey: ['backtest', model, startDate, endDate],
     queryFn: () => api.getBacktest(model, startDate, endDate),
-    enabled: false,
+    staleTime: 300000,
   });
 }
 
@@ -80,10 +80,12 @@ export function useBreadthStacked(limit = 60) {
 export function useReplayTimeline(limit = 365) {
   return useQuery({
     queryKey: ['replayTimeline', limit],
-    queryFn: () => api.get(`/api/replay/timeline?limit=${limit}`).then(r => r.data as { days: ReplayDay[]; events: ReplayEvent[] }),
+    queryFn: () => api.get<{ days: ReplayDay[]; events: ReplayEvent[] }>(`/replay/timeline?limit=${limit}`),
     staleTime: 60000,
   });
 }
+
+export type { ReplayDay, ReplayEvent };
 
 interface ReplayDay {
   date: string; open: number | null; high: number | null; low: number | null; close: number | null;

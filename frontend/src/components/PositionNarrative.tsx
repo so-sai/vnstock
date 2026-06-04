@@ -30,7 +30,7 @@ const PositionNarrative: React.FC<{ symbol: string }> = ({ symbol }) => {
   const systemColor = data.system_action === 'EXIT' ? 'text-rose-600' : data.system_action === 'REDUCE' ? 'text-orange-600' : data.system_action === 'ENTER' ? 'text-emerald-600' : 'text-japandi-earth/60';
 
   return (
-    <div className="bg-white/60 border border-japandi-muted-clay/30 rounded-lg p-3 space-y-2">
+    <div className="bg-white/60 backdrop-blur-md border border-japandi-muted-clay/30 rounded-lg p-3 space-y-2">
       <div className="flex items-center gap-2">
         <span className="font-bold text-sm text-japandi-earth">{data.symbol}</span>
         <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${

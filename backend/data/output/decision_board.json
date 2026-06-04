@@ -1,55 +1,36 @@
 {
-    "timestamp": "2023-12-29",
-    "date": "2023-12-29",
-    "regime_score": 1.0,
-    "market_status": "TRENDING",
-    "active_model": "A (MOMENTUM)",
-    "consensus": "HOLD / CAUTIOUS",
-    "confidence": 1.0,
-    "breadth_velocity": 4.8,
+    "timestamp": "2023-03-31",
+    "date": "2023-03-31",
+    "regime_score": 0.5,
+    "market_status": "RANGING",
+    "active_model": "B (MEAN REVERSION)",
+    "consensus": "WAIT FOR NICHES",
+    "confidence": 0.5,
+    "breadth_velocity": -4.6,
     "details": {
-        "b_score": 1.0,
-        "breadth_pct": 59.8,
-        "breadth_std_10d": 10.73,
-        "breadth_momentum": 14.0,
-        "t_score": 1.0,
-        "vnindex_vs_ma200": "ABOVE",
+        "b_score": 0.6,
+        "breadth_pct": 50.4,
+        "breadth_std_10d": 9.44,
+        "breadth_momentum": 15.4,
+        "t_score": 0.0,
+        "vnindex_vs_ma200": "BELOW",
         "vnindex_vs_ma50": "ABOVE",
-        "ma50_slope": 1.2,
-        "adx": 22.0,
+        "ma50_slope": 0.0,
+        "adx": 11.4,
         "v_score": 1.0,
-        "atr_ratio": 0.87
+        "atr_ratio": 0.67
     },
     "model_a": {
         "status": "RED (STANDBY - PHANTOM CITADEL)",
         "mom_expansion": 0
     },
     "model_b": {
-        "picks_count": 2,
-        "top_picks": [
-            {
-                "symbol": "BIG",
-                "distance_from_ma50": -10.76,
-                "rsi": 36.2,
-                "rank_score": 0.5425,
-                "context_source": "PRIMARY_MA200",
-                "price": 7.71,
-                "avg_vol_20d": 381437
-            },
-            {
-                "symbol": "DBD",
-                "distance_from_ma50": -5.03,
-                "rsi": 24.1,
-                "rank_score": 0.3329,
-                "context_source": "PRIMARY_MA200",
-                "price": 41.81,
-                "avg_vol_20d": 87405
-            }
-        ],
-        "context": "ABOVE",
-        "breadth_pct": 59.8,
-        "breadth_std": 10.73,
-        "breadth_velocity": 4.8
+        "picks_count": 0,
+        "top_picks": [],
+        "context": "BELOW",
+        "breadth_pct": 50.4,
+        "breadth_std": 9.44,
+        "breadth_velocity": -4.6
     },
     "recovery": {
         "is_recovery": false,
@@ -57,9 +38,9 @@
         "status": "STANDBY",
         "block_reason": "NONE",
         "details": {
-            "index_dd": -1.74,
-            "breadth_std": 10.73,
-            "velocity_5d": 4.799999999999997
+            "index_dd": -5.36,
+            "breadth_std": 9.44,
+            "velocity_5d": -4.600000000000001
         }
     }
 }

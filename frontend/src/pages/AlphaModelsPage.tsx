@@ -66,14 +66,13 @@ const AlphaModelsPage: React.FC = () => {
       rsi: p.rsi,
       rankScore: p.rank_score,
       contextSource: p.context_source,
-    } as RSRanking & { distanceFromMa50: number; rsi: number; rankScore: number };
+    } as (import('../types/interfaces').RSRanking & { distanceFromMa50: number; rsi: number; rankScore: number });
   }).slice(0, 20);
   const bContext = dashboard?.model_b;
   const displayList = activeModel === 0 ? modelA : (modelB.length > 0 ? modelB : []);
 
   const todayStr = new Date().toLocaleDateString('vi-VN');
   const regime = dashboard?.breadth?.trendStatus || 'N/A';
-  const regimeColor = regime === 'TRENDING' ? 'text-stock-up' : regime === 'CRISIS' ? 'text-stock-down' : 'text-amber-600';
   const vnIndexReturn = rankings?.find((r) => r.symbol === 'VNINDEX')?.change1y;
 
   return (
@@ -189,7 +188,7 @@ const AlphaModelsPage: React.FC = () => {
       </ErrorBoundary>
 
       <ErrorBoundary>
-        <Card className="bg-white border-none shadow-sm overflow-hidden p-0">
+        <Card className="bg-white/60 backdrop-blur-md border-none shadow-sm overflow-hidden p-0">
           {isLoading ? (
             <div className="p-6">
               <TableSkeleton rows={8} />

@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import os
 from pathlib import Path
 
@@ -57,7 +57,7 @@ def run_sector_heatmap():
         print(f"⚠️ [Heatmap] Chỉ có {unique_dates} phiên dữ liệu. Cần tối thiểu 2 phiên để tính biến động.")
         return None
 
-    df['date'] = pd.to_datetime(df['date'])
+    df['date'] = pd.to_datetime(df['date'], format='mixed')
     df = df.sort_values(['symbol', 'date'])
     
     # 1. Tính toán Money Flow & Biến động cho từng mã (VECTORIZED)

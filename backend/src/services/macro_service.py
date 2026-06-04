@@ -59,6 +59,8 @@ def _get_latest_macro_values() -> dict:
                 result['dxy_index'] = round(val, 2)
             elif var == 'USD_CNH':
                 result['usd_cnh'] = round(val, 4)
+            elif var == 'USD_CNY':
+                result['usd_cny'] = round(val, 4)
             elif var == 'COPPER_HG':
                 result['copper_price'] = round(val, 2)
             elif var == 'US10Y':
@@ -150,7 +152,8 @@ def get_macro_status(target_date: Optional[str] = None) -> dict:
     premium = gold.get("domestic_premium", {})
 
     return {
-        "usd_cnh": macro_values.get('usd_cnh', 7.24),
+            "usd_cnh": macro_values.get('usd_cnh', 7.24),
+            "usd_cny": macro_values.get('usd_cny', 7.24),
         "copper_price": macro_values.get('copper_price', 9500.0),
         "dxy_index": macro_values.get('dxy_index', 104.5),
         "interbank_rate": _estimate_interbank_rate(),

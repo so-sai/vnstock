@@ -1,5 +1,6 @@
 export interface MacroStatus {
   usdCnh: number;
+  usdCny: number;
   copperPrice: number;
   dxyIndex: number;
   interbankRate: number;

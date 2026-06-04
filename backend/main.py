@@ -1,6 +1,10 @@
 import sys
 import os
+import io
 from pathlib import Path
+
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.0: Tự động định vị Project Root hỗ trợ cả .exe"""

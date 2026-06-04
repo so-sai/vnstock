@@ -19,7 +19,7 @@ const ScenarioSimulation: React.FC = () => {
   });
 
   return (
-    <div className="bg-white/60 border border-japandi-muted-clay/30 rounded-lg overflow-hidden">
+    <div className="bg-white/60 backdrop-blur-md border border-japandi-muted-clay/30 rounded-lg overflow-hidden">
       <div className="px-4 py-2 bg-japandi-warm-sand/50 border-b border-japandi-muted-clay/20">
         <span className="text-[10px] font-mono tracking-wider text-japandi-earth/70">KỊCH BẢN GIẢ LẬP</span>
       </div>

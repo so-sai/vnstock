@@ -125,7 +125,7 @@ class BacktestAlpha:
                 df_stocks = pd.read_sql(stock_query, conn)
                 
                 # Tải Benchmark (lấy thêm high, low để tính ADX cho Regime Engine)
-                bench_query = f"SELECT date, high, low, adj_close as bench_close FROM daily_ohlcv WHERE symbol LIKE '%VNINDEX%' AND date >= '{start_date}' AND date <= '{end_date}'"
+                bench_query = f"SELECT date, high, low, adj_close as bench_close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date >= '{start_date}' AND date <= '{end_date}'"
                 df_bench = pd.read_sql(bench_query, conn)
                 
                 # Tải Phân ngành ICB (V4.0 Sector Rotation)
@@ -170,8 +170,8 @@ class BacktestAlpha:
         # --- SENTINEL SAFE PATTERN ---
         df_stocks = df_stocks.copy()
         df_bench = df_bench.copy()
-        df_stocks.loc[:, 'date'] = pd.to_datetime(df_stocks['date'], errors='coerce')
-        df_bench.loc[:, 'date'] = pd.to_datetime(df_bench['date'], errors='coerce')
+        df_stocks['date'] = pd.to_datetime(df_stocks['date'], errors='coerce')
+        df_bench['date'] = pd.to_datetime(df_bench['date'], errors='coerce')
         
         # BẮT BUỘC: Ép kiểu số để tránh lỗi 'NoneType' arithmetic
         df_stocks['close'] = pd.to_numeric(df_stocks['close'], errors='coerce')

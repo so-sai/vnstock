@@ -1,9 +1,10 @@
 import React from 'react';
 import { useObservatorySummary, useObservatoryRiskPath } from '../hooks/useApi';
-import { Card, Text, Metric, Grid, Title, Badge } from '@tremor/react';
+import { Card, Text, Metric, Title, Badge } from '@tremor/react';
 import { AlertTriangle, ShieldCheck } from 'lucide-react';
+import { swuc } from '../lib/swuc';
 import ErrorBoundary from '../components/ErrorBoundary';
-import { CardSkeleton, TableSkeleton } from '../components/Skeletons';
+import { CardSkeleton } from '../components/Skeletons';
 import DecisionStripV2 from '../components/DecisionStripV2';
 
 const calculateDistanceToSl = (current: number, sl: number) => {
@@ -11,7 +12,7 @@ const calculateDistanceToSl = (current: number, sl: number) => {
   return ((current - sl) / current) * 100;
 };
 
-const HeatMeter: React.FC<{ value: number; max: number; label: string; color?: string }> = ({ value, max, label, color }) => {
+const HeatMeter: React.FC<{ value: number; max: number; label: string; color?: string }> = ({ value, max, label, color: _color }) => {
   const pct = Math.min((value / max) * 100, 100);
   const barColor = value >= max * 0.7 ? 'bg-rose-500' : value >= max * 0.4 ? 'bg-amber-500' : 'bg-emerald-500';
   return (
@@ -141,7 +142,7 @@ const PortfolioObservatoryPage: React.FC = () => {
               </Card>
             </div>
 
-            <div className="border border-japandi-muted-clay/40 rounded-lg overflow-hidden bg-white/40">
+            <div className={`${swuc('POSITION', 'portfolio')} border border-japandi-muted-clay/40 rounded-lg overflow-hidden`}>
               <div className="bg-japandi-warm-sand/50 px-4 py-2 border-b border-japandi-muted-clay/30">
                 <Text className="text-japandi-earth/70 text-xs font-mono font-bold tracking-wider">
                   DANH SÁCH VỊ THẾ ĐANG MỞ
@@ -210,7 +211,7 @@ const PortfolioObservatoryPage: React.FC = () => {
             </div>
 
             {riskPath && riskPath.length > 1 && (
-              <div className="border border-japandi-muted-clay/40 rounded-lg bg-white/40 p-4">
+              <div className={`${swuc('CHART', 'portfolio')} border border-japandi-muted-clay/40 rounded-lg p-4`}>
                 <Text className="text-japandi-earth/70 text-xs font-mono font-bold tracking-wider mb-3">
                   EKG DÒNG VỐN — Portfolio Risk Path (30 ngày gần nhất)
                 </Text>

@@ -2,24 +2,9 @@
   "commands": [],
   "calls": [
     {
-      "node": "api.search",
-      "status": "success",
-      "latency_ms": 1.2771999899996445
-    },
-    {
       "node": "api.recall",
       "status": "success",
-      "latency_ms": 61.93179999536369
-    },
-    {
-      "node": "api.search",
-      "status": "success",
-      "latency_ms": 1.0909999982686713
-    },
-    {
-      "node": "api.recall",
-      "status": "success",
-      "latency_ms": 63.294699997641146
+      "latency_ms": 8.260999999947671
     }
   ],
   "signals": []

@@ -75,7 +75,7 @@ async def opportunity_queue(top_n: int = Query(5, ge=1, le=20)):
 
 
 @router.get("/scenario")
-async def scenario_simulation(scenario: str = Query("drop_5pct", regex="^(drop_5pct|drop_10pct|surge_3pct)$")):
+async def scenario_simulation(scenario: str = Query("drop_5pct", pattern="^(drop_5pct|drop_10pct|surge_3pct)$")):
     """What-if simulation for market scenarios."""
     try:
         return get_scenario_simulation(scenario)

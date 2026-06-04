@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from 'react';
-import { toast } from 'sonner';
 import { 
   Card, 
   Text, 
@@ -20,16 +19,15 @@ import {
   AreaChart,
 } from '@tremor/react';
 import { useBacktest, useStressTest } from '../hooks/useApi';
-import { Activity, ShieldAlert } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { CardSkeleton, ChartSkeleton } from '../components/Skeletons';
 import { formatPercent, formatRatio } from '../utils/formatter';
 
 const TimeKernelPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0);
-  const [backtestTriggered, setBacktestTriggered] = useState(false);
 
-  const { data: backtest, isLoading: btLoading, refetch: refetchBacktest } = useBacktest(
+  const { data: backtest, isLoading: btLoading } = useBacktest(
     activeTab === 0 ? 'A' : 'B',
     '2025-01-01',
     '2026-04-17',
@@ -39,14 +37,7 @@ const TimeKernelPage: React.FC = () => {
 
   const handleTabChange = useCallback((idx: number) => {
     setActiveTab(idx);
-    setBacktestTriggered(false);
   }, []);
-
-  const handleRunBacktest = useCallback(() => {
-    setBacktestTriggered(true);
-    toast.info('Đang chạy backtest...', { duration: 2000 });
-    refetchBacktest();
-  }, [refetchBacktest]);
 
   const equityData = backtest?.equityCurve?.map((d) => ({
     date: d.date,
@@ -117,21 +108,7 @@ const TimeKernelPage: React.FC = () => {
 
       <ErrorBoundary>
         {activeTab < 2 && (
-          !backtestTriggered ? (
-            <Card className="bg-japandi-warm-sand border-none shadow-sm p-8 text-center">
-              <Title className="text-japandi-earth mb-4">Sẵn sàng Chạy Backtest</Title>
-              <Text className="text-japandi-earth/60 mb-6">
-                Mô hình {activeTab === 0 ? 'A (Động lượng)' : 'B (Hồi quy)'} — Giai đoạn: 2025-01-01 đến 2026-04-17
-              </Text>
-              <button
-                onClick={handleRunBacktest}
-                className="px-6 py-3 bg-japandi-earth text-japandi-oat rounded-xl shadow-lg hover:bg-japandi-earth/90 transition-all flex items-center justify-center mx-auto"
-              >
-                <Activity size={18} className="mr-2" />
-                Chạy Backtest
-              </button>
-            </Card>
-          ) : btLoading ? (
+          btLoading ? (
             <div className="space-y-6">
               <CardSkeleton count={4} />
               <ChartSkeleton />

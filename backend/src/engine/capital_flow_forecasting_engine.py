@@ -88,22 +88,31 @@ class SectorForecast:
     confidence: str
 
 
-def _fetch_ohlcv_history(lookback_days: int = 60) -> pd.DataFrame:
+def _fetch_ohlcv_history(lookback_days: int = 60, target_date: Optional[str] = None) -> pd.DataFrame:
     with get_connection() as conn:
-        df = pd.read_sql(
-            f"SELECT symbol, date, close, volume FROM daily_ohlcv "
-            f"WHERE date >= date('now', '-{lookback_days + 10} days') "
-            f"AND volume > 0 ORDER BY date",
-            conn
-        )
+        if target_date:
+            df = pd.read_sql(
+                f"SELECT symbol, date, close, volume FROM daily_ohlcv "
+                f"WHERE date >= date('{target_date}', '-{lookback_days + 10} days') "
+                f"AND date <= '{target_date}' AND volume > 0 ORDER BY date",
+                conn
+            )
+        else:
+            df = pd.read_sql(
+                f"SELECT symbol, date, close, volume FROM daily_ohlcv "
+                f"WHERE date >= date('now', '-{lookback_days + 10} days') "
+                f"AND volume > 0 ORDER BY date",
+                conn
+            )
     return df
 
 
-def _fetch_regime_history(lookback_days: int = 120) -> pd.DataFrame:
+def _fetch_regime_history(lookback_days: int = 120, target_date: Optional[str] = None) -> pd.DataFrame:
     with get_connection() as conn:
+        date_filter = f"WHERE date <= '{target_date}'" if target_date else ""
         df = pd.read_sql(
-            "SELECT date, regime_score, status, breadth_pct FROM regime_history "
-            "ORDER BY date",
+            f"SELECT date, regime_score, status, breadth_pct FROM regime_history "
+            f"{date_filter} ORDER BY date",
             conn
         )
     return df
@@ -171,8 +180,8 @@ def _compute_sector_flow_vector(df: pd.DataFrame, target_date: str) -> FlowVecto
     )
 
 
-def _get_historical_flow_vectors(lookback_days: int = 60) -> list:
-    df = _fetch_ohlcv_history(lookback_days)
+def _get_historical_flow_vectors(lookback_days: int = 60, target_date: Optional[str] = None) -> list:
+    df = _fetch_ohlcv_history(lookback_days, target_date=target_date)
     if df.empty:
         return []
 
@@ -353,7 +362,7 @@ def generate_flow_forecast(target_date: Optional[str] = None,
     print(f"  Forecast date: {today} | Lookback: {lookback_days}d")
     print(f"{'='*70}")
 
-    vectors = _get_historical_flow_vectors(lookback_days)
+    vectors = _get_historical_flow_vectors(lookback_days, target_date=target_date)
     if not vectors:
         print("  NO DATA: Cannot compute flow vectors.")
         return {'status': 'NO_DATA', 'date': today}
@@ -363,12 +372,12 @@ def generate_flow_forecast(target_date: Optional[str] = None,
     if not current:
         return {'status': 'NO_CURRENT_VECTOR', 'date': today}
 
-    regime_df = _fetch_regime_history(120)
+    regime_df = _fetch_regime_history(120, target_date=target_date)
 
     total_flow_velocity = sum(abs(v) for v in current.sector_velocity.values()) / len(CORE_SECTORS)
 
-    regime_forecast = _project_regime(regime_df, total_flow_velocity,
-                                       regime_df['breadth_pct'].iloc[-1] if not regime_df.empty else 50)
+    latest_breadth = float(regime_df['breadth_pct'].iloc[-1]) if not regime_df.empty else 50.0
+    regime_forecast = _project_regime(regime_df, total_flow_velocity, latest_breadth)
 
     sector_forecasts = []
     leading = []

@@ -17,7 +17,7 @@ import {
 } from '@tremor/react';
 import { usePortfolio, useWatchlistPins, useAIRecommendations } from '../hooks/useApi';
 import { api } from '../lib/api';
-import { AlertTriangle, ShieldCheck, TrendingUp, TrendingDown, Trash2, RefreshCw, Pencil, Check, X, BookmarkCheck, BookmarkPlus } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, TrendingUp, TrendingDown, Trash2, RefreshCw, Pencil, Check, X, BookmarkCheck } from 'lucide-react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { TableSkeleton, CardSkeleton } from '../components/Skeletons';
 import { formatPrice, formatVND } from '../utils/formatter';
@@ -219,7 +219,7 @@ const PortfolioPage: React.FC = () => {
 
       {/* Layer 1: DANH MỤC THEO DÕI — user pins */}
       <ErrorBoundary>
-        <Card className="bg-white border-none shadow-sm mb-6">
+        <Card className="bg-white/60 backdrop-blur-md border-none shadow-sm mb-6">
           <Flex className="border-b border-japandi-warm-sand pb-3 mb-3">
             <div className="flex items-center gap-2">
               <BookmarkCheck size={18} className="text-japandi-moss" />
@@ -253,7 +253,7 @@ const PortfolioPage: React.FC = () => {
       {/* Layer 2: ĐỀ XUẤT HÔM NAY — AI dynamic 3-tier */}
       {aiData && (
         <ErrorBoundary>
-          <Card className="bg-white border-none shadow-sm mb-6">
+          <Card className="bg-white/60 backdrop-blur-md border-none shadow-sm mb-6">
             <Flex className="border-b border-japandi-warm-sand pb-3 mb-3">
               <div className="flex items-center gap-2">
                 <TrendingUp size={18} className="text-japandi-earth" />
@@ -265,8 +265,8 @@ const PortfolioPage: React.FC = () => {
               </div>
             </Flex>
             <Grid numItemsLg={3} className="gap-4">
-              {['core', 'rotation', 'opportunity'].map((tierKey) => {
-                const tier = aiData.recommendations[tierKey];
+              {(['core', 'rotation', 'opportunity'] as const).map((tierKey) => {
+                const tier = (aiData.recommendations as Record<string, any>)[tierKey];
                 if (!tier) return null;
                 const colors: Record<string, string> = {
                   core: 'bg-emerald-50 border-emerald-200',
@@ -301,7 +301,7 @@ const PortfolioPage: React.FC = () => {
       )}
 
       <ErrorBoundary>
-        <Card className="bg-white border-none shadow-sm overflow-hidden p-0">
+        <Card className="bg-white/60 backdrop-blur-md border-none shadow-sm overflow-hidden p-0">
           {isLoading ? (
             <div className="p-6">
               <TableSkeleton rows={5} />

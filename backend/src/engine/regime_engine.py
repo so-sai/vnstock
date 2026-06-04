@@ -66,7 +66,7 @@ def detect_regime(target_date=None):
             df_all = pd.read_sql("SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-10-01' AND symbol != 'VNINDEX'", conn)
     
     df_all = df_all.copy()
-    df_all.loc[:, 'date'] = pd.to_datetime(df_all['date'], format='mixed')
+    df_all['date'] = pd.to_datetime(df_all['date'], format='mixed')
     df_all = df_all.sort_values(['symbol', 'date'])
     current_date = pd.to_datetime(target_date) if target_date else df_all['date'].max()
     
@@ -126,7 +126,7 @@ def detect_regime(target_date=None):
                 "error": "NO_VNINDEX_DATA",
             }
         }
-    df_idx.loc[:, 'date'] = pd.to_datetime(df_idx['date'], format='mixed')
+    df_idx['date'] = pd.to_datetime(df_idx['date'], format='mixed')
     df_idx.loc[:, 'ma200'] = df_idx['close'].rolling(200).mean()
     df_idx.loc[:, 'ma50'] = df_idx['close'].rolling(50).mean()
     df_idx.loc[:, 'adx'] = _calc_adx(df_idx)

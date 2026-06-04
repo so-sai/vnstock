@@ -1,37 +1,34 @@
-"""
-IPO HUD WIDGET — Màn hình Chỉ huy 3 Chỉ báo (Thuần Việt 100%)
-================================================================================
-
-3 Chỉ báo Rút gọn:
-  1. Đèn tín hiệu (🟢🟡🔴) → Khẩu lệnh thực chiến
-  2. Áp suất rút vốn (0-100) → Chỉ số LDI (Liquidity Drain Index)
-  3. Thời gian nhiễm độc (Countdown) → Time Decay per session
-
-Hiển thị: Compact, dễ đọc 0.5 giây, loại bỏ toàn bộ tiếng Anh lai căng.
-================================================================================
-"""
+/**
+ * IPO HUD WIDGET — Màn hình Chỉ huy 3 Chỉ báo (Thuần Việt 100%)
+ *
+ * 3 Chỉ báo Rút gọn:
+ *   1. Đèn tín hiệu → Khẩu lệnh thực chiến
+ *   2. Áp suất rút vốn → Chỉ số LDI (Liquidity Drain Index)
+ *   3. Thời gian nhiễm độc → Time Decay per session
+ */
 
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Clock, TrendingDown, Zap } from 'lucide-react';
 
 interface IPOSignalData {
-  symbol: str;
-  listing_date: str;
-  market_cap_billion: float;
-  traffic_light: str;  # "XANH" | "VANG" | "DO"
-  valuation_risk_score: float;  # 0-100
-  capital_absorption_trend: str;  # "TANG_MANH" | "ON_DINH" | "GIAM"
-  secondary_market_pressure: float;  # 0-100
-  rotation_risk: str;  # "CAO" | "TRUNG_BINH" | "THAP"
-  midcap_smallcap_pressure: float;  # 0-100
-  liquidity_regime: str;  # "DONG_TIEN_MO_RONG" | "TANG_GIAN" | "THOAI_LUI"
-  regime_modifier: float;  # 0.7-1.2
-  days_until_decay: int;  # Countdown phiên
-  action_command: dict;  # {"primaryAction": "...", "interpretation": "..."}
+  symbol: string;
+  listing_date: string;
+  market_cap_billion: number;
+  traffic_light: string;
+  valuation_risk_score: number;
+  capital_absorption_trend: string;
+  secondary_market_pressure: number;
+  rotation_risk: string;
+  midcap_smallcap_pressure: number;
+  liquidity_regime: string;
+  regime_modifier: number;
+  days_until_decay: number;
+  action_command: { primaryAction: string; interpretation: string };
+}
 
 
-const TrafficLightColors = {
+const TrafficLightColors: Record<string, { bg: string; border: string; pill: string; emoji: string; title: string }> = {
   "XANH": {
     bg: "bg-emerald-50",
     border: "border-emerald-300",
@@ -55,107 +52,75 @@ const TrafficLightColors = {
   },
 };
 
-const RotationRiskColors = {
+const RotationRiskColors: Record<string, string> = {
   "CAO": "text-rose-600 font-bold",
   "TRUNG_BINH": "text-amber-600 font-bold",
   "THAP": "text-emerald-600 font-bold",
 };
 
-const RotationRiskLabel = {
+const RotationRiskLabel: Record<string, string> = {
   "CAO": "CAO",
   "TRUNG_BINH": "TRUNG",
   "THAP": "THAP",
 };
 
 
-def calculate_time_decay(days_until_decay: int) -> dict:
-  """
-  Tính toán hình dạng suy hao theo thời gian
-  
-  Logic: Áp lực IPO suy giảm theo hàm exp(-t/tau)
-  - Khi t=0 (hôm nay): 100% áp lực
-  - Khi t=5 (5 phiên nữa): 40% áp lực
-  - Khi t>10: Nhỏ hơn 15%, coi như hết tác động
-  """
-  import math
-  
-  tau = 3.0  # Time constant (phiên)
-  if days_until_decay <= 0:
-    decay_factor = 0.0
-    status = "HẾT HẠN"
-    color = "text-japandi-muted-clay"
-  else:
-    decay_factor = math.exp(-days_until_decay / tau)
-    if days_until_decay <= 3:
-      status = "NHẠY CẢM"
-      color = "text-rose-600 font-bold"
-    elif days_until_decay <= 6:
-      status = "TRUNG BÌNH"
-      color = "text-amber-600 font-bold"
-    else:
-      status = "GIẢM DẦN"
-      color = "text-emerald-600 font-bold"
-  
-  return {
-    "factor": decay_factor,
-    "status": status,
-    "color": color,
-    "days_remaining": days_until_decay,
+function calculateTimeDecay(daysUntilDecay: number): { factor: number; status: string; color: string; days_remaining: number } {
+  const tau = 3.0;
+  let decayFactor: number;
+  let status: string;
+  let color: string;
+
+  if (daysUntilDecay <= 0) {
+    decayFactor = 0.0;
+    status = "HẾT HẠN";
+    color = "text-japandi-muted-clay";
+  } else {
+    decayFactor = Math.exp(-daysUntilDecay / tau);
+    if (daysUntilDecay <= 3) {
+      status = "NHẠY CẢM";
+      color = "text-rose-600 font-bold";
+    } else if (daysUntilDecay <= 6) {
+      status = "TRUNG BÌNH";
+      color = "text-amber-600 font-bold";
+    } else {
+      status = "GIẢM DẦN";
+      color = "text-emerald-600 font-bold";
+    }
   }
 
+  return { factor: decayFactor, status, color, days_remaining: daysUntilDecay };
+}
 
-def calculate_liquidity_drain_index(
-  capital_absorption: str,
-  secondary_market_pressure: float,
-  rotation_risk: str,
-) -> dict:
-  """
-  Tính chỉ số LDI (Liquidity Drain Index) — Áp suất rút vốn
-  
-  Logic:
-    - TANG_MANH (strong absorption) → 70-100
-    - ON_DINH (steady) → 40-70
-    - GIAM (decreasing) → 0-40
-  
-  Điều chỉnh thêm bằng:
-    - secondary_market_pressure: Độ yếu của sàn giao dịch chính
-    - rotation_risk: Áp lực lên Midcap/Smallcap
-  """
-  
-  base_score = {
-    "TANG_MANH": 75,
-    "ON_DINH": 50,
-    "GIAM": 25,
-  }.get(capital_absorption, 50)
-  
-  # Điều chỉnh bằng secondary market pressure (weight: 0.3)
-  pressure_factor = (secondary_market_pressure / 100.0) * 0.3
-  
-  # Điều chỉnh bằng rotation risk (weight: 0.2)
-  rotation_factor = {
-    "CAO": 0.2,
-    "TRUNG_BINH": 0.1,
-    "THAP": 0.0,
-  }.get(rotation_risk, 0.1)
-  
-  ldi_score = min(100, base_score + pressure_factor * 100 + rotation_factor * 100)
-  
-  # Phân loại mức độ
-  if ldi_score >= 70:
-    label = "NẶNG"
-    color = "text-rose-600 font-bold"
-  elif ldi_score >= 50:
-    label = "TRUNG"
-    color = "text-amber-600 font-bold"
-  else:
-    label = "NHẸ"
-    color = "text-emerald-600 font-bold"
-  
-  return {
-    "score": round(ldi_score, 1),
-    "label": label,
-    "color": color,
+
+function calculateLiquidityDrainIndex(
+  capitalAbsorption: string,
+  secondaryMarketPressure: number,
+  rotationRisk: string,
+): { score: number; label: string; color: string } {
+  const baseLookup: Record<string, number> = { TANG_MANH: 75, ON_DINH: 50, GIAM: 25 };
+  const baseScore = baseLookup[capitalAbsorption] ?? 50;
+  const pressureFactor = (secondaryMarketPressure / 100.0) * 0.3;
+  const rotationLookup: Record<string, number> = { CAO: 0.2, TRUNG_BINH: 0.1, THAP: 0.0 };
+  const rotationFactor = rotationLookup[rotationRisk] ?? 0.1;
+
+  const ldiScore = Math.min(100, baseScore + pressureFactor * 100 + rotationFactor * 100);
+
+  let label: string;
+  let color: string;
+  if (ldiScore >= 70) {
+    label = "NẶNG";
+    color = "text-rose-600 font-bold";
+  } else if (ldiScore >= 50) {
+    label = "TRUNG";
+    color = "text-amber-600 font-bold";
+  } else {
+    label = "NHẸ";
+    color = "text-emerald-600 font-bold";
   }
+
+  return { score: Math.round(ldiScore * 10) / 10, label, color };
+}
 
 
 const IPOHUDWidget: React.FC = () => {
@@ -175,14 +140,14 @@ const IPOHUDWidget: React.FC = () => {
 
   // Tính toán Time Decay & LDI
   const decayData = useMemo(
-    () => (ipo ? calculate_time_decay(ipo.days_until_decay) : null),
+    () => (ipo ? calculateTimeDecay(ipo.days_until_decay) : null),
     [ipo]
   );
 
   const ldiData = useMemo(
     () =>
       ipo
-        ? calculate_liquidity_drain_index(
+        ? calculateLiquidityDrainIndex(
             ipo.capital_absorption_trend,
             ipo.secondary_market_pressure,
             ipo.rotation_risk
@@ -192,7 +157,7 @@ const IPOHUDWidget: React.FC = () => {
   );
 
   // Loading state
-  if (isLoading || !ipo) {
+  if (isLoading || !ipo || !decayData || !ldiData) {
     return (
       <div className="bg-japandi-warm-sand/20 border border-japandi-muted-clay/20 rounded-lg p-4 animate-pulse">
         <span className="text-japandi-muted-clay text-xs font-mono">
@@ -209,7 +174,7 @@ const IPOHUDWidget: React.FC = () => {
   // ─────────────────────────────────────────────────────────────────────
 
   return (
-    <div className={`bg-white/60 border ${trafficLight.border} rounded-lg overflow-hidden`}>
+    <div className={`bg-white/60 backdrop-blur-md border ${trafficLight.border} rounded-lg overflow-hidden`}>
       {/* HEADER */}
       <div className={`${trafficLight.bg} px-4 py-3 border-b ${trafficLight.border} flex items-center justify-between`}>
         <div className="flex items-center gap-2">

@@ -28,10 +28,18 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
+_LIBS = str(Path(PROJECT_ROOT) / "backend" / "libs")
+if _LIBS not in sys.path:
+    sys.path.insert(0, _LIBS)
 
 import pandas as pd
 import yfinance as yf
 from src.database.db_core import get_connection, save_data_upsert
+from canonical import CanonicalAssetRegistry, Normalizer
+from canonical.validator import ValidationError as CanonicalValidationError
+
+_CANON = CanonicalAssetRegistry()
+_NORM = Normalizer()
 
 logger = logging.getLogger(__name__)
 
@@ -117,16 +125,42 @@ def fetch_world_gold_history(period: str = "1y") -> pd.DataFrame:
 
 
 def seed_world_gold_to_db(period: str = "1y") -> bool:
-    """Fetch GC=F from yfinance and save to macro_history as GOLD_XAU."""
+    """Fetch GC=F from yfinance and save to macro_history as GOLD_XAU (canonical v2)."""
     try:
         df = fetch_world_gold_history(period=period)
         if df.empty:
             return False
         df = df.rename(columns={"close": "value"}).copy()
         df["variable"] = "GOLD_XAU"
+
+        # Write v1 legacy (backward compat)
         with get_connection() as conn:
             save_data_upsert("macro_history", df[["variable", "date", "value"]], conn)
-        logger.info(f"World gold seeded: {len(df)} rows")
+
+        # Canonical v2 write — normalize + validate
+        v2_records = []
+        rejects = 0
+        for _, row in df.iterrows():
+            try:
+                rec = _NORM.normalize("GOLD_XAU", row["date"], row["value"], "yahoo")
+                v2_records.append({
+                    "variable": rec.variable, "date": rec.date,
+                    "value": rec.value, "asset_class": rec.asset_class.value,
+                    "unit": rec.unit.value, "source": rec.source.value,
+                    "raw_value": rec.raw_value, "raw_unit": rec.raw_unit,
+                    "confidence": rec.confidence,
+                })
+            except (ValueError, CanonicalValidationError):
+                rejects += 1
+
+        if v2_records:
+            df_v2 = pd.DataFrame(v2_records)
+            with get_connection() as conn:
+                save_data_upsert("macro_history_v2", df_v2, conn)
+            logger.info(f"World gold seeded: {len(df)} rows (canonical v2: {len(v2_records)}, rejects: {rejects})")
+        else:
+            logger.warning(f"World gold seed: all {rejects} rows rejected by canonical validator")
+
         return True
     except Exception as e:
         logger.error(f"World gold seed failed: {e}")

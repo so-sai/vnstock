@@ -57,7 +57,7 @@ def analyze_gold_regime(lookback_days: int = 20) -> dict:
             """, conn, params=(lookback_days + 5,))
         if df.empty:
             return _default_gold_regime()
-        df.loc[:, 'date'] = pd.to_datetime(df['date'])
+        df['date'] = pd.to_datetime(df['date'], format='mixed')
         df = df.sort_values('date').reset_index(drop=True)
         prices = df['value'].values
         if len(prices) < 5:

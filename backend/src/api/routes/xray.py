@@ -26,7 +26,7 @@ router = APIRouter()
 
 
 @router.get("/{symbol}")
-async def xray_endpoint(symbol: str, timeframe: str = Query("D", regex="^(D|W|M)$")):
+async def xray_endpoint(symbol: str, timeframe: str = Query("D", pattern="^(D|W|M)$")):
     try:
         loop = asyncio.get_event_loop()
         data = await loop.run_in_executor(None, get_xray_data, symbol, timeframe)

@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,10 +38,6 @@ def get_frontend_dist_path() -> Path:
     candidate = PROJECT_ROOT / "frontend" / "dist"
     return candidate
 
-frontend_dist = get_frontend_dist_path()
-if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -68,7 +64,7 @@ app.include_router(telemetry.router, prefix="/api/v1/telemetry", tags=["Telemetr
 app.include_router(weekly.router, prefix="/api/v1/weekly", tags=["Weekly Cognitive Report - Phase 16"])
 
 
-@app.get("/")
+@app.get("/api")
 async def root():
     return {
         "message": "PTCK VNSTOCK API v1.5.2 - Diamond Shield Trading System",
@@ -91,7 +87,7 @@ async def root():
             "/api/intelligence/opportunities",
             "/api/intelligence/scenario",
             "/api/intelligence/position-narrative/{symbol}",
-            "/api/v1/flow/map",
+            "/api/v1/flow/banner",
             "/api/watchlist/pins",
             "/api/watchlist/pin",
             "/api/watchlist/pin/{symbol}",
@@ -121,3 +117,19 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+frontend_dist = get_frontend_dist_path()
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+
+# CAGL boot-time verification (set CAGL_MODE=WARN / STRICT / SHADOW to enable)
+import os as _os
+_cagl_mode = _os.environ.get("CAGL_MODE", "").upper()
+if _cagl_mode in ("SHADOW", "WARN", "STRICT"):
+    try:
+        from src.core.cagl import verify_cagl
+        verify_cagl(app, mode=_cagl_mode)
+    except Exception as _exc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("[CAGL] Verification skipped: %s", _exc)

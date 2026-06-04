@@ -16,7 +16,7 @@ interface DecayedBanner {
 const FlowDecayMiniIndicator: React.FC = () => {
   const { data, isLoading, error } = useQuery<DecayedBanner>({
     queryKey: ['flowBannerDecayed'],
-    queryFn: () => api.get<DecayedBanner>('/api/v1/flow/banner/decayed'),
+    queryFn: () => api.get<DecayedBanner>('/v1/flow/banner/decayed'),
     refetchInterval: 60000,
     staleTime: 30000,
     retry: 1,
@@ -43,7 +43,6 @@ const FlowDecayMiniIndicator: React.FC = () => {
   const hasConflict = data.conflict_flag;
   const persistence = data.persistence_score;
   const confidence = data.confidence_band;
-  const strength = data.signal_strength;
 
   return (
     <div className="flex items-center gap-2">

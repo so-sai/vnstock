@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useRSRankings, useDashboard, useBreadthStacked } from '../hooks/useApi';
+import { useRSRankings, useBreadthStacked, useDashboard } from '../hooks/useApi';
 
 const SECTORS = [
   "Dầu khí", "Bất động sản", "Ngân hàng", "Chứng khoán", "Thép",
@@ -25,7 +25,7 @@ const NetThrustChart: React.FC = () => {
   const fillPct = Math.abs(pct - 50) * 2;
 
   return (
-    <div className="bg-white p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+    <div className="bg-white/60 backdrop-blur-md p-4 rounded-lg border border-japandi-warm-sand shadow-none">
       <h2 className="text-xs font-mono font-bold text-japandi-muted-clay mb-3 tracking-wide">
         ⚡ PHONG VŨ BIỂU LỰC ĐẨY (NET THRUST INDEX)
       </h2>
@@ -59,13 +59,12 @@ const NetThrustChart: React.FC = () => {
 
 const SectorBreadthPage: React.FC = () => {
   const { data: rankings } = useRSRankings(500);
-  const { data: dashboard } = useDashboard();
   const { data: breadthStacked } = useBreadthStacked(30);
   const [activeItem, setActiveItem] = React.useState<{ col: any; idx: number } | null>(null);
 
   const sectorData = useMemo(() => {
     if (!rankings || rankings.length === 0) {
-      return SECTORS.map((name, i) => ({
+      return SECTORS.map((name) => ({
         name,
         scores: Array.from({ length: 12 }, () => 30 + Math.floor(Math.random() * 70)),
       }));
@@ -111,7 +110,7 @@ const SectorBreadthPage: React.FC = () => {
       <div className="space-y-6">
         <NetThrustChart />
 
-        <div className="bg-white p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+        <div className="bg-white/60 backdrop-blur-md p-4 rounded-lg border border-japandi-warm-sand shadow-none">
           <div className="mb-3 border-b border-gray-300/60 pb-2">
             <h3 className="text-xs font-black text-gray-800 uppercase tracking-wide">
               📊 ĐỘ RỘNG THỊ TRƯỜNG KÉO NÉN (PHÂN LỚP XẾP CHỒNG)

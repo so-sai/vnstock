@@ -42,7 +42,7 @@ const OpportunityQueue: React.FC<{ topN?: number }> = ({ topN = 5 }) => {
   const opps = data.opportunities || [];
 
   return (
-    <div className="bg-white/60 border border-japandi-muted-clay/30 rounded-lg overflow-hidden">
+    <div className="bg-white/60 backdrop-blur-md border border-japandi-muted-clay/30 rounded-lg overflow-hidden">
       <div className="px-4 py-2 bg-japandi-warm-sand/50 border-b border-japandi-muted-clay/20 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <BarChart size={14} className="text-japandi-earth/60" />

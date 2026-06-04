@@ -78,7 +78,7 @@ class DeterministicReplayEngine:
     # Diff logic — compare snapshot fields
     # ------------------------------------------------------------------
 
-    COMPARE_FIELDS = ["regime", "market_state", "gold", "trust", "data_quality"]
+    COMPARE_FIELDS = ["regime", "market_state", "gold", "trust", "data_quality", "api_routes"]
 
     def _diff(self, original: PSRSnapshot, replayed: PSRSnapshot) -> list[PSRDiff]:
         diffs = []

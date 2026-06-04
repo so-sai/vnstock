@@ -103,13 +103,20 @@ def btmc_goldprice(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1l
         ps_key = f"@ps_{row_number}"
         pt_key = f"@pt_{row_number}"
         d_key = f"@d_{row_number}"
+        name = item.get(n_key, "")
+        # Skip silver items (BẠC) — only keep gold products
+        if "BẠC" in name.upper():
+            continue
+        buy_raw = item.get(pb_key, "0")
+        sell_raw = item.get(ps_key, "0")
         data.append(
             {
-                "name": item.get(n_key, ""),
+                "name": name,
                 "karat": item.get(k_key, ""),
                 "gold_content": item.get(h_key, ""),
-                "buy_price": item.get(pb_key, ""),
-                "sell_price": item.get(ps_key, ""),
+                # BTMC API trả giá theo VNĐ/chỉ, convert về VNĐ/lượng (*10) để đồng bộ với SJC
+                "buy_price": float(buy_raw) * 10,
+                "sell_price": float(sell_raw) * 10,
                 "world_price": item.get(pt_key, ""),
                 "time": item.get(d_key, ""),
             }

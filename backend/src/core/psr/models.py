@@ -35,6 +35,7 @@ class PSRVersion:
     snapshot_hash: str               # hash of the frozen snapshot
     semantic_contract_hash: str      # hash of USCL label_vi mappings
     created_at: str
+    api_contract_hash: str = ""      # hash of the API route manifest
     notes: str = ""
 
 
@@ -53,6 +54,8 @@ class PSRSnapshot:
     trust: dict                      # aggregate_trust() output (excl. semantic)
     data_quality: dict               # DIS + DIVI + events
     weekly_report: Optional[dict] = None  # full build_weekly_report() output
+    api_routes: Optional[dict] = None    # CAGL route graph snapshot
+    api_contract_hash: str = ""          # hash of the API route manifest
     snapshot_hash: str = ""
 
     def to_dict(self) -> dict:

@@ -52,6 +52,20 @@ def _hash_semantic_contract() -> str:
     return hasher.hexdigest()[:16]
 
 
+def _hash_api_contract() -> str:
+    """Hash of the current API route graph via CAGL scanner."""
+    hasher = hashlib.sha256()
+    try:
+        from src.api.main import app
+        from src.core.cagl.scanner import RouteScanner
+        scanner = RouteScanner()
+        for spec in scanner.scan(app):
+            hasher.update(f"{spec.method}:{spec.path}:{spec.module}:{spec.handler}".encode())
+    except Exception:
+        pass
+    return hasher.hexdigest()[:16]
+
+
 class VersionFreeze:
     """Manages the version manifest for PSR releases.
 
@@ -73,6 +87,7 @@ class VersionFreeze:
             git_commit=_git_commit(),
             snapshot_hash="",
             semantic_contract_hash=_hash_semantic_contract(),
+            api_contract_hash=_hash_api_contract(),
             created_at=datetime.now().isoformat(),
             notes=notes,
         )

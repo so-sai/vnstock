@@ -3,6 +3,7 @@ import { X, TrendingUp, ShieldAlert, BarChart3, Activity, CheckCircle, AlertCirc
 import { Card, Text, Badge, Button, Grid } from '@tremor/react';
 import { useXRay, useWatchlistPins } from '../hooks/useApi';
 import { api } from '../lib/api';
+import { swuc } from '../lib/swuc';
 import CandlestickChart from './CandlestickChart';
 
 interface XRayDrawerProps {
@@ -90,7 +91,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
         className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 transition-opacity"
         onClick={onClose}
       />
-      <div className="fixed inset-y-0 right-0 w-full max-w-md bg-japandi-oat border-l border-japandi-warm-sand p-6 z-50 shadow-2xl transform transition-transform duration-300 ease-in-out overflow-y-auto">
+      <div className="fixed inset-y-0 right-0 w-full max-w-md bg-japandi-oat/80 backdrop-blur-xl border-l border-japandi-warm-sand/50 p-6 z-50 shadow-2xl transform transition-transform duration-300 ease-in-out overflow-y-auto">
         <div className="flex items-center justify-between border-b border-japandi-warm-sand pb-4 mb-6">
           <div>
             <h2 className="text-2xl font-bold text-japandi-earth flex items-center gap-2">
@@ -113,7 +114,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
           <div className="text-center py-12 text-japandi-muted-clay">Đang quét tia X...</div>
         ) : xray ? (
           <div className="space-y-6">
-            <Card className="bg-white p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+            <Card className={`${swuc('METRIC', 'xray')} p-4 rounded-lg border border-japandi-warm-sand/50 shadow-none`}>
               <h3 className="text-sm font-medium text-japandi-muted-clay mb-3 flex items-center gap-2">
                 <BarChart3 size={16} /> Chỉ Số Kỹ Thuật Cốt Lõi
               </h3>
@@ -153,7 +154,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
               </Grid>
             </Card>
 
-            <Card className="bg-white p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+            <Card className={`${swuc('SCREENER', 'xray')} p-4 rounded-lg border border-japandi-warm-sand/50 shadow-none`}>
               <h3 className="text-sm font-medium text-japandi-muted-clay mb-3 flex items-center gap-2">
                 <BarChart3 size={16} className="text-japandi-earth" /> Phân loại Mô hình
               </h3>
@@ -198,7 +199,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
             </Card>
 
             {xray.ohlcvHistory && xray.ohlcvHistory.length > 0 && (
-              <Card className="bg-white p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+              <Card className={`${swuc('CHART', 'xray')} p-4 rounded-lg border border-japandi-warm-sand/50 shadow-none`}>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium text-japandi-muted-clay flex items-center gap-2">
                     <Activity size={16} className="text-japandi-earth" /> Biểu đồ Nến
@@ -210,7 +211,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
                         onClick={() => setTf(item.key)}
                         className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                           tf === item.key
-                            ? 'bg-white text-japandi-earth font-semibold shadow-sm'
+                            ? 'bg-white/70 backdrop-blur-sm text-japandi-earth font-semibold shadow-sm'
                             : 'text-japandi-muted-clay hover:text-japandi-earth'
                         }`}
                       >
@@ -223,7 +224,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
               </Card>
             )}
 
-            <Card className="bg-white p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+            <Card className={`${swuc('VOLUME_SPIKE', 'xray')} p-4 rounded-lg border border-japandi-warm-sand/50 shadow-none`}>
               <h3 className="text-sm font-medium text-japandi-muted-clay mb-3 flex items-center gap-2">
                 <TrendingUp size={16} className="text-stock-up" /> Chẩn Đoán Xu Hướng
               </h3>
@@ -264,7 +265,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
               </ul>
             </Card>
 
-            <Card className="bg-white p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+            <Card className={`${swuc('REGIME_SHIFT', 'xray')} p-4 rounded-lg border border-japandi-warm-sand/50 shadow-none`}>
               <h3 className="text-sm font-medium text-japandi-muted-clay mb-3 flex items-center gap-2">
                 <ShieldAlert size={16} className="text-stock-down" /> Cảnh Báo Rủi Ro
               </h3>
@@ -282,7 +283,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
               </Text>
             </Card>
 
-            <Card className="bg-japandi-warm-sand/30 p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+            <Card className={`${swuc('FOREIGN_FLOW', 'xray')} p-4 rounded-lg border border-japandi-warm-sand/50 shadow-none`}>
               <Text className="text-xs text-japandi-muted-clay mb-2">Tín hiệu gốc</Text>
               <div className="flex flex-wrap gap-2">
                 {xray.rsRating > 0 && (
@@ -300,7 +301,7 @@ const XRayDrawer: React.FC<XRayDrawerProps> = ({ symbol, onClose, signalV1 }) =>
             </Card>
 
             {showForm && (
-              <Card className="bg-white p-4 rounded-lg border border-japandi-warm-sand shadow-none">
+              <Card className="bg-white/60 backdrop-blur-md p-4 rounded-lg border border-japandi-warm-sand/50 shadow-none">
                 <h3 className="text-sm font-medium text-japandi-earth mb-3">Thêm vào Danh mục</h3>
                 <div className="space-y-3">
                   <div>

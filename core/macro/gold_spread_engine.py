@@ -38,11 +38,17 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
+_LIBS = str(Path(PROJECT_ROOT) / "backend" / "libs")
+if _LIBS not in sys.path:
+    sys.path.insert(0, _LIBS)
 
 import pandas as pd
 from src.database.db_core import get_connection
 from src.services.macro.gold_service import get_gold_dashboard
 from src.services.macro.gold_world_service import fetch_world_gold_live
+from canonical import CanonicalAssetRegistry
+
+_CANON = CanonicalAssetRegistry()
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +84,8 @@ def analyze_domestic_premium() -> dict:
         if xau is None:
             return _default_premium()
 
-        # 3. USD/VND (DB)
-        usd_vnd = 25400.0
+        # 3. USD/VND (DB → canonical fallback)
+        usd_vnd = None
         try:
             with get_connection() as conn:
                 df = pd.read_sql(
@@ -90,6 +96,16 @@ def analyze_domestic_premium() -> dict:
                     usd_vnd = float(df.iloc[0]["value"])
         except Exception:
             pass
+
+        # Validate via canonical registry; use spec mid-range as fallback
+        spec = _CANON.get("USD_VND")
+        if usd_vnd is not None and spec:
+            if usd_vnd < spec.min_value or usd_vnd > spec.max_value:
+                logger.warning(f"USD_VND {usd_vnd} outside canonical range [{spec.min_value}, {spec.max_value}]")
+                usd_vnd = None
+        if usd_vnd is None and spec:
+            usd_vnd = (spec.min_value + spec.max_value) / 2.0
+            logger.info(f"USD_VND fallback: using canonical mid-range {usd_vnd}")
 
         # 4. Quy đổi: USD/oz → VND/lượng
         xau_vnd_per_oz = xau * usd_vnd
