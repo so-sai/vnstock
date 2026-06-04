@@ -1,4 +1,4 @@
-﻿
+
 import sys
 import os
 import pandas as pd
@@ -94,8 +94,9 @@ def detect_regime(target_date=None):
     breadth_5d_ago = df_hist_b['breadth_pct'].iloc[4] if len(df_hist_b) >= 5 else (df_hist_b['breadth_pct'].iloc[-1] if not df_hist_b.empty else breadth_pct)
     breadth_momentum = breadth_pct - breadth_5d_ago
 
-    # Breadth Logic: >55(1), 35-55(0.6), 15-35(0.3), <15(0)
-    b_score = 1.0 if breadth_pct > 55 else 0.6 if breadth_pct > 35 else 0.3 if breadth_pct > 15 else 0.0
+    # Breadth Score: continuous linear mapping [0, 100] -> [0.0, 1.0]
+    # Replaces discrete step function to eliminate whipsaw at hard thresholds
+    b_score = max(0.0, min(1.0, breadth_pct / 100.0))
 
     # 2. T-Score (Trend): 30% Weight
     with get_connection() as conn:
@@ -137,7 +138,8 @@ def detect_regime(target_date=None):
     ma50_5d_ago = df_idx['ma50'].iloc[-6] if len(df_idx) >= 6 else ma50_today
     ma50_slope = ma50_today - ma50_5d_ago
     
-    # Trend Logic: >MA200&ADX>20(1), >MA200&ADX<20(0.6), <MA200(0)
+    # Trend Score: still discrete (3-state) — MA200 crossing is a structural binary gate
+    # ADX sub-level uses 0.6 to preserve the partial-trend signal when above MA200 but low momentum
     if latest_idx['close'] > latest_idx['ma200']:
         t_score = 1.0 if latest_idx['adx'] > 20 else 0.6
     else:
@@ -154,46 +156,76 @@ def detect_regime(target_date=None):
     atr_today = tr.iloc[-1]
     atr_avg = atr_20.iloc[-1]
     
-    # Vol Score Logic: Compressing(1), Stable(0.6), Expanding(0.2)
-    # [LOCK 2] ATR Spike Multiplier: if ATR > 1.5 * Avg -> reduction loop
-    expanding = atr_today > atr_avg
-    v_score = 0.2 if expanding else 0.6 if abs(atr_today - atr_avg) < 0.2 else 1.0
+    # Volatility Score: continuous inverse of ATR ratio excess
+    # v_score = 1.0 - clamp(atr_ratio - 1.0, 0.0, 0.8)  ->  range [0.2, 1.0]
+    # Replaces discrete 3-step to eliminate cliff-edge jumps at 1.5x ATR boundary
+    atr_ratio = (atr_today / atr_avg) if atr_avg and atr_avg > 0 else 1.0
+    v_score = max(0.2, min(1.0, 1.0 - max(0.0, min(0.8, atr_ratio - 1.0))))
     
-    # 4. Final Aggregation
-    regime_score = (0.5 * b_score) + (0.3 * t_score) + (0.2 * v_score)
-    
-    # Apply LOCK 2: ATR Shock absorption
-    if atr_today > 1.5 * atr_avg:
-        print(f"⚠️ [LOCK 2] ATR SHOCK DETECTED (Today: {atr_today:.2f} vs Avg: {atr_avg:.2f}). Reducing Score.")
-        regime_score *= 0.7
+    # 4. Final Aggregation — Raw Score
+    regime_score_raw = (0.5 * b_score) + (0.3 * t_score) + (0.2 * v_score)
 
+    # [LOCK 2] ATR Shock: applied to raw score before smoothing so the EMA sees the shock signal
+    if atr_today > 1.5 * atr_avg:
+        flag = ">>" if sys.platform == "win32" else "\u26a0\ufe0f"
+        print(f"{flag} [LOCK 2] ATR SHOCK DETECTED (Today: {atr_today:.2f} vs Avg: {atr_avg:.2f}). Reducing Raw Score.")
+        regime_score_raw *= 0.7
+
+    # 5. Adaptive EMA Smoothing
+    # alpha_t = clamp(0.2 * atr_ratio, 0.1, 1.0)
+    #   -> low volatility  : alpha near 0.1 (heavy smoothing, filters daily noise)
+    #   -> high volatility  : alpha near 1.0 (pass-through, zero-lag on structural breaks)
+    ema_alpha = max(0.1, min(1.0, 0.2 * atr_ratio))
+
+    # Seed: fetch the most recent smoothed regime_score from SQLite regime_history
+    with get_connection() as conn:
+        if target_date:
+            df_prev = pd.read_sql(
+                f"SELECT regime_score FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",
+                conn
+            )
+        else:
+            df_prev = pd.read_sql(
+                "SELECT regime_score FROM regime_history ORDER BY date DESC LIMIT 1",
+                conn
+            )
+    prev_smoothed = df_prev['regime_score'].iloc[0] if not df_prev.empty else regime_score_raw
+
+    # EMA formula: RS_smoothed = alpha * RS_raw + (1 - alpha) * RS_prev
+    regime_score = (ema_alpha * regime_score_raw) + ((1.0 - ema_alpha) * prev_smoothed)
+
+    # Status classification applied to the SMOOTHED score
     status = "TRENDING" if regime_score > 0.65 else "RANGING" if regime_score >= 0.35 else "CRISIS"
 
     verdict = {
         "date": current_date.strftime("%Y-%m-%d"),
         "regime_score": round(regime_score, 2),
         "status": status,
+        "regime_score_raw": round(regime_score_raw, 4),
+        "ema_alpha": round(ema_alpha, 4),
         "details": {
-            "b_score": b_score,
+            "b_score": round(b_score, 4),
             "breadth_pct": round(breadth_pct, 1),
             "breadth_std_10d": round(breadth_std_10d, 2),
             "breadth_momentum": round(breadth_momentum, 1),
-            "t_score": t_score,
+            "t_score": round(t_score, 4),
             "vnindex_vs_ma200": "ABOVE" if latest_idx['close'] > latest_idx['ma200'] else "BELOW",
             "vnindex_vs_ma50": "ABOVE" if latest_idx['close'] > latest_idx['ma50'] else "BELOW",
             "ma50_slope": round(ma50_slope, 2),
             "adx": round(latest_idx['adx'], 1),
-            "v_score": v_score,
-            "atr_ratio": round(atr_today / atr_avg, 2)
+            "v_score": round(v_score, 4),
+            "atr_ratio": round(atr_ratio, 4),
         }
     }
 
-    print(f"B-Score: {b_score} ({breadth_pct:.1f}%)")
-    print(f"T-Score: {t_score} (VNINDEX {verdict['details']['vnindex_vs_ma200']}, ADX: {verdict['details']['adx']})")
-    print(f"V-Score: {v_score} (ATR Ratio: {verdict['details']['atr_ratio']})")
+    print(f"B-Score (continuous): {b_score:.4f} ({breadth_pct:.1f}%)")
+    print(f"T-Score:              {t_score:.4f} (VNINDEX {verdict['details']['vnindex_vs_ma200']}, ADX: {verdict['details']['adx']})")
+    print(f"V-Score (continuous): {v_score:.4f} (ATR Ratio: {atr_ratio:.4f})")
+    print(f"Raw Score:            {regime_score_raw:.4f}")
+    print(f"EMA Alpha:            {ema_alpha:.4f}  |  Prev Smoothed: {prev_smoothed:.4f}")
     print("-" * 30)
     flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
-    print(f"{flag} FINAL REGIME SCORE: {regime_score:.2f} -> {status}")
+    print(f"{flag} SMOOTHED REGIME SCORE: {regime_score:.4f} -> {status}")
     print("="*50)
 
     return verdict
