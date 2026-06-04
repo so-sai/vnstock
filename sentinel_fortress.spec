@@ -12,7 +12,30 @@ datas = []
 if frontend_dist.exists():
     datas.append((str(frontend_dist), "frontend/dist"))
 
+def find_modules_in_package(dir_path, package_name):
+    modules = []
+    p = Path(dir_path)
+    if not p.exists():
+        return modules
+    for path in p.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        rel_parts = list(path.relative_to(p).parts)
+        parts = [package_name]
+        for part in rel_parts:
+            parts.append(part)
+        if parts[-1] == "__init__.py":
+            mod_name = ".".join(parts[:-1])
+        else:
+            parts[-1] = parts[-1][:-3]
+            mod_name = ".".join(parts)
+        if mod_name:
+            modules.append(mod_name)
+    return list(set(modules))
+
 hiddenimports = [
+    "vnstock",
+    "canonical",
     "fastapi",
     "uvicorn",
     "jinja2",
@@ -21,27 +44,33 @@ hiddenimports = [
     "anyio",
     "h11",
     "httpcore",
-    # Core cognitive modules
-    "core.signal_provenance",
-    "core.signal_provenance.models",
-    "core.signal_provenance.graph",
-    "core.signal_provenance.registry",
-    "core.presentation",
-    "core.presentation.models",
-    "core.presentation.state_labels",
-    "core.presentation.narrative_matcher",
-    "core.presentation.decision_view",
-    "core.guard",
-    "core.guard.color_engine",
-    "core.guard.safe_mode",
-    "core.guard.schema_lock",
+    "pandas",
+    "numpy",
+    "sqlite3",
+    "yfinance",
+    "requests",
+    "urllib3",
+    "beautifulsoup4",
+    "tenacity",
+    "pytz",
+    "python-dateutil",
+    "vnai",
 ]
+
+hiddenimports.extend(find_modules_in_package(project_root / "backend" / "src", "src"))
+hiddenimports.extend(find_modules_in_package(project_root / "core", "core"))
+hiddenimports.extend(find_modules_in_package(project_root / "backend" / "libs" / "vnstock" / "vnstock", "vnstock"))
+hiddenimports.extend(find_modules_in_package(project_root / "backend" / "libs" / "canonical", "canonical"))
+
+hiddenimports = sorted(list(set(hiddenimports)))
 
 a = Analysis(
     [str(project_root / "backend" / "src" / "run_sentinel.py")],
     pathex=[
         str(project_root / "backend"),
         str(project_root),  # so core/ modules are discoverable
+        str(project_root / "backend" / "libs" / "vnstock"),  # so vnstock is discoverable
+        str(project_root / "backend" / "libs"),  # so canonical is discoverable
     ],
     binaries=[],
     datas=datas,

@@ -48,6 +48,15 @@ def _load_sector_mapping() -> dict:
     return df.set_index("symbol")["icb_name3"].to_dict()
 
 
+def _sanitize_float(val, default=0.0):
+    try:
+        if val is None or pd.isna(val) or np.isinf(val):
+            return default
+        return float(val)
+    except Exception:
+        return default
+
+
 def compute_sector_rs(sector: str, lookback: int = 60) -> dict:
     with get_connection() as conn:
         mapping = _load_sector_mapping()
@@ -92,14 +101,14 @@ def compute_sector_rs(sector: str, lookback: int = 60) -> dict:
 
     return {
         "sector": sector,
-        "momentum": round(latest["momentum"] * 100, 2) if pd.notna(latest["momentum"]) else 0,
-        "return_5d": round(recent_5d * 100, 2),
-        "return_20d": round(recent_20d * 100, 2),
-        "momentum_slope": round(mom_slope * 100, 3),
-        "sharpe_annual": round(sharpe, 2),
-        "volatility_20d": round(daily["volatility"].iloc[-1] * 100, 2) if len(daily) >= 20 else 0,
-        "rotation_streak": _rotation_streak(daily),
-        "phase": _classify_rotation_phase(latest["momentum"] if pd.notna(latest["momentum"]) else 0, mom_slope),
+        "momentum": round(_sanitize_float(latest["momentum"]) * 100, 2),
+        "return_5d": round(_sanitize_float(recent_5d) * 100, 2),
+        "return_20d": round(_sanitize_float(recent_20d) * 100, 2),
+        "momentum_slope": round(_sanitize_float(mom_slope) * 100, 3),
+        "sharpe_annual": round(_sanitize_float(sharpe), 2),
+        "volatility_20d": round(_sanitize_float(daily["volatility"].iloc[-1]) * 100, 2) if len(daily) >= 20 else 0.0,
+        "rotation_streak": int(_rotation_streak(daily)),
+        "phase": _classify_rotation_phase(_sanitize_float(latest["momentum"]), _sanitize_float(mom_slope)),
     }
 
 
@@ -201,12 +210,12 @@ def detect_money_flow_propagation(backtrack_days: int = 30) -> list:
     for sec in latest_flow.index:
         curr = latest_flow.loc[sec, "value_bn"]
         prev = prev_flow.loc[sec, "value_bn"] if sec in prev_flow.index else 0
-        change_pct = ((curr - prev) / prev * 100) if prev > 0 else 0
+        change_pct = ((curr - prev) / prev * 100) if prev > 0 else 0.0
         flow_changes.append({
             "sector": sec,
-            "current_value_bn": round(curr, 0),
-            "change_1d_pct": round(change_pct, 1),
-            "shock_ratio": round(float(latest_flow.loc[sec, "value_shock"]), 2),
+            "current_value_bn": round(_sanitize_float(curr), 0),
+            "change_1d_pct": round(_sanitize_float(change_pct), 1),
+            "shock_ratio": round(_sanitize_float(latest_flow.loc[sec, "value_shock"]), 2),
         })
 
     flow_changes.sort(key=lambda x: x["change_1d_pct"], reverse=True)
@@ -234,9 +243,9 @@ def get_rotation_beta() -> dict:
 
     return {
         "rotation_regime": regime_mapped,
-        "flow_alignment_pct": round(alignment * 100, 0),
-        "rotation_score": round(rotation_score, 3),
-        "spread": round(spread, 2),
+        "flow_alignment_pct": round(_sanitize_float(alignment) * 100, 0),
+        "rotation_score": round(_sanitize_float(rotation_score), 3),
+        "spread": round(_sanitize_float(spread), 2),
         "dominant_phase": rotation.get("dominant_phase", "NEUTRAL"),
         "leading_sectors": rotation.get("leading_sectors", []),
         "lagging_sectors": rotation.get("lagging_sectors", []),

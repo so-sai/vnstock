@@ -14,7 +14,7 @@
     "@tremor/react": "^3.18.7",
     "apexcharts": "^5.13.0",
     "clsx": "^2.1.1",
-    "lightweight-charts": "^5.2.0",
+    "lightweight-charts": "3.8.0",
     "lucide-react": "^1.11.0",
     "react": "^19.2.5",
     "react-apexcharts": "^2.1.0",
