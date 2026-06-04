@@ -26,6 +26,8 @@ from .models import (
     MarketIntentMode,
     GateScore,
     CompensationApplied,
+    CausalFactor,
+    CausalAttributionReport,
 )
 from .state_labels import (
     EPISTEMIC_LABELS,
@@ -45,6 +47,7 @@ from .trade_state_policy import compute_trade_state, compile_action_policy
 from .state_stability_index import compute_ssi
 from .asset_preference_mapping import compute_asset_preference
 from .decision_closure_layer import compute_dcl
+from .causal_binding_layer import compute_causal_attribution
 from .vi_localizer import (
     localize_market_state, localize_trade_state, localize_ssi, localize_asset_bias,
     localize_regime, localize_flow, localize_risk_governor, localize_bdi, localize_drift,
@@ -84,6 +87,10 @@ __all__ = [
     "compute_ssi",
     "compute_asset_preference",
     "compute_dcl",
+    "compute_causal_attribution",
+    "CausalFactor",
+    "CausalAttributionReport",
+
     "localize_market_state",
     "localize_trade_state",
     "localize_ssi",

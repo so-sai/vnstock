@@ -15,12 +15,14 @@ from core.presentation.transition_trigger_layer import (
     clear_ttl_history,
     compute_transition_trigger,
 )
+from core.presentation import CausalAttributionReport
 
 _DBE_SIGN_MAP = {
     "BULLISH": 1.0, "TRANSITIONAL": 1.0,
     "NEUTRAL": 0.0, "FRACTURED": 0.0,
     "BEARISH": -1.0,
 }
+
 
 REQUIRED_FIELDS = [
     "date", "regime_status", "trade_state_level",
@@ -96,6 +98,8 @@ class TransitionMatch(BaseModel):
     ttl_type: str
     delay_days: int
     is_hit: bool
+    causal_attribution: Optional[CausalAttributionReport] = None
+
 
 
 class SuiteCMetrics(BaseModel):
@@ -176,6 +180,7 @@ def run_srv(
             "bias_strength": dbe.bias_strength,
             "bias_confidence": dbe.bias_confidence,
             "dominant_force": dbe.dominant_force,
+            "bias_drivers": dbe.bias_drivers,
         })
         dpl_log.append({
             "date": snap.date,
@@ -184,13 +189,24 @@ def run_srv(
             "flicker_risk": dpl.flicker_risk_code,
             "windows": dpl.windows_available,
         })
+        
+        if ttl.transition_state == "TRIGGERED":
+            from core.presentation.causal_binding_layer import compute_causal_attribution
+            ttl.causal_attribution = compute_causal_attribution(
+                transition_type=ttl.transition_type,
+                dbe_history=dbe_log,
+                lookback_days=5
+            )
+
         ttl_log.append({
             "date": snap.date,
             "transition_state": ttl.transition_state,
             "transition_type": ttl.transition_type,
             "trigger_confidence": ttl.trigger_confidence,
             "transitions_24h": ttl.transitions_24h,
+            "causal_attribution": ttl.causal_attribution.model_dump() if ttl.causal_attribution else None,
         })
+
 
     # ── Suite A: DBE Stability ──────────────────────────────────────────
     signs = [_sign(e["bias_code"]) for e in dbe_log]
@@ -257,7 +273,9 @@ def run_srv(
                 ttl_type=ttl_type,
                 delay_days=best_delay,
                 is_hit=True,
+                causal_attribution=trigger.get("causal_attribution"),
             ))
+
         else:
             false_positives += 1
 

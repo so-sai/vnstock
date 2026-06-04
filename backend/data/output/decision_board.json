@@ -1,24 +1,24 @@
 {
-    "timestamp": "2026-06-04 15:21:36",
-    "date": "2026-06-04",
-    "regime_score": 0.34,
+    "timestamp": "2023-03-20",
+    "date": "2023-03-20",
+    "regime_score": 0.13,
     "market_status": "CRISIS",
     "active_model": "NONE",
-    "consensus": "CASH (PROTECT CAPITAL)",
+    "consensus": "PILOT ABORT (EXIT IMMEDIATELY)",
     "confidence": 0.0,
-    "breadth_velocity": -30.3,
+    "breadth_velocity": -35.5,
     "details": {
         "b_score": 0.3,
-        "breadth_pct": 25.8,
-        "breadth_std_10d": 17.4,
-        "breadth_momentum": -30.3,
-        "t_score": 1.0,
-        "vnindex_vs_ma200": "ABOVE",
-        "vnindex_vs_ma50": "ABOVE",
-        "ma50_slope": 4.8,
-        "adx": 44.8,
+        "breadth_pct": 20.6,
+        "breadth_std_10d": 11.88,
+        "breadth_momentum": -15.1,
+        "t_score": 0.0,
+        "vnindex_vs_ma200": "BELOW",
+        "vnindex_vs_ma50": "BELOW",
+        "ma50_slope": 3.8,
+        "adx": 24.4,
         "v_score": 0.2,
-        "atr_ratio": 2.4
+        "atr_ratio": 1.62
     },
     "model_a": {
         "status": "RED (STANDBY - PHANTOM CITADEL)",
@@ -27,21 +27,21 @@
     "model_b": {
         "picks_count": 0,
         "top_picks": [],
-        "context": "ABOVE",
-        "breadth_pct": 25.8,
-        "breadth_std": 17.4,
-        "breadth_velocity": -30.3
+        "context": "BELOW",
+        "breadth_pct": 20.6,
+        "breadth_std": 11.88,
+        "breadth_velocity": -35.5
     },
     "recovery": {
         "is_recovery": false,
-        "is_abort": false,
-        "status": "STANDBY",
+        "is_abort": true,
+        "status": "PILOT_ABORT",
         "block_reason": "NONE",
-        "ma10_reclaim": true,
+        "ma10_reclaim": false,
         "details": {
-            "index_dd": -4.69,
-            "breadth_std": 17.4,
-            "velocity_5d": -30.3
+            "index_dd": -8.93,
+            "breadth_std": 11.88,
+            "velocity_5d": -35.5
         }
     }
 }

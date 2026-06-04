@@ -265,6 +265,20 @@ TransitionTypeCode = Literal[
 ]
 
 
+class CausalFactor(BaseModel):
+    source: str = Field(description="Source driver name, e.g. FLOW, BREADTH, STRUCTURE, REGIME, SSI, TRADE_STATE")
+    delta: float = Field(description="Delta impact of this driver over the transition window")
+    direction: int = Field(description="Direction of change: 1 (support) or -1 (pressure/drag)")
+    contribution_pct: float = Field(description="Attribution percentage weight")
+
+
+class CausalAttributionReport(BaseModel):
+    transition_type: str = Field(description="Type of transition, matching TransitionTypeCode")
+    primary_cause: str = Field(description="The source with largest absolute impact delta")
+    factors: list[CausalFactor] = Field(default_factory=list, description="List of contributors ordered by absolute delta DESC")
+    summary_vi: str = Field(description="Vietnamese synthesis explanation of the transition causes")
+
+
 class TransitionTriggerReport(BaseModel):
     transition_state: TransitionStateCode = Field(description="Current transition alert level")
     transition_type: TransitionTypeCode = Field(description="Type of transition most recently detected")
@@ -273,6 +287,8 @@ class TransitionTriggerReport(BaseModel):
     label_vi: str = Field(default="", description="Vietnamese label for UI")
     color: str = Field(default="", description="UI color token")
     summary_vi: str = Field(default="", description="Vietnamese explanation of transition state")
+    causal_attribution: Optional[CausalAttributionReport] = Field(default=None, description="Detailed causal analysis if transition is triggered")
+
 
 
 
