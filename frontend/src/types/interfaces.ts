@@ -21,6 +21,10 @@ export interface MacroStatus {
   goldVelocity?: number;
   goldSpreadPressure?: number;
   goldMacroBias?: string;
+  vgb10y?: number;
+  vgb10yBpsChange?: string;
+  vgb10yStatusLabel?: string;
+  vgb10yRawBps?: number;
 }
 
 export interface MarketBreadth {

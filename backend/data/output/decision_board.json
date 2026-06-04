@@ -1,46 +1,47 @@
 {
-    "timestamp": "2023-03-31",
-    "date": "2023-03-31",
-    "regime_score": 0.5,
-    "market_status": "RANGING",
-    "active_model": "B (MEAN REVERSION)",
-    "consensus": "WAIT FOR NICHES",
-    "confidence": 0.5,
-    "breadth_velocity": -4.6,
+    "timestamp": "2026-06-04 15:21:36",
+    "date": "2026-06-04",
+    "regime_score": 0.34,
+    "market_status": "CRISIS",
+    "active_model": "NONE",
+    "consensus": "CASH (PROTECT CAPITAL)",
+    "confidence": 0.0,
+    "breadth_velocity": -30.3,
     "details": {
-        "b_score": 0.6,
-        "breadth_pct": 50.4,
-        "breadth_std_10d": 9.44,
-        "breadth_momentum": 15.4,
-        "t_score": 0.0,
-        "vnindex_vs_ma200": "BELOW",
+        "b_score": 0.3,
+        "breadth_pct": 25.8,
+        "breadth_std_10d": 17.4,
+        "breadth_momentum": -30.3,
+        "t_score": 1.0,
+        "vnindex_vs_ma200": "ABOVE",
         "vnindex_vs_ma50": "ABOVE",
-        "ma50_slope": 0.0,
-        "adx": 11.4,
-        "v_score": 1.0,
-        "atr_ratio": 0.67
+        "ma50_slope": 4.8,
+        "adx": 44.8,
+        "v_score": 0.2,
+        "atr_ratio": 2.4
     },
     "model_a": {
         "status": "RED (STANDBY - PHANTOM CITADEL)",
-        "mom_expansion": 0
+        "mom_expansion": 92
     },
     "model_b": {
         "picks_count": 0,
         "top_picks": [],
-        "context": "BELOW",
-        "breadth_pct": 50.4,
-        "breadth_std": 9.44,
-        "breadth_velocity": -4.6
+        "context": "ABOVE",
+        "breadth_pct": 25.8,
+        "breadth_std": 17.4,
+        "breadth_velocity": -30.3
     },
     "recovery": {
         "is_recovery": false,
         "is_abort": false,
         "status": "STANDBY",
         "block_reason": "NONE",
+        "ma10_reclaim": true,
         "details": {
-            "index_dd": -5.36,
-            "breadth_std": 9.44,
-            "velocity_5d": -4.600000000000001
+            "index_dd": -4.69,
+            "breadth_std": 17.4,
+            "velocity_5d": -30.3
         }
     }
 }

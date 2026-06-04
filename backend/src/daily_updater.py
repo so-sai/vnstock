@@ -158,6 +158,19 @@ class EliteArmor:
 # ============================================================
 # 5. CORE UPDATE TASKS
 # ============================================================
+def _sanitize_vnindex_data(df):
+    """Ép thang đo VNINDEX về đúng chuẩn nghìn điểm nếu API trả về dạng rút gọn (<100)"""
+    if df.empty:
+        return df
+        
+    price_cols = ['open', 'high', 'low', 'close', 'adj_close']
+    for col in price_cols:
+        if col in df.columns:
+            # Nếu giá trị trung bình của cột < 100, tức là đang bị chia 1000
+            if df[col].mean() < 100:
+                df[col] = df[col] * 1000
+    return df
+
 @retry_with_backoff("update_vnindex", max_retries=3, base_delay=5)
 def update_vnindex(target_date: str):
     logger.info(f"📊 Cập nhật VNINDEX cho ngày {target_date}...")
@@ -165,11 +178,12 @@ def update_vnindex(target_date: str):
         q_idx = Quote(symbol='VNINDEX', source='kbs')
         df_idx = q_idx.history(start=target_date, end=target_date)
         if df_idx is not None and not df_idx.empty:
+            if 'adj_close' not in df_idx.columns:
+                df_idx['adj_close'] = df_idx['close']
+            df_idx = _sanitize_vnindex_data(df_idx)
             df_idx = df_idx.rename(columns={'time': 'date'})
             df_idx['symbol'] = 'VNINDEX'
             df_idx['source'] = 'kbs'
-            if 'adj_close' not in df_idx.columns:
-                df_idx['adj_close'] = df_idx['close']
             df_idx['date'] = pd.to_datetime(df_idx['date'], format='mixed').dt.strftime('%Y-%m-%d')
             df_idx = df_idx[['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']]
 

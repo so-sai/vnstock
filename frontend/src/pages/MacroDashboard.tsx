@@ -185,6 +185,28 @@ const MacroDashboard: React.FC = () => {
                 </Flex>
               </Card>
 
+              {/* Thẻ Lợi suất Trái phiếu Chính phủ 10 Năm (VGB10Y) */}
+              <div className="backdrop-blur-md bg-white/60 border border-gray-200/50 rounded-lg p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow duration-200">
+                <div>
+                  <Text className="text-japandi-muted-clay text-xs block">Lợi suất TPCP 10 Năm (VGB10Y)</Text>
+                  <div className="flex items-baseline justify-between mt-2">
+                    <Metric className="text-japandi-earth">
+                      {macro.vgb10y ? `${macro.vgb10y.toFixed(2)}%` : 'N/A'}
+                    </Metric>
+                    {macro.vgb10yRawBps !== undefined && (
+                      <span className={`text-xs font-mono font-bold ${
+                        macro.vgb10yRawBps > 0 ? "text-red-500" :
+                        macro.vgb10yRawBps < 0 ? "text-green-600" : "text-gray-500"
+                      }`}>
+                        {macro.vgb10yRawBps > 0 ? '↑ ' : macro.vgb10yRawBps < 0 ? '↓ ' : ''} 
+                        {macro.vgb10yBpsChange} ({macro.vgb10yStatusLabel})
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-400 font-mono mt-4">Trục đo lường Chi phí vốn Định chế (Risk-Free Rate)</p>
+              </div>
+
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <Text className="text-japandi-muted-clay">Lãi suất Interbank O/N</Text>
                 <Metric className="text-japandi-earth">{macro.interbankRate?.toFixed(2)}%</Metric>

@@ -1,4 +1,4 @@
-﻿
+
 import sys
 import os
 import json
@@ -71,7 +71,7 @@ def create_markdown_report(verdict, target_date):
             rec = verdict['decision']['recovery']
             f.write("## 🚀 BỘ ĐÁNH LỬA (IGNITION SWITCH)\n\n")
             f.write(f"- **TRẠNG THÁI PHỤC HỒI:** `{rec['status']}`\n")
-            f.write(f"- **GIA TỐC ĐỘ RỘNG (5D):** `{rec['velocity_5d']:+.1f}%` (Ngưỡng: +15%)\n")
+            f.write(f"- **GIA TỐC ĐỘ RỘNG (5D):** `{rec['details']['velocity_5d']:+.1f}%` (Ngưỡng: +15%)\n")
             f.write(f"- **XÁC NHẬN MA10:** `{'YES' if rec['ma10_reclaim'] else 'NO'}`\n\n")
 
         # Section 4: Sentinel Details

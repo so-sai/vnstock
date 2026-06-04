@@ -1,4 +1,4 @@
-﻿"""
+"""
 Dashboard Service Layer v1.0
 Trạm biến áp trung tâm — gộp Macro + Breadth + Screener cho trang chủ.
 """
@@ -113,6 +113,12 @@ def get_dashboard_data() -> dict:
             "goldPremiumRegime": macro.get('gold_premium_regime', 'PREMIUM_NORMAL'),
             "goldPremiumPct": macro.get('gold_premium_pct', 0),
             "goldPremiumVnd": macro.get('gold_premium_vnd', 0),
+            "adx": macro.get('adx', 0.0),
+            "atrRatio": macro.get('atr_ratio', 0.0),
+            "vgb10y": macro.get('vgb10y', 2.84),
+            "vgb10yBpsChange": macro.get('vgb10y_bps_change', '0 bps'),
+            "vgb10yStatusLabel": macro.get('vgb10y_status_label', 'Thanh khoản nới lỏng'),
+            "vgb10yRawBps": macro.get('vgb10y_raw_bps', 0),
         },
         "breadth": {
             "healthScoreMa20": macro.get('breadth_pct', 0),

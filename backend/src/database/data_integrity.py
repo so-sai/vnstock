@@ -64,7 +64,7 @@ def ensure_vnindex_integrity(
         # --- Step 1: Count corrupt rows ---
         cursor.execute(
             "SELECT COUNT(*) FROM daily_ohlcv "
-            "WHERE symbol='VNINDEX' AND close > 0 AND close <= 100"
+            "WHERE symbol='VNINDEX' AND (close > 0 AND close <= 100 OR (close > 100 AND high > 0 AND high <= 100))"
         )
         corrupt = cursor.fetchone()[0]
         result["corrupt_rows"] = corrupt
@@ -78,7 +78,7 @@ def ensure_vnindex_integrity(
         # --- Step 2: Sample corrupt rows ---
         cursor.execute(
             "SELECT date, close FROM daily_ohlcv "
-            "WHERE symbol='VNINDEX' AND close > 0 AND close <= 100 "
+            "WHERE symbol='VNINDEX' AND (close > 0 AND close <= 100 OR (close > 100 AND high > 0 AND high <= 100)) "
             "ORDER BY date"
         )
         samples = cursor.fetchall()
@@ -95,15 +95,28 @@ def ensure_vnindex_integrity(
 
         # --- Step 3: Fix ---
         cursor.execute(
-            "UPDATE daily_ohlcv SET close = close * 1000 "
+            "UPDATE daily_ohlcv "
+            "SET open = open * 1000, "
+            "    high = high * 1000, "
+            "    low = low * 1000, "
+            "    close = close * 1000, "
+            "    adj_close = adj_close * 1000 "
             "WHERE symbol='VNINDEX' AND close > 0 AND close <= 100"
+        )
+        cursor.execute(
+            "UPDATE daily_ohlcv "
+            "SET open = open * 1000, "
+            "    high = high * 1000, "
+            "    low = low * 1000, "
+            "    adj_close = adj_close * 1000 "
+            "WHERE symbol='VNINDEX' AND close > 100 AND high > 0 AND high <= 100"
         )
         conn.commit()
 
         # --- Step 4: Verify fix ---
         cursor.execute(
             "SELECT COUNT(*) FROM daily_ohlcv "
-            "WHERE symbol='VNINDEX' AND close > 0 AND close <= 100"
+            "WHERE symbol='VNINDEX' AND (close > 0 AND close <= 100 OR (close > 100 AND high > 0 AND high <= 100))"
         )
         remaining = cursor.fetchone()[0]
 

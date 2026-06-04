@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import pandas as pd
 import sqlite3
 import numpy as np
@@ -128,6 +128,7 @@ def evaluate_recovery_status(regime_data, velocity_5d, target_date=None):
         "is_abort": bool(is_abort),
         "status": status,
         "block_reason": block_reason,
+        "ma10_reclaim": bool(reclaim_ma10),
         "details": {
             "index_dd": round(current_dd, 2),
             "breadth_std": round(breadth_std, 2),

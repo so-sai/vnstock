@@ -25,6 +25,12 @@ class MacroStatus(AlphaBaseModel):
     interbank_rate: float = Field(..., description="Lãi suất liên ngân hàng O/N")
     sbv_action: str = Field(..., description="Trạng thái OMO (Bơm/Hút)")
     risk_level: str = Field(..., description="Mức độ rủi ro (Emerald/Amber/Red)")
+    adx: Optional[float] = Field(None, description="Chỉ số ADX")
+    atr_ratio: Optional[float] = Field(None, description="Tỷ số ATR")
+    vgb10y: Optional[float] = Field(None, description="Lợi suất TPCP VN 10 năm")
+    vgb10y_bps_change: Optional[str] = Field(None, description="Độ thay đổi bps của VGB10Y")
+    vgb10y_status_label: Optional[str] = Field(None, description="Nhãn trạng thái VGB10Y")
+    vgb10y_raw_bps: Optional[int] = Field(None, description="Độ thay đổi bps thô")
 
 # 2. Tầng Độ rộng thị trường (Market Breadth)
 class MarketBreadth(AlphaBaseModel):

@@ -1,13 +1,13 @@
 {
-    "timestamp": "2026-04-17 16:42:30",
-    "market_date": "2026-04-17",
+    "timestamp": "2026-06-04 15:21:36",
+    "market_date": "2026-06-04",
     "layer1_mom_expansion": {
-        "value": 0,
+        "value": 92,
         "threshold": 150,
         "status": "FAIL"
     },
     "layer2_nh10_consistency": {
-        "value": 1,
+        "value": 0,
         "threshold": 3,
         "status": "FAIL"
     },
