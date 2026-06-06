@@ -29,7 +29,81 @@ from src.engine.meanrev_engine import run_meanrev_scan
 from src.engine.recovery_engine import evaluate_recovery_status
 from src.database.timeline_manager import calculate_breadth_velocity
 
-def merge_decisions(model_a_verdict=None, target_date=None):
+def modulate_conviction(
+    base_conviction: float,
+    driver_state: dict | None = None,
+    drift_assessment: dict | None = None,
+    explain_validation: dict | None = None,
+) -> tuple[float, list[str]]:
+    """Adjust conviction using cognitive signals.
+
+    Multiplicative modifiers — each under 1.0 reduces conviction, over 1.0 boosts.
+    Returns (adjusted_conviction, list_of_reasons).
+    """
+    if not any([driver_state, drift_assessment, explain_validation]):
+        return base_conviction, ["no cognitive signals — base only"]
+
+    mult = 1.0
+    reasons = []
+
+    # 1. Driver confidence — low confidence = weak dominance
+    if driver_state:
+        dc = driver_state.get("confidence", 0.5)
+        if dc < 0.3:
+            mult *= 0.6
+            reasons.append("driver confidence low (%.2f)" % dc)
+        elif dc < 0.5:
+            mult *= 0.85
+            reasons.append("driver confidence moderate (%.2f)" % dc)
+        elif dc > 0.7:
+            mult *= 1.1
+            reasons.append("driver confidence high (%.2f)" % dc)
+
+    # 2. Drift — high drift = system unreliable
+    if drift_assessment:
+        ds = drift_assessment.get("drift_status", "NONE")
+        if ds == "HIGH" or ds == "CRITICAL":
+            mult *= 0.3
+            reasons.append("drift %s" % ds)
+        elif ds == "MEDIUM":
+            mult *= 0.6
+            reasons.append("drift medium")
+
+    # 3. ETS — narrative reliability
+    if explain_validation:
+        ets = explain_validation.get("ets_score", 0.5)
+        if ets < 0.3:
+            mult *= 0.5
+            reasons.append("ETS low (%.2f)" % ets)
+        elif ets < 0.5:
+            mult *= 0.8
+            reasons.append("ETS moderate (%.2f)" % ets)
+        elif ets > 0.7:
+            mult *= 1.1
+            reasons.append("ETS high (%.2f)" % ets)
+
+    # 4. Flow rotation — risk-off pattern
+    if drift_assessment:
+        rotation = drift_assessment.get("flow_rotation")
+        rotation_text = drift_assessment.get("narrative_truth_gap") or ""
+        if rotation and "risk_off" in rotation:
+            mult *= 0.4
+            reasons.append("risk-off flow rotation")
+        elif rotation_text and "flow" in rotation_text.lower():
+            mult *= 0.7
+            reasons.append("flow rotation detected")
+
+    mult = max(0.05, mult)
+    return max(0.0, min(1.0, base_conviction * mult)), reasons
+
+
+def merge_decisions(
+    model_a_verdict=None,
+    target_date=None,
+    driver_state: dict | None = None,
+    drift_assessment: dict | None = None,
+    explain_validation: dict | None = None,
+):
     """
     Decision Engine: The Boardroom (v1.0 Institutional).
     Merges Regime, Model A (Momentum), and Model B (Mean Rev).
@@ -79,6 +153,17 @@ def merge_decisions(model_a_verdict=None, target_date=None):
     if china_risk_flag:
         print("[LOCK 4] MACRO DAMPENING: China Risk Flag High. Reducing confidence.")
         base_confidence *= 0.7
+
+    # [COGNITIVE MODULATION] — inject driver/drift/ETS into conviction
+    modulated_confidence, mod_reasons = modulate_conviction(
+        base_confidence,
+        driver_state=driver_state,
+        drift_assessment=drift_assessment,
+        explain_validation=explain_validation,
+    )
+    if mod_reasons:
+        print("[COGNITIVE MODULATION] " + " | ".join(mod_reasons))
+        base_confidence = modulated_confidence
     
     # 5. Dominance Logic
     active_model = "NONE"
@@ -133,7 +218,13 @@ def merge_decisions(model_a_verdict=None, target_date=None):
             "breadth_std": regime.get('details', {}).get('breadth_std_10d', 0),
             "breadth_velocity": round(regime.get('breadth_velocity', 0.0), 2),
         },
-        "recovery": recovery
+        "recovery": recovery,
+        "cognitive_modulation": {
+            "mod_reasons": mod_reasons,
+            "driver_confidence": driver_state.get("confidence") if driver_state else None,
+            "drift_status": drift_assessment.get("drift_status") if drift_assessment else None,
+            "ets_score": explain_validation.get("ets_score") if explain_validation else None,
+        },
     }
 
     # Output

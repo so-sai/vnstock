@@ -2,7 +2,28 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from backend.src.engine.driver_normalizer import driver_state_from_engine_outputs
+from backend.src.engine.explain_layer import explain_snapshot
+from backend.src.engine.explain_validator import validate_explanation
+from backend.src.engine.drift_prevention import assess_drift
+from backend.src.engine.trader_concierge import trading_insight
 from backend.src.engine.hazard_engine import HazardTransitionEngine
+
+
+def _driver_state_from_snapshot(breadth_health: float, flow: dict, structure: dict) -> dict:
+    """Build driver_state dict from available batch-runner signals."""
+    ds = driver_state_from_engine_outputs(
+        breadth_health=breadth_health * 100,
+        flow_bias=flow["flow_bias_score"],
+        lcr_pct=structure["lcr_pct"],
+    )
+    return {
+        "dominant": ds.dominant,
+        "confidence": round(ds.confidence, 4),
+        "entropy": round(ds.entropy, 4),
+        "sharpness": round(ds.sharpness, 4),
+        "distribution": {k: round(v, 4) for k, v in ds.distribution.items()},
+    }
 
 
 class RegimeROM:
@@ -37,24 +58,42 @@ class RegimeROM:
         self.trending_threshold = trending_threshold
         self.crisis_threshold = crisis_threshold
 
-    def evaluate(self, breadth_score: float, flow_score: float, recovery_score: float) -> dict:
+    def evaluate(
+        self,
+        breadth_score: float,
+        flow_score: float,
+        recovery_score: float,
+        driver_state: Optional[dict] = None,
+    ) -> dict:
         raw = max(0.0, min(1.0, 0.5 * breadth_score + 0.35 * flow_score + 0.15 * recovery_score))
 
-        # Skip momentum update if breadth is still in warmup (no MA20 data yet)
-        if breadth_score > 0.0:
-            self.momentum = self.smoothing * self.momentum + (1 - self.smoothing) * raw
+        # Adaptive smoothing from driver entropy
+        smoothing = self.smoothing
+        tt = self.trending_threshold
+        ct = self.crisis_threshold
+        if driver_state:
+            entropy = driver_state.get("entropy", 0.5)
+            confidence = driver_state.get("confidence", 0.5)
+            # High entropy → more smoothing (wait for clarity)
+            smoothing_mod = np.clip(0.5 + entropy / 1.5, 0.3, 2.0)
+            smoothing = np.clip(self.smoothing * smoothing_mod, 0.01, 0.5)
+            # Low confidence → wider hysteresis bands (avoid false switches)
+            band_mod = np.clip(1.0 + (1.0 - confidence) * 0.3, 0.7, 1.3)
+            tt = np.clip(self.trending_threshold * band_mod, 0.3, 0.7)
+            ct = np.clip(self.crisis_threshold / band_mod, 0.15, 0.5)
 
-        # Markov inertia: small bias to resist change
+        if breadth_score > 0.0:
+            self.momentum = smoothing * self.momentum + (1 - smoothing) * raw
+
         inertia = self.momentum
         if self.prev_regime == "TRENDING" and self.trending_bias:
             inertia = min(1.0, self.momentum + self.trending_bias)
         elif self.prev_regime == "CRISIS" and self.crisis_bias:
             inertia = max(0.0, self.momentum - self.crisis_bias)
 
-        # Hysteresis bands
-        if inertia > self.trending_threshold:
+        if inertia > tt:
             regime = "TRENDING"
-        elif inertia < self.crisis_threshold:
+        elif inertia < ct:
             regime = "CRISIS"
         else:
             regime = "RANGING"
@@ -64,6 +103,7 @@ class RegimeROM:
             "market_status": regime,
             "regime_score": round(inertia, 4),
             "momentum": round(self.momentum, 4),
+            "adaptive_smoothing": round(smoothing, 4),
         }
 
 
@@ -259,6 +299,7 @@ class HSRBatchRunner:
         cache = self._index()
         rom = RegimeROM()
 
+        prev_ets: Optional[float] = None
         for d in dates:
             day_df = cache.get(d)
             if day_df is None or len(day_df) == 0:
@@ -270,17 +311,21 @@ class HSRBatchRunner:
             f = self.flow(day_df)
             r = self.recovery(day_df)
 
-            # Layer 2: regime (stateful ROM with inertia)
+            # Layer 1b: driver state (control signal, computed before regime)
+            breadth_health = b["health_score_ma20"]
+            ds_dict = _driver_state_from_snapshot(breadth_health, f, s)
+
+            # Layer 2: regime (stateful ROM with inertia, modulated by driver_state)
             regime = rom.evaluate(
-                breadth_score=b["health_score_ma20"],
+                breadth_score=breadth_health,
                 flow_score=f["flow_bias_score"],
                 recovery_score=1.0 if r.get("status") == "RECOVERY" else 0.0,
+                driver_state=ds_dict,
             )
 
             # Layer 3: presentation
             regime_status = regime["market_status"]
             regime_score = regime["regime_score"]
-            breadth_health = b["health_score_ma20"]
 
             ts = self._trade_state(regime_status, regime_score, breadth_health)
             ssi = self._ssi(breadth_health, s["lcr_pct"], f["flow_bias_score"])
@@ -288,28 +333,37 @@ class HSRBatchRunner:
             dbe = self._dbe(regime_score, breadth_health, f["flow_bias_score"])
             self._dpl(dbe_history, dbe)
 
-            snapshots.append(
-                {
-                    "date": d,
-                    "regime_status": regime_status,
-                    "trade_state_level": ts.level,
-                    "breadth_health": round(breadth_health, 4),
-                    "lcr_pct": s["lcr_pct"],
-                    "bdi_signal": s["bdi_signal"],
-                    "flow_bias_score": round(f["flow_bias_score"], 4),
-                    "flow_label": f["flow_label"],
-                    "ssi_score": round(ssi.score, 4),
-                    "dcl_verdict": dcl.verdict,
-                    "dcl_score": round(dcl.score, 4),
-                    "compensations_triggered": len(dcl.compensations_triggered),
-                    "hsr_quality": {
-                        "capital_displacement": "MISSING_HISTORICAL_SOURCE",
-                        "risk_governor": "MISSING_HISTORICAL_SOURCE",
-                        "sentinel_verdict": "MISSING_HISTORICAL_SOURCE",
-                        "breadth_source": "feature_lattice",
-                    },
-                }
-            )
+            snap = {
+                "date": d,
+                "regime_status": regime_status,
+                "trade_state_level": ts.level,
+                "breadth_health": round(breadth_health, 4),
+                "lcr_pct": s["lcr_pct"],
+                "bdi_signal": s["bdi_signal"],
+                "flow_bias_score": round(f["flow_bias_score"], 4),
+                "flow_label": f["flow_label"],
+                "ssi_score": round(ssi.score, 4),
+                "dcl_verdict": dcl.verdict,
+                "dcl_score": round(dcl.score, 4),
+                "compensations_triggered": len(dcl.compensations_triggered),
+                "driver_state": _driver_state_from_snapshot(breadth_health, f, s),
+                "narrative_vi": explain_snapshot(
+                    ds_dict,
+                    regime_status,
+                    regime_score,
+                )["báo_cáo_hệ_thống"],
+                "hsr_quality": {
+                    "capital_displacement": "MISSING_HISTORICAL_SOURCE",
+                    "risk_governor": "MISSING_HISTORICAL_SOURCE",
+                    "sentinel_verdict": "MISSING_HISTORICAL_SOURCE",
+                    "breadth_source": "feature_lattice",
+                },
+            }
+            snap["explain_validation"] = validate_explanation(snap)
+            snap["drift_assessment"] = assess_drift(snap, prev_ets=prev_ets)
+            snap["trading_insight"] = trading_insight(snap)
+            prev_ets = snap["explain_validation"]["ets_score"]
+            snapshots.append(snap)
 
         return snapshots
 
@@ -336,6 +390,7 @@ class HSRBatchRunner:
         dbe_history = []
         cache = self._index()
         engine = HazardTransitionEngine(weights=weights, seed=seed)
+        prev_ets: Optional[float] = None
 
         for d in dates:
             day_df = cache.get(d)
@@ -346,11 +401,13 @@ class HSRBatchRunner:
             s = self.structure(day_df)
             f = self.flow(day_df)
 
-            regime = engine.evaluate(day_df)
+            breadth_health = b["health_score_ma20"]
+            ds_dict = _driver_state_from_snapshot(breadth_health, f, s)
+
+            regime = engine.evaluate(day_df, driver_state=ds_dict)
 
             regime_status = regime["market_status"]
             regime_score = regime["regime_score"]
-            breadth_health = b["health_score_ma20"]
 
             ts = self._trade_state(regime_status, regime_score, breadth_health)
             ssi = self._ssi(breadth_health, s["lcr_pct"], f["flow_bias_score"])
@@ -358,32 +415,42 @@ class HSRBatchRunner:
             dbe = self._dbe(regime_score, breadth_health, f["flow_bias_score"])
             self._dpl(dbe_history, dbe)
 
-            snapshots.append(
-                {
-                    "date": d,
-                    "regime_status": regime_status,
-                    "trade_state_level": ts.level,
-                    "breadth_health": round(breadth_health, 4),
-                    "lcr_pct": s["lcr_pct"],
-                    "bdi_signal": s["bdi_signal"],
-                    "flow_bias_score": round(f["flow_bias_score"], 4),
-                    "flow_label": f["flow_label"],
-                    "ssi_score": round(ssi.score, 4),
-                    "dcl_verdict": dcl.verdict,
-                    "dcl_score": round(dcl.score, 4),
-                    "compensations_triggered": len(dcl.compensations_triggered),
-                    "hazard_rate": regime.get("hazard_rate", 0.0),
-                    "survival_prob": regime.get("survival_prob", 0.0),
-                    "regime_age": regime.get("regime_age", 0),
-                    "hsr_quality": {
-                        "capital_displacement": "MISSING_HISTORICAL_SOURCE",
-                        "risk_governor": "MISSING_HISTORICAL_SOURCE",
-                        "sentinel_verdict": "MISSING_HISTORICAL_SOURCE",
-                        "breadth_source": "feature_lattice",
-                        "regime_source": "hazard_transition_engine",
-                    },
-                }
-            )
+            snap = {
+                "date": d,
+                "regime_status": regime_status,
+                "trade_state_level": ts.level,
+                "breadth_health": round(breadth_health, 4),
+                "lcr_pct": s["lcr_pct"],
+                "bdi_signal": s["bdi_signal"],
+                "flow_bias_score": round(f["flow_bias_score"], 4),
+                "flow_label": f["flow_label"],
+                "ssi_score": round(ssi.score, 4),
+                "dcl_verdict": dcl.verdict,
+                "dcl_score": round(dcl.score, 4),
+                "compensations_triggered": len(dcl.compensations_triggered),
+                "hazard_rate": regime.get("hazard_rate", 0.0),
+                "survival_prob": regime.get("survival_prob", 0.0),
+                "regime_age": regime.get("regime_age", 0),
+                "driver_state": _driver_state_from_snapshot(breadth_health, f, s),
+                "narrative_vi": explain_snapshot(
+                    ds_dict,
+                    regime_status,
+                    regime_score,
+                    hazard_rate=regime.get("hazard_rate", 0.0),
+                )["báo_cáo_hệ_thống"],
+                "hsr_quality": {
+                    "capital_displacement": "MISSING_HISTORICAL_SOURCE",
+                    "risk_governor": "MISSING_HISTORICAL_SOURCE",
+                    "sentinel_verdict": "MISSING_HISTORICAL_SOURCE",
+                    "breadth_source": "feature_lattice",
+                    "regime_source": "hazard_transition_engine",
+                },
+            }
+            snap["explain_validation"] = validate_explanation(snap)
+            snap["drift_assessment"] = assess_drift(snap, prev_ets=prev_ets)
+            snap["trading_insight"] = trading_insight(snap)
+            prev_ets = snap["explain_validation"]["ets_score"]
+            snapshots.append(snap)
 
         return snapshots
 
