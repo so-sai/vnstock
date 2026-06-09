@@ -57,6 +57,17 @@ def get_regime_history(limit=30):
         df = pd.read_sql(f"SELECT * FROM regime_history ORDER BY date DESC LIMIT {limit}", conn)
     return df.sort_values('date')
 
+
+def get_active_ipos(days_back: int = 90):
+    """Placeholder IPO loader. Chờ nguồn dữ liệu IPO thực tế."""
+    return []
+
+
+def get_aftermarket_returns(days_back: int = 90):
+    """Placeholder aftermarket returns loader. Trả về dict rỗng khi chưa có dữ liệu."""
+    return {}
+
+
 def calculate_breadth_velocity(current_breadth, days=5, target_date=None):
     """
     Calculates the velocity of breadth recovery from historical logs.

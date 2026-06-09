@@ -1,8 +1,42 @@
 import sys
+import math
+import json
+import numpy as np
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import JSONResponse
+
+
+class _NanSafeJSONResponse(JSONResponse):
+    """JSONResponse that converts NaN/Infinity to null before serialization."""
+    def render(self, content) -> bytes:
+        return json.dumps(
+            _canonicalize_json(content),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode('utf-8')
+
+
+def _canonicalize_json(obj):
+    if isinstance(obj, dict):
+        return {k: _canonicalize_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_canonicalize_json(v) for v in obj]
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return None if (np.isnan(obj) or np.isinf(obj)) else float(obj)
+    if isinstance(obj, np.ndarray):
+        return _canonicalize_json(obj.tolist())
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
 
 
 def _hydrate_path():
@@ -25,9 +59,11 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.core.canonical_output_adapter import localize_output
 from src.api.routes import macro, screener, models, breadth, portfolio, backtest, xray, replay, intelligence, flow, watchlist, market_state, gold, holdings, telemetry, weekly
+from src.api import ipo_signal_api
 
-app = FastAPI(title="PTCK VNSTOCK API", version="1.5.2")
+app = FastAPI(title="PTCK VNSTOCK API", version="1.5.2", default_response_class=_NanSafeJSONResponse)
 
 
 def get_frontend_dist_path() -> Path:
@@ -55,6 +91,7 @@ app.include_router(backtest.router, prefix="/api/backtest", tags=["Backtest"])
 app.include_router(xray.router, prefix="/api/xray", tags=["XRay"])
 app.include_router(replay.router, prefix="/api/replay", tags=["Replay"])
 app.include_router(intelligence.router, prefix="/api/intelligence", tags=["Phase 12 - Actionable Intelligence"])
+app.include_router(ipo_signal_api.router, prefix="/api", tags=["IPO Signal"])
 app.include_router(flow.router, prefix="/api/v1/flow", tags=["Phase 12B - Asia Flow Map"])
 app.include_router(watchlist.router, prefix="/api/watchlist", tags=["Watchlist"])
 app.include_router(market_state.router, prefix="/api/v1/market-state", tags=["Phase 13 - Market State Coordinator"])
@@ -66,7 +103,7 @@ app.include_router(weekly.router, prefix="/api/v1/weekly", tags=["Weekly Cogniti
 
 @app.get("/api")
 async def root():
-    return {
+    return localize_output({
         "message": "PTCK VNSTOCK API v1.5.2 - Diamond Shield Trading System",
         "docs": "/docs",
         "endpoints": [
@@ -87,6 +124,8 @@ async def root():
             "/api/intelligence/opportunities",
             "/api/intelligence/scenario",
             "/api/intelligence/position-narrative/{symbol}",
+            "/api/intelligence/ipo-signal/",
+            "/api/intelligence/ipo-signal/history/",
             "/api/v1/flow/banner",
             "/api/watchlist/pins",
             "/api/watchlist/pin",
@@ -111,12 +150,12 @@ async def root():
             "/api/v1/telemetry/engines/refresh",
             "/api/v1/weekly/",
         ],
-    }
+    })
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return localize_output({"status": "ok"})
 
 
 frontend_dist = get_frontend_dist_path()

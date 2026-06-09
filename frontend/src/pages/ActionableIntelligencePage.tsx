@@ -5,6 +5,7 @@ import LiveSummaryBar from '../components/LiveSummaryBar';
 import PortfolioCoach from '../components/PortfolioCoach';
 import OpportunityQueue from '../components/OpportunityQueue';
 import ScenarioSimulation from '../components/ScenarioSimulation';
+import IPOHUDWidget from '../components/IPOHUDWidget';
 
 const ActionableIntelligencePage: React.FC = () => {
   return (
@@ -16,7 +17,7 @@ const ActionableIntelligencePage: React.FC = () => {
               Trung tâm Hành động
             </Title>
             <Text className="text-japandi-earth/50 text-xs mt-1 font-mono">
-              Actionable Intelligence Center — Phase 12
+              Trung tâm Hành động Thông minh — Giai đoạn 12
             </Text>
           </div>
           <div className="w-72">
@@ -27,12 +28,15 @@ const ActionableIntelligencePage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         <ErrorBoundary>
           <PortfolioCoach />
         </ErrorBoundary>
         <ErrorBoundary>
           <ScenarioSimulation />
+        </ErrorBoundary>
+        <ErrorBoundary>
+          <IPOHUDWidget />
         </ErrorBoundary>
       </div>
 

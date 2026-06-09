@@ -15,9 +15,10 @@ Tích hợp:
   - Trả về format API (camelCase)
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Dict, Optional, List
+from pydantic import BaseModel
 import math
 
 # Giả định import từ hệ thống hiện tại
@@ -172,9 +173,9 @@ async def get_ipo_hud_signal(
     
     try:
         # 1. Khởi tạo IPO Service
-        from engine.ipo_engine import IpoEngine
-        from services.ipo_signal_service import IpoSignalService
-        from database.timeline_manager import get_active_ipos, get_aftermarket_returns
+        from src.engine.ipo_engine import IpoEngine
+        from src.services.ipo_signal_service import IpoSignalService
+        from src.database.timeline_manager import get_active_ipos, get_aftermarket_returns
         
         ipo_engine = IpoEngine()
         ipo_service = IpoSignalService(ipo_engine)
@@ -185,7 +186,7 @@ async def get_ipo_hud_signal(
             ipo_engine.add_ipo_event(ipo)
         
         # 3. Lấy thông tin thị trường hiện tại
-        from engine.regime_engine import RegimeEngine
+        from src.engine.regime_engine import RegimeEngine
         regime_engine = RegimeEngine()
         regime_score, breadth_score, _ = regime_engine.calculate()
         
@@ -230,9 +231,8 @@ async def get_ipo_signal_history(
     Dùng cho charting / trend analysis
     """
     try:
-        # Load từ DB / JSON lịch sử IPO signal
-        # Return: List[{date, traffic_light, ldi_score, regime_modifier}]
-        pass
+        # Hiện tại chưa có lịch sử IPO lưu trữ, trả về danh sách rỗng để frontend xử lý mềm dẻo.
+        return []
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 

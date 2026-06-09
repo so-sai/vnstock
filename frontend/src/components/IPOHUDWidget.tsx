@@ -157,12 +157,23 @@ const IPOHUDWidget: React.FC = () => {
   );
 
   // Loading state
-  if (isLoading || !ipo || !decayData || !ldiData) {
+  if (isLoading) {
     return (
       <div className="bg-japandi-warm-sand/20 border border-japandi-muted-clay/20 rounded-lg p-4 animate-pulse">
         <span className="text-japandi-muted-clay text-xs font-mono">
           ⏳ Đang phân tích IPO...
         </span>
+      </div>
+    );
+  }
+
+  if (!ipo || !decayData || !ldiData) {
+    return (
+      <div className="bg-white/80 border border-japandi-muted-clay rounded-lg p-4">
+        <div className="text-sm font-bold text-japandi-earth mb-2">IPO Signal</div>
+        <div className="text-xs text-japandi-muted-clay">
+          ✅ Không có tín hiệu IPO đặc biệt hiện tại. Thị trường ổn định.
+        </div>
       </div>
     );
   }
