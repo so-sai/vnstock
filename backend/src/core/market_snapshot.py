@@ -94,7 +94,14 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
         ew_diem = 0
         ew_canh_bao = []
 
-    # ── Bước 4: Các chỉ số thành phần ──
+    # ── Bước 4: Phân tích chỉ số (Index Reality Unifier) ──
+    from src.engine.index_reality_unifier import phan_tich_chi_so
+    try:
+        reality = phan_tich_chi_so(target_date=target_date)
+    except Exception:
+        reality = {}
+
+    # ── Bước 5: Các chỉ số thành phần ──
     details = regime_data.get("details", {})
     rad = regime_data.get("rad", {})
     rad_active = rad.get("activated", False)
@@ -126,10 +133,21 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
             "canh_bao": ew_canh_bao,
             "co_canh_bao": ew_cap_do in ("RỦI_RO_HỆ_THỐNG", "CHUYỂN_PHA_MẠNH"),
         },
+        "phan_tich_chi_so": {
+            "diem_thi_truong_that": reality.get("diem_thi_truong_that"),
+            "nhan_dien": reality.get("nhan_dien"),
+            "chi_so_cong_bo": reality.get("chi_so_cong_bo"),
+            "chi_so_noi_tai": reality.get("chi_so_noi_tai"),
+            "do_lech_bdi": reality.get("do_lech_bdi"),
+            "tap_trung_lcr": reality.get("tap_trung", {}).get("lcr_pct"),
+            "do_lech_pha": reality.get("do_lech_pha"),
+            "dien_giai": reality.get("dien_giai"),
+        },
         "metadata": {
             "nguon_regime": "live (detect_regime)",
             "nguon_cau_truc": "snapshot (structural_state.json)",
             "nguon_canh_bao": "live (build_early_warning)",
+            "nguon_phan_tich_chi_so": "live (index_reality_unifier)",
         },
     }
 

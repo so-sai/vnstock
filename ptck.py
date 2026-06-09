@@ -15,6 +15,7 @@ Usage:
   python ptck.py status
 """
 import sys
+import subprocess
 import argparse
 from pathlib import Path
 
@@ -179,14 +180,15 @@ def cmd_daily_close(args):
 def cmd_daily_update(args):
     """Cập nhật dữ liệu EOD."""
     date = getattr(args, 'date', None)
-    cmd_str = "python backend/src/daily_updater.py"
+    cmd = [sys.executable, str(backend_dir / "src" / "daily_updater.py")]
     if date:
-        cmd_str += f" --date {date}"
-    print(f"  Chạy: {cmd_str}")
-    sys.argv = ["daily_updater.py"]
-    if date:
-        sys.argv += ["--date", date]
-    exec(open(backend_dir / "src" / "daily_updater.py", encoding='utf-8').read())
+        cmd += ["--date", date]
+    print(f"  Chạy: {' '.join(cmd)}")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        print(f"  [FAIL] Lỗi: mã thoát {result.returncode}")
+    else:
+        print("  [OK] Daily update hoàn tất.")
 
 
 def _localize_driver(driver: str) -> str:
@@ -466,6 +468,27 @@ def cmd_data_quality(args):
     xuat_bao_cao()
 
 
+def cmd_index_decompose(args):
+    """Phân tích chỉ số thị trường thống nhất."""
+    from src.engine.index_reality_unifier import phan_tich_chi_so, in_bao_cao
+    from datetime import datetime
+    kq = phan_tich_chi_so(args.date or datetime.now().strftime("%Y-%m-%d"))
+    in_bao_cao(kq)
+
+
+def cmd_backfill(args):
+    """Engine khôi phục dữ liệu lịch sử (Backfill)."""
+    from src.engine.backfill_engine import backfill
+    symbols = getattr(args, 'symbols', None)
+    if symbols:
+        symbols = [s.strip().upper() for s in symbols.split(',')]
+    start = getattr(args, 'start', None)
+    end = getattr(args, 'end', None)
+    dry_run = getattr(args, 'dry_run', False)
+    quiet = getattr(args, 'quiet', False)
+    backfill(symbols=symbols, start=start, end=end, dry_run=dry_run, verbose=not quiet)
+
+
 def cmd_scan(args):
     """Elite scanner."""
     deep = getattr(args, 'deep', False)
@@ -607,6 +630,20 @@ def main():
     # data-quality
     p_dq = sub.add_parser("data-quality", help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")
     p_dq.set_defaults(func=cmd_data_quality)
+
+    # index-decompose
+    p_id = sub.add_parser("index-decompose", help="Phân tích chỉ số thị trường thống nhất")
+    p_id.add_argument("--date", help="Ngày (YYYY-MM-DD)")
+    p_id.set_defaults(func=cmd_index_decompose)
+
+    # backfill-history
+    p_bf = sub.add_parser("backfill-history", help="Khôi phục dữ liệu lịch sử cho mã thiếu (Backfill)")
+    p_bf.add_argument("--symbols", help="Chỉ định mã cụ thể, cách nhau bằng dấu phẩy (VD: VCB,REE,HDB)")
+    p_bf.add_argument("--start", default=None, help="Ngày bắt đầu (YYYY-MM-DD, mặc định 2021-01-01)")
+    p_bf.add_argument("--end", default=None, help="Ngày kết thúc (YYYY-MM-DD, mặc định hôm nay)")
+    p_bf.add_argument("--dry-run", action="store_true", dest="dry_run", help="Chạy thử — không ghi vào DB")
+    p_bf.add_argument("--quiet", action="store_true", help="Chỉ in tóm tắt, không in từng mã")
+    p_bf.set_defaults(func=cmd_backfill)
 
     args = parser.parse_args()
     args.func(args)

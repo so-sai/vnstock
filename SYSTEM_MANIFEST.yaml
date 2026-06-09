@@ -134,10 +134,22 @@ entrypoints:
     cli: "python ptck.py snapshot"
     category: market
 
+  # ── Index Decomposition ──────────────────────────────────
+  index_decompose:
+    description: "Phân tích chỉ số thị trường thống nhất — tách lớp chỉ số thật/ảo, đo độ méo, phát hiện tập trung"
+    cli: "python ptck.py index-decompose [--date YYYY-MM-DD]"
+    category: market
+
   # ── Data Quality (TẦNG 0) ──────────────────────────────
   data_quality:
     description: "Bộ đánh giá độ tin cậy dữ liệu (TẦNG 0) — số phiên, phân loại tin cậy, phát hiện mã thiếu lịch sử"
     cli: "python ptck.py data-quality"
+    category: system
+
+  # ── Backfill History ────────────────────────────────────
+  backfill_history:
+    description: "Engine khôi phục dữ liệu lịch sử (Backfill) — phục hồi dữ liệu cho mã thiếu lịch sử từ API, có dry-run mode"
+    cli: "python ptck.py backfill-history [--symbols VCB,REE,HDB] [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--dry-run] [--quiet]"
     category: system
 
   # ── Confidence ────────────────────────────────────────
