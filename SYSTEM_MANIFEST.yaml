@@ -1,0 +1,147 @@
+# SYSTEM MANIFEST v1
+# ==================
+# Đây là nguồn chân lý duy nhất cho mọi entrypoint.
+# Mọi automation / Agent / Operator PHẢI đọc file này trước
+# và chỉ gọi CLI — không viết script tạm.
+#
+# Quy tắc:
+#   1. Tra manifest → tìm cli tương ứng
+#   2. Gọi CLI với đúng arguments
+#   3. Nếu CLI không tồn tại → mới fallback import trực tiếp
+#      và báo cáo vào .kit/friction để bổ sung manifest
+
+version: 1.0
+project: PTCK_VNSTOCK
+
+entrypoints:
+
+  # ── Thị trường ──────────────────────────────────────
+  market_snapshot:
+    description: "Snapshot tổng quan thị trường (regime + breadth + flow + gold)"
+    cli: "python ptck.py market"
+    category: market
+
+  regime_check:
+    description: "Phân tích regime chi tiết (điểm, driver, ATR, ADX)"
+    cli: "python ptck.py regime"
+    category: market
+
+  # ── Báo cáo ─────────────────────────────────────────
+  report_weekly:
+    description: "Báo cáo nhận thức hàng tuần (cognitive report)"
+    cli: "python ptck.py report weekly"
+    category: report
+
+  report_daily:
+    description: "Báo cáo thị trường hằng ngày (5 phần, thuần Việt)"
+    cli: "python ptck.py report daily"
+    category: report
+
+  report_monthly:
+    description: "Báo cáo thị trường hàng tháng"
+    cli: "python ptck.py report monthly --month YYYY-MM [--lang vi]"
+    category: report
+
+  # ── Daily ────────────────────────────────────────────
+  daily_close:
+    description: "Chạy daily closer (breadth + sector + flow + macro + reputation)"
+    cli: "python ptck.py daily-close"
+    category: daily
+
+  daily_update:
+    description: "Cập nhật dữ liệu EOD (OHLCV, breadth, sector, macro)"
+    cli: "python ptck.py daily-update [--date YYYY-MM-DD]"
+    category: daily
+
+  # ── Telemetry ────────────────────────────────────────
+  reputation_view:
+    description: "Xem reputation ledger + drift monitor của các driver"
+    cli: "python ptck.py telemetry reputation"
+    category: telemetry
+
+  reputation_refresh:
+    description: "Refresh reputation ledger từ shadow metrics + alpha attribution"
+    cli: "python ptck.py telemetry reputation --refresh"
+    category: telemetry
+
+  drift_monitor:
+    description: "Drift Monitor — độ dốc hiệu suất, half-life, cảnh báo mất hiệu lực"
+    cli: "python ptck.py telemetry reputation --drift"
+    category: telemetry
+
+  shadow_metrics:
+    description: "Xem shadow metrics (accuracy, drift, early warning)"
+    cli: "python ptck.py telemetry shadow [--days N]"
+    category: telemetry
+
+  # ── Server ───────────────────────────────────────────
+  serve:
+    description: "Khởi động FastAPI server + frontend"
+    cli: "python ptck.py serve"
+    category: server
+
+  # ── Database ─────────────────────────────────────────
+  db_vacuum:
+    description: "Bảo trì database (VACUUM, compact)"
+    cli: "python ptck.py db vacuum"
+    category: database
+
+  db_stats:
+    description: "Thống kê database (dung lượng, số dòng mỗi bảng)"
+    cli: "python ptck.py db stats"
+    category: database
+
+  structural_check:
+    description: "Bộ phát hiện lệch cấu trúc thị trường (3 trụ: lan tỏa, đồng thuận ngành, index vs nội bộ)"
+    cli: "python ptck.py structural [--date YYYY-MM-DD]"
+    category: market
+
+  confidence_layer:
+    description: "Lớp tự đánh giá độ tin cậy — confidence score + breakdown 5 nhân tố (regime, cấu trúc, đồng thuận, biến động, uy tín driver)"
+    cli: "python ptck.py confidence"
+    category: decision
+
+  final_decision:
+    description: "Bộ não quyết định cuối cùng (hợp nhất regime + cấu trúc + cảnh báo)"
+    cli: "python ptck.py final-decision [--date YYYY-MM-DD]"
+    category: decision
+
+  # ── Hệ thống ─────────────────────────────────────────
+  status:
+    description: "Kiểm tra sức khỏe hệ thống (env, dependencies, DB)"
+    cli: "python ptck.py status"
+    category: system
+
+  scan:
+    description: "Quét thị trường tìm cơ hội (elite scanner)"
+    cli: "python ptck.py scan [--deep]"
+    category: system
+
+  # ── Gold ─────────────────────────────────────────────
+  gold_dashboard:
+    description: "Giá vàng SJC + BTMC + spread"
+    cli: "python ptck.py gold"
+    category: gold
+
+  gold_regime:
+    description: "Gold regime + cognitive signals + premium"
+    cli: "python ptck.py gold regime"
+    category: gold
+
+  # ── Snapshot ──────────────────────────────────────────
+  snapshot:
+    description: "Ảnh chụp thị trường duy nhất (regime + cấu trúc + cảnh báo)"
+    cli: "python ptck.py snapshot"
+    category: market
+
+  # ── Data Quality (TẦNG 0) ──────────────────────────────
+  data_quality:
+    description: "Bộ đánh giá độ tin cậy dữ liệu (TẦNG 0) — số phiên, phân loại tin cậy, phát hiện mã thiếu lịch sử"
+    cli: "python ptck.py data-quality"
+    category: system
+
+  # ── Confidence ────────────────────────────────────────
+  confidence:
+    description: "Lớp tự đánh giá độ tin cậy — 5 nhân tố + veto"
+    cli: "python ptck.py confidence"
+    category: decision

@@ -21,6 +21,7 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.services.backtest_service import get_backtest_results, get_stress_test_summary
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -35,11 +36,11 @@ async def run_backtest(
     Trả về equity curve, portfolio stats, top picks.
     """
     try:
-        return get_backtest_results(
+        return localize_output(get_backtest_results(
             model=model,
             start_date=start_date,
             end_date=end_date,
-        )
+        ))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -48,6 +49,6 @@ async def run_backtest(
 async def stress_test_2022():
     """Tóm tắt kết quả Stress Test giai đoạn 2022."""
     try:
-        return get_stress_test_summary()
+        return localize_output(get_stress_test_summary())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

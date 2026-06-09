@@ -52,20 +52,20 @@ else:
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # 4. Giải phóng xiềng xích "sys.path"
-# Chèn thư viện vnstock vào bộ nhớ ngay khi import config
-vnstock_path = str(LIBS_DIR / "vnstock")
-if vnstock_path not in sys.path:
-    sys.path.insert(0, vnstock_path)
-
-# Thêm backend/ vào sys.path để import được package 'src'
-backend_dir = PROJECT_ROOT / "backend"
-if backend_dir.is_dir() and str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
-
-# Thêm Root vào để Python nhận diện thư mục src/
+# Thêm Project Root trước để ưu tiên package chính (core/, data/, docs/)
 root_path = str(PROJECT_ROOT)
 if root_path not in sys.path:
     sys.path.insert(0, root_path)
+
+# Chèn thư viện vnstock vào bộ nhớ ngay khi import config
+vnstock_path = str(LIBS_DIR / "vnstock")
+if vnstock_path not in sys.path:
+    sys.path.insert(0, str(vnstock_path))
+
+# Thêm backend/ vào sys.path để import được package 'src' sau project root
+backend_dir = PROJECT_ROOT / "backend"
+if backend_dir.is_dir() and str(backend_dir) not in sys.path:
+    sys.path.append(str(backend_dir))
 
 # =================================================================
 # [PHASE 7.5] HARDENING CONFIGURATION

@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 
 logger = logging.getLogger(__name__)
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -48,22 +49,22 @@ def _load_state() -> dict:
 
 @router.get("/", summary="Unified market state")
 async def get_market_state():
-    return _load_state()
+    return localize_output(_load_state())
 
 
 @router.get("/meta", summary="Meta state only")
 async def get_meta_state():
     state = _load_state()
     if "meta_state" in state:
-        return state["meta_state"]
-    return state
+        return localize_output(state["meta_state"])
+    return localize_output(state)
 
 
 @router.get("/regime", summary="Regime + meta")
 async def get_regime_context():
     state = _load_state()
-    return {
+    return localize_output({
         "regime": state.get("market_regime", {}),
         "meta": state.get("meta_state", {}),
         "timestamp": state.get("timestamp", ""),
-    }
+    })

@@ -24,6 +24,7 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.services.replay_service import get_replay_timeline
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 @router.get("/timeline")
@@ -31,6 +32,6 @@ async def replay_timeline_endpoint(limit: int = Query(365, ge=30, le=1000)):
     """Serves combined daily replay data: VNINDEX price + MA50/200 + regime state."""
     try:
         data = get_replay_timeline(limit=limit)
-        return data
+        return localize_output(data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Replay timeline error: {str(e)}")

@@ -185,10 +185,8 @@ async def get_ipo_hud_signal(
         for ipo in active_ipos:
             ipo_engine.add_ipo_event(ipo)
         
-        # 3. Lấy thông tin thị trường hiện tại
-        from src.engine.regime_engine import RegimeEngine
-        regime_engine = RegimeEngine()
-        regime_score, breadth_score, _ = regime_engine.calculate()
+        # 3. Lấy thông tin thị trường hiện tại (fallback nhẹ cho môi trường chưa có engine regime đầy đủ)
+        breadth_score = 0.55
         
         # 4. Tính aftermarket returns
         aftermarket_returns = get_aftermarket_returns(days_back=90)

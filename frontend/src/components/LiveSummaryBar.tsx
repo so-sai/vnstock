@@ -19,23 +19,30 @@ const LiveSummaryBar: React.FC = () => {
   }
 
   const regimeColors: Record<string, string> = {
-    TRENDING: 'text-emerald-600', RANGING: 'text-amber-600', CRISIS: 'text-rose-600',
+    'Xu hướng rõ ràng': 'text-emerald-600', 'Đi ngang': 'text-amber-600',
+    'Khủng hoảng': 'text-rose-600', 'Rủi ro cao': 'text-rose-600',
+    'Không xác định': 'text-zinc-500',
   };
   const liqColors: Record<string, string> = {
-    EXPANDING: 'text-emerald-600', NEUTRAL: 'text-amber-600', CONTRACTING: 'text-rose-600',
+    'Mở rộng': 'text-emerald-600', 'Trung tính': 'text-amber-600', 'Thu hẹp': 'text-rose-600',
   };
+  const actionVi: Record<string, string> = { ENTER: 'Mở vị thế', SCALE_IN: 'Tăng', HOLD: 'Giữ', REDUCE: 'Giảm', EXIT: 'Thoát', STAND_DOWN: 'Đứng ngoài' };
+  const riskVi: Record<string, string> = { SAFE: 'An toàn', CAUTION: 'Thận trọng', STRESS: 'Căng thẳng', LOCKED: 'Khóa' };
+  const constraintVi: Record<string, string> = { ALLOWED: 'Được phép', PARTIAL: 'Giảm 50%', BLOCKED: 'Bị khóa' };
   const breakoutColors: Record<string, string> = {
-    HIGH_BREAKOUT_ACTIVITY: 'text-emerald-600',
-    MODERATE_BREAKOUT_ACTIVITY: 'text-amber-600',
-    LOW_BREAKOUT_ACTIVITY: 'text-zinc-500',
+    'Nhiều phá vỡ': 'text-emerald-600',
+    'Ít phá vỡ': 'text-zinc-500',
+    'Cao': 'text-emerald-600',
+    'Vừa phải': 'text-amber-600',
+    'Thấp': 'text-zinc-500',
   };
   const actionColors: Record<string, string> = {
-    ENTER: 'text-emerald-600 font-bold', HOLD: 'text-amber-600',
-    REDUCE: 'text-orange-600', EXIT: 'text-rose-600', STAND_DOWN: 'text-zinc-500',
+    'Mở vị thế': 'text-emerald-600 font-bold', 'Giữ': 'text-amber-600',
+    'Giảm': 'text-orange-600', 'Thoát': 'text-rose-600', 'Đứng ngoài': 'text-zinc-500',
   };
   const riskColors: Record<string, string> = {
-    SAFE: 'text-emerald-600', CAUTION: 'text-amber-600',
-    STRESS: 'text-rose-600', LOCKED: 'text-red-700 font-black',
+    'An toàn': 'text-emerald-600', 'Thận trọng': 'text-amber-600',
+    'Căng thẳng': 'text-rose-600', 'Khóa': 'text-red-700 font-black',
   };
 
   return (
@@ -49,15 +56,15 @@ const LiveSummaryBar: React.FC = () => {
       </span>
 
       <span className="text-japandi-muted-clay">|</span>
-      <span className={`${actionColors[data.decision?.action] || ''} flex items-center gap-1`}>
-        {data.decision?.action || '---'}
+      <span className={`${actionColors[actionVi[data.decision?.action] || data.decision?.action] || ''} flex items-center gap-1`}>
+        {actionVi[data.decision?.action] || data.decision?.action || '---'}
         <span className="text-japandi-muted-clay/60">({data.decision?.confidence})</span>
       </span>
-      <span className={riskColors[data.decision?.risk] || ''}>
-        {data.decision?.risk}
+      <span className={riskColors[riskVi[data.decision?.risk] || data.decision?.risk] || ''}>
+        {riskVi[data.decision?.risk] || data.decision?.risk}
       </span>
-      {data.decision?.constraint !== 'ALLOWED' && (
-        <span className="text-rose-600 font-bold">● {data.decision?.constraint}</span>
+      {(constraintVi[data.decision?.constraint] || data.decision?.constraint) !== 'Được phép' && (
+        <span className="text-rose-600 font-bold">● {constraintVi[data.decision?.constraint] || data.decision?.constraint}</span>
       )}
 
       <span className="text-japandi-muted-clay">|</span>
@@ -68,13 +75,13 @@ const LiveSummaryBar: React.FC = () => {
 
       <span className="flex items-center gap-1">
         <RotateCw size={11} className="text-japandi-muted-clay/60" />
-        <span className="text-japandi-muted-clay/80">{data.rotation_regime?.slice(0, 8)}</span>
+        <span className="text-japandi-muted-clay/80">{data.rotation_regime ?? ''}</span>
       </span>
 
       <span className="text-japandi-muted-clay">|</span>
       <span className={breakoutColors[data.breakout_context] || ''}>
-        {data.breakout_context === 'HIGH_BREAKOUT_ACTIVITY' ? '🔥' : data.breakout_context === 'LOW_BREAKOUT_ACTIVITY' ? '💤' : ''}
-        {data.positions_count} positions
+        {data.breakout_context === 'Nhiều phá vỡ' ? '🔥' : data.breakout_context === 'Ít phá vỡ' ? '💤' : ''}
+        {data.positions_count} vị thế
       </span>
     </div>
   );

@@ -26,6 +26,7 @@ from core.macro.gold_regime_engine import analyze_gold_regime, cross_reference_w
 from core.macro.gold_spread_engine import analyze_domestic_premium, get_premium_driver
 from src.services.macro_service import get_macro_status
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -33,7 +34,7 @@ router = APIRouter()
 async def get_gold_data():
     """Lấy dữ liệu giá vàng SJC + BTMC + spread."""
     try:
-        return get_gold_dashboard()
+        return localize_output(get_gold_dashboard())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gold service error: {str(e)}")
 
@@ -49,10 +50,10 @@ async def get_gold_regime():
         except Exception:
             pass
         cognition = cross_reference_with_market(macro)
-        return {
+        return localize_output({
             "regime": regime,
             "cognition": cognition.get("gold_cognition", {}),
-        }
+        })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gold regime error: {str(e)}")
 
@@ -64,7 +65,7 @@ async def get_world_gold():
         price = fetch_world_gold_live()
         if price is None:
             raise HTTPException(status_code=503, detail="World gold service unavailable")
-        return {"xau_usd": price, "timestamp": int(__import__("time").time())}
+        return localize_output({"xau_usd": price, "timestamp": int(__import__("time").time())})
     except HTTPException:
         raise
     except Exception as e:
@@ -75,7 +76,7 @@ async def get_world_gold():
 async def get_gold_premium():
     """Lấy Domestic Premium: SJC - XAUUSD quy đổi."""
     try:
-        return analyze_domestic_premium()
+        return localize_output(analyze_domestic_premium())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gold premium error: {str(e)}")
 
@@ -84,7 +85,7 @@ async def get_gold_premium():
 async def get_gold_premium_driver(lookback_days: int = Query(5, description="Số phiên nhìn lại để so baseline")):
     """Phân tích nguyên nhân premium thay đổi: XAUUSD, USD/VND, hay SJC."""
     try:
-        return get_premium_driver(lookback_days=lookback_days)
+        return localize_output(get_premium_driver(lookback_days=lookback_days))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gold driver analysis error: {str(e)}")
 
@@ -93,7 +94,7 @@ async def get_gold_premium_driver(lookback_days: int = Query(5, description="S�
 async def get_gold_cognition():
     """Gold Cognition Layer — hợp nhất VN + Global + Premium."""
     try:
-        return get_gold_cognition_layer()
+        return localize_output(get_gold_cognition_layer())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gold cognition error: {str(e)}")
 
@@ -103,6 +104,6 @@ async def seed_world_gold():
     """Seed XAUUSD từ Stooq vào macro_history."""
     try:
         ok = seed_world_gold_to_db()
-        return {"seeded": ok}
+        return localize_output({"seeded": ok})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gold seed error: {str(e)}")

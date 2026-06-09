@@ -23,6 +23,7 @@ PROJECT_ROOT = _hydrate_path()
 from src.portfolio.watchlist_state_manager import WatchlistStateManager, _store_pin_history
 from src.portfolio.portfolio_recommendation_engine import generate_recommendations, TIER_LABELS
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 manager = WatchlistStateManager()
 
@@ -36,7 +37,7 @@ async def get_pins():
     """Layer 1: Danh sách mã user đang theo dõi."""
     try:
         pins = manager.get_pins()
-        return {"symbols": pins, "count": len(pins)}
+        return localize_output({"symbols": pins, "count": len(pins)})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -49,7 +50,7 @@ async def add_pin(data: PinSymbolInput):
         ok = manager.add_pin(symbol)
         if ok:
             _store_pin_history(symbol, "PIN")
-        return {"symbol": symbol, "pinned": ok, "pins": manager.get_pins()}
+        return localize_output({"symbol": symbol, "pinned": ok, "pins": manager.get_pins()})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -62,7 +63,7 @@ async def remove_pin(symbol: str):
         ok = manager.remove_pin(sym)
         if ok:
             _store_pin_history(sym, "UNPIN")
-        return {"symbol": sym, "unpinned": ok, "pins": manager.get_pins()}
+        return localize_output({"symbol": sym, "unpinned": ok, "pins": manager.get_pins()})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -71,7 +72,7 @@ async def remove_pin(symbol: str):
 async def check_pinned(symbol: str):
     """Kiểm tra mã đã được ghim chưa."""
     try:
-        return {"symbol": symbol.upper(), "pinned": manager.is_pinned(symbol.upper())}
+        return localize_output({"symbol": symbol.upper(), "pinned": manager.is_pinned(symbol.upper())})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -90,12 +91,12 @@ async def get_recommendations():
                 'symbols': [r['symbol'] for r in items[:8]],
                 'details': items[:8],
             }
-        return {
+        return localize_output({
             'date': result['date'],
             'regime': result.get('regime', {}),
             'recommendations': tiers,
             'summary': result.get('summary', {}),
-        }
+        })
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -115,13 +116,13 @@ async def get_combined():
                 'symbols': [r['symbol'] for r in items[:8]],
                 'details': items[:8],
             }
-        return {
+        return localize_output({
             'date': result['date'],
             'user_pins': pins,
             'user_pin_count': len(pins),
             'recommendations': tiers,
             'regime': result.get('regime', {}),
             'summary': result.get('summary', {}),
-        }
+        })
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

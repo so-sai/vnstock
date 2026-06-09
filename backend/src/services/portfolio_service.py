@@ -112,7 +112,7 @@ def get_portfolio_summary() -> dict:
 
         alert = None
         if pnl_pct <= STOP_LOSS_THRESHOLD:
-            alert = f"STOP LOSS: {pnl_pct:.1f}% (Threshold: {STOP_LOSS_THRESHOLD}%)"
+            alert = f"Cắt lỗ: {pnl_pct:.1f}% (Ngưỡng: {STOP_LOSS_THRESHOLD}%)"
 
         position_details.append({
             "symbol": sym,

@@ -276,9 +276,20 @@ class HazardTransitionEngine:
         breadth_score: Optional[float] = None,
         flow_score: Optional[float] = None,
         recovery_score: Optional[float] = None,
+        driver_state: Optional[dict] = None,
     ) -> dict:
         features = self.feature_builder.build(day_df, self.age)
         h = self.hazard_model.hazard(features)
+
+        # Driver state modulates hazard (closed-loop feedback)
+        hazard_mod = 1.0
+        if driver_state:
+            confidence = driver_state.get("confidence", 0.5)
+            entropy = driver_state.get("entropy", 0.5)
+            # High confidence + low entropy = stable = lower hazard
+            stability = float(confidence * (1.0 - entropy / 1.6))
+            hazard_mod = float(np.clip(1.0 + (0.5 - stability), 0.3, 2.0))
+            h = h * hazard_mod
 
         if self._should_transition(h):
             self.state = self.kernel.sample(self.state, h)
@@ -292,6 +303,7 @@ class HazardTransitionEngine:
             "market_status": self.state,
             "regime_score": score,
             "momentum": score,
+            "hazard_mod": round(hazard_mod, 4),
             "hazard_rate": round(h, 4),
             "survival_prob": round(self.hazard_model.survival(h), 4),
             "regime_age": self.age,

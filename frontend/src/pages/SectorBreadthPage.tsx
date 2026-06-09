@@ -45,7 +45,7 @@ const NetThrustChart: React.FC = () => {
           </div>
         </div>
         <span className={`text-xs font-bold ${isAboveZero ? 'text-stock-up' : 'text-stock-down'}`}>
-          {status === 'TRENDING' ? 'XU HƯỚNG' : status === 'CRISIS' ? 'KHỦNG HOẢNG' : 'TRUNG TÍNH'}
+          {status === 'TRENDING' ? 'Xu hướng' : status === 'CRISIS' ? 'Khủng hoảng' : status === 'RANGING' ? 'Đi ngang' : 'Trung tính'}
         </span>
       </div>
       <div className="flex justify-between text-[10px] text-gray-400 mt-1">

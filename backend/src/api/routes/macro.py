@@ -23,6 +23,7 @@ PROJECT_ROOT = _hydrate_path()
 from src.models.models import MacroStatus
 from src.services.macro_service import get_macro_status, get_regime_history
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -34,7 +35,7 @@ async def get_macro_data(target_date: Optional[str] = Query(None, description="Y
     """
     try:
         data = get_macro_status(target_date=target_date)
-        return MacroStatus(**data).model_dump(by_alias=True)
+        return localize_output(MacroStatus(**data).model_dump(by_alias=True))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -45,6 +46,6 @@ async def get_macro_data(target_date: Optional[str] = Query(None, description="Y
 async def get_macro_history(limit: int = Query(90, ge=1, le=365)):
     """Lấy lịch sử Regime Score để vẽ biểu đồ Timeline."""
     try:
-        return get_regime_history(limit=limit)
+        return localize_output(get_regime_history(limit=limit))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

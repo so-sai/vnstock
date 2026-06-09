@@ -28,6 +28,9 @@ from src.engine.sentinel_alert import evaluate_sentinel_status
 from src.engine.decision_engine import merge_decisions
 from src.database.timeline_manager import log_regime_state, get_regime_history
 from src.database.db_core import optimize_sqlite_engine
+from src.core.presentation.vi_localizer import render_cognitive_journal
+from src.telemetry.recorder import record_decision
+from uuid import uuid4
 
 def create_markdown_report(verdict, target_date):
     """Lưu nhật ký tác chiến (War Journal) dưới dạng Markdown"""
@@ -79,7 +82,14 @@ def create_markdown_report(verdict, target_date):
         f.write(f"- **Momentum Expansion (Lớp 1):** {verdict['layer1_mom_expansion']['status']} ({verdict['layer1_mom_expansion']['value']}/{verdict['layer1_mom_expansion']['threshold']})\n")
         f.write(f"- **NH10 Consistency (Lớp 2):** {verdict['layer2_nh10_consistency']['status']} ({verdict['layer2_nh10_consistency']['value']}/{verdict['layer2_nh10_consistency']['threshold']} ngày)\n")
         f.write(f"- **Foreign Absorption (Lớp 3):** {verdict['layer3_foreign_absorption']['status']}\n\n")
-        
+
+        # Section 5: Cognitive journal (Vietnamese, from vi_localizer)
+        if 'decision' in verdict:
+            f.write("## 🧠 NHẬT KÝ NHẬN THỨC HỆ THỐNG\n\n")
+            f.write("```\n")
+            f.write(render_cognitive_journal(verdict['decision']))
+            f.write("\n```\n\n")
+
         f.write("---\n")
         f.write("*Bản báo cáo này được tạo tự động bởi PTCK_VNSTOCK Multi-Model Decision Stack.*")
     
@@ -103,17 +113,86 @@ def run_daily_closer():
     decision = merge_decisions(verdict)
     verdict['decision'] = decision
     
-    # Step 3.1: Log to Timeline
+    # Step 3.1: Run Structural Detector
+    try:
+        from src.engine.structural_detector import detect_cau_truc
+        struct = detect_cau_truc(target_date)
+        print(f"  Cấu trúc: {struct.get('trang_thai', 'N/A')} ({struct.get('so_tru_ok', 0)}/3)")
+    except Exception as e:
+        print(f"⚠️  Structural detector skipped: {e}")
+
+    # Step 3.2: Run Final Orchestrator
+    try:
+        from src.engine.orchestrator import quyet_dinh_cuoi
+        final = quyet_dinh_cuoi(target_date)
+        print(f"  {final.get('quyet_dinh', 'N/A')} — {', '.join(final.get('ly_do', []))}")
+    except Exception as e:
+        print(f"⚠️  Orchestrator skipped: {e}")
+
+    # Step 3.3: Log to Timeline
     log_regime_state(decision)
 
-    # Step 4: Generate Report
+    # Step 4: Record Decision Snapshot (Telemetry)
+    try:
+        _adapt_and_record_decision(decision)
+    except Exception as e:
+        print(f"⚠️  Telemetry snapshot skipped: {e}")
+
+    # Step 5: Generate Report
     if verdict:
         report_file = create_markdown_report(verdict, target_date)
         print(f"\n✅ War Journal saved to: {report_file}")
 
+    # Step 6: Update Driver Reputation Ledger (non-blocking)
+    try:
+        from src.telemetry.driver_reputation import update_reputation
+        n = update_reputation()
+        print(f"📊 Driver Reputation Ledger: {n} rows updated")
+    except Exception as e:
+        print(f"⚠️  Reputation update skipped: {e}")
+
     print(f"\n{'='*60}")
     print(f"🏁 CLOSER COMPLETE. SENTINEL STANDING BY.")
     print(f"{'='*60}")
+
+def _adapt_and_record_decision(board: dict):
+    """Adapt boardroom decision dict to record_decision() format and persist."""
+    consensus = board.get("consensus", "HOLD")
+    action_map = {
+        "CONVICTION BUY": "BUY",
+        "HOLD / CAUTIOUS": "HOLD",
+        "CAUTIOUS BUY (PULLBACK)": "BUY",
+        "WAIT FOR NICHES": "HOLD",
+        "CASH / STANDBY": "STAND_DOWN",
+        "PILOT BUY (OVERSOLD REBOUND)": "BUY",
+        "PILOT ABORT (EXIT IMMEDIATELY)": "SELL",
+        "CASH (PROTECT CAPITAL)": "STAND_DOWN",
+    }
+    action = action_map.get(consensus, "HOLD")
+
+    status = board.get("market_status", "UNKNOWN")
+    risk_map = {"TRENDING": "SAFE", "RANGING": "CAUTION", "CRISIS": "STRESS", "UNKNOWN": "NORMAL"}
+    risk_state = risk_map.get(status, "NORMAL")
+
+    decision_dict = {
+        "decision_id": str(uuid4()),
+        "timestamp": board.get("timestamp", datetime.now().isoformat()),
+        "action": action,
+        "risk_state": risk_state,
+        "confidence": board.get("confidence", 0.5) * 100,
+        "engine_scores": {
+            "regime": board.get("regime_score", 0),
+            "breadth_pct": board.get("details", {}).get("breadth_pct", 0),
+            "breadth_velocity": board.get("breadth_velocity", 0),
+            "t_score": board.get("details", {}).get("t_score", 0),
+            "v_score": board.get("details", {}).get("v_score", 0),
+            "recovery_active": 1 if board.get("recovery", {}).get("is_recovery") else 0,
+        },
+    }
+    did = record_decision(decision_dict)
+    if did:
+        print(f"📡 Telemetry snapshot recorded: {did} | {action} | conf={decision_dict['confidence']:.0f}")
+
 
 if __name__ == "__main__":
     run_daily_closer()

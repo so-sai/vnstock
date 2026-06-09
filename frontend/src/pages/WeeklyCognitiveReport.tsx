@@ -7,9 +7,12 @@ import {
 import VietnameseSemanticBlock from '../components/VietnameseSemanticBlock'
 
 const regimeColors: Record<string, string> = {
-  TRENDING: 'text-emerald-600 bg-emerald-50 border-emerald-200',
-  RANGING: 'text-amber-600 bg-amber-50 border-amber-200',
-  CRISIS: 'text-red-600 bg-red-50 border-red-200',
+  'Xu hướng rõ ràng': 'text-emerald-600 bg-emerald-50 border-emerald-200',
+  'Đi ngang': 'text-amber-600 bg-amber-50 border-amber-200',
+  'Khủng hoảng': 'text-red-600 bg-red-50 border-red-200',
+  'Rủi ro cao': 'text-red-600 bg-red-50 border-red-200',
+  'Tăng': 'text-emerald-600 bg-emerald-50 border-emerald-200',
+  'Giảm': 'text-red-600 bg-red-50 border-red-200',
 }
 
 function Card({ title, icon: Icon, children, className = '' }: {
@@ -155,14 +158,14 @@ export default function WeeklyCognitiveReport() {
             />
             <Badge
               label={gold.regime || 'N/A'}
-              color={gold.regime === 'BULLISH' ? 'text-emerald-600 bg-emerald-50 border-emerald-200' :
-                     gold.regime === 'BEARISH' ? 'text-red-600 bg-red-50 border-red-200' :
+              color={gold.regime === 'Tăng' ? 'text-emerald-600 bg-emerald-50 border-emerald-200' :
+                     gold.regime === 'Giảm' ? 'text-red-600 bg-red-50 border-red-200' :
                      'text-amber-600 bg-amber-50 border-amber-200'}
             />
             <StatRow label="Driver" value={gold.driver || 'N/A'} />
-            <StatRow label="Premium regime" value={gold.premium_regime || 'N/A'} />
+            <StatRow label="Chênh lệch vàng" value={gold.premium_regime || 'N/A'} />
             {gold.premium_pct != null && (
-              <StatRow label="Premium %" value={`${(gold.premium_pct * 100).toFixed(1)}%`} />
+              <StatRow label="Mức chênh" value={`${(gold.premium_pct * 100).toFixed(1)}%`} />
             )}
             {gold.xau_usd != null && (
               <StatRow
@@ -195,36 +198,43 @@ export default function WeeklyCognitiveReport() {
               inline
             />
             <Badge
-              label={trust.status || 'NO_DATA'}
-              color={trust.status === 'PROMOTABLE' ? 'text-emerald-600 bg-emerald-50 border-emerald-200' :
-                     trust.status === 'BLOCKED' ? 'text-amber-600 bg-amber-50 border-amber-200' :
+              label={trust.status || 'Không có dữ liệu'}
+              color={trust.status === 'Có thể kích hoạt' ? 'text-emerald-600 bg-emerald-50 border-emerald-200' :
+                     trust.status === 'Bị chặn' || trust.status === 'Chưa sẵn sàng' ? 'text-amber-600 bg-amber-50 border-amber-200' :
                      'text-gray-600 bg-gray-50 border-gray-200'}
             />
-            <StatRow label="Consistency score" value={trust.consistency_score?.toFixed(4) || '0.0'} />
-            <StatRow label="Số decision" value={trust.decision_count || 0} />
+            <StatRow label="Độ nhất quán" value={trust.consistency_score?.toFixed(4) || '0.0'} />
+            <StatRow label="Số quyết định" value={trust.decision_count || 0} />
             {trust.regime_states && Object.entries(trust.regime_states).map(([regime, state]: [string, any]) => (
               <div key={regime} className="bg-gray-50 rounded-lg p-2.5 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-600">{regime}</span>
+                  <span className={`text-xs font-semibold ${regimeColors[regime]?.split(' ')[0] || 'text-gray-600'}`}>
+                    {regime === 'TRENDING' ? 'Xu hướng rõ ràng' :
+                     regime === 'RANGING' ? 'Đi ngang' :
+                     regime === 'CRISIS' ? 'Khủng hoảng' :
+                     regime === 'BULLISH' ? 'Tăng' :
+                     regime === 'BEARISH' ? 'Giảm' :
+                     regime}
+                  </span>
                   <span className={`text-xs font-medium ${state.can_promote ?? state.promotable ? 'text-emerald-600' : 'text-amber-600'}`}>
                     {state.can_promote ?? state.promotable ? 'SẴN SÀNG' : 'CHỜ'}
                   </span>
                 </div>
                 {state.confidence != null && (
                   <div className="flex justify-between text-xs text-gray-400">
-                    <span>Confidence</span>
+                    <span>Độ tin cậy</span>
                     <span>{(state.confidence * 100).toFixed(0)}%</span>
                   </div>
                 )}
                 {state.consistency != null && (
                   <div className="flex justify-between text-xs text-gray-400">
-                    <span>Consistency</span>
+                    <span>Nhất quán</span>
                     <span>{state.consistency.toFixed(3)}</span>
                   </div>
                 )}
                 {state.samples != null && (
                   <div className="flex justify-between text-xs text-gray-400">
-                    <span>Samples</span>
+                    <span>Số mẫu</span>
                     <span>{state.samples}</span>
                   </div>
                 )}

@@ -455,3 +455,55 @@ def sector_to_vi(code: str) -> str:
 def flow_state_to_vi(state: str) -> str:
     """Map flow state to Vietnamese."""
     return FLOW_STATE_VI.get(state, state)
+
+
+# ====================================================================
+# 12. ETS — Explain Truth Score Mapping
+# ====================================================================
+
+ETS_LABEL_VI: list[tuple[float, str]] = [
+    (0.3, "thấp"),
+    (0.5, "trung bình"),
+    (0.7, "khá"),
+    (1.01, "cao"),
+]
+
+ETS_STATUS_VI: dict[str, str] = {
+    "aligned": "khớp",
+    "misaligned": "lệch",
+}
+
+
+def ets_to_vi(score: float) -> str:
+    """Map ETS numeric score to Vietnamese label."""
+    for threshold, label in ETS_LABEL_VI:
+        if score < threshold:
+            return label
+    return "cao"
+
+
+# ====================================================================
+# 13. EARLY WARNING — Temporal Stability Mapping
+# ====================================================================
+
+EARLY_WARNING_VI: dict[str, str] = {
+    "clean": "an toàn",
+    "caution": "thận trọng",
+    "warning": "cảnh báo",
+}
+
+DRIFT_TREND_VI: dict[str, str] = {
+    "stable": "ổn định",
+    "rising": "đang tăng",
+    "falling": "đang giảm",
+}
+
+
+def early_warning_to_vi(signal: str) -> str:
+    """Map early warning signal to Vietnamese label."""
+    return EARLY_WARNING_VI.get(signal, signal)
+
+
+def drift_trend_to_vi(trend: str) -> str:
+    """Map drift trend to Vietnamese label."""
+    return DRIFT_TREND_VI.get(trend, trend)

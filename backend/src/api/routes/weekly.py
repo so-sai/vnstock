@@ -25,6 +25,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.core.canonical_output_adapter import localize_output
 from src.services.weekly_cognitive_report import build_weekly_report
 
 
@@ -33,19 +34,19 @@ router = APIRouter()
 
 @router.get("/")
 async def get_weekly_report():
-    """Get the full weekly cognitive snapshot.
+    """Get the full weekly cognitive snapshot (Vietnamese output).
 
     Returns:
         {
             "timestamp": "...",
-            "market": { ... },
-            "gold": { ... },
-            "trust": { ... },
+            "market": { ... },   # all string values localized to VI
+            "gold": { ... },     # all string values localized to VI
+            "trust": { ... },    # all string values localized to VI
             "summary_vi": "..."
         }
     """
     try:
-        return build_weekly_report()
+        return localize_output(build_weekly_report())
     except Exception as e:
         raise HTTPException(
             status_code=500,

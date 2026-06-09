@@ -197,12 +197,66 @@ def detect_regime(target_date=None):
     # Status classification applied to the SMOOTHED score
     status = "TRENDING" if regime_score > 0.65 else "RANGING" if regime_score >= 0.35 else "CRISIS"
 
+    # [RAD] Regime Acceleration Detector — override layer
+    # Detects phase transition BEFORE EMA catches up
+    rad = {"activated": False, "override_status": None, "signals": {}}
+    try:
+        idx_len = len(df_idx)
+        if idx_len >= 10:
+            # ΔADX = ADX_today - ADX_{t-3} (find ~3 trading days back)
+            lookback = min(4, idx_len - 2)
+            adx_today = float(latest_idx['adx'])
+            adx_t3 = float(df_idx['adx'].iloc[-1 - lookback])
+            delta_adx = adx_today - adx_t3
+
+            # v_breadth = (breadth_today - breadth_prev) / 3 (fixed 3-day lookback per spec)
+            with get_connection() as conn:
+                if target_date:
+                    df_b = pd.read_sql(
+                        f"SELECT date, breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",
+                        conn
+                    )
+                else:
+                    df_b = pd.read_sql(
+                        "SELECT date, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1",
+                        conn
+                    )
+            breadth_prev = float(df_b['breadth_pct'].iloc[0]) if not df_b.empty else breadth_pct
+            v_breadth = (breadth_pct - breadth_prev) / 3
+
+            # Gold premium (stress signal)
+            gold_premium = None
+            try:
+                sys.path.insert(0, str(PROJECT_ROOT))
+                from core.macro.gold_spread_engine import analyze_domestic_premium
+                gp = analyze_domestic_premium()
+                gold_premium = gp.get('premium_pct', 0)
+            except Exception:
+                pass
+
+            rad["signals"] = {
+                "delta_adx": round(delta_adx, 2),
+                "v_breadth": round(v_breadth, 2),
+                "gold_premium": gold_premium,
+            }
+
+            # TRANSITION_DOWN_SHOCK: ΔADX > 5 AND v_breadth < -3 AND gold_premium > 3
+            if (delta_adx > 5.0 and v_breadth < -3.0
+                    and gold_premium is not None and gold_premium > 3.0):
+                status = "CRISIS_WARNING"
+                rad["activated"] = True
+                rad["override_status"] = "CRISIS_WARNING"
+                rad["reason"] = "TRANSITION_DOWN_SHOCK"
+    except Exception:
+        pass
+
     verdict = {
         "date": current_date.strftime("%Y-%m-%d"),
         "regime_score": round(regime_score, 2),
         "status": status,
         "regime_score_raw": round(regime_score_raw, 4),
         "ema_alpha": round(ema_alpha, 4),
+        "rad": rad,
         "details": {
             "b_score": round(b_score, 4),
             "breadth_pct": round(breadth_pct, 1),

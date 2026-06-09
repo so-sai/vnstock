@@ -38,6 +38,7 @@ from src.portfolio.decision_tensor_v2 import (
     get_decision_history,
 )
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -61,7 +62,7 @@ class PositionUpdate(BaseModel):
 async def get_portfolio():
     """Lấy tổng quan danh mục + P&L + cảnh báo stop-loss."""
     try:
-        return get_portfolio_summary()
+        return localize_output(get_portfolio_summary())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -70,12 +71,12 @@ async def get_portfolio():
 async def add_new_position(pos: PositionInput):
     """Thêm vị thế mới."""
     try:
-        return add_position(
+        return localize_output(add_position(
             symbol=pos.symbol,
             quantity=pos.quantity,
             entry_price=pos.entry_price,
             fee_paid=pos.fee_paid,
-        )
+        ))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -84,7 +85,7 @@ async def add_new_position(pos: PositionInput):
 async def delete_position(symbol: str):
     """Xóa vị thế."""
     try:
-        return remove_position(symbol)
+        return localize_output(remove_position(symbol))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -93,7 +94,7 @@ async def delete_position(symbol: str):
 async def update_portfolio_cash(cash: CashInput):
     """Cập nhật số dư tiền mặt."""
     try:
-        return update_cash(cash.amount)
+        return localize_output(update_cash(cash.amount))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -102,11 +103,11 @@ async def update_portfolio_cash(cash: CashInput):
 async def update_portfolio_position(symbol: str, data: PositionUpdate):
     """Cập nhật vị thế (số lượng hoặc giá vốn)."""
     try:
-        return update_position(
+        return localize_output(update_position(
             symbol=symbol,
             quantity=data.quantity,
             entry_price=data.entry_price,
-        )
+        ))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -121,7 +122,7 @@ async def observatory_summary():
         holdings = get_open_positions()
         heat = get_portfolio_heat()
         nav = summary.get("latest_snapshot", {}).get("total_nav", 0)
-        return {
+        return localize_output({
             "open_positions": summary.get("open_positions", 0),
             "total_shares": summary.get("total_shares", 0),
             "market_value_vnd": round(summary.get("market_value_vnd", 0), 0),
@@ -148,7 +149,7 @@ async def observatory_summary():
                 }
                 for h in holdings
             ],
-        }
+        })
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -157,7 +158,7 @@ async def observatory_summary():
 async def observatory_risk_path(days: int = 30):
     """Portfolio Observatory: portfolio risk path EKG data."""
     try:
-        return get_risk_path_window(days)
+        return localize_output(get_risk_path_window(days))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -166,7 +167,7 @@ async def observatory_risk_path(days: int = 30):
 async def observatory_decision():
     """Phase 10 — Decision Tensor: compresses 5 engine layers into 1 action vector."""
     try:
-        return compute_decision()
+        return localize_output(compute_decision())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -185,7 +186,7 @@ class ConfirmInput(BaseModel):
 async def observatory_decision_v2():
     """Phase 10.2 — Cognitive Decision Tensor: counterfactual + rationale tree + calibrated weights."""
     try:
-        return compute_decision_v2()
+        return localize_output(compute_decision_v2())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -194,7 +195,7 @@ async def observatory_decision_v2():
 async def decision_override(ov: OverrideInput):
     """Log human override of a decision."""
     try:
-        return log_override(ov.decision_id, ov.override_action, ov.override_reason)
+        return localize_output(log_override(ov.decision_id, ov.override_action, ov.override_reason))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -203,7 +204,7 @@ async def decision_override(ov: OverrideInput):
 async def decision_confirm(cf: ConfirmInput):
     """Log human confirmation of a decision."""
     try:
-        return log_confirm(cf.decision_id)
+        return localize_output(log_confirm(cf.decision_id))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -212,6 +213,6 @@ async def decision_confirm(cf: ConfirmInput):
 async def observatory_decision_history(limit: int = 20):
     """Recent decision history for audit trail."""
     try:
-        return get_decision_history(limit)
+        return localize_output(get_decision_history(limit))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -87,18 +87,18 @@ def get_opportunity_queue(top_n: int = 5) -> dict:
 def _build_opportunity_reason(breakout: dict, liquidity: dict | None, regime: str) -> str:
     parts = []
     bl = breakout.get("breakout_level", "NONE")
-    parts.append(f"Breakout {bl}")
+    parts.append(f"Phá vỡ {bl}")
     if breakout.get("volume_confirm"):
-        parts.append("volume confirmed")
+        parts.append("xác nhận khối lượng")
     if liquidity:
         rs = liquidity.get("retail_chase_score", 0)
         if rs > 0.7:
-            parts.append("strong retail chase")
+            parts.append("dòng tiền bán lẻ mạnh")
         elif rs > 0.4:
-            parts.append("moderate inflow")
+            parts.append("dòng tiền vào vừa phải")
     if breakout.get("continuation_prob", 0) > 0.65:
-        parts.append("high continuation probability")
-    return " | ".join(parts) if parts else "Monitoring"
+        parts.append("xác suất tiếp diễn cao")
+    return " | ".join(parts) if parts else "Đang theo dõi"
 
 
 def _get_opportunity_action(breakout: dict) -> str:
@@ -161,7 +161,7 @@ def _generate_coach_advice(action: str, risk: str, constraint: str, confidence: 
             "rationale": f"Chế độ {regime} | Nhiệt danh mục {heat:.0f}% | Rủi ro {risk}",
             "focus": "Bảo toàn vốn. Đợi tín hiệu hạ nhiệt.",
             "tone": "WARNING",
-            "next_step": "Theo dõi heat giảm dưới 4.0 hoặc regime chuyển khỏi CRISIS.",
+            "next_step": "Theo dõi nhiệt danh mục giảm dưới 4.0 hoặc chế độ thị trường chuyển khỏi rủi ro cao.",
         }
 
     if action == "ENTER" and not has_positions:
@@ -170,27 +170,27 @@ def _generate_coach_advice(action: str, risk: str, constraint: str, confidence: 
         return {
             "instruction": "Có thể mở vị thế mới. Thị trường đang ủng hộ.",
             "rationale": f"Thanh khoản đang {liq_phase} | Xoay vòng {rot_regime}",
-            "focus": "Ưu tiên cổ phiếu có breakout + volume confirmation.",
+            "focus": "Ưu tiên cổ phiếu có phá vỡ + xác nhận khối lượng.",
             "tone": "OPPORTUNITY",
-            "next_step": "Chọn từ danh sách cơ hội bên dưới. Giữ size nhỏ nếu heat > 4.",
+            "next_step": "Chọn từ danh sách cơ hội bên dưới. Giữ tỷ trọng nhỏ nếu nhiệt > 4.",
         }
 
     if action == "ENTER" and has_positions:
         return {
             "instruction": "Có thể thêm vị thế mới, nhưng ưu tiên quản lý danh mục hiện tại.",
             "rationale": f"Đã có {n_pos} vị thế mở | Nhiệt {heat:.0f}% | Độ tin cậy {confidence}",
-            "focus": "Kiểm tra stop-loss các vị thế hiện tại trước khi mở mới.",
+            "focus": "Kiểm tra mức cắt lỗ các vị thế hiện tại trước khi mở mới.",
             "tone": "BALANCED",
-            "next_step": "Rà soát drawdown từng vị thế. Chỉ mở mới nếu tất cả SL an toàn.",
+            "next_step": "Rà soát mức giảm từng vị thế. Chỉ mở mới nếu tất cả mức cắt lỗ an toàn.",
         }
 
     if action == "REDUCE":
         return {
-            "instruction": "Cần giảm exposure. Rủi ro đang tăng.",
-            "rationale": f"Nhiệt {heat:.0f}% | Rủi ro {risk} | Constraint {constraint}",
+            "instruction": "Cần giảm tỷ trọng. Rủi ro đang tăng.",
+            "rationale": f"Nhiệt {heat:.0f}% | Rủi ro {risk} | Ràng buộc {constraint}",
             "focus": "Cắt các vị thế yếu nhất. Giữ tiền mặt linh hoạt.",
             "tone": "CAUTION",
-            "next_step": "Giảm 30–50% tổng exposure. Nếu heat > 7, giảm mạnh hơn.",
+            "next_step": "Giảm 30–50% tổng tỷ trọng. Nếu nhiệt > 7, giảm mạnh hơn.",
         }
 
     if action == "EXIT":
@@ -199,30 +199,30 @@ def _generate_coach_advice(action: str, risk: str, constraint: str, confidence: 
             "rationale": f"Rủi ro {risk} | Nhiệt {heat:.0f}% | Không giữ vị thế qua đêm.",
             "focus": "Bảo toàn vốn là ưu tiên duy nhất.",
             "tone": "CRITICAL",
-            "next_step": "THOÁT NGAY tất cả vị thế. Chờ tín hiệu phục hồi.",
+            "next_step": "Thoát ngay tất cả vị thế. Chờ tín hiệu phục hồi.",
         }
 
     if action == "STAND_DOWN":
         return {
             "instruction": "Đứng ngoài thị trường. Chưa có tín hiệu rõ ràng.",
-            "rationale": f"Regime {regime} | Độ tin cậy {confidence}% | Thiếu tín hiệu động lực.",
-            "focus": "Quan sát. Chờ breakout có volume hoặc rotation rõ ràng.",
+            "rationale": f"Chế độ thị trường {regime} | Độ tin cậy {confidence}% | Thiếu tín hiệu động lực.",
+            "focus": "Quan sát. Chờ phá vỡ có khối lượng hoặc luân chuyển rõ ràng.",
             "tone": "NEUTRAL",
-            "next_step": "Theo dõi Breadth và Liquidity Wave. Hành động khi có tín hiệu rõ.",
+            "next_step": "Theo dõi độ rộng thị trường và dòng tiền. Hành động khi có tín hiệu rõ.",
         }
 
     if action == "HOLD" and has_positions:
         return {
             "instruction": "Giữ vị thế hiện tại. Chưa cần thay đổi.",
             "rationale": f"Độ tin cậy {confidence}% | Nhiệt {heat:.0f}% | {n_pos} vị thế đang hoạt động.",
-            "focus": "Quản lý stop-loss. Chờ breakout mới để scale-in.",
+            "focus": "Quản lý mức cắt lỗ. Chờ phá vỡ mới để tăng tỷ trọng.",
             "tone": "NEUTRAL",
-            "next_step": "Kiểm tra stop-loss mỗi ngày. Có thể vận hành bình thường.",
+            "next_step": "Kiểm tra mức cắt lỗ mỗi ngày. Có thể vận hành bình thường.",
         }
 
     return {
         "instruction": "Theo dõi thị trường. Chưa có hành động khẩn cấp.",
-        "rationale": f"Chế độ {regime} | {n_pos} vị thế | Nhiệt {heat:.0f}%",
+        "rationale": f"Chế độ thị trường {regime} | {n_pos} vị thế | Nhiệt {heat:.0f}%",
         "focus": "Tiếp tục quan sát. Chờ cơ hội.",
         "tone": "NEUTRAL",
         "next_step": "Cập nhật thường xuyên. Hệ thống sẽ báo khi có tín hiệu.",
@@ -282,8 +282,8 @@ def get_scenario_simulation(scenario: str = "drop_5pct") -> dict:
 def _get_scenario_advice(scenario: str, risk: str, loss: float) -> str:
     if scenario == "drop_5pct":
         if risk == "STRESS":
-            return f"Giảm 5% có thể đẩy nhiệt lên ngưỡng STRESS (lỗ ~{loss:,.0f} VND). Cân nhắc giảm exposure."
-        return f"Giảm 5%: rủi ro ở mức chấp nhận được ({risk}). Tiếp tục quản lý SL."
+            return f"Giảm 5% có thể đẩy nhiệt lên ngưỡng căng thẳng (lỗ ~{loss:,.0f} VND). Cân nhắc giảm tỷ trọng."
+        return f"Giảm 5%: rủi ro ở mức {risk}. Tiếp tục quản lý mức cắt lỗ."
     if scenario == "drop_10pct":
         return f"Giảm 10% là kịch bản xấu nhất (lỗ ~{loss:,.0f} VND). Hệ thống sẽ khóa toàn bộ giao dịch."
     if scenario == "surge_3pct":

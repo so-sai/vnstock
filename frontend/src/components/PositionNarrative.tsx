@@ -27,7 +27,10 @@ const PositionNarrative: React.FC<{ symbol: string }> = ({ symbol }) => {
   const pnlColor = data.pnl_pct > 5 ? 'text-emerald-600' : data.pnl_pct > 0 ? 'text-emerald-500' : data.pnl_pct > -5 ? 'text-rose-500' : 'text-rose-700 font-bold';
   const slColor = data.distance_to_sl_pct < 2.5 ? 'text-rose-600 font-bold' : data.distance_to_sl_pct < 5 ? 'text-amber-600' : 'text-emerald-600';
   const convictionColor = data.conviction_score >= 0.7 ? 'text-emerald-600' : data.conviction_score >= 0.4 ? 'text-amber-600' : 'text-rose-600';
-  const systemColor = data.system_action === 'EXIT' ? 'text-rose-600' : data.system_action === 'REDUCE' ? 'text-orange-600' : data.system_action === 'ENTER' ? 'text-emerald-600' : 'text-japandi-earth/60';
+  const actionVi: Record<string, string> = { ENTER: 'Vào', REDUCE: 'Giảm', EXIT: 'Thoát', HOLD: 'Giữ', STAND_DOWN: 'Đứng ngoài' };
+const statusVi: Record<string, string> = { ENTERED: 'Đã vào', REDUCED: 'Đã giảm', EXITED: 'Đã thoát' };
+const riskVi: Record<string, string> = { SAFE: 'An toàn', CAUTION: 'Thận trọng', STRESS: 'Căng thẳng', LOCKED: 'Khóa' };
+const systemColor = data.system_action === 'EXIT' ? 'text-rose-600' : data.system_action === 'REDUCE' ? 'text-orange-600' : data.system_action === 'ENTER' ? 'text-emerald-600' : 'text-japandi-earth/60';
 
   return (
     <div className="bg-white/60 backdrop-blur-md border border-japandi-muted-clay/30 rounded-lg p-3 space-y-2">
@@ -36,11 +39,11 @@ const PositionNarrative: React.FC<{ symbol: string }> = ({ symbol }) => {
         <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
           data.status === 'ENTERED' ? 'bg-emerald-100 text-emerald-700' : data.status === 'REDUCED' ? 'bg-amber-100 text-amber-700' : 'bg-zinc-100 text-zinc-600'
         }`}>
-          {data.status}
+          {statusVi[data.status] || data.status}
         </span>
         {data.system_action && (
           <span className={`text-[10px] font-mono ${systemColor}`}>
-            Hệ thống: {data.system_action}
+            Hệ thống: {actionVi[data.system_action] || data.system_action}
           </span>
         )}
       </div>
@@ -63,7 +66,7 @@ const PositionNarrative: React.FC<{ symbol: string }> = ({ symbol }) => {
           <div className={`text-xs font-bold font-mono ${
             data.system_risk === 'SAFE' ? 'text-emerald-600' : data.system_risk === 'CAUTION' ? 'text-amber-600' : 'text-rose-600'
           }`}>
-            {data.system_risk}
+            {riskVi[data.system_risk] || data.system_risk}
           </div>
         </div>
       </div>

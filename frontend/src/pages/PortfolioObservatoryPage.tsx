@@ -36,6 +36,9 @@ const DampenerBadge: React.FC<{ factor: number }> = ({ factor }) => {
   return <Badge color="rose" className="bg-rose-100 text-rose-800 border-none font-mono animate-pulse">{factor.toFixed(2)}x</Badge>;
 };
 
+const statusVi: Record<string, string> = {
+  ENTERED: 'Đã vào', SCALE_IN: 'Tăng thêm', REDUCED: 'Đã giảm', EXIT_PENDING: 'Chờ thoát',
+};
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const styles: Record<string, string> = {
     ENTERED: 'bg-emerald-100 text-emerald-800 border-emerald-200',
@@ -45,7 +48,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   };
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono border ${styles[status] || 'bg-gray-100 text-gray-800'}`}>
-      {status.replace('_', ' ')}
+      {statusVi[status] || status.replace('_', ' ')}
     </span>
   );
 };
@@ -63,7 +66,7 @@ const PortfolioObservatoryPage: React.FC = () => {
         <div className="flex items-start justify-between">
           <div>
             <Title className="text-japandi-earth text-2xl font-bold tracking-tight">Đài Quan sát Dòng vốn</Title>
-            <Text className="text-japandi-earth/50 text-xs mt-1 font-mono">Portfolio Observatory — Capital Telemetry & Lifecycle Command Center</Text>
+            <Text className="text-japandi-earth/50 text-xs mt-1 font-mono">Đài Quan sát Dòng vốn — Trung tâm Đo lường & Vận hành Danh mục</Text>
           </div>
           <div className="flex items-center gap-3">
             {telemetry && (
@@ -135,7 +138,7 @@ const PortfolioObservatoryPage: React.FC = () => {
                 <Metric className="text-japandi-earth text-lg">
                   {latestRisk ? (
                     <span className={latestRisk.throttle_factor === 0 ? 'text-stock-down' : 'text-japandi-earth'}>
-                      {latestRisk.throttle_factor === 0 ? 'LOCKED' : latestRisk.throttle_factor === 0.5 ? 'CAUTION' : 'NORMAL'}
+                      {latestRisk.throttle_factor === 0 ? 'Khóa' : latestRisk.throttle_factor === 0.5 ? 'Thận trọng' : 'Bình thường'}
                     </span>
                   ) : '—'}
                 </Metric>
@@ -159,14 +162,14 @@ const PortfolioObservatoryPage: React.FC = () => {
                   <table className="w-full text-left font-mono text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-japandi-muted-clay/20 text-japandi-earth/50">
-                        <th className="px-4 py-3 font-medium">SYMBOL</th>
-                        <th className="px-4 py-3 font-medium">STATUS</th>
+                        <th className="px-4 py-3 font-medium">MÃ</th>
+                        <th className="px-4 py-3 font-medium">TRẠNG THÁI</th>
                         <th className="px-4 py-3 font-medium">REGIME</th>
-                        <th className="px-4 py-3 font-medium text-right">AVG COST</th>
-                        <th className="px-4 py-3 font-medium text-right">INITIAL RISK</th>
-                        <th className="px-4 py-3 font-medium text-right">CONVICTION</th>
-                        <th className="px-4 py-3 font-medium">DISTANCE TO SL</th>
-                        <th className="px-4 py-3 font-medium">THESIS</th>
+                        <th className="px-4 py-3 font-medium text-right">GIÁ VỐN</th>
+                        <th className="px-4 py-3 font-medium text-right">RỦI RO</th>
+                        <th className="px-4 py-3 font-medium text-right">TIN CẬY</th>
+                        <th className="px-4 py-3 font-medium">KHOẢNG SL</th>
+                        <th className="px-4 py-3 font-medium">NHẬN ĐỊNH</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-japandi-muted-clay/15">

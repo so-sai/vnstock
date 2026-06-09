@@ -56,6 +56,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from src.engine.universe import SECTOR_MAP, CORE_SECTORS
+from src.core.presentation.vi_localizer import SECTOR_LABELS
 
 BROAD_SCAN_SYMBOLS = [s for s in SECTOR_MAP.keys() if s != 'VNINDEX']
 
@@ -116,6 +117,21 @@ def _fetch_regime_history(lookback_days: int = 120, target_date: Optional[str] =
             conn
         )
     return df
+
+
+def _canonicalize(obj):
+    """Recursively convert numpy types to Python native types for JSON safety."""
+    if isinstance(obj, dict):
+        return {k: _canonicalize(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_canonicalize(v) for v in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return _canonicalize(obj.tolist())
+    return obj
 
 
 def _compute_sector_flow_vector(df: pd.DataFrame, target_date: str) -> FlowVector:
@@ -456,11 +472,14 @@ def generate_flow_forecast(target_date: Optional[str] = None,
     print(f"\nSector Projections (1d):")
     for s in sorted(sector_forecasts, key=lambda x: x['velocity'], reverse=True):
         arrow = '↑' if s['velocity'] > 0 else '↓' if s['velocity'] < 0 else '→'
-        print(f"  {s['sector']:10s} {arrow} share={s['current_share_pct']:5.1f}% "
+        sec_name = SECTOR_LABELS.get(s['sector'], s['sector'])
+        print(f"  {sec_name:12s} {arrow} share={s['current_share_pct']:5.1f}% "
               f"vel={s['velocity']:+.1f} acc={s['acceleration']:+.2f} "
               f"→ {s['projection_1d']:14s} ({s['confidence']})")
-    print(f"\nLeading: {result['leading_sectors']}")
-    print(f"Lagging: {result['lagging_sectors']}")
+    leading_vi = ', '.join(SECTOR_LABELS.get(s, s) for s in result['leading_sectors'])
+    lagging_vi = ', '.join(SECTOR_LABELS.get(s, s) for s in result['lagging_sectors'])
+    print(f"\nLeading: [{leading_vi}]")
+    print(f"Lagging: [{lagging_vi}]")
     proj = result['projection_summary']
     print(f"\nSummary: ACC={proj['acceleration_count']} "
           f"CONT={proj['continuation_count']} "
@@ -469,6 +488,7 @@ def generate_flow_forecast(target_date: Optional[str] = None,
           f"LAG={proj['lag_count']}")
     print(f"{'='*70}")
 
+    result = _canonicalize(result)
     _store_forecast(result)
 
     return result

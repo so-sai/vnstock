@@ -24,6 +24,7 @@ PROJECT_ROOT = _hydrate_path()
 from src.services.screener_service import get_screener_results, get_rs_rankings
 from src.services.heatmap_service import get_heatmap_data
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -36,7 +37,7 @@ async def get_screener_results_endpoint(top_n: int = Query(50, ge=1, le=200)):
     try:
         loop = asyncio.get_event_loop()
         results = await loop.run_in_executor(None, get_screener_results, top_n)
-        return results
+        return localize_output(results)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Screener error: {str(e)}")
 
@@ -46,7 +47,7 @@ async def get_rs_rankings_endpoint(top_n: int = Query(100, ge=1, le=500)):
     """Lấy danh sách xếp hạng RS Rating."""
     try:
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, get_rs_rankings, top_n)
+        return localize_output(await loop.run_in_executor(None, get_rs_rankings, top_n))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -58,6 +59,6 @@ async def get_heatmap_endpoint(top_n: int = Query(50, ge=5, le=200)):
     """
     try:
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, get_heatmap_data, top_n)
+        return localize_output(await loop.run_in_executor(None, get_heatmap_data, top_n))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

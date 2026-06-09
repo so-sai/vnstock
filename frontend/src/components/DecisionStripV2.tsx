@@ -32,6 +32,9 @@ const actionLabels: Record<string, string> = {
   STAND_DOWN: "Đứng ngoài",
 };
 
+const riskLabels: Record<string, string> = {
+  SAFE: 'An toàn', CAUTION: 'Thận trọng', STRESS: 'Căng thẳng', LOCKED: 'Khóa',
+};
 const riskColors: Record<string, string> = {
   SAFE: 'text-emerald-600',
   CAUTION: 'text-amber-600',
@@ -151,7 +154,7 @@ const DecisionStripV2: React.FC = () => {
           <div>
             <div className="text-[10px] text-japandi-earth/60 font-mono">TIN CẬY</div>
             <div className={`text-sm font-bold ${riskColors[data.risk_state] || 'text-japandi-earth'}`}>
-              {data.risk_state}
+              {riskLabels[data.risk_state] || data.risk_state}
             </div>
           </div>
         </div>
@@ -241,7 +244,7 @@ const DecisionStripV2: React.FC = () => {
             {data.alternatives.map((alt, i) => (
               <div key={i} className="flex items-center gap-3 text-xs font-mono">
                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${actionColors[alt.action]?.split(' ')[0] ? `bg-opacity-20 ${actionColors[alt.action].split(' ')[0]}` : 'bg-gray-100'}`}>
-                  {alt.action}
+                  {actionLabels[alt.action] || alt.action}
                 </span>
                 <span className="text-japandi-earth/60 w-8 text-right">{alt.score}</span>
                 <span className="text-japandi-muted-clay text-[10px] flex-1">{alt.reason_blocked}</span>
@@ -260,9 +263,9 @@ const DecisionStripV2: React.FC = () => {
               {history.slice(-10).reverse().map((entry: Record<string, any>, i: number) => (
                 <div key={i} className="flex items-center gap-3 text-[10px] font-mono">
                   <span className={`px-1.5 py-0.5 rounded font-bold ${entry.override_state === 'OVERRIDDEN' ? 'bg-rose-100 text-rose-700' : entry.override_state === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>
-                    {entry.override_state}
+                    {entry.override_state === 'OVERRIDDEN' ? 'Bị ghi đè' : entry.override_state === 'CONFIRMED' ? 'Xác nhận' : entry.override_state === 'PENDING' ? 'Chờ' : entry.override_state}
                   </span>
-                  <span className="text-japandi-earth font-bold">{entry.action}</span>
+                  <span className="text-japandi-earth font-bold">{actionLabels[entry.action] || entry.action}</span>
                   <span className="text-japandi-muted-clay/60">{entry.decision_id}</span>
                   {entry.override_action && (
                     <span className="text-rose-600">→ {entry.override_action}</span>

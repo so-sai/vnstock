@@ -1,42 +1,52 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component } from 'react'
+import type { ErrorInfo, ReactNode } from 'react'
 
 interface Props {
-  children: ReactNode;
-  fallback?: ReactNode;
+  children: ReactNode
+  fallback?: ReactNode
+  onError?: (error: Error, errorInfo: ErrorInfo) => void
 }
 
 interface State {
-  hasError: boolean;
-  error: Error | null;
+  hasError: boolean
+  error: Error | null
 }
 
 class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
-    super(props);
-    this.state = { hasError: false, error: null };
+    super(props)
+    this.state = { hasError: false, error: null }
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[ErrorBoundary]', error, errorInfo);
+    console.warn('[ErrorBoundary]', error.message, errorInfo.componentStack)
+    this.props.onError?.(error, errorInfo)
   }
 
   render() {
     if (this.state.hasError) {
+      if (this.props.fallback) return this.props.fallback
       return (
-        this.props.fallback ?? (
-          <div className="p-8 text-center">
-            <p className="text-stock-down font-medium">⚠ Thành phần này gặp lỗi kỹ thuật</p>
-            <p className="text-xs text-japandi-muted-clay mt-2">{this.state.error?.message}</p>
+        <div className="flex items-center justify-center h-64 text-japandi-muted-clay">
+          <div className="text-center">
+            <div className="text-3xl mb-2">⚠️</div>
+            <p className="text-sm font-mono">Component temporarily unavailable</p>
+            <button
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="mt-3 text-xs underline hover:text-japandi-charcoal"
+            >
+              Retry
+            </button>
           </div>
-        )
-      );
+        </div>
+      )
     }
-    return this.props.children;
+    return this.props.children
   }
 }
 
-export default ErrorBoundary;
+export default ErrorBoundary

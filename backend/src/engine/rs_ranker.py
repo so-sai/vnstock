@@ -24,6 +24,10 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import pandas as pd
 import numpy as np
 import json
@@ -40,6 +44,11 @@ def calculate_rs_score():
     print("📡 ĐANG QUÉT RADAR RS (RELATIVE STRENGTH)...")
     print("="*50)
 
+    # ── [TẦNG 0] Lọc chất lượng dữ liệu ──────────────────
+    from src.engine.data_quality import loc_bo_bang_tin_cay
+    reliable = set(loc_bo_bang_tin_cay())
+    print(f"  📊 Đã lọc dữ liệu: {len(reliable)} mã đạt chuẩn (≥200 phiên)")
+
     # 1. Truy vấn dữ liệu lịch sử từ Vault
     with get_connection() as conn:
         query = """
@@ -55,7 +64,14 @@ def calculate_rs_score():
 
     # --- SENTINEL SAFE PATTERN ---
     df = df.copy()
-    df['date'] = pd.to_datetime(df['date'], format='mixed')
+    df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed')
+
+    # Lọc chỉ giữ các mã đủ dữ liệu tin cậy
+    before_count = df['symbol'].nunique()
+    df = df[df['symbol'].isin(reliable)].copy()
+    after_count = df['symbol'].nunique()
+    if before_count != after_count:
+        print(f"  ⚠ Tạm hoãn xếp hạng {before_count - after_count} mã — thiếu dữ liệu lịch sử.")
 
     # Chuẩn hóa đơn vị giá (VND → nghìn đồng) cho price và close
     m = df['close'] > 500

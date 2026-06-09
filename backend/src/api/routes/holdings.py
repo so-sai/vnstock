@@ -25,6 +25,7 @@ PROJECT_ROOT = _hydrate_path()
 from core.holdings.holdings_view_builder import build_holdings_view
 from core.holdings.exposure_engine import compute_exposure_summary
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -35,7 +36,7 @@ async def get_holdings_view():
     """
     try:
         view = build_holdings_view()
-        return view.model_dump()
+        return localize_output(view.model_dump())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"HoldingsView error: {str(e)}")
 
@@ -44,6 +45,6 @@ async def get_holdings_view():
 async def get_holdings_exposure():
     """Raw exposure metrics for advanced users."""
     try:
-        return compute_exposure_summary()
+        return localize_output(compute_exposure_summary())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Exposure error: {str(e)}")

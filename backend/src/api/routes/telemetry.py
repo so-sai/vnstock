@@ -30,6 +30,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.core.canonical_output_adapter import localize_output
 from src.telemetry.storage import (
     get_all_snapshots,
     get_outcomes,
@@ -48,7 +49,7 @@ from src.telemetry.attribution import update_engine_performance as refresh_perf,
 async def get_telemetry_snapshots(limit: int = Query(20, ge=1, le=200)):
     try:
         initialize_telemetry_database()
-        return get_all_snapshots(limit)
+        return localize_output(get_all_snapshots(limit))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -57,7 +58,7 @@ async def get_telemetry_snapshots(limit: int = Query(20, ge=1, le=200)):
 async def get_telemetry_stats():
     try:
         initialize_telemetry_database()
-        return get_snapshot_stats()
+        return localize_output(get_snapshot_stats())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -70,7 +71,7 @@ async def get_telemetry_decision(decision_id: str):
         if not snap:
             raise HTTPException(status_code=404, detail="Decision not found")
         outcomes = get_outcomes(decision_id)
-        return {"snapshot": snap, "outcomes": outcomes}
+        return localize_output({"snapshot": snap, "outcomes": outcomes})
     except HTTPException:
         raise
     except Exception as e:
@@ -90,7 +91,7 @@ async def evaluate_decision(
                 status_code=404,
                 detail="Cannot evaluate — snapshot missing or no market data",
             )
-        return record
+        return localize_output(record)
     except HTTPException:
         raise
     except Exception as e:
@@ -102,7 +103,7 @@ async def evaluate_all_pending():
     try:
         initialize_telemetry_database()
         results = evaluate_pending()
-        return {"evaluated": len(results), "horizons": HORIZONS}
+        return localize_output({"evaluated": len(results), "horizons": HORIZONS})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -120,7 +121,7 @@ async def get_decision_attribution(
         summary = get_attribution_summary(decision_id, horizon)
         if not summary:
             raise HTTPException(status_code=404, detail="No attribution found")
-        return summary
+        return localize_output(summary)
     except HTTPException:
         raise
     except Exception as e:
@@ -137,7 +138,7 @@ async def get_attribution_summary_vi(
         summary = generate_summary_vi(decision_id, horizon)
         if not summary:
             raise HTTPException(status_code=404, detail="No attribution summary available")
-        return summary.model_dump()
+        return localize_output(summary.model_dump())
     except HTTPException:
         raise
     except Exception as e:
@@ -148,7 +149,7 @@ async def get_attribution_summary_vi(
 async def get_engine_perf(engine: str = Query(None, description="Filter by engine")):
     try:
         initialize_telemetry_database()
-        return get_engine_performance(engine)
+        return localize_output(get_engine_performance(engine))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -158,6 +159,50 @@ async def refresh_engine_perf(window: int = Query(30, ge=7, le=90)):
     try:
         initialize_telemetry_database()
         results = refresh_perf(window_days=window)
-        return {"updated": len(results), "window_days": window}
+        return localize_output({"updated": len(results), "window_days": window})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ====================================================================
+# DRIVER REPUTATION LEDGER ENDPOINTS
+# ====================================================================
+
+from src.telemetry.driver_reputation import (
+    get_reputation as _get_driver_reputation,
+    get_reputation_summary,
+    update_reputation as _update_driver_reputation,
+)
+
+
+@router.get("/reputation", summary="Driver Reputation Ledger")
+async def driver_reputation(
+    window_days: int = Query(90, ge=30, le=180),
+    regime_tag: str = Query("all", regex="^(all|trending|ranging|crisis)$"),
+):
+    """Per-driver reputation: accuracy, alpha, stability across regimes."""
+    try:
+        return localize_output(_get_driver_reputation(
+            window_days=window_days, regime_tag=regime_tag,
+        ))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reputation/summary", summary="Reputation dashboard snapshot")
+async def reputation_summary(window_days: int = Query(90, ge=30, le=180)):
+    """Aggregated reputation: top driver, regime breakdown, full driver list."""
+    try:
+        return localize_output(get_reputation_summary(window_days=window_days))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reputation/refresh", summary="Force reputation recalculation")
+async def refresh_reputation():
+    """Recompute all driver reputation from shadow log + attribution data."""
+    try:
+        n = _update_driver_reputation()
+        return localize_output({"rows_updated": n})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

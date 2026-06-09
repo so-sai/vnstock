@@ -21,6 +21,7 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.services.dashboard_service import get_dashboard_data
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -31,6 +32,6 @@ async def get_dashboard():
     Single endpoint cho trang chủ Frontend.
     """
     try:
-        return get_dashboard_data()
+        return localize_output(get_dashboard_data())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dashboard error: {str(e)}")

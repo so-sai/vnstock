@@ -19,6 +19,10 @@ def _hydrate_path():
             current = current.parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
+
+    backend_dir = root_path / 'backend'
+    if backend_dir.exists() and str(backend_dir) not in sys.path:
+        sys.path.append(str(backend_dir))
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
@@ -175,6 +179,23 @@ def optimize_sqlite_engine():
                 misaligned_count INTEGER,
                 habitat_distribution TEXT,
                 report_json TEXT
+            )
+        """)
+
+        # 11. TẠO BẢNG IPO CALENDAR CHO HUD / STATIC SEED
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ipo_calendar (
+                symbol TEXT PRIMARY KEY,
+                listing_date TEXT NOT NULL,
+                listing_price REAL NOT NULL DEFAULT 0,
+                listing_volume INTEGER NOT NULL DEFAULT 0,
+                market_cap_listing REAL NOT NULL DEFAULT 0,
+                sector TEXT NOT NULL DEFAULT 'UNKNOWN',
+                exchange TEXT NOT NULL DEFAULT 'HOSE',
+                aftermarket_return_pct REAL DEFAULT 0,
+                days_listed INTEGER DEFAULT 0,
+                source TEXT DEFAULT 'STATIC_SEED',
+                created_at TEXT DEFAULT (datetime('now'))
             )
         """)
 

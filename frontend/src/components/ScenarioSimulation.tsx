@@ -60,11 +60,11 @@ const ScenarioSimulation: React.FC = () => {
                 </div>
               </div>
               <div className="bg-japandi-warm-sand/40 rounded p-2 text-center">
-                <div className="text-[9px] font-mono text-japandi-muted-clay/60">RỦI RO</div>
+                <div className="text-[9px] font-mono text-japandi-muted-clay/60">RỦI RO DỰ KIẾN</div>
                 <div className={`text-sm font-bold font-mono ${
                   data.projected_risk === 'LOCKED' ? 'text-red-700' : data.projected_risk === 'STRESS' ? 'text-rose-600' : data.projected_risk === 'CAUTION' ? 'text-amber-600' : 'text-emerald-600'
                 }`}>
-                  {data.projected_risk}
+                  {data.projected_risk === 'LOCKED' ? 'Khóa' : data.projected_risk === 'STRESS' ? 'Căng thẳng' : data.projected_risk === 'CAUTION' ? 'Thận trọng' : data.projected_risk === 'SAFE' ? 'An toàn' : data.projected_risk}
                 </div>
               </div>
             </div>

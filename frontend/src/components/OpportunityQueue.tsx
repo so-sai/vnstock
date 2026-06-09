@@ -3,6 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { BarChart } from 'lucide-react';
 
+const actionLabels: Record<string, string> = {
+  STRONG_BUY: "MUA MẠNH", BUY: "MUA", WATCH: "THEO DÕI", OBSERVE: "QUAN SÁT",
+};
 const actionColors: Record<string, string> = {
   STRONG_BUY: 'bg-emerald-800 text-emerald-50',
   BUY: 'bg-emerald-600 text-emerald-50',
@@ -10,6 +13,9 @@ const actionColors: Record<string, string> = {
   OBSERVE: 'bg-zinc-500 text-zinc-50',
 };
 
+const breakoutLabels: Record<string, string> = {
+  '200D': '200 ngày', '50D': '50 ngày', '20D': '20 ngày', NONE: 'Không',
+};
 const breakoutColors: Record<string, string> = {
   '200D': 'text-purple-600 font-bold',
   '50D': 'text-blue-600',
@@ -17,6 +23,9 @@ const breakoutColors: Record<string, string> = {
   NONE: 'text-japandi-muted-clay',
 };
 
+const chaseLabels: Record<string, string> = {
+  EXTREME: 'Cao', HIGH: 'Trung bình', MODERATE: 'Thấp',
+};
 const chaseColors: Record<string, string> = {
   EXTREME: 'text-rose-600', HIGH: 'text-orange-600', MODERATE: 'text-amber-600',
 };
@@ -62,16 +71,16 @@ const OpportunityQueue: React.FC<{ topN?: number }> = ({ topN = 5 }) => {
           {opps.map((opp: any, i: number) => (
             <div key={i} className="flex items-center gap-3 px-4 py-2.5 hover:bg-japandi-oat/40 transition-colors">
               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono ${actionColors[opp.action] || 'bg-zinc-100'}`}>
-                {opp.action?.replace(/_/g, ' ')}
+                {actionLabels[opp.action] || opp.action?.replace(/_/g, ' ')}
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm text-japandi-earth">{opp.symbol}</span>
                   <span className={`text-[10px] font-mono ${breakoutColors[opp.breakout_level] || ''}`}>
-                    {opp.breakout_level}
+                    {breakoutLabels[opp.breakout_level] || opp.breakout_level}
                   </span>
                   <span className={`text-[9px] font-mono ${chaseColors[opp.retail_chase] || ''}`}>
-                    {opp.retail_chase}
+                    {chaseLabels[opp.retail_chase] || opp.retail_chase}
                   </span>
                 </div>
                 <div className="text-[10px] text-japandi-muted-clay font-mono truncate">{opp.reason}</div>

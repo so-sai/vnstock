@@ -69,6 +69,7 @@ a = Analysis(
     pathex=[
         str(project_root / "backend"),
         str(project_root),  # so core/ modules are discoverable
+        str(project_root / "backend" / "src"),  # so init_db is discoverable
         str(project_root / "backend" / "libs" / "vnstock"),  # so vnstock is discoverable
         str(project_root / "backend" / "libs"),  # so canonical is discoverable
     ],

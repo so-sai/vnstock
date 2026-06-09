@@ -15,18 +15,18 @@ const REGIME_COLORS: Record<string, { fill: string; bar: string; border: string;
 };
 
 const EVENT_MARKERS: Record<string, { symbol: string; color: string; label: string }> = {
-  PICK: { symbol: '▲', color: '#10b981', label: 'PICK' },
-  BLOCKED: { symbol: '×', color: '#f43f5e', label: 'BLOCKED' },
-  EXIT: { symbol: '●', color: '#f59e0b', label: 'EXIT' },
-  REGIME_FLIP: { symbol: '▶', color: '#8b5cf6', label: 'REGIME FLIP' },
-  RECOVERY_FIRE: { symbol: '✦', color: '#3b82f6', label: 'RECOVERY' },
+  PICK: { symbol: '▲', color: '#10b981', label: 'CHỌN' },
+  BLOCKED: { symbol: '×', color: '#f43f5e', label: 'CHẶN' },
+  EXIT: { symbol: '●', color: '#f59e0b', label: 'THOÁT' },
+  REGIME_FLIP: { symbol: '▶', color: '#8b5cf6', label: 'ĐẢO CHIỀU' },
+  RECOVERY_FIRE: { symbol: '✦', color: '#3b82f6', label: 'PHỤC HỒI' },
 };
 
 const DEAD_ZONE_LABELS: Record<string, string> = {
-  FILTERED: 'FILTERED — blocked but healthy',
-  NOISE_REJECTION: 'NOISE_REJECTION — instability',
-  RISK_LOCK: 'RISK_LOCK — macro defence',
-  PARTICIPATION_FAIL: 'PARTICIPATION_FAIL — low breadth',
+  FILTERED: 'BỊ LỌC — khỏe nhưng không mở',
+  NOISE_REJECTION: 'NHIỄU — bất ổn định',
+  RISK_LOCK: 'KHÓA RỦI RO — phòng vệ vĩ mô',
+  PARTICIPATION_FAIL: 'ĐỘ RỘNG YẾU — không tham gia',
 };
 
 function fmt(n: number | null | undefined, d = 1): string {
@@ -212,11 +212,11 @@ const ReplayTimelinePage: React.FC = () => {
         <h1 className="text-xl font-bold text-japandi-earth tracking-tight">PHÒNG THÍ NGHIỆM HỆ THỐNG</h1>
         <p className="text-xs text-japandi-muted-clay mt-1 font-mono">
           Bóc tách mọi phán quyết của Model C qua từng phiên —{` `}
-          <span className="text-zinc-400">▲ PICK</span> ·{` `}
-          <span className="text-rose-500">× BLOCKED</span> ·{` `}
-          <span className="text-amber-500">● EXIT</span> ·{` `}
-          <span className="text-purple-500">▶ REGIME FLIP</span> ·{` `}
-          <span className="text-blue-500">✦ RECOVERY</span>
+           <span className="text-zinc-400">▲ CHỌN</span> ·{` `}
+           <span className="text-rose-500">× CHẶN</span> ·{` `}
+           <span className="text-amber-500">● THOÁT</span> ·{` `}
+           <span className="text-purple-500">▶ ĐẢO CHIỀU</span> ·{` `}
+           <span className="text-blue-500">✦ PHỤC HỒI</span>
         </p>
       </header>
 
@@ -384,12 +384,12 @@ const ReplayTimelinePage: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-gray-400">Trạng thái</span>
                 <span className={`font-bold ${chart.hoverDay.regime_status === 'TRENDING' ? 'text-emerald-600' : chart.hoverDay.regime_status === 'CRISIS' ? 'text-rose-600' : 'text-amber-600'}`}>
-                  {chart.hoverDay.regime_status || 'N/A'}
+                  {(chart.hoverDay.regime_status ? (REGIME_COLORS[chart.hoverDay.regime_status] || {}).label : null) || chart.hoverDay.regime_status || 'N/A'}
                 </span>
               </div>
               <div className="flex justify-between"><span className="text-gray-400">Điểm số</span><span className="font-bold text-japandi-earth">{fmt(chart.hoverDay.regime_score, 2)}</span></div>
               <div className="flex justify-between"><span className="text-gray-400">Model</span><span className="text-gray-700">{chart.hoverDay.active_model || '—'}</span></div>
-              <div className="flex justify-between"><span className="text-gray-400">Phục hồi</span><span className="text-gray-700">{chart.hoverDay.recovery_flag ? '✅' : '—'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-400">Phục hồi</span><span className="text-gray-700">{chart.hoverDay.recovery_flag ? 'CÓ' : '—'}</span></div>
               <div className="flex justify-between"><span className="text-gray-400">ATR tỷ lệ</span><span className="text-gray-700">{fmt(chart.hoverDay.atr_ratio, 2)}</span></div>
             </div>
           ) : (
@@ -412,7 +412,7 @@ const ReplayTimelinePage: React.FC = () => {
                       <span className="text-gray-400 text-[10px]">· {ev.model}</span>
                     </div>
                     <p className="text-gray-500 text-[10px] mt-0.5 ml-4">{ev.reason}</p>
-                    <p className="text-gray-400 text-[9px] ml-4">Confidence: {fmt(ev.confidence, 2)}</p>
+                    <p className="text-gray-400 text-[9px] ml-4">Tin cậy: {fmt(ev.confidence, 2)}</p>
                   </div>
                 );
               })}

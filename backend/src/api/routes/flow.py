@@ -40,6 +40,7 @@ from core.flow.liquidity_concentration_engine import get_lci_dashboard
 
 logger = logging.getLogger(__name__)
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter(tags=["Phase 12B - Asia Flow Layer"])
 
 
@@ -58,7 +59,7 @@ async def get_liquidity_flow():
         logger.error(f"Liquidity wave scan failed: {e}")
         waves = []
 
-    return {
+    return localize_output({
         "liquidity_phase": health.get("liquidity_phase", "NEUTRAL"),
         "volume_trend_5d": health.get("volume_trend_5d", 0),
         "value_trend_5d": health.get("value_trend_5d", 0),
@@ -76,7 +77,7 @@ async def get_liquidity_flow():
             }
             for w in waves[:20]
         ],
-    }
+    })
 
 
 @router.get("/sector")
@@ -105,12 +106,12 @@ async def get_sector_flow():
     chains = _build_chains_from_waves()
     flow_alignment = rotation.get("flow_alignment_pct", rotation.get("alignment", 0))
 
-    return {
+    return localize_output({
         "rotation_regime": rotation.get("rotation_regime", "UNKNOWN"),
         "flow_alignment_pct": flow_alignment,
         "sectors": sectors,
         "leader_follower_chains": chains,
-    }
+    })
 
 
 @router.get("/foreign")
@@ -135,12 +136,12 @@ async def get_foreign_flow():
 
     top_accumulated = sorted(accumulations.items(), key=lambda x: x[1], reverse=True)
 
-    return {
+    return localize_output({
         "total_net_10d_bn_vnd": round(total_net, 2),
         "market_pressure": "ACCUMULATING" if total_net > 0 else "DISTRIBUTING",
         "top_accumulated": [{"symbol": s, "net_10d_bn_vnd": v} for s, v in top_accumulated[:5]],
         "top_distributed": [{"symbol": s, "net_10d_bn_vnd": v} for s, v in reversed(top_accumulated[-5:])],
-    }
+    })
 
 
 @router.get("/decayed-summary")
@@ -148,10 +149,10 @@ async def get_decayed_flow():
     """Phase 12C — Full decay-augmented flow summary (3 channels + banner with uncertainty)."""
     try:
         summary = get_decayed_flow_summary()
-        return summary
+        return localize_output(summary)
     except Exception as e:
         logger.error(f"Decayed flow summary failed: {e}")
-        return {"status": "ERROR", "detail": str(e)}
+        return localize_output({"status": "ERROR", "detail": str(e)})
 
 
 @router.get("/decayed-liquidity")
@@ -159,10 +160,10 @@ async def get_decayed_liquidity():
     """Phase 12C — Liquidity wave with exponential decay weighting + persistence metrics."""
     try:
         health = get_decayed_liquidity_health()
-        return health
+        return localize_output(health)
     except Exception as e:
         logger.error(f"Decayed liquidity failed: {e}")
-        return {"status": "ERROR", "detail": str(e)}
+        return localize_output({"status": "ERROR", "detail": str(e)})
 
 
 @router.get("/decayed-sector")
@@ -170,10 +171,10 @@ async def get_decayed_sector():
     """Phase 12C — Sector rotation with decay-weighted momentum + signal quality."""
     try:
         beta = get_decayed_rotation_beta()
-        return beta
+        return localize_output(beta)
     except Exception as e:
         logger.error(f"Decayed sector failed: {e}")
-        return {"status": "ERROR", "detail": str(e)}
+        return localize_output({"status": "ERROR", "detail": str(e)})
 
 
 @router.get("/decayed-foreign")
@@ -181,10 +182,10 @@ async def get_decayed_foreign():
     """Phase 12C — Foreign flow with decay-weighted accumulation (EWMA vs flat sum)."""
     try:
         summary = get_decayed_foreign_summary()
-        return summary
+        return localize_output(summary)
     except Exception as e:
         logger.error(f"Decayed foreign failed: {e}")
-        return {"status": "ERROR", "detail": str(e)}
+        return localize_output({"status": "ERROR", "detail": str(e)})
 
 
 @router.get("/banner")
@@ -235,11 +236,11 @@ async def get_flow_banner():
     else:
         banner = "HỆ THỐNG ĐANG THU THẬP DỮ LIỆU DÒNG CHẢY — CHỜ TÍN HIỆU XÁC NHẬN"
 
-    return {
+    return localize_output({
         "banner": banner,
         "liquidity_phase": liquidity_phase,
         "rotation_regime": rotation_regime,
-    }
+    })
 
 
 @router.get("/banner/decayed")
@@ -247,10 +248,10 @@ async def get_flow_banner_decayed():
     """Phase 12C — Probabilistic flow banner with uncertainty, persistence tags, conflict flags."""
     try:
         banner_data = synthesize_decayed_banner()
-        return banner_data
+        return localize_output(banner_data)
     except Exception as e:
         logger.error(f"Decayed banner failed: {e}")
-        return {
+        return localize_output({
             "banner": "LỖI HỆ THỐNG — KHÔNG THỂ TỔNG HỢP DỮ LIỆU DÒNG TIỀN",
             "liquidity_phase_decayed": "UNKNOWN",
             "rotation_regime_decayed": "UNKNOWN",
@@ -259,7 +260,7 @@ async def get_flow_banner_decayed():
             "signal_strength": 0.0,
             "conflict_flag": False,
             "confidence_band": "THẤP",
-        }
+        })
 
 
 @router.get("/lci")
@@ -269,14 +270,14 @@ async def get_liquidity_concentration_index():
     """
     try:
         lci = get_lci_dashboard()
-        return lci
+        return localize_output(lci)
     except Exception as e:
         logger.error(f"LCI failed: {e}")
-        return {
+        return localize_output({
             "lci_score": 0.0,
             "market_breadth_quality": "LAN_TOA_THAT",
             "error": str(e),
-        }
+        })
 
 
 def _build_chains_from_waves() -> dict:

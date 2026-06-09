@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Lightbulb, AlertTriangle, Shield, TrendingUp, ChevronRight } from 'lucide-react';
 
+const actionVi: Record<string, string> = { ENTER: 'Vào', SCALE_IN: 'Tăng', HOLD: 'Giữ', REDUCE: 'Giảm', EXIT: 'Thoát', STAND_DOWN: 'Đứng ngoài' };
+const riskVi: Record<string, string> = { SAFE: 'An toàn', CAUTION: 'Thận trọng', STRESS: 'Căng thẳng', LOCKED: 'Khóa' };
 const toneConfig: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
   WARNING: { icon: <AlertTriangle size={16} />, color: 'text-amber-800', bg: 'bg-amber-50 border-amber-200' },
   CRITICAL: { icon: <AlertTriangle size={16} className="animate-pulse" />, color: 'text-rose-800', bg: 'bg-rose-50 border-rose-200' },
@@ -36,7 +38,7 @@ const PortfolioCoach: React.FC = () => {
         {tc.icon}
         <span className={`text-[10px] font-mono tracking-wider ${tc.color}`}>PORTFOLIO COACH</span>
         <span className={`text-[10px] font-mono ml-auto ${tc.color}`}>
-          {data.decision?.action} · {data.decision?.risk}
+          {actionVi[data.decision?.action] || data.decision?.action} · {riskVi[data.decision?.risk] || data.decision?.risk}
         </span>
       </div>
       <div className={`text-sm font-bold ${tc.color}`}>{coach.instruction}</div>
@@ -47,8 +49,8 @@ const PortfolioCoach: React.FC = () => {
       </div>
       <div className="flex gap-3 pt-1 text-[9px] font-mono text-japandi-muted-clay/60">
         <span>{data.regime}</span>
-        <span>{data.positions_count} positions</span>
-        <span>Heat {data.portfolio_heat}%</span>
+        <span>{data.positions_count} vị thế</span>
+        <span>Nhiệt {data.portfolio_heat}%</span>
       </div>
     </div>
   );

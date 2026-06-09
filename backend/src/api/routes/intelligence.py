@@ -34,6 +34,7 @@ from src.services.actionable_intelligence_service import (
 )
 
 logger = logging.getLogger(__name__)
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -41,10 +42,10 @@ router = APIRouter()
 async def live_summary():
     """1-glance live market summary — regime + decision + liquidity + rotation."""
     try:
-        return get_live_summary()
+        return localize_output(get_live_summary())
     except Exception as e:
         logger.error(f"Live summary endpoint failed: {type(e).__name__}: {e}")
-        return {
+        return localize_output({
             "regime": "RANGING",
             "decision": {"action": "HOLD", "confidence": 50, "risk": "SAFE", "constraint": "ALLOWED"},
             "liquidity_phase": "NEUTRAL",
@@ -53,14 +54,14 @@ async def live_summary():
             "positions_count": 0,
             "coach_instruction": "Hệ thống đang thu thập dữ liệu thị trường. Vui lòng quay lại sau phiên giao dịch.",
             "updated_at": datetime.now().isoformat(),
-        }
+        })
 
 
 @router.get("/coach")
 async def portfolio_coach():
     """What should I do next? Plain-language mentor advice."""
     try:
-        return get_portfolio_coach()
+        return localize_output(get_portfolio_coach())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -69,7 +70,7 @@ async def portfolio_coach():
 async def opportunity_queue(top_n: int = Query(5, ge=1, le=20)):
     """Top actionable buy/sell opportunities ranked by combined score."""
     try:
-        return get_opportunity_queue(top_n)
+        return localize_output(get_opportunity_queue(top_n))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -78,7 +79,7 @@ async def opportunity_queue(top_n: int = Query(5, ge=1, le=20)):
 async def scenario_simulation(scenario: str = Query("drop_5pct", pattern="^(drop_5pct|drop_10pct|surge_3pct)$")):
     """What-if simulation for market scenarios."""
     try:
-        return get_scenario_simulation(scenario)
+        return localize_output(get_scenario_simulation(scenario))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -87,6 +88,6 @@ async def scenario_simulation(scenario: str = Query("drop_5pct", pattern="^(drop
 async def position_narrative(symbol: str):
     """Is this position still valid? Full narrative for a held position."""
     try:
-        return get_position_narrative(symbol.upper())
+        return localize_output(get_position_narrative(symbol.upper()))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -33,6 +33,7 @@ import src.config
 import pandas as pd
 import numpy as np
 from src.database.db_core import get_connection
+from src.core.presentation.vi_localizer import SECTOR_LABELS
 
 logger = logging.getLogger(__name__)
 
@@ -283,12 +284,15 @@ def scan_liquidity_concentration(target_date=None):
     print(f"Signals: {'; '.join(signals)}")
     print(f"\n--- MARKET-WIDE ---")
     print(f"Top1: {market_concentration['top1']['symbol']}={market_concentration['top1']['pct']}% | Top3: {market_concentration['top3_pct']}% | Top10: {top10_pct}%")
-    print(f"Sector flows: {', '.join(f'{s}={p}%' for s,p in list(sector_share.items())[:5])}")
+    sector_flow_vi = {SECTOR_LABELS.get(s, s): p for s, p in sector_share.items()}
+    print(f"Sector flows: {', '.join(f'{s}={p}%' for s,p in list(sector_flow_vi.items())[:5])}")
     print(f"Sector breadth: {sector_breadth:.0f}% positive | Bank share: {bank_share}%")
     print(f"\n--- WATCHLIST ---")
     print(f"Top1: {wl_concentration['top1']['symbol']}={wl_concentration['top1']['pct']}%")
     print(f"\n--- FLOW MOMENTUM ---")
-    print(f"Rotation from: {bottom_sectors_ranked[:2]} -> Rotation to: {top_sectors_ranked[:2]}")
+    bottom_vi = ', '.join(SECTOR_LABELS.get(s, s) for s in bottom_sectors_ranked[:2])
+    top_vi = ', '.join(SECTOR_LABELS.get(s, s) for s in top_sectors_ranked[:2])
+    print(f"Rotation from: [{bottom_vi}] -> Rotation to: [{top_vi}]")
     print(f"\nVNINDEX: {vni_info.get('close',0)} ({vni_info.get('chg',0):+.2f}%) | Vol ratio: {vni_info.get('vol_ratio',0)}x")
     print(f"{'='*70}")
 

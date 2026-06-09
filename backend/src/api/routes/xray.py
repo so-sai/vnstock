@@ -22,6 +22,7 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.services.xray_service import get_xray_data
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -30,6 +31,6 @@ async def xray_endpoint(symbol: str, timeframe: str = Query("D", pattern="^(D|W|
     try:
         loop = asyncio.get_event_loop()
         data = await loop.run_in_executor(None, get_xray_data, symbol, timeframe)
-        return data
+        return localize_output(data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"X-Ray error: {str(e)}")

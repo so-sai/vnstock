@@ -1,36 +1,36 @@
 {
-    "timestamp": "2023-03-20",
-    "date": "2023-03-20",
-    "regime_score": 0.13,
-    "market_status": "CRISIS",
-    "active_model": "NONE",
-    "consensus": "PILOT ABORT (EXIT IMMEDIATELY)",
-    "confidence": 0.0,
-    "breadth_velocity": -35.5,
+    "timestamp": "2026-06-08 11:08:26",
+    "date": "2026-06-08",
+    "regime_score": 0.45,
+    "market_status": "RANGING",
+    "active_model": "B (MEAN REVERSION)",
+    "consensus": "WAIT FOR NICHES",
+    "confidence": 0.45,
+    "breadth_velocity": -30.0,
     "details": {
-        "b_score": 0.3,
-        "breadth_pct": 20.6,
-        "breadth_std_10d": 11.88,
-        "breadth_momentum": -15.1,
-        "t_score": 0.0,
-        "vnindex_vs_ma200": "BELOW",
-        "vnindex_vs_ma50": "BELOW",
-        "ma50_slope": 3.8,
-        "adx": 24.4,
-        "v_score": 0.2,
-        "atr_ratio": 1.62
+        "b_score": 0.2337,
+        "breadth_pct": 23.4,
+        "breadth_std_10d": 18.39,
+        "breadth_momentum": -30.0,
+        "t_score": 1.0,
+        "vnindex_vs_ma200": "ABOVE",
+        "vnindex_vs_ma50": "ABOVE",
+        "ma50_slope": 5.2,
+        "adx": 46.7,
+        "v_score": 1.0,
+        "atr_ratio": 0.8
     },
     "model_a": {
-        "status": "RED (STANDBY - PHANTOM CITADEL)",
-        "mom_expansion": 92
+        "status": "UNKNOWN",
+        "mom_expansion": 0
     },
     "model_b": {
         "picks_count": 0,
         "top_picks": [],
-        "context": "BELOW",
-        "breadth_pct": 20.6,
-        "breadth_std": 11.88,
-        "breadth_velocity": -35.5
+        "context": "ABOVE",
+        "breadth_pct": 23.4,
+        "breadth_std": 18.39,
+        "breadth_velocity": -30.0
     },
     "recovery": {
         "is_recovery": false,
@@ -39,9 +39,17 @@
         "block_reason": "NONE",
         "ma10_reclaim": false,
         "details": {
-            "index_dd": -8.93,
-            "breadth_std": 11.88,
-            "velocity_5d": -35.5
+            "index_dd": -5.73,
+            "breadth_std": 18.39,
+            "velocity_5d": -30.0
         }
+    },
+    "cognitive_modulation": {
+        "mod_reasons": [
+            "no cognitive signals — base only"
+        ],
+        "driver_confidence": null,
+        "drift_status": null,
+        "ets_score": null
     }
 }

@@ -22,6 +22,7 @@ PROJECT_ROOT = _hydrate_path()
 from src.services.breadth_service import get_breadth_analysis, get_breadth_history
 from src.services.heatmap_service import get_breadth_stacked_history
 
+from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 
@@ -29,7 +30,7 @@ router = APIRouter()
 async def get_breadth():
     """Lấy phân tích độ rộng thị trường hiện tại."""
     try:
-        return get_breadth_analysis()
+        return localize_output(get_breadth_analysis())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -38,7 +39,7 @@ async def get_breadth():
 async def get_breadth_history_endpoint(limit: int = Query(60, ge=1, le=365)):
     """Lấy lịch sử breadth_pct để vẽ biểu đồ."""
     try:
-        return get_breadth_history(limit=limit)
+        return localize_output(get_breadth_history(limit=limit))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -50,6 +51,6 @@ async def get_breadth_stacked_endpoint(limit: int = Query(60, ge=5, le=365)):
     dùng cho biểu đồ cột xếp chồng.
     """
     try:
-        return get_breadth_stacked_history(limit=limit)
+        return localize_output(get_breadth_stacked_history(limit=limit))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
