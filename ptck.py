@@ -546,12 +546,70 @@ def cmd_gold(args):
             print(f"  [FAIL] Gold dashboard: {e}")
 
 
+def cmd_rs_audit(args):
+    """Audit Top RS — phân tích nguồn gốc sức mạnh."""
+    top_n = getattr(args, 'top', 20)
+    show_all = getattr(args, 'show_all', False)
+    if show_all:
+        top_n = 9999
+    from src.engine.rs_audit import run_rs_audit, in_bao_cao
+    results = run_rs_audit(top_n=top_n)
+    in_bao_cao(results)
+
+
 def cmd_group_influence(args):
     """Bộ đo ảnh hưởng nhóm trụ."""
     from src.engine.group_influence_engine import tinh_anh_huong_nhom, in_bao_cao, xuat_json
     mr = tinh_anh_huong_nhom()
     in_bao_cao(mr)
     xuat_json(mr)
+
+
+def cmd_prediction_registry(args):
+    """Prediction Registry — ghi lại dự báo RS audit + đo kết quả."""
+    from src.telemetry.prediction_registry import (
+        log_predictions, update_outcomes, get_registry_stats, get_raw_entries,
+    )
+
+    if args.action == "log":
+        n = log_predictions(args.date)
+        print(f"  [PR] Đã ghi {n} dự báo.")
+    elif args.action == "update":
+        n = update_outcomes()
+        print(f"  [PR] Đã cập nhật {n} kết quả.")
+    elif args.action == "list":
+        entries = get_raw_entries(args.limit)
+        if not entries:
+            print("  [PR] Chưa có dữ liệu.")
+            return
+        print("=" * 100)
+        print(f"  PREDICTION REGISTRY — {len(entries)} entries gần nhất")
+        print("=" * 100)
+        for e in reversed(entries):
+            if e.get("event") == "prediction":
+                print(f"  PREDICT {e['date']} {e['symbol']:6s} | RS={e['rs']:3d} score={e['diem_xac_nhan']:.2f} {e['phan_loai']:<20s} price={e['price_t0']:>8.1f}")
+            elif e.get("event") == "outcome":
+                print(f"  OUTCOME {e['date']} {e['symbol']:6s} | {e['horizon']:2d}ngày return={e['return_pct']:+.2f}% exit={e['exit_price']:>8.1f}")
+        print("=" * 100)
+    else:
+        # stats (default)
+        s = get_registry_stats()
+        HORIZONS = [5, 20, 60]
+        print("=" * 60)
+        print("  PREDICTION REGISTRY — THỐNG KÊ")
+        print("=" * 60)
+        if not s:
+            print("  Chưa có dữ liệu. Chạy 'python ptck.py prediction-registry log' trước.")
+        for kl, data in sorted(s.items()):
+            print(f"\n  [{kl}] ({data['count']} mã)")
+            for h in HORIZONS:
+                hk = f"return_{h}d"
+                d = data[hk]
+                if d["n"] > 0:
+                    print(f"    {h:2d} ngày: avg={d['avg']:+.2f}%  max={d['max']:+.2f}%  min={d['min']:+.2f}%  (n={d['n']})")
+                else:
+                    print(f"    {h:2d} ngày: chưa có dữ liệu")
+        print("=" * 60)
 
 
 def main():
@@ -635,9 +693,22 @@ def main():
     p_gold.add_argument("subcommand", nargs="?", choices=["regime"], default=None, help="Gold subcommand")
     p_gold.set_defaults(func=cmd_gold)
 
+    # rs-audit
+    p_ra = sub.add_parser("rs-audit", help="Audit Top RS — phân tích nguồn gốc sức mạnh")
+    p_ra.add_argument("--top", type=int, default=20, help="Số lượng mã (mặc định 20)")
+    p_ra.add_argument("--all", action="store_true", dest="show_all", help="Hiện tất cả mã RS")
+    p_ra.set_defaults(func=cmd_rs_audit)
+
     # group-influence
     p_gi = sub.add_parser("group-influence", help="Bộ đo ảnh hưởng nhóm trụ")
     p_gi.set_defaults(func=cmd_group_influence)
+
+    # prediction-registry
+    p_pr = sub.add_parser("prediction-registry", help="Nhật ký dự báo — ghi log RS audit + đo kết quả sau 5/20/60 ngày")
+    p_pr.add_argument("action", choices=["log", "update", "stats", "list"], default="stats", nargs="?")
+    p_pr.add_argument("--date", help="Ngày (YYYY-MM-DD)")
+    p_pr.add_argument("--limit", type=int, default=20, help="Số entries (mặc định 20)")
+    p_pr.set_defaults(func=cmd_prediction_registry)
 
     # data-quality
     p_dq = sub.add_parser("data-quality", help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")

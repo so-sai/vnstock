@@ -20,6 +20,13 @@ from src.telemetry.storage import (
 )
 from src.telemetry.recorder import record_decision
 from src.telemetry.evaluator import evaluate_single, evaluate_pending, run_telemetry_evaluation
+from src.telemetry.prediction_registry import (
+    log_predictions,
+    update_outcomes,
+    get_registry_stats,
+    get_raw_entries,
+    run_registry_update,
+)
 from src.telemetry.attribution import (
     decompose_attribution,
     update_engine_performance,

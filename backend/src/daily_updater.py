@@ -336,6 +336,15 @@ def run_post_update_engines():
         results['telemetry'] = f'FAIL: {e}'
         logger.warning(f"⚠️ Telemetry: {e}")
 
+    try:
+        from src.telemetry.prediction_registry import run_registry_update
+        pr = run_registry_update()
+        results['prediction_registry'] = pr
+        logger.info(f"✅ Prediction Registry: {pr['predictions_logged']} logged, {pr['outcomes_appended']} outcomes")
+    except Exception as e:
+        results['prediction_registry'] = f'FAIL: {e}'
+        logger.warning(f"⚠️ Prediction Registry: {e}")
+
     return results
 
 # ============================================================

@@ -158,8 +158,35 @@ entrypoints:
     cli: "python ptck.py backfill-history [--symbols VCB,REE,HDB] [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--dry-run] [--quiet]"
     category: system
 
+  # ── RS Audit ───────────────────────────────────────────
+  rs_audit:
+    description: "Audit Top RS — phân tích nguồn gốc sức mạnh (nội tại vs dòng tiền vs tập trung vốn hóa)"
+    cli: "python ptck.py rs-audit [--top N]"
+    category: analysis
+
   # ── Confidence ────────────────────────────────────────
   confidence:
     description: "Lớp tự đánh giá độ tin cậy — 5 nhân tố + veto"
     cli: "python ptck.py confidence"
     category: decision
+
+  # ── Prediction Registry ──────────────────────────────────
+  prediction_registry_log:
+    description: "Ghi nhật ký dự báo RS Audit (phân loại 4 trụ) vào prediction_log.jsonl"
+    cli: "python ptck.py prediction-registry log [--date YYYY-MM-DD]"
+    category: telemetry
+
+  prediction_registry_update:
+    description: "Cập nhật kết quả sau 5/20/60 ngày cho các dự báo đã đủ tuổi"
+    cli: "python ptck.py prediction-registry update"
+    category: telemetry
+
+  prediction_registry_stats:
+    description: "Xem thống kê lợi nhuận trung bình theo nhóm phân loại (ĐƯỢC XÁC NHẬN / DẪN DẮT ĐƠN ĐỘC / CHƯA ĐỦ DỮ LIỆU)"
+    cli: "python ptck.py prediction-registry stats"
+    category: telemetry
+
+  prediction_registry_list:
+    description: "Xem danh sách các dự báo và kết quả gần nhất"
+    cli: "python ptck.py prediction-registry list [--limit N]"
+    category: telemetry
