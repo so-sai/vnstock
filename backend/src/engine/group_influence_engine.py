@@ -89,7 +89,7 @@ class MarketReality:
     """Thị trường thật vs thị trường ảo."""
     vnindex_actual: float
     vnindex_ex_group: Dict[str, float]
-    vnindex_ex_all_large: float
+    vnindex_ex_top10: float
     real_market_breadth: float
     artificial_market: bool
     dominant_group: str
@@ -178,7 +178,7 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
     merged, idx_df = _get_latest_data(target_date)
     if merged.empty or idx_df.empty:
         return MarketReality(
-            vnindex_actual=0, vnindex_ex_group={}, vnindex_ex_all_large=0,
+            vnindex_actual=0, vnindex_ex_group={}, vnindex_ex_top10=0,
             real_market_breadth=0, artificial_market=False,
             dominant_group="UNKNOWN", group_contributions=[]
         )
@@ -247,12 +247,14 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
     dominant = contributions[0].group_name if contributions else "UNKNOWN"
 
     # Tính VNINDEX ex-large (bỏ top 10 vốn hóa)
+    # Công thức đúng: contribution = Σ(weight_pct * change_pct) / 100
+    # vnindex_ex = vnindex * (1 - contribution / 100)
     top10 = merged.nlargest(10, 'weight')
     top10_symbols = set(top10['symbol'])
     remaining = merged[~merged['symbol'].isin(top10_symbols)]
-    if len(remaining) > 0 and remaining['weight_pct'].sum() > 0:
-        remaining_weight = remaining['weight_pct'].sum()
-        vnindex_ex_large = vnindex * (remaining['weight_pct'] * remaining['change_pct']).sum() / 100 / (remaining_weight / 100) if remaining_weight > 0 else vnindex
+    if len(top10) > 0:
+        top10_contribution = (top10['weight_pct'] * top10['change_pct']).sum() / 100
+        vnindex_ex_large = vnindex * (1 - top10_contribution / 100)
     else:
         vnindex_ex_large = vnindex
 
@@ -266,7 +268,7 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
     return MarketReality(
         vnindex_actual=vnindex,
         vnindex_ex_group=vnindex_ex_group,
-        vnindex_ex_all_large=round(vnindex_ex_large, 2),
+        vnindex_ex_top10=round(vnindex_ex_large, 2),
         real_market_breadth=round(breadth, 2),
         artificial_market=artificial,
         dominant_group=dominant,
@@ -316,13 +318,13 @@ def in_bao_cao(mr: MarketReality) -> None:
         ))
 
     print("  " + "-" * 40)
-    print("  Thi truong that (khong top 10): {:>10.2f}".format(mr.vnindex_ex_all_large))
+    print("  VNINDEX ex-top10 (chi so noi tai): {:>10.2f}".format(mr.vnindex_ex_top10))
 
     print()
     print("  Quy tac doc:")
     print("  - 'Anh huong' > 5: Nhom nay dang keo/cham VNINDEX")
     print("  - 'Thi truong ao': Chi so xanh nhung do rong am")
-    print("  - 'Thi truong that': VNINDEX sau khi bo nhom tru")
+    print("  - 'VNINDEX ex-top10': Chi so sau khi bo 10 co phieu von hoa lon nhat")
     print()
     print("=" * 70)
 
@@ -337,7 +339,7 @@ def xuat_json(mr: MarketReality, duong_dan: str = None) -> dict:
         "real_market_breadth": mr.real_market_breadth,
         "artificial_market": mr.artificial_market,
         "dominant_group": mr.dominant_group,
-        "vnindex_ex_all_large": mr.vnindex_ex_all_large,
+        "vnindex_ex_top10": mr.vnindex_ex_top10,
         "group_contributions": [asdict(g) for g in mr.group_contributions],
         "vnindex_ex_group": mr.vnindex_ex_group,
     }
