@@ -101,6 +101,15 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
     except Exception:
         reality = {}
 
+    # ── Bước 4b: Ảnh hưởng nhóm trụ (Group Influence) ──
+    from src.engine.group_influence_engine import tinh_anh_huong_nhom
+    try:
+        gi = tinh_anh_huong_nhom(target_date=target_date)
+        gi_top = gi.group_contributions[0] if gi.group_contributions else None
+    except Exception:
+        gi = None
+        gi_top = None
+
     # ── Bước 5: Các chỉ số thành phần ──
     details = regime_data.get("details", {})
     rad = regime_data.get("rad", {})
@@ -143,11 +152,24 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
             "do_lech_pha": reality.get("do_lech_pha"),
             "dien_giai": reality.get("dien_giai"),
         },
+        "nhom_anh_huong": {
+            "breadth": gi.real_market_breadth if gi else None,
+            "dominant_contribution_pct": gi.dominant_contribution_pct if gi else None,
+            "dominant_group": gi.dominant_group if gi else None,
+            "vnindex_ex_top10": gi.vnindex_ex_top10 if gi else None,
+            "total_change_pct": gi.total_change_pct if gi else None,
+            "artificial_market": gi.artificial_market if gi else False,
+            "top_contribution_pts": (
+                round(gi.vnindex_actual - gi.vnindex_ex_top10, 2)
+                if gi and gi.vnindex_ex_top10 else None
+            ),
+        },
         "metadata": {
             "nguon_regime": "live (detect_regime)",
             "nguon_cau_truc": "snapshot (structural_state.json)",
             "nguon_canh_bao": "live (build_early_warning)",
             "nguon_phan_tich_chi_so": "live (index_reality_unifier)",
+            "nguon_nhom_anh_huong": "live (group_influence_engine)",
         },
     }
 
