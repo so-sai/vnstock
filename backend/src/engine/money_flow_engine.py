@@ -91,7 +91,7 @@ class MoneyFlowEngine:
         if result:
             prev_vol_val: int = int(result[0])
             net_vol: int = current_vol - prev_vol_val
-            cursor.execute("SELECT close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1", (symbol,))
+            cursor.execute("SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?", (symbol, date))
             price_res = cursor.fetchone()
             price: float = float(price_res[0]) if price_res else 0.0
             net_value: float = (net_vol * price * 1000.0) / 1e9

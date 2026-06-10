@@ -32,6 +32,11 @@ MIN_SESSIONS_1Y = 200   # Đủ để tính RS 1 năm tin cậy
 MIN_SESSIONS_BASIC = 50 # Đủ để tính RS 3 tháng
 MIN_SESSIONS_RAW = 20   # Đủ để không bị rs_ranker skip ngay
 
+# ── Ngưỡng validation giá ──────────────────────────────────
+GIA_TOI_THIEU_VND = 100       # Giá tối thiểu (VNĐ) — thấp hơn = dữ liệu sai
+GIA_TOI_DA_VND = 1_000_000    # Giá tối đa (VNĐ) — cao hơn = dữ liệu sai
+BIEN_DONG_TOI_DA_PCT = 40     # Biến động tối đa / ngày (%) — cao hơn = flag
+
 # ── Nhãn đánh giá ──────────────────────────────────────────
 NHAN_CAO = "CAO"
 NHAN_TRUNG_BINH = "TRUNG_BINH"
@@ -194,6 +199,124 @@ def xuat_bao_cao(duong_dan: str = None) -> dict:
     print(f"  ═══ KẾT THÚC ĐÁNH GIÁ ═══\n")
 
     return bao_cao
+
+
+def kiem_tra_gia_bat_thuong() -> pd.DataFrame:
+    """
+    Kiểm tra và phát hiện giá bất thường trong daily_ohlcv.
+    
+    Returns:
+        DataFrame với các cột: symbol, date, close, loai_loi, mo_ta
+    """
+    with get_connection() as conn:
+        df = pd.read_sql("""
+            SELECT symbol, date, close, open, high, low
+            FROM daily_ohlcv
+            WHERE date >= date('now', '-30 days')
+            ORDER BY symbol, date
+        """, conn)
+    
+    if df.empty:
+        return pd.DataFrame()
+    
+    van_de = []
+    
+    for symbol, group in df.groupby('symbol'):
+        group = group.sort_values('date')
+        
+        for _, row in group.iterrows():
+            close = row['close']
+            if close is None or close == 0:
+                van_de.append({
+                    'symbol': symbol,
+                    'date': row['date'],
+                    'close': close,
+                    'loai_loi': 'GIA_0',
+                    'mo_ta': f'Close = 0 VND'
+                })
+                continue
+            
+            if close < GIA_TOI_THIEU_VND:
+                van_de.append({
+                    'symbol': symbol,
+                    'date': row['date'],
+                    'close': close,
+                    'loai_loi': 'GIA_THAP',
+                    'mo_ta': f'Close = {close} VND (< {GIA_TOI_THIEU_VND})'
+                })
+            
+            if close > GIA_TOI_DA_VND:
+                van_de.append({
+                    'symbol': symbol,
+                    'date': row['date'],
+                    'close': close,
+                    'loai_loi': 'GIA_CAO',
+                    'mo_ta': f'Close = {close:,.0f} VND (> {GIA_TOI_DA_VND:,})'
+                })
+        
+        # Kiểm tra biến động
+        if len(group) > 1:
+            closes = group['close'].values
+            for i in range(1, len(closes)):
+                if closes[i-1] and closes[i] and closes[i-1] > 0:
+                    chg_pct = abs((closes[i] - closes[i-1]) / closes[i-1] * 100)
+                    if chg_pct > BIEN_DONG_TOI_DA_PCT:
+                        van_de.append({
+                            'symbol': symbol,
+                            'date': group.iloc[i]['date'],
+                            'close': closes[i],
+                            'loai_loi': 'BIEN_DONG',
+                            'mo_ta': f'Biến động {chg_pct:.1f}% trong 1 ngày'
+                        })
+    
+    if not van_de:
+        return pd.DataFrame()
+    
+    return pd.DataFrame(van_de)
+
+
+def xuat_bao_cao_gia_bat_thuong() -> dict:
+    """
+    Xuất báo cáo giá bất thường ra màn hình và file JSON.
+    """
+    df = kiem_tra_gia_bat_thuong()
+    
+    if df.empty:
+        print("  ✅ Không phát hiện giá bất thường.")
+        return {'tong_van_de': 0}
+    
+    tong = len(df)
+    theo_loai = df['loai_loi'].value_counts().to_dict()
+    
+    print("\n  ═══ BÁO CÁO GIÁ BẤT THƯỜNG (P0 VALIDATOR) ═══")
+    print(f"  Tổng vấn đề: {tong}")
+    for loai, sl in theo_loai.items():
+        print(f"    {loai}: {sl}")
+    
+    print()
+    print(f"  {'Mã':<8} {'Ngày':<12} {'Close':>12} {'Loại lỗi':<15} {'Mô tả'}")
+    print(f"  {'─'*8} {'─'*12} {'─'*12} {'─'*15} {'─'*40}")
+    for _, row in df.head(30).iterrows():
+        print(f"  {row['symbol']:<8} {row['date']:<12} {row['close']:>12,.0f} {row['loai_loi']:<15} {row['mo_ta']}")
+    
+    if tong > 30:
+        print(f"  ... ({tong - 30} vấn đề khác)")
+    
+    # Lưu báo cáo
+    import src.config
+    report_path = os.path.join(src.config.DATA_DIR, "price_anomaly_report.json")
+    report = {
+        'tong_van_de': tong,
+        'theo_loai': theo_loai,
+        'chi_tiet': df.to_dict(orient='records')
+    }
+    with open(report_path, 'w', encoding='utf-8') as f:
+        json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+    
+    print(f"\n  Báo cáo đã lưu: {report_path}")
+    print(f"  ═══ KẾT THÚC KIỂM TRA ═══\n")
+    
+    return report
 
 
 if __name__ == "__main__":

@@ -140,6 +140,12 @@ entrypoints:
     cli: "python ptck.py index-decompose [--date YYYY-MM-DD]"
     category: market
 
+  # ── Group Influence ──────────────────────────────────────
+  group_influence:
+    description: "Bộ đo ảnh hưởng nhóm trụ — đóng góp VNINDEX theo nhóm, phát hiện thị trường ảo"
+    cli: "python ptck.py group-influence"
+    category: market
+
   # ── Data Quality (TẦNG 0) ──────────────────────────────
   data_quality:
     description: "Bộ đánh giá độ tin cậy dữ liệu (TẦNG 0) — số phiên, phân loại tin cậy, phát hiện mã thiếu lịch sử"

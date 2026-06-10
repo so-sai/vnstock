@@ -546,6 +546,14 @@ def cmd_gold(args):
             print(f"  [FAIL] Gold dashboard: {e}")
 
 
+def cmd_group_influence(args):
+    """Bộ đo ảnh hưởng nhóm trụ."""
+    from src.engine.group_influence_engine import tinh_anh_huong_nhom, in_bao_cao, xuat_json
+    mr = tinh_anh_huong_nhom()
+    in_bao_cao(mr)
+    xuat_json(mr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="ptck",
@@ -626,6 +634,10 @@ def main():
     p_gold = sub.add_parser("gold", help="Gold information")
     p_gold.add_argument("subcommand", nargs="?", choices=["regime"], default=None, help="Gold subcommand")
     p_gold.set_defaults(func=cmd_gold)
+
+    # group-influence
+    p_gi = sub.add_parser("group-influence", help="Bộ đo ảnh hưởng nhóm trụ")
+    p_gi.set_defaults(func=cmd_group_influence)
 
     # data-quality
     p_dq = sub.add_parser("data-quality", help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")
