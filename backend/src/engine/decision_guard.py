@@ -46,16 +46,35 @@ def kiem_tra_an_toan(
     tam_ngung = do_tin_cay.get("tạm_ngưng_kết_luận", False)
     diem_tin_cay = do_tin_cay.get("điểm_tin_cậy", 0.5)
 
-    # Lấy entropy và cấu trúc từ ảnh chụp (nếu có)
+    # Lấy entropy, cấu trúc, và index reality từ ảnh chụp (nếu có)
     entropy = None
     so_tru = 0
+    diem_thi_truong_that = None
+    do_lech_pha = None
+    nhan_dien = None
     if anh_chup:
         c = anh_chup.get("cau_truc", {})
         entropy = c.get("entropy")
         so_tru = c.get("so_tru", 0)
+        ir = anh_chup.get("phan_tich_chi_so", {})
+        diem_thi_truong_that = ir.get("diem_thi_truong_that")
+        do_lech_pha = ir.get("do_lech_pha")
+        nhan_dien = ir.get("nhan_dien")
 
-    # Điều kiện chặn: tạm ngưng từ confidence layer
-    if tam_ngung:
+    # ── Bước 1: Kiểm tra Index Reality (hard override — cơ chế veto cấu trúc) ──
+    if do_lech_pha == "MANH_GIA_TAO":
+        quyet_dinh = "DUNG NGOAI"
+        ly_do_chặn = "thị trường 'mạnh giả tạo' — chỉ số bị kéo, không đại diện"
+        ly_do = ["thị trường tăng giả tạo — dừng ngoài"]
+        bi_chặn = True
+    elif diem_thi_truong_that is not None and diem_thi_truong_that < 0.2:
+        quyet_dinh = "DUNG NGOAI"
+        ly_do_chặn = "thị trường ảo — chỉ số hoàn toàn mất kết nối với nội tại"
+        ly_do = ["thị trường ảo — dừng mọi giao dịch"]
+        bi_chặn = True
+
+    # ── Bước 2: Kiểm tra Confidence Layer (tạm ngưng từ độ tin cậy) ──
+    elif tam_ngung:
         quyet_dinh = "DUNG NGOAI"
         ly_do_chặn = do_tin_cay.get(
             "lý_do_tạm_ngưng",

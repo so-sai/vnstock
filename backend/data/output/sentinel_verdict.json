@@ -1,8 +1,8 @@
 {
-    "timestamp": "2026-06-04 15:21:36",
-    "market_date": "2026-06-04",
+    "timestamp": "2026-06-10 10:05:05",
+    "market_date": "2026-06-10",
     "layer1_mom_expansion": {
-        "value": 92,
+        "value": 76,
         "threshold": 150,
         "status": "FAIL"
     },

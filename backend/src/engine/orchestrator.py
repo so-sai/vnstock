@@ -133,6 +133,26 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
         if quyet_dinh != "DUNG NGOAI":
             ly_do.append(f"thị trường đang {regime_status}")
 
+    # ---- ⭐ Index Reality: inject context vào pipeline ----
+    ir = anh_chup.get("phan_tich_chi_so", {})
+    do_lech_pha_ir = ir.get("do_lech_pha")
+    diem_thi_truong_that_ir = ir.get("diem_thi_truong_that")
+    nhan_dien_ir = ir.get("nhan_dien")
+
+    if do_lech_pha_ir == "MANH_GIA_TAO":
+        # Override: thị trường tăng giả tạo → dừng ngoài
+        quyet_dinh = "DUNG NGOAI"
+        ly_do = ["thị trường tăng giả tạo — chỉ số không đại diện"]
+    elif nhan_dien_ir == "THI_TRUONG_AO" or (diem_thi_truong_that_ir is not None and diem_thi_truong_that_ir < 0.2):
+        quyet_dinh = "DUNG NGOAI"
+        ly_do = ["thị trường ảo — chỉ số không phản ánh giá trị thực"]
+    elif diem_thi_truong_that_ir is not None and diem_thi_truong_that_ir < 0.4:
+        if quyet_dinh == "THAM GIA":
+            quyet_dinh = "QUAN SAT"
+            ly_do.append("chất lượng chỉ số thấp — hạ mức hành động")
+        elif quyet_dinh == "GIAM RUI RO":
+            ly_do.append("thị trường méo — xác nhận phân kỳ")
+
     # ---- Chỉ giữ 3 lý do chính ----
     ly_do = ly_do[:3]
 
