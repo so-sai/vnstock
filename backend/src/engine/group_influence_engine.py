@@ -92,6 +92,8 @@ class MarketReality:
     vnindex_ex_top10: float
     real_market_breadth: float
     artificial_market: bool
+    total_change_pct: float
+    dominant_contribution_pct: float
     dominant_group: str
     group_contributions: List[GroupInfluence]
 
@@ -180,6 +182,7 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
         return MarketReality(
             vnindex_actual=0, vnindex_ex_group={}, vnindex_ex_top10=0,
             real_market_breadth=0, artificial_market=False,
+            total_change_pct=0, dominant_contribution_pct=0,
             dominant_group="UNKNOWN", group_contributions=[]
         )
 
@@ -223,7 +226,7 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
 
         vnindex_ex_group[group_name] = round(vnindex_ex, 2)
 
-        is_dominant = abs(group_contribution) > 5  # > 5 điểm ảnh hưởng
+        is_dominant = abs(group_contribution) > 0.5  # > 0.5% đóng góp vào biến động chỉ số
 
         contributions.append(GroupInfluence(
             group_name=group_name,
@@ -258,11 +261,15 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
     else:
         vnindex_ex_large = vnindex
 
-    # Thị trường ảo?
+    # Tính thị trường ảo: chỉ số xanh nhưng đa số cổ phiếu đỏ
+    # Dấu hiệu: VNINDEX tăng nhưng breadth âm = vài cổ phiếu trụ kéo chỉ số
+    total_change_pct = (merged['weight_pct'] * merged['change_pct']).sum() / 100
+    top_contrib = contributions[0].index_contribution_pts if contributions else 0
     artificial = (
-        abs(breadth) < 10 and
-        contributions and
-        contributions[0].index_contribution_pts > vnindex * 0.3
+        total_change_pct > 0 and          # chỉ số xanh
+        breadth < -5 and                   # đa số cổ phiếu đỏ
+        top_contrib > 0 and               # nhóm trụ đang kéo lên
+        top_contrib / total_change_pct > 0.5 if total_change_pct != 0 else False  # >50% từ 1 nhóm
     )
 
     return MarketReality(
@@ -271,6 +278,10 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
         vnindex_ex_top10=round(vnindex_ex_large, 2),
         real_market_breadth=round(breadth, 2),
         artificial_market=artificial,
+        total_change_pct=round(total_change_pct, 2),
+        dominant_contribution_pct=round(
+            top_contrib / total_change_pct * 100 if total_change_pct != 0 else 0, 2
+        ),
         dominant_group=dominant,
         group_contributions=contributions,
     )
@@ -284,6 +295,7 @@ def in_bao_cao(mr: MarketReality) -> None:
     print("=" * 70)
     print()
     print("  VNINDEX hien tai: {:,.2f}".format(mr.vnindex_actual))
+    print("  Bien dong VNINDEX uoc tinh: {:+.2f}%".format(mr.total_change_pct))
     print("  Breadth thi truong: {:+.2f}%".format(mr.real_market_breadth))
     print("  Thi truong ao: {}".format("CO" if mr.artificial_market else "KHONG"))
     print()
@@ -303,7 +315,7 @@ def in_bao_cao(mr: MarketReality) -> None:
         ))
 
     print("  " + "-" * 65)
-    print("  {} = Nhom dan dat (>5 diem anh huong)".format("*"))
+    print("  {} = Nhom dan dat (>0.5% dong gop vao bien dong chi so)".format("*"))
 
     # VNINDEX khong co nhom
     print()
@@ -322,9 +334,10 @@ def in_bao_cao(mr: MarketReality) -> None:
 
     print()
     print("  Quy tac doc:")
-    print("  - 'Anh huong' > 5: Nhom nay dang keo/cham VNINDEX")
-    print("  - 'Thi truong ao': Chi so xanh nhung do rong am")
-    print("  - 'VNINDEX ex-top10': Chi so sau khi bo 10 co phieu von hoa lon nhat")
+    print("  - 'Anh huong' > 0.5: Nhom co anh huong dang ke len bien dong VNINDEX hom nay")
+    print("  - 'Thi truong ao': Chi so xanh (+%) nhung da so co phieu do (breadth < -5%)")
+    print("    va >50% bien dong den tu 1 nhom duy nhat = nhom tru keo gia tao")
+    print("  - 'VNINDEX ex-top10': Uoc tinh VNINDEX neu bo 10 co phieu von hoa lon nhat")
     print()
     print("=" * 70)
 
@@ -336,6 +349,8 @@ def xuat_json(mr: MarketReality, duong_dan: str = None) -> dict:
 
     report = {
         "vnindex_actual": mr.vnindex_actual,
+        "total_change_pct": mr.total_change_pct,
+        "dominant_contribution_pct": mr.dominant_contribution_pct,
         "real_market_breadth": mr.real_market_breadth,
         "artificial_market": mr.artificial_market,
         "dominant_group": mr.dominant_group,
