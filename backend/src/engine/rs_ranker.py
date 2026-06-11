@@ -125,11 +125,11 @@ def calculate_rs_score():
     ranked_df.loc[:, 'rs_rating'] = ranked_df['rs_raw'].rank(pct=True) * 99
     ranked_df.loc[:, 'rs_rating'] = ranked_df['rs_rating'].fillna(0).round(0).astype(int)
 
-    # 4. LIQUIDITY SHIELD (Bộ lọc đầu ra — sau khi đã xếp hạng)
-    filtered_df = ranked_df[(ranked_df['avg_vol_20d'] >= 100000) | (ranked_df['avg_value_20d'] >= 2)].copy()
+    # 4. LIQUIDITY SHIELD — Màng lọc định chế: giá trị GD bình quân 20 phiên >= 5 tỷ VND
+    filtered_df = ranked_df[ranked_df['avg_value_20d'] >= 5].copy()
 
     if filtered_df.empty:
-        print("⚠️ Không có mã nào thỏa mãn bộ lọc thanh khoản (100k Vol / 2 Tỷ Value).")
+        print("⚠️ Không có mã nào thỏa mãn bộ lọc thanh khoản (>= 5 tỷ VND/phiên).")
         return None
 
     # 5. Xuất bản kết quả

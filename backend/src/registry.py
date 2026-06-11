@@ -77,8 +77,7 @@ class ProjectRegistry:
     def check_ohlcv(self): return importlib.import_module("src.research.check_ohlcv")
     @property
     def check_schema(self): return importlib.import_module("src.research.check_schema")
-    @property
-    def debug_2022_stats(self): return importlib.import_module("src.research.debug_2022_stats")
+    # debug_2022_stats removed — file no longer exists
     @property
     def hydrate_2020(self): return importlib.import_module("src.research.hydrate_2020")
     @property
