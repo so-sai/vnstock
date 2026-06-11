@@ -180,6 +180,12 @@ entrypoints:
     cli: "python ptck.py rs-audit [--top N]"
     category: analysis
 
+  # ── Strength Discrimination ────────────────────────────
+  strength_discrimination:
+    description: "Tầng Phân Tách Xung Lực — bóc tách RS nội tại vs ép trụ điều tiết chỉ số"
+    cli: "python ptck.py strength-discrimination [--top N]"
+    category: analysis
+
   # ── Flow Map ──────────────────────────────────────────
   flow_map:
     description: "Bản đồ Dòng vốn Liên thị trường 4 Tầng (Driver → Settlement → Reputation → Drift)"

@@ -96,6 +96,7 @@ class MarketReality:
     dominant_contribution_pct: float
     dominant_group: str
     group_contributions: List[GroupInfluence]
+    chi_tiet_top10: Dict[str, float] = field(default_factory=dict)
 
 
 def _get_latest_data(target_date: str = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -183,7 +184,8 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
             vnindex_actual=0, vnindex_ex_group={}, vnindex_ex_top10=0,
             real_market_breadth=0, artificial_market=False,
             total_change_pct=0, dominant_contribution_pct=0,
-            dominant_group="UNKNOWN", group_contributions=[]
+            dominant_group="UNKNOWN", group_contributions=[],
+            chi_tiet_top10={}
         )
 
     vnindex = float(idx_df.iloc[0]['vnindex'])
@@ -259,7 +261,14 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
         top10_contribution = (top10['weight_pct'] * top10['change_pct']).sum() / 100
         vnindex_ex_large = vnindex * (1 - top10_contribution / 100)
     else:
+        top10_contribution = 0
         vnindex_ex_large = vnindex
+
+    chi_tiet = {}
+    for _, row in top10.iterrows():
+        sym = row['symbol']
+        contribution = (row['weight_pct'] * row['change_pct']) / 100
+        chi_tiet[sym] = round(contribution, 2)
 
     # Tính thị trường ảo: chỉ số xanh nhưng đa số cổ phiếu đỏ
     # Dấu hiệu: VNINDEX tăng nhưng breadth âm = vài cổ phiếu trụ kéo chỉ số
@@ -284,6 +293,7 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
         ),
         dominant_group=dominant,
         group_contributions=contributions,
+        chi_tiet_top10=chi_tiet,
     )
 
 
@@ -355,6 +365,7 @@ def xuat_json(mr: MarketReality, duong_dan: str = None) -> dict:
         "artificial_market": mr.artificial_market,
         "dominant_group": mr.dominant_group,
         "vnindex_ex_top10": mr.vnindex_ex_top10,
+        "chi_tiet_top10": mr.chi_tiet_top10,
         "group_contributions": [asdict(g) for g in mr.group_contributions],
         "vnindex_ex_group": mr.vnindex_ex_group,
     }

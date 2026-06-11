@@ -618,6 +618,12 @@ def cmd_group_influence(args):
     xuat_json(mr)
 
 
+def cmd_strength_discrimination(args):
+    """Tầng phân tách xung lực — RS nội tại vs ép trụ điều tiết."""
+    from src.engine.strength_discriminator import cmd_phân_tách
+    cmd_phân_tách(top_n=getattr(args, 'top', 20))
+
+
 def cmd_prediction_registry(args):
     """Prediction Registry — ghi lại dự báo RS audit + đo kết quả."""
     from src.telemetry.prediction_registry import (
@@ -818,6 +824,11 @@ def main():
     # group-influence
     p_gi = sub.add_parser("group-influence", help="Bộ đo ảnh hưởng nhóm trụ")
     p_gi.set_defaults(func=cmd_group_influence)
+
+    # strength-discrimination
+    p_sd = sub.add_parser("strength-discrimination", help="Phân tách xung lực nội tại vs ép trụ")
+    p_sd.add_argument("--top", type=int, default=20, help="Số lượng mã (mặc định 20)")
+    p_sd.set_defaults(func=cmd_strength_discrimination)
 
     # prediction-registry
     p_pr = sub.add_parser("prediction-registry", help="Nhật ký dự báo — ghi log RS audit + đo kết quả sau 5/20/60 ngày")
