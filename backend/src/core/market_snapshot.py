@@ -73,10 +73,15 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
 
     # ── Bước 1: Regime (live, 1 lần) ──
     from src.engine.regime_engine import detect_regime
-    regime_data = detect_regime()
+    regime_data = detect_regime(target_date=target_date)
 
-    # ── Bước 2: Cấu trúc (từ file snapshot) ──
-    struct_data = _doc("structural_state.json") or {}
+    # ── Bước 2: Cấu trúc ──
+    hôm_nay = datetime.now().strftime("%Y-%m-%d")
+    if target_date == hôm_nay:
+        struct_data = _doc("structural_state.json") or {}
+    else:
+        from src.engine.structural_detector import detect_cau_truc
+        struct_data = detect_cau_truc(target_date=target_date)
     trang_thai_cau_truc = struct_data.get("trang_thai", "N/A")
     so_tru_ok = struct_data.get("so_tru_ok", 0)
     entropy = struct_data.get("entropy")
@@ -166,7 +171,7 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
         },
         "metadata": {
             "nguon_regime": "live (detect_regime)",
-            "nguon_cau_truc": "snapshot (structural_state.json)",
+            "nguon_cau_truc": "live (detect_cau_truc)" if target_date != hôm_nay else "snapshot (structural_state.json)",
             "nguon_canh_bao": "live (build_early_warning)",
             "nguon_phan_tich_chi_so": "live (index_reality_unifier)",
             "nguon_nhom_anh_huong": "live (group_influence_engine)",

@@ -43,6 +43,9 @@ def _tai_top_rs(top_n: int = 20) -> List[dict]:
         data = json.load(f)
     if not data:
         return []
+    # LAW-DATA-001: Loại bỏ mã chỉ số rổ
+    index_symbols = {"VNINDEX", "VN30", "HNXINDEX", "HNX30", "UPINDEX"}
+    data = [d for d in data if d.get('symbol', '') not in index_symbols]
     data.sort(key=lambda x: x.get('rs_rating', 0), reverse=True)
     return data[:top_n]
 

@@ -62,6 +62,14 @@ def calculate_rs_score():
         print("⚠️ Vault trống rỗng. Hãy hoàn tất Seeding trước.")
         return None
 
+    # LAW-DATA-001: Loại bỏ mã chỉ số rổ khỏi mảng RS
+    index_symbols = {"VNINDEX", "VN30", "HNXINDEX", "HNX30", "UPINDEX"}
+    before = df['symbol'].nunique()
+    df = df[~df['symbol'].isin(index_symbols)].copy()
+    removed = before - df['symbol'].nunique()
+    if removed:
+        print(f"  🧹 Đã loại {removed} mã chỉ số khỏi mảng RS (LAW-DATA-001)")
+
     # --- SENTINEL SAFE PATTERN ---
     df = df.copy()
     df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed')
