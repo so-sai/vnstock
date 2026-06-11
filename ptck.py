@@ -546,6 +546,58 @@ def cmd_gold(args):
             print(f"  [FAIL] Gold dashboard: {e}")
 
 
+def cmd_silver(args):
+    """Silver information."""
+    if args.subcommand == "gs-ratio":
+        try:
+            from core.macro.precious_metal_ratio import get_gs_ratio_from_db
+            gs = get_gs_ratio_from_db()
+            print("=" * 60)
+            print("  PTCK — GOLD/SILVER RATIO")
+            print("=" * 60)
+            print(f"  XAUUSD:          {gs.get('xau_usd', 'N/A')}")
+            print(f"  XAGUSD:          {gs.get('xag_usd', 'N/A')}")
+            print(f"  Gold/Silver Ratio: {gs.get('ratio', 'N/A')}")
+            print(f"  Regime:          {gs.get('regime', 'N/A')}")
+            print(f"  Tín hiệu:        {gs.get('signal', 'N/A')}")
+            print(f"  Severity:        {gs.get('severity', 0):.2f}")
+            print("=" * 60)
+        except Exception as e:
+            print(f"  [FAIL] GS ratio: {e}")
+    elif args.subcommand == "seed":
+        try:
+            from src.services.macro.silver_world_service import seed_world_silver_to_db
+            print("  Đang seed XAGUSD...")
+            ok = seed_world_silver_to_db()
+            print(f"  {'[OK]' if ok else '[FAIL]'} World silver seeded: {ok}")
+        except Exception as e:
+            print(f"  [FAIL] Silver seed: {e}")
+    else:
+        try:
+            from src.services.macro.silver_service import get_silver_dashboard
+            from src.services.macro.silver_world_service import fetch_world_silver_live
+            from core.macro.precious_metal_ratio import calculate_gold_silver_ratio, assess_gs_ratio_regime
+            from src.services.macro.gold_world_service import fetch_world_gold_live
+            dash = get_silver_dashboard()
+            xag = fetch_world_silver_live()
+            xau = fetch_world_gold_live()
+            gs = calculate_gold_silver_ratio(xau, xag)
+            gsr = assess_gs_ratio_regime(gs)
+            print("=" * 60)
+            print("  PTCK — SILVER DASHBOARD")
+            print("=" * 60)
+            print(f"  BTMC mua:    {dash.get('btmc_buy', 0):>12.0f} VND")
+            print(f"  BTMC bán:    {dash.get('btmc_sell', 0):>12.0f} VND")
+            print(f"  BTMC spread: {dash.get('btmc_spread', 0):>12.0f} VND")
+            print(f"  XAGUSD:              {xag if xag else 'N/A'}")
+            print(f"  Gold/Silver Ratio:   {gs if gs else 'N/A'}")
+            print(f"  GS Regime:           {gsr.get('regime', 'N/A')}")
+            print(f"  GS Signal:           {gsr.get('signal', 'N/A')}")
+            print("=" * 60)
+        except Exception as e:
+            print(f"  [FAIL] Silver dashboard: {e}")
+
+
 def cmd_rs_audit(args):
     """Audit Top RS — phân tích nguồn gốc sức mạnh."""
     top_n = getattr(args, 'top', 20)
@@ -612,7 +664,65 @@ def cmd_prediction_registry(args):
         print("=" * 60)
 
 
+def cmd_flow_map(args):
+    """Bản đồ Dòng vốn Liên thị trường 4 Tầng."""
+    from src.engine.cross_market_flow_map import CrossMarketFlowMap
+    from src.services.macro_service import get_macro_status
+    from src.core.market_snapshot import tao_anh_chup
+    import json
+    macro = get_macro_status()
+    snapshot = tao_anh_chup()
+    engine = CrossMarketFlowMap(macro, snapshot)
+    data = engine.execute_pipeline()
+    vi = engine.localize(data)
+
+    print("=" * 60)
+    print("  BẢN ĐỒ DÒNG VỐN LIÊN THỊ TRƯỜNG")
+    print("=" * 60)
+    print(f"  Thời gian: {vi.get('thời_gian', 'N/A')}")
+    print(f"  Ngày:      {vi.get('ngày', 'N/A')}")
+    print()
+
+    drivers = vi.get("lực_đẩy_5_phiên", {})
+    print("  🏎️  LỰC ĐẨY 5 PHIÊN GẦN NHẤT")
+    for k, v in drivers.items():
+        arrow = "+" if v >= 0 else ""
+        print(f"    {k.replace('_', ' '):25s}: {arrow}{v}")
+    print()
+
+    print("  🏠 VÙNG ĐỊNH CƯ DÒNG TIỀN")
+    zone_map = {
+        "HẦM_TRÚ_ẨN_TIỀN_MẶT": "Tiền đang rút về hầm trú ẩn tiền mặt — chờ thời",
+        "HẦM_TRÚ_ẨN_TÀI_SẢN_CỨNG": "Dòng tiền chạy vào tài sản cứng (Vàng/Bạc)",
+        "BUNG_XÕA_CỔ_PHIẾU": "Dòng tiền đang bung xõa vào cổ phiếu",
+        "LUÂN_CHUYỂN_NGẦM": "Đang trong trạng thái luân chuyển ngầm — chưa rõ xu hướng",
+    }
+    settlement = vi.get("vùng_định_cư_dòng_tiền", "N/A")
+    print(f"    Mã: {settlement}")
+    print(f"    Diễn giải: {zone_map.get(settlement, 'Không xác định')}")
+    print()
+
+    rep = vi.get("thẩm_phán_tín_nhiệm", {})
+    print("  ⚖️  THẨM PHÁN TÍN NHIỆM")
+    print(f"    Mức tin cậy vĩ mô VN: {rep.get('mức_tin_cậy', 'N/A')}")
+    print(f"    Chất lượng VGB10Y:    {rep.get('chất_lượng_dữ_liệu_vgb10y', 'N/A')}")
+    print(f"    Lãi suất liên NH:     {rep.get('trạng_thái_lãi_suất_liên_ngân_hàng', 'N/A')}")
+    print()
+
+    drift = vi.get("cảnh_báo_lệch_pha", {})
+    print("  ⚡ CẢNH BÁO LỆCH PHA")
+    has_drift = drift.get("có_lệch_pha", False)
+    if has_drift:
+        print(f"    ⚠️  {drift.get('lý_do', 'Phát hiện lệch pha')}")
+    else:
+        print("    ✅ An toàn — không lệch pha")
+    print("=" * 60)
+
+
 def main():
+    from src.engine.startup_reminder import kiem_tra_va_nhac_nho
+    kiem_tra_va_nhac_nho()
+
     parser = argparse.ArgumentParser(
         prog="ptck",
         description="PTCK_VNSTOCK CLI — Single entrypoint cho mọi thao tác",
@@ -693,6 +803,11 @@ def main():
     p_gold.add_argument("subcommand", nargs="?", choices=["regime"], default=None, help="Gold subcommand")
     p_gold.set_defaults(func=cmd_gold)
 
+    # silver
+    p_silver = sub.add_parser("silver", help="Silver information")
+    p_silver.add_argument("subcommand", nargs="?", choices=["gs-ratio", "seed"], default=None, help="Silver subcommand")
+    p_silver.set_defaults(func=cmd_silver)
+
     # rs-audit
     p_ra = sub.add_parser("rs-audit", help="Audit Top RS — phân tích nguồn gốc sức mạnh")
     p_ra.add_argument("--top", type=int, default=20, help="Số lượng mã (mặc định 20)")
@@ -709,6 +824,10 @@ def main():
     p_pr.add_argument("--date", help="Ngày (YYYY-MM-DD)")
     p_pr.add_argument("--limit", type=int, default=20, help="Số entries (mặc định 20)")
     p_pr.set_defaults(func=cmd_prediction_registry)
+
+    # flow-map
+    p_fm = sub.add_parser("flow-map", help="Bản đồ Dòng vốn Liên thị trường 4 Tầng")
+    p_fm.set_defaults(func=cmd_flow_map)
 
     # data-quality
     p_dq = sub.add_parser("data-quality", help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")

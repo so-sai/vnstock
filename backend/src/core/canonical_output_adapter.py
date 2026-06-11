@@ -173,6 +173,18 @@ _EXTRA_MAP: dict[str, str] = {
     "Monitoring": "Đang theo dõi",
 
     # ============================================================
+    # ============================================================
+    # FLOW MAP (CrossMarketFlowMap) — Bản đồ dòng vốn 4 tầng
+    # ============================================================
+    "CASH_SHELTER": "Hầm trú ẩn tiền mặt",
+    "HARD_ASSET_SHELTER": "Hầm trú ẩn tài sản cứng",
+    "EQUITY_EXPANSION": "Bung xõa cổ phiếu",
+    "TRANSITION_STATE": "Luân chuyển ngầm",
+    "HIGH_CONFIDENCE": "Độ tin cậy cao",
+    "LOW_CONFIDENCE_MACRO_VN": "Độ tin cậy vĩ mô trong nước thấp",
+    "LATE-CYCLE OBSERVABILITY GAP: ADX spike trong regime RANGING": "Khoảng cách quan sát cuối chu kỳ: ADX tăng đột biến trong khi regime vẫn ở trạng thái đi ngang",
+
+    # ============================================================
     # MIXED-CASE FIXES — catch non-uppercase variants
     # ============================================================
     "Unknown": "Không xác định",

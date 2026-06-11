@@ -3,7 +3,7 @@ export interface MacroStatus {
   usdCny: number;
   copperPrice: number;
   dxyIndex: number;
-  interbankRate: number;
+  interbankRate?: number | null;
   sbvAction: string;
   riskLevel: string;
   regimeScore?: number;
@@ -21,10 +21,20 @@ export interface MacroStatus {
   goldVelocity?: number;
   goldSpreadPressure?: number;
   goldMacroBias?: string;
-  vgb10y?: number;
-  vgb10yBpsChange?: string;
-  vgb10yStatusLabel?: string;
-  vgb10yRawBps?: number;
+  vgb10y?: number | null;
+  vgb10yDataQuality?: string;
+  vgb10yBpsChange?: string | null;
+  vgb10yStatusLabel?: string | null;
+  vgb10yRawBps?: number | null;
+  us2yYield?: number | null;
+  us5yYield?: number | null;
+  us30yYield?: number | null;
+  spread10y2y?: number | null;
+  spread30y10y?: number | null;
+  yieldCurveInversion?: string;
+  tipPrice?: number | null;
+  usRealYield?: number | null;
+  breakevenInflation?: number | null;
 }
 
 export interface MarketBreadth {
@@ -89,6 +99,8 @@ export interface DashboardResponse {
     breadth_velocity: number;
   };
   goldScenarios?: string[];
+  silverPrice?: number;
+  goldSilverRatio?: number;
 }
 
 export interface RegimeHistory {

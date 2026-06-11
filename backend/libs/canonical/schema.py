@@ -64,9 +64,10 @@ def migrate_macro_history(conn: sqlite3.Connection) -> dict:
                 CASE
                     WHEN variable IN ('VNINDEX','VN30','HNXINDEX','UPCOMINDEX','SH_COMP') THEN 'index'
                     WHEN variable IN ('USD_VND','USD_CNY','USD_CNH') THEN 'fx'
-                    WHEN variable IN ('GOLD_XAU','COPPER_HG','BRENT_OIL','WTI_OIL') THEN 'commodity'
+                    WHEN variable IN ('GOLD_XAU','XAGUSD','COPPER_HG','BRENT_OIL','WTI_OIL') THEN 'commodity'
+                    WHEN variable IN ('US2Y','US5Y','US30Y','US10Y','US_REAL_YIELD') THEN 'macro_yield'
                     WHEN variable = 'BTC' THEN 'crypto'
-                    WHEN variable = 'US10Y' THEN 'macro_yield'
+                    WHEN variable IN ('TIP_PRICE', 'BREAKEVEN_INFLATION') THEN 'macro_index'
                     WHEN variable = 'DXY' THEN 'macro_index'
                     ELSE 'unknown'
                 END,
@@ -74,16 +75,17 @@ def migrate_macro_history(conn: sqlite3.Connection) -> dict:
                     WHEN variable IN ('VNINDEX','VN30','HNXINDEX','UPCOMINDEX','SH_COMP') THEN 'index_level'
                     WHEN variable = 'DXY' THEN 'dxy_level'
                     WHEN variable IN ('USD_VND','USD_CNY','USD_CNH') THEN 'fx_rate'
-                    WHEN variable = 'GOLD_XAU' THEN 'usd_per_ounce'
+                    WHEN variable IN ('GOLD_XAU', 'XAGUSD') THEN 'usd_per_ounce'
                     WHEN variable = 'COPPER_HG' THEN 'usd_per_lb'
                     WHEN variable IN ('BRENT_OIL','WTI_OIL') THEN 'usd_per_barrel'
                     WHEN variable = 'BTC' THEN 'usd'
-                    WHEN variable = 'US10Y' THEN 'percent'
+                    WHEN variable IN ('US2Y','US5Y','US10Y','US30Y','US_REAL_YIELD','BREAKEVEN_INFLATION') THEN 'percent'
+                    WHEN variable = 'TIP_PRICE' THEN 'usd'
                     ELSE 'unknown'
                 END,
                 CASE
                     WHEN variable IN ('VNINDEX','VN30','HNXINDEX','UPCOMINDEX') THEN 'kbs'
-                    WHEN variable IN ('SH_COMP','DXY','GOLD_XAU','COPPER_HG','BRENT_OIL','WTI_OIL','BTC','US10Y','USD_VND','USD_CNY','USD_CNH') THEN 'yahoo'
+                    WHEN variable IN ('SH_COMP','DXY','GOLD_XAU','XAGUSD','COPPER_HG','BRENT_OIL','WTI_OIL','BTC','US10Y','USD_VND','USD_CNY','USD_CNH','TIP_PRICE','US_REAL_YIELD','BREAKEVEN_INFLATION') THEN 'yahoo'
                     ELSE 'unknown'
                 END,
                 NULL, NULL

@@ -26,10 +26,11 @@ from src.database.db_core import get_connection, save_data_upsert
 
 class UnitNormalizer:
     """
-    Chuẩn hóa các biến vĩ mô (Nấc 0) và cung cấp tín hiệu "Nguyên nhân" (Cause).
-    Đạt chuẩn Python 3.14 Strict Typing.
+    [DEPRECATED] Chuẩn hóa biến vĩ mô — không còn dùng OMO/INTERBANK_ON giả.
+    Chuyển sang macro_service.py pipeline với REAL/NO_DATA/ESTIMATED.
+    Giữ lại để tương thích ngược, sẽ xóa trong Phase 2.
     """
-    
+
     def __init__(self, show_log: bool = False) -> None:
         self.show_log: bool = show_log
 
@@ -54,14 +55,5 @@ class UnitNormalizer:
             return "NEUTRAL"
 
     def get_market_condition(self) -> str:
-        omo_trend: str = self.get_macro_trend("OMO")
-        interbank_trend: str = self.get_macro_trend("INTERBANK_ON")
-        if omo_trend == "BULLISH" and interbank_trend == "BULLISH": return "EXCELLENT"
-        elif omo_trend == "BEARISH" or interbank_trend == "BEARISH": return "CAUTION"
-        else: return "NORMAL"
-
-if __name__ == "__main__":
-    norm = UnitNormalizer(show_log=True)
-    norm.update_macro_data("OMO", 5000.0)
-    print(f"🌍 Market Condition (Phase 0): {norm.get_market_condition()}")
+        return "NO_DATA"
 

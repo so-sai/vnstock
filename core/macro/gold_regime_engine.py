@@ -124,7 +124,20 @@ def cross_reference_with_market(macro_data: dict) -> dict:
     except Exception:
         pass
 
+    # Real yield context
+    real_yield = macro_data.get("us_real_yield")
+    breakeven = macro_data.get("breakeven_inflation")
+
     scenarios = []
+    # Real yield signals (opportunity cost for gold)
+    if real_yield is not None:
+        if real_yield > 2.5:
+            scenarios.append(f"Real yield {real_yield}% cao → Chi phí cơ hội nắm giữ vàng lớn")
+        elif real_yield < 0.5:
+            scenarios.append(f"Real yield {real_yield}% thấp → Vàng hưởng lợi từ chi phí cơ hội thấp")
+    if breakeven is not None and breakeven > 3.5:
+        scenarios.append(f"Breakeven inflation {breakeven}% cao → Cầu phòng vệ lạm phát hỗ trợ vàng")
+
     # Vàng ↑ + BANK ↓
     if regime == "RISK_OFF" and risk_level == "Red":
         scenarios.append("Vàng tăng + Thị trường suy yếu → Risk-off xác nhận")

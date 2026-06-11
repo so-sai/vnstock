@@ -144,21 +144,21 @@ def _get_latest_data(target_date: str = None) -> Tuple[pd.DataFrame, pd.DataFram
 
     vnindex = float(df_idx.iloc[0]['close'])
 
-    merged = df_stocks.merge(df_prev, on='symbol', how='left')
-    merged['change_pct'] = np.where(
+    merged = df_stocks.merge(df_prev, on='symbol', how='left').copy()
+    merged.loc[:, 'change_pct'] = np.where(
         merged['close_prev'] > 0,
         (merged['close'] - merged['close_prev']) / merged['close_prev'] * 100,
         0
     )
-    merged['change_pct'] = merged['change_pct'].clip(-10, 10)
+    merged.loc[:, 'change_pct'] = merged['change_pct'].clip(-10, 10)
 
     # Estimate market cap weight (using close * volume as proxy)
-    merged['weight'] = merged['close'] * merged['volume']
+    merged.loc[:, 'weight'] = merged['close'] * merged['volume']
     total_weight = merged['weight'].sum()
     if total_weight > 0:
-        merged['weight_pct'] = merged['weight'] / total_weight * 100
+        merged.loc[:, 'weight_pct'] = merged['weight'] / total_weight * 100
     else:
-        merged['weight_pct'] = 1.0 / len(merged)
+        merged.loc[:, 'weight_pct'] = 1.0 / len(merged)
 
     return merged, pd.DataFrame({'vnindex': [vnindex]})
 

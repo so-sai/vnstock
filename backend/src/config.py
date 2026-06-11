@@ -1,7 +1,23 @@
 import os
 import sys
+import warnings
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Pandas warnings suppression:
+#   - ChainedAssignmentError (FutureWarning): from external libs (vnstock/yfinance).
+#     These are harmless in pandas 2.x — the code works correctly, pandas just warns
+#     about future 3.0 behavior. We suppress them to keep output clean.
+#   - mode.chained_assignment = None: silences SettingWithCopyWarning from same sources.
+#   - Pyarrow warning: pandas 3.0 will require pyarrow; not actionable for us now.
+import pandas as pd
+pd.set_option('mode.chained_assignment', None)
+
+# ChainedAssignmentError in pandas 2.x is raised as FutureWarning (not Warning subclass)
+# so we filter by message + FutureWarning category for maximum coverage
+warnings.filterwarnings('ignore', message='.*ChainedAssignmentError.*', category=FutureWarning)
+warnings.filterwarnings('ignore', message='.*chained assignment.*', category=FutureWarning)
+warnings.filterwarnings('ignore', message='Pyarrow will become a required dependency')
 
 # Suppress vnstock/vnai version check noise in system output
 os.environ.setdefault("VNSTOCK_QUIET", "1")

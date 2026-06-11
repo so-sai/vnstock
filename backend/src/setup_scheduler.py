@@ -26,6 +26,7 @@ PROJECT_ROOT = _hydrate_path()
 
 PYTHON_EXE = sys.executable
 BACKEND_DIR = PROJECT_ROOT / "backend"
+PTCK_CLI = PROJECT_ROOT / "ptck.py"
 DAILY_UPDATER = BACKEND_DIR / "src" / "daily_updater.py"
 DB_MAINTENANCE = BACKEND_DIR / "src" / "db_maintenance.py"
 
@@ -35,6 +36,13 @@ TASKS = [
         "description": "Cập nhật dữ liệu EOD hàng ngày (Thứ 2-6, 15:30)",
         "action": f'"{PYTHON_EXE}" "{DAILY_UPDATER}"',
         "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:30",
+        "run_level": "HIGHEST",
+    },
+    {
+        "name": "PTCK_FLOW_MAP_REPORT",
+        "description": "Báo cáo Dòng vốn Liên thị trường (Thứ 2-6, 16:00)",
+        "action": f'cmd.exe /c ""{PYTHON_EXE}" "{PTCK_CLI}" daily-update && "{PYTHON_EXE}" "{PTCK_CLI}" flow-map"',
+        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 16:00",
         "run_level": "HIGHEST",
     },
     {
@@ -87,6 +95,7 @@ def setup_tasks():
     print('   schtasks /Query /FO LIST | findstr "PTCK"')
     print("\n🗑️ Xóa tất cả tasks:")
     print('   schtasks /Delete /TN "PTCK_DAILY_UPDATE" /F')
+    print('   schtasks /Delete /TN "PTCK_FLOW_MAP_REPORT" /F')
     print('   schtasks /Delete /TN "PTCK_WEEKLY_MAINTENANCE" /F')
     print('   schtasks /Delete /TN "PTCK_WEEKLY_MACRO" /F')
     print("=" * 60)

@@ -60,7 +60,7 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.core.canonical_output_adapter import localize_output
-from src.api.routes import macro, screener, models, breadth, portfolio, backtest, xray, replay, intelligence, flow, watchlist, market_state, gold, holdings, telemetry, weekly
+from src.api.routes import macro, screener, models, breadth, portfolio, backtest, xray, replay, intelligence, flow, watchlist, market_state, gold, silver, holdings, telemetry, weekly
 from src.api import ipo_signal_api
 
 app = FastAPI(title="PTCK VNSTOCK API", version="1.5.2", default_response_class=_NanSafeJSONResponse)
@@ -96,6 +96,7 @@ app.include_router(flow.router, prefix="/api/v1/flow", tags=["Phase 12B - Asia F
 app.include_router(watchlist.router, prefix="/api/watchlist", tags=["Watchlist"])
 app.include_router(market_state.router, prefix="/api/v1/market-state", tags=["Phase 13 - Market State Coordinator"])
 app.include_router(gold.router, prefix="/api/v1/gold", tags=["Gold Macro - Phase 14"])
+app.include_router(silver.router, prefix="/api/v1/silver", tags=["Silver - Phase 1A"])
 app.include_router(holdings.router, prefix="/api/v1/holdings", tags=["HoldingsView - Phase 15"])
 app.include_router(telemetry.router, prefix="/api/v1/telemetry", tags=["Telemetry - Sprint 1"])
 app.include_router(weekly.router, prefix="/api/v1/weekly", tags=["Weekly Cognitive Report - Phase 16"])

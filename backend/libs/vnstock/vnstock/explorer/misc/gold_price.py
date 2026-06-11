@@ -87,7 +87,7 @@ def btmc_goldprice(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1l
         url: Đường dẫn đến API JSON.
 
     Returns:
-        DataFrame chứa dữ liệu giá vàng.
+        DataFrame chứa dữ liệu giá vàng (đã lọc bỏ BẠC).
     """
     response = requests.get(url)
     json_data = response.json()
@@ -104,7 +104,6 @@ def btmc_goldprice(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1l
         pt_key = f"@pt_{row_number}"
         d_key = f"@d_{row_number}"
         name = item.get(n_key, "")
-        # Skip silver items (BẠC) — only keep gold products
         if "BẠC" in name.upper():
             continue
         buy_raw = item.get(pb_key, "0")
@@ -114,7 +113,51 @@ def btmc_goldprice(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1l
                 "name": name,
                 "karat": item.get(k_key, ""),
                 "gold_content": item.get(h_key, ""),
-                # BTMC API trả giá theo VNĐ/chỉ, convert về VNĐ/lượng (*10) để đồng bộ với SJC
+                "buy_price": float(buy_raw) * 10,
+                "sell_price": float(sell_raw) * 10,
+                "world_price": item.get(pt_key, ""),
+                "time": item.get(d_key, ""),
+            }
+        )
+    df = pd.DataFrame(data)
+    df = df.sort_values(by=["sell_price"], ascending=False)
+    return df
+
+
+@optimize_execution("MISC")
+def btmc_silver_price(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1llcg9t45hnoh8hmn7t5kc2v"):
+    """Parse dữ liệu giá bạc từ API JSON Bảo Tín Minh Châu.
+
+    Args:
+        url: Đường dẫn đến API JSON.
+
+    Returns:
+        DataFrame chứa dữ liệu giá bạc (VND/lượng).
+    """
+    response = requests.get(url)
+    json_data = response.json()
+    data_list = json_data["DataList"]["Data"]
+
+    data = []
+    for item in data_list:
+        row_number = item["@row"]
+        n_key = f"@n_{row_number}"
+        k_key = f"@k_{row_number}"
+        h_key = f"@h_{row_number}"
+        pb_key = f"@pb_{row_number}"
+        ps_key = f"@ps_{row_number}"
+        pt_key = f"@pt_{row_number}"
+        d_key = f"@d_{row_number}"
+        name = item.get(n_key, "")
+        if "BẠC" not in name.upper():
+            continue
+        buy_raw = item.get(pb_key, "0")
+        sell_raw = item.get(ps_key, "0")
+        data.append(
+            {
+                "name": name,
+                "karat": item.get(k_key, ""),
+                "gold_content": item.get(h_key, ""),
                 "buy_price": float(buy_raw) * 10,
                 "sell_price": float(sell_raw) * 10,
                 "world_price": item.get(pt_key, ""),

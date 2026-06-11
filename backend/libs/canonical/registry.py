@@ -115,6 +115,12 @@ class CanonicalAssetRegistry:
                 DataSource.BTMC, "BTMC domestic gold VND/luong (converted from chi)", 50000000, 200000000,
                 10, "btmc_api_raw_vnd_per_chi",  # ×10: chỉ → lượng
             ),
+            "XAGUSD": self._spec(
+                "XAGUSD", AssetClass.COMMODITY, CanonicalUnit.USD_PER_OUNCE,
+                [DataSource.YAHOO],
+                DataSource.YAHOO, "World silver XAG/USD", 5, 100,
+                1, "yahoo_si_f_raw",
+            ),
             "COPPER_HG": self._spec(
                 "COPPER_HG", AssetClass.COMMODITY, CanonicalUnit.USD_PER_LB,
                 [DataSource.YAHOO],
@@ -143,11 +149,49 @@ class CanonicalAssetRegistry:
             ),
 
             # ── Macro yield ──
+            "US2Y": self._spec(
+                "US2Y", AssetClass.MACRO_YIELD, CanonicalUnit.PERCENT,
+                [DataSource.YAHOO],
+                DataSource.YAHOO, "US 2Y Treasury yield", 0.1, 7.0,
+                1, "yahoo_2y_raw_percent",
+            ),
+            "US5Y": self._spec(
+                "US5Y", AssetClass.MACRO_YIELD, CanonicalUnit.PERCENT,
+                [DataSource.YAHOO],
+                DataSource.YAHOO, "US 5Y Treasury yield", 0.2, 7.5,
+                1, "yahoo_fvx_raw_percent",
+            ),
             "US10Y": self._spec(
                 "US10Y", AssetClass.MACRO_YIELD, CanonicalUnit.PERCENT,
                 [DataSource.YAHOO],
                 DataSource.YAHOO, "US 10Y Treasury yield", 0.5, 8.0,
-                1, "yahoo_tnx_raw_percent",  # yfinance returns %
+                1, "yahoo_tnx_raw_percent",
+            ),
+            "US30Y": self._spec(
+                "US30Y", AssetClass.MACRO_YIELD, CanonicalUnit.PERCENT,
+                [DataSource.YAHOO],
+                DataSource.YAHOO, "US 30Y Treasury yield", 0.5, 8.0,
+                1, "yahoo_tyx_raw_percent",
+            ),
+
+            # ── TIPS / Real Yield ──
+            "TIP_PRICE": self._spec(
+                "TIP_PRICE", AssetClass.MACRO_INDEX, CanonicalUnit.USD,
+                [DataSource.YAHOO],
+                DataSource.YAHOO, "iShares TIPS Bond ETF price", 80, 150,
+                1, "yahoo_tip_raw",
+            ),
+            "US_REAL_YIELD": self._spec(
+                "US_REAL_YIELD", AssetClass.MACRO_YIELD, CanonicalUnit.PERCENT,
+                [DataSource.YAHOO],
+                DataSource.YAHOO, "US 10Y Real Yield (TIPS implied)", 0.0, 5.0,
+                1, "yahoo_tip_div_yield",
+            ),
+            "BREAKEVEN_INFLATION": self._spec(
+                "BREAKEVEN_INFLATION", AssetClass.MACRO_INDEX, CanonicalUnit.PERCENT,
+                [DataSource.YAHOO],
+                DataSource.YAHOO, "US 10Y Breakeven Inflation (US10Y - Real Yield)", 0.0, 8.0,
+                1, "computed_breakeven",
             ),
         }
 

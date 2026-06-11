@@ -23,7 +23,7 @@ const MacroDashboard: React.FC = () => {
   if (!dashboard) return null;
   if (!dashboard.macro || !dashboard.breadth) return null;
 
-  const { macro, breadth, systemMessage, regimeScore, goldPrice, btcPrice, usdVnd, goldScenarios } = dashboard;
+  const { macro, breadth, systemMessage, regimeScore, goldPrice, silverPrice, goldSilverRatio, btcPrice, usdVnd, goldScenarios } = dashboard;
 
   const riskColor = macro.riskLevel === 'Emerald' ? 'emerald' : macro.riskLevel === 'Amber' ? 'yellow' : 'rose';
   const riskLabel = macro.riskLevel === 'Emerald' ? 'Ổn định' : macro.riskLevel === 'Amber' ? 'Thận trọng' : 'Khủng hoảng';
@@ -188,12 +188,21 @@ const MacroDashboard: React.FC = () => {
               {/* Thẻ Lợi suất Trái phiếu Chính phủ 10 Năm (VGB10Y) */}
               <div className="backdrop-blur-md bg-white/60 border border-gray-200/50 rounded-lg p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow duration-200">
                 <div>
-                  <Text className="text-japandi-muted-clay text-xs block">Lợi suất TPCP 10 Năm (VGB10Y)</Text>
+                  <div className="flex items-center justify-between">
+                    <Text className="text-japandi-muted-clay text-xs block">Lợi suất TPCP 10 Năm (VGB10Y)</Text>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      macro.vgb10yDataQuality === 'REAL' ? 'bg-green-100 text-green-700' :
+                      macro.vgb10yDataQuality === 'ESTIMATED' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-gray-100 text-gray-500'
+                    }`}>
+                      {macro.vgb10yDataQuality ?? 'NO_DATA'}
+                    </span>
+                  </div>
                   <div className="flex items-baseline justify-between mt-2">
                     <Metric className="text-japandi-earth">
-                      {macro.vgb10y ? `${macro.vgb10y.toFixed(2)}%` : 'N/A'}
+                      {macro.vgb10y != null ? `${macro.vgb10y.toFixed(2)}%` : '—'}
                     </Metric>
-                    {macro.vgb10yRawBps !== undefined && (
+                    {macro.vgb10yDataQuality === 'REAL' && macro.vgb10yRawBps != null && (
                       <span className={`text-xs font-mono font-bold ${
                         macro.vgb10yRawBps > 0 ? "text-red-500" :
                         macro.vgb10yRawBps < 0 ? "text-green-600" : "text-gray-500"
@@ -209,9 +218,52 @@ const MacroDashboard: React.FC = () => {
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <Text className="text-japandi-muted-clay">Lãi suất Interbank O/N</Text>
-                <Metric className="text-japandi-earth">{macro.interbankRate?.toFixed(2)}%</Metric>
+                <Metric className="text-japandi-earth">{macro.interbankRate != null ? `${macro.interbankRate.toFixed(2)}%` : '—'}</Metric>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">Lãi suất VND qua đêm</Text>
+                  <Text className={`text-xs ${macro.interbankRate != null ? 'text-japandi-muted-clay' : 'text-gray-400 italic'}`}>
+                    {macro.interbankRate != null ? 'Lãi suất VND qua đêm' : 'NO_DATA — Chờ seed Interbank'}
+                  </Text>
+                </Flex>
+              </Card>
+
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
+                <Text className="text-japandi-muted-clay">Lợi suất thực Mỹ (Real Yield)</Text>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <Metric className="text-japandi-earth">
+                    {macro.usRealYield != null ? `${macro.usRealYield.toFixed(2)}%` : '—'}
+                  </Metric>
+                  {macro.tipPrice != null && (
+                    <span className="text-xs text-gray-500 font-mono">(TIP ${macro.tipPrice.toFixed(2)})</span>
+                  )}
+                </div>
+                <Flex className="mt-4">
+                  <Text className="text-xs text-japandi-muted-clay">
+                    {macro.usRealYield != null
+                      ? macro.usRealYield > 2.5
+                        ? 'Hạn chế (Restrictive) — Chi phí cơ hội vàng cao'
+                        : macro.usRealYield < 0.5
+                          ? 'Nới lỏng (Accomodative) — Vàng hưởng lợi'
+                          : 'Trung tính (Neutral)'
+                      : 'NO_DATA'}
+                  </Text>
+                </Flex>
+              </Card>
+
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
+                <Text className="text-japandi-muted-clay">Lạm phát kỳ vọng 10Y</Text>
+                <Metric className="text-japandi-earth">
+                  {macro.breakevenInflation != null ? `${macro.breakevenInflation.toFixed(2)}%` : '—'}
+                </Metric>
+                <Flex className="mt-4">
+                  <Text className="text-xs text-japandi-muted-clay">
+                    {macro.breakevenInflation != null
+                      ? macro.breakevenInflation > 3.5
+                        ? 'Lo ngại lạm phát cao — Vàng hưởng lợi'
+                        : macro.breakevenInflation < 1.5
+                          ? 'Kỳ vọng lạm phát thấp'
+                          : 'Kỳ vọng ổn định'
+                      : 'NO_DATA'}
+                  </Text>
                 </Flex>
               </Card>
 
@@ -247,6 +299,53 @@ const MacroDashboard: React.FC = () => {
               </Card>
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
+                <div className="flex items-center justify-between mb-2">
+                  <Text className="text-japandi-muted-clay">🥈 Bạc & Tỷ lệ Vàng/Bạc</Text>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    goldSilverRatio != null && goldSilverRatio > 80
+                      ? 'bg-orange-100 text-orange-700'
+                      : goldSilverRatio != null && goldSilverRatio < 60
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {goldSilverRatio != null
+                      ? goldSilverRatio > 80
+                        ? 'Phòng thủ'
+                        : goldSilverRatio < 60
+                          ? 'Đầu cơ'
+                          : 'Trung tính'
+                      : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-4">
+                  <div>
+                    <Text className="text-xs text-japandi-muted-clay">Bạc (XAG)</Text>
+                    <Metric className="text-japandi-earth">${silverPrice?.toFixed(2) ?? 'N/A'}</Metric>
+                  </div>
+                  <div className="border-l border-gray-200 pl-4">
+                    <Text className="text-xs text-japandi-muted-clay">Tỷ lệ Vàng/Bạc</Text>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-bold text-japandi-earth">{goldSilverRatio?.toFixed(1) ?? 'N/A'}</span>
+                      <span className="text-[10px] text-gray-400">x</span>
+                    </div>
+                  </div>
+                </div>
+                <Flex className="mt-4">
+                  <Text className="text-xs text-japandi-muted-clay">
+                    {goldSilverRatio != null
+                      ? goldSilverRatio > 90
+                        ? 'Bạc rẻ bất thường — Định chế phòng thủ cực đoan'
+                        : goldSilverRatio > 80
+                          ? 'Bạc yếu — Dòng tiền nghiêng về phòng thủ'
+                          : goldSilverRatio < 60
+                            ? 'Bạc khỏe — Đầu cơ công nghiệp chiếm ưu thế'
+                            : 'Cân bằng tương đối'
+                      : 'NO_DATA'}
+                  </Text>
+                </Flex>
+              </Card>
+
+              <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <Text className="text-japandi-muted-clay">BTC/USD</Text>
                 <Metric className="text-japandi-earth">${btcPrice?.toLocaleString() ?? 'N/A'}</Metric>
                 <Flex className="mt-4">
@@ -271,11 +370,23 @@ const MacroDashboard: React.FC = () => {
           <Card className={`${swuc('LEADERSHIP_CHANGE', 'macro')} border-none shadow-sm`}>
             <Title className="text-japandi-earth">Động thái NHNN</Title>
             <Text className="mt-2 text-japandi-earth/80">
-              Lập trường hiện tại: <span className="font-bold text-japandi-moss">{macro.sbvAction}</span>
+              Lập trường hiện tại:{' '}
+              <span className={`font-bold ${
+                macro.sbvAction === 'UNKNOWN' ? 'text-gray-400' : 'text-japandi-moss'
+              }`}>
+                {macro.sbvAction === 'UNKNOWN' ? 'UNKNOWN (chưa seed)' : macro.sbvAction}
+              </span>
             </Text>
-            <Text className="mt-4 text-sm text-japandi-earth/60 italic">
-              "Ngân hàng Nhà nước đang duy trì lập trường {macro.sbvAction.toLowerCase()} thanh khoản."
-            </Text>
+            {macro.sbvAction !== 'UNKNOWN' && (
+              <Text className="mt-4 text-sm text-japandi-earth/60 italic">
+                "Ngân hàng Nhà nước đang duy trì lập trường {macro.sbvAction.toLowerCase()} thanh khoản."
+              </Text>
+            )}
+            {macro.sbvAction === 'UNKNOWN' && (
+              <Text className="mt-4 text-sm text-japandi-earth/40 italic">
+                Chưa có dữ liệu thực tế. Cần seed SBV_ACTION vào macro_history.
+              </Text>
+            )}
           </Card>
 
           <Card className={`${swuc('RANK_JUMP', 'macro')} border-none shadow-sm`}>

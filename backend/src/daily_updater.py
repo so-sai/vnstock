@@ -206,25 +206,46 @@ def update_vnindex(target_date: str):
         logger.error(f"❌ VNINDEX error: {e}")
         raise
 
+def _progress_bar(batch_num: int, total_batches: int, success: int, failed: int, skipped: int, start_time: float):
+    """In thanh tiến trình động với % và ETA."""
+    pct = batch_num / total_batches * 100 if total_batches > 0 else 0
+    elapsed = time.time() - start_time
+    eta = (elapsed / max(batch_num, 1)) * (total_batches - batch_num) if batch_num > 0 else 0
+    bar_len = 20
+    filled = int(bar_len * batch_num / max(total_batches, 1))
+    bar = "█" * filled + "░" * (bar_len - filled)
+    sys.stdout.write(
+        f"\r📡 {bar} {pct:5.1f}% | Batch {batch_num}/{total_batches} | "
+        f"✅{success} ❌{failed} ⏭️{skipped} | "
+        f"⏱{elapsed:4.0f}s | ETA {eta:4.0f}s   "
+    )
+    sys.stdout.flush()
+
+
 @retry_with_backoff("update_market_batch", max_retries=2, base_delay=10)
 def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
     batch_size = 50
     success = 0
     failed = 0
     skipped = 0
+    total_symbols = len(symbols)
+    start_time = time.time()
 
     t = Trading(source='kbs')
+
+    total_batches = (len(symbols) + batch_size - 1) // batch_size
+    _progress_bar(0, total_batches, 0, 0, 0, start_time)
 
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i:i+batch_size]
         batch_num = i // batch_size + 1
-        total_batches = (len(symbols) + batch_size - 1) // batch_size
 
         active_batch = [s for s in batch if not armor.is_blacklisted(s)]
         skipped += len(batch) - len(active_batch)
 
         if not active_batch:
             logger.info(f"📦 Batch {batch_num}/{total_batches}: Tất cả mã bị blacklist. Skip.")
+            _progress_bar(batch_num, total_batches, success, failed, skipped, start_time)
             continue
 
         try:
@@ -259,9 +280,7 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
                     save_data_upsert('market_foreign_history', df_save[cols_foreign], conn)
 
                 success += len(df_save)
-                logger.info(f"📦 Batch {batch_num}/{total_batches}: ✅ {len(df_save)} mã.")
             else:
-                logger.warning(f"📦 Batch {batch_num}/{total_batches}: ⚠️ No data.")
                 failed += len(active_batch)
         except Exception as e:
             logger.error(f"📦 Batch {batch_num}/{total_batches}: ❌ {e}")
@@ -269,11 +288,170 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
             for s in active_batch:
                 armor.blacklist(s)
             armor.throttling(is_error=True)
+            _progress_bar(batch_num, total_batches, success, failed, skipped, start_time)
             continue
 
+        _progress_bar(batch_num, total_batches, success, failed, skipped, start_time)
         armor.throttling(is_error=False)
 
+    elapsed = time.time() - start_time
+    sys.stdout.write(
+        f"\n🏁 Hoàn tất {total_symbols} mã trong {elapsed:.0f}s | "
+        f"✅{success} ❌{failed} ⏭️{skipped}\n"
+    )
+    sys.stdout.flush()
     return success, failed, skipped
+
+# ============================================================
+# 5B. MACRO DATA UPDATE (yfinance — US10Y, DXY, Yield Curve, Gold, etc.)
+# ============================================================
+MACRO_TICKERS = {
+    'DXY': 'DX-Y.NYB',
+    'USD_VND': 'USDVND=X',
+    'USD_CNY': 'CNY=X',
+    'USD_CNH': 'CNH=X',
+    'SH_COMP': '000001.SS',
+    'COPPER_HG': 'HG=F',
+    'US2Y': '2YY=F',
+    'US5Y': '^FVX',
+    'US10Y': '^TNX',
+    'US30Y': '^TYX',
+    'BRENT_OIL': 'BZ=F',
+    'WTI_OIL': 'CL=F',
+    'BTC': 'BTC-USD',
+    'GOLD_XAU': 'GC=F',
+    'TIP_PRICE': 'TIP',
+    'XAGUSD': 'SI=F',
+}
+
+@retry_with_backoff("update_macro", max_retries=2, base_delay=10)
+def update_macro_data():
+    """Fetch macro tickers via yfinance và seed vào macro_history (v1 + v2)."""
+    import yfinance as yf
+    logger.info(f"🌍 Cập nhật {len(MACRO_TICKERS)} cảm biến vĩ mô từ Yahoo Finance...")
+
+    data = yf.download(list(MACRO_TICKERS.values()), period="5d", interval="1d", progress=False)
+    if 'Close' not in data.columns.names if isinstance(data.columns, pd.MultiIndex) else 'Close' not in data.columns:
+        logger.warning("⚠️ Macro data: không có cột Close.")
+        return 0
+
+    close_data = data['Close'] if isinstance(data.columns, pd.MultiIndex) else data
+    inv_map = {v: k for k, v in MACRO_TICKERS.items()}
+    close_data = close_data.rename(columns=inv_map)
+
+    df_melted = close_data.reset_index().melt(id_vars=['Date'], var_name='variable', value_name='value')
+    df_melted.rename(columns={'Date': 'date'}, inplace=True)
+    df_melted['date'] = pd.to_datetime(df_melted['date']).dt.strftime('%Y-%m-%d')
+    df_melted = df_melted.dropna()
+
+    if df_melted.empty:
+        logger.warning("⚠️ Macro data: không có dữ liệu sau khi melt.")
+        return 0
+
+    # v1 legacy
+    with get_connection() as conn:
+        save_data_upsert('macro_history', df_melted, conn)
+
+    # v2 canonical
+    v2_records = []
+    v2_rejects = 0
+    for _, row in df_melted.iterrows():
+        try:
+            rec = _NORM.normalize(
+                variable=row['variable'],
+                date=row['date'],
+                raw_value=row['value'],
+                source='yahoo',
+            )
+            v2_records.append({
+                'variable': rec.variable, 'date': rec.date,
+                'value': rec.value, 'asset_class': rec.asset_class.value,
+                'unit': rec.unit.value, 'source': rec.source.value,
+                'raw_value': rec.raw_value, 'raw_unit': rec.raw_unit,
+                'confidence': rec.confidence,
+            })
+        except (ValueError, CanonicalValidationError):
+            v2_rejects += 1
+
+    if v2_records:
+        df_v2 = pd.DataFrame(v2_records)
+        with get_connection() as conn:
+            save_data_upsert('macro_history_v2', df_v2, conn)
+        logger.info(f"✅ Macro seeded: {len(df_melted)} rows v1, {len(v2_records)} v2, {v2_rejects} rejects")
+    else:
+        logger.warning(f"⚠️ Macro seed: all {v2_rejects} rows rejected by canonical validator")
+
+    return len(df_melted)
+
+
+# ============================================================
+# 5C. REAL YIELD SEED (derived từ TIP_PRICE + yfinance info)
+# ============================================================
+def seed_real_yield():
+    """Fetch TIP trailing dividend yield từ yfinance, tính US_REAL_YIELD, seed vào DB."""
+    import yfinance as yf
+    logger.info("📐 Tính real yield từ TIP ETF...")
+
+    try:
+        tip = yf.Ticker("TIP")
+        info = tip.info
+        dy = info.get("trailingAnnualDividendYield")
+        if dy is None:
+            dy = info.get("yield", 0)
+        tip_yield = round(float(dy) * 100, 3)
+    except Exception as e:
+        logger.warning(f"Không lấy được TIP yield: {e}")
+        return 0
+
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT value FROM macro_history
+            WHERE variable = 'US10Y'
+            ORDER BY rowid DESC LIMIT 1
+        """).fetchone()
+
+    us10y = float(row[0]) if row else None
+    if us10y is None:
+        logger.warning("Không có US10Y để tính real yield")
+        return 0
+
+    breakeven = round(us10y - tip_yield, 3)
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    df_seed = pd.DataFrame([
+        {"variable": "US_REAL_YIELD", "date": today, "value": tip_yield},
+        {"variable": "BREAKEVEN_INFLATION", "date": today, "value": breakeven},
+    ])
+
+    with get_connection() as conn:
+        save_data_upsert('macro_history', df_seed, conn)
+
+    # v2 canonical
+    v2_records = []
+    from canonical import Normalizer
+    from canonical.validator import ValidationError as CanonicalValidationError
+    norm = Normalizer()
+    for _, row in df_seed.iterrows():
+        try:
+            rec = norm.normalize(row['variable'], row['date'], row['value'], 'yahoo')
+            v2_records.append({
+                'variable': rec.variable, 'date': rec.date,
+                'value': rec.value, 'asset_class': rec.asset_class.value,
+                'unit': rec.unit.value, 'source': rec.source.value,
+                'raw_value': rec.raw_value, 'raw_unit': rec.raw_unit,
+                'confidence': rec.confidence,
+            })
+        except (ValueError, CanonicalValidationError):
+            pass
+
+    if v2_records:
+        df_v2 = pd.DataFrame(v2_records)
+        with get_connection() as conn:
+            save_data_upsert('macro_history_v2', df_v2, conn)
+
+    logger.info(f"✅ Real yield seeded: yield={tip_yield}%, breakeven={breakeven}%")
+    return 2
+
 
 # ============================================================
 # 6. POST-UPDATE: ENGINE RECALCULATION
@@ -387,6 +565,7 @@ def run_daily_update(target_date=None):
     report = {
         "date": target_date,
         "status": "FAILED",
+        "macro_rows": 0,
         "vnindex_rows": 0,
         "market_success": 0,
         "market_failed": 0,
@@ -397,10 +576,28 @@ def run_daily_update(target_date=None):
     }
 
     try:
-        # Step 1: VNINDEX
+        # Step 1: Macro Data (yield curve, DXY, gold, TIP, etc.)
+        report["macro_rows"] = update_macro_data()
+        report["real_yield_rows"] = seed_real_yield()
+
+        # Step 1b: Domestic macro (VGB10Y, INTERBANK_ON)
+        try:
+            from src.services.macro.vgb10y_seeder import seed_vgb10y
+            report["vgb10y_seeded"] = seed_vgb10y()
+        except Exception as e:
+            logger.warning(f"VGB10Y seed failed: {e}")
+            report["vgb10y_seeded"] = False
+        try:
+            from src.services.macro.interbank_seeder import refresh_interbank_rate
+            report["interbank_seeded"] = refresh_interbank_rate()
+        except Exception as e:
+            logger.warning(f"INTERBANK seed failed: {e}")
+            report["interbank_seeded"] = False
+
+        # Step 2: VNINDEX
         report["vnindex_rows"] = update_vnindex(target_date)
 
-        # Step 2: Market Batch Update
+        # Step 3: Market Batch Update
         with get_connection() as conn:
             symbols_in_db = [r[0] for r in conn.execute(
                 "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30')"

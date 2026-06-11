@@ -128,6 +128,22 @@ entrypoints:
     cli: "python ptck.py gold regime"
     category: gold
 
+  # ── Silver / Precious Metals ───────────────────────────
+  silver_dashboard:
+    description: "Giá bạc BTMC + XAGUSD + Gold/Silver Ratio"
+    cli: "python ptck.py silver"
+    category: precious_metals
+
+  silver_gs_ratio:
+    description: "Gold/Silver Ratio + regime classification"
+    cli: "python ptck.py silver gs-ratio"
+    category: precious_metals
+
+  silver_seed:
+    description: "Seed XAGUSD từ yfinance vào macro_history"
+    cli: "python ptck.py silver seed"
+    category: precious_metals
+
   # ── Snapshot ──────────────────────────────────────────
   snapshot:
     description: "Ảnh chụp thị trường duy nhất (regime + cấu trúc + cảnh báo)"
@@ -162,6 +178,12 @@ entrypoints:
   rs_audit:
     description: "Audit Top RS — phân tích nguồn gốc sức mạnh (nội tại vs dòng tiền vs tập trung vốn hóa)"
     cli: "python ptck.py rs-audit [--top N]"
+    category: analysis
+
+  # ── Flow Map ──────────────────────────────────────────
+  flow_map:
+    description: "Bản đồ Dòng vốn Liên thị trường 4 Tầng (Driver → Settlement → Reputation → Drift)"
+    cli: "python ptck.py flow-map"
     category: analysis
 
   # ── Confidence ────────────────────────────────────────

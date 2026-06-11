@@ -102,6 +102,9 @@ class Normalizer:
             "DX-Y.NYB": "DXY",
             "GC=F": "GOLD_XAU",
             "^TNX": "US10Y",
+            "^FVX": "US5Y",
+            "^TYX": "US30Y",
+            "2YY=F": "US2Y",
             "HG=F": "COPPER_HG",
             "BZ=F": "BRENT_OIL",
             "CL=F": "WTI_OIL",
@@ -109,5 +112,6 @@ class Normalizer:
             "USDVND=X": "USD_VND",
             "CNY=X": "USD_CNY",
             "CNH=X": "USD_CNH",
+            "TIP": "TIP_PRICE",
         }
         return mapping.get(symbol)

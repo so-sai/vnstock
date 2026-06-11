@@ -226,6 +226,9 @@ data/
 .negative_cache.json
 backend/.negative_cache.json
 
+# Third-party/vendor libraries (install via requirements.txt instead)
+backend/libs/
+
 # Kit runtime (auto-generated, not seed)
 .kit/docs/
 .kit/runtime.json

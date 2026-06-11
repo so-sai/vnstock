@@ -292,11 +292,15 @@ def fetch_keyless_macro():
         'USD_CNH': 'CNH=X',
         'SH_COMP': '000001.SS',
         'COPPER_HG': 'HG=F',
+        'US2Y': '2YY=F',
+        'US5Y': '^FVX',
         'US10Y': '^TNX',
+        'US30Y': '^TYX',
         'BRENT_OIL': 'BZ=F',
         'WTI_OIL': 'CL=F',
         'BTC': 'BTC-USD',
-        'GOLD_XAU': 'GC=F'
+        'GOLD_XAU': 'GC=F',
+        'TIP_PRICE': 'TIP',
     }
     
     try:
