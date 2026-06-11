@@ -57,6 +57,7 @@ class MoneyFlowEngine:
                 print(f"🛑 [Circuit Breaker] Skipping {symbol} due to cooldown on {self.source}")
             return None
 
+        import time, random
         try:
             cp = Company(source=self.source, symbol=symbol, show_log=self.show_log)
             stats = cp.trading_stats()
@@ -67,15 +68,21 @@ class MoneyFlowEngine:
             self._session_cache[symbol] = snapshot
             return snapshot
         except Exception as e:
+            err_str = str(e)
+            if "429" in err_str or "Too Many" in err_str:
+                CircuitBreaker.report_failure(self.source)
             if self.show_log:
                 print(f"❌ Error fetching foreign snapshot for {symbol}: {e}")
             return None
 
     def update_foreign_history(self, symbols_list: List[str]) -> pd.DataFrame:
+        import time, random
         records: List[Dict[str, Any]] = []
-        for sym in symbols_list:
+        for idx, sym in enumerate(symbols_list):
             snapshot = self.get_foreign_snapshot(sym)
             if snapshot: records.append(snapshot)
+            if idx > 0 and idx % 10 == 0:
+                time.sleep(random.uniform(0.5, 1.5))
         if not records: return pd.DataFrame()
         df_new: pd.DataFrame = pd.DataFrame(records)
         with get_connection() as conn:

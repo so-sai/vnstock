@@ -158,7 +158,7 @@ def cmd_report(args):
             sys.argv += ["--month", month]
         if lang:
             sys.argv += ["--lang", lang]
-        exec(open(backend_dir / "src" / "tools" / "market_report.py", encoding='utf-8').read())
+        exec(open(backend_dir / "src" / "tools" / "market_report.py", encoding='utf-8-sig').read())
     else:
         print("  Usage: python ptck.py report weekly|monthly|daily [--month YYYY-MM] [--lang vi]")
 
@@ -349,14 +349,17 @@ def cmd_serve(args):
 
 def cmd_db(args):
     """Database operations."""
+    from src.db_maintenance import get_table_stats, vacuum_database, get_db_size_mb
     if args.subcommand == "vacuum":
         print("  Đang VACUUM database...")
-        sys.argv = ["db_maintenance.py", "--vacuum"]
-        exec(open(backend_dir / "src" / "db_maintenance.py", encoding='utf-8').read())
+        vacuum_database()
     elif args.subcommand == "stats":
         print("  Đang thống kê database...")
-        sys.argv = ["db_maintenance.py", "--stats"]
-        exec(open(backend_dir / "src" / "db_maintenance.py", encoding='utf-8').read())
+        stats = get_table_stats()
+        print("\nTABLE STATISTICS:")
+        for table, count in sorted(stats.items()):
+            print(f"  {table}: {count:,} rows")
+        print(f"\nDB Size: {get_db_size_mb():.1f} MB")
     else:
         print("  Usage: python ptck.py db vacuum|stats")
 
@@ -495,10 +498,8 @@ def cmd_scan(args):
     print("=" * 60)
     print("  PTCK — ELITE SCANNER")
     print("=" * 60)
-    sys.argv = ["elite_scanner.py"]
-    if deep:
-        sys.argv.append("--deep")
-    exec(open(backend_dir / "src" / "engine" / "elite_scanner.py", encoding='utf-8').read())
+    from src.engine.elite_scanner import run_elite_scanner
+    run_elite_scanner(deep_scan=deep)
     print("=" * 60)
 
 

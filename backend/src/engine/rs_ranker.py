@@ -89,7 +89,7 @@ def calculate_rs_score():
         latest_vol = group['volume'].iloc[-1]
         
         rvol = latest_vol / avg_vol_20d if avg_vol_20d > 0 else 0
-        avg_value_20d = (group['close'].tail(20) * group['volume'].tail(20)).mean() / 1_000_000_000
+        avg_value_20d = (group['close'].tail(20) * group['volume'].tail(20)).mean() / 1_000_000
         
         def get_return(days):
             if len(group) >= days:

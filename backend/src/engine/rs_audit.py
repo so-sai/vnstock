@@ -176,11 +176,11 @@ def _is_in_group(symbol: str, group_data: dict) -> Optional[str]:
 
 
 def _liquidity_tier(avg_value_20d: float, avg_vol_20d: float) -> str:
-    if avg_value_20d >= 0.5 or avg_vol_20d >= 10_000_000:
+    if avg_value_20d >= 500 or avg_vol_20d >= 10_000_000:
         return "RẤT_CAO"
-    elif avg_value_20d >= 0.1 or avg_vol_20d >= 2_000_000:
+    elif avg_value_20d >= 100 or avg_vol_20d >= 2_000_000:
         return "CAO"
-    elif avg_value_20d >= 0.02 or avg_vol_20d >= 500_000:
+    elif avg_value_20d >= 20 or avg_vol_20d >= 500_000:
         return "TB"
     else:
         return "THẤP"
