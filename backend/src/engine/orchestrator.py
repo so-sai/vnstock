@@ -71,6 +71,31 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
     entropy = c.get("entropy")
     regime_status = r.get("trang_thai", "N/A")
     early_warning = ew.get("co_canh_bao", False)
+
+    # ---- Bước 0: Data Quality Guard ----
+    try:
+        from src.database.db_core import get_connection
+        import pandas as pd
+        with get_connection() as _conn:
+            count_liquid = pd.read_sql(
+                "SELECT COUNT(DISTINCT symbol) as cnt FROM daily_ohlcv "
+                "WHERE date=? AND volume>50000 AND symbol!='VNINDEX'",
+                _conn, params=(target_date,)
+            ).iloc[0]['cnt']
+        if count_liquid < 50:
+            ket_qua_tam = {
+                "ngay": target_date, "quyet_dinh": "DUNG NGOAI",
+                "ly_do": [f"dữ liệu không đảm bảo — chỉ {int(count_liquid)} mã đủ thanh khoản",
+                          "cảnh báo DATA QUALITY — nguy cơ dữ liệu nhiễu/lỗi feed",
+                          "tuyệt đối không giao dịch trên dữ liệu méo"],
+                "chi_tiet": {"data_quality_warning": True, "so_ma_du_lieu": int(count_liquid)},
+            }
+            ket_qua_tam["độ_tin_cậy_sau_hiệu_chỉnh"] = {"điểm_số": 0, "mức": "THAP", "tạm_ngưng": True, "lý_do_tạm_ngưng": "dữ liệu không đủ thanh khoản để ra quyết định"}
+            ket_qua_tam["bi_chặn_bởi_bảo_vệ"] = True
+            ket_qua_tam["lý_do_chặn"] = f"chỉ {int(count_liquid)} mã đủ volume > 50k"
+            return ket_qua_tam
+    except Exception:
+        pass
     # ---- Bước 2: Logic quyết định theo thứ tự ưu tiên ----
     ly_do = []
 
@@ -271,26 +296,82 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
 
     # ---- Bước 6: Phase 3 — Structural Consensus (nâng cấp lên THAM GIA FULL) ----
     # Chỉ kích hoạt khi hệ thống đang ở trạng thái mở (THAM GIA DO / QUAN SAT)
-    # và thị trường đạt đồng thuận tuyệt đối
+    # và thị trường đạt đồng thuận tuyệt đối + retest confirmation
     if ket_qua.get("quyet_dinh") in ("THAM GIA DO", "QUAN SAT"):
         adx_value = r.get("adx")
         delta_adx_value = r.get("delta_adx")
         is_trending_up = delta_adx_value is not None and delta_adx_value > 0
 
-        if (trang_thai_cau_truc == "ĐỒNG THUẬN"
-                and so_tru_ok == 3
-                and entropy is not None and entropy > 2.0
-                and adx_value is not None and adx_value > 25
-                and is_trending_up):
-            ket_qua["quyet_dinh"] = "THAM GIA FULL"
-            ket_qua["ly_do"] = [
-                "đồng thuận cấu trúc hoàn toàn (3/3 trụ)",
-                "dòng tiền lan tỏa diện rộng (entropy > 2.0)",
-                "xu hướng tăng hữu cơ được xác nhận (ADX > 25, đang lên)",
-                "nâng tỷ trọng lên FULL — mở toàn bộ vị thế",
-            ]
-            ket_qua["bi_chặn_bởi_bảo_vệ"] = False
-            ket_qua["lý_do_chặn"] = None
+        consensus_conditions = (
+            trang_thai_cau_truc == "ĐỒNG THUẬN"
+            and so_tru_ok == 3
+            and entropy is not None and entropy > 2.0
+            and adx_value is not None and adx_value > 25
+            and is_trending_up
+        )
+
+        if consensus_conditions:
+            # Kiểm tra retest: pullback T-1 trên volume thấp → xác nhận xu hướng
+            retest_confirmed = False
+            retest_log = ""
+            try:
+                from src.database.db_core import get_connection
+                import pandas as pd
+                with get_connection() as _rc:
+                    prev_dates = pd.read_sql(
+                        "SELECT DISTINCT date FROM daily_ohlcv WHERE date<? AND symbol='VNINDEX' ORDER BY date DESC LIMIT 2",
+                        _rc, params=(target_date,)
+                    )["date"].tolist()
+                if len(prev_dates) >= 2:
+                    t1, t2 = prev_dates[0], prev_dates[1]
+                    with get_connection() as _rc2:
+                        vnindex_data = pd.read_sql(
+                            f"SELECT date, close, volume FROM daily_ohlcv "
+                            f"WHERE symbol='VNINDEX' AND date IN (?, ?, ?) ORDER BY date",
+                            _rc2, params=(target_date, t1, t2)
+                        )
+                    if len(vnindex_data) >= 3:
+                        c0, c1, c2 = vnindex_data['close'].values
+                        v1 = vnindex_data.iloc[1]['volume']
+                        vol_hist = pd.read_sql(
+                            f"SELECT date, SUM(volume) as total FROM daily_ohlcv "
+                            f"WHERE date<? AND date>=date(?, '-27 days') AND symbol='VNINDEX' "
+                            f"GROUP BY date ORDER BY date",
+                            _rc2, params=(target_date, target_date,)
+                        )
+                        v_ma20 = float(vol_hist['total'].tail(20).mean()) if len(vol_hist) >= 5 else 0
+                        is_pullback = float(c1) < float(c2)
+                        is_low_vol = v_ma20 > 0 and (float(v1) / v_ma20) < 0.8
+                        is_recovery = float(c0) > float(c1)
+                        if is_pullback and is_low_vol and is_recovery:
+                            retest_confirmed = True
+                            retest_log = f"retest T-1: pullback x{float(v1)/v_ma20:.2f} vol MA20 → xác nhận xu hướng"
+            except Exception:
+                pass
+
+            if retest_confirmed:
+                ket_qua["quyet_dinh"] = "THAM GIA FULL"
+                ket_qua["ly_do"] = [
+                    "đồng thuận cấu trúc hoàn toàn (3/3 trụ)",
+                    "dòng tiền lan tỏa diện rộng (entropy > 2.0)",
+                    "xu hướng tăng hữu cơ được xác nhận (ADX > 25, retest thành công)",
+                    "nâng tỷ trọng lên FULL — mở toàn bộ vị thế",
+                ]
+                ket_qua["bi_chặn_bởi_bảo_vệ"] = False
+                ket_qua["lý_do_chặn"] = None
+                ket_qua["retest_confirmation"] = retest_log
+            else:
+                # Đồng thuận xảy ra nhưng chưa có retest → giữ ở THAM GIA DO
+                if ket_qua.get("quyet_dinh") == "QUAN SAT":
+                    ket_qua["quyet_dinh"] = "THAM GIA DO"
+                    ket_qua["ly_do"] = [
+                        "cấu trúc đồng thuận nhưng chưa có retest xác nhận",
+                        "vào lệnh thăm dò trước — chờ retest để FULL",
+                        "hạn chế rủi ro T+2.5",
+                    ]
+                    ket_qua["bi_chặn_bởi_bảo_vệ"] = False
+                    ket_qua["lý_do_chặn"] = None
+                ket_qua["retest_confirmation"] = "chờ retest"
 
     # ---- Bước 7: Fast-Exit Guard (bảo vệ sau khi vào lệnh FULL) ----
     # Nếu đang THAM GIA FULL mà phát hiện volume spike ở trụ cột → giảm gấp
@@ -359,20 +440,33 @@ def in_bao_cao(kq: dict):
         }
         icon_hs = icons_hs.get(hs, "⚪")
         print(f"  Lành:         {icon_hs} {hs} ({cd})")
-    # Hiển thị trạng thái Consensus nếu THAM GIA FULL
+    rc = kq.get("retest_confirmation")
     if kq.get("quyet_dinh") == "THAM GIA FULL":
         adx_info = kq.get("chi_tiet", {}).get("adx", "N/A")
         delta_info = kq.get("chi_tiet", {}).get("delta_adx")
         delta_str = f" (Δ{delta_info:+.1f})" if delta_info is not None else ""
         print(f"  Consensus:    💎 3/3 trụ + entropy>2.0 + ADX {adx_info}{delta_str}")
+        if rc:
+            print(f"  Retest:       ✅ {rc}")
+    elif rc:
+        print(f"  Retest:       ⏳ {rc}")
     fg = kq.get("fast_exit_guard")
     if fg:
         chi_tiet_fg = fg.get("chi_tiet", {})
         print(f"  Fast-Exit:    {fg.get('muc_do', 'N/A')}")
         for ten_tru, st in chi_tiet_fg.items():
             r = st.get("ratio", 0)
-            icon_vol = "🔴" if r > 2 else "🟡" if r > 1.5 else "🟢"
-            print(f"    {icon_vol} {ten_tru}: vol x{r} MA20")
+            pa = st.get("price_direction", "?")
+            if pa == "TANG":
+                icon_vol = "🟢"
+                pa_desc = "inflow"
+            elif pa == "GIAM":
+                icon_vol = "🔴"
+                pa_desc = "xả"
+            else:
+                icon_vol = "🟡"
+                pa_desc = "trung tính"
+            print(f"    {icon_vol} {ten_tru}: vol x{r} MA20 ({pa_desc})")
     đg = kq.get("độ_tin_cậy_sau_hiệu_chỉnh", {})
     if đg:
         icons_dg = {"CAO": "🟢", "TRUNG_BINH": "🟡", "THAP": "🔴"}
