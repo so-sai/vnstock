@@ -119,6 +119,7 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
     details = regime_data.get("details", {})
     rad = regime_data.get("rad", {})
     rad_active = rad.get("activated", False)
+    delta_adx = rad.get("signals", {}).get("delta_adx")
 
     # ── Đóng gói ──
     anh_chup = {
@@ -128,6 +129,7 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
             "trang_thai": regime_data.get("status", "N/A"),
             "diem_so": regime_data.get("regime_score", 0.5),
             "adx": details.get("adx"),
+            "delta_adx": delta_adx,
             "ty_le_atr": details.get("atr_ratio"),
             "diem_v": details.get("v_score"),
             "diem_b": details.get("b_score"),

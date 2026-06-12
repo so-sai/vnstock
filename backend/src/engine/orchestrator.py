@@ -43,7 +43,7 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
 import src.config
 
 
-QUYET_DINH = ["THAM GIA", "THAM GIA DO", "QUAN SAT", "GIAM RUI RO", "DUNG NGOAI"]
+QUYET_DINH = ["THAM GIA FULL", "THAM GIA", "THAM GIA DO", "QUAN SAT", "GIAM RUI RO", "DUNG NGOAI"]
 
 
 def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
@@ -166,6 +166,8 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
             "canh_bao_som": "có" if early_warning else "không",
             "entropy": round(entropy, 3) if entropy is not None else None,
             "so_tru_cau_truc": so_tru_ok,
+            "adx": r.get("adx"),
+            "delta_adx": r.get("delta_adx"),
         },
     }
 
@@ -267,6 +269,48 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
             except Exception:
                 pass
 
+    # ---- Bước 6: Phase 3 — Structural Consensus (nâng cấp lên THAM GIA FULL) ----
+    # Chỉ kích hoạt khi hệ thống đang ở trạng thái mở (THAM GIA DO / QUAN SAT)
+    # và thị trường đạt đồng thuận tuyệt đối
+    if ket_qua.get("quyet_dinh") in ("THAM GIA DO", "QUAN SAT"):
+        adx_value = r.get("adx")
+        delta_adx_value = r.get("delta_adx")
+        is_trending_up = delta_adx_value is not None and delta_adx_value > 0
+
+        if (trang_thai_cau_truc == "ĐỒNG THUẬN"
+                and so_tru_ok == 3
+                and entropy is not None and entropy > 2.0
+                and adx_value is not None and adx_value > 25
+                and is_trending_up):
+            ket_qua["quyet_dinh"] = "THAM GIA FULL"
+            ket_qua["ly_do"] = [
+                "đồng thuận cấu trúc hoàn toàn (3/3 trụ)",
+                "dòng tiền lan tỏa diện rộng (entropy > 2.0)",
+                "xu hướng tăng hữu cơ được xác nhận (ADX > 25, đang lên)",
+                "nâng tỷ trọng lên FULL — mở toàn bộ vị thế",
+            ]
+            ket_qua["bi_chặn_bởi_bảo_vệ"] = False
+            ket_qua["lý_do_chặn"] = None
+
+    # ---- Bước 7: Fast-Exit Guard (bảo vệ sau khi vào lệnh FULL) ----
+    # Nếu đang THAM GIA FULL mà phát hiện volume spike ở trụ cột → giảm gấp
+    if ket_qua.get("quyet_dinh") == "THAM GIA FULL":
+        try:
+            from src.engine.fast_exit_guard import kiem_tra_phan_phoi
+            phan_phoi = kiem_tra_phan_phoi(target_date=target_date)
+            ket_qua["fast_exit_guard"] = phan_phoi
+            if phan_phoi.get("co_phan_phoi") and phan_phoi.get("muc_do") == "CAO":
+                ket_qua["quyet_dinh"] = "GIAM RUI RO"
+                ket_qua["ly_do"] = [
+                    "Fast-Exit Guard kích hoạt — volume spike ở trụ cột",
+                    f"trụ nguy hiểm: {', '.join(phan_phoi['tru_nguy_hiem'])}",
+                    "hạ tỷ trọng ngay — chờ tín hiệu xác nhận lại",
+                ]
+                ket_qua["bi_chặn_bởi_bảo_vệ"] = False
+                ket_qua["lý_do_chặn"] = None
+        except Exception:
+            pass
+
     # ---- Lưu file ----
     out_dir = Path(src.config.DATA_DIR) / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -277,7 +321,7 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
 
 
 def in_bao_cao(kq: dict):
-    icons = {"THAM GIA": "🟢", "THAM GIA DO": "🔵", "QUAN SAT": "🟡", "GIAM RUI RO": "🟠", "DUNG NGOAI": "🔴"}
+    icons = {"THAM GIA FULL": "💎", "THAM GIA": "🟢", "THAM GIA DO": "🔵", "QUAN SAT": "🟡", "GIAM RUI RO": "🟠", "DUNG NGOAI": "🔴"}
     icon = icons.get(kq.get("quyet_dinh", ""), "⚪")
     print("\n" + "=" * 60)
     print("  BỘ QUYẾT ĐỊNH CUỐI CÙNG")
@@ -293,6 +337,13 @@ def in_bao_cao(kq: dict):
     print(f"  Cấu trúc:     {ct.get('cau_truc', 'N/A')} ({ct.get('so_tru_cau_truc', '?')}/3 trụ)")
     print(f"  Regime:       {ct.get('regime', 'N/A')}")
     print(f"  Cảnh báo sớm: {ct.get('canh_bao_som', 'N/A')}")
+    adx_ct = ct.get('adx')
+    da_ct = ct.get('delta_adx')
+    if adx_ct is not None:
+        adx_str = f"ADX {adx_ct}"
+        if da_ct is not None:
+            adx_str += f" (Δ{da_ct:+.1f})"
+        print(f"  ADX:          {adx_str}")
     print(f"  Entropy:      {ct.get('entropy', 'N/A')}")
     rl = kq.get("recovery_log", [])
     if rl:
@@ -308,6 +359,20 @@ def in_bao_cao(kq: dict):
         }
         icon_hs = icons_hs.get(hs, "⚪")
         print(f"  Lành:         {icon_hs} {hs} ({cd})")
+    # Hiển thị trạng thái Consensus nếu THAM GIA FULL
+    if kq.get("quyet_dinh") == "THAM GIA FULL":
+        adx_info = kq.get("chi_tiet", {}).get("adx", "N/A")
+        delta_info = kq.get("chi_tiet", {}).get("delta_adx")
+        delta_str = f" (Δ{delta_info:+.1f})" if delta_info is not None else ""
+        print(f"  Consensus:    💎 3/3 trụ + entropy>2.0 + ADX {adx_info}{delta_str}")
+    fg = kq.get("fast_exit_guard")
+    if fg:
+        chi_tiet_fg = fg.get("chi_tiet", {})
+        print(f"  Fast-Exit:    {fg.get('muc_do', 'N/A')}")
+        for ten_tru, st in chi_tiet_fg.items():
+            r = st.get("ratio", 0)
+            icon_vol = "🔴" if r > 2 else "🟡" if r > 1.5 else "🟢"
+            print(f"    {icon_vol} {ten_tru}: vol x{r} MA20")
     đg = kq.get("độ_tin_cậy_sau_hiệu_chỉnh", {})
     if đg:
         icons_dg = {"CAO": "🟢", "TRUNG_BINH": "🟡", "THAP": "🔴"}
