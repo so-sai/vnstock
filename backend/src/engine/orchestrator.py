@@ -43,7 +43,7 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
 import src.config
 
 
-QUYET_DINH = ["THAM GIA", "QUAN SAT", "GIAM RUI RO", "DUNG NGOAI"]
+QUYET_DINH = ["THAM GIA", "THAM GIA DO", "QUAN SAT", "GIAM RUI RO", "DUNG NGOAI"]
 
 
 def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
@@ -201,6 +201,72 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
         ket_qua["bi_chặn_bởi_bảo_vệ"] = False
         ket_qua["lý_do_chặn"] = None
 
+    # ---- Bước 5: Recovery Override + Structural Healing ----
+    # Hệ thống đang DỪNG NGOÀI → kiểm tra khả năng mở khóa
+    if ket_qua.get("quyet_dinh") == "DUNG NGOAI":
+        is_fake_market = (
+            do_lech_pha_ir == "MANH_GIA_TAO"
+            or nhan_dien_ir == "THI_TRUONG_AO"
+            or (diem_thi_truong_that_ir is not None and diem_thi_truong_that_ir < 0.2)
+        )
+        if not is_fake_market:
+            try:
+                from src.engine.recovery_engine import evaluate_recovery_status
+                from src.engine.structural_healing import phan_tich_hoi_phuc
+
+                regime_details = anh_chup.get("_regime_details", {})
+                velocity_5d = float(regime_details.get("breadth_momentum", 0))
+                regime_data_for_recovery = {
+                    "details": {
+                        "breadth_pct": regime_details.get("breadth_pct", 0),
+                        "atr_ratio": regime_details.get("atr_ratio", 0),
+                        "breadth_std_10d": regime_details.get("breadth_std_10d", 0),
+                    }
+                }
+
+                # 5a. Recovery Engine (xung lực giá/khối lượng)
+                recovery = evaluate_recovery_status(
+                    regime_data=regime_data_for_recovery,
+                    velocity_5d=velocity_5d,
+                    target_date=target_date,
+                )
+                ket_qua["recovery_status"] = recovery["status"]
+                ket_qua["recovery_log"] = recovery.get("log", [])
+
+                if recovery.get("is_recovery"):
+                    ket_qua["quyet_dinh"] = "THAM GIA DO"
+                    ket_qua["ly_do"] = [
+                        "cấu trúc đã lành — recovery engine xác nhận",
+                        "dòng tiền mồi quay lại (thrust/velocity)",
+                        "mở lệnh thăm dò — giám sát chặt",
+                    ]
+                    ket_qua["bi_chặn_bởi_bảo_vệ"] = False
+                    ket_qua["lý_do_chặn"] = None
+                else:
+                    # 5b. Structural Healing (chuyển trạng thái cấu trúc T-1→T-0)
+                    healing = phan_tich_hoi_phuc(target_date=target_date)
+                    ket_qua["healing_status"] = healing["trang_thai_hoi_phuc"]
+                    ket_qua["chuyen_doi_cau_truc"] = healing["chuyen_doi"]
+
+                    hs = healing["trang_thai_hoi_phuc"]
+                    if hs == "TAI_PHAT_BENH":
+                        ket_qua["ly_do"] = [
+                            "cấu trúc tiếp tục vỡ — hồi phục thất bại",
+                            "cấm tuyệt đối bắt đáy — rủi ro sập lần 2",
+                            "chờ tín hiệu lành thực sự",
+                        ]
+                    elif hs in ("BAT_DAU_LANH", "DANG_LANH"):
+                        ket_qua["quyet_dinh"] = "QUAN SAT"
+                        ket_qua["ly_do"] = [
+                            f"cấu trúc đang lành ({hs})",
+                            "máu đã ngừng chảy — hé mắt quan sát",
+                            "chưa mua — chờ recovery hoặc đồng thuận",
+                        ]
+                        ket_qua["bi_chặn_bởi_bảo_vệ"] = False
+                        ket_qua["lý_do_chặn"] = None
+            except Exception:
+                pass
+
     # ---- Lưu file ----
     out_dir = Path(src.config.DATA_DIR) / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -211,7 +277,7 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
 
 
 def in_bao_cao(kq: dict):
-    icons = {"THAM GIA": "🟢", "QUAN SAT": "🟡", "GIAM RUI RO": "🟠", "DUNG NGOAI": "🔴"}
+    icons = {"THAM GIA": "🟢", "THAM GIA DO": "🔵", "QUAN SAT": "🟡", "GIAM RUI RO": "🟠", "DUNG NGOAI": "🔴"}
     icon = icons.get(kq.get("quyet_dinh", ""), "⚪")
     print("\n" + "=" * 60)
     print("  BỘ QUYẾT ĐỊNH CUỐI CÙNG")
@@ -228,6 +294,20 @@ def in_bao_cao(kq: dict):
     print(f"  Regime:       {ct.get('regime', 'N/A')}")
     print(f"  Cảnh báo sớm: {ct.get('canh_bao_som', 'N/A')}")
     print(f"  Entropy:      {ct.get('entropy', 'N/A')}")
+    rl = kq.get("recovery_log", [])
+    if rl:
+        print(f"  Recovery:")
+        for line in rl:
+            print(f"    {line}")
+    hs = kq.get("healing_status")
+    cd = kq.get("chuyen_doi_cau_truc")
+    if hs:
+        icons_hs = {
+            "TAI_PHAT_BENH": "🚨", "DANG_VO": "🔴",
+            "BAT_DAU_LANH": "🟠", "DANG_LANH": "🟡", "DA_LANH": "🟢",
+        }
+        icon_hs = icons_hs.get(hs, "⚪")
+        print(f"  Lành:         {icon_hs} {hs} ({cd})")
     đg = kq.get("độ_tin_cậy_sau_hiệu_chỉnh", {})
     if đg:
         icons_dg = {"CAO": "🟢", "TRUNG_BINH": "🟡", "THAP": "🔴"}

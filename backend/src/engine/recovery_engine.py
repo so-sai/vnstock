@@ -28,11 +28,16 @@ def evaluate_recovery_status(regime_data, velocity_5d, target_date=None):
     """
     Recovery Engine v2.5 (Hardened - The Titanium Muzzle).
     Includes Stability, Cooldown, and Depth filters to prevent sideway spam.
-    """
-    print("\n" + "*"*50)
-    print(f"RECOVERY DETECTOR v2.5 [HARDENED]: {'REPLAY MODE' if target_date else 'LIVE MODE'}")
-    print("*"*50)
 
+    Returns: dict with keys:
+      - is_recovery: bool
+      - is_abort: bool
+      - status: str (RECOVERY_ACTIVE / STANDBY / PILOT_ABORT / NO_DATA)
+      - block_reason: str
+      - ma10_reclaim: bool
+      - log: list[str] — diagnostic messages (for orchestrator to display)
+      - details: dict
+    """
     breadth_pct = regime_data['details']['breadth_pct']
     atr_ratio = regime_data['details']['atr_ratio']
     breadth_std = regime_data['details'].get('breadth_std_10d', 0.0)
@@ -113,15 +118,16 @@ def evaluate_recovery_status(regime_data, velocity_5d, target_date=None):
     if is_abort and not raw_recovery:
         status = "PILOT_ABORT"
 
-    # Logs
-    print(f"Index Drawdown: {current_dd:.1f}% (Threshold: {cfg['min_index_drawdown']}%)")
-    print(f"Breadth Stability: {breadth_std:.2f} (Threshold: < {cfg['breadth_std_threshold']})")
-    print(f"MA10 Reclaim: {'YES' if reclaim_ma10 else 'NO'}")
-    print(f"Vol/Breadth Thrust: {'YES' if thrust_2d else 'NO'}")
+    # Build clean log (no print — caller decides display)
+    log = [
+        f"Index Drawdown: {current_dd:.1f}% (Threshold: {cfg['min_index_drawdown']}%)",
+        f"Breadth Stability: {breadth_std:.2f} (Threshold: < {cfg['breadth_std_threshold']})",
+        f"MA10 Reclaim: {'YES' if reclaim_ma10 else 'NO'}",
+        f"Vol/Breadth Thrust: {'YES' if thrust_2d else 'NO'}",
+    ]
     if block_reason != "NONE":
-        flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
-        print(f"{flag} RECOVERY BLOCKED: {block_reason}")
-    print(f"--- FINAL STATUS: {status} ---")
+        log.append(f"RECOVERY BLOCKED: {block_reason}")
+    log.append(f"FINAL STATUS: {status}")
 
     return {
         "is_recovery": bool(raw_recovery),
@@ -129,6 +135,7 @@ def evaluate_recovery_status(regime_data, velocity_5d, target_date=None):
         "status": status,
         "block_reason": block_reason,
         "ma10_reclaim": bool(reclaim_ma10),
+        "log": log,
         "details": {
             "index_dd": round(current_dd, 2),
             "breadth_std": round(breadth_std, 2),

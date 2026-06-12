@@ -314,6 +314,7 @@ def đánh_giá_độ_tin_cậy(
     dữ_liệu_thị_trường: Optional[dict] = None,
     dữ_liệu_cấu_trúc: Optional[dict] = None,
     cảnh_báo_sớm: Optional[dict] = None,
+    target_date: Optional[str] = None,
 ) -> dict:
     """Tự đánh giá độ tin cậy của quyết định hiện tại.
 
@@ -325,7 +326,9 @@ def đánh_giá_độ_tin_cậy(
       dict với điểm tin cậy, mức đánh giá, chi tiết từng yếu tố,
       và trạng thái tạm ngưng nếu điểm quá thấp.
     """
-    hôm_nay = datetime.now().strftime("%Y-%m-%d")
+    if target_date is None:
+        target_date = datetime.now().strftime("%Y-%m-%d")
+    hôm_nay = target_date
 
     # ── Nếu có ảnh chụp, dùng nó làm nguồn duy nhất ──
     if anh_chup is not None:
@@ -356,10 +359,11 @@ def đánh_giá_độ_tin_cậy(
         # ── Fallback: đọc riêng lẻ (cho standalone) ──
         if dữ_liệu_thị_trường is None:
             from src.engine.regime_engine import detect_regime
-            dữ_liệu_thị_trường = detect_regime()
+            dữ_liệu_thị_trường = detect_regime(target_date=target_date)
 
         if dữ_liệu_cấu_trúc is None:
-            dữ_liệu_cấu_trúc = _đọc_json("structural_state.json") or {}
+            from src.engine.structural_detector import detect_cau_truc
+            dữ_liệu_cấu_trúc = detect_cau_truc(target_date=target_date) or {}
 
         if cảnh_báo_sớm is None:
             from src.services.early_warning_engine import build_early_warning
@@ -413,6 +417,12 @@ def đánh_giá_độ_tin_cậy(
         + TRỌNG_SỐ["biến_động_ổn_định"] * yt_4["điểm"]
         + TRỌNG_SỐ["tín_hiệu_đáng_tin"] * yt_5["điểm"]
     )
+    # ── Hệ số phạt cấu trúc (phi tuyến) ──
+    he_so_phat_cau_truc = 1.0
+    if trạng_thái_cấu_trúc == "VỠ CẤU TRÚC" and số_trụ <= 1:
+        he_so_phat_cau_truc = 0.70
+        điểm_tin_cậy *= he_so_phat_cau_truc
+
     điểm_tin_cậy = round(max(0.0, min(1.0, điểm_tin_cậy)), 3)
     mức_đánh_giá = _mức_đánh_giá(điểm_tin_cậy)
 
@@ -437,6 +447,11 @@ def đánh_giá_độ_tin_cậy(
             if ld not in tất_cả_lý_do:
                 tất_cả_lý_do.append(ld)
 
+    if he_so_phat_cau_truc < 1.0:
+        tất_cả_lý_do.append(
+            f"cấu trúc vỡ — phạt phi tuyến (×{he_so_phat_cau_truc})"
+        )
+
     # ── Kết luận bằng tiếng Việt ──
     if mức_đánh_giá == "CAO":
         kết_luận = "Các dấu hiệu khá thống nhất. Hệ thống tương đối tự tin với kết luận hiện tại."
@@ -459,6 +474,7 @@ def đánh_giá_độ_tin_cậy(
             "tín_hiệu_đáng_tin": yt_5,
         },
         "trọng_số": TRỌNG_SỐ,
+        "hệ_số_phạt_cấu_trúc": he_so_phat_cau_truc,
         "lý_do": tất_cả_lý_do,
         "tạm_ngưng_kết_luận": tạm_ngưng,
         "lý_do_tạm_ngưng": lý_do_tạm_ngưng,

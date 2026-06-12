@@ -451,7 +451,8 @@ def cmd_snapshot(args):
 def cmd_confidence(args):
     """Bộ tự đánh giá độ tin cậy của quyết định."""
     from src.engine.confidence_layer import đánh_giá_độ_tin_cậy, in_báo_cáo
-    kq = đánh_giá_độ_tin_cậy()
+    from datetime import datetime
+    kq = đánh_giá_độ_tin_cậy(target_date=args.date or datetime.now().strftime("%Y-%m-%d"))
     in_báo_cáo(kq)
     # Đọc quyết định cuối cùng từ file (không tính lại)
     from pathlib import Path
@@ -798,6 +799,7 @@ def main():
 
     # confidence
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")
+    p_conf.add_argument("--date", help="Ngày phân tích (YYYY-MM-DD)")
     p_conf.set_defaults(func=cmd_confidence)
 
     # scan

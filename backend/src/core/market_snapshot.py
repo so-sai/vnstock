@@ -157,6 +157,7 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
             "do_lech_pha": reality.get("do_lech_pha"),
             "dien_giai": reality.get("dien_giai"),
         },
+        "_regime_details": details,
         "nhom_anh_huong": {
             "breadth": gi.real_market_breadth if gi else None,
             "dominant_contribution_pct": gi.dominant_contribution_pct if gi else None,
