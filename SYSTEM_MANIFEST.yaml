@@ -91,6 +91,11 @@ entrypoints:
     cli: "python ptck.py db stats"
     category: database
 
+  db_optimize:
+    description: "Tối ưu hóa toàn bộ database (JSONB + STRICT + VACUUM)"
+    cli: "python ptck.py db optimize"
+    category: database
+
   structural_check:
     description: "Bộ phát hiện lệch cấu trúc thị trường (3 trụ: lan tỏa, đồng thuận ngành, index vs nội bộ)"
     cli: "python ptck.py structural [--date YYYY-MM-DD]"
@@ -116,6 +121,17 @@ entrypoints:
     description: "Quét thị trường tìm cơ hội (elite scanner)"
     cli: "python ptck.py scan [--deep]"
     category: system
+
+  # ── Operations (API) ────────────────────────────────────
+  operations_daily_close:
+    description: "API: Chốt phiên giao dịch (breadth + sector + flow + macro + reputation)"
+    cli: "POST http://localhost:17039/api/operations/daily-close"
+    category: operations
+
+  operations_telemetry_drift:
+    description: "API: Ghi log drift data (driver reputation + drift monitor)"
+    cli: "POST http://localhost:17039/api/operations/telemetry-drift"
+    category: operations
 
   # ── Gold ─────────────────────────────────────────────
   gold_dashboard:

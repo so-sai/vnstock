@@ -47,10 +47,14 @@ PROJECT_ROOT = _hydrate_path()
 load_dotenv(PROJECT_ROOT / '.env')
 
 # 3. Phân bổ các khu vực chiến lược
-# Ưu tiên lấy đường dẫn từ .env, nếu không có thì dùng mặc định
+# Ưu tiên lấy đường dẫn từ env (api_server.py set CUSTOM_DATA_PATH khi frozen)
 data_path_env = os.getenv("CUSTOM_DATA_PATH")
 if data_path_env:
     DATA_DIR = Path(data_path_env)
+elif getattr(sys, 'frozen', False):
+    appdata = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "PTCK_VN" / "data"
+    appdata.mkdir(parents=True, exist_ok=True)
+    DATA_DIR = appdata
 elif (PROJECT_ROOT / "backend" / "data").is_dir():
     DATA_DIR = PROJECT_ROOT / "backend" / "data"
 else:

@@ -21,7 +21,13 @@ from src.core.psr.models import PSRVersion
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
+try:
+    from src.config import DATA_DIR as _BASE
+    PSR_DIR = _BASE / "psr"
+except ImportError:
+    PSR_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
+PSR_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR = PSR_DIR
 MANIFEST_FILE = DATA_DIR / "version_manifest.json"
 DEFAULT_VERSION = "CAO v3.1-dev"
 

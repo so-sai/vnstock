@@ -57,9 +57,9 @@ def _get_latest_macro_values() -> dict:
             val = row['value']
             if var == 'DXY':
                 result['dxy_index'] = round(val, 2)
-            elif var == 'USD_CNH':
+            elif var in ('USD_CNH', 'USDCNH', 'FX_IDC:USDCNH'):
                 result['usd_cnh'] = round(val, 4)
-            elif var == 'USD_CNY':
+            elif var in ('USD_CNY', 'USDCNY', 'FX_IDC:USDCNY'):
                 result['usd_cny'] = round(val, 4)
             elif var == 'COPPER_HG':
                 result['copper_price'] = round(val, 2)

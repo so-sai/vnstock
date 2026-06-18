@@ -17,7 +17,13 @@ from src.core.cagl.registry import APIRegistry
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
+try:
+    from src.config import DATA_DIR as _BASE
+    PSR_DIR = _BASE / "psr"
+except ImportError:
+    PSR_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
+PSR_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR = PSR_DIR
 
 
 class SystemStateSnapshotter:

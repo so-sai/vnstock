@@ -18,7 +18,12 @@ from src.core.psr.models import PSRAuditEntry
 
 logger = logging.getLogger(__name__)
 
-AUDIT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
+try:
+    from src.config import DATA_DIR as _BASE
+    AUDIT_DIR = _BASE / "psr"
+except ImportError:
+    AUDIT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
+AUDIT_DIR.mkdir(parents=True, exist_ok=True)
 AUDIT_FILE = AUDIT_DIR / "audit.jsonl"
 
 

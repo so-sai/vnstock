@@ -34,9 +34,15 @@ DB_PATH = str(src.config.DATA_DIR / "screener_cache.db")
 
 @contextmanager
 def get_connection():
-    """Quản lý kết nối SQLite dùng Context Manager với timeout & busy handler"""
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    """Quản lý kết nối SQLite dùng Context Manager với PRAGMA tối ưu & check_same_thread=False"""
+    conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA cache_size=-20000;")
+    conn.execute("PRAGMA temp_store=MEMORY;")
+    conn.execute("PRAGMA mmap_size=268435456;")
     conn.execute("PRAGMA busy_timeout=5000;")
+    conn.row_factory = sqlite3.Row
     try:
         yield conn
     finally:
@@ -89,7 +95,16 @@ def optimize_sqlite_engine():
             )
         """)
 
-        # 5. TẠO BẢNG LỊCH SỬ KHỐI NGOẠI (Hỗ trợ Snapshot Accumulation)
+        # 5. TẠO BẢNG ẢO FTS5 CHO TÌM KIẾM TOÀN VĂN (Instant Search)
+        cursor.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts USING fts5(
+                symbol, icb_name2, icb_name3, icb_name4,
+                tokenize='unicode61'
+            )
+        """)
+        refresh_fts5_index(conn)
+
+        # 6. TẠO BẢNG LỊCH SỬ KHỐI NGOẠI (Hỗ trợ Snapshot Accumulation)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS market_foreign_history (
                 symbol TEXT NOT NULL,
@@ -201,6 +216,21 @@ def optimize_sqlite_engine():
 
         conn.commit()
     print("[OK] Database Engine Optimized (WAL Mode Enabled & Indexed)")
+
+def refresh_fts5_index(conn):
+    """Đồng bộ dữ liệu từ symbol_industry sang chỉ mục FTS5."""
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM symbol_fts")
+    cursor.execute("""
+        INSERT INTO symbol_fts(rowid, symbol, icb_name2, icb_name3, icb_name4)
+        SELECT rowid, symbol, icb_name2, icb_name3, icb_name4 FROM symbol_industry
+        WHERE symbol IS NOT NULL
+    """)
+    conn.commit()
+    cnt = cursor.execute("SELECT changes()").fetchone()[0]
+    if cnt:
+        print(f"[FTS5] Indexed {cnt} symbols for instant search")
+
 def save_data_upsert(table_name, df, conn):
     """Lưu dữ liệu vào SQLite sử dụng cơ chế INSERT OR REPLACE (UPSERT)"""
     if df.empty:

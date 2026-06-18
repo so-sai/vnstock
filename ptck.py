@@ -340,7 +340,7 @@ def cmd_telemetry(args):
 
 def cmd_serve(args):
     """Khởi động API server."""
-    port = getattr(args, 'port', 8000)
+    port = getattr(args, 'port', 17039)
     print(f"  Khởi động FastAPI tại http://0.0.0.0:{port}")
     print(f"  Docs: http://localhost:{port}/docs")
     import uvicorn
@@ -360,8 +360,12 @@ def cmd_db(args):
         for table, count in sorted(stats.items()):
             print(f"  {table}: {count:,} rows")
         print(f"\nDB Size: {get_db_size_mb():.1f} MB")
+    elif args.subcommand == "optimize":
+        print("  Đang tối ưu hóa toàn bộ database (JSONB + STRICT + VACUUM)...")
+        from src.database.db_optimize import run_all
+        run_all()
     else:
-        print("  Usage: python ptck.py db vacuum|stats")
+        print("  Usage: python ptck.py db vacuum|stats|optimize")
 
 
 def cmd_status(args):
@@ -771,12 +775,12 @@ def main():
 
     # serve
     p_serve = sub.add_parser("serve", help="Khởi động server")
-    p_serve.add_argument("--port", type=int, default=8000, help="Port")
+    p_serve.add_argument("--port", type=int, default=17039, help="Port (mặc định 17039)")
     p_serve.set_defaults(func=cmd_serve)
 
     # db
     p_db = sub.add_parser("db", help="Database operations")
-    p_db.add_argument("subcommand", choices=["vacuum", "stats"])
+    p_db.add_argument("subcommand", choices=["vacuum", "stats", "optimize"])
     p_db.set_defaults(func=cmd_db)
 
     # status

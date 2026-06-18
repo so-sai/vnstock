@@ -1,4 +1,4 @@
-﻿"""
+"""
 Backtest Service Layer v1.0
 Time Kernel — Kết nối Backtest Engine và Stress Test.
 """
@@ -164,22 +164,22 @@ def _build_equity_curve(df: pd.DataFrame, symbols: list, top_n: int = 10) -> lis
     return curve
 
 
-def get_stress_test_summary() -> dict:
+def get_stress_test_summary(start_date: str = "2022-01-01", end_date: str = "2023-06-30") -> dict:
     """
-    Tóm tắt kết quả Stress Test 2022.
+    Tóm tắt kết quả Stress Test cho giai đoạn chỉ định.
     """
     try:
         with get_connection() as conn:
             df = pd.read_sql("""
                 SELECT symbol, date, adj_close as close
                 FROM daily_ohlcv
-                WHERE date >= '2022-01-01' AND date <= '2023-06-30'
+                WHERE date >= ? AND date <= ?
                 AND symbol NOT IN ('VNINDEX', 'VN30')
                 ORDER BY symbol, date
-            """, conn)
+            """, conn, params=(start_date, end_date))
 
         if df.empty:
-            return {"error": "No 2022 stress test data"}
+            return {"error": f"No stress test data for {start_date} to {end_date}"}
 
         df['date'] = pd.to_datetime(df['date'], format='mixed')
 
@@ -210,7 +210,7 @@ def get_stress_test_summary() -> dict:
             return {"error": "No valid results"}
 
         return {
-            "period": "2022-01-01 to 2023-06-30",
+            "period": f"{start_date} to {end_date}",
             "totalSymbols": len(results_df),
             "avgMaxDrawdown": round(results_df['maxDrawdown2022'].mean(), 2),
             "worstDrawdown": round(results_df['maxDrawdown2022'].min(), 2),

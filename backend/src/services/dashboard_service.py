@@ -101,6 +101,7 @@ def get_dashboard_data() -> dict:
     return {
         "macro": {
             "usdCnh": macro.get('usd_cnh', 0),
+            "usdCny": macro.get('usd_cny', 0),
             "copperPrice": macro.get('copper_price', 0),
             "dxyIndex": macro.get('dxy_index', 0),
             "interbankRate": macro.get('interbank_rate', 0),

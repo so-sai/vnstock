@@ -78,6 +78,7 @@ export interface ModelBPick {
 export interface DashboardResponse {
   macro: MacroStatus;
   breadth: MarketBreadth;
+  updatedAt?: string;
   topLeaders: DiamondCandidate[];
   shadowCashPercent: number;
   systemMessage: SystemMessage;

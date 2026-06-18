@@ -1,0 +1,8 @@
+# Use Rust's built-in LLD linker (ships with rustup since 1.39+)
+# Faster linking: 3x-5x vs MSVC link.exe, multi-threaded, less RAM
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[build]
+incremental = true

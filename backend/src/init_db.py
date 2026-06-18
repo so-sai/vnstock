@@ -291,10 +291,11 @@ CREATE TABLE IF NOT EXISTS shadow_belief_state (
 # Each entry: (filename, schema_sql, description)
 
 DATABASES: list[tuple[str, str, str]] = [
-    ("screener_cache.db", SCHEMA_SCREENER, "Market data cache"),
+    ("quant.db", SCHEMA_SHADOW, "Quant RS scores"),
     ("telemetry.db", SCHEMA_TELEMETRY, "Decision telemetry + reputation"),
     ("portfolio_state.db", SCHEMA_PORTFOLIO, "Portfolio positions + risk"),
-    ("vnstock.db", SCHEMA_MACRO, "Macro history v2"),
+    ("screener_cache.db", SCHEMA_SCREENER, "Market data cache"),
+    ("sentinel_macro.db", SCHEMA_MACRO, "Macro history v2"),
     ("shadow_cao.db", SCHEMA_SHADOW, "Shadow CAO testing"),
 ]
 

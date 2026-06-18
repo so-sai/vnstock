@@ -3,10 +3,11 @@
  * ============================================================================
  * 
  * Sử dụng: 
- *   const { data, isLoading, error } = useIPOSignal();
+ *   const { data, isLoading, error, refetch } = useIPOSignal();
  * 
- * Auto-refetch: 60 giây
- * Caching: 30 giây
+ * ⚠️  KỶ LUẬT 90 NGÀY — ĐÃ VÔ HIỆU HÓA AUTO-FETCH
+ *    Hệ thống ở chế độ OFFLINE mặc định. Chỉ gọi API khi người dùng bấm nút.
+ *    Mọi lệnh refetchInterval đã bị cắt để tránh ban IP từ vnstock API.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -43,16 +44,18 @@ export const useIPOSignal = () => {
   return useQuery<IPOHUDResponse>({
     queryKey: ['ipoSignal'],
     queryFn: async () => {
-      const response = await fetch('/api/intelligence/ipo-signal/');
+      const response = await fetch(`${import.meta.env.DEV ? '' : 'http://localhost:17039'}/api/intelligence/ipo-signal/`);
       if (!response.ok) {
         throw new Error(`IPO Signal API Error: ${response.statusText}`);
       }
       return response.json();
     },
-    refetchInterval: 60 * 1000,  // Auto-refresh mỗi 60 giây
-    staleTime: 30 * 1000,        // Data fresh trong 30 giây
-    retry: 2,                     // Retry 2 lần nếu fail
-    enabled: true,                // Luôn enable
+    // DISABLED: Auto-refresh removed to prevent rate limit ban.
+    // Data only loads on manual trigger or component mount (single fetch).
+    staleTime: Infinity,        // Dữ liệu không bao giờ stale — chỉ refetch khi user bấm nút
+    retry: 1,                   // Chỉ retry 1 lần nếu fail
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 };
 
@@ -60,14 +63,16 @@ export const useIPOSignalHistory = (days: number = 30) => {
   return useQuery<any[]>({
     queryKey: ['ipoSignalHistory', days],
     queryFn: async () => {
-      const response = await fetch(`/api/intelligence/ipo-signal/history/?days=${days}`);
+      const response = await fetch(`${import.meta.env.DEV ? '' : 'http://localhost:17039'}/api/intelligence/ipo-signal/history/?days=${days}`);
       if (!response.ok) {
         throw new Error(`IPO Signal History API Error`);
       }
       return response.json();
     },
-    staleTime: 5 * 60 * 1000,  // Cache 5 phút
-    refetchInterval: 5 * 60 * 1000,
+    // DISABLED: Auto-refresh removed — prevents thundering herd.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 };
 

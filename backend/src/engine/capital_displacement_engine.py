@@ -80,17 +80,32 @@ SECTOR_MAP = {
 
 def _fetch_batch(symbols, interval_days=5):
     from vnstock import Quote
+    import requests
     end = datetime.now().strftime('%Y-%m-%d')
     start = (datetime.now() - timedelta(days=interval_days)).strftime('%Y-%m-%d')
     results = {}
+    fallback_count = 0
+    fail_count = 0
     for sym in symbols:
-        try:
-            q = Quote(symbol=sym, source='vci')
-            df = q.history(start=start, end=end)
-            if df is not None and len(df) > 0:
-                results[sym] = df
-        except:
-            pass
+        sources = [('vci', 'VCI'), ('kbs', 'KBS')]
+        for source, label in sources:
+            try:
+                q = Quote(symbol=sym, source=source)
+                df = q.history(start=start, end=end)
+                if df is not None and len(df) > 0:
+                    results[sym] = df
+                    if label == 'KBS':
+                        fallback_count += 1
+                        logger.info("FALLBACK: %s → kbs", sym)
+                    break
+            except (requests.Timeout, requests.ConnectionError, Exception) as e:
+                if label == 'KBS':
+                    fail_count += 1
+                    logger.warning("SKIP: %s — cả VCI và KBS đều fail: %s", sym, e)
+                else:
+                    logger.debug("VCI fail for %s, trying KBS: %s", sym, e)
+    if fallback_count:
+        logger.info("Fallback summary: %d/%d symbols dùng KBS, %d skip", fallback_count, len(symbols), fail_count)
     return results
 
 def _calc_rsi(closes, period=14):
@@ -105,14 +120,14 @@ def _calc_rsi(closes, period=14):
 
 def scan_liquidity_concentration(target_date=None):
     today = target_date or datetime.now().strftime('%Y-%m-%d')
-    print(f"\n{'='*70}")
-    print(f"  CAPITAL DISPLACEMENT ENGINE v2")
-    print(f"  Scan date: {today} | Symbols: {len(BROAD_SCAN_SYMBOLS)} market-wide")
-    print(f"{'='*70}")
+    logger.info("=" * 70)
+    logger.info("  CAPITAL DISPLACEMENT ENGINE v2")
+    logger.info("  Scan date: %s | Symbols: %d market-wide", today, len(BROAD_SCAN_SYMBOLS))
+    logger.info("=" * 70)
 
     data = _fetch_batch(BROAD_SCAN_SYMBOLS, interval_days=5)
     active = {sym: df for sym, df in data.items() if len(df) > 0}
-    print(f"  Active symbols with data: {len(active)}")
+    logger.info("  Active symbols with data: %d", len(active))
 
     # Build price + volume snapshot
     snapshot = {}
@@ -280,21 +295,24 @@ def scan_liquidity_concentration(target_date=None):
     }
 
     # Display
-    print(f"\nClassification: {classification} (conviction: {conviction})")
-    print(f"Signals: {'; '.join(signals)}")
-    print(f"\n--- MARKET-WIDE ---")
-    print(f"Top1: {market_concentration['top1']['symbol']}={market_concentration['top1']['pct']}% | Top3: {market_concentration['top3_pct']}% | Top10: {top10_pct}%")
+    logger.info("Classification: %s (conviction: %s)", classification, conviction)
+    logger.info("Signals: %s", '; '.join(signals))
+    logger.info("--- MARKET-WIDE ---")
+    logger.info("Top1: %s=%s%% | Top3: %s%% | Top10: %s%%",
+                market_concentration['top1']['symbol'], market_concentration['top1']['pct'],
+                market_concentration['top3_pct'], top10_pct)
     sector_flow_vi = {SECTOR_LABELS.get(s, s): p for s, p in sector_share.items()}
-    print(f"Sector flows: {', '.join(f'{s}={p}%' for s,p in list(sector_flow_vi.items())[:5])}")
-    print(f"Sector breadth: {sector_breadth:.0f}% positive | Bank share: {bank_share}%")
-    print(f"\n--- WATCHLIST ---")
-    print(f"Top1: {wl_concentration['top1']['symbol']}={wl_concentration['top1']['pct']}%")
-    print(f"\n--- FLOW MOMENTUM ---")
+    logger.info("Sector flows: %s", ', '.join(f'{s}={p}%' for s,p in list(sector_flow_vi.items())[:5]))
+    logger.info("Sector breadth: %.0f%% positive | Bank share: %s%%", sector_breadth, bank_share)
+    logger.info("--- WATCHLIST ---")
+    logger.info("Top1: %s=%s%%", wl_concentration['top1']['symbol'], wl_concentration['top1']['pct'])
+    logger.info("--- FLOW MOMENTUM ---")
     bottom_vi = ', '.join(SECTOR_LABELS.get(s, s) for s in bottom_sectors_ranked[:2])
     top_vi = ', '.join(SECTOR_LABELS.get(s, s) for s in top_sectors_ranked[:2])
-    print(f"Rotation from: [{bottom_vi}] -> Rotation to: [{top_vi}]")
-    print(f"\nVNINDEX: {vni_info.get('close',0)} ({vni_info.get('chg',0):+.2f}%) | Vol ratio: {vni_info.get('vol_ratio',0)}x")
-    print(f"{'='*70}")
+    logger.info("Rotation from: [%s] -> Rotation to: [%s]", bottom_vi, top_vi)
+    logger.info("VNINDEX: %s (%s%%) | Vol ratio: %sx",
+                vni_info.get('close',0), f"{vni_info.get('chg',0):+.2f}", vni_info.get('vol_ratio',0))
+    logger.info("=" * 70)
 
     return verdict
 
@@ -328,17 +346,28 @@ def _store_reference_case(verdict):
             conn.execute(f"INSERT OR REPLACE INTO capital_displacement_history ({cols}) VALUES ({vals})", list(row.values()))
             conn.commit()
     except Exception as e:
-        print(f"DB store error: {e}")
+        logger.warning("DB store error: %s", e)
 
 def run_scan(target_date=None):
-    result = scan_liquidity_concentration(target_date)
-    _store_reference_case(result)
-    out_path = src.config.DATA_DIR / "output" / "capital_displacement.json"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, 'w', encoding='utf-8') as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
-    print(f"\nSaved to: {out_path}")
-    return result
+    try:
+        result = scan_liquidity_concentration(target_date)
+        _store_reference_case(result)
+        out_path = src.config.DATA_DIR / "output" / "capital_displacement.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+        logger.info("Saved to: %s", out_path)
+        return result
+    except Exception as e:
+        logger.exception("Capital Displacement Engine FAILED: %s", e)
+        try:
+            from src.telemetry.recorder import record_engine_fault
+            record_engine_fault('capital_displacement', str(e), target_date)
+        except Exception:
+            pass
+        return {"date": target_date or datetime.now().strftime('%Y-%m-%d'),
+                "classification": "FAILED", "conviction": "ZERO",
+                "signals": [], "error": str(e)}
 
 if __name__ == "__main__":
     run_scan()

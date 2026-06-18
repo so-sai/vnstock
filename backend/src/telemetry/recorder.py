@@ -86,6 +86,30 @@ def _build_dominant_signal(decision: dict) -> str:
     return f"{posture} | {regime} | Risk:{risk} | Conf:{conf}%"
 
 
+def record_engine_fault(engine_name: str, error: str, date: Optional[str] = None):
+    """Ghi nhận lỗi engine vào telemetry DB để snapshot có thể đọc và báo cáo chính xác."""
+    from src.telemetry.storage import get_telemetry_connection
+    fault_date = date or datetime.now().strftime('%Y-%m-%d')
+    try:
+        with get_telemetry_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS engine_faults (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    engine TEXT NOT NULL,
+                    error TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute(
+                "INSERT INTO engine_faults (engine, error, date) VALUES (?, ?, ?)",
+                (engine_name, error[:500], fault_date)
+            )
+        logger.info("[TELEMETRY] Recorded engine fault: %s | %s", engine_name, error[:80])
+    except Exception as e:
+        logger.warning("[TELEMETRY] Cannot record engine fault: %s", e)
+
+
 def record_decision(decision_dict: dict) -> Optional[str]:
     try:
         initialize_telemetry_database()

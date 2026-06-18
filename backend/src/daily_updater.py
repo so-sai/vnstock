@@ -77,6 +77,9 @@ logger.setLevel(logging.INFO)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
+# Prevent logging handler crashes from propagating (critical when stdout is closed)
+logging.raiseExceptions = False
+
 # ============================================================
 # 2. VIETNAMESE HOLIDAY CALENDAR (2024-2026)
 # ============================================================
@@ -460,68 +463,77 @@ def run_post_update_engines():
     logger.info("🧮 Chạy lại các Engine sau cập nhật...")
     results = {}
 
+    from src.telemetry.recorder import record_engine_fault
+
     try:
         from src.engine.breadth_engine import run_breadth_analysis
         breadth = run_breadth_analysis()
         results['breadth'] = 'OK'
-        logger.info(f"✅ Breadth Engine: OK")
+        logger.info("✅ Breadth Engine: OK")
     except Exception as e:
         results['breadth'] = f'FAIL: {e}'
-        logger.error(f"❌ Breadth Engine: {e}")
+        logger.exception("❌ Breadth Engine: %s", e)
+        record_engine_fault('breadth_engine', str(e))
 
     try:
         from src.engine.rs_ranker import calculate_rs_score
         rs = calculate_rs_score()
         results['rs_ranker'] = 'OK'
-        logger.info(f"✅ RS Ranker: OK")
+        logger.info("✅ RS Ranker: OK")
     except Exception as e:
         results['rs_ranker'] = f'FAIL: {e}'
-        logger.error(f"❌ RS Ranker: {e}")
+        logger.exception("❌ RS Ranker: %s", e)
+        record_engine_fault('rs_ranker', str(e))
 
     try:
         from src.engine.screener_logic import run_screener
         signals = run_screener()
         results['screener'] = 'OK'
-        logger.info(f"✅ Screener: {len(signals)} signals")
+        logger.info("✅ Screener: %d signals", len(signals))
     except Exception as e:
         results['screener'] = f'FAIL: {e}'
-        logger.error(f"❌ Screener: {e}")
+        logger.exception("❌ Screener: %s", e)
+        record_engine_fault('screener', str(e))
 
     try:
         from src.engine.capital_displacement_engine import run_scan
         cd = run_scan()
         results['capital_displacement'] = cd['classification']
-        logger.info(f"✅ Capital Displacement: {cd['classification']} ({cd['conviction']})")
+        logger.info("✅ Capital Displacement: %s (%s)", cd['classification'], cd['conviction'])
     except Exception as e:
         results['capital_displacement'] = f'FAIL: {e}'
-        logger.error(f"❌ Capital Displacement: {e}")
+        logger.exception("❌ Capital Displacement: %s", e)
+        record_engine_fault('capital_displacement', str(e))
 
     try:
         from src.engine.capital_flow_forecasting_engine import run_forecast
         fc = run_forecast()
         results['flow_forecast'] = fc['regime_forecast']['projected_regime']
-        logger.info(f"✅ Flow Forecast: {fc['regime_forecast']['projected_regime']} (conf: {fc['regime_forecast']['confidence']})")
+        logger.info("✅ Flow Forecast: %s (conf: %s)", fc['regime_forecast']['projected_regime'], fc['regime_forecast']['confidence'])
     except Exception as e:
         results['flow_forecast'] = f'FAIL: {e}'
-        logger.error(f"❌ Flow Forecast: {e}")
+        logger.exception("❌ Flow Forecast: %s", e)
+        record_engine_fault('flow_forecast', str(e))
 
     try:
         from src.telemetry.evaluator import run_telemetry_evaluation
         telemetry_results = run_telemetry_evaluation()
         results['telemetry_evaluated'] = len(telemetry_results)
-        logger.info(f"✅ Telemetry: {len(telemetry_results)} outcomes evaluated")
+        logger.info("✅ Telemetry: %d outcomes evaluated", len(telemetry_results))
     except Exception as e:
         results['telemetry'] = f'FAIL: {e}'
-        logger.warning(f"⚠️ Telemetry: {e}")
+        logger.exception("⚠️ Telemetry: %s", e)
+        record_engine_fault('telemetry_evaluator', str(e))
 
     try:
         from src.telemetry.prediction_registry import run_registry_update
         pr = run_registry_update()
         results['prediction_registry'] = pr
-        logger.info(f"✅ Prediction Registry: {pr['predictions_logged']} logged, {pr['outcomes_appended']} outcomes")
+        logger.info("✅ Prediction Registry: %d logged, %d outcomes", pr['predictions_logged'], pr['outcomes_appended'])
     except Exception as e:
         results['prediction_registry'] = f'FAIL: {e}'
-        logger.warning(f"⚠️ Prediction Registry: {e}")
+        logger.exception("⚠️ Prediction Registry: %s", e)
+        record_engine_fault('prediction_registry', str(e))
 
     return results
 

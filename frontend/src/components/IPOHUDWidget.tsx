@@ -128,7 +128,7 @@ const IPOHUDWidget: React.FC = () => {
   const { data: response, isLoading } = useQuery({
     queryKey: ["ipo_hud"],
     queryFn: async () => {
-      const res = await fetch("/api/intelligence/ipo-signal/");
+      const res = await fetch(`${import.meta.env.DEV ? '' : 'http://localhost:17039'}/api/intelligence/ipo-signal/`);
       if (!res.ok) throw new Error("IPO HUD load failed");
       return res.json();
     },

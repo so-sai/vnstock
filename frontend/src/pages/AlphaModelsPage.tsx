@@ -71,7 +71,7 @@ const AlphaModelsPage: React.FC = () => {
   const bContext = dashboard?.model_b;
   const displayList = activeModel === 0 ? modelA : (modelB.length > 0 ? modelB : []);
 
-  const todayStr = new Date().toLocaleDateString('vi-VN');
+  const dataDate = dashboard?.updatedAt ? new Date(dashboard.updatedAt + 'T00:00:00').toLocaleDateString('vi-VN') : new Date().toLocaleDateString('vi-VN');
   const regime = dashboard?.breadth?.trendStatus || 'N/A';
   const vnIndexReturn = rankings?.find((r) => r.symbol === 'VNINDEX')?.change1y;
 
@@ -88,7 +88,7 @@ const AlphaModelsPage: React.FC = () => {
           <AlphaToggle mode={viewMode} setMode={setViewMode} />
           <div className="flex items-center gap-1.5 text-xs bg-japandi-warm-sand/80 border border-japandi-warm-sand px-3 py-1.5 rounded-lg text-japandi-earth">
             <Calendar size={14} className="text-japandi-muted-clay" />
-            <span>Phiên: <b>{todayStr}</b></span>
+            <span>Phiên: <b>{dataDate}</b></span>
           </div>
           <div className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium ${regime === 'CRISIS' ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
             <ShieldAlert size={14} />

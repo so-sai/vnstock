@@ -19,7 +19,8 @@ export function useDashboard() {
   return useQuery({
     queryKey: ['dashboard'],
     queryFn: api.getDashboard,
-    refetchInterval: 60000,
+    // DISABLED: Auto-fetch removed to prevent API rate limit ban.
+    // Data only loads when component mounts or user manually triggers.
   });
 }
 
@@ -34,7 +35,7 @@ export function useObservatorySummary() {
   return useQuery({
     queryKey: ['observatorySummary'],
     queryFn: api.getObservatorySummary,
-    refetchInterval: 30000,
+    // DISABLED: Auto-fetch removed — API calls only on explicit user action.
   });
 }
 
@@ -42,7 +43,7 @@ export function useObservatoryRiskPath(days = 30) {
   return useQuery({
     queryKey: ['observatoryRiskPath', days],
     queryFn: () => api.getObservatoryRiskPath(days),
-    refetchInterval: 60000,
+    // DISABLED: Auto-fetch removed — prevents thundering herd on startup.
   });
 }
 
@@ -54,10 +55,10 @@ export function useBacktest(model = 'A', startDate = '2025-01-01', endDate = '20
   });
 }
 
-export function useStressTest() {
+export function useStressTest(startDate = '2022-01-01', endDate = '2023-06-30') {
   return useQuery({
-    queryKey: ['stressTest'],
-    queryFn: api.getStressTest,
+    queryKey: ['stressTest', startDate, endDate],
+    queryFn: () => api.getStressTest(startDate, endDate),
   });
 }
 

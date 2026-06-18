@@ -34,12 +34,12 @@ class ErrorBoundary extends Component<Props, State> {
         <div className="flex items-center justify-center h-64 text-japandi-muted-clay">
           <div className="text-center">
             <div className="text-3xl mb-2">⚠️</div>
-            <p className="text-sm font-mono">Component temporarily unavailable</p>
+            <p className="text-sm font-mono">Lõi kết nối đang bận hoặc chưa khởi động</p>
             <button
               onClick={() => this.setState({ hasError: false, error: null })}
               className="mt-3 text-xs underline hover:text-japandi-charcoal"
             >
-              Retry
+              Thử lại
             </button>
           </div>
         </div>

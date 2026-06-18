@@ -60,8 +60,9 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.core.canonical_output_adapter import localize_output
-from src.api.routes import macro, screener, models, breadth, portfolio, backtest, xray, replay, intelligence, flow, watchlist, market_state, gold, silver, holdings, telemetry, weekly
+from src.api.routes import macro, screener, models, breadth, portfolio, backtest, xray, replay, intelligence, flow, watchlist, market_state, gold, silver, holdings, telemetry, weekly, search, system
 from src.api import ipo_signal_api
+from src.api.routes import operations
 
 app = FastAPI(title="PTCK VNSTOCK API", version="1.5.2", default_response_class=_NanSafeJSONResponse)
 
@@ -100,7 +101,123 @@ app.include_router(silver.router, prefix="/api/v1/silver", tags=["Silver - Phase
 app.include_router(holdings.router, prefix="/api/v1/holdings", tags=["HoldingsView - Phase 15"])
 app.include_router(telemetry.router, prefix="/api/v1/telemetry", tags=["Telemetry - Sprint 1"])
 app.include_router(weekly.router, prefix="/api/v1/weekly", tags=["Weekly Cognitive Report - Phase 16"])
+app.include_router(operations.router, prefix="/api/operations", tags=["Operations - Tactical Console"])
+app.include_router(search.router, prefix="/api", tags=["Search - FTS5"])
+app.include_router(system.router, prefix="/api/system", tags=["System - Session Info"])
 
+
+import time
+from collections import deque
+from fastapi import Request
+from starlette.responses import JSONResponse
+
+# ── SYNC GATE: 2FA Cooldown + 60s Window ──
+# Chỉ cho phép mở van sau 12h, và chỉ mở trong 60 giây.
+_request_log: deque[float] = deque(maxlen=20)
+_SYNC_LOCK_FILE = Path.home() / ".ptck_vn" / "data" / "sync_lock.json"
+_SYNC_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _read_sync_state() -> dict:
+    if _SYNC_LOCK_FILE.exists():
+        return json.loads(_SYNC_LOCK_FILE.read_text())
+    return {"last_sync": 0, "window_open": False, "window_expiry": 0}
+
+
+def _write_sync_state(state: dict):
+    _SYNC_LOCK_FILE.write_text(json.dumps(state))
+
+
+def _check_cooldown() -> tuple[bool, float]:
+    state = _read_sync_state()
+    now = time.time()
+    last_sync = state.get("last_sync", 0)
+    remaining = (12 * 3600) - (now - last_sync)
+    if remaining > 0:
+        return False, remaining
+    return True, 0
+
+
+def _is_window_open() -> bool:
+    state = _read_sync_state()
+    now = time.time()
+    if state.get("window_open", False) and state.get("window_expiry", 0) > now:
+        return True
+    # Auto-close expired window
+    if state.get("window_open", False):
+        state["window_open"] = False
+        _write_sync_state(state)
+    return False
+
+
+@app.middleware("http")
+async def circuit_breaker(request: Request, call_next):
+    """Van ngắt: Offline mặc định. Chỉ mở khi 2FA xác nhận."""
+    now = time.time()
+    path = request.url.path
+
+    # Whitelist: luôn cho phép health + gate endpoints
+    if path in ('/health', '/api', '/api/system/gate', '/api/system/gate/open', '/api/system/gate/close'):
+        return await call_next(request)
+
+    # Nếu cửa sổ sync chưa mở, chặn mọi /api/* (trừ operations đã được xác nhận thủ công)
+    if not _is_window_open() and path.startswith('/api/') and not path.startswith('/api/operations/'):
+        return JSONResponse(
+            status_code=503,
+            content={"error": "OFFLINE", "message": "Hệ thống đang ở chế độ Offline. Bấm CHỐT DỮ LIỆU để mở van 60 giây."}
+        )
+
+    # Rate limit trong cửa sổ mở: tối đa 15 req/phút
+    _request_log.append(now)
+    recent = sum(1 for t in _request_log if now - t < 60)
+    if recent > 15:
+        return JSONResponse(
+            status_code=429,
+            content={"error": "RATE_LIMITED", "message": "Hệ thống đang bảo vệ IP — quá nhiều request. Đợi 60 giây."}
+        )
+
+    return await call_next(request)
+
+
+@app.get("/api/system/gate")
+async def get_gate_status():
+    can_sync, remaining = _check_cooldown()
+    window_open = _is_window_open()
+    state = _read_sync_state()
+    return {
+        "can_sync": can_sync,
+        "remaining_seconds": int(remaining) if not can_sync else 0,
+        "window_open": window_open,
+        "window_expiry": int(state.get("window_expiry", 0)),
+    }
+
+
+@app.post("/api/system/gate/open")
+async def open_sync_window():
+    """Mở van 60 giây sau khi vượt qua cooldown 12 giờ."""
+    can_sync, remaining = _check_cooldown()
+    if not can_sync:
+        return JSONResponse(
+            status_code=403,
+            content={"error": "COOLDOWN", "message": f"Chưa đủ 12 giờ. Còn {int(remaining)} giây.", "remaining": int(remaining)}
+        )
+    state = _read_sync_state()
+    now = time.time()
+    state["last_sync"] = now
+    state["window_open"] = True
+    state["window_expiry"] = now + 60
+    _write_sync_state(state)
+    return {"status": "OPEN", "message": "Van đã mở trong 60 giây", "expiry": int(state["window_expiry"])}
+
+
+@app.post("/api/system/gate/close")
+async def close_sync_window():
+    """Đóng van thủ công hoặc sau khi tải xong dữ liệu."""
+    state = _read_sync_state()
+    state["window_open"] = False
+    state["window_expiry"] = 0
+    _write_sync_state(state)
+    return {"status": "CLOSED", "message": "Van đã đóng"}
 
 @app.get("/api")
 async def root():

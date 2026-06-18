@@ -19,6 +19,20 @@ const MacroDashboard: React.FC = () => {
   const { data: breadthStacked } = useBreadthStacked(60);
   const [activeItem, setActiveItem] = React.useState<{ col: (typeof breadthStacked extends (infer T)[] | undefined ? T : never); idx: number } | null>(null);
 
+  const formatDateShort = (dateStr: string) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length >= 3) return `${parts[2]}/${parts[1]}`;
+    return dateStr;
+  };
+
+  const formatDateFull = (dateStr: string) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length >= 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    return dateStr;
+  };
+
   if (error) return <div className="p-8 text-stock-down">Lỗi tải dữ liệu vĩ mô: {error.message}</div>;
   if (!dashboard) return null;
   if (!dashboard.macro || !dashboard.breadth) return null;
@@ -120,37 +134,92 @@ const MacroDashboard: React.FC = () => {
             </div>
             {isLoading ? (
               <ChartSkeleton />
-            ) : (
-              <svg className="w-full h-48 overflow-visible select-none">
-                {breadthStacked.map((col, idx) => {
-                  const total = (col.aboveMa20 || 0) + (col.between || 0) + (col.belowMa50 || 0) || 1;
-                  const h1 = ((col.aboveMa20 || 0) / total) * 150;
-                  const h2 = ((col.between || 0) / total) * 150;
-                  const h3 = ((col.belowMa50 || 0) / total) * 150;
-                  const strokeWidth = 6;
-                  return (
-                    <g key={idx} className="cursor-pointer" onMouseEnter={() => setActiveItem({ col, idx })} onMouseLeave={() => setActiveItem(null)}>
-                      <rect x={idx * strokeWidth} y={0} width={strokeWidth - 1} height={h1} style={{ fill: '#10b981 !important', stroke: 'none' }} fill="#10b981" />
-                      <rect x={idx * strokeWidth} y={h1} width={strokeWidth - 1} height={h2} style={{ fill: '#f59e0b !important', stroke: 'none' }} fill="#f59e0b" />
-                      <rect x={idx * strokeWidth} y={h1 + h2} width={strokeWidth - 1} height={h3} style={{ fill: '#ef4444 !important', stroke: 'none' }} fill="#ef4444" />
-                    </g>
-                  );
-                })}
-                {activeItem && (() => {
-                  const tooltipW = 140;
-                  const xPos = activeItem.idx * 6 > 300 ? activeItem.idx * 6 - tooltipW - 15 : activeItem.idx * 6 + 15;
-                  return (
-                    <g className="pointer-events-none transition-opacity duration-150">
-                      <rect x={xPos} y={10} width={tooltipW} height={80} fill="#111827" rx={4} style={{ fill: '#111827 !important', opacity: 0.95, stroke: 'none' }} />
-                      <text x={xPos + 10} y={30} fill="#fbbf24" style={{ fill: '#fbbf24 !important', font: 'bold 9px monospace' }}>📅 Phiên: {activeItem.col.date}</text>
-                      <text x={xPos + 10} y={48} fill="#34d399" style={{ fill: '#34d399 !important', font: '10px monospace' }}>🟢 Trên MA20: {activeItem.col.aboveMa20?.toFixed(1)}%</text>
-                      <text x={xPos + 10} y={64} fill="#fbb624" style={{ fill: '#fbb624 !important', font: '10px monospace' }}>🟡 Tích lũy:  {activeItem.col.between?.toFixed(1)}%</text>
-                      <text x={xPos + 10} y={80} fill="#f87171" style={{ fill: '#f87171 !important', font: '10px monospace' }}>🔴 Dưới MA50: {activeItem.col.belowMa50?.toFixed(1)}%</text>
-                    </g>
-                  );
-                })()}
-              </svg>
-            )}
+            ) : (() => {
+              const numCols = breadthStacked.length;
+              const tickIndices = numCols > 1 ? [
+                0,
+                Math.floor(numCols * 0.25),
+                Math.floor(numCols * 0.5),
+                Math.floor(numCols * 0.75),
+                numCols - 1
+              ] : [0];
+              return (
+                <div className="w-full h-72 overflow-visible select-none bg-stone-100/30 rounded-xl p-4 border border-stone-200/50">
+                  <svg className="w-full h-full overflow-visible select-none" viewBox="0 0 800 200">
+                    {breadthStacked.map((col, idx) => {
+                      const total = (col.aboveMa20 || 0) + (col.between || 0) + (col.belowMa50 || 0) || 1;
+                      const h1 = ((col.aboveMa20 || 0) / total) * 160;
+                      const h2 = ((col.between || 0) / total) * 160;
+                      const h3 = ((col.belowMa50 || 0) / total) * 160;
+                      const x = idx * (800 / numCols);
+                      const width = (800 / numCols) - 2.5;
+                      const isHovered = activeItem && activeItem.idx === idx;
+                      return (
+                        <g key={idx} className="cursor-pointer" onMouseEnter={() => setActiveItem({ col, idx })} onMouseLeave={() => setActiveItem(null)}>
+                          {/* Main stacked bars */}
+                          <rect x={x} y={0} width={width} height={h1} rx={1.5} style={{ fill: '#10b981 !important', stroke: 'none' }} fill="#10b981" />
+                          <rect x={x} y={h1} width={width} height={h2} style={{ fill: '#f59e0b !important', stroke: 'none' }} fill="#f59e0b" />
+                          <rect x={x} y={h1 + h2} width={width} height={h3} rx={1.5} style={{ fill: '#ef4444 !important', stroke: 'none' }} fill="#ef4444" />
+                          
+                          {/* Hover highlight overlay */}
+                          {isHovered && (
+                            <rect
+                              x={x - 1.25}
+                              y={0}
+                              width={width + 2.5}
+                              height={160}
+                              fill="rgba(0, 0, 0, 0.05)"
+                              stroke="#78716c"
+                              strokeWidth={1}
+                              strokeDasharray="2 2"
+                              className="pointer-events-none"
+                            />
+                          )}
+                        </g>
+                      );
+                    })}
+
+                    {/* X-axis date ticks */}
+                    {tickIndices.map((colIdx) => {
+                      const col = breadthStacked[colIdx];
+                      if (!col) return null;
+                      const x = colIdx * (800 / numCols);
+                      const dateStr = formatDateShort(col.date);
+                      return (
+                        <g key={colIdx} className="text-[9px] fill-japandi-muted-clay">
+                          <text x={x} y={185} textAnchor={colIdx === 0 ? "start" : colIdx === numCols - 1 ? "end" : "middle"} className="font-mono font-medium">
+                            {dateStr}
+                          </text>
+                          <line x1={x} y1={160} x2={x} y2={165} stroke="#cbd5e1" strokeWidth={1} />
+                        </g>
+                      );
+                    })}
+
+                    {/* Tooltip */}
+                    {activeItem && (() => {
+                      const tooltipW = 160;
+                      const tooltipH = 90;
+                      const xPos = activeItem.idx * (800 / numCols) > 400 
+                        ? activeItem.idx * (800 / numCols) - tooltipW - 15 
+                        : activeItem.idx * (800 / numCols) + 15;
+                      const yPos = 10;
+                      const relDay = numCols - 1 - activeItem.idx;
+                      const relDayStr = relDay === 0 ? 'T-0 (Hôm nay)' : `T-${relDay}`;
+                      return (
+                        <g className="pointer-events-none transition-opacity duration-150">
+                          <rect x={xPos} y={yPos} width={tooltipW} height={tooltipH} fill="#1c1917" rx={6} style={{ fill: '#1c1917 !important', opacity: 0.95, stroke: '#44403c', strokeWidth: 1 }} />
+                          <text x={xPos + 10} y={yPos + 20} fill="#fbbf24" style={{ fill: '#fbbf24 !important', font: 'bold 9px monospace' }}>📅 {relDayStr}</text>
+                          <text x={xPos + 10} y={yPos + 34} fill="#a8a29e" style={{ fill: '#a8a29e !important', font: '8px monospace' }}>({formatDateFull(activeItem.col.date)})</text>
+                          <text x={xPos + 10} y={yPos + 50} fill="#34d399" style={{ fill: '#34d399 !important', font: '10px monospace' }}>🟢 Trên MA20: {activeItem.col.aboveMa20?.toFixed(1)}%</text>
+                          <text x={xPos + 10} y={yPos + 66} fill="#fbb624" style={{ fill: '#fbb624 !important', font: '10px monospace' }}>🟡 Tích lũy:  {activeItem.col.between?.toFixed(1)}%</text>
+                          <text x={xPos + 10} y={yPos + 82} fill="#f87171" style={{ fill: '#f87171 !important', font: '10px monospace' }}>🔴 Dưới MA50: {activeItem.col.belowMa50?.toFixed(1)}%</text>
+                        </g>
+                      );
+                    })()}
+                  </svg>
+                </div>
+              );
+            })()}
           </Card>
         )}
       </ErrorBoundary>

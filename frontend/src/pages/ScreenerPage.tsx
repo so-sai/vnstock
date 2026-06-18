@@ -16,6 +16,7 @@ import {
 import { swuc } from '../lib/swuc';
 import { Diamond, Info, RefreshCw, List, Columns } from 'lucide-react';
 import { useScreener, useHeatmap } from '../hooks/useApi';
+import { api } from '../lib/api';
 import HeatmapMatrix from '../components/HeatmapMatrix';
 import XRayDrawer from '../components/XRayDrawer';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -36,6 +37,7 @@ const ScreenerPage: React.FC = () => {
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [selectedSignal, setSelectedSignal] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<'table' | 'decision'>('table');
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; symbol: string } | null>(null);
 
   const heatmapMap = new Map((heatmapData || []).map((h) => [h.symbol, h.rsHistory]));
 
@@ -100,6 +102,12 @@ const ScreenerPage: React.FC = () => {
                 Thử lại
               </button>
             </div>
+          ) : !candidates || candidates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 text-japandi-muted-clay">
+              <Info className="w-8 h-8 mb-2 text-japandi-muted-clay" />
+              <p className="text-sm font-medium text-japandi-earth">Phiên giao dịch hiện tại chưa xuất hiện tín hiệu đột phá đạt tiêu chuẩn Bộ lọc Kim cương.</p>
+              <p className="text-xs text-japandi-muted-clay">Hệ thống phòng thủ khuyến nghị tiếp tục duy trì trạng thái quan sát.</p>
+            </div>
           ) : (
             <Table>
               <TableHead className="bg-japandi-warm-sand/50">
@@ -123,8 +131,16 @@ const ScreenerPage: React.FC = () => {
                 {candidates?.map((item) => (
                   <TableRow 
                     key={item.symbol} 
-                    className="hover:bg-japandi-oat/50 transition-colors cursor-pointer"
+                    className="hover:bg-japandi-oat/50 transition-colors cursor-pointer select-none"
                     onClick={() => handleRowClick(item)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        symbol: item.symbol
+                      });
+                    }}
                   >
                     <TableCell className="font-bold text-japandi-earth">{item.symbol}</TableCell>
                     <TableCell>
@@ -208,6 +224,56 @@ const ScreenerPage: React.FC = () => {
         onClose={() => setSelectedSymbol(null)}
         signalV1={selectedSignal}
       />
+
+      {contextMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-transparent"
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu(null);
+            }}
+          />
+          <div
+            className="fixed z-50 bg-white border border-stone-200 rounded-lg shadow-lg py-1.5 min-w-[220px] text-left animate-in fade-in zoom-in-95 duration-100 font-sans"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+          >
+            <button
+              onClick={() => {
+                setSelectedSymbol(contextMenu.symbol);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-4 py-2 text-xs text-stone-700 hover:bg-stone-100 transition-colors flex items-center gap-2"
+            >
+              <span>🔍</span> Xem lý do đột phá của {contextMenu.symbol}
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await api.addWatchlistPin(contextMenu.symbol);
+                  toast.success(`Đã thêm ${contextMenu.symbol} vào danh mục theo dõi`);
+                } catch (e: any) {
+                  toast.error(`Lỗi: ${e.message || e}`);
+                }
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-4 py-2 text-xs text-stone-700 hover:bg-stone-100 transition-colors flex items-center gap-2"
+            >
+              <span>📌</span> Ghim nhanh vào Watchlist
+            </button>
+            <button
+              onClick={() => {
+                setSelectedSymbol(contextMenu.symbol);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-4 py-2 text-xs text-stone-700 hover:bg-stone-100 transition-colors flex items-center gap-2"
+            >
+              <span>📊</span> Xem Nhật ký Dòng tiền (X-Ray)
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

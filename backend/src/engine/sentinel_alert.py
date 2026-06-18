@@ -1,4 +1,4 @@
-﻿
+
 import sys
 import os
 import pandas as pd
@@ -36,65 +36,92 @@ def evaluate_sentinel_status():
     print("      SENTINEL ALERT SYSTEM v2.0: EVALUATING DEFENSES      ")
     print("🛡️ " * 20)
 
-    # 1. Thu thập dữ liệu Độ rộng (NH10 & Consistency)
-    pulse = run_breadth_analysis()
-    if not pulse:
-        return {"status": "UNKNOWN"}
-
-    # 2. Thu thập dữ liệu Động lượng (Momentum 6M > 0)
-    with get_connection() as conn:
-        df_ohlcv = pd.read_sql("SELECT symbol, date, close FROM daily_ohlcv WHERE date >= '2025-01-01'", conn)
-    
-    df_ohlcv['date'] = pd.to_datetime(df_ohlcv['date'], format='mixed')
-    df_ohlcv = df_ohlcv.sort_values(['symbol', 'date'])
-    g = df_ohlcv.groupby('symbol')
-    df_ohlcv['return_6m'] = g['close'].transform(lambda x: (x / x.shift(125)) - 1)
-    
-    latest_date = df_ohlcv['date'].max()
-    latest_mom = df_ohlcv[df_ohlcv['date'] == latest_date]
-    mom_expansion_count = int((latest_mom['return_6m'] > 0).sum())
-
-    # 3. Thu thập dữ liệu Dòng tiền (Foreign Net)
-    with get_connection() as conn:
-        df_foreign = pd.read_sql("SELECT date, SUM(net_value) as net_sum FROM market_foreign_history GROUP BY date ORDER BY date DESC LIMIT 3", conn)
-    
-    foreign_3d_all_above_limit = False
-    if len(df_foreign) >= 3:
-        # Check if all 3 latest days have net_sum > -100 (in Billion)
-        # Note: net_value is already in Billion in MoneyFlowEngine
-        recent_net = df_foreign['net_sum'].tolist()
-        if all(val > -100 for val in recent_net):
-            foreign_3d_all_above_limit = True
-
-    # === THẨM ĐỊNH LỚP PHÒNG THỦ ===
-    layer1_mom = mom_expansion_count >= 150
-    layer2_breadth = pulse['nh10_consistency_3d'] == 3
-    layer3_flow = foreign_3d_all_above_limit
-
+    # 0. Bản thiết lập mặc định (Fallback) phòng ngừa lỗi sập luồng
     results = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "market_date": latest_date.strftime("%Y-%m-%d"),
+        "market_date": datetime.now().strftime("%Y-%m-%d"),
         "layer1_mom_expansion": {
-            "value": mom_expansion_count,
+            "value": 0,
             "threshold": 150,
-            "status": "PASS" if layer1_mom else "FAIL"
+            "status": "FAIL"
         },
         "layer2_nh10_consistency": {
-            "value": pulse['nh10_consistency_3d'],
+            "value": 0,
             "threshold": 3,
-            "status": "PASS" if layer2_breadth else "FAIL"
+            "status": "FAIL"
         },
         "layer3_foreign_absorption": {
-            "status": "PASS" if layer3_flow else "FAIL"
-        }
+            "status": "FAIL"
+        },
+        "final_status": "RED (STANDBY - PHANTOM CITADEL)"
     }
+
+    pulse = None
+    try:
+        # 1. Thu thập dữ liệu Độ rộng (NH10 & Consistency)
+        pulse = run_breadth_analysis()
+    except Exception as e:
+        print(f"[Sentinel Alert] LỖI khi chạy run_breadth_analysis: {e}")
+
+    nh10_val = 0
+    if pulse and isinstance(pulse, dict):
+        nh10_val = pulse.get('nh10_consistency_3d', 0)
+        results["layer2_nh10_consistency"]["value"] = nh10_val
+        if nh10_val == 3:
+            results["layer2_nh10_consistency"]["status"] = "PASS"
+
+    mom_expansion_count = 0
+    try:
+        # 2. Thu thập dữ liệu Động lượng (Momentum 6M > 0)
+        with get_connection() as conn:
+            df_ohlcv = pd.read_sql("SELECT symbol, date, close FROM daily_ohlcv WHERE date >= '2025-01-01'", conn)
+        
+        if df_ohlcv is not None and not df_ohlcv.empty:
+            df_ohlcv['date'] = pd.to_datetime(df_ohlcv['date'], format='mixed', errors='coerce')
+            df_ohlcv = df_ohlcv.dropna(subset=['date', 'close', 'symbol'])
+            if not df_ohlcv.empty:
+                df_ohlcv = df_ohlcv.sort_values(['symbol', 'date'])
+                g = df_ohlcv.groupby('symbol')
+                # Sử dụng bfill/ffill để xử lý NaN an toàn
+                df_ohlcv['return_6m'] = g['close'].transform(lambda x: (x / x.shift(125).ffill()) - 1 if len(x) > 125 else 0)
+                df_ohlcv['return_6m'] = df_ohlcv['return_6m'].fillna(0)
+                
+                latest_date = df_ohlcv['date'].max()
+                if pd.notnull(latest_date):
+                    results["market_date"] = latest_date.strftime("%Y-%m-%d")
+                    latest_mom = df_ohlcv[df_ohlcv['date'] == latest_date]
+                    mom_expansion_count = int((latest_mom['return_6m'] > 0).sum())
+    except Exception as e:
+        print(f"[Sentinel Alert] LỖI khi tính toán layer1_mom_expansion: {e}")
+
+    results["layer1_mom_expansion"]["value"] = mom_expansion_count
+    layer1_mom = mom_expansion_count >= 150
+    results["layer1_mom_expansion"]["status"] = "PASS" if layer1_mom else "FAIL"
+
+    foreign_3d_all_above_limit = False
+    try:
+        # 3. Thu thập dữ liệu Dòng tiền (Foreign Net)
+        with get_connection() as conn:
+            df_foreign = pd.read_sql("SELECT date, SUM(net_value) as net_sum FROM market_foreign_history GROUP BY date ORDER BY date DESC LIMIT 3", conn)
+        
+        if df_foreign is not None and len(df_foreign) >= 3:
+            recent_net = df_foreign['net_sum'].tolist()
+            if all(val > -100 for val in recent_net):
+                foreign_3d_all_above_limit = True
+    except Exception as e:
+        print(f"[Sentinel Alert] LỖI khi đọc market_foreign_history: {e}")
+
+    layer2_breadth = nh10_val == 3
+    layer3_flow = foreign_3d_all_above_limit
+
+    results["layer3_foreign_absorption"]["status"] = "PASS" if layer3_flow else "FAIL"
 
     # === PHÁN QUYẾT CUỐI CÙNG ===
     total_passed = sum([layer1_mom, layer2_breadth, layer3_flow])
     
     print("\n--- BÁO CÁO GIÁM ĐỊNH SENTINEL ---")
     print(f"Lớp 1 (Momentum Expansion > 150): {results['layer1_mom_expansion']['status']} ({mom_expansion_count}/150)")
-    print(f"Lớp 2 (NH10 Consistency 3D):      {results['layer2_nh10_consistency']['status']} ({pulse['nh10_consistency_3d']}/3)")
+    print(f"Lớp 2 (NH10 Consistency 3D):      {results['layer2_nh10_consistency']['status']} ({nh10_val}/3)")
     print(f"Lớp 3 (Foreign Absorption > -100B): {results['layer3_foreign_absorption']['status']}")
     print("-" * 40)
 
@@ -111,9 +138,14 @@ def evaluate_sentinel_status():
 
     # Lưu phán quyết
     results["final_status"] = final_status
-    sentinel_path = os.path.join(src.config.DATA_DIR, "output", "sentinel_verdict.json")
-    with open(sentinel_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=4, ensure_ascii=False)
+    try:
+        sentinel_path = os.path.join(src.config.DATA_DIR, "output", "sentinel_verdict.json")
+        # Đảm bảo thư mục tồn tại
+        os.makedirs(os.path.dirname(sentinel_path), exist_ok=True)
+        with open(sentinel_path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"[Sentinel Alert] Không thể ghi file sentinel_verdict.json: {e}")
 
     return results
 

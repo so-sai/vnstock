@@ -234,6 +234,9 @@ backend/libs/
 .kit/runtime.json
 .kit/seal_state.json
 
+# Ruff cache
+.ruff_cache/
+
 # Logs
 backend/logs/
 

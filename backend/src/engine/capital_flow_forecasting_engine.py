@@ -373,14 +373,14 @@ def _estimate_persistence(shares_history: list, sector: str) -> float:
 def generate_flow_forecast(target_date: Optional[str] = None,
                            lookback_days: int = 60) -> dict:
     today = target_date or datetime.now().strftime('%Y-%m-%d')
-    print(f"\n{'='*70}")
-    print(f"  CAPITAL FLOW FORECASTING ENGINE")
-    print(f"  Forecast date: {today} | Lookback: {lookback_days}d")
-    print(f"{'='*70}")
+    logger.info("=" * 70)
+    logger.info("  CAPITAL FLOW FORECASTING ENGINE")
+    logger.info("  Forecast date: %s | Lookback: %dd", today, lookback_days)
+    logger.info("=" * 70)
 
     vectors = _get_historical_flow_vectors(lookback_days, target_date=target_date)
     if not vectors:
-        print("  NO DATA: Cannot compute flow vectors.")
+        logger.warning("  NO DATA: Cannot compute flow vectors.")
         return {'status': 'NO_DATA', 'date': today}
 
     vectors = _compute_velocity_and_acceleration(vectors)
@@ -462,31 +462,31 @@ def generate_flow_forecast(target_date: Optional[str] = None,
         },
     }
 
-    print(f"\nRegime Forecast: {regime_forecast['projected_regime']} "
-          f"(confidence: {regime_forecast['confidence']})")
-    print(f"Probabilities: {regime_forecast['probabilities']}")
-    print(f"\nFlow Momentum:")
-    print(f"  Velocity: {result['flow_momentum']['total_flow_velocity']}")
-    print(f"  Rotation: {result['flow_momentum']['rotation_velocity']}")
-    print(f"  Dispersion: {result['flow_momentum']['flow_dispersion']}")
-    print(f"\nSector Projections (1d):")
+    logger.info("Regime Forecast: %s (confidence: %s)",
+                regime_forecast['projected_regime'], regime_forecast['confidence'])
+    logger.info("Probabilities: %s", regime_forecast['probabilities'])
+    logger.info("Flow Momentum:")
+    logger.info("  Velocity: %s", result['flow_momentum']['total_flow_velocity'])
+    logger.info("  Rotation: %s", result['flow_momentum']['rotation_velocity'])
+    logger.info("  Dispersion: %s", result['flow_momentum']['flow_dispersion'])
+    logger.info("Sector Projections (1d):")
     for s in sorted(sector_forecasts, key=lambda x: x['velocity'], reverse=True):
         arrow = '↑' if s['velocity'] > 0 else '↓' if s['velocity'] < 0 else '→'
         sec_name = SECTOR_LABELS.get(s['sector'], s['sector'])
-        print(f"  {sec_name:12s} {arrow} share={s['current_share_pct']:5.1f}% "
-              f"vel={s['velocity']:+.1f} acc={s['acceleration']:+.2f} "
-              f"→ {s['projection_1d']:14s} ({s['confidence']})")
+        logger.info("  %s %s share=%5.1f%% vel=%+.1f acc=%+.2f → %s (%s)",
+                    sec_name, arrow, s['current_share_pct'],
+                    s['velocity'], s['acceleration'],
+                    s['projection_1d'], s['confidence'])
     leading_vi = ', '.join(SECTOR_LABELS.get(s, s) for s in result['leading_sectors'])
     lagging_vi = ', '.join(SECTOR_LABELS.get(s, s) for s in result['lagging_sectors'])
-    print(f"\nLeading: [{leading_vi}]")
-    print(f"Lagging: [{lagging_vi}]")
+    logger.info("Leading: [%s]", leading_vi)
+    logger.info("Lagging: [%s]", lagging_vi)
     proj = result['projection_summary']
-    print(f"\nSummary: ACC={proj['acceleration_count']} "
-          f"CONT={proj['continuation_count']} "
-          f"STABLE={proj['stable_count']} "
-          f"DECEL={proj['deceleration_count']} "
-          f"LAG={proj['lag_count']}")
-    print(f"{'='*70}")
+    logger.info("Summary: ACC=%s CONT=%s STABLE=%s DECEL=%s LAG=%s",
+                proj['acceleration_count'], proj['continuation_count'],
+                proj['stable_count'], proj['deceleration_count'],
+                proj['lag_count'])
+    logger.info("=" * 70)
 
     result = _canonicalize(result)
     _store_forecast(result)
@@ -546,7 +546,7 @@ def run_forecast(target_date: Optional[str] = None) -> dict:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
-    print(f"\nSaved to: {out_path}")
+    logger.info("Saved to: %s", out_path)
     return result
 
 

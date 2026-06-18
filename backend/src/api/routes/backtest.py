@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 
@@ -46,9 +46,12 @@ async def run_backtest(
 
 
 @router.get("/stress-test")
-async def stress_test_2022():
-    """Tóm tắt kết quả Stress Test giai đoạn 2022."""
+async def stress_test_2022(
+    start_date: str = Query("2022-01-01"),
+    end_date: str = Query("2023-06-30"),
+):
+    """Tóm tắt kết quả Stress Test giai đoạn chỉ định."""
     try:
-        return localize_output(get_stress_test_summary())
+        return localize_output(get_stress_test_summary(start_date=start_date, end_date=end_date))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

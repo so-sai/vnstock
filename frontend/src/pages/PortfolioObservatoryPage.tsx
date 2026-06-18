@@ -73,7 +73,7 @@ const PortfolioObservatoryPage: React.FC = () => {
               <>
                 <DampenerBadge factor={telemetry.risk_dampener_factor} />
                 <div className="text-right font-mono">
-                  <Text className="text-japandi-earth/50 text-[10px]">TOTAL NAV</Text>
+                  <Text className="text-japandi-earth/50 text-[10px]">TỔNG TÀI SẢN (NAV)</Text>
                   <Text className="text-japandi-earth font-bold text-sm">
                     {summary?.total_nav ? `${(summary.total_nav / 1e6).toFixed(1)}M` : '—'}
                   </Text>
@@ -108,12 +108,12 @@ const PortfolioObservatoryPage: React.FC = () => {
         ) : summary ? (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <HeatMeter value={summary.net_exposure_pct} max={100} label="TỔNG GIẢI NGÂN (NET EXPOSURE)" />
-              <HeatMeter value={summary.portfolio_heat_pct} max={10} label="NHIỆT LƯỢNG RỦI RO (PORTFOLIO HEAT)" />
+              <HeatMeter value={summary.net_exposure_pct} max={100} label="GIẢI NGÂN THỰC TẾ" />
+              <HeatMeter value={summary.portfolio_heat_pct} max={10} label="MỨC NHIỆT RỦI RO" />
               <HeatMeter
                 value={telemetry?.current_dd_pct || 0}
                 max={5}
-                label="SỤT GIẢM TÀI SẢN (DRAWDOWN)"
+                label="MỨC SỤT GIẢM NAV"
                 color="rose"
               />
             </div>
@@ -128,7 +128,7 @@ const PortfolioObservatoryPage: React.FC = () => {
                 <Metric className="text-japandi-earth text-lg">{summary.market_value_vnd ? `${(summary.market_value_vnd / 1e6).toFixed(1)}M` : '—'}</Metric>
               </Card>
               <Card className="bg-japandi-warm-sand/40 border border-japandi-muted-clay/30 shadow-none">
-                <Text className="text-japandi-earth/60 text-[10px] font-mono">HIT RATE 10D</Text>
+                <Text className="text-japandi-earth/60 text-[10px] font-mono">TỶ LỆ THẮNG 10 PHIÊN</Text>
                 <Metric className="text-japandi-earth text-lg">
                   {telemetry?.rolling_hit_rate_10d != null ? `${telemetry.rolling_hit_rate_10d.toFixed(0)}%` : '—'}
                 </Metric>
@@ -216,7 +216,7 @@ const PortfolioObservatoryPage: React.FC = () => {
             {riskPath && riskPath.length > 1 && (
               <div className={`${swuc('CHART', 'portfolio')} border border-japandi-muted-clay/40 rounded-lg p-4`}>
                 <Text className="text-japandi-earth/70 text-xs font-mono font-bold tracking-wider mb-3">
-                  EKG DÒNG VỐN — Portfolio Risk Path (30 ngày gần nhất)
+                  ĐƯỜNG CONG RỦI RO DANH MỤC (30 ngày gần nhất)
                 </Text>
                 <div className="h-20 flex items-end gap-[2px]">
                   {riskPath.map((p, i) => {
