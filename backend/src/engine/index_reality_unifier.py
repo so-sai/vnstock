@@ -159,22 +159,24 @@ def phan_tich_chi_so(target_date: Optional[str] = None) -> dict:
         target_date = datetime.now().strftime("%Y-%m-%d")
 
     ms = _doc("market_structure.json") or {}
+    struct_state = _doc("structural_state.json") or {}
 
     median_data = _tinh_median_return(target_date)
     vingroup_data = _tinh_vingroup_contribution(target_date)
 
-    vnindex_pct = ms.get("vnindex_pct", 0)
-    sbmi_pct = ms.get("sbmi_pct", 0)
-    ewmi_pct = ms.get("ewmi_pct", 0)
-    bdi_pct = ms.get("bdi_pct", 0)
-    bdi_signal = ms.get("bdi_signal", "CAN_BANG")
+    vnindex_pct = median_data.get("idx_return", ms.get("vnindex_pct", 0))
+    weighted_ret = median_data.get("weighted_return", ms.get("sbmi_pct", 0))
+    median_ret = median_data.get("median_return", ms.get("ewmi_pct", 0))
+    divergence_pct = median_data.get("divergence", 0)
+    idx_ret = median_data.get("idx_return", 0)
+
     lcr = ms.get("lcr_pct", 0)
     top_n = ms.get("top_n", [])
+    bdi_signal = ms.get("bdi_signal", "CAN_BANG")
 
-    divergence_pct = median_data.get("divergence", 0)
-    median_ret = median_data.get("median_return", 0)
-    weighted_ret = median_data.get("weighted_return", 0)
-    idx_ret = median_data.get("idx_return", 0)
+    sbmi_pct = weighted_ret
+    ewmi_pct = median_ret
+    bdi_pct = round(vnindex_pct - sbmi_pct, 2)
 
     vg_weight = vingroup_data.get("vingroup_weight", 0)
     vg_value_share = vingroup_data.get("vingroup_value_share", 0)
@@ -222,7 +224,6 @@ def phan_tich_chi_so(target_date: Optional[str] = None) -> dict:
     else:
         regime_bias = "CAN_BANG"
 
-    struct_state = _doc("structural_state.json") or {}
     structural_status = struct_state.get("trang_thai", "N/A")
 
     interpretation_parts = []

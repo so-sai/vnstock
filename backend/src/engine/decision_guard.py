@@ -13,7 +13,10 @@ Quy tắc:
   - Chỉ có quyền phủ quyết (override → DỪNG NGOÀI).
   - Lý do phủ quyết phải rõ ràng, gắn với tín hiệu cụ thể.
 """
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 def kiem_tra_an_toan(
     quyet_dinh_de_xuat: str,
@@ -55,14 +58,25 @@ def kiem_tra_an_toan(
     if anh_chup:
         c = anh_chup.get("cau_truc", {})
         entropy = c.get("entropy")
-        so_tru = c.get("so_tru", 0)
+        so_tru = c.get("so_tru_ok", c.get("so_tru", 0))
         ir = anh_chup.get("phan_tich_chi_so", {})
         diem_thi_truong_that = ir.get("diem_thi_truong_that")
         do_lech_pha = ir.get("do_lech_pha")
         nhan_dien = ir.get("nhan_dien")
 
-    # ── Bước 1: Kiểm tra Index Reality (hard override — cơ chế veto cấu trúc) ──
-    if do_lech_pha == "MANH_GIA_TAO":
+    # ── Bước 1: Kiểm tra Cấu trúc & Index Reality (hard override — veto bất chấp confidence) ──
+    if so_tru <= 1:
+        if diem_thi_truong_that is not None and diem_thi_truong_that >= 0.2:
+            logger.warning(
+                "[GUARD] DIEM_THI_TRUONG_THAT=%.2f >= 0.2 nhung so_tru=%d/3 — "
+                "phân kỳ cấu trúc, nghi vấn bẫy thanh khoản",
+                diem_thi_truong_that, so_tru,
+            )
+        quyet_dinh = "DUNG NGOAI"
+        ly_do_chặn = f"cấu trúc thị trường vỡ ({so_tru}/3 trụ) — thiếu nền tảng đồng thuận"
+        ly_do = ["cấu trúc thị trường vỡ — dừng ngoài"]
+        bi_chặn = True
+    elif do_lech_pha == "MANH_GIA_TAO":
         quyet_dinh = "DUNG NGOAI"
         ly_do_chặn = "thị trường 'mạnh giả tạo' — chỉ số bị kéo, không đại diện"
         ly_do = ["thị trường tăng giả tạo — dừng ngoài"]

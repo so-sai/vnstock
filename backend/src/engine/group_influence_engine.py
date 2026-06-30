@@ -252,16 +252,21 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
     dominant = contributions[0].group_name if contributions else "UNKNOWN"
 
     # Tính VNINDEX ex-large (bỏ top 10 vốn hóa)
-    # Công thức đúng: contribution = Σ(weight_pct * change_pct) / 100
-    # vnindex_ex = vnindex * (1 - contribution / 100)
+    # Công thức chuẩn: ước lượng VNINDEX prev từ total_return, 
+    # sau đó tính lại return với weight đã chuẩn hóa cho phần còn lại
+    total_return = (merged['weight_pct'] * merged['change_pct']).sum() / 100
     top10 = merged.nlargest(10, 'weight')
-    top10_symbols = set(top10['symbol'])
-    remaining = merged[~merged['symbol'].isin(top10_symbols)]
-    if len(top10) > 0:
-        top10_contribution = (top10['weight_pct'] * top10['change_pct']).sum() / 100
-        vnindex_ex_large = vnindex * (1 - top10_contribution / 100)
+    remaining = merged[~merged['symbol'].isin(set(top10['symbol']))]
+    if len(top10) > 0 and len(remaining) > 0:
+        remaining_sum_weight = remaining['weight_pct'].sum()
+        if remaining_sum_weight > 0 and (1 + total_return / 100) != 0:
+            remaining_return_raw = (remaining['weight_pct'] * remaining['change_pct']).sum() / 100
+            remaining_return = remaining_return_raw / remaining_sum_weight * 100
+            prev_vnindex = vnindex / (1 + total_return / 100)
+            vnindex_ex_large = round(prev_vnindex * (1 + remaining_return / 100), 2)
+        else:
+            vnindex_ex_large = vnindex
     else:
-        top10_contribution = 0
         vnindex_ex_large = vnindex
 
     chi_tiet = {}

@@ -180,15 +180,32 @@ def cmd_daily_close(args):
 def cmd_daily_update(args):
     """Cập nhật dữ liệu EOD."""
     date = getattr(args, 'date', None)
+    manifest = getattr(args, 'manifest', None)
     cmd = [sys.executable, str(backend_dir / "src" / "daily_updater.py")]
     if date:
         cmd += ["--date", date]
+    if manifest:
+        cmd += ["--manifest", manifest]
     print(f"  Chạy: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     if result.returncode != 0:
         print(f"  [FAIL] Lỗi: mã thoát {result.returncode}")
     else:
         print("  [OK] Daily update hoàn tất.")
+
+
+def cmd_gap_analyzer(args):
+    """Kiểm toán dữ liệu — phát hiện missing symbols/dates."""
+    output = getattr(args, 'output', None)
+    lookback = getattr(args, 'lookback_months', 3)
+    cmd = [sys.executable, str(backend_dir / "src" / "telemetry" / "gap_analyzer.py")]
+    if output:
+        cmd += ["--output", output]
+    cmd += ["--lookback-months", str(lookback)]
+    print(f"  Chạy: {' '.join(cmd)}")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        print(f"  [FAIL] Lỗi: mã thoát {result.returncode}")
 
 
 def _localize_driver(driver: str) -> str:
@@ -763,7 +780,14 @@ def main():
     # daily-update
     p_du = sub.add_parser("daily-update", help="Cập nhật dữ liệu EOD")
     p_du.add_argument("--date", help="Ngày (YYYY-MM-DD)")
+    p_du.add_argument("--manifest", help="Path to missing_manifest.json (gap filling)")
     p_du.set_defaults(func=cmd_daily_update)
+
+    # gap-analyzer
+    p_ga = sub.add_parser("gap-analyzer", help="Kiểm toán dữ liệu - phát hiện missing symbols/dates")
+    p_ga.add_argument("--output", help="Đường dẫn xuất manifest (mặc định: backend/data/missing_manifest.json)")
+    p_ga.add_argument("--lookback-months", type=int, default=3, help="Số tháng phân tích (mặc định: 3)")
+    p_ga.set_defaults(func=cmd_gap_analyzer)
 
     # telemetry
     p_tel = sub.add_parser("telemetry", help="Telemetry & reputation")

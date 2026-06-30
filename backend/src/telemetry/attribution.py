@@ -75,10 +75,13 @@ def _get_engine_signal_stability(decision_ids: list[str], engine: str) -> float:
         snap = get_snapshot(did)
         if snap and snap.get("engine_scores"):
             try:
-                scores = json.loads(snap["engine_scores"])
+                raw = snap["engine_scores"]
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", "replace")
+                scores = json.loads(raw)
                 if engine in scores:
                     signals.append(scores[engine])
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
                 continue
     if len(signals) < 3:
         return 0.5
@@ -186,10 +189,13 @@ def decompose_attribution(
             s = get_snapshot(did)
             if s and s.get("engine_scores"):
                 try:
-                    scores = json.loads(s["engine_scores"])
+                    raw = s["engine_scores"]
+                    if isinstance(raw, bytes):
+                        raw = raw.decode("utf-8", "replace")
+                    scores = json.loads(raw)
                     if engine in scores:
                         historical_signals.append(scores[engine])
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
                     continue
 
         correlation = _compute_correlation(
@@ -350,8 +356,11 @@ def run_attribution_for_outcomes(outcome_records: list) -> int:
         if not snap or not snap.get("engine_scores"):
             continue
         try:
-            scores = json.loads(snap["engine_scores"])
-        except (json.JSONDecodeError, TypeError):
+            raw = snap["engine_scores"]
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", "replace")
+            scores = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
             continue
         if not scores:
             continue

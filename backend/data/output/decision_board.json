@@ -1,47 +1,100 @@
 {
-    "timestamp": "2026-06-10 10:05:10",
-    "date": "2026-06-10",
-    "regime_score": 0.47,
+    "timestamp": "2026-06-30 16:37:20",
+    "date": "2026-06-30",
+    "regime_score": 0.53,
     "market_status": "RANGING",
     "active_model": "B (MEAN REVERSION)",
-    "consensus": "WAIT FOR NICHES",
-    "confidence": 0.47,
-    "breadth_velocity": -30.8,
+    "consensus": "CAUTIOUS BUY (PULLBACK)",
+    "confidence": 0.53,
+    "breadth_velocity": 6.9,
     "details": {
-        "b_score": 0.2256,
-        "breadth_pct": 22.6,
-        "breadth_std_10d": 18.47,
-        "breadth_momentum": -30.8,
+        "b_score": 0.6667,
+        "breadth_pct": 66.7,
+        "breadth_std_10d": 19.99,
+        "breadth_momentum": 6.9,
         "t_score": 1.0,
         "vnindex_vs_ma200": "ABOVE",
         "vnindex_vs_ma50": "ABOVE",
-        "ma50_slope": 4.4,
-        "adx": 46.5,
+        "ma50_slope": -2.0,
+        "adx": 21.1,
         "v_score": 1.0,
-        "atr_ratio": 0.274
+        "atr_ratio": 0.8696
     },
     "model_a": {
-        "status": "RED (STANDBY - PHANTOM CITADEL)",
-        "mom_expansion": 76
+        "status": "YELLOW (WATCHING - GREEN SHOOTS)",
+        "mom_expansion": 186
     },
     "model_b": {
-        "picks_count": 0,
-        "top_picks": [],
+        "picks_count": 8,
+        "top_picks": [
+            {
+                "symbol": "EVF",
+                "distance_from_ma50": -4.71,
+                "rsi": 36.6,
+                "rank_score": 0.5876,
+                "context_source": "PRIMARY_MA200",
+                "price": 13100.0,
+                "avg_vol_20d": 3924155
+            },
+            {
+                "symbol": "GVR",
+                "distance_from_ma50": -4.03,
+                "rsi": 28.4,
+                "rank_score": 0.5369,
+                "context_source": "PRIMARY_MA200",
+                "price": 32800.0,
+                "avg_vol_20d": 2878500
+            },
+            {
+                "symbol": "VGI",
+                "distance_from_ma50": -3.47,
+                "rsi": 36.2,
+                "rank_score": 0.4242,
+                "context_source": "PRIMARY_MA200",
+                "price": 88000.0,
+                "avg_vol_20d": 477980
+            },
+            {
+                "symbol": "GAS",
+                "distance_from_ma50": -11.43,
+                "rsi": 3.8,
+                "rank_score": 0.4152,
+                "context_source": "PRIMARY_MA200",
+                "price": 77400.0,
+                "avg_vol_20d": 1228420
+            },
+            {
+                "symbol": "DHC",
+                "distance_from_ma50": -4.83,
+                "rsi": 41.4,
+                "rank_score": 0.3358,
+                "context_source": "PRIMARY_MA200",
+                "price": 34000.0,
+                "avg_vol_20d": 286905
+            }
+        ],
         "context": "ABOVE",
-        "breadth_pct": 22.6,
-        "breadth_std": 18.47,
-        "breadth_velocity": -30.8
+        "breadth_pct": 66.7,
+        "breadth_std": 19.99,
+        "breadth_velocity": 6.9
     },
     "recovery": {
         "is_recovery": false,
-        "is_abort": true,
-        "status": "PILOT_ABORT",
+        "is_abort": false,
+        "status": "STANDBY",
         "block_reason": "NONE",
-        "ma10_reclaim": false,
+        "ma10_reclaim": true,
+        "log": [
+            "Index Drawdown: -3.1% (Threshold: -8.0%)",
+            "Breadth Stability: 19.99 (Threshold: < 8.0)",
+            "MA10 Reclaim: YES",
+            "Vol/Breadth Thrust: YES",
+            "FINAL STATUS: STANDBY"
+        ],
         "details": {
-            "index_dd": -6.77,
-            "breadth_std": 18.47,
-            "velocity_5d": -30.799999999999997
+            "index_dd": -3.12,
+            "breadth_std": 19.99,
+            "velocity_5d": 6.900000000000006
         }
     },
     "cognitive_modulation": {

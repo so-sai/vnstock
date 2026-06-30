@@ -108,7 +108,10 @@ def evaluate_single(decision_id: str, horizon_days: int) -> OutcomeRecord:
     try:
         if snapshot.get("engine_scores"):
             import json
-            scores = json.loads(snapshot["engine_scores"])
+            raw = snapshot["engine_scores"]
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", "replace")
+            scores = json.loads(raw)
             if scores:
                 decompose_attribution(decision_id, horizon_days, scores)
     except Exception as e:

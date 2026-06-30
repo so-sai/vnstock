@@ -81,6 +81,12 @@ def _get_latest_macro_values() -> dict:
                 result['us30y_yield'] = round(val, 3)
             elif var == 'INTERBANK_ON':
                 result['interbank_rate'] = round(val, 2)
+            elif var == 'INTERBANK_1W':
+                result['interbank_rate_1w'] = round(val, 2)
+            elif var == 'INTERBANK_2W':
+                result['interbank_rate_2w'] = round(val, 2)
+            elif var == 'INTERBANK_1M':
+                result['interbank_rate_1m'] = round(val, 2)
             elif var == 'SBV_ACTION':
                 result['sbv_action'] = str(val)
             elif var == 'VGB10Y':
@@ -109,6 +115,21 @@ def _get_interbank_rate() -> Optional[float]:
     """
     macro = _get_latest_macro_values()
     return macro.get('interbank_rate')
+
+
+def _get_interbank_rate_1w() -> Optional[float]:
+    macro = _get_latest_macro_values()
+    return macro.get('interbank_rate_1w')
+
+
+def _get_interbank_rate_2w() -> Optional[float]:
+    macro = _get_latest_macro_values()
+    return macro.get('interbank_rate_2w')
+
+
+def _get_interbank_rate_1m() -> Optional[float]:
+    macro = _get_latest_macro_values()
+    return macro.get('interbank_rate_1m')
 
 
 def _get_sbv_action() -> str:

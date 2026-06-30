@@ -1,18 +1,18 @@
 {
-    "timestamp": "2026-06-10 10:05:05",
-    "market_date": "2026-06-10",
+    "timestamp": "2026-06-30 16:37:14",
+    "market_date": "2026-06-30",
     "layer1_mom_expansion": {
-        "value": 76,
+        "value": 186,
         "threshold": 150,
-        "status": "FAIL"
+        "status": "PASS"
     },
     "layer2_nh10_consistency": {
-        "value": 0,
+        "value": 2,
         "threshold": 3,
         "status": "FAIL"
     },
     "layer3_foreign_absorption": {
         "status": "FAIL"
     },
-    "final_status": "RED (STANDBY - PHANTOM CITADEL)"
+    "final_status": "YELLOW (WATCHING - GREEN SHOOTS)"
 }

@@ -61,12 +61,21 @@ def run_screener():
     df.loc[:, "high_20"] = g["high"].transform(lambda x: x.shift(1).rolling(20).max())
     df.loc[:, "breakout"] = df["close"] > df["high_20"]
 
-    # 3. Kết hợp Tín hiệu
+    # 3. Lớp bảo vệ tín hiệu nhiễu
+    df.loc[:, "prev_close"] = g["close"].transform(lambda x: x.shift(1))
+    df.loc[:, "trading_value"] = df["close"] * df["volume"]
+
+    # 3b. Kết hợp Tín hiệu
     df.loc[:, "signal"] = (df["vol_spike"]) & (df["breakout"])
 
-    # 4. Trích xuất kết quả phiên mới nhất
+    # 4. Trích xuất kết quả phiên mới nhất (kèm màng lọc thép)
     latest_date = df["date"].max()
-    result = df[(df["date"] == latest_date) & (df["signal"] == True)].copy()
+    result = df[
+        (df["date"] == latest_date)
+        & (df["signal"] == True)
+        & (df["prev_close"].notna()) & (df["prev_close"] > 0)
+        & (df["trading_value"] >= 2_000_000_000)
+    ].copy()
 
     # Đo lường hiệu năng
     runtime = time.time() - start_time

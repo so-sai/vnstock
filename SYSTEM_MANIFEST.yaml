@@ -234,3 +234,14 @@ entrypoints:
     description: "Xem danh sách các dự báo và kết quả gần nhất"
     cli: "python ptck.py prediction-registry list [--limit N]"
     category: telemetry
+
+  # ── Gap Analyzer ─────────────────────────────────────────
+  gap_analyzer:
+    description: "Kiểm toán dữ liệu — phát hiện missing symbols/dates, xuất manifest"
+    cli: "python ptck.py gap-analyzer [--lookback-months 3] [--output path]"
+    category: system
+
+  daily_update_with_manifest:
+    description: "Cập nhật dữ liệu EOD kết hợp vá lỗ từ gap-analyzer"
+    cli: "python ptck.py daily-update --manifest backend/data/missing_manifest.json"
+    category: daily

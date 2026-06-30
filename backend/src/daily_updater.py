@@ -551,7 +551,9 @@ def run_light_maintenance():
 # ============================================================
 # 8. MAIN ORCHESTRATOR
 # ============================================================
-def run_daily_update(target_date=None):
+def run_daily_update(target_date=None, manifest_path=None):
+    if manifest_path:
+        run_daily_update._manifest_path = manifest_path
     if target_date is None:
         target_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -610,11 +612,25 @@ def run_daily_update(target_date=None):
         report["vnindex_rows"] = update_vnindex(target_date)
 
         # Step 3: Market Batch Update
+        manifest_path = getattr(run_daily_update, '_manifest_path', None)
         with get_connection() as conn:
-            symbols_in_db = [r[0] for r in conn.execute(
+            symbols_in_db = set(r[0] for r in conn.execute(
                 "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30')"
-            ).fetchall()]
+            ).fetchall())
 
+        if manifest_path and os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                extra = manifest.get("missing", {}).get(target_date, [])
+                if extra:
+                    before = len(symbols_in_db)
+                    symbols_in_db.update(extra)
+                    logger.info(f"📦 Manifest bo sung {len(symbols_in_db) - before} ma cho ngay {target_date}")
+            except Exception as e:
+                logger.warning(f"⚠️ Loi doc manifest: {e}")
+
+        symbols_in_db = sorted(symbols_in_db)
         armor = EliteArmor()
         logger.info(f"📦 Tổng số mã cần cập nhật: {len(symbols_in_db)}")
 
@@ -664,6 +680,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="PTCK Daily Updater (Production-Grade)")
     parser.add_argument("--date", type=str, default=None, help="Target date (YYYY-MM-DD)")
+    parser.add_argument("--manifest", type=str, default=None, help="Path to missing_manifest.json for gap filling")
     args = parser.parse_args()
 
-    run_daily_update(args.date)
+    run_daily_update(args.date, args.manifest)
