@@ -13,10 +13,12 @@ Nguyên tắc dữ liệu:
   - Không đọc regime từ file cache, không recompute regime giữa chừng
 """
 
-import sys, os, json
+import sys, os, json, logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
@@ -212,21 +214,83 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
         }
 
     # ---- Bước 4: Lớp bảo vệ quyết định (Guard) ----
+    du_lieu_lien_ngan_hang = None
     try:
-        from src.engine.decision_guard import kiem_tra_an_toan
-        guarded = kiem_tra_an_toan(
-            quyet_dinh_de_xuat=ket_qua["quyet_dinh"],
-            ly_do_de_xuat=ket_qua["ly_do"],
-            do_tin_cay=ket_qua["độ_tin_cậy_sau_hiệu_chỉnh"],
-            anh_chup=anh_chup,
-        )
-        ket_qua["quyet_dinh"] = guarded["quyet_dinh"]
-        ket_qua["ly_do"] = guarded["ly_do"]
-        ket_qua["bi_chặn_bởi_bảo_vệ"] = guarded["bi_chặn"]
-        ket_qua["lý_do_chặn"] = guarded["ly_do_chặn"]
+        from src.services.macro.interbank_zscore import assess_interbank_risk
+        du_lieu_lien_ngan_hang = assess_interbank_risk()
     except Exception:
-        ket_qua["bi_chặn_bởi_bảo_vệ"] = False
-        ket_qua["lý_do_chặn"] = None
+        pass
+
+    # ── STRUCTURE_UNKNOWN: sensor blind → force DỪNG NGOÀI + 0.0 ──
+    if du_lieu_lien_ngan_hang and du_lieu_lien_ngan_hang.get("veto") == "STRUCTURE_UNKNOWN":
+        ket_qua["sensor_status"] = "CRITICAL_SBV_CHANGED"
+        ket_qua["quyet_dinh"] = "DUNG NGOAI"
+        ket_qua["ly_do"] = [
+            "SBV HTML structure changed — sensor blind",
+            "Emergency shutoff: không thể đánh giá rủi ro vĩ mô",
+            "chạy 'python ptck.py sbv-update' sau khi cập nhật fixtures",
+        ]
+        ket_qua["bi_chặn_bởi_bảo_vệ"] = True
+        ket_qua["lý_do_chặn"] = "SBV sensor blind — STRUCTURE_UNKNOWN"
+        ket_qua["he_so_giam_ty_trong"] = 0.0
+        logger.critical("[ORCH] SBV STRUCTURE UNKNOWN — force DỪNG NGOÀI, position=0.0")
+
+    # ── Bước 4a: On-demand interbank check (Emergency Recall) ──
+    # Chỉ kích hoạt khi: stale_override=True + raw signal là THAM GIA FULL.
+    # Dùng quyet_dinh_raw (trước guard) để tránh lệ thuộc thứ tự thực thi.
+    # Giới hạn tần suất Chromium bằng cooldown 30 phút (persistent disk).
+    _recall_triggered = False
+    _quyet_dinh_raw = ket_qua.get("quyet_dinh", "")
+    if du_lieu_lien_ngan_hang and du_lieu_lien_ngan_hang.get("stale_override"):
+        if _quyet_dinh_raw in ("THAM GIA FULL", "THAM GIA"):
+            try:
+                from src.services.macro.interbank_seeder import kiem_tra_sbv_theo_yeu_cau
+                _recall = kiem_tra_sbv_theo_yeu_cau()
+                _recall_triggered = _recall.get("scraped", False)
+                on_rate = _recall.get("ON")
+                if on_rate is not None and on_rate > 10:
+                    logger.warning(
+                        "[RECALL] SBV on-demand phát hiện ON=%.2f%% > 10 — force DỪNG NGOÀI",
+                        on_rate,
+                    )
+                    ket_qua["quyet_dinh"] = "DUNG NGOAI"
+                    ket_qua["ly_do"] = [
+                        "Emergency Recall: SBV ON rate vẫn > 10%",
+                        "stale_override bị ghi đè bởi dữ liệu thực tế",
+                        "hủy lệnh mua — dừng ngoài khẩn cấp",
+                    ]
+                    ket_qua["bi_chặn_bởi_bảo_vệ"] = True
+                    ket_qua["lý_do_chặn"] = f"SBV on-demand check: ON={on_rate}% > 10%"
+                    ket_qua["he_so_giam_ty_trong"] = 0.0
+                elif on_rate is not None and on_rate > 5:
+                    logger.info(
+                        "[RECALL] SBV on-demand: ON=%.2f%% (elevated), giữ nguyên guard",
+                        on_rate,
+                    )
+            except Exception as e:
+                logger.warning("[RECALL] SBV on-demand check failed: %s", e)
+
+    # ── Bước 4b: Guard chính ──
+    if not _recall_triggered or ket_qua.get("quyet_dinh") != "DUNG NGOAI":
+        try:
+            from src.engine.decision_guard import kiem_tra_an_toan
+            guarded = kiem_tra_an_toan(
+                quyet_dinh_de_xuat=ket_qua["quyet_dinh"],
+                ly_do_de_xuat=ket_qua.get("ly_do", []),
+                do_tin_cay=ket_qua["độ_tin_cậy_sau_hiệu_chỉnh"],
+                anh_chup=anh_chup,
+                du_lieu_lien_ngan_hang=du_lieu_lien_ngan_hang,
+            )
+            ket_qua["quyet_dinh"] = guarded["quyet_dinh"]
+            ket_qua["ly_do"] = guarded["ly_do"]
+            ket_qua["bi_chặn_bởi_bảo_vệ"] = guarded["bi_chặn"]
+            ket_qua["lý_do_chặn"] = guarded["ly_do_chặn"]
+            ket_qua["he_so_giam_ty_trong"] = guarded.get("he_so_giam_ty_trong", 1.0)
+        except Exception:
+            if not _recall_triggered:
+                ket_qua["bi_chặn_bởi_bảo_vệ"] = False
+                ket_qua["lý_do_chặn"] = None
+                ket_qua["he_so_giam_ty_trong"] = 1.0
 
     # ---- Bước 5: Recovery Override + Structural Healing ----
     # Hệ thống đang DỪNG NGOÀI → kiểm tra khả năng mở khóa
@@ -467,6 +531,22 @@ def in_bao_cao(kq: dict):
                 icon_vol = "🟡"
                 pa_desc = "trung tính"
             print(f"    {icon_vol} {ten_tru}: vol x{r} MA20 ({pa_desc})")
+    # CLI continuous polling: check alert file every render
+    try:
+        from src.services.macro.interbank_seeder import _is_sbv_alert_active
+        if _is_sbv_alert_active():
+            print(f"  {'='*50}")
+            print(f"  ⚠ [ACTION REQUIRED]: CẤU TRÚC SBV THAY ĐỔI — CẢM BIẾN MÙ.")
+            print(f"  Dữ liệu gốc lưu tại: data/alerts/")
+            print(f"  Chạy: python ptck.py sbv-update")
+            print(f"  {'='*50}")
+    except Exception:
+        pass
+
+    ss = kq.get("sensor_status")
+    if ss == "CRITICAL_SBV_CHANGED":
+        print(f"  ⚠ SENSOR: [CRITICAL CONTROL] BACKEND SENSOR CRASHED — DỪNG NGOÀI DO LỖI CẢM BIẾN, KHÔNG PHẢI TÍN HIỆU THỊ TRƯỜNG")
+
     đg = kq.get("độ_tin_cậy_sau_hiệu_chỉnh", {})
     if đg:
         icons_dg = {"CAO": "🟢", "TRUNG_BINH": "🟡", "THAP": "🔴"}

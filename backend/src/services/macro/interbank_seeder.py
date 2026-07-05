@@ -34,7 +34,8 @@ VIETNAMBiz_RATES_URL = (
     f"https://data.vietnambiz.vn/_next/data/{VIETNAMBiz_BUILD_ID}/currency-interest-rate.json"
 )
 
-INTERBANK_VARIABLES = ["INTERBANK_ON", "INTERBANK_1W", "INTERBANK_2W", "INTERBANK_1M"]
+INTERBANK_VARIABLES = ["INTERBANK_ON", "INTERBANK_1W", "INTERBANK_2W", "INTERBANK_1M",
+                        "INTERBANK_3M", "INTERBANK_6M", "INTERBANK_9M"]
 
 
 def _normalize(val) -> float | None:
@@ -64,34 +65,230 @@ def _get_latest_from_db(variable: str) -> tuple[float, str] | tuple[None, None]:
 
 
 # ---------------------------------------------------------------------------
-#  SOURCE 1 — SBV Portal API (primary)
+#  SOURCE 1 — SBV website (Playwright, primary)
 # ---------------------------------------------------------------------------
-def _try_sbv() -> dict[str, float | None]:
-    """Gọi SBV API. Trả về dict {ON, 1W, 2W, 1M}."""
+SBV_INTERBANK_URL = "https://sbv.gov.vn/l%C3%A3i-su%E1%BA%A5t1"
+
+TERM_MAP = {
+    "Qua đêm": "ON",
+    "1 Tuần": "1W",
+    "2 Tuần": "2W",
+    "1 Tháng": "1M",
+    "3 Tháng": "3M",
+    "6 Tháng": "6M",
+    "9 Tháng": "9M",
+}
+
+# ---------------------------------------------------------------------------
+#  SBV Structure Change Detection
+# ---------------------------------------------------------------------------
+ALERT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "alerts"
+ALERT_FILE = ALERT_DIR / "sbv_structure_changed.json"
+
+SBV_TABLE_SIGNATURES = [
+    "Qua đêm", "1 Tuần", "2 Tuần", "1 Tháng", "3 Tháng", "6 Tháng", "9 Tháng",
+]
+
+CLOUDFLARE_SIGNATURES = ["cf-browser-request", "Attention Required", "Just a moment", "sucuri"]
+
+JS_RENDERING_SIGNATURES = ["shadow-root", "<script", "render(", "createElement", "appendChild"]
+
+
+def _has_sbv_table_signature(html: str) -> bool:
+    """Kiểm tra HTML có chứa bảng lãi suất SBV không."""
+    return any(term in html for term in SBV_TABLE_SIGNATURES)
+
+
+def _has_cloudflare_signature(html: str) -> bool:
+    """Kiểm tra HTML có phải Cloudflare challenge không."""
+    return any(sig in html for sig in CLOUDFLARE_SIGNATURES)
+
+
+def _has_js_rendering(html: str) -> bool:
+    """Kiểm tra HTML có dấu hiệu JS rendering / Shadow DOM không."""
+    return any(sig in html for sig in JS_RENDERING_SIGNATURES)
+
+
+def _log_sbv_alert(raw_html: str = ""):
+    """Ghi alert file khi cấu trúc SBV thay đổi (atomic write) + popup Windows (1 lần)."""
+    import json, os, time, subprocess
+    was_active = ALERT_FILE.exists()
+    ALERT_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "timestamp": time.time(),
+        "error_type": "SBVStructureChanged",
+        "raw_html_snapshot": raw_html[:2000],
+    }
+    tmp = ALERT_FILE.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=4)
+    os.replace(tmp, ALERT_FILE)
+
+    # Popup chỉ 1 lần (singleton) — tránh zombie PowerShell
+    if was_active:
+        return
     try:
-        import requests
-        resp = requests.get(
-            "https://portal.sbv.gov.vn/api/public/lai-suat-lien-ngan-hang",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
+        ps_cmd = (
+            "[Void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); "
+            "[System.Windows.Forms.MessageBox]::Show("
+            "'SBV HTML structure changed — sensor blind. Position forced to 0.0. Run: python ptck.py sbv-update', "
+            "'[PTCK_ALERT] SENSOR CRASHED', "
+            "[System.Windows.Forms.MessageBoxButtons]::OK, "
+            "[System.Windows.Forms.MessageBoxIcon]::Warning)"
         )
-        if resp.status_code != 200:
-            logger.warning(f"SBV API HTTP {resp.status_code}")
+        subprocess.Popen(
+            ["powershell", "-Command", f"& {{{ps_cmd}}}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+
+def _clear_sbv_alert():
+    """Xóa alert file khi cấu trúc SBV đã được fix."""
+    import os
+    if ALERT_FILE.exists():
+        os.remove(str(ALERT_FILE))
+    tmp = ALERT_FILE.with_suffix(".tmp")
+    if tmp.exists():
+        os.remove(str(tmp))
+
+
+def _is_sbv_alert_active() -> bool:
+    """Kiểm tra alert file có tồn tại không.
+    STRUCTURE_UNKNOWN là lỗi logic code, KHÔNG auto-expire.
+    Chỉ sbv-update (manual) mới xóa được."""
+    if not ALERT_FILE.exists():
+        return False
+    return True
+
+
+def _parse_sbv_html(html_text: str) -> dict[str, float | None]:
+    """Pure function: parse SBV interbank rates from raw HTML.
+
+    Trích xuất bảng thứ 2 trong HTML, đọc cột Kỳ hạn + Lãi suất.
+    Có thể test với fixture HTML mà không cần Playwright.
+
+    Args:
+        html_text: Full HTML content of the SBV page.
+
+    Returns:
+        dict mapping short codes (ON, 1W, 2W, ...) to float rates or None.
+        Empty dict if parsing fails.
+    """
+    try:
+        from lxml import html as lx
+        tree = lx.fromstring(html_text)
+    except Exception:
+        try:
+            from lxml.html import fromstring as _hf
+            tree = _hf(html_text)
+        except Exception:
             return {}
 
-        data = resp.json()
-        if isinstance(data, list):
-            return {
-                "ON": _normalize(data[0].get("rate")) if len(data) > 0 else None,
-                "1W": _normalize(data[1].get("rate")) if len(data) > 1 else None,
-                "2W": _normalize(data[2].get("rate")) if len(data) > 2 else None,
-                "1M": _normalize(data[3].get("rate")) if len(data) > 3 else None,
-            }
-        elif isinstance(data, dict):
-            return {"ON": _normalize(data.get("rate"))}
+    tables = tree.xpath("//table")
+    if len(tables) < 2:
+        return {}
+
+    result: dict[str, float | None] = {}
+    for row in tables[1].xpath(".//tr"):
+        cells = row.xpath(".//td")
+        if len(cells) >= 2:
+            term = (cells[0].text_content() or "").strip()
+            rate_str = (cells[1].text_content() or "").strip()
+            if term in TERM_MAP:
+                result[TERM_MAP[term]] = _normalize(rate_str)
+
+    return result
+
+
+def _try_sbv(force: bool = False) -> dict:
+    """Dùng Playwright để trích xuất bảng lãi suất liên ngân hàng từ sbv.gov.vn.
+
+    Args:
+        force: Bỏ qua circuit breaker (dùng cho sbv-update).
+
+    Trả về dict {ON, 1W, 2W, 1M, ...} hoặc {} nếu thất bại.
+    """
+    # Circuit breaker: nếu alert còn hiệu lực, không launch Playwright
+    if not force and _is_sbv_alert_active():
+        logger.warning("SBV: circuit breaker active — skip Playwright, trả về STRUCTURE_UNKNOWN")
+        return {"type": "STRUCTURE_UNKNOWN", "data": {}, "http_status": None}
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning("Playwright chưa được cài đặt — bỏ qua SBV")
+        return {"type": "NO_PLAYWRIGHT", "data": {}, "http_status": None}
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True, channel="chrome",
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            )
+            ctx = browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                locale="vi-VN",
+            )
+            ctx.add_init_script("""Object.defineProperty(navigator, 'webdriver', { get: () => undefined });""")
+            page = ctx.new_page()
+            resp = page.goto(SBV_INTERBANK_URL, timeout=30000, wait_until="networkidle")
+            page.wait_for_timeout(5000)
+
+            # ── Bước 1: Kiểm tra HTTP status ──
+            http_status = resp.status if resp else None
+            if http_status and http_status != 200:
+                html_raw = page.content()
+                if _has_cloudflare_signature(html_raw):
+                    logger.warning(f"SBV HTTP {http_status} + Cloudflare — network blocked")
+                    browser.close()
+                    return {"type": "NETWORK_BLOCKED", "data": {}, "http_status": http_status}
+                logger.warning(f"SBV HTTP {http_status} — network blocked")
+                browser.close()
+                return {"type": "NETWORK_BLOCKED", "data": {}, "http_status": http_status}
+
+            # ── Bước 2: Kiểm tra HTML signature (Cloudflare trước, table sau) ──
+            html_raw = page.content()
+            if _has_cloudflare_signature(html_raw):
+                logger.warning("SBV: Cloudflare challenge detected")
+                browser.close()
+                return {"type": "NETWORK_BLOCKED", "data": {}, "http_status": 403}
+            if not _has_sbv_table_signature(html_raw):
+                if _has_js_rendering(html_raw):
+                    logger.warning("SBV: structure changed — JS/Shadow DOM detected")
+                    _log_sbv_alert(html_raw)
+                    browser.close()
+                    return {"type": "STRUCTURE_CHANGED", "data": {}, "http_status": 200}
+                logger.warning("SBV: unknown HTML structure — no SBV table signature")
+                _log_sbv_alert(html_raw)
+                browser.close()
+                return {"type": "STRUCTURE_CHANGED", "data": {}, "http_status": 200}
+
+            # ── Bước 3: Parse với lxml ──
+            result = _parse_sbv_html(html_raw)
+
+            # Trích xuất ngày áp dụng
+            body = page.inner_text("body")
+            m = re.search(r'Ngày áp dụng:\s*(\d{2}/\d{2}/\d{4})', body)
+            if m:
+                logger.info(f"SBV interbank data date: {m.group(1)}")
+
+            browser.close()
+
+        if result:
+            logger.info(f"SBV Playwright: lấy được {len(result)} kỳ hạn: {result}")
+            _clear_sbv_alert()
+            return {"type": "SUCCESS", "data": result, "http_status": 200, "raw_html": html_raw}
+        else:
+            logger.warning("SBV Playwright: parse rỗng — kiểm tra structure")
+            _log_sbv_alert(html_raw)
+            return {"type": "STRUCTURE_CHANGED", "data": {}, "http_status": 200}
+
     except Exception as e:
-        logger.warning(f"SBV API không khả dụng: {e}")
-    return {}
+        logger.warning(f"SBV Playwright thất bại: {e}")
+        return {"type": "NETWORK_BLOCKED", "data": {}, "http_status": None}
 
 
 # ---------------------------------------------------------------------------
@@ -119,68 +316,119 @@ def _try_vietnambiz() -> float | None:
 
 
 # ---------------------------------------------------------------------------
-#  SOURCE 3 — CafeF article scraping (full curve ON / 1W / 2W / 1M)
+#  ON-DEMAND CHECK (Emergency Recall — only fires when stale + big buy signal)
 # ---------------------------------------------------------------------------
-CAFEF_ARTICLE_URLS = [
-    # Danh sách URL bài viết gần đây về lãi suất liên ngân hàng
-    "https://cafef.vn/lai-suat-lien-ngan-hang-tang-vot-len-7-ngan-hang-nha-nuoc-bom-luong-lon-vnd-ho-tro-he-thong-188251202103649843.chn",
-    "https://cafef.vn/cap-nhat-thi-truong-tien-te-lai-suat-qua-dem-lien-ngan-hang-giam-manh-ty-gia-usd-lao-doc-188251226110319552.chn",
-    "https://cafef.vn/lai-suat-lien-ngan-hang-tiep-tuc-giam-kenh-cho-vay-omo-cua-nhnn-bi-e-ty-gia-usd-tu-do-mat-moc-27000-dong-188251218143455335.chn",
-]
+RECALL_STATE_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "probe_cache" / "recall_state.json"
 
 
-def _parse_cafef_rates(html: str) -> dict[str, float | None]:
-    """Trích xuất lãi suất liên ngân hàng từ nội dung bài viết CafeF.
-
-    Pattern điển hình:
-      "lãi suất qua đêm ... X%/năm; kỳ hạn 1 tuần ... Y%/năm;
-       kỳ hạn 2 tuần ... Z%/năm và 1 tháng là W%/năm"
+def _doc_cooldown() -> float:
+    """Đọc epoch timestamp từ recall_state.json.
+    Dọn dẹp file .tmp còn sót từ lần crash trước.
+    Trả về 0.0 nếu không có / hỏng.
     """
-    results = {"ON": None, "1W": None, "2W": None, "1M": None}
+    try:
+        import json, os
+        # Dọn file .tmp còn sót (OOM/Task Manager kill giữa chừng)
+        tmp = RECALL_STATE_PATH.with_suffix(".tmp")
+        if tmp.exists():
+            try:
+                with open(tmp, "r", encoding="utf-8") as f:
+                    json.load(f)
+                # .tmp hợp lệ → replace vào file chính (phục hồi sau crash)
+                os.replace(tmp, RECALL_STATE_PATH)
+            except (json.JSONDecodeError, ValueError, OSError):
+                # .tmp hỏng → xóa, không dùng
+                tmp.unlink(missing_ok=True)
+        # Đọc file chính (không bao giờ corrupt nhờ os.replace)
+        if RECALL_STATE_PATH.exists():
+            with open(RECALL_STATE_PATH, "r", encoding="utf-8") as f:
+                return float(json.load(f).get("last_check_epoch", 0.0))
+    except Exception:
+        pass
+    return 0.0
 
-    patterns = {
-        "ON": r'qua đêm[^;.]*?(\d+[\.,]?\d*)\s*%/năm',
-        "1W": r'1 tuần[^;.%]*?(\d+[\.,]?\d*)\s*%/năm',
-        "2W": r'2 tuần[^;.%]*?(\d+[\.,]?\d*)\s*%/năm',
-        "1M": r'1 tháng[^;.]{0,80}?(\d+[\.,]?\d*)\s*%/năm',
-    }
 
-    for key, pattern in patterns.items():
-        m = re.search(pattern, html, re.IGNORECASE)
-        if m:
-            results[key] = _normalize(m.group(1))
+def _ghi_cooldown_atomic(epoch: float) -> bool:
+    """Ghi epoch vào recall_state.json bằng atomic write (temp + os.replace).
+    An toàn khi Ctrl+C/OOM giữa chừng — file gốc không bao giờ bị corrupt.
+    os.replace = MoveFileEx(MOVEFILE_REPLACE_EXISTING) trên Windows.
+    """
+    try:
+        import json, os
+        tmp = RECALL_STATE_PATH.with_suffix(".tmp")
+        RECALL_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"last_check_epoch": epoch}, f)
+        os.replace(tmp, RECALL_STATE_PATH)
+        return True
+    except Exception:
+        return False
 
-    return results
 
+def kiem_tra_sbv_theo_yeu_cau(min_interval_s: int = 1800) -> dict:
+    """On-demand interbank check, gated by persistent cooldown (disk-based).
 
-def _try_cafef_articles() -> dict[str, float | None]:
-    """Duyệt danh sách URL bài viết CafeF, parse nếu tìm thấy."""
-    import requests
+    Chỉ chạy Playwright nếu đã qua ít nhất `min_interval_s` giây kể từ lần
+    kiểm tra on-demand trước. Cooldown được ghi atomic vào
+    `backend/data/probe_cache/recall_state.json` nên tồn tại qua nhiều CLI invocation.
 
-    for url in CAFEF_ARTICLE_URLS:
-        try:
-            resp = requests.get(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                continue
-            rates = _parse_cafef_rates(resp.text)
-            if rates["ON"] is not None or rates["1W"] is not None:
-                logger.info(f"Đã parse lãi suất từ CafeF: {rates}")
-                return rates
-        except Exception as e:
-            logger.warning(f"CafeF article error ({url[:60]}...): {e}")
-            continue
-    return {}
+    Args:
+        min_interval_s: thời gian tối thiểu giữa các lần chạy (mặc định 1800s = 30 phút).
+
+    Returns:
+        dict with:
+          - scraped: True/False (có cào mới hay dùng cache)
+          - ON: float or None
+          - signal: 'SHOCK' if ON>10, 'ELEVATED' if ON>5, 'NORMAL' otherwise
+          - cooldown_hit: True nếu bỏ qua vì cooldown
+          - sbv_type: 'SUCCESS' | 'STRUCTURE_CHANGED' | 'NETWORK_BLOCKED' | None
+          - sbv_http_status: HTTP status code or None
+    """
+    import time
+    now = time.time()
+    kq = {"scraped": False, "ON": None, "signal": "NORMAL", "cooldown_hit": False,
+          "sbv_type": None, "sbv_http_status": None}
+
+    # --- Kiểm tra cooldown từ disk ---
+    last_check = _doc_cooldown()
+    if last_check > 0 and now - last_check < min_interval_s:
+        val, dt = _get_latest_from_db("INTERBANK_ON")
+        if val is not None:
+            kq["ON"] = val
+            kq["signal"] = "SHOCK" if val > 10 else ("ELEVATED" if val > 5 else "NORMAL")
+        kq["cooldown_hit"] = True
+        logger.info("[ON-DEMAND] cooldown %ds, return cache ON=%.2f", int(now - last_check), kq.get("ON"))
+        return kq
+
+    # --- Cào mới ---
+    sbv_result = _try_sbv()
+    _ghi_cooldown_atomic(now)
+
+    rates = sbv_result.get("data", {})
+    on = rates.get("ON")
+    kq["scraped"] = True
+    kq["ON"] = on
+    kq["sbv_type"] = sbv_result.get("type", "UNKNOWN")
+    kq["sbv_http_status"] = sbv_result.get("http_status")
+
+    if on is not None:
+        kq["signal"] = "SHOCK" if on > 10 else ("ELEVATED" if on > 5 else "NORMAL")
+        logger.info("[ON-DEMAND] SBV scrape OK: ON=%.2f%%, signal=%s", on, kq["signal"])
+    else:
+        logger.warning("[ON-DEMAND] SBV scrape failed (ON=None)")
+        val, _ = _get_latest_from_db("INTERBANK_ON")
+        if val is not None:
+            kq["ON"] = val
+            kq["signal"] = "SHOCK" if val > 10 else ("ELEVATED" if val > 5 else "NORMAL")
+
+    return kq
 
 
 # ---------------------------------------------------------------------------
 #  ORCHESTRATOR
 # ---------------------------------------------------------------------------
 def refresh_interbank_rate() -> bool:
-    """Pipeline 3 tầng: SBV → VietnamBiz → CafeF article.
+    """Pipeline 2 tầng: SBV (Playwright) → VietnamBiz.
 
     Returns:
         True nếu seed được ít nhất INTERBANK_ON, False nếu hoàn toàn thất bại.
@@ -197,26 +445,22 @@ def refresh_interbank_rate() -> bool:
             except Exception:
                 pass
 
-    # --- Tầng 1: SBV API ---
-    rates = _try_sbv()
+    # --- Tầng 1: SBV website (Playwright) ---
+    sbv_result = _try_sbv()
+    rates = sbv_result.get("data", {})
     source_tag = "SBV"
 
-    # --- Tầng 2: VietnamBiz (ON rate) ---
-    if rates.get("ON") is None:
+    # Nếu cấu trúc SBV thay đổi, cảnh báo đã được ghi bởi _try_sbv()
+    if sbv_result.get("type") == "STRUCTURE_CHANGED":
+        logger.critical("SBV STRUCTURE CHANGED — sensor blind. Alert file written.")
+
+    # --- Tầng 2: VietnamBiz (ON rate fallback) ---
+    if not rates.get("ON"):
         on_rate = _try_vietnambiz()
         if on_rate is not None:
             rates["ON"] = on_rate
             source_tag = "VietnamBiz"
             logger.info(f"FALLBACK → VietnamBiz: ON = {on_rate}")
-
-    # --- Tầng 3: CafeF articles (full curve nếu SBV không trả đủ) ---
-    if len(rates) < 3:  # chưa đủ ON + 1W + 2W + 1M
-        cafef_rates = _try_cafef_articles()
-        for k in ("ON", "1W", "2W", "1M"):
-            if rates.get(k) is None and cafef_rates.get(k) is not None:
-                rates[k] = cafef_rates[k]
-                if source_tag == "SBV":
-                    source_tag = "SBV+CafeF"
 
     # --- Kiểm tra: ít nhất ON phải có ---
     if rates.get("ON") is None:
@@ -225,10 +469,13 @@ def refresh_interbank_rate() -> bool:
 
     # --- Ghi DB ---
     mapping = {
-        "INTERBANK_ON": rates["ON"],
+        "INTERBANK_ON": rates.get("ON"),
         "INTERBANK_1W": rates.get("1W"),
         "INTERBANK_2W": rates.get("2W"),
         "INTERBANK_1M": rates.get("1M"),
+        "INTERBANK_3M": rates.get("3M"),
+        "INTERBANK_6M": rates.get("6M"),
+        "INTERBANK_9M": rates.get("9M"),
     }
 
     rows = []
@@ -242,6 +489,13 @@ def refresh_interbank_rate() -> bool:
     df = pd.DataFrame(rows)
     try:
         with get_connection() as conn:
+            # MERGE STRATEGY: xóa rows hiện tại cho (date, variable) trùng
+            # để tránh duplicate khi bootstrap đã có dữ liệu lịch sử
+            for row in rows:
+                conn.execute(
+                    "DELETE FROM macro_history WHERE date = ? AND variable = ?",
+                    (row["date"], row["variable"]),
+                )
             save_data_upsert("macro_history", df, conn)
         for row in rows:
             logger.info(f"Đã cập nhật {row['variable']}: {row['value']}% (nguồn: {source_tag})")

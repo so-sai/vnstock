@@ -42,18 +42,22 @@ def cmd_market(args):
     from src.engine.regime_engine import detect_regime
     from src.core.market_state_coordinator import build_market_state
     
-    regime = detect_regime()
+    regime = detect_regime(lang_mode=_VERBOSE_LANG)
     d = regime.get("details", {})
     
+    # Dynamic column auto-fit
+    labels_main = ["Trạng thái", "Độ rộng", "ADX", "ATR ratio", "VNINDEX vs MA200", "MA50 slope"]
+    max_w = max(len(_ll(label)) for label in labels_main)
+    
     print("=" * 60)
-    print("  PTCK — MARKET SNAPSHOT")
+    print("  PTCK — SƠ ĐỒ THỊ TRƯỜNG")
     print("=" * 60)
-    print(f"  Trạng thái:     {regime.get('status')} ({regime.get('regime_score'):.2f})")
-    print(f"  Độ rộng:        {d.get('breadth_pct', 'N/A')}% (vận tốc: {d.get('breadth_momentum', 0):+.1f}%)")
-    print(f"  ADX:            {d.get('adx', 'N/A')}")
-    print(f"  ATR ratio:      {d.get('atr_ratio', 'N/A')} (biến động)")
-    print(f"  VNINDEX vs MA200: {d.get('vnindex_vs_ma200', 'N/A')}")
-    print(f"  MA50 slope:     {d.get('ma50_slope', 'N/A')}")
+    print(f"  {_ll('Trạng thái'):{max_w}s} {regime.get('status')} ({regime.get('regime_score'):.2f})")
+    print(f"  {_ll('Độ rộng'):{max_w}s} {d.get('breadth_pct', 'N/A')}% (tốc độ: {d.get('breadth_momentum', 0):+.1f}%)")
+    print(f"  {_ll('ADX'):{max_w}s} {d.get('adx', 'N/A')}")
+    print(f"  {_ll('ATR ratio'):{max_w}s} {d.get('atr_ratio', 'N/A')}")
+    print(f"  {_ll('VNINDEX vs MA200'):{max_w}s} {d.get('vnindex_vs_ma200', 'N/A')}")
+    print(f"  {_ll('MA50 slope'):{max_w}s} {d.get('ma50_slope', 'N/A')}")
     print()
     
     # Driver state
@@ -64,10 +68,12 @@ def cmd_market(args):
             t_score=d.get("t_score"),
             v_score=d.get("v_score"),
         )
-        print(f"  Driver trội:    {ds.dominant} ({ds.confidence:.1%})")
-        print(f"  Entropy:        {ds.entropy:.2f}")
+        labels_drv = ["Driver trội", "Entropy", "BREADTH", "MOMENTUM", "VOLATILITY"]
+        max_w_drv = max(len(_ll(label)) for label in labels_drv)
+        print(f"  {_ll('Driver trội'):{max_w_drv}s} {_ll(ds.dominant)} ({ds.confidence:.1%})")
+        print(f"  {_ll('Entropy'):{max_w_drv}s} {ds.entropy:.2f}")
         for drv, wt in sorted(ds.distribution.items(), key=lambda x: -x[1]):
-            print(f"    {drv:15s}: {wt:.1%}")
+            print(f"    {_ll(drv):{max_w_drv - 4}s}: {wt:.1%}")
     except Exception as e:
         print(f"  Driver state:   {e}")
     
@@ -78,28 +84,32 @@ def cmd_regime(args):
     """Chi tiết regime analysis."""
     from src.engine.regime_engine import detect_regime
     
-    regime = detect_regime()
+    regime = detect_regime(lang_mode=_VERBOSE_LANG)
     d = regime.get("details", {})
     
+    # Dynamic column auto-fit
+    labels = ["Trạng thái", "Score", "B-Score", "Độ rộng", "ADX", "ATR ratio"]
+    max_w = max(len(_ll(label)) for label in labels)
+    
     print("=" * 60)
-    print("  PTCK — REGIME ANALYSIS")
+    print("  PTCK — PHÂN TÍCH MÔI TRƯỜNG")
     print("=" * 60)
-    print(f"  Trạng thái:     {regime.get('status')}")
-    print(f"  Score:          {regime.get('regime_score'):.4f}")
-    print(f"  Score raw:      {regime.get('regime_score_raw', 0):.4f}")
+    print(f"  {_ll('Trạng thái'):{max_w}s} {regime.get('status')}")
+    print(f"  {_ll('Score'):{max_w}s} {regime.get('regime_score'):.4f}")
+    print(f"  Score thô:      {regime.get('regime_score_raw', 0):.4f}")
     print(f"  EMA alpha:      {regime.get('ema_alpha', 0):.2f}")
     print(f"  Ngày:           {regime.get('date', 'N/A')}")
     print()
     
     print("  ── Chi tiết ──")
-    print(f"  B-Score (độ rộng): {d.get('b_score', 0):.4f}")
+    print(f"  {_ll('B-Score'):{max_w}s} {d.get('b_score', 0):.4f}")
     print(f"  T-Score (xu hướng): {d.get('t_score', 0):.4f}")
     print(f"  V-Score (biến động): {d.get('v_score', 0):.4f}")
-    print(f"  Độ rộng:        {d.get('breadth_pct', 'N/A')}%")
+    print(f"  {_ll('Độ rộng'):{max_w}s} {d.get('breadth_pct', 'N/A')}%")
     print(f"  Breadth std 10d: {d.get('breadth_std_10d', 'N/A')}")
     print(f"  Breadth momentum: {d.get('breadth_momentum', 0):+.1f}%")
-    print(f"  ADX:            {d.get('adx', 'N/A')}")
-    print(f"  ATR ratio:      {d.get('atr_ratio', 'N/A')}")
+    print(f"  {_ll('ADX'):{max_w}s} {d.get('adx', 'N/A')}")
+    print(f"  {_ll('ATR ratio'):{max_w}s} {d.get('atr_ratio', 'N/A')}")
     print()
     
     # Lịch sử regime
@@ -465,8 +475,8 @@ def cmd_final(args):
 def cmd_snapshot(args):
     """Tạo ảnh chụp thị trường duy nhất."""
     from src.core.market_snapshot import tao_anh_chup, in_anh_chup
-    anh_chup = tao_anh_chup()
-    in_anh_chup(anh_chup)
+    anh_chup = tao_anh_chup(lang_mode=_VERBOSE_LANG)
+    in_anh_chup(anh_chup, lang_mode=_VERBOSE_LANG)
 
 
 def cmd_confidence(args):
@@ -485,6 +495,158 @@ def cmd_confidence(args):
         print(f"  → Quyết định hiện tại: {final.get('quyet_dinh', 'N/A')}")
         if final.get("bi_chặn_bởi_bảo_vệ"):
             print(f"  ⚠ Đã bị lớp bảo vệ chặn: {final.get('lý_do_chặn', '')}")
+
+
+def cmd_restore_backup(args):
+    """Khôi phục alert từ backup gần nhất."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent
+    alert_dir = root / "backend" / "data" / "alerts"
+    backup_dir = alert_dir / "backup"
+
+    if not backup_dir.exists() or not any(backup_dir.iterdir()):
+        print("  ⚠ Không tìm thấy backup nào. Chưa từng chạy sbv-update?")
+        return
+
+    import shutil
+    count = 0
+    for f in backup_dir.iterdir():
+        if f.is_file():
+            shutil.copy2(f, alert_dir / f.name)
+            count += 1
+    recall_bak = backup_dir / "recall_state.json"
+    if recall_bak.exists():
+        recall_dst = root / "backend" / "data" / "probe_cache" / "recall_state.json"
+        recall_dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(recall_bak, recall_dst)
+        count += 1
+    print(f"  ✅ Đã khôi phục {count} file từ backup.")
+    print(f"  Chạy 'python ptck.py status' để kiểm tra trạng thái.")
+
+
+def cmd_check_calendar(args):
+    """Kiểm tra lịch lễ so với nguồn online, có flag auto-update."""
+    from src.engine.partial_data_entropy import _scrape_holidays, _read_calendar_safe
+    import json
+
+    print("  Đang lấy dữ liệu lịch lễ từ timeanddate.com...")
+    online = _scrape_holidays()
+    if not online:
+        print("  ⚠ Không lấy được lịch online. Kiểm tra kết nối mạng.")
+        return
+
+    local = _read_calendar_safe()
+    missing = sorted(set(online) - set(local))
+    extra = sorted(set(local) - set(online))
+
+    print(f"  Lịch online:  {len(online)} ngày")
+    print(f"  Lịch local:   {len(local)} ngày")
+    if missing:
+        print(f"  ⚠ Thiếu {len(missing)} ngày so với online:")
+        for d in missing:
+            print(f"    + {d}")
+    if extra:
+        print(f"  ℹ Dư {len(extra)} ngày (có thể đã cũ):")
+        for d in extra:
+            print(f"    - {d}")
+    if not missing and not extra:
+        print("  ✅ Lịch khớp hoàn toàn với dữ liệu online.")
+
+    if args.auto_update and missing:
+        from src.engine.partial_data_entropy import CALENDAR_PATH
+        merged = sorted(set(local + online))
+        CALENDAR_PATH.write_text(
+            json.dumps({"holidays": merged}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"  ✅ Đã cập nhật lịch: {len(merged)} ngày.")
+
+
+def cmd_sbv_update(args):
+    """5-step recovery: backup → fixtures → pytest → scrape → clear alert."""
+    import sys, subprocess, shutil
+    from pathlib import Path
+    root = Path(__file__).resolve().parent
+    alert_dir = root / "backend" / "data" / "alerts"
+    backup_dir = alert_dir / "backup"
+
+    print("=" * 60)
+    print("  PTCK — SBV UPDATE (5-step recovery)")
+    print("=" * 60)
+
+    # ── Step 0: Backup trạng thái hiện tại (alert + recall_state) ──
+    print("\n  [0/5] Đang backup trạng thái hiện tại...")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    for f in alert_dir.iterdir():
+        if f.is_file() and f.suffix in (".json", ".tmp"):
+            shutil.copy2(f, backup_dir / f.name)
+    recall_path = root / "backend" / "data" / "probe_cache" / "recall_state.json"
+    if recall_path.exists():
+        shutil.copy2(recall_path, backup_dir / "recall_state.json")
+    print(f"  ✅ Backup tại: {backup_dir}")
+
+    # ── Step 1: Nạp fixtures mới ──
+    print("\n  [1/5] Kiểm tra fixtures...")
+    fixture_dir = root / "tests" / "fixtures" / "sbv"
+    if not fixture_dir.exists():
+        print("  ⚠ Không tìm thấy thư mục fixtures. Tạo mới...")
+        fixture_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  ✅ Fixtures tại: {fixture_dir}")
+
+    # ── Step 2: Regression test ──
+    print("\n  [2/5] Đang chạy regression test...")
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/unit/macro/test_sbv_parser.py", "-v"],
+        cwd=root, capture_output=True, text=True,
+    )
+    print(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout)
+    if result.returncode != 0:
+        print("  [FAIL] Regression test thất bại — cập nhật fixtures chưa đúng.")
+        print("  Sửa fixtures, sau đó chạy lại: python ptck.py sbv-update")
+        return
+
+    # ── Step 3: Production scrape (force=True bỏ qua circuit breaker) ──
+    print("\n  [3/5] Đang quét SBV thực tế...")
+    from src.services.macro.interbank_seeder import _try_sbv, _clear_sbv_alert, _is_sbv_alert_active
+    sbv_result = _try_sbv(force=True)
+    rates = sbv_result.get("data", {})
+
+    if sbv_result.get("type") != "SUCCESS":
+        print(f"  [FAIL] SBV scrape thất bại: type={sbv_result.get('type')}, "
+              f"HTTP={sbv_result.get('http_status')}")
+        print("  Không giải phóng khóa — alert file được giữ nguyên.")
+        print("  Kiểm tra: sbv.gov.vn có thể đang bị chặn hoặc thay đổi cấu trúc.")
+        return
+
+    print(f"  ✅ SBV scrape OK: {len(rates)} kỳ hạn")
+    for k, v in rates.items():
+        print(f"    {k}: {v}")
+
+    # ── Step 3b: Lưu forensic snapshot + cập nhật fixture ──
+    raw_html = sbv_result.get("raw_html", "")
+    if raw_html:
+        fixture_dir = root / "tests" / "fixtures" / "sbv"
+        fixture_dir.mkdir(parents=True, exist_ok=True)
+        fixture_path = fixture_dir / "live.html"
+        fixture_path.write_text(raw_html, encoding="utf-8")
+        print(f"\n  [3b] ✅ Đã lưu forensic snapshot tại: {fixture_path}")
+        # Verify parser vẫn hoạt động trên fixture mới
+        try:
+            from src.services.macro.interbank_seeder import _parse_sbv_html
+            parsed = _parse_sbv_html(raw_html)
+            if parsed:
+                print(f"  [3b] ✅ Parser OK: {len(parsed)} kỳ hạn — {parsed}")
+            else:
+                print(f"  [3b] ⚠ Parser trả về rỗng — cập nhật _parse_sbv_html()")
+        except Exception:
+            print(f"  [3b] ⚠ Lỗi parser — cần fix thủ công")
+
+    # ── Step 4: Clear alert + thông báo ──
+    print("\n  [4/5] Nghiệm thu — giải phóng khóa...")
+    _clear_sbv_alert()
+    print("  ✅ Alert file cleared. Khóa vị thế 0.0 đã được giải phóng.")
+    print("  Hệ thống sẽ lấy dữ liệu SBV mới ở lần refresh_interbank_rate() tiếp theo.")
+    print("=" * 60)
 
 
 def cmd_data_quality(args):
@@ -748,22 +910,61 @@ def cmd_flow_map(args):
     print("=" * 60)
 
 
+# Module-level language mode — set by main() before dispatching
+_VERBOSE_LANG: str = "auto"
+
+
+def _ll(label: str) -> str:
+    """Shorthand: localize_label with current global mode."""
+    from src.core.canonical_output_adapter import localize_label
+    return localize_label(label, _VERBOSE_LANG)
+
+
+def _check_sbv_alert_startup():
+    """Startup guardrail: kiểm tra alert file, in cảnh báo nếu có."""
+    try:
+        from src.services.macro.interbank_seeder import _is_sbv_alert_active
+        if _is_sbv_alert_active():
+            print("=" * 60)
+            print(" ⚠ CẢNH BÁO: PHÁO ĐÀI SENTINEL PHÁT HIỆN SỰ CỐ CẤU TRÚC DỮ LIỆU SBV")
+            print(" Hệ thống đang vận hành trong trạng thái MÙ VĨ MÔ (Vị thế khóa cứng = 0.0).")
+            print(" Thực thi ngay: python ptck.py sbv-update để cập nhật fixtures.")
+            print("=" * 60)
+            print()
+    except Exception:
+        pass
+
+
 def main():
+    global _VERBOSE_LANG
     from src.engine.startup_reminder import kiem_tra_va_nhac_nho
     kiem_tra_va_nhac_nho()
+    _check_sbv_alert_startup()
 
     parser = argparse.ArgumentParser(
         prog="ptck",
         description="PTCK_VNSTOCK CLI — Single entrypoint cho mọi thao tác",
     )
+    lang_parent = argparse.ArgumentParser(add_help=False)
+    lang_parent.add_argument(
+        '--verbose-lang', choices=['compact', 'annotated', 'full', 'auto'],
+        default='auto', dest='verbose_lang',
+        help='Chế độ hiển thị ngôn ngữ CLI (compact/annotated/full/auto)',
+    )
+    # Also accept --verbose-lang before subcommand
+    parser.add_argument(
+        '--verbose-lang', choices=['compact', 'annotated', 'full', 'auto'],
+        default='auto', dest='verbose_lang',
+        help=argparse.SUPPRESS,
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     # market
-    p_market = sub.add_parser("market", help="Market snapshot")
+    p_market = sub.add_parser("market", parents=[lang_parent], help="Market snapshot")
     p_market.set_defaults(func=cmd_market)
 
     # regime
-    p_regime = sub.add_parser("regime", help="Regime analysis chi tiết")
+    p_regime = sub.add_parser("regime", parents=[lang_parent], help="Regime analysis chi tiết")
     p_regime.set_defaults(func=cmd_regime)
 
     # report
@@ -808,7 +1009,7 @@ def main():
     p_db.set_defaults(func=cmd_db)
 
     # status
-    p_status = sub.add_parser("status", help="Kiểm tra sức khỏe hệ thống")
+    p_status = sub.add_parser("status", parents=[lang_parent], help="Kiểm tra sức khỏe hệ thống")
     p_status.set_defaults(func=cmd_status)
 
     # structural
@@ -822,7 +1023,7 @@ def main():
     p_final.set_defaults(func=cmd_final)
 
     # snapshot
-    p_snap = sub.add_parser("snapshot", help="Ảnh chụp thị trường duy nhất")
+    p_snap = sub.add_parser("snapshot", parents=[lang_parent], help="Ảnh chụp thị trường duy nhất")
     p_snap.set_defaults(func=cmd_snapshot)
 
     # confidence
@@ -871,6 +1072,10 @@ def main():
     p_fm = sub.add_parser("flow-map", help="Bản đồ Dòng vốn Liên thị trường 4 Tầng")
     p_fm.set_defaults(func=cmd_flow_map)
 
+    # sbv-update
+    p_su = sub.add_parser("sbv-update", help="4-step recovery: fixtures → pytest → scrape → clear alert")
+    p_su.set_defaults(func=cmd_sbv_update)
+
     # data-quality
     p_dq = sub.add_parser("data-quality", help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")
     p_dq.set_defaults(func=cmd_data_quality)
@@ -879,6 +1084,15 @@ def main():
     p_id = sub.add_parser("index-decompose", help="Phân tích chỉ số thị trường thống nhất")
     p_id.add_argument("--date", help="Ngày (YYYY-MM-DD)")
     p_id.set_defaults(func=cmd_index_decompose)
+
+    # restore-backup
+    p_rb = sub.add_parser("restore-backup", help="Khôi phục trạng thái alert từ backup gần nhất")
+    p_rb.set_defaults(func=cmd_restore_backup)
+
+    # check-calendar
+    p_cc = sub.add_parser("check-calendar", help="Kiểm tra lịch lễ so với nguồn online")
+    p_cc.add_argument("--auto-update", action="store_true", help="Tự động cập nhật calendar nếu lệch")
+    p_cc.set_defaults(func=cmd_check_calendar)
 
     # backfill-history
     p_bf = sub.add_parser("backfill-history", help="Khôi phục dữ liệu lịch sử cho mã thiếu (Backfill)")
@@ -890,6 +1104,7 @@ def main():
     p_bf.set_defaults(func=cmd_backfill)
 
     args = parser.parse_args()
+    _VERBOSE_LANG = args.verbose_lang
     args.func(args)
 
 
