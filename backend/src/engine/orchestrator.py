@@ -489,6 +489,32 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
     anh_chup = locals().get("anh_chup", {})
     ket_qua["params_hash"] = anh_chup.get("params_hash", "unresolved")
 
+    # ---- Audit Trail: log transition từ previous decision ----
+    try:
+        from src.portfolio.decision_audit import log_transition
+        _prev_path = Path(src.config.DATA_DIR) / "output" / "final_decision.json"
+        _prev_state = ""
+        if _prev_path.exists():
+            try:
+                _prev = json.loads(_prev_path.read_text(encoding="utf-8"))
+                _prev_state = _prev.get("quyet_dinh", "")
+            except Exception:
+                pass
+        _ddi = anh_chup.get("delta_divergence", {})
+        _r = anh_chup.get("regime", {})
+        log_transition(
+            prev_state=_prev_state,
+            new_state=ket_qua["quyet_dinh"],
+            decision_id=ket_qua.get("decision_id", ket_qua.get("params_hash", "unk")[:8]),
+            params_hash=ket_qua["params_hash"],
+            confidence=ket_qua.get("độ_tin_cậy_sau_hiệu_chỉnh", {}).get("điểm_số", 0.5),
+            delta_sa=_ddi.get("delta_sa", 0.0),
+            regime=_r.get("trang_thai", "N/A"),
+            trigger="machine",
+        )
+    except Exception:
+        pass
+
     # ---- Lưu file (atomic write: temp → rename) ----
     out_dir = Path(src.config.DATA_DIR) / "output"
     out_dir.mkdir(parents=True, exist_ok=True)

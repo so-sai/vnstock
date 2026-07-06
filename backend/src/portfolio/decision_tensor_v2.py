@@ -687,10 +687,26 @@ def log_override(decision_id: str, override_action: str, override_reason: str) -
     history = _load_decision_history()
     for entry in history:
         if entry.get("decision_id") == decision_id:
+            _prev = entry.get("action", "N/A")
             entry["override_state"] = "OVERRIDDEN"
             entry["override_action"] = override_action
             entry["override_reason"] = override_reason
             _save_decision_history(history)
+            # Audit: human override
+            try:
+                from src.portfolio.decision_audit import log_transition
+                log_transition(
+                    prev_state=_prev,
+                    new_state=override_action,
+                    decision_id=decision_id,
+                    params_hash=entry.get("params_hash", entry.get("engine_scores", {}).get("regime", "unresolved")),
+                    confidence=entry.get("confidence", 0) / 100.0,
+                    delta_sa=entry.get("ddi_data", {}).get("delta_sa", 0.0),
+                    regime=entry.get("engine_scores", {}).get("regime", "N/A"),
+                    trigger="human:admin",
+                )
+            except Exception:
+                pass
             return {"status": "logged", "decision_id": decision_id}
     return {"status": "not_found", "decision_id": decision_id}
 
@@ -701,6 +717,21 @@ def log_confirm(decision_id: str) -> dict:
         if entry.get("decision_id") == decision_id:
             entry["override_state"] = "CONFIRMED"
             _save_decision_history(history)
+            # Audit: human confirm (no state change, log as confirm event)
+            try:
+                from src.portfolio.decision_audit import log_transition
+                log_transition(
+                    prev_state=entry.get("action", "N/A"),
+                    new_state=entry.get("action", "N/A"),
+                    decision_id=decision_id,
+                    params_hash=entry.get("params_hash", entry.get("engine_scores", {}).get("regime", "unresolved")),
+                    confidence=entry.get("confidence", 0) / 100.0,
+                    delta_sa=entry.get("ddi_data", {}).get("delta_sa", 0.0),
+                    regime=entry.get("engine_scores", {}).get("regime", "N/A"),
+                    trigger="human:admin",
+                )
+            except Exception:
+                pass
             return {"status": "confirmed", "decision_id": decision_id}
     return {"status": "not_found", "decision_id": decision_id}
 
