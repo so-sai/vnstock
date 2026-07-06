@@ -207,6 +207,29 @@ def scan_liquidity_concentration(target_date=None):
     classification = "NEUTRAL"
     conviction = "LOW"
 
+    # Rule 0: INTERBANK LIQUIDITY SHOCK (absolute override — checked first)
+    ibank = None
+    ibank_signal = ""
+    try:
+        from src.services.macro.interbank_zscore import assess_interbank_risk
+        ibank = assess_interbank_risk()
+        ibank_signal = ibank.get("signal", "")
+        ibank_reason = ibank.get("reason", "")
+        if ibank_signal == "SYSTEMIC_LIQUIDITY_SHOCK":
+            signals.append(f"SYSTEMIC_LIQUIDITY_SHOCK")
+            signals.append(f"Z_fast={ibank['zscore']['z_fast']}")
+            signals.append(f"Z_slow={ibank['zscore']['z_slow']}")
+            signals.append(f"ON_rate={ibank['zscore']['current_value']}%")
+            classification = "SYSTEMIC_LIQUIDITY_SHOCK"
+            conviction = "HIGH"
+            logger.warning("INTERBANK SHOCK: %s", ibank_reason)
+        elif ibank_signal == "WARNING":
+            signals.append(f"INTERBANK_WARNING")
+            signals.append(f"Z_fast={ibank['zscore']['z_fast']}")
+            logger.info("Interbank warning: %s", ibank_reason)
+    except Exception as e:
+        logger.warning("Interbank risk assessment failed: %s", e)
+
     # Rule 1: Market-wide top-1 concentration
     top1_pct = market_concentration['top1']['pct']
     if top1_pct > 15:
@@ -291,7 +314,8 @@ def scan_liquidity_concentration(target_date=None):
             "top1_market": market_concentration['top1'],
             "sector_rotation_from": bottom_sectors_ranked[:2],
             "sector_rotation_to": top_sectors_ranked[:2],
-        }
+        },
+        "interbank_risk": ibank if ibank_signal else None,
     }
 
     # Display

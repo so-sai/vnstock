@@ -225,11 +225,26 @@ _NARRATIVE_PATTERNS: list[tuple[re.Pattern, str]] = [
 
 
 # ====================================================================
+# HYBRID DATA GUARDRAIL — protect numeric/time strings from translation
+# ====================================================================
+
+_HYBRID_GUARD = re.compile(
+    r'^(?:\d+(?:\.\d+)?%?'          # pure number, optional trailing %
+    r'|[-+]?\d+\.?\d*'              # signed float
+    r'|\d{4}-\d{2}-\d{2}'           # date YYYY-MM-DD
+    r'|[\d.]+ \([^)]+\)'            # "16.4 (yếu)" pattern
+    r')$'
+)
+
+# ====================================================================
 # RECURSIVE LOCALIZER
 # ====================================================================
 
 def _localize_value(value: Any) -> Any:
     if isinstance(value, str):
+        # Guard: hybrid numeric/time strings skip translation entirely
+        if _HYBRID_GUARD.match(value):
+            return value
         if value in _MASTER_MAP:
             return _MASTER_MAP[value]
         for pattern, vi in _NARRATIVE_PATTERNS:
@@ -267,6 +282,90 @@ def localize_output(data: dict) -> dict:
             return localize_output(build_weekly_report())
     """
     return _localize_value(data)
+
+
+# ====================================================================
+# CLI LABEL LOCALIZATION — for direct print() statements in CLI
+# ====================================================================
+
+CLI_LABEL_MAP: dict[str, str] = {
+    "Regime": "Trạng thái vĩ mô",
+    "ADX": "Xung lực",
+    "Entropy": "Mức độ nhiễu",
+    "B-Score": "Điểm độ rộng",
+    "ATR ratio": "Tỷ lệ biến động",
+    "Độ rộng": "Số mã tham gia",
+    "Cảnh báo sớm": "Tín hiệu chuyển pha",
+    "Driver trội": "Nguyên nhân chính",
+    "MA50 slope": "Độ dốc MA50",
+    "VNINDEX vs MA200": "Chỉ số vs MA200",
+    "BREADTH": "Độ rộng",
+    "MOMENTUM": "Đà",
+    "VOLATILITY": "Biến động",
+    "STRUCTURE": "Cấu trúc",
+    "MACRO": "Vĩ mô",
+    "Trạng thái": "Pha thị trường",
+    "Score": "Điểm số",
+    "Độ rộng:": "Tỷ lệ tham gia:",
+
+    # Regime Engine Live Analysis block
+    "B-Score (continuous)": "Điểm Độ rộng (liên tục)",
+    "T-Score": "Điểm Xu hướng",
+    "V-Score (continuous)": "Điểm Biến động (liên tục)",
+    "ATR Ratio": "Tỷ lệ ATR",
+    "Raw Score": "Điểm Thô",
+    "EMA Alpha": "Hệ số Phẳng hóa",
+    "Prev Smoothed": "Giá trị Phẳng hóa Trước",
+    "SMOOTHED REGIME SCORE": "ĐIỂM TRẠNG THÁI PHẲNG HÓA",
+    "REGIME ENGINE": "BỘ PHÂN TÍCH MÔI TRƯỜNG",
+    "HISTORICAL REPLAY": "PHÁT LẠI LỊCH SỬ",
+    "LIVE ANALYSIS": "PHÂN TÍCH TRỰC TIẾP",
+    "[LOCK 2] ATR SHOCK DETECTED": "[KHÓA 2] PHÁT HIỆN SỐC BIẾN ĐỘNG",
+    "Today:": "Hôm nay:",
+    "vs Avg:": "so với TB:",
+}
+
+
+def _detect_lang_mode(mode: str) -> str:
+    """Auto-detect mode from terminal width.
+    
+    Rules:
+        - Non-auto modes → passed through unchanged
+        - Non-TTY output (pipe/file) → 'annotated' (preserve EN+VI for logs)
+        - TTY with ≥120 cols → 'annotated'
+        - TTY with <120 cols → 'compact'
+    """
+    if mode != "auto":
+        return mode
+    try:
+        import sys, shutil
+        if not sys.stdout.isatty():
+            return "annotated"
+        cols = shutil.get_terminal_size().columns
+        return "annotated" if cols >= 120 else "compact"
+    except Exception:
+        return "annotated"
+
+
+def localize_label(label: str, mode: str = "annotated") -> str:
+    """Localize a CLI label based on mode.
+
+    Args:
+        label: English or Vietnamese label string
+        mode: 'compact' (keep EN), 'annotated' (EN + VI), 'full' (VI only), 'auto'
+
+    Returns:
+        Localized label string.
+    """
+    mode = _detect_lang_mode(mode)
+    vi = CLI_LABEL_MAP.get(label)
+    if vi is None:
+        return label
+    if mode == "compact":
+        return label
+    if mode == "full":
+        return vi
+    return f"{label} ({vi})"
 
 
 # ====================================================================

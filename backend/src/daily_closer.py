@@ -151,6 +151,15 @@ def run_daily_closer():
     except Exception as e:
         print(f"⚠️  Reputation update skipped: {e}")
 
+    # Step 7: SSI iBoard Macro API Probe (đồng bộ, ~1-2s, không block pipeline đáng kể)
+    try:
+        from src.services.macro.ssi_probe import probe_ssi_macro_endpoint
+        results = probe_ssi_macro_endpoint()
+        matches = sum(1 for r in results if r.get("match"))
+        print(f"📡 SSI iBoard probe: {len(results)} candidates, {matches} matches")
+    except Exception as e:
+        print(f"⚠️  SSI probe failed: {e}")
+
     print(f"\n{'='*60}")
     print(f"🏁 CLOSER COMPLETE. SENTINEL STANDING BY.")
     print(f"{'='*60}")

@@ -39,11 +39,20 @@ Validate DataFrame:
 """
 
 import json
+import sys
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import pandas as pd
 import pytest
 import requests
+
+# ── Ensure project modules (src.*) are importable ───────────────────────────
+_CONFTEST = Path(__file__).resolve().parent
+_PROJECT = _CONFTEST.parent
+for _p in (_PROJECT, _PROJECT / "backend"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 # Import symbol fixtures from local fixtures module
 pytest_plugins = ["fixtures.symbols"]

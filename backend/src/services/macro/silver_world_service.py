@@ -4,7 +4,9 @@ Bổ sung Global Silver vào Precious Metals Framework.
 Sanity guard: so sánh với rolling 30d median từ DB, cảnh báo nếu lệch >50%.
 """
 import sys
+import os
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -43,9 +45,24 @@ _NORM = Normalizer()
 
 logger = logging.getLogger(__name__)
 
+
+@contextmanager
+def _stderr_null():
+    """Temporarily redirect stderr to os.devnull to suppress yfinance internal prints."""
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+    old_fd = os.dup(2)
+    os.dup2(null_fd, 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_fd, 2)
+        os.close(null_fd)
+
+
 TICKER = "SI=F"
-SILVER_CACHE = {"price": None, "timestamp": 0, "conflicted": False}
+SILVER_CACHE = {"price": None, "timestamp": 0, "conflicted": False, "flat_line": False}
 CACHE_TTL = 300
+FLAT_LINE_WINDOW = 5
 HARD_LOWER = 5.0
 HARD_UPPER = 100.0
 SOFT_DEVIATION = 0.50
@@ -66,20 +83,59 @@ def _get_30d_median() -> Optional[float]:
         return None
 
 
+def _check_flat_line() -> bool:
+    """Detect flat time series: last N consecutive XAGUSD values identical."""
+    try:
+        with get_connection() as conn:
+            df = pd.read_sql(
+                f"SELECT value FROM macro_history WHERE variable = 'XAGUSD' ORDER BY date DESC LIMIT {FLAT_LINE_WINDOW}",
+                conn,
+            )
+        if len(df) < FLAT_LINE_WINDOW:
+            return False
+        return len(set(df["value"].tolist())) == 1
+    except Exception:
+        return False
+
+
+def _silver_fallback_from_db() -> Optional[float]:
+    """Fallback: last known XAGUSD from DB when yfinance fails."""
+    try:
+        with get_connection() as conn:
+            df = pd.read_sql(
+                "SELECT value, date FROM macro_history WHERE variable = 'XAGUSD' ORDER BY date DESC LIMIT 1",
+                conn,
+            )
+        if not df.empty:
+            val = float(df["value"].iloc[0])
+            dt = df["date"].iloc[0]
+            logger.info(f"Silver fallback from DB: {val} (date={dt})")
+            SILVER_CACHE["flat_line"] = _check_flat_line()
+            if SILVER_CACHE["flat_line"]:
+                logger.warning(f"Silver time series FLAT: last {FLAT_LINE_WINDOW} values identical ({val})")
+            return val
+    except Exception as e:
+        logger.warning(f"Silver DB fallback failed: {e}")
+    return None
+
+
 def fetch_world_silver_live() -> Optional[float]:
-    """Fetch XAGUSD (SI=F) latest close via yfinance. Returns price or None."""
+    """Fetch XAGUSD (SI=F) latest close via yfinance. Falls back to DB on failure."""
     now = int(datetime.now().timestamp())
     if SILVER_CACHE["price"] is not None and now - SILVER_CACHE["timestamp"] < CACHE_TTL:
         return SILVER_CACHE["price"]
     try:
-        silver = yf.Ticker(TICKER)
-        data = silver.history(period="1d")
+        with _stderr_null():
+            silver = yf.Ticker(TICKER)
+            data = silver.history(period="1d")
         if data.empty:
-            return None
+            logger.warning("Silver yfinance empty, falling back to DB")
+            return _silver_fallback_from_db()
         latest = float(data.iloc[-1]["Close"])
         SILVER_CACHE["price"] = latest
         SILVER_CACHE["timestamp"] = now
         SILVER_CACHE["conflicted"] = False
+        SILVER_CACHE["flat_line"] = False
 
         if latest < HARD_LOWER or latest > HARD_UPPER:
             logger.warning(f"XAGUSD {latest} outside hard bounds [{HARD_LOWER}, {HARD_UPPER}]")
@@ -97,11 +153,16 @@ def fetch_world_silver_live() -> Optional[float]:
         return latest
     except Exception as e:
         logger.error(f"World silver fetch failed: {e}")
-        return None
+        return _silver_fallback_from_db()
 
 
 def is_silver_conflicted() -> bool:
     return SILVER_CACHE.get("conflicted", False)
+
+
+def is_silver_flat_line() -> bool:
+    """True if silver time series has flat-lined (repeated identical values)."""
+    return SILVER_CACHE.get("flat_line", False)
 
 
 def fetch_world_silver_history(period: str = "1y") -> pd.DataFrame:

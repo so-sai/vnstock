@@ -58,7 +58,7 @@ def _doc(ten_file: str) -> Optional[dict]:
     return None
 
 
-def tao_anh_chup(target_date: Optional[str] = None) -> dict:
+def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") -> dict:
     """Tạo ảnh chụp thị trường duy nhất trong lần chạy này.
 
     Trả về dict gồm:
@@ -73,7 +73,7 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
 
     # ── Bước 1: Regime (live, 1 lần) ──
     from src.engine.regime_engine import detect_regime
-    regime_data = detect_regime(target_date=target_date)
+    regime_data = detect_regime(target_date=target_date, lang_mode=lang_mode)
 
     # ── Bước 2: Cấu trúc ──
     hôm_nay = datetime.now().strftime("%Y-%m-%d")
@@ -184,11 +184,24 @@ def tao_anh_chup(target_date: Optional[str] = None) -> dict:
     return anh_chup
 
 
-def in_anh_chup(anh_chup: dict):
+def _ll(label: str, lang_mode: str = "annotated") -> str:
+    """Localize a CLI label. Import is lazy to avoid circular imports at module level."""
+    try:
+        from src.core.canonical_output_adapter import localize_label
+        return localize_label(label, lang_mode)
+    except Exception:
+        return label
+
+
+def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     """In ảnh chụp ra console để kiểm tra."""
     r = anh_chup.get("regime", {})
     c = anh_chup.get("cau_truc", {})
     ew = anh_chup.get("canh_bao_som", {})
+
+    # Dynamic column auto-fit: compute max localized label width
+    labels = ["Regime", "ADX", "Độ rộng", "ATR ratio", "Entropy", "Cảnh báo sớm"]
+    max_w = max(len(_ll(label, lang_mode)) for label in labels)
 
     print("\n" + "=" * 55)
     print("  ẢNH CHỤP THỊ TRƯỜNG")
@@ -196,15 +209,15 @@ def in_anh_chup(anh_chup: dict):
     print(f"  Ngày: {anh_chup.get('ngay', 'N/A')}")
     print(f"  Tạo lúc: {anh_chup.get('thoi_gian_tao', 'N/A')}")
     print()
-    print(f"  Regime:          {r.get('trang_thai', 'N/A')} ({r.get('diem_so', 0):.2f})")
-    print(f"  ADX:             {r.get('adx', 'N/A')}")
-    print(f"  Độ rộng:         {r.get('do_rong', 'N/A')}%")
-    print(f"  ATR ratio:       {r.get('ty_le_atr', 'N/A')}")
+    print(f"  {_ll('Regime', lang_mode):{max_w}s} {r.get('trang_thai', 'N/A')} ({r.get('diem_so', 0):.2f})")
+    print(f"  {_ll('ADX', lang_mode):{max_w}s} {r.get('adx', 'N/A')}")
+    print(f"  {_ll('Độ rộng', lang_mode):{max_w}s} {r.get('do_rong', 'N/A')}%")
+    print(f"  {_ll('ATR ratio', lang_mode):{max_w}s} {r.get('ty_le_atr', 'N/A')}")
     print()
     print(f"  Cấu trúc:        {c.get('trang_thai', 'N/A')} ({c.get('so_tru', '?')}/3 trụ)")
-    print(f"  Entropy:         {c.get('entropy', 'N/A')}")
+    print(f"  {_ll('Entropy', lang_mode):{max_w}s} {c.get('entropy', 'N/A')}")
     print()
-    print(f"  Cảnh báo sớm:    {ew.get('cap_do', 'N/A')} ({ew.get('diem', 0)}đ)")
+    print(f"  {_ll('Cảnh báo sớm', lang_mode):{max_w}s} {ew.get('cap_do', 'N/A')} ({ew.get('diem', 0)}đ)")
     for cb in ew.get("canh_bao", []):
         print(f"    • {cb}")
     print("=" * 55)

@@ -46,15 +46,29 @@ def _calc_adx(df, period=14):
     adx = dx.rolling(period).mean()
     return adx
 
-def detect_regime(target_date=None):
+def _ll(label: str, lang_mode: str = "compact") -> str:
+    """Localize label if mode is not compact. Lazy import avoids circular deps."""
+    if lang_mode == "compact":
+        return label
+    try:
+        from src.core.canonical_output_adapter import localize_label
+        return localize_label(label, lang_mode)
+    except Exception:
+        return label
+
+
+def detect_regime(target_date=None, lang_mode: str = "compact"):
     """
     Institutional Regime Engine v2.0 (Score-Based):
     Calculates Regime Score (RS) = 0.5*B + 0.3*T + 0.2*V
     Includes [LOCK 2] ATR Shock Filter.
     Supports Point-in-time accuracy via target_date.
+    lang_mode: 'compact' (EN), 'annotated' (EN+VI), 'full' (VI only), 'auto'
     """
+    label_replay = _ll("REGIME ENGINE", lang_mode)
+    label_sub = _ll("HISTORICAL REPLAY" if target_date else "LIVE ANALYSIS", lang_mode)
     print("\n" + "="*50)
-    print(f"REGIME ENGINE v2.0: {'HISTORICAL REPLAY' if target_date else 'LIVE ANALYSIS'}")
+    print(f"{label_replay} v2.0: {label_sub}")
     print("="*50)
 
     # 1. B-Score (Breadth): 50% Weight
@@ -168,7 +182,10 @@ def detect_regime(target_date=None):
     # [LOCK 2] ATR Shock: applied to raw score before smoothing so the EMA sees the shock signal
     if atr_today > 1.5 * atr_avg:
         flag = ">>" if sys.platform == "win32" else "\u26a0\ufe0f"
-        print(f"{flag} [LOCK 2] ATR SHOCK DETECTED (Today: {atr_today:.2f} vs Avg: {atr_avg:.2f}). Reducing Raw Score.")
+        label_shock = _ll("[LOCK 2] ATR SHOCK DETECTED", lang_mode)
+        label_today = _ll("Today:", lang_mode)
+        label_avg = _ll("vs Avg:", lang_mode)
+        print(f"{flag} {label_shock} ({label_today} {atr_today:.2f} {label_avg} {atr_avg:.2f}).")
         regime_score_raw *= 0.7
 
     # 5. Adaptive EMA Smoothing
@@ -272,14 +289,25 @@ def detect_regime(target_date=None):
         }
     }
 
-    print(f"B-Score (continuous): {b_score:.4f} ({breadth_pct:.1f}%)")
-    print(f"T-Score:              {t_score:.4f} (VNINDEX {verdict['details']['vnindex_vs_ma200']}, ADX: {verdict['details']['adx']})")
-    print(f"V-Score (continuous): {v_score:.4f} (ATR Ratio: {atr_ratio:.4f})")
-    print(f"Raw Score:            {regime_score_raw:.4f}")
-    print(f"EMA Alpha:            {ema_alpha:.4f}  |  Prev Smoothed: {prev_smoothed:.4f}")
+    # Localized labels for live analysis block
+    lb = _ll("B-Score (continuous)", lang_mode)
+    lt = _ll("T-Score", lang_mode)
+    lv = _ll("V-Score (continuous)", lang_mode)
+    lr = _ll("Raw Score", lang_mode)
+    le = _ll("EMA Alpha", lang_mode)
+    lp = _ll("Prev Smoothed", lang_mode)
+    ls = _ll("SMOOTHED REGIME SCORE", lang_mode)
+    # Compute dynamic column width for alignment
+    labels = [lb, lt, lv, lr]
+    max_w = max(len(l) for l in labels)
+    print(f"  {lb:{max_w}s} {b_score:.4f} ({breadth_pct:.1f}%)")
+    print(f"  {lt:{max_w}s} {t_score:.4f} (VNINDEX {verdict['details']['vnindex_vs_ma200']}, ADX: {verdict['details']['adx']})")
+    print(f"  {lv:{max_w}s} {v_score:.4f} (ATR Ratio: {atr_ratio:.4f})")
+    print(f"  {lr:{max_w}s} {regime_score_raw:.4f}")
+    print(f"  {le:{max_w}s} {ema_alpha:.4f}  |  {lp}: {prev_smoothed:.4f}")
     print("-" * 30)
     flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
-    print(f"{flag} SMOOTHED REGIME SCORE: {regime_score:.4f} -> {status}")
+    print(f"{flag} {ls}: {regime_score:.4f} -> {status}")
     print("="*50)
 
     return verdict

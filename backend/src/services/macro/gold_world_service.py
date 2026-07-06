@@ -4,7 +4,9 @@ Bổ sung Global Gold vào Gold Cognition Layer.
 Sanity guard: so sánh với rolling 30d median từ DB, cảnh báo nếu lệch >50%.
 """
 import sys
+import os
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -43,9 +45,24 @@ _NORM = Normalizer()
 
 logger = logging.getLogger(__name__)
 
+
+@contextmanager
+def _stderr_null():
+    """Temporarily redirect stderr to os.devnull to suppress yfinance internal prints."""
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+    old_fd = os.dup(2)
+    os.dup2(null_fd, 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_fd, 2)
+        os.close(null_fd)
+
+
 TICKER = "GC=F"
-GOLD_CACHE = {"price": None, "timestamp": 0, "conflicted": False}
+GOLD_CACHE = {"price": None, "timestamp": 0, "conflicted": False, "flat_line": False}
 CACHE_TTL = 300
+FLAT_LINE_WINDOW = 5  # number of consecutive identical values to signal flat line
 # Sanity bounds: historical gold has never gone outside 500-5000 USD/oz
 HARD_LOWER = 500.0
 HARD_UPPER = 5000.0
@@ -68,20 +85,72 @@ def _get_30d_median() -> Optional[float]:
         return None
 
 
+def _check_flat_line() -> bool:
+    """Detect flat time series: last N consecutive GOLD_XAU values are identical.
+    
+    When DB Fallback repeats the same value across weekends/holidays,
+    the time series appears flat. This flag alerts downstream algorithms
+    (EWMA, Z-Score) that volatility is artificially suppressed.
+    """
+    try:
+        with get_connection() as conn:
+            df = pd.read_sql(
+                f"SELECT value FROM macro_history WHERE variable = 'GOLD_XAU' ORDER BY date DESC LIMIT {FLAT_LINE_WINDOW}",
+                conn,
+            )
+        if len(df) < FLAT_LINE_WINDOW:
+            return False
+        vals = df["value"].tolist()
+        return len(set(vals)) == 1  # all identical
+    except Exception:
+        return False
+
+
+def _gold_fallback_from_db() -> Optional[float]:
+    """Fallback: last known GOLD_XAU from DB when yfinance fails.
+    
+    NOTE: This value is NOT inserted into macro_history. The Dual-Z EWMA
+    pipeline reads macro_history directly and never sees repeated fallback
+    values, so flat-line noise does NOT reach the Z-score computation.
+    The flat_line flag in GOLD_CACHE is for downstream consumers that
+    might compute rolling statistics on the runtime value.
+    """
+    try:
+        with get_connection() as conn:
+            df = pd.read_sql(
+                "SELECT value, date FROM macro_history WHERE variable = 'GOLD_XAU' ORDER BY date DESC LIMIT 1",
+                conn,
+            )
+        if not df.empty:
+            val = float(df["value"].iloc[0])
+            dt = df["date"].iloc[0]
+            logger.info(f"Gold fallback from DB: {val} (date={dt})")
+            GOLD_CACHE["flat_line"] = _check_flat_line()
+            if GOLD_CACHE["flat_line"]:
+                logger.warning(f"Gold time series FLAT: last {FLAT_LINE_WINDOW} values identical ({val})")
+            return val
+    except Exception as e:
+        logger.warning(f"Gold DB fallback failed: {e}")
+    return None
+
+
 def fetch_world_gold_live() -> Optional[float]:
-    """Fetch XAUUSD (GC=F) latest close via yfinance. Returns price or None."""
+    """Fetch XAUUSD (GC=F) latest close via yfinance. Falls back to DB on failure."""
     now = int(datetime.now().timestamp())
     if GOLD_CACHE["price"] is not None and now - GOLD_CACHE["timestamp"] < CACHE_TTL:
         return GOLD_CACHE["price"]
     try:
-        gold = yf.Ticker(TICKER)
-        data = gold.history(period="1d")
+        with _stderr_null():
+            gold = yf.Ticker(TICKER)
+            data = gold.history(period="1d")
         if data.empty:
-            return None
+            logger.warning("Gold yfinance empty, falling back to DB")
+            return _gold_fallback_from_db()
         latest = float(data.iloc[-1]["Close"])
         GOLD_CACHE["price"] = latest
         GOLD_CACHE["timestamp"] = now
         GOLD_CACHE["conflicted"] = False
+        GOLD_CACHE["flat_line"] = False  # live data resets the flag
 
         # Sanity check
         if latest < HARD_LOWER or latest > HARD_UPPER:
@@ -100,12 +169,17 @@ def fetch_world_gold_live() -> Optional[float]:
         return latest
     except Exception as e:
         logger.error(f"World gold fetch failed: {e}")
-        return None
+        return _gold_fallback_from_db()
 
 
 def is_gold_conflicted() -> bool:
     """Kiểm tra xem giá vàng hiện tại có bị đánh dấu CONFLICTED không."""
     return GOLD_CACHE.get("conflicted", False)
+
+
+def is_gold_flat_line() -> bool:
+    """True if gold time series has flat-lined (repeated identical values)."""
+    return GOLD_CACHE.get("flat_line", False)
 
 
 def fetch_world_gold_history(period: str = "1y") -> pd.DataFrame:
