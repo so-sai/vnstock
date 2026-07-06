@@ -89,6 +89,16 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     df_all['avg_vol_20d'] = g['volume'].transform(lambda x: x.rolling(20).mean())
     
     latest_df = df_all[df_all['date'] == current_date].copy()
+
+    # ── Fallback: nếu chưa có dữ liệu cho current_date → dùng ngày gần nhất ──
+    if latest_df.empty:
+        available_dates = sorted(df_all['date'].unique())
+        past_dates = [d for d in available_dates if d <= current_date]
+        if past_dates:
+            fallback_date = past_dates[-1]
+            latest_df = df_all[df_all['date'] == fallback_date].copy()
+            print(f"  [REGIME] No data for {current_date.date()} — fallback to {fallback_date.date()} for breadth")
+
     liquid_df = latest_df[latest_df['avg_vol_20d'] >= 50000]
     
     breadth_pct = (len(liquid_df[liquid_df['close'] > liquid_df['ma20']]) / len(liquid_df) * 100) if not liquid_df.empty else 0
