@@ -13,9 +13,10 @@ Nguyên tắc:
   - Không có hàm nào trong pipeline được tự ý gọi detect_regime() nữa
 """
 
-import sys, json
-from pathlib import Path
+import json
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 
@@ -180,6 +181,50 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
             "nguon_nhom_anh_huong": "live (group_influence_engine)",
         },
     }
+
+    # ── Bước 6: Delta Divergence Index (DDI) ──
+    from src.alpha.delta_divergence import DeltaDivergenceIndex
+    try:
+        ddi = DeltaDivergenceIndex().calculate(anh_chup)
+    except Exception:
+        ddi = {"delta_sa": 0.0, "action_filter": "pass", "healing_illusion": False}
+    anh_chup["delta_divergence"] = ddi
+
+    # ── Bước 7: Atomic Parameter Identity (params_hash) ──
+    from src.alpha.delta_divergence import build_params_registry
+    from src.utils.params_hash import make_params_hash
+    try:
+        params_reg = build_params_registry()
+        p_hash = make_params_hash(params_reg)
+    except Exception:
+        params_reg = {}
+        p_hash = "unresolved"
+    anh_chup["params_registry"] = params_reg
+    anh_chup["params_hash"] = p_hash
+
+    # ── Ghi vào snapshot_index.json ──
+    try:
+        out_dir = Path(src.config.DATA_DIR) / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        idx_path = out_dir / "snapshot_index.json"
+        idx_entry = {
+            "timestamp": anh_chup.get("thoi_gian_tao"),
+            "ngay": target_date,
+            "params_hash": p_hash,
+            "regime": anh_chup.get("regime", {}).get("trang_thai"),
+            "diem_so": anh_chup.get("regime", {}).get("diem_so"),
+            "cau_truc": anh_chup.get("cau_truc", {}).get("trang_thai"),
+            "delta_sa": ddi.get("delta_sa"),
+            "action_filter": ddi.get("action_filter"),
+        }
+        if idx_path.exists():
+            idx_data = json.loads(idx_path.read_text(encoding="utf-8"))
+        else:
+            idx_data = []
+        idx_data.append(idx_entry)
+        idx_path.write_text(json.dumps(idx_data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
     return anh_chup
 

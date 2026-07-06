@@ -13,9 +13,11 @@ Nguyên tắc dữ liệu:
   - Không đọc regime từ file cache, không recompute regime giữa chừng
 """
 
-import sys, os, json, logging
-from pathlib import Path
+import json
+import logging
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,6 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import src.config
-
 
 QUYET_DINH = ["THAM GIA FULL", "THAM GIA", "THAM GIA DO", "QUAN SAT", "GIAM RUI RO", "DUNG NGOAI"]
 
@@ -76,8 +77,9 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
 
     # ---- Bước 0: Data Quality Guard ----
     try:
-        from src.database.db_core import get_connection
         import pandas as pd
+
+        from src.database.db_core import get_connection
         with get_connection() as _conn:
             count_liquid = pd.read_sql(
                 "SELECT COUNT(DISTINCT symbol) as cnt FROM daily_ohlcv "
@@ -292,6 +294,32 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
                 ket_qua["lý_do_chặn"] = None
                 ket_qua["he_so_giam_ty_trong"] = 1.0
 
+    # ---- Bước 4c: Delta Divergence Index (DDI) Gate ----
+    ddi = anh_chup.get("delta_divergence", {})
+    ddi_filter = ddi.get("action_filter", "pass")
+    ddi_healing = ddi.get("healing_illusion", False)
+    if ddi_filter == "block" or ddi_healing:
+        current = ket_qua.get("quyet_dinh", "")
+        if current in ("THAM GIA FULL", "THAM GIA", "THAM GIA DO"):
+            ket_qua["quyet_dinh"] = "QUAN SAT"
+            ket_qua["ly_do"] = [
+                "DDI Gate: Δ_SA dương kéo dài — stress vượt adaptation",
+                "healing illusion detected — chờ xác nhận từ Validation Tier",
+                "hạ mức hành động xuống QUAN SAT",
+            ]
+            ket_qua["bi_chặn_bởi_bảo_vệ"] = True
+            ket_qua["lý_do_chặn"] = f"DDI Δ_SA={ddi.get('delta_sa')} > threshold — healing illusion"
+    elif ddi_filter == "caution":
+        current = ket_qua.get("quyet_dinh", "")
+        if current == "THAM GIA FULL":
+            ket_qua["quyet_dinh"] = "THAM GIA DO"
+            ket_qua["ly_do"] = [
+                "DDI Gate caution: Δ_SA dương nhẹ",
+                "stress tăng nhanh hơn năng lực hấp thụ — giảm tỷ trọng",
+                "tham gia thăm dò — chờ tín hiệu xác nhận",
+            ]
+    ket_qua["delta_divergence"] = ddi
+
     # ---- Bước 5: Recovery Override + Structural Healing ----
     # Hệ thống đang DỪNG NGOÀI → kiểm tra khả năng mở khóa
     if ket_qua.get("quyet_dinh") == "DUNG NGOAI":
@@ -379,8 +407,9 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
             retest_confirmed = False
             retest_log = ""
             try:
-                from src.database.db_core import get_connection
                 import pandas as pd
+
+                from src.database.db_core import get_connection
                 with get_connection() as _rc:
                     prev_dates = pd.read_sql(
                         "SELECT DISTINCT date FROM daily_ohlcv WHERE date<? AND symbol='VNINDEX' ORDER BY date DESC LIMIT 2",
@@ -390,17 +419,17 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
                     t1, t2 = prev_dates[0], prev_dates[1]
                     with get_connection() as _rc2:
                         vnindex_data = pd.read_sql(
-                            f"SELECT date, close, volume FROM daily_ohlcv "
-                            f"WHERE symbol='VNINDEX' AND date IN (?, ?, ?) ORDER BY date",
+                            "SELECT date, close, volume FROM daily_ohlcv "
+                            "WHERE symbol='VNINDEX' AND date IN (?, ?, ?) ORDER BY date",
                             _rc2, params=(target_date, t1, t2)
                         )
                     if len(vnindex_data) >= 3:
                         c0, c1, c2 = vnindex_data['close'].values
                         v1 = vnindex_data.iloc[1]['volume']
                         vol_hist = pd.read_sql(
-                            f"SELECT date, SUM(volume) as total FROM daily_ohlcv "
-                            f"WHERE date<? AND date>=date(?, '-27 days') AND symbol='VNINDEX' "
-                            f"GROUP BY date ORDER BY date",
+                            "SELECT date, SUM(volume) as total FROM daily_ohlcv "
+                            "WHERE date<? AND date>=date(?, '-27 days') AND symbol='VNINDEX' "
+                            "GROUP BY date ORDER BY date",
                             _rc2, params=(target_date, target_date,)
                         )
                         v_ma20 = float(vol_hist['total'].tail(20).mean()) if len(vol_hist) >= 5 else 0
@@ -456,6 +485,10 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
         except Exception:
             pass
 
+    # ---- Gắn params_hash vào kết quả ----
+    anh_chup = locals().get("anh_chup", {})
+    ket_qua["params_hash"] = anh_chup.get("params_hash", "unresolved")
+
     # ---- Lưu file ----
     out_dir = Path(src.config.DATA_DIR) / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -473,7 +506,7 @@ def in_bao_cao(kq: dict):
     print("=" * 60)
     print(f"  {icon} Quyết định: {kq.get('quyet_dinh', 'N/A')}")
     if kq.get("bi_chặn_bởi_bảo_vệ"):
-        print(f"      ↳ Bị chặn bởi lớp bảo vệ")
+        print("      ↳ Bị chặn bởi lớp bảo vệ")
     print()
     for i, ld in enumerate(kq.get("ly_do", []), 1):
         print(f"    {i}. {ld}")
@@ -492,7 +525,7 @@ def in_bao_cao(kq: dict):
     print(f"  Entropy:      {ct.get('entropy', 'N/A')}")
     rl = kq.get("recovery_log", [])
     if rl:
-        print(f"  Recovery:")
+        print("  Recovery:")
         for line in rl:
             print(f"    {line}")
     hs = kq.get("healing_status")
@@ -536,16 +569,16 @@ def in_bao_cao(kq: dict):
         from src.services.macro.interbank_seeder import _is_sbv_alert_active
         if _is_sbv_alert_active():
             print(f"  {'='*50}")
-            print(f"  ⚠ [ACTION REQUIRED]: CẤU TRÚC SBV THAY ĐỔI — CẢM BIẾN MÙ.")
-            print(f"  Dữ liệu gốc lưu tại: data/alerts/")
-            print(f"  Chạy: python ptck.py sbv-update")
+            print("  ⚠ [ACTION REQUIRED]: CẤU TRÚC SBV THAY ĐỔI — CẢM BIẾN MÙ.")
+            print("  Dữ liệu gốc lưu tại: data/alerts/")
+            print("  Chạy: python ptck.py sbv-update")
             print(f"  {'='*50}")
     except Exception:
         pass
 
     ss = kq.get("sensor_status")
     if ss == "CRITICAL_SBV_CHANGED":
-        print(f"  ⚠ SENSOR: [CRITICAL CONTROL] BACKEND SENSOR CRASHED — DỪNG NGOÀI DO LỖI CẢM BIẾN, KHÔNG PHẢI TÍN HIỆU THỊ TRƯỜNG")
+        print("  ⚠ SENSOR: [CRITICAL CONTROL] BACKEND SENSOR CRASHED — DỪNG NGOÀI DO LỖI CẢM BIẾN, KHÔNG PHẢI TÍN HIỆU THỊ TRƯỜNG")
 
     đg = kq.get("độ_tin_cậy_sau_hiệu_chỉnh", {})
     if đg:
