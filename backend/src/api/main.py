@@ -1,8 +1,9 @@
-import sys
-import math
 import json
-import numpy as np
+import math
+import sys
 from pathlib import Path
+
+import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -59,10 +60,31 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.core.canonical_output_adapter import localize_output
-from src.api.routes import macro, screener, models, breadth, portfolio, backtest, xray, replay, intelligence, flow, watchlist, market_state, gold, silver, holdings, telemetry, weekly, search, system
 from src.api import ipo_signal_api
-from src.api.routes import operations
+from src.api.routes import (
+    backtest,
+    breadth,
+    flow,
+    gold,
+    holdings,
+    intelligence,
+    macro,
+    market_state,
+    models,
+    operations,
+    portfolio,
+    replay,
+    screener,
+    search,
+    silver,
+    snapshot,
+    system,
+    telemetry,
+    watchlist,
+    weekly,
+    xray,
+)
+from src.core.canonical_output_adapter import localize_output
 
 app = FastAPI(title="PTCK VNSTOCK API", version="1.5.2", default_response_class=_NanSafeJSONResponse)
 
@@ -104,10 +126,12 @@ app.include_router(weekly.router, prefix="/api/v1/weekly", tags=["Weekly Cogniti
 app.include_router(operations.router, prefix="/api/operations", tags=["Operations - Tactical Console"])
 app.include_router(search.router, prefix="/api", tags=["Search - FTS5"])
 app.include_router(system.router, prefix="/api/system", tags=["System - Session Info"])
+app.include_router(snapshot.router, prefix="/api/v1/snapshot", tags=["DDI Gate - Delta Divergence Index"])
 
 
 import time
 from collections import deque
+
 from fastapi import Request
 from starlette.responses import JSONResponse
 
@@ -267,6 +291,9 @@ async def root():
             "/api/v1/telemetry/engines",
             "/api/v1/telemetry/engines/refresh",
             "/api/v1/weekly/",
+            "/api/v1/snapshot/ddi",
+            "/api/v1/snapshot/index",
+            "/api/v1/snapshot/params",
         ],
     })
 
@@ -282,6 +309,7 @@ if frontend_dist.exists():
 
 # CAGL boot-time verification (set CAGL_MODE=WARN / STRICT / SHADOW to enable)
 import os as _os
+
 _cagl_mode = _os.environ.get("CAGL_MODE", "").upper()
 if _cagl_mode in ("SHADOW", "WARN", "STRICT"):
     try:

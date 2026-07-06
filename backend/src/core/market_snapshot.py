@@ -269,4 +269,22 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     print(f"  {_ll('Cảnh báo sớm', lang_mode):{max_w}s} {ew.get('cap_do', 'N/A')} ({ew.get('diem', 0)}đ)")
     for cb in ew.get("canh_bao", []):
         print(f"    • {cb}")
+
+    # DDI
+    ddi = anh_chup.get("delta_divergence", {})
+    if ddi:
+        ddi_icon = {"pass": "🟢", "caution": "🟡", "block": "🔴"}.get(ddi.get("action_filter"), "⚪")
+        print()
+        print(f"  DDI:              {ddi_icon} Δ_SA={ddi.get('delta_sa', 'N/A')}  "
+              f"({ddi.get('action_filter', 'N/A')})")
+        print(f"    dS/dt={ddi.get('dS_dt', 'N/A')}  AC_lat={ddi.get('ac_latency', 'N/A')}  "
+              f"α={ddi.get('alpha_regime', 'N/A')}")
+        if ddi.get("healing_illusion"):
+            print("    ⚠ HEALING ILLUSION — stress vượt adaptation")
+
+    # params_hash
+    p_hash = anh_chup.get("params_hash")
+    if p_hash:
+        print(f"  Params Hash:      {p_hash}")
+
     print("=" * 55)

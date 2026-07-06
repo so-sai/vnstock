@@ -162,8 +162,20 @@ entrypoints:
 
   # ── Snapshot ──────────────────────────────────────────
   snapshot:
-    description: "Ảnh chụp thị trường duy nhất (regime + cấu trúc + cảnh báo)"
+    description: "Ảnh chụp thị trường duy nhất (regime + cấu trúc + cảnh báo + DDI + params_hash)"
     cli: "python ptck.py snapshot"
+    category: market
+
+  # ── Delta Divergence Index ────────────────────────────
+  ddi_check:
+    description: "Delta Divergence Index — Δ_SA = dS/dt - α·AC_latency, healilng illusion detector"
+    cli: "python ptck.py ddi"
+    category: decision
+
+  # ── Snapshot Index ────────────────────────────────────
+  snapshot_index:
+    description: "Xem lịch sử snapshot_index.json — params_hash, regime, Δ_SA theo thời gian"
+    cli: "python ptck.py snapshot-index [--limit N]"
     category: market
 
   # ── Index Decomposition ──────────────────────────────────

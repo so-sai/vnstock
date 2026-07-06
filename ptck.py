@@ -479,6 +479,54 @@ def cmd_snapshot(args):
     in_anh_chup(anh_chup, lang_mode=_VERBOSE_LANG)
 
 
+def cmd_ddi(args):
+    """Delta Divergence Index — Δ_SA = dS/dt - α·AC_latency."""
+    from src.core.market_snapshot import tao_anh_chup
+    from src.alpha.delta_divergence import DeltaDivergenceIndex
+    anh_chup = tao_anh_chup(lang_mode=_VERBOSE_LANG)
+    ddi = anh_chup.get("delta_divergence", {})
+    icon = {"pass": "🟢", "caution": "🟡", "block": "🔴"}.get(ddi.get("action_filter"), "⚪")
+    print("\n" + "=" * 55)
+    print("  DELTA DIVERGENCE INDEX (DDI)")
+    print("=" * 55)
+    print(f"  {icon} Δ_SA:          {ddi.get('delta_sa', 'N/A')}")
+    print(f"    Action Filter:   {ddi.get('action_filter', 'N/A')}")
+    print(f"    dS/dt:           {ddi.get('dS_dt', 'N/A')}")
+    print(f"    AC Latency:      {ddi.get('ac_latency', 'N/A')}")
+    print(f"    α ({ddi.get('regime', 'N/A')}): {ddi.get('alpha_regime', 'N/A')}")
+    if ddi.get("healing_illusion"):
+        print(f"    ⚠ HEALING ILLUSION — stress vượt adaptation")
+    p_hash = anh_chup.get("params_hash", "unresolved")
+    print(f"  Params Hash:      {p_hash}")
+    print("=" * 55)
+
+
+def cmd_snapshot_index(args):
+    """Xem lịch sử snapshot_index.json."""
+    import json
+    from src.config import DATA_DIR
+    fp = Path(DATA_DIR) / "output" / "snapshot_index.json"
+    if not fp.exists():
+        print("  ⚠ snapshot_index.json chưa tồn tại. Chạy snapshot trước.")
+        return
+    idx = json.loads(fp.read_text(encoding="utf-8"))
+    if not idx:
+        print("  snapshot_index.json rỗng.")
+        return
+    limit = args.limit if hasattr(args, "limit") else 20
+    recent = idx[-limit:]
+    print(f"\n{'='*75}")
+    print(f"  SNAPSHOT INDEX — {len(idx)} entries (hiển thị {len(recent)} gần nhất)")
+    print(f"{'='*75}")
+    print(f"  {'Ngày':<12} {'Hash':<17} {'Regime':<10} {'Δ_SA':>7} {'Filter':<8}")
+    print(f"  {'-'*12} {'-'*17} {'-'*10} {'-'*7} {'-'*8}")
+    for e in recent:
+        print(f"  {e.get('ngay',''):<12} {e.get('params_hash',''):<17} "
+              f"{e.get('regime',''):<10} {e.get('delta_sa',0):>7.4f} "
+              f"{e.get('action_filter',''):<8}")
+    print(f"{'='*75}")
+
+
 def cmd_confidence(args):
     """Bộ tự đánh giá độ tin cậy của quyết định."""
     from src.engine.confidence_layer import đánh_giá_độ_tin_cậy, in_báo_cáo
@@ -1154,6 +1202,15 @@ def main():
     # snapshot
     p_snap = sub.add_parser("snapshot", parents=[lang_parent], help="Ảnh chụp thị trường duy nhất")
     p_snap.set_defaults(func=cmd_snapshot)
+
+    # ddi
+    p_ddi = sub.add_parser("ddi", parents=[lang_parent], help="Delta Divergence Index — Δ_SA filter")
+    p_ddi.set_defaults(func=cmd_ddi)
+
+    # snapshot-index
+    p_si = sub.add_parser("snapshot-index", help="Xem lịch sử snapshot_index.json")
+    p_si.add_argument("--limit", type=int, default=20, help="Số dòng hiển thị (mặc định 20)")
+    p_si.set_defaults(func=cmd_snapshot_index)
 
     # confidence
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")
