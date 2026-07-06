@@ -686,36 +686,96 @@ def cmd_sbv_update(args):
         except Exception:
             print(f"  [3b] ⚠ Lỗi parser — cần fix thủ công")
 
-    # ── Step 4: Clear alert + crisis cooldown + thông báo ──
+    # ── Step 4: Clear alert + crisis cooldown — phân loại tự động theo crisis_marker ──
     print("\n  [4/5] Nghiệm thu — giải phóng khóa...")
     _clear_sbv_alert()
+
     cooldown_path = root / "backend" / "data" / "probe_cache" / "crisis_cooldown.json"
     marker = None
+    cooldown_state = {}
     if cooldown_path.exists():
         try:
             import json
-            st = json.loads(cooldown_path.read_text(encoding="utf-8"))
-            marker = st.get("crisis_marker", "")
+            cooldown_state = json.loads(cooldown_path.read_text(encoding="utf-8"))
+            marker = cooldown_state.get("crisis_marker", "")
         except Exception:
             pass
-    if cooldown_path.exists():
-        if marker == "CRISIS_REAL":
-            print("  ⚠ THẬN TRỌNG: crisis_cooldown.json có marker CRISIS_REAL —")
-            print("    đây là khủng hoảng thị trường thật, không phải lỗi file.")
-            print("    Chỉ clear nếu bạn xác nhận ON đã dưới 15% trong 3+ phiên.")
-            print("    Gỡ bỏ file: python ptck.py clear-crisis")
-        elif marker in ("FORCED_SAFETY",):
-            print("  ℹ crisis_cooldown.json có marker FORCED_SAFETY —")
-            print("    được tạo do mất file + sensor cảnh báo. Có thể clear an toàn.")
-        cooldown_path.unlink()
-        print("  ✅ crisis_cooldown.json cleared.")
+
+    CRITICAL_MARKERS = {"CRISIS_REAL"}
+    AUTO_CLEAR_MARKERS = {"FORCED_SAFETY", "CORRUPTED_FALLBACK"}
+    marker = marker or ""
+
+    if marker in CRITICAL_MARKERS and not getattr(args, 'sbv_force', False):
+        # ── CRISIS_REAL: cảnh báo đỏ, yêu cầu --force, sensor re-scan ──
+        print("  ⚠" * 15)
+        print("  ⚠  CRITICAL_WARNING: crisis_marker = CRISIS_REAL")
+        print("  ⚠  Đây là khủng hoảng thanh khoản THỰC TẾ (ON >= 15%)")
+        print("  ⚠  Không phải lỗi file — không clear tự động.")
+        print("  ⚠" * 15)
+        print()
+        print("  Hành động bắt buộc:")
+        print("    [1] Xác nhận thủ công: python ptck.py sbv-update --force")
+        print("    [2] Kiểm tra ON rate thực tế từ SBV")
+        print("    [3] Sensor re-scan tự động khi clear — nếu ON >= 15%,")
+        print("        hệ thống lập tức KHÓA LẠI (crisis_active = True).")
+        print()
+        # Sensor re-scan ngay lập tức
+        try:
+            from src.engine.partial_data_entropy import update_crisis_cooldown
+            current_on = cooldown_state.get("last_on", 0.0) or 0.0
+            if current_on >= 15.0:
+                update_crisis_cooldown(current_on)
+                print("  ⚠ Sensor re-scan: ON=%.1f%% >= 15%% — KHÓA LẠI." % current_on)
+            else:
+                print("  ℹ Sensor re-scan: ON=%.1f%% < 15%% — an toàn." % current_on)
+        except Exception:
+            pass
+        print("  Chỉ clear: python ptck.py clear-crisis (nếu bạn chắc chắn ON < 15%)")
+        return
+
+    if marker in AUTO_CLEAR_MARKERS:
+        # ── FORCED_SAFETY / CORRUPTED_FALLBACK: tự động giải tỏa ──
+        if marker == "FORCED_SAFETY":
+            print("  ℹ crisis_marker = FORCED_SAFETY — mất file trong lúc căng thẳng.")
+            print("  → Tự động giải tỏa, tái tạo config sạch.")
+        elif marker == "CORRUPTED_FALLBACK":
+            print("  ℹ crisis_marker = CORRUPTED_FALLBACK — file hỏng cấu trúc.")
+            print("  → Ghi đè file rác bằng JSON hợp lệ (atomic os.replace()).")
+
+    # Xóa / ghi đè state file an toàn
+    if marker in AUTO_CLEAR_MARKERS or marker not in CRITICAL_MARKERS:
+        if marker:
+            _clear_crisis_state(cooldown_path)
+        elif cooldown_path.exists():
+            _clear_crisis_state(cooldown_path)
+
     stress_path = root / "backend" / "data" / "probe_cache" / "micro_stress.json"
     if stress_path.exists():
         stress_path.unlink()
         print("  ✅ micro_stress.json cleared.")
+
     print("  ✅ Alert file cleared. Khóa vị thế 0.0 đã được giải phóng.")
     print("  Hệ thống sẽ lấy dữ liệu SBV mới ở lần refresh_interbank_rate() tiếp theo.")
     print("=" * 60)
+
+
+def _clear_crisis_state(cooldown_path):
+    """Giải tỏa crisis_cooldown.json — ghi đè state sạch thay vì xóa trơn.
+
+    FORCED_SAFETY:  tái tạo config sạch (crisis_active=False)
+    CORRUPTED_FALLBACK: ghi đè file rác = JSON hợp lệ (atomic os.replace())
+    """
+    import json
+    from src.engine.partial_data_entropy import _save_cooldown_state
+    fresh = {
+        "crisis_active": False,
+        "crisis_marker": "",
+        "consecutive_normal": 0,
+        "last_normal_date": "",
+        "last_crisis_date": "",
+    }
+    _save_cooldown_state(fresh)
+    print("  ✅ crisis_cooldown.json reset → clean state.")
 
 
 def cmd_data_quality(args):
@@ -1152,7 +1212,9 @@ def main():
     p_ccr.set_defaults(func=cmd_clear_crisis)
 
     # sbv-update
-    p_su = sub.add_parser("sbv-update", help="4-step recovery: fixtures → pytest → scrape → clear alert")
+    p_su = sub.add_parser("sbv-update", help="5-step recovery: backup → fixtures → pytest → scrape → clear alert")
+    p_su.add_argument("--force", action="store_true", dest="sbv_force",
+                      help="Bỏ qua CRITICAL_WARNING — clear CRISIS_REAL marker thủ công")
     p_su.set_defaults(func=cmd_sbv_update)
 
     # data-quality

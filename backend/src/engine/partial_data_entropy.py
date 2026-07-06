@@ -1,4 +1,4 @@
-import math, json, time, os, logging
+import math, json, time, os, logging, threading
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +29,44 @@ CALENDAR_PATH = PROJECT_ROOT / "backend" / "src" / "config" / "weekend_holidays.
 TELEMETRY_PATH = PROJECT_ROOT / "backend" / "data" / "telemetry" / "entropy_log.csv"
 TELEMETRY_FLAG = PROJECT_ROOT / "backend" / "data" / "config" / "telemetry_enabled"
 _STRESS_STATE_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "micro_stress.json"
+
+
+def _atomic_write_json(path: Path, data: dict, timeout: float = 5.0):
+    """Ghi JSON với atomic os.replace() + I/O timeout guard.
+
+    Trên Windows, nếu ổ đĩa có bad sector vật lý, write_text() có thể treo
+    vô thời hạn. Giải pháp: chạy I/O trong daemon thread với timeout.
+
+    Nếu timeout → IOError (gọi xử lý fallback), thread orphan tự hủy
+    khi process exit. os.replace() là pure metadata (cùng volume) nên
+    không treo kể cả khi dest nằm trên bad sector.
+    """
+    tmp = path.with_suffix(".tmp")
+    result: list[Exception | None] = [None]
+    done = threading.Event()
+
+    def _write():
+        try:
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, path)
+        except Exception as e:
+            result[0] = e
+        finally:
+            done.set()
+
+    t = threading.Thread(target=_write, daemon=True)
+    t.start()
+    t.join(timeout)
+
+    if not done.is_set():
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise IOError(f"I/O timeout ({timeout}s) — possible bad sector on {path}")
+
+    if result[0] is not None:
+        raise result[0]
 
 
 def _read_calendar_safe() -> list[str]:
@@ -81,9 +119,7 @@ def _load_stress_state() -> dict:
 
 def _save_stress_state(state: dict):
     _STRESS_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _STRESS_STATE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, _STRESS_STATE_PATH)
+    _atomic_write_json(_STRESS_STATE_PATH, state)
 
 
 def compute_temporal_penalty(
@@ -158,9 +194,7 @@ def _load_cooldown_state(current_on: float = 0.0, z_fast: float = 0.0) -> dict:
 
 def _save_cooldown_state(state: dict):
     _COOLDOWN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _COOLDOWN_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, _COOLDOWN_PATH)
+    _atomic_write_json(_COOLDOWN_PATH, state)
 
 
 def update_crisis_cooldown(current_on: float, z_fast: float = 0.0):
