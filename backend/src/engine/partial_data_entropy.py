@@ -1,4 +1,4 @@
-import math, json, time, os, logging, threading
+import math, json, time, os, logging, threading, hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -30,47 +30,103 @@ TELEMETRY_PATH = PROJECT_ROOT / "backend" / "data" / "telemetry" / "entropy_log.
 TELEMETRY_FLAG = PROJECT_ROOT / "backend" / "data" / "config" / "telemetry_enabled"
 _STRESS_STATE_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "micro_stress.json"
 
-# ── I/O Health heartbeat ──
-_IO_HEALTH_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / ".io_healthy"
-_IO_HEALTH_MAX_AGE = 24  # hours — quá hạn → I/O bus đang chết
+# ── I/O Health — Inline Heartbeat (nhất thể hóa nhịp đập vào payload) ──
+# Không dùng file .io_healthy riêng — heartbeat nằm trong crisis_cooldown.json
+# để triệt tiêu rủi ro bất đối xứng sector giữa file chỉ dấu và file cấu hình.
+_INLINE_HEARTBEAT_MAX_AGE = 10.0       # seconds — quá hạn → OS write cache nghi ngờ
+_CROSS_SESSION_HEARTBEAT_MAX_AGE = 3600.0  # seconds (1h) — cross-session stale threshold
+
+# ── Half-Open Circuit Probe ──
+_PROBE_COOLDOWN = 3600.0  # seconds — 60 phút giữa các lần probe
+_PROBE_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / ".io_probe"
+_last_probe_time: float = 0.0
 
 # ── RAM buffer thuần túy — không chạm đĩa khi circuit open ──
 _virtual_ram_storage: dict[str, str] = {}
 
 
-def _mark_io_healthy():
-    """Ghi timestamp vào heartbeat file sau mỗi I/O thành công."""
+def _inline_heartbeat_timestamp() -> float:
+    """Đọc io_heartbeat_timestamp từ payload crisis_cooldown.json."""
     try:
-        _IO_HEALTH_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _IO_HEALTH_PATH.write_text(str(time.time()), encoding="utf-8")
+        data = json.loads(_COOLDOWN_PATH.read_text(encoding="utf-8"))
+        return float(data.get("io_heartbeat_timestamp", 0.0))
     except Exception:
-        pass
+        return 0.0
 
 
-def _is_io_healthy() -> bool:
-    """Kiểm tra heartbeat — nếu mất hoặc quá cũ → I/O bus đang chết.
+def _inline_heartbeat_is_fresh(max_age: float = _INLINE_HEARTBEAT_MAX_AGE) -> bool:
+    """Kiểm tra nhịp đập nhúng trong payload.
 
-    Write-only failure mode: nếu ghi thất bại nhưng đọc vẫn OK,
-    heartbeat file không được cập nhật → _is_io_healthy() trả về False,
-    buộc FORCED_SAFETY kích hoạt bất kể file cooldown cũ có nội dung gì.
+    Nếu timestamp trong file quá cũ (> max_age) so với thời gian hiện tại,
+    kết luận I/O bus đã chết một chiều (write-only dead).
     """
-    if not _IO_HEALTH_PATH.exists():
+    ts = _inline_heartbeat_timestamp()
+    if ts == 0.0:
         return False
-    try:
-        age = time.time() - float(_IO_HEALTH_PATH.read_text(encoding="utf-8"))
-        return age < _IO_HEALTH_MAX_AGE * 3600
-    except (ValueError, OSError):
+    age = time.time() - ts
+    return age < max_age
+
+
+def _inline_heartbeat_set(state: dict) -> dict:
+    """Nhúng io_heartbeat_timestamp vào state trước khi ghi."""
+    state["io_heartbeat_timestamp"] = time.time()
+    return state
+
+
+def _probe_disk_health() -> bool:
+    """Half-Open Circuit Probe: ghi 1-byte, đọc lại, verify hash.
+
+    Chỉ chạy tối đa 1 lần mỗi _PROBE_COOLDOWN giây.
+    Nếu ghi thành công + đọc khớp → đĩa đã phục hồi.
+    Nếu timeout hoặc hash mismatch → giữ nguyên FORCED_SAFETY.
+    """
+    global _last_probe_time
+    now = time.time()
+    if now - _last_probe_time < _PROBE_COOLDOWN:
+        return False  # chưa đến lúc probe lại
+
+    _last_probe_time = now
+    probe_data = b"\x00"
+    expected_hash = hashlib.sha256(probe_data).hexdigest()
+    done = threading.Event()
+    result: list[bool | Exception] = [False]
+
+    def _probe():
+        try:
+            _PROBE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _PROBE_PATH.write_bytes(probe_data)
+            # Không cần fsync trên probe — chỉ cần ghi + đọc + verify hash
+            readback = _PROBE_PATH.read_bytes()
+            actual_hash = hashlib.sha256(readback).hexdigest()
+            result[0] = (actual_hash == expected_hash)
+        except Exception:
+            result[0] = False
+        finally:
+            done.set()
+
+    t = threading.Thread(target=_probe, daemon=True)
+    t.start()
+    t.join(5.0)  # timeout 5 giây cho probe
+
+    if not done.is_set():
+        logger.warning("[PROBE] I/O probe timeout — circuit stays OPEN")
         return False
+
+    if result[0]:
+        logger.info("[PROBE] I/O probe SUCCESS — disk recovered, closing circuit")
+        return True
+
+    logger.warning("[PROBE] I/O probe FAILED — circuit remains OPEN")
+    return False
 
 
 def _atomic_write_json(path: Path, data: dict, timeout: float = 5.0):
-    """Ghi JSON với atomic os.replace() + I/O timeout guard.
+    """Ghi JSON với atomic os.replace() + I/O timeout guard + fsync.
 
-    - Thành công → _mark_io_healthy() cập nhật heartbeat
+    - Viết vào .tmp → os.replace (atomic, cùng volume) → os.fsync (chống OS write cache)
+    - Thành công → heartbeat được nhúng trong payload (không file riêng)
     - Thất bại (timeout/lỗi) → lưu vào _virtual_ram_storage (RAM thuần túy),
       raise IOError. Không ghi đè file rác, không fallback %TEMP%.
-      Lần chạy sau nếu I/O phục hồi, _mark_io_healthy() được gọi lại.
-      Nếu I/O không phục hồi, _is_io_healthy() false → FORCED_SAFETY.
     """
     tmp = path.with_suffix(".tmp")
     result: list[Exception | None] = [None]
@@ -78,8 +134,16 @@ def _atomic_write_json(path: Path, data: dict, timeout: float = 5.0):
 
     def _write():
         try:
-            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            payload = json.dumps(data, ensure_ascii=False)
+            tmp.write_text(payload, encoding="utf-8")
             os.replace(tmp, path)
+            # fsync: force OS write cache flush → physical disk
+            # Windows requires O_RDWR for fsync (O_RDONLY returns EBADF)
+            fd = os.open(str(path), os.O_RDWR)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
         except Exception as e:
             result[0] = e
         finally:
@@ -90,19 +154,12 @@ def _atomic_write_json(path: Path, data: dict, timeout: float = 5.0):
     t.join(timeout)
 
     if not done.is_set():
-        try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
         _virtual_ram_storage[str(path.absolute())] = json.dumps(data, ensure_ascii=False)
         raise IOError(f"I/O timeout ({timeout}s) — possible bad sector on {path}")
 
     if result[0] is not None:
         _virtual_ram_storage[str(path.absolute())] = json.dumps(data, ensure_ascii=False)
         raise result[0]
-
-    # Thành công: cập nhật heartbeat
-    _mark_io_healthy()
 
 
 def _read_calendar_safe() -> list[str]:
@@ -147,12 +204,13 @@ def hours_since_last_scrape(tenor: str | None = None) -> float:
 
 
 def _load_stress_state() -> dict:
-    # Nếu I/O bus chết, không tin dữ liệu đĩa
-    if not _is_io_healthy():
-        return {"consecutive_high": 0, "gate_active": True, "last_z": 99.9, "last_date": ""}
     key = str(_STRESS_STATE_PATH.absolute())
     if key in _virtual_ram_storage:
         return json.loads(_virtual_ram_storage[key])
+    # Nếu file tồn tại nhưng heartbeat chết → I/O write-only dead
+    if _STRESS_STATE_PATH.exists() and not _inline_heartbeat_is_fresh(_CROSS_SESSION_HEARTBEAT_MAX_AGE):
+        if not _probe_disk_health():
+            return {"consecutive_high": 0, "gate_active": True, "last_z": 99.9, "last_date": ""}
     try:
         return json.loads(_STRESS_STATE_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
@@ -161,6 +219,7 @@ def _load_stress_state() -> dict:
 
 def _save_stress_state(state: dict):
     _STRESS_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    state["io_heartbeat_timestamp"] = time.time()
     _atomic_write_json(_STRESS_STATE_PATH, state)
 
 
@@ -217,38 +276,49 @@ _COOLDOWN_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "crisis_coo
 
 
 def _load_cooldown_state(current_on: float = 0.0, z_fast: float = 0.0) -> dict:
-    # ── I/O Health check: nếu heartbeat chết → không tin file đĩa ──
-    if not _is_io_healthy():
-        logger.warning("[COOLDOWN] I/O heartbeat dead — FORCED_SAFETY regardless of file content")
-        return {"crisis_active": True, "crisis_marker": "FORCED_SAFETY",
-                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": ""}
-
     # ── Kiểm tra RAM buffer trước — dữ liệu từ phiên bị kẹt I/O ──
     key = str(_COOLDOWN_PATH.absolute())
     if key in _virtual_ram_storage:
         logger.info("[COOLDOWN] Reading from RAM buffer (I/O was dead last session)")
         return json.loads(_virtual_ram_storage[key])
 
+    # ── Nếu file tồn tại nhưng heartbeat trong payload quá cũ → I/O write-only dead ──
+    if _COOLDOWN_PATH.exists():
+        if not _inline_heartbeat_is_fresh(_CROSS_SESSION_HEARTBEAT_MAX_AGE):
+            if _probe_disk_health():
+                logger.info("[COOLDOWN] Half-open probe OK — disk recovered, closing circuit")
+            else:
+                logger.warning("[COOLDOWN] I/O heartbeat dead + probe failed — FORCED_SAFETY")
+                return {"crisis_active": True, "crisis_marker": "FORCED_SAFETY",
+                        "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": "",
+                        "io_heartbeat_timestamp": 0.0}
+
     try:
-        return json.loads(_COOLDOWN_PATH.read_text(encoding="utf-8"))
+        data = json.loads(_COOLDOWN_PATH.read_text(encoding="utf-8"))
+        # Đảm bảo heartbeat field tồn tại cho lần kiểm tra sau
+        data.setdefault("io_heartbeat_timestamp", time.time())
+        return data
     except FileNotFoundError:
         # Mất file → kiểm tra sensor thời gian thực trước khi fallback
         if current_on >= EARLY_WARNING_THRESHOLD or z_fast > Z_THRESHOLD:
             logger.warning("[COOLDOWN] File missing + ON=%.1f%% >= %.0f%% or Z=%.1f — FORCED_SAFETY",
                           current_on, EARLY_WARNING_THRESHOLD, z_fast)
             return {"crisis_active": True, "crisis_marker": "FORCED_SAFETY",
-                    "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": ""}
+                    "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": "",
+                    "io_heartbeat_timestamp": time.time()}
         return {"crisis_active": False, "crisis_marker": "",
-                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": ""}
+                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": "",
+                "io_heartbeat_timestamp": time.time()}
     except (json.JSONDecodeError, ValueError):
         logger.warning("[COOLDOWN] File hỏng — CORRUPTED_FALLBACK: crisis_active=True")
         return {"crisis_active": True, "crisis_marker": "CORRUPTED_FALLBACK",
-                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": ""}
+                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": "",
+                "io_heartbeat_timestamp": 0.0}
 
 
 def _save_cooldown_state(state: dict):
     _COOLDOWN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json(_COOLDOWN_PATH, state)
+    _atomic_write_json(_COOLDOWN_PATH, _inline_heartbeat_set(state))
 
 
 def update_crisis_cooldown(current_on: float, z_fast: float = 0.0):
