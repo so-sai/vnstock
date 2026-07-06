@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { swuc } from '../lib/swuc';
@@ -97,6 +97,8 @@ const DecisionStripV2: React.FC = () => {
   const [showRationale, setShowRationale] = useState(false);
   const [showAlternatives, setShowAlternatives] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const alertStartRef = useRef<number | null>(null);
+  const [alertSeverity, setAlertSeverity] = useState<'fresh' | 'stale' | 'muted' | null>(null);
 
   const { data, isLoading } = useQuery<DecisionVectorV2>({
     queryKey: ['decisionTensorV2'],
@@ -121,6 +123,22 @@ const DecisionStripV2: React.FC = () => {
     queryFn: () => api.get('/portfolio/observatory/decision-history?limit=10'),
     enabled: showHistory,
   });
+
+  // Adaptive Alert Decay: giảm cấp cảnh báo DDI theo thời gian
+  useEffect(() => {
+    if (!data?.ddi_data) { alertStartRef.current = null; setAlertSeverity(null); return; }
+    const isAlert = data.ddi_data.action_filter === 'block' || data.ddi_data.healing_illusion;
+    if (isAlert) {
+      if (alertStartRef.current === null) alertStartRef.current = Date.now();
+      const elapsed = (Date.now() - alertStartRef.current) / 60000;
+      if (elapsed > 120) setAlertSeverity('muted');
+      else if (elapsed > 30) setAlertSeverity('stale');
+      else setAlertSeverity('fresh');
+    } else {
+      alertStartRef.current = null;
+      setAlertSeverity(null);
+    }
+  }, [data?.ddi_data]);
 
   if (isLoading || !data) {
     return (
@@ -176,19 +194,25 @@ const DecisionStripV2: React.FC = () => {
 
         {data.ddi_data && (
           <div className={`flex items-center gap-1.5 px-3 py-3 border-l border-japandi-muted-clay/20`}>
-            <div className={`px-2 py-1 rounded text-[10px] font-bold font-mono border ${
+            <div className={`px-2 py-1 rounded text-[10px] font-bold font-mono border transition-opacity duration-700 ${
+              alertSeverity === 'muted' ? 'bg-zinc-100 text-zinc-400 border-zinc-200 opacity-40' :
+              alertSeverity === 'stale' ? 'bg-amber-100 text-amber-800 border-amber-300' :
               data.ddi_data.action_filter === 'block' ? 'bg-rose-100 text-rose-800 border-rose-300' :
               data.ddi_data.action_filter === 'caution' ? 'bg-amber-100 text-amber-800 border-amber-300' :
               'bg-emerald-100 text-emerald-800 border-emerald-300'
             }`}>
               <span className="mr-1">
-                {data.ddi_data.action_filter === 'block' ? '🔴' :
+                {alertSeverity === 'muted' ? '⚪' :
+                 alertSeverity === 'stale' ? '🟡' :
+                 data.ddi_data.action_filter === 'block' ? '🔴' :
                  data.ddi_data.action_filter === 'caution' ? '🟡' : '🟢'}
               </span>
               Δ<sub>SA</sub> {data.ddi_data.delta_sa.toFixed(4)}
-              {data.ddi_data.healing_illusion && (
-                <span className="ml-1 animate-pulse">⚠</span>
+              {data.ddi_data.healing_illusion && alertSeverity !== 'muted' && (
+                <span className={`ml-1 ${alertSeverity === 'fresh' ? 'animate-pulse' : ''}`}>⚠</span>
               )}
+              {alertSeverity === 'stale' && <span className="ml-1 text-[8px] opacity-60">· 30ph</span>}
+              {alertSeverity === 'muted' && <span className="ml-1 text-[8px] opacity-60">· 2h+</span>}
             </div>
           </div>
         )}
