@@ -211,7 +211,11 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     print()
     print(f"  {_ll('Regime', lang_mode):{max_w}s} {r.get('trang_thai', 'N/A')} ({r.get('diem_so', 0):.2f})")
     print(f"  {_ll('ADX', lang_mode):{max_w}s} {r.get('adx', 'N/A')}")
-    print(f"  {_ll('Độ rộng', lang_mode):{max_w}s} {r.get('do_rong', 'N/A')}%")
+    do_rong_raw = r.get('do_rong')
+    if do_rong_raw is not None:
+        print(f"  {_ll('Độ rộng', lang_mode):{max_w}s} {do_rong_raw}%")
+    else:
+        print(f"  {_ll('Độ rộng', lang_mode):{max_w}s} BREADTH_SUSPENDED (đang cập nhật)")
     print(f"  {_ll('ATR ratio', lang_mode):{max_w}s} {r.get('ty_le_atr', 'N/A')}")
     print()
     print(f"  Cấu trúc:        {c.get('trang_thai', 'N/A')} ({c.get('so_tru', '?')}/3 trụ)")

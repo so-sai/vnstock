@@ -90,18 +90,13 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     
     latest_df = df_all[df_all['date'] == current_date].copy()
 
-    # ── Fallback: nếu chưa có dữ liệu cho current_date → dùng ngày gần nhất ──
+    # ── BREADTH_SUSPENDED: không có dữ liệu cho current_date → hoãn breadth ──
     if latest_df.empty:
-        available_dates = sorted(df_all['date'].unique())
-        past_dates = [d for d in available_dates if d <= current_date]
-        if past_dates:
-            fallback_date = past_dates[-1]
-            latest_df = df_all[df_all['date'] == fallback_date].copy()
-            print(f"  [REGIME] No data for {current_date.date()} — fallback to {fallback_date.date()} for breadth")
-
-    liquid_df = latest_df[latest_df['avg_vol_20d'] >= 50000]
-    
-    breadth_pct = (len(liquid_df[liquid_df['close'] > liquid_df['ma20']]) / len(liquid_df) * 100) if not liquid_df.empty else 0
+        print(f"  [REGIME] BREADTH_SUSPENDED: no data for {current_date.date()} — breadth deferred")
+        breadth_pct = None
+    else:
+        liquid_df = latest_df[latest_df['avg_vol_20d'] >= 50000]
+        breadth_pct = (len(liquid_df[liquid_df['close'] > liquid_df['ma20']]) / len(liquid_df) * 100) if not liquid_df.empty else 0
     
     # [INTERNAL HOOK] Calculate Breadth Stability (STD 10D) & Momentum
     with get_connection() as conn:
@@ -110,17 +105,19 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         else:
             df_hist_b = pd.read_sql("SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 10", conn)
     
-    # Calculate rolling STD including current data
-    all_breadth = df_hist_b['breadth_pct'].tolist() + [breadth_pct]
+    # Calculate rolling STD including current data (filter None)
+    all_breadth = [b for b in (df_hist_b['breadth_pct'].tolist() + [breadth_pct]) if b is not None]
     breadth_std_10d = np.std(all_breadth) if len(all_breadth) >= 2 else 0.0
-    
-    # Calculate Breadth Momentum (vs 5 days ago)
-    breadth_5d_ago = df_hist_b['breadth_pct'].iloc[4] if len(df_hist_b) >= 5 else (df_hist_b['breadth_pct'].iloc[-1] if not df_hist_b.empty else breadth_pct)
-    breadth_momentum = breadth_pct - breadth_5d_ago
 
-    # Breadth Score: continuous linear mapping [0, 100] -> [0.0, 1.0]
-    # Replaces discrete step function to eliminate whipsaw at hard thresholds
-    b_score = max(0.0, min(1.0, breadth_pct / 100.0))
+    # Calculate Breadth Momentum (vs 5 days ago)
+    if breadth_pct is None:
+        breadth_momentum = 0.0
+    else:
+        breadth_5d_ago = df_hist_b['breadth_pct'].iloc[4] if len(df_hist_b) >= 5 else (df_hist_b['breadth_pct'].iloc[-1] if not df_hist_b.empty else breadth_pct)
+        breadth_momentum = breadth_pct - breadth_5d_ago
+
+    # Breadth Score: None when BREADTH_SUSPENDED
+    b_score = None if breadth_pct is None else max(0.0, min(1.0, breadth_pct / 100.0))
 
     # 2. T-Score (Trend): 30% Weight
     with get_connection() as conn:
@@ -186,8 +183,12 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     atr_ratio = (atr_today / atr_avg) if atr_avg and atr_avg > 0 else 1.0
     v_score = max(0.2, min(1.0, 1.0 - max(0.0, min(0.8, atr_ratio - 1.0))))
     
-    # 4. Final Aggregation — Raw Score
-    regime_score_raw = (0.5 * b_score) + (0.3 * t_score) + (0.2 * v_score)
+    # 4. Final Aggregation — Raw Score (BREADTH_SUSPENDED → 2-factor fallback)
+    if b_score is None:
+        regime_score_raw = (0.6 * t_score) + (0.4 * v_score)
+        print(f"  [REGIME] BREADTH_SUSPENDED — 2-factor score: T={t_score:.2f} V={v_score:.2f} → raw={regime_score_raw:.4f}")
+    else:
+        regime_score_raw = (0.5 * b_score) + (0.3 * t_score) + (0.2 * v_score)
 
     # [LOCK 2] ATR Shock: applied to raw score before smoothing so the EMA sees the shock signal
     if atr_today > 1.5 * atr_avg:
@@ -285,8 +286,8 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         "ema_alpha": round(ema_alpha, 4),
         "rad": rad,
         "details": {
-            "b_score": round(b_score, 4),
-            "breadth_pct": round(breadth_pct, 1),
+            "b_score": round(b_score, 4) if b_score is not None else None,
+            "breadth_pct": round(breadth_pct, 1) if breadth_pct is not None else None,
             "breadth_std_10d": round(breadth_std_10d, 2),
             "breadth_momentum": round(breadth_momentum, 1),
             "t_score": round(t_score, 4),
@@ -310,7 +311,10 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     # Compute dynamic column width for alignment
     labels = [lb, lt, lv, lr]
     max_w = max(len(l) for l in labels)
-    print(f"  {lb:{max_w}s} {b_score:.4f} ({breadth_pct:.1f}%)")
+    if b_score is not None:
+        print(f"  {lb:{max_w}s} {b_score:.4f} ({breadth_pct:.1f}%)")
+    else:
+        print(f"  {lb:{max_w}s} BREADTH_SUSPENDED (no data for {current_date.date()})")
     print(f"  {lt:{max_w}s} {t_score:.4f} (VNINDEX {verdict['details']['vnindex_vs_ma200']}, ADX: {verdict['details']['adx']})")
     print(f"  {lv:{max_w}s} {v_score:.4f} (ATR Ratio: {atr_ratio:.4f})")
     print(f"  {lr:{max_w}s} {regime_score_raw:.4f}")

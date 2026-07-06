@@ -30,16 +30,47 @@ TELEMETRY_PATH = PROJECT_ROOT / "backend" / "data" / "telemetry" / "entropy_log.
 TELEMETRY_FLAG = PROJECT_ROOT / "backend" / "data" / "config" / "telemetry_enabled"
 _STRESS_STATE_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "micro_stress.json"
 
+# ── I/O Health heartbeat ──
+_IO_HEALTH_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / ".io_healthy"
+_IO_HEALTH_MAX_AGE = 24  # hours — quá hạn → I/O bus đang chết
+
+# ── RAM buffer thuần túy — không chạm đĩa khi circuit open ──
+_virtual_ram_storage: dict[str, str] = {}
+
+
+def _mark_io_healthy():
+    """Ghi timestamp vào heartbeat file sau mỗi I/O thành công."""
+    try:
+        _IO_HEALTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _IO_HEALTH_PATH.write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _is_io_healthy() -> bool:
+    """Kiểm tra heartbeat — nếu mất hoặc quá cũ → I/O bus đang chết.
+
+    Write-only failure mode: nếu ghi thất bại nhưng đọc vẫn OK,
+    heartbeat file không được cập nhật → _is_io_healthy() trả về False,
+    buộc FORCED_SAFETY kích hoạt bất kể file cooldown cũ có nội dung gì.
+    """
+    if not _IO_HEALTH_PATH.exists():
+        return False
+    try:
+        age = time.time() - float(_IO_HEALTH_PATH.read_text(encoding="utf-8"))
+        return age < _IO_HEALTH_MAX_AGE * 3600
+    except (ValueError, OSError):
+        return False
+
 
 def _atomic_write_json(path: Path, data: dict, timeout: float = 5.0):
     """Ghi JSON với atomic os.replace() + I/O timeout guard.
 
-    Trên Windows, nếu ổ đĩa có bad sector vật lý, write_text() có thể treo
-    vô thời hạn. Giải pháp: chạy I/O trong daemon thread với timeout.
-
-    Nếu timeout → IOError (gọi xử lý fallback), thread orphan tự hủy
-    khi process exit. os.replace() là pure metadata (cùng volume) nên
-    không treo kể cả khi dest nằm trên bad sector.
+    - Thành công → _mark_io_healthy() cập nhật heartbeat
+    - Thất bại (timeout/lỗi) → lưu vào _virtual_ram_storage (RAM thuần túy),
+      raise IOError. Không ghi đè file rác, không fallback %TEMP%.
+      Lần chạy sau nếu I/O phục hồi, _mark_io_healthy() được gọi lại.
+      Nếu I/O không phục hồi, _is_io_healthy() false → FORCED_SAFETY.
     """
     tmp = path.with_suffix(".tmp")
     result: list[Exception | None] = [None]
@@ -63,10 +94,15 @@ def _atomic_write_json(path: Path, data: dict, timeout: float = 5.0):
             tmp.unlink(missing_ok=True)
         except Exception:
             pass
+        _virtual_ram_storage[str(path.absolute())] = json.dumps(data, ensure_ascii=False)
         raise IOError(f"I/O timeout ({timeout}s) — possible bad sector on {path}")
 
     if result[0] is not None:
+        _virtual_ram_storage[str(path.absolute())] = json.dumps(data, ensure_ascii=False)
         raise result[0]
+
+    # Thành công: cập nhật heartbeat
+    _mark_io_healthy()
 
 
 def _read_calendar_safe() -> list[str]:
@@ -111,6 +147,12 @@ def hours_since_last_scrape(tenor: str | None = None) -> float:
 
 
 def _load_stress_state() -> dict:
+    # Nếu I/O bus chết, không tin dữ liệu đĩa
+    if not _is_io_healthy():
+        return {"consecutive_high": 0, "gate_active": True, "last_z": 99.9, "last_date": ""}
+    key = str(_STRESS_STATE_PATH.absolute())
+    if key in _virtual_ram_storage:
+        return json.loads(_virtual_ram_storage[key])
     try:
         return json.loads(_STRESS_STATE_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
@@ -175,6 +217,18 @@ _COOLDOWN_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "crisis_coo
 
 
 def _load_cooldown_state(current_on: float = 0.0, z_fast: float = 0.0) -> dict:
+    # ── I/O Health check: nếu heartbeat chết → không tin file đĩa ──
+    if not _is_io_healthy():
+        logger.warning("[COOLDOWN] I/O heartbeat dead — FORCED_SAFETY regardless of file content")
+        return {"crisis_active": True, "crisis_marker": "FORCED_SAFETY",
+                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": ""}
+
+    # ── Kiểm tra RAM buffer trước — dữ liệu từ phiên bị kẹt I/O ──
+    key = str(_COOLDOWN_PATH.absolute())
+    if key in _virtual_ram_storage:
+        logger.info("[COOLDOWN] Reading from RAM buffer (I/O was dead last session)")
+        return json.loads(_virtual_ram_storage[key])
+
     try:
         return json.loads(_COOLDOWN_PATH.read_text(encoding="utf-8"))
     except FileNotFoundError:
