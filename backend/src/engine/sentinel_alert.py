@@ -1,10 +1,12 @@
 
-import sys
-import os
-import pandas as pd
 import json
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -26,6 +28,7 @@ PROJECT_ROOT = _hydrate_path()
 import src.config
 from src.database.db_core import get_connection
 from src.engine.breadth_engine import run_breadth_analysis
+
 
 def evaluate_sentinel_status():
     """
@@ -75,7 +78,7 @@ def evaluate_sentinel_status():
         # 2. Thu thập dữ liệu Động lượng (Momentum 6M > 0)
         with get_connection() as conn:
             df_ohlcv = pd.read_sql("SELECT symbol, date, close FROM daily_ohlcv WHERE date >= '2025-01-01'", conn)
-        
+
         if df_ohlcv is not None and not df_ohlcv.empty:
             df_ohlcv['date'] = pd.to_datetime(df_ohlcv['date'], format='mixed', errors='coerce')
             df_ohlcv = df_ohlcv.dropna(subset=['date', 'close', 'symbol'])
@@ -85,7 +88,7 @@ def evaluate_sentinel_status():
                 # Sử dụng bfill/ffill để xử lý NaN an toàn
                 df_ohlcv['return_6m'] = g['close'].transform(lambda x: (x / x.shift(125).ffill()) - 1 if len(x) > 125 else 0)
                 df_ohlcv['return_6m'] = df_ohlcv['return_6m'].fillna(0)
-                
+
                 latest_date = df_ohlcv['date'].max()
                 if pd.notnull(latest_date):
                     results["market_date"] = latest_date.strftime("%Y-%m-%d")
@@ -103,7 +106,7 @@ def evaluate_sentinel_status():
         # 3. Thu thập dữ liệu Dòng tiền (Foreign Net)
         with get_connection() as conn:
             df_foreign = pd.read_sql("SELECT date, SUM(net_value) as net_sum FROM market_foreign_history GROUP BY date ORDER BY date DESC LIMIT 3", conn)
-        
+
         if df_foreign is not None and len(df_foreign) >= 3:
             recent_net = df_foreign['net_sum'].tolist()
             if all(val > -100 for val in recent_net):
@@ -118,7 +121,7 @@ def evaluate_sentinel_status():
 
     # === PHÁN QUYẾT CUỐI CÙNG ===
     total_passed = sum([layer1_mom, layer2_breadth, layer3_flow])
-    
+
     print("\n--- BÁO CÁO GIÁM ĐỊNH SENTINEL ---")
     print(f"Lớp 1 (Momentum Expansion > 150): {results['layer1_mom_expansion']['status']} ({mom_expansion_count}/150)")
     print(f"Lớp 2 (NH10 Consistency 3D):      {results['layer2_nh10_consistency']['status']} ({nh10_val}/3)")

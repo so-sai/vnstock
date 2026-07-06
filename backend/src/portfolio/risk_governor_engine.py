@@ -22,6 +22,7 @@ Architecture:
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -43,13 +44,15 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import json
+import logging
+from datetime import datetime
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Optional
+
 from src.database.db_core import get_connection
 from src.database.portfolio_db import get_portfolio_connection
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +297,7 @@ def compute_leverage(snapshot: dict) -> dict:
 
 def evaluate_risk_governance() -> dict:
     print(f"\n{'='*70}")
-    print(f"  RISK GOVERNOR ENGINE")
+    print("  RISK GOVERNOR ENGINE")
     print(f"  Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"{'='*70}")
 

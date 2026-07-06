@@ -7,6 +7,7 @@ trust update) creates one append-only entry.  The log is:
   - Replayable (can rebuild state up to any point)
 """
 from __future__ import annotations
+
 import json
 import logging
 import uuid

@@ -22,11 +22,11 @@ Phase 1 mandate:
     - NO scoring / NO forecasting / NO duplication of engine logic
 """
 
-import sys
 import json
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel
@@ -352,14 +352,15 @@ def _flow_status_to_bias_score(flow_status: str) -> float:
 
 
 def build_market_state() -> dict:
-    from core.presentation import build_opportunity_view
-    from core.presentation.trade_state_policy import compute_trade_state, compile_action_policy
-    from core.presentation.state_stability_index import compute_ssi
     from core.presentation.asset_preference_mapping import compute_asset_preference
     from core.presentation.decision_closure_layer import compute_dcl
-    from core.presentation.directional_bias_extractor import compute_directional_bias
     from core.presentation.direction_persistence_layer import compute_direction_persistence
+    from core.presentation.directional_bias_extractor import compute_directional_bias
+    from core.presentation.state_stability_index import compute_ssi
+    from core.presentation.trade_state_policy import compile_action_policy, compute_trade_state
     from core.presentation.transition_trigger_layer import compute_transition_trigger
+
+    from core.presentation import build_opportunity_view
     from core.presentation.vi_localizer import localize_market_state
 
     regime_state = _load_regime_state()
@@ -457,7 +458,7 @@ def build_market_state() -> dict:
     verdict_summary = None
     try:
         from core.cognition.investment_verdict_compiler import compile_verdicts_for_portfolio
-        from src.config import DATA_DIR
+
         verdict_summary = compile_verdicts_for_portfolio(
             regime_status=regime_state.get("status", "UNKNOWN"),
             breadth_health=breadth_state.get("health_score", 0.0),
@@ -550,7 +551,7 @@ def export_market_state(state: dict, path: Optional[Path] = None):
 
 def run_coordinator() -> dict:
     print(f"\n{'='*60}")
-    print(f"  MARKET STATE COORDINATOR v1.0")
+    print("  MARKET STATE COORDINATOR v1.0")
     print(f"  Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"{'='*60}")
 

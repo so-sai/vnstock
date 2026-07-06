@@ -1032,6 +1032,19 @@ def cmd_prediction_registry(args):
         print("=" * 60)
 
 
+def cmd_registry(args):
+    """Param Fingerprint Registry — Sổ tay Dấu vân tay Tham số."""
+    from src.portfolio.params_registry import in_bao_cao, load_or_build
+    if args.rebuild:
+        from src.portfolio.params_registry import build_registry, save_registry
+        data = build_registry()
+        save_registry(data)
+        print("Đã xây dựng lại registry từ audit log.")
+    else:
+        load_or_build()
+    in_bao_cao(regime=args.regime)
+
+
 def cmd_flow_map(args):
     """Bản đồ Dòng vốn Liên thị trường 4 Tầng."""
     from src.engine.cross_market_flow_map import CrossMarketFlowMap
@@ -1211,6 +1224,12 @@ def main():
     p_si = sub.add_parser("snapshot-index", help="Xem lịch sử snapshot_index.json")
     p_si.add_argument("--limit", type=int, default=20, help="Số dòng hiển thị (mặc định 20)")
     p_si.set_defaults(func=cmd_snapshot_index)
+
+    # registry
+    p_reg = sub.add_parser("registry", help="Param Fingerprint Registry — tra cứu params_hash theo regime")
+    p_reg.add_argument("--regime", default=None, help="Lọc theo regime (TRENDING/RANGING/CRISIS)")
+    p_reg.add_argument("--rebuild", action="store_true", help="Xây dựng lại registry từ audit log")
+    p_reg.set_defaults(func=cmd_registry)
 
     # confidence
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")

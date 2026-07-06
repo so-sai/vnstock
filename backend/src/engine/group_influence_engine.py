@@ -6,10 +6,14 @@ Tính toán ảnh hưởng của từng nhóm cổ phiếu lên VNINDEX:
 - Thị trường thật (không nhóm trụ)
 - Phân tích cụm vốn hóa
 """
-import sys, io, json, os
+import io
+import json
+import os
+import sys
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
-from dataclasses import dataclass, field, asdict
+from typing import Dict, List, Tuple
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -31,9 +35,10 @@ PROJECT_ROOT = _hydrate_path()
 if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-import src.config
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+import src.config
 from src.database.db_core import get_connection
 
 # ── Cụm cổ phiếu ──────────────────────────────────────────
@@ -252,7 +257,7 @@ def tinh_anh_huong_nhom(target_date: str = None) -> MarketReality:
     dominant = contributions[0].group_name if contributions else "UNKNOWN"
 
     # Tính VNINDEX ex-large (bỏ top 10 vốn hóa)
-    # Công thức chuẩn: ước lượng VNINDEX prev từ total_return, 
+    # Công thức chuẩn: ước lượng VNINDEX prev từ total_return,
     # sau đó tính lại return với weight đã chuẩn hóa cho phần còn lại
     total_return = (merged['weight_pct'] * merged['change_pct']).sum() / 100
     top10 = merged.nlargest(10, 'weight')

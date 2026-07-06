@@ -10,12 +10,11 @@ Where:
     - regime_weight = per-regime multiplier (TRENDING=1.0, RANGING=0.8, CRISIS=0.5)
     - stability_factor = inverse variance of recent consistency scores
 """
-import sys
 import json
-import math
 import logging
-from pathlib import Path
+import sys
 from collections import defaultdict
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +37,10 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.cao_validation.models import (
-    TrustState, TrustHistoryPoint, ConsistencyScore,
+    ConsistencyScore,
+    TrustHistoryPoint,
+    TrustState,
 )
-
 
 REGIME_WEIGHTS = {
     "TRENDING": 1.0,

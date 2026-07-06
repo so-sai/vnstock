@@ -13,11 +13,14 @@ Output:
     - Per-snapshot quality markers for data completeness audit
 """
 
-import sys, json, argparse, logging, os, io
-import pandas as pd
+import argparse
+import io
+import logging
+import sys
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
+
+import pandas as pd
 
 if sys.platform == "win32" and hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -55,14 +58,16 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.database.db_core import get_connection
+from backend.src.backtest.feature_lattice_builder import FeatureLatticeBuilder
 from backend.src.backtest.hsr_coordinator import (
-    build_historical_snapshot, reset_memory,
+    build_historical_snapshot,
+    reset_memory,
 )
 from backend.src.backtest.hsr_kernel import InMemoryDB
-from backend.src.backtest.feature_lattice_builder import FeatureLatticeBuilder
-from core.validation.state_reconstruction_validator import run_srv, SRVReport
 from core.validation.backtest_contract import default_contract
+from core.validation.state_reconstruction_validator import SRVReport, run_srv
+
+from src.database.db_core import get_connection
 
 
 def get_trading_dates(start_date: str, end_date: str) -> list:
@@ -99,7 +104,7 @@ def run_hsr_pipeline(
     kernel = InMemoryDB(start_date, end_date)
 
     logger.info(f"\n{'='*60}")
-    logger.info(f"  HISTORICAL STATE RECONSTRUCTION")
+    logger.info("  HISTORICAL STATE RECONSTRUCTION")
     logger.info(f"  Period: {start_date} → {end_date} ({total} trading days)")
     logger.info(f"{'='*60}")
 
@@ -134,7 +139,7 @@ def run_hsr_pipeline(
     kernel.close()
 
     logger.info(f"\n{'='*60}")
-    logger.info(f"  Reconstruction complete:")
+    logger.info("  Reconstruction complete:")
     logger.info(f"    Total days: {total}")
     logger.info(f"    Snapshots:  {len(snapshots)}")
     logger.info(f"    Errors:     {errors}")
@@ -152,14 +157,14 @@ def print_summary(report: SRVReport):
     logger.info(f"{'='*60}")
 
     sa = report.suite_a
-    logger.info(f"\n  Suite A — DBE Stability")
+    logger.info("\n  Suite A — DBE Stability")
     logger.info(f"  {'Flip Rate':30s}: {sa.flip_rate:.2%}")
     logger.info(f"  {'Flip Count':30s}: {sa.flip_count}")
     logger.info(f"  {'Mean Confidence':30s}: {sa.mean_confidence:.4f}")
     logger.info(f"  {'Mean Strength':30s}: {sa.mean_strength:.4f}")
 
     sb = report.suite_b
-    logger.info(f"\n  Suite B — DPL Persistence")
+    logger.info("\n  Suite B — DPL Persistence")
     logger.info(f"  {'Persistent Days':30s}: {sb.persistent_days}")
     logger.info(f"  {'Flickering Days':30s}: {sb.flickering_days}")
     logger.info(f"  {'Flicker %':30s}: {sb.flicker_pct:.2%}")
@@ -168,7 +173,7 @@ def print_summary(report: SRVReport):
     logger.info(f"  {'Stability (Flickering)':30s}: {sb.mean_stability_when_flickering:.4f}")
 
     sc = report.suite_c
-    logger.info(f"\n  Suite C — TTL Transition")
+    logger.info("\n  Suite C — TTL Transition")
     logger.info(f"  {'Hit Rate':30s}: {sc.hit_rate:.2%}")
     logger.info(f"  {'Hits / Events':30s}: {sc.hits} / {sc.total_events}")
     logger.info(f"  {'Misses':30s}: {sc.misses}")
@@ -176,12 +181,12 @@ def print_summary(report: SRVReport):
     logger.info(f"  {'Mean Delay (days)':30s}: {sc.mean_delay_days:.1f}")
     logger.info(f"  {'Total TTL Triggers':30s}: {sc.total_ttl_triggers}")
 
-    logger.info(f"\n  Regime Distribution:")
+    logger.info("\n  Regime Distribution:")
     for rt, count in sorted(report.regime_type_summary.items(),
                             key=lambda x: -x[1]):
         logger.info(f"    {rt:20s}: {count}")
 
-    logger.info(f"\n  Transition Matches:")
+    logger.info("\n  Transition Matches:")
     for m in sc.matches:
         icon = "✓" if m.is_hit else "✗"
         logger.info(f"    {icon} {m.event_name:25s} "

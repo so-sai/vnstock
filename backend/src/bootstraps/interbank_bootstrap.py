@@ -1,7 +1,11 @@
-import sys, logging, os, sqlite3, csv
-from pathlib import Path
+import csv
+import logging
+import sqlite3
+import sys
 from datetime import datetime, timedelta
-from random import uniform, seed as random_seed
+from pathlib import Path
+from random import seed as random_seed
+from random import uniform
 
 random_seed(42)
 

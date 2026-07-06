@@ -11,16 +11,16 @@ The pandas warning is still technically raised, but we intercept it and
 convert to a quantified signal.  No crash, no silence.
 """
 from __future__ import annotations
+
 import contextlib
 import logging
 import threading
 import warnings
-from typing import Optional
 
 import pandas as pd
 
 from src.core.data_quality.models import DataQualityEvent, EventSeverity, EventType
-from src.core.data_quality.registry import emit_event, get_registry
+from src.core.data_quality.registry import emit_event
 
 logger = logging.getLogger(__name__)
 

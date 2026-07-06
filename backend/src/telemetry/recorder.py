@@ -1,9 +1,9 @@
 """Telemetry Recorder — captures DecisionSnapshot from compute_v2 output"""
-import sys
 import json
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -26,10 +26,10 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.telemetry.models import DecisionSnapshot
-from src.telemetry.storage import save_snapshot, initialize_telemetry_database
 from src.database.db_core import get_connection
 from src.engine.regime_engine import detect_regime
+from src.telemetry.models import DecisionSnapshot
+from src.telemetry.storage import initialize_telemetry_database, save_snapshot
 
 
 def _get_vnindex_level() -> float:

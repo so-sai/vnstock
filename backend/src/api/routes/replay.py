@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -22,9 +24,9 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.core.canonical_output_adapter import localize_output
 from src.services.replay_service import get_replay_timeline
 
-from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 @router.get("/timeline")

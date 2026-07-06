@@ -1,6 +1,7 @@
-﻿import sys
-import os
+﻿import os
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -19,11 +20,13 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import pandas as pd
 import json
-import os
+
+import pandas as pd
+
 import src.config
 from src.database.db_core import get_connection
+
 
 def run_breadth_analysis(target_date: Optional[str] = None):
     if target_date:
@@ -51,13 +54,13 @@ def run_breadth_analysis(target_date: Optional[str] = None):
     df = df.copy()
     df['date'] = pd.to_datetime(df['date'], format='mixed')
     df = df.sort_values(['symbol', 'date'])
-    
+
     # 2. Tính toán MA20 & Biểu hiện (Vectorized)
     g = df.groupby('symbol')
     df.loc[:, 'ma20'] = g['close'].transform(lambda x: x.rolling(20).mean())
     df.loc[:, 'daily_change_pct'] = g['close'].transform(lambda x: x.pct_change(fill_method=None))
     df.loc[:, 'avg_vol_20d'] = g['volume'].transform(lambda x: x.rolling(20).mean())
-    
+
     # NEW METER: NH10 (New High 10D)
     # Price > Max(High in last 10 sessions excluding today)
     df.loc[:, 'high_10'] = g['high'].transform(lambda x: x.shift(1).rolling(10).max())
@@ -67,13 +70,13 @@ def run_breadth_analysis(target_date: Optional[str] = None):
     latest_date = pd.to_datetime(ref_date)
     all_dates = sorted(df['date'].unique())
     prev_dates = [d for d in all_dates if d <= latest_date][-3:] if len([d for d in all_dates if d <= latest_date]) >= 3 else all_dates[-3:]
-    
+
     latest_df = df[df['date'] == latest_date].copy()
 
     # 3. Áp dụng Liquidity Filter (Volume > 50,000)
     liquidity_threshold = 50000
     clean_df = latest_df[latest_df['avg_vol_20d'] >= liquidity_threshold].copy()
-    
+
     total_active = len(clean_df)
     if total_active == 0:
         print(f"⚠️ Không có mã nào thỏa mãn bộ lọc thanh khoản (> {liquidity_threshold}).")
@@ -82,14 +85,14 @@ def run_breadth_analysis(target_date: Optional[str] = None):
     advancers = len(clean_df[clean_df['daily_change_pct'] > 0])
     decliners = len(clean_df[clean_df['daily_change_pct'] < 0])
     unchanged = total_active - advancers - decliners
-    
+
     # Market Health: % mã nằm trên MA20
     above_ma20 = len(clean_df[clean_df['close'] > clean_df['ma20']])
     health_pct = (above_ma20 / total_active) * 100
 
     # NH10 Count
     nh10_count = int(clean_df['is_nh10'].sum())
-    
+
     # 3-Day Consistency Check (NH10 > 50)
     consistency_count = 0
     for d in prev_dates:
@@ -98,7 +101,7 @@ def run_breadth_analysis(target_date: Optional[str] = None):
         d_nh10 = int(df[(df['date'] == d) & (df['is_nh10'] == True)]['symbol'].nunique())
         if d_nh10 > 50:
             consistency_count += 1
-            
+
     # 4. Xuất kết quả JSON
     pulse_data = {
         "date": latest_date.strftime('%Y-%m-%d'),
@@ -122,14 +125,14 @@ def run_breadth_analysis(target_date: Optional[str] = None):
     print(f"📈 Tang: {advancers} | 📉 Giam: {decliners} | 🟡 TC: {unchanged}")
     print(f"💪 Suc khoe (Price > MA20): {pulse_data['health_score_ma20']}%")
     print(f"🎯 New Highs (NH10): {nh10_count} | Consistency (3D): {consistency_count}/3")
-    
+
     if health_pct > 70:
         print("  Trạng thái: BULLISH (Hưng phấn)")
     elif health_pct < 30:
         print("  Trạng thái: BEARISH (Co cụm)")
     else:
         print("  Trạng thái: NEUTRAL (Phân hóa)")
-    
+
     print("-" * 40)
     print(f"💡 (Dựa trên {total_active} mã có Vol 20d > {liquidity_threshold:,.00f})")
 

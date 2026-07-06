@@ -1,6 +1,6 @@
 ﻿import sys
-import os
 from pathlib import Path
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -19,25 +19,29 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import pandas as pd
-from datetime import datetime
-from typing import Dict, List, Optional, Any
-from src.database.db_core import get_connection, save_data_upsert
 import sqlite3
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
+
+from src.database.db_core import get_connection, save_data_upsert
 
 # Ensure libs/vnstock is in sys.path
 if str(PROJECT_ROOT / "libs" / "vnstock") not in sys.path:
     sys.path.append(str(PROJECT_ROOT / "libs" / "vnstock"))
 
 from vnstock import Company
+
 from src.utils.defense import CircuitBreaker
+
 
 class MoneyFlowEngine:
     """
     Engine trích xuất và tính toán dòng tiền Khối ngoại (Money Flow).
     Sử dụng chiến lược Snapshot Accumulation và Elite Defense Caching.
     """
-    
+
     _session_cache: Dict[str, Dict[str, Any]] = {}
 
     def __init__(self, source: str = "VCI", show_log: bool = False) -> None:
@@ -57,7 +61,6 @@ class MoneyFlowEngine:
                 print(f"🛑 [Circuit Breaker] Skipping {symbol} due to cooldown on {self.source}")
             return None
 
-        import time, random
         try:
             cp = Company(source=self.source, symbol=symbol, show_log=self.show_log)
             stats = cp.trading_stats()
@@ -76,7 +79,8 @@ class MoneyFlowEngine:
             return None
 
     def update_foreign_history(self, symbols_list: List[str]) -> pd.DataFrame:
-        import time, random
+        import random
+        import time
         records: List[Dict[str, Any]] = []
         for idx, sym in enumerate(symbols_list):
             snapshot = self.get_foreign_snapshot(sym)

@@ -15,10 +15,9 @@ Early warning reads 3 leading indicators from the same history:
 """
 
 from __future__ import annotations
-from typing import Optional
-from datetime import datetime
-import math
 
+from datetime import datetime
+from typing import Optional
 
 # ── In-memory window (ephemeral — resets on restart) ────────────────────
 # In production this would persist to .kit/local_brain.db or equivalent.

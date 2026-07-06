@@ -1,12 +1,12 @@
 """Telemetry Storage — SQLite persistence for snapshots & outcomes"""
-import sys
-import os
 import json
-import sqlite3
 import logging
-from pathlib import Path
+import os
+import sqlite3
+import sys
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

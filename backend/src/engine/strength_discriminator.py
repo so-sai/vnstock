@@ -5,9 +5,11 @@ Bóc tách bản chất tăng giá của Top 20 RS:
 - Sức mạnh Nội tại (Intrinsic): do nội lực doanh nghiệp, dòng tiền hữu cơ
 - Sức mạnh Ép trụ (Pillar-driven): do dòng tiền điều tiết chỉ số
 """
-import sys, os, json
+import json
+import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):

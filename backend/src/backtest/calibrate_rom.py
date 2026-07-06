@@ -4,12 +4,12 @@ calibrate_rom.py — Calibrate RegimeROM to match real engine state-space dynami
 Usage: python backend/src/backtest/calibrate_rom.py
 """
 
-import sys, json, logging, io
+import io
+import logging
+import sys
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
-import numpy as np
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("calibrate_rom")
@@ -43,11 +43,12 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.database.db_core import get_connection
-from backend.src.backtest.hsr_kernel import InMemoryDB
 from backend.src.backtest.feature_lattice_builder import FeatureLatticeBuilder
 from backend.src.backtest.hsr_batch_runner import HSRBatchRunner
+from backend.src.backtest.hsr_kernel import InMemoryDB
 from core.validation.state_space_validator import StateSpaceValidator
+
+from src.database.db_core import get_connection
 
 
 def run_rom(dates: list[str], lattice: pd.DataFrame, smoothing: float = 0.75,
@@ -124,7 +125,7 @@ def main():
     # Use known Q1 2023 data: CRISIS=23, RANGING=27, TRENDING=9 (59 days)
     # Build from 2023-01-03 to 2023-03-31
     start_date, end_date = "2023-01-01", "2023-03-31"
-    
+
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT DISTINCT date FROM daily_ohlcv WHERE date>=? AND date<=? AND symbol='VNINDEX' ORDER BY date",
@@ -132,7 +133,7 @@ def main():
         ).fetchall()
     dates = [r[0] for r in rows]
     logger.info(f"Period: {start_date} to {end_date} ({len(dates)} trading days)")
-    
+
     # Build lattice
     kernel = InMemoryDB(start_date, end_date)
     with kernel.patch_get_connection():
@@ -144,7 +145,7 @@ def main():
         lattice = FeatureLatticeBuilder().build(all_ohlcv)
         logger.info(f"Lattice: {len(lattice):,} rows, {all_ohlcv['symbol'].nunique()} symbols")
     kernel.close()
-    
+
     # Target sequence from Q1 2023 real engine
     # CRISIS=23, RANGING=27, TRENDING=9 (from earlier run)
     # Reconstruct a plausible sequence with these counts (we don't have per-day ordering)
@@ -152,13 +153,12 @@ def main():
     # Actually, let's just run real engine on these ~59 days
     logger.info("Running real engine (Q1 2023, ~59 days)...")
     kernel2 = InMemoryDB(start_date, end_date)
-    
+
     # Patch merge_decisions to be quiet
     import src.engine.decision_engine as de
     _orig_merge = de.merge_decisions
-    
+
     def _quiet_merge(model_a_verdict=None, target_date=None):
-        import io as _io
         old = sys.stdout
         sys.stdout = _NullWriter()
         try:
@@ -166,16 +166,16 @@ def main():
         finally:
             sys.stdout = old
         return result
-    
+
     de.merge_decisions = _quiet_merge
-    
+
     # Also suppress the coordinator's prints by patching them
     from backend.src.backtest import hsr_coordinator as hc
     _orig_logger = hc.logger
     import logging as _logging
     hc.logger = _logging.getLogger("silent")
     hc.logger.setLevel(_logging.ERROR)
-    
+
     real_seq = []
     with kernel2.patch_get_connection():
         for d in dates:
@@ -184,20 +184,20 @@ def main():
             if snap.get("status") == "ENGINE_FAILURE":
                 continue
             real_seq.append(snap.get("regime_status", "UNKNOWN"))
-    
+
     # Restore
     de.merge_decisions = _orig_merge
     hc.logger = _orig_logger
     kernel2.close()
-    
+
     logger.info(f"Real engine: {len(real_seq)} regimes collected")
     logger.info(f"Distribution: {dict(sorted(score_distribution(real_seq).items()))}")
-    
+
     # Analyze target
     v = StateSpaceValidator("Real Engine Q1 2023")
     target = v.analyze(real_seq)
     v.print_report(target)
-    
+
     # Test ROM parameter grid
     # We need: entropy ~1.46, persist ~50%, trans/100d ~49.2
     # Key insight: smoothing must be very low, thresholds very tight
@@ -219,7 +219,7 @@ def main():
         (0.05, 0.00, 0.00, 0.45, 0.38),  # very tight bands
         (0.00, 0.00, 0.00, 0.45, 0.38),
     ]
-    
+
     results = []
     for params in param_grid:
         r = try_params(dates, lattice, real_seq, *params)
@@ -229,11 +229,11 @@ def main():
                     f"E={r['pred_entropy']:.4f}/{r['target_entropy']:.4f}  "
                     f"P={r['pred_persist']:.2%}/{r['target_persist']:.2%}  "
                     f"T={r['pred_trans']}/{r['target_trans']}")
-    
+
     results.sort(key=lambda x: x["avg_delta"])
-    
+
     logger.info(f"\n{'='*60}")
-    logger.info(f"  TOP 5 PARAMETER SETS")
+    logger.info("  TOP 5 PARAMETER SETS")
     logger.info(f"{'='*60}")
     for i, r in enumerate(results[:5]):
         p = r["params"]
@@ -243,8 +243,8 @@ def main():
         logger.info(f"    PRED:   entropy={r['pred_entropy']:.4f} persist={r['pred_persist']:.2%} trans={r['pred_trans']}")
         logger.info(f"    Target dist: {r['target_dist']}")
         logger.info(f"    Pred dist:   {r['pred_dist']}")
-    
-    logger.info(f"\n  Best params to use in RegimeROM:")
+
+    logger.info("\n  Best params to use in RegimeROM:")
     if results:
         best = results[0]["params"]
         logger.info(f"    RegimeROM(smoothing={best['smoothing']})")

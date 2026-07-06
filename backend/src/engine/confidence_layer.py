@@ -18,9 +18,10 @@ Nhiệm vụ:
   - Tạm ngưng kết luận nếu điểm quá thấp
 """
 
-import sys, json
-from pathlib import Path
+import json
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 
@@ -47,7 +48,6 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import src.config
-
 
 # ── Ngưỡng đánh giá ─────────────────────────────────────
 NGƯỠNG = {
@@ -508,13 +508,13 @@ def in_báo_cáo(kết_quả: dict):
         print(f"    • {lđ_viết_hoa}")
 
     if kết_quả.get("tạm_ngưng_kết_luận"):
-        print(f"\n  ⚠ Tạm ngưng kết luận")
+        print("\n  ⚠ Tạm ngưng kết luận")
         lý_do = kết_quả.get("lý_do_tạm_ngưng", "")
         if lý_do:
             lý_do_viết_hoa = lý_do[0].upper() + lý_do[1:]
             print(f"    Lý do: {lý_do_viết_hoa}")
 
-    print(f"\n  Kết luận:")
+    print("\n  Kết luận:")
     print(f"    {kết_quả.get('kết_luận', '')}")
     print("=" * 55)
 

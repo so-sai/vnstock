@@ -7,8 +7,10 @@ Usage::
 Verifies all registered FastAPI routes against the CAGL contract.
 """
 from __future__ import annotations
-import sys
+
 import io
+import sys
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import argparse
 import logging

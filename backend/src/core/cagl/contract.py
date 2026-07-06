@@ -1,11 +1,11 @@
 """Contract validation rules — enforce API routing conventions."""
 from __future__ import annotations
-import sys
-import logging
-from pathlib import Path
-from typing import List
 
-from src.core.cagl.models import EndpointSpec, ValidationFinding, ScanResult
+import logging
+import sys
+from pathlib import Path
+
+from src.core.cagl.models import EndpointSpec, ScanResult, ValidationFinding
 
 
 def _hydrate_path():

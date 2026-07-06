@@ -1,6 +1,6 @@
 ﻿import sys
-import os
 from pathlib import Path
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -19,10 +19,13 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import pandas as pd
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
+
+import pandas as pd
+
 from src.database.db_core import get_connection, save_data_upsert
+
 
 class UnitNormalizer:
     """

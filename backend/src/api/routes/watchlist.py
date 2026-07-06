@@ -1,7 +1,9 @@
 import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -20,10 +22,10 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.portfolio.watchlist_state_manager import WatchlistStateManager, _store_pin_history
-from src.portfolio.portfolio_recommendation_engine import generate_recommendations, TIER_LABELS
-
 from src.core.canonical_output_adapter import localize_output
+from src.portfolio.portfolio_recommendation_engine import TIER_LABELS, generate_recommendations
+from src.portfolio.watchlist_state_manager import WatchlistStateManager, _store_pin_history
+
 router = APIRouter()
 manager = WatchlistStateManager()
 

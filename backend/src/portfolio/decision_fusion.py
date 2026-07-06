@@ -6,6 +6,7 @@ No AI, no probability — pure regime-based policy matrix.
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -60,14 +61,14 @@ def arbitrate(model_a_verdict: str, model_b_verdict: str,
         if a_buy and not b_buy:
             return {"action": "EXECUTE", "reason": "TREND_CONFIRMED_MODEL_A",
                     "target_engine": "MODEL_A", "confidence_multiplier": 1.0}
-        return {"action": "MUTED", "reason": f"MODEL_B_MUTED_IN_TREND",
+        return {"action": "MUTED", "reason": "MODEL_B_MUTED_IN_TREND",
                 "target_engine": None, "confidence_multiplier": 0.0}
 
     if policy["action"] == "MEAN_REVERSION":
         if b_buy and not a_buy:
             return {"action": "EXECUTE", "reason": "PULLBACK_CONFIRMED_MODEL_B",
                     "target_engine": "MODEL_B", "confidence_multiplier": 1.0}
-        return {"action": "MUTED", "reason": f"MODEL_A_MUTED_IN_RANGE",
+        return {"action": "MUTED", "reason": "MODEL_A_MUTED_IN_RANGE",
                 "target_engine": None, "confidence_multiplier": 0.0}
 
     return {"action": "STAND_DOWN", "reason": "NO_POLICY_MATCH",

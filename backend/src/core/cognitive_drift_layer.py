@@ -24,7 +24,7 @@ Usage:
 
 from typing import Optional
 
-from backend.src.core.cognitive_schema import drift_to_vi, driver_to_vi, flow_rotation_to_vi
+from backend.src.core.cognitive_schema import drift_to_vi
 from backend.src.engine.drift_prevention import assess_drift
 
 

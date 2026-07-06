@@ -2,10 +2,13 @@
 Phase 12 — Actionable Intelligence API endpoints.
 Compresses all engine outputs into simple, actionable decisions.
 """
-import sys, logging
-from pathlib import Path
+import logging
+import sys
 from datetime import datetime
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -24,17 +27,17 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import logging
 from src.services.actionable_intelligence_service import (
     get_live_summary,
-    get_portfolio_coach,
     get_opportunity_queue,
-    get_scenario_simulation,
+    get_portfolio_coach,
     get_position_narrative,
+    get_scenario_simulation,
 )
 
 logger = logging.getLogger(__name__)
 from src.core.canonical_output_adapter import localize_output
+
 router = APIRouter()
 
 

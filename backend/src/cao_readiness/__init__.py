@@ -14,8 +14,8 @@ Usage:
   if verdict.overall_pass:
       print("CAO Phase 1 is SAFE to execute")
 """
-from src.cao_readiness.orchestrator import run_readiness_check, print_verdict
-from src.cao_readiness.models import ReadinessVerdict, GateResult
+from src.cao_readiness.models import GateResult, ReadinessVerdict
+from src.cao_readiness.orchestrator import print_verdict, run_readiness_check
 
 __all__ = [
     "run_readiness_check",

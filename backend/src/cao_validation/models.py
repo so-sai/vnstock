@@ -4,9 +4,8 @@ This is NOT a threshold system. It is a distribution alignment validator
 + regime-aware promotion control system.
 """
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional
 
 
 def _hydrate_path():

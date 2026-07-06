@@ -1,8 +1,8 @@
 """Telemetry Evaluator — judges decisions after 5, 10, 20, 30 days"""
-import sys
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +24,10 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.telemetry.models import OutcomeRecord
-from src.telemetry.storage import save_outcome, get_snapshot, get_pending_decisions
-from src.telemetry.attribution import decompose_attribution, run_attribution_for_outcomes
 from src.database.db_core import get_connection
-
+from src.telemetry.attribution import decompose_attribution
+from src.telemetry.models import OutcomeRecord
+from src.telemetry.storage import get_pending_decisions, get_snapshot, save_outcome
 
 HORIZONS = [5, 10, 20, 30]
 

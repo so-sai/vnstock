@@ -5,11 +5,11 @@ Runs all 3 gates (A, B, C) and produces the final verdict:
   PASS → CAO Phase 1 is safe to execute
   FAIL → gates describe what must be resolved first
 """
-import sys
 import json
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,13 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
-from src.cao_readiness.models import ReadinessVerdict, GateResult, IndependenceReport, InjectabilityReport, RegimeStabilityReport
 from src.cao_readiness.gate_a_independence import gate_a_check
 from src.cao_readiness.gate_b_injectability import gate_b_check
 from src.cao_readiness.gate_c_regime_stability import gate_c_check
+from src.cao_readiness.models import (
+    GateResult,
+    ReadinessVerdict,
+)
 
 
 def run_readiness_check(

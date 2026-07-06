@@ -2,9 +2,10 @@
 /api/v1/telemetry — Decision Telemetry endpoints (Sprint 1 + 2).
 Provides snapshots, outcomes, attribution, and engine performance.
 """
-import sys
 import logging
+import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
 
 logger = logging.getLogger(__name__)
@@ -31,18 +32,18 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.core.canonical_output_adapter import localize_output
+from src.telemetry.attribution import generate_summary_vi
+from src.telemetry.attribution import update_engine_performance as refresh_perf
+from src.telemetry.evaluator import HORIZONS, evaluate_pending, evaluate_single
 from src.telemetry.storage import (
     get_all_snapshots,
+    get_attribution_summary,
+    get_engine_performance,
     get_outcomes,
     get_snapshot,
     get_snapshot_stats,
     initialize_telemetry_database,
-    get_attributions,
-    get_attribution_summary,
-    get_engine_performance,
 )
-from src.telemetry.evaluator import evaluate_single, evaluate_pending, HORIZONS
-from src.telemetry.attribution import update_engine_performance as refresh_perf, generate_summary_vi
 
 
 @router.get("/", summary="All decision snapshots")
@@ -170,7 +171,11 @@ async def refresh_engine_perf(window: int = Query(30, ge=7, le=90)):
 
 from src.telemetry.driver_reputation import (
     get_reputation as _get_driver_reputation,
+)
+from src.telemetry.driver_reputation import (
     get_reputation_summary,
+)
+from src.telemetry.driver_reputation import (
     update_reputation as _update_driver_reputation,
 )
 

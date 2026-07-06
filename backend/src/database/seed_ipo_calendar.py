@@ -6,7 +6,6 @@ realistic IPO sample set so the IPO HUD can render genuine structure signals.
 """
 
 import sys
-from datetime import datetime
 from pathlib import Path
 
 

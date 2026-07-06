@@ -10,9 +10,9 @@ Uses:
 
 If distribution equivalence test fails → NO PROMOTION regardless of sample size.
 """
-import sys
-import math
 import logging
+import math
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -35,8 +35,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.cao_validation.models import DistributionTestResult, RECOGNIZED_REGIMES
-
+from src.cao_validation.models import RECOGNIZED_REGIMES, DistributionTestResult
 
 # ====================================================================
 # KS TEST (pure Python — no scipy dependency)

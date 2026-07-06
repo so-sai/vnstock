@@ -9,11 +9,11 @@ Dùng provenance-aware để Sentinel hiểu bối cảnh giá vàng.
 - Chỉ cache khi DataFrame có dữ liệu thật (tránh cache rỗng khi API lỗi)
 - KHÔNG thay đổi signature/public API của hàm
 """
+import logging
 import sys
 import time
-import logging
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, date
 from typing import Optional
 
 # ── Sentinel Macro Cache ─────────────────────────────────────
@@ -50,10 +50,10 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import pandas as pd
-from pydantic import BaseModel, Field
-from vnstock.explorer.misc.gold_price import sjc_gold_price, btmc_goldprice
-from src.database.db_core import get_connection
-from src.utils.defense import CircuitBreaker, APIBlockedError, guarded_call
+from pydantic import BaseModel
+from vnstock.explorer.misc.gold_price import btmc_goldprice, sjc_gold_price
+
+from src.utils.defense import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 _VNSTOCK_SOURCE = "vnstock"
@@ -99,12 +99,12 @@ def fetch_sjc_snapshot(target_date: Optional[str] = None) -> list[GoldPriceSnaps
     để chống vnstock Rate Limit. Click tab nhiều lần KHÔNG tốn thêm API quota.
     """
     cache_key = "live" if target_date is None else f"hist:{target_date}"
-    
+
     # 1. Trả cache nếu còn hạn (không gọi API)
     cached = _cache_get(_SJC_CACHE, cache_key)
     if cached is not None:
         return cached
-    
+
     # 2. Cache miss → kiểm tra Circuit Breaker TRƯỚC khi gọi API
     if not CircuitBreaker.is_available(_VNSTOCK_SOURCE):
         remaining = CircuitBreaker.time_remaining(_VNSTOCK_SOURCE)
@@ -149,7 +149,7 @@ def fetch_btmc_snapshot() -> list[GoldPriceSnapshot]:
     [SENTINEL GUARD] Có in-memory cache 12h (BTMC chỉ support live).
     """
     cache_key = "live"
-    
+
     cached = _cache_get(_BTMC_CACHE, cache_key)
     if cached is not None:
         return cached
@@ -166,7 +166,7 @@ def fetch_btmc_snapshot() -> list[GoldPriceSnapshot]:
     try:
         df = btmc_goldprice()
         if df is None or df.empty:
-            logger_macro.warning(f"[MACRO CACHE] BTMC empty — NOT caching")
+            logger_macro.warning("[MACRO CACHE] BTMC empty — NOT caching")
             return []
         snapshots = []
         for _, row in df.iterrows():
@@ -219,8 +219,9 @@ def get_gold_cognition_layer() -> dict:
     Gold Cognition Layer — hợp nhất VN Gold + Global Gold + Premium.
     Trả về cấu trúc đầy đủ cho Sentinel macro insight.
     """
-    from src.services.macro.gold_world_service import fetch_world_gold_live
     from core.macro.gold_spread_engine import analyze_domestic_premium
+
+    from src.services.macro.gold_world_service import fetch_world_gold_live
 
     dashboard = get_gold_dashboard()
     xau = fetch_world_gold_live()

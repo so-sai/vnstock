@@ -2,10 +2,10 @@
 Backtest Service Layer v1.0
 Time Kernel — Kết nối Backtest Engine và Stress Test.
 """
-import sys
 import logging
+import sys
 from pathlib import Path
-from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -24,13 +24,11 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+
 import numpy as np
 import pandas as pd
-import json
-import os
+
 from src.database.db_core import get_connection
-from src.registry import registry
-import src.config
 
 logger = logging.getLogger(__name__)
 

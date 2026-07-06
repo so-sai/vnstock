@@ -21,8 +21,7 @@ narrative_truth_gap is in Vietnamese because it is UI-facing.
 from typing import Optional
 
 # ── Vietnamese risk/safety keywords from central schema ────────
-
-from backend.src.core.cognitive_schema import RISK_KEYWORDS, SAFETY_KEYWORDS, DRIVER_VI_LOWER
+from backend.src.core.cognitive_schema import DRIVER_VI_LOWER, RISK_KEYWORDS, SAFETY_KEYWORDS
 
 
 def _narrative_risk_tone(narrative: dict) -> float:

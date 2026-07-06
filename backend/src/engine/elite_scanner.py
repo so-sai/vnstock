@@ -1,6 +1,7 @@
-﻿import sys
-import os
+﻿import os
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -21,18 +22,18 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import pandas as pd
-import json
+import argparse
 from datetime import datetime
-from typing import List, Optional, Any, Dict
+from typing import Dict, List
+
+import pandas as pd
+
 import src.config
 from src.database.db_core import get_connection
-from src.engine.strategy_commander import StrategyCommander
 from src.engine.money_flow_engine import MoneyFlowEngine
+from src.engine.strategy_commander import StrategyCommander
 from src.engine.unit_normalizer import UnitNormalizer
 
-import argparse
-import sys
 
 def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
     """
@@ -51,15 +52,15 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
 
     # 0. CẬP NHẬT DỮ LIỆU TỨ THỜI
     print("\n📡 Đang cập nhật cảm biến Ngoại lực & Vĩ mô...")
-    
+
     # 2. Nạp dữ liệu RS Rating
     rs_path: str = os.path.join(src.config.DATA_DIR, "market_rs.json")
     if not os.path.exists(rs_path):
         print("⚠️ Không tìm thấy market_rs.json. Hãy chạy rs_ranker.py trước.")
         return pd.DataFrame()
-    
+
     rs_df: pd.DataFrame = pd.read_json(rs_path)
-    
+
     # Ở chế độ Deep Scan, chúng ta quét TOÀN BỘ mã có trong RS Engine
     if deep_scan:
         top_candidates: List[str] = rs_df['symbol'].tolist()
@@ -67,7 +68,7 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
     else:
         top_candidates: List[str] = rs_df.head(50)['symbol'].tolist()
         print(f"⚡ Quick Scan: Nhận diện {len(top_candidates)} mã Top đầu.")
-    
+
     # Cập nhật Foreign Flow (Snapshot Accumulation)
     money_flow.update_foreign_history(top_candidates)
 
@@ -89,7 +90,7 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
 
     # Merge chuẩn snake_case
     final_df: pd.DataFrame = pd.merge(battle_report, industry_map, on='symbol', how='left')
-    
+
     # 6. MASKING LAYER (Presentation Layer)
     # Tách biệt Dữ liệu (Internal) và Hiển thị (External) - Python 3.14 Decoupling
     display_map: Dict[str, str] = {
@@ -102,15 +103,15 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
         "action": "Action",
         "sector": "Sector"
     }
-    
+
     # 7. HIỂN THỊ BÁO CÁO ALPHA BRAIN
     print("\n" + "💎" * 40)
     print("      DANH SÁCH KHUYẾN NGHỊ TÁC CHIẾN (SUPREME ALPHA V2.0)      ")
     print("💎" * 40)
-    
+
     # Lọc chỉ lấy các mã có Action tích cực hoặc mạnh
     buy_list = final_df[final_df['action'].str.contains("BUY|ACCUMULATE")].copy()
-    
+
     if buy_list.empty:
         print("⚠️ Không tìm thấy tín hiệu BẮN (BUY) đạt chuẩn Alpha Brain trong đợt quét này.")
     else:
@@ -129,16 +130,16 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
             marker = "🔥" if row['In_Top_Sector'] else "  "
             print(f"{marker} {row['symbol']:<6} | {int(row['rs_score']):>2} | {row['rvol']:>5.2f} | {row['foreign_10d_acc']:>8.2f} | {str(row['sector'])[:20]:<20} | {row['action']}")
         print("-" * 115)
-        
+
         # 8. Lưu báo cáo Supreme Alpha (Dùng Mapping cho Header CSV)
         report_dir: str = os.path.join(src.config.DATA_DIR, "output", "reports")
         os.makedirs(report_dir, exist_ok=True)
         timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_path: str = os.path.join(report_dir, f"supreme_alpha_report_{timestamp}.csv")
-        
+
         # Lưu CSV với Header thân thiện (PascalCase) theo chỉ thị của Bộ Chỉ Huy
         presentation_df.to_csv(report_path, index=False)
-        
+
         print(f"📝 Nhật ký quân cơ đã được lưu: {report_path}")
         if not buy_list.empty:
             print(f"💡 Tình trạng thị trường (Nấc 0): {buy_list.iloc[0]['market_phase']}")
@@ -150,6 +151,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Alpha Brain Elite Scanner v2.0")
     parser.add_argument("--deep", action="store_true", help="Kích hoạt chế độ Deep Scan toàn thị trường")
     args = parser.parse_args()
-    
+
     run_elite_scanner(deep_scan=args.deep)
 

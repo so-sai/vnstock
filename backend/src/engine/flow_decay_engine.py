@@ -18,6 +18,7 @@ Architecture:
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -39,15 +40,15 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import io
-import warnings
-import numpy as np
-import pandas as pd
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
-from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
+
 from src.database.db_core import get_connection
 from src.engine.regime_engine import detect_regime
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -458,7 +459,7 @@ def get_decayed_liquidity_health(regime: Optional[str] = None) -> dict:
 def get_decayed_rotation_beta(regime: Optional[str] = None) -> dict:
     """Sector rotation regime from decay-weighted momentum across sectors."""
     results = []
-    from src.engine.sector_rotation_graph import SECTOR_ORDER, _load_sector_mapping
+    from src.engine.sector_rotation_graph import SECTOR_ORDER
     for sec in SECTOR_ORDER:
         rs = build_sector_decay(sec, 60, regime)
         if rs.get("status") in ("NO_SYMBOLS", "NO_DATA", "INSUFFICIENT_DATA"):

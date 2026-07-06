@@ -1,8 +1,9 @@
-import sys
-import os
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -21,11 +22,13 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import pandas as pd
 import json
+
+import pandas as pd
+
+import src.config
 from src.database.db_core import get_connection
 from src.engine.regime_engine import detect_regime
-import src.config
 
 logger = logging.getLogger(__name__)
 

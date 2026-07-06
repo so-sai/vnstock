@@ -1,5 +1,6 @@
-import sys, os
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -22,11 +23,12 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-import src.config
-from src.database.db_core import get_connection
-from src.database.data_integrity import ensure_vnindex_integrity
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+import src.config
+from src.database.data_integrity import ensure_vnindex_integrity
+from src.database.db_core import get_connection
 
 
 def analyse_market_structure(lookback=60, top_n=10, min_value=1e9, verbose=True,

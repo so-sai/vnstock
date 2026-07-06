@@ -1,9 +1,9 @@
-﻿import sys
-import os
+﻿import os
+import sys
 from pathlib import Path
-import sqlite3
+
 import pandas as pd
-import numpy as np
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -29,6 +29,7 @@ if sys.platform == "win32":
 
 import src.config
 from src.database.db_core import get_connection
+
 
 def calculate_sector_stats():
     """
@@ -73,42 +74,42 @@ def calculate_sector_stats():
     df_ohlcv['date'] = pd.to_datetime(df_ohlcv['date'], format='ISO8601', errors='coerce')
     pivot_price = df_ohlcv.pivot(index='date', columns='symbol', values='close').ffill()
     pivot_vol = df_ohlcv.pivot(index='date', columns='symbol', values='volume').ffill()
-    
+
     # Tinh Liquidity Value (Price * Volume * 1000)
     pivot_value = pivot_price * pivot_vol * 1000
     avg_value_20d = pivot_value.rolling(20).mean().iloc[-1]   # Trung binh 20 phien
     value_latest = pivot_value.iloc[-1]                        # Gia tri phien gan nhat
-    
+
     # Tính Momentum RS (1M=50%, 3M=50% cho Sector focus)
     perf_1m = pivot_price.pct_change(21).iloc[-1]
     perf_3m = pivot_price.pct_change(63).iloc[-1]
-    
+
     # Xếp hạng Percentile Rank
     rs_1m = perf_1m.rank(pct=True).fillna(0) * 100
     rs_3m = perf_3m.rank(pct=True).fillna(0) * 100
     rs_combined = (rs_1m + rs_3m) / 2
-    
+
     # 3. Phân tích theo nhóm ngành
     sector_data = []
     for sector, members in df_ohlcv.groupby('industry'):
         symbols = members['symbol'].unique()
-        
+
         # Chỉ tính trên các mã có dữ liệu RS
         valid_symbols = [s for s in symbols if s in rs_combined.index]
         if not valid_symbols: continue
-        
+
         avg_rs_1m = rs_1m[valid_symbols].mean()
         avg_rs_3m = rs_3m[valid_symbols].mean()
-        
+
         # --- ALPHA V4.5: DIFFUSION INDEX ($DI$) ---
         # Đếm số mã có RS > 60 và giá nằm trên MA20
         sector_prices = pivot_price[valid_symbols]
         sector_ma20 = sector_prices.rolling(20).mean()
-        
+
         latest_prices = sector_prices.iloc[-1]
         latest_ma20 = sector_ma20.iloc[-1]
         latest_rs = rs_combined[valid_symbols]
-        
+
         # --- V4.6 IRON GATE: Diffusion Index chi tinh tren cac ma vuot cua 5B ---
         # Loc ra cac ma vuot ca 2 cua (TB 20 phien >= 5B VA phien hom nay >= 5B)
         iron_gate_mask = (
@@ -132,7 +133,7 @@ def calculate_sector_stats():
 
         # Dem so Diamond (ca 2 cua >= 5B)
         liquidity_depth = len(diamond_symbols)
-        
+
         sector_data.append({
             'Sector': sector,
             'RS 1M': avg_rs_1m,
@@ -157,7 +158,7 @@ def calculate_sector_stats():
         marker = "🟢" if row['Diffusion (%)'] >= 40 else "🟡"
         # Xóa marker để tránh Encoding crash trên Windows, dùng dấu star
         marker = "(*)" if row['Diffusion (%)'] >= 40 else "   "
-        
+
         print(f"{row['Sector']:<25} | {row['RS 1M']:>6.1f} | {row['RS 3M']:>6.1f} | {row['Combined']:>6.1f} | {row['Diffusion (%)']:>5.0f}% | {row['Diamonds (>5B)']:>3}/{row['Total']:<3} {marker}")
     print("=" * 80)
     print("DEBUG: (*) Hoi tu (Diffusion Index >= 40%). Score: (RS 1M + RS 3M) / 2.")

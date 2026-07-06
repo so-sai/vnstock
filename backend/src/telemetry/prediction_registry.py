@@ -1,7 +1,9 @@
 """Prediction Registry — append-only log of RS audit predictions + outcome tracking."""
-import sys, os, json, logging
-from pathlib import Path
+import json
+import logging
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)

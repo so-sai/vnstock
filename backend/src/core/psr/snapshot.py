@@ -4,6 +4,7 @@ Used before every significant system decision so the exact causal context
 can be reconstructed later.
 """
 from __future__ import annotations
+
 import hashlib
 import json
 import logging
@@ -11,9 +12,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from src.core.psr.models import PSRSnapshot
-from src.core.cagl.scanner import RouteScanner
 from src.core.cagl.registry import APIRegistry
+from src.core.cagl.scanner import RouteScanner
+from src.core.psr.models import PSRSnapshot
 
 logger = logging.getLogger(__name__)
 

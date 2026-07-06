@@ -1,7 +1,7 @@
 
 import sys
-import os
 from pathlib import Path
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -11,9 +11,11 @@ def _hydrate_path():
     return current
 
 PROJECT_ROOT = _hydrate_path()
+
 from vnstock import Quote
-import sqlite3
+
 from src.database.db_core import get_connection, save_data_upsert
+
 
 def hydrate_2020_data():
     """Fetches VNINDEX 2019-2020 for the COVID Stress Test."""
@@ -26,10 +28,10 @@ def hydrate_2020_data():
             df['symbol'] = 'VNINDEX'
             df['source'] = 'kbs'
             if 'adj_close' not in df.columns: df['adj_close'] = df['close']
-            
+
             # Format date for SQLite
             df['date'] = df['date'].dt.strftime('%Y-%m-%d')
-            
+
             cols = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
             with get_connection() as conn:
                 save_data_upsert('daily_ohlcv', df[cols], conn)

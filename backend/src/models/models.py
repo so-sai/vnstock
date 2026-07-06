@@ -1,17 +1,18 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 # Sentinel v2.1 (Anchor Fix)
 # (Added automatically if needed, but since this is a model file we keep it clean or add if it's executed)
 
-# Cấu hình chung: Tự động hiểu camelCase từ Frontend gửi lên 
+# Cấu hình chung: Tự động hiểu camelCase từ Frontend gửi lên
 # và trả về camelCase cho Frontend dễ đọc.
 class AlphaBaseModel(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
         alias_generator=lambda s: "".join(
-            word.capitalize() if i > 0 else word 
+            word.capitalize() if i > 0 else word
             for i, word in enumerate(s.split("_"))
         )
     )

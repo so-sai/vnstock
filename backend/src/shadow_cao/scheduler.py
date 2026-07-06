@@ -3,9 +3,8 @@
 Idempotent: safe to run multiple times. Only processes new data.
 Runs after telemetry evaluation completes.
 """
-import sys
-import json
 import logging
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -28,10 +27,9 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.shadow_cao.storage import initialize_shadow_database, get_shadow_stats
-from src.shadow_cao.attribution import batch_dry_run_from_logs
-from src.shadow_cao.belief import update_engine_profiles, compute_stability_index, get_belief_state
+from src.shadow_cao.belief import update_engine_profiles
 from src.shadow_cao.hooks import daily_shadow_tick
+from src.shadow_cao.storage import get_shadow_stats, initialize_shadow_database
 
 
 def run_daily_batch(verbose: bool = True) -> dict:
@@ -83,11 +81,6 @@ def run_gate_recheck(verbose: bool = True) -> dict:
         print("  SHADOW CAO — Gate Re-check")
         print("=" * 56)
     from src.cao_readiness import run_readiness_check
-    from src.cao_readiness.gate_a_independence import run_independence_test
-    from src.cao_readiness.gate_b_injectability import run_injectability_test
-    from src.cao_readiness.gate_c_regime_stability import run_regime_stability_test
-    from src.cao_readiness.models import ReadinessVerdict
-    from src.shadow_cao.belief import update_engine_profiles
     profiles = update_engine_profiles()
     if verbose:
         print(f"  Engine profiles: {len(profiles)}")

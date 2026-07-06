@@ -1,8 +1,9 @@
 ﻿import os
 import sys
-import pandas as pd
-import numpy as np
 from pathlib import Path
+
+import pandas as pd
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -35,18 +36,18 @@ def generate_audit_report(csv_path):
 
     df = pd.read_csv(csv_path)
     df['date'] = pd.to_datetime(df['date'])
-    
+
     # --- 1. INSTITUTIONAL PILLARS ---
     max_dd = df['drawdown'].max()
-    
+
     # Recovery Delay (Index V-Shape)
     bottom_idx = df['idx_close'].idxmin()
     bottom_date = df.loc[bottom_idx, 'date']
     recovery_events = df[(df['date'] >= bottom_date) & (df['recovery'] == 'RECOVERY_ACTIVE')]
     delay = (recovery_events.iloc[0]['date'] - bottom_date).days if not recovery_events.empty else -1
-    
+
     survival_rate = 100 - max_dd
-    
+
     # False Recovery Rate
     false_count = 0
     recovery_indices = df[df['recovery'] == 'RECOVERY_ACTIVE'].index
@@ -61,7 +62,7 @@ def generate_audit_report(csv_path):
     ranging_total = df['ranging_total'].iloc[0] if 'ranging_total' in df.columns else 1
     avg_latency = df['avg_latency'].iloc[0] if 'avg_latency' in df.columns else 0
     avg_t10 = df['avg_t10'].iloc[0] if 'avg_t10' in df.columns else 0
-    
+
     dead_zone_pct = (dead_zone_days / ranging_total) * 100
     breadth_stability = df['breadth_std_10d'].mean() if 'breadth_std_10d' in df.columns else 0
 
@@ -83,17 +84,17 @@ def generate_audit_report(csv_path):
     print(f"6. SIGNAL LATENCY:       {avg_latency:>8.1f} Days  (Target: < 5 Days)")
     print(f"7. DEAD ZONE RATIO:      {dead_zone_pct:>8.1f}%  (Target: < 40%)")
     print("-" * 65)
-    
+
     # Audit Verdict for Mission 2
     pillar_pass = max_dd < 20 and (delay != -1 and delay <= 10) and false_count < 3
     hook_pass = avg_latency < 8 and dead_zone_pct < 45
-    
+
     verdict = "✅ PASS" if pillar_pass and hook_pass else "❌ FAIL"
     print(f"FINAL AUDIT VERDICT: {verdict}")
     if not hook_pass:
         if avg_latency >= 8: print("   ⚠️ ADVISORY: Model B latency is too high. Tuning needed.")
         if dead_zone_pct >= 45: print("   ⚠️ ADVISORY: Thresholds are too restrictive (High Dead Zone).")
-    
+
     print("#"*65 + "\n")
 
     return {

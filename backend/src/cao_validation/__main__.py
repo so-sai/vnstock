@@ -6,8 +6,8 @@ Usage:
     python -m src.cao_validation --check-matrix    # Show promotion matrix
     python -m src.cao_validation --json            # Machine-readable output
 """
-import sys
 import json
+import sys
 from pathlib import Path
 
 
@@ -29,8 +29,8 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.cao_validation.activation_gate import run_full_validation
-from src.cao_validation.trust_accumulator import get_accumulator
 from src.cao_validation.regime_promotion_matrix import get_matrix
+from src.cao_validation.trust_accumulator import get_accumulator
 
 
 def main():

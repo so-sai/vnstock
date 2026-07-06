@@ -15,11 +15,11 @@ Tích hợp:
   - Trả về format API (camelCase)
 """
 
+from datetime import datetime
+from typing import Dict
+
 from fastapi import APIRouter, HTTPException
-from datetime import datetime, timedelta
-from typing import Dict, Optional, List
 from pydantic import BaseModel
-import math
 
 # Giả định import từ hệ thống hiện tại
 # from database import get_db
@@ -32,10 +32,10 @@ router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 
 class IPOHUDResponse(BaseModel):
     """API Response cho IPO HUD Widget"""
-    
+
     ipo_signal: Dict
     updated_at: datetime
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -85,18 +85,18 @@ def calculate_days_until_decay(listing_date_str: str) -> int:
         listing_date = datetime.fromisoformat(listing_date_str)
     except:
         return 0
-    
+
     current_date = datetime.now()
     days_since_listing = (current_date - listing_date).days
-    
+
     # Nếu IPO hôm nay
     if days_since_listing <= 0:
         return 5  # Áp lực cao nhất, kéo dài 5 phiên
-    
+
     # Nếu IPO đã qua 10 phiên
     if days_since_listing >= 10:
         return 0  # Hết áp lực
-    
+
     # Tính toán: ngược lại
     # days_since_listing = 0 → days_until_decay = 5
     # days_since_listing = 5 → days_until_decay = 0
@@ -114,7 +114,7 @@ def transform_ipo_signal_for_hud(
     Input: Raw IpoMarketSignal + IpoSignalPackage
     Output: Dict clean, camelCase, có cộng Time Decay
     """
-    
+
     # Tính Time Decay
     if raw_ipo_signal.active_ipo_list:
         latest_ipo = raw_ipo_signal.active_ipo_list[0]
@@ -123,7 +123,7 @@ def transform_ipo_signal_for_hud(
         )
     else:
         days_until_decay = 0
-    
+
     # Chuyển đổi tín hiệu
     hud_data = {
         "symbol": (
@@ -152,7 +152,7 @@ def transform_ipo_signal_for_hud(
         "days_until_decay": days_until_decay,
         "action_command": ipo_service_package.action_command,
     }
-    
+
     return hud_data
 
 
@@ -170,27 +170,27 @@ async def get_ipo_hud_signal(
         200: IPO signal found
         404: No active IPO
     """
-    
+
     try:
         # 1. Khởi tạo IPO Service
+        from src.database.timeline_manager import get_active_ipos, get_aftermarket_returns
         from src.engine.ipo_engine import IpoEngine
         from src.services.ipo_signal_service import IpoSignalService
-        from src.database.timeline_manager import get_active_ipos, get_aftermarket_returns
-        
+
         ipo_engine = IpoEngine()
         ipo_service = IpoSignalService(ipo_engine)
-        
+
         # 2. Load IPO lịch sử từ DB
         active_ipos = get_active_ipos(days_back=90)  # IPO trong 90 ngày gần đây
         for ipo in active_ipos:
             ipo_engine.add_ipo_event(ipo)
-        
+
         # 3. Lấy thông tin thị trường hiện tại (fallback nhẹ cho môi trường chưa có engine regime đầy đủ)
         breadth_score = 0.55
-        
+
         # 4. Tính aftermarket returns
         aftermarket_returns = get_aftermarket_returns(days_back=90)
-        
+
         # 5. Phân tích IPO signal
         ipo_signal = ipo_service.get_daily_ipo_signal(
             current_date=datetime.now(),
@@ -199,20 +199,20 @@ async def get_ipo_hud_signal(
             breadth_score=breadth_score,
             secondary_volume_ratio=1.0,  # TODO: Lấy từ daily market data
         )
-        
+
         # 6. Chuyển đổi cho HUD
         hud_data = transform_ipo_signal_for_hud(
             ipo_signal.raw_signal,
             ipo_signal,
         )
-        
+
         response = IPOHUDResponse(
             ipo_signal=hud_data,
             updated_at=datetime.now(),
         )
-        
+
         return response
-    
+
     except ValueError as e:
         raise HTTPException(status_code=404, detail=f"IPO Signal Error: {str(e)}")
     except Exception as e:
@@ -243,9 +243,9 @@ if __name__ == "__main__":
     # Test endpoint
     import uvicorn
     from fastapi import FastAPI
-    
+
     app = FastAPI()
     app.include_router(router)
-    
+
     # python -m uvicorn ipo_signal_api:app --reload
     uvicorn.run(app, host="0.0.0.0", port=8000)

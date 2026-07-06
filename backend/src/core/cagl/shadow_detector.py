@@ -1,13 +1,11 @@
 """Shadow route detection — compare multiple sources to find drifts."""
 from __future__ import annotations
-import sys
-import logging
-from pathlib import Path
-from typing import List, Optional
 
-from src.core.cagl.models import EndpointSpec, ValidationFinding, ScanResult
-from src.core.cagl.scanner import RouteScanner
-from src.core.cagl.registry import APIRegistry
+import logging
+import sys
+from pathlib import Path
+
+from src.core.cagl.models import EndpointSpec, ValidationFinding
 
 
 def _hydrate_path():

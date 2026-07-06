@@ -1,6 +1,7 @@
-﻿import sys
-import importlib
+﻿import importlib
+import sys
 from pathlib import Path
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -27,7 +28,7 @@ class ProjectRegistry:
     Cung cấp quyền truy cập tập trung, lazy-loaded vào tất cả các module của PTCK_VNSTOCK.
     Giúp tránh lỗi Circular Import và tối ưu hóa bộ nhớ.
     """
-    
+
     # --- ENGINES ---
     @property
     def regime_engine(self): return importlib.import_module("src.engine.regime_engine")
@@ -131,14 +132,14 @@ if __name__ == "__main__":
     print("PTCK_VNSTOCK: INSTITUTIONAL MODULE REGISTRY")
     print("═"*50)
     print(f"Project Root: {PROJECT_ROOT}")
-    
+
     # Kiểm tra thử tải module config
     try:
         cfg = registry.config
         print(f"✅ Registry Load Success: {cfg.__name__}")
     except Exception as e:
         print(f"❌ Registry Load Failed: {e}")
-    
+
     print("\n[Categories]:")
     print("- Engines: 15 modules mapped.")
     print("- Research: 11 modules mapped.")

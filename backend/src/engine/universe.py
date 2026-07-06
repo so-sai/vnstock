@@ -13,6 +13,7 @@ Only this file defines SECTOR_MAP. No more duplication.
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent

@@ -220,6 +220,12 @@ entrypoints:
     cli: "python ptck.py flow-map"
     category: analysis
 
+  # ── Param Fingerprint Registry ───────────────────────────
+  registry_view:
+    description: "Sổ tay Dấu vân tay Tham số — tra cứu params_hash tốt nhất theo regime, kèm audit trail"
+    cli: "python ptck.py registry [--regime RANGING] [--rebuild]"
+    category: decision
+
   # ── Confidence ────────────────────────────────────────
   confidence:
     description: "Lớp tự đánh giá độ tin cậy — 5 nhân tố + veto"

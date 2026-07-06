@@ -2,9 +2,10 @@
 Breadth Service Layer v1.0
 Độ rộng thị trường chi tiết — Market Pulse.
 """
-import sys
 import logging
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -24,6 +25,7 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import pandas as pd
+
 from src.database.db_core import get_connection
 from src.registry import registry
 

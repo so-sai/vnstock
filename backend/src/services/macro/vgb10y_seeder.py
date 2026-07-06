@@ -1,7 +1,8 @@
-import sys
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -23,8 +24,9 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import requests
 import pandas as pd
+import requests
+
 from src.database.db_core import get_connection, save_data_upsert
 
 logger = logging.getLogger(__name__)

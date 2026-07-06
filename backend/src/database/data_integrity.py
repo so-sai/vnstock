@@ -14,6 +14,7 @@ When the daily_ohlcv table stores index points 1000x too small
 """
 
 from __future__ import annotations
+
 import logging
 import sqlite3
 from typing import Optional

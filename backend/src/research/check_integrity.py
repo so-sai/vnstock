@@ -1,9 +1,10 @@
 ﻿
-import sys
-import os
-import pandas as pd
 import sqlite3
+import sys
 from pathlib import Path
+
+import pandas as pd
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -28,7 +29,7 @@ def check_replay_integrity():
     df = pd.read_sql("SELECT date, breadth_pct FROM regime_history WHERE date BETWEEN '2022-10-01' AND '2022-12-31' ORDER BY date", conn)
     print("--- REGIME HISTORY AUDIT ---")
     print(df)
-    
+
     # Check 21/11 Velocity Calc Logic
     target_date = '2022-11-21'
     df_prev = pd.read_sql(f"SELECT breadth_pct, date FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 5", conn)

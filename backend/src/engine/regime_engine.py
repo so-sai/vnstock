@@ -1,9 +1,10 @@
 
 import sys
-import os
-import pandas as pd
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -22,8 +23,8 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
 from src.database.db_core import get_connection
+
 
 def _calc_adx(df, period=14):
     """Calculates ADX for a given OHLCV DataFrame."""
@@ -32,13 +33,13 @@ def _calc_adx(df, period=14):
     minus_dm = -df['low'].diff()
     plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0)
     minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0.0)
-    
+
     tr = pd.concat([
         df['high'] - df['low'],
         (df['high'] - df['close'].shift(1)).abs(),
         (df['low'] - df['close'].shift(1)).abs()
     ], axis=1).max(axis=1)
-    
+
     atr = tr.rolling(period).mean()
     plus_di = 100 * (pd.Series(plus_dm).rolling(period).mean() / atr)
     minus_di = 100 * (pd.Series(minus_dm).rolling(period).mean() / atr)
@@ -78,16 +79,16 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             df_all = pd.read_sql(f"SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date <= '{target_date}' AND date >= date('{target_date}', '-60 days') AND symbol != 'VNINDEX'", conn)
         else:
             df_all = pd.read_sql("SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-10-01' AND symbol != 'VNINDEX'", conn)
-    
+
     df_all = df_all.copy()
     df_all['date'] = pd.to_datetime(df_all['date'], format='mixed')
     df_all = df_all.sort_values(['symbol', 'date'])
     current_date = pd.to_datetime(target_date) if target_date else df_all['date'].max()
-    
+
     g = df_all.groupby('symbol')
     df_all['ma20'] = g['close'].transform(lambda x: x.rolling(20).mean())
     df_all['avg_vol_20d'] = g['volume'].transform(lambda x: x.rolling(20).mean())
-    
+
     latest_df = df_all[df_all['date'] == current_date].copy()
 
     # ── BREADTH_SUSPENDED: không có dữ liệu cho current_date → hoãn breadth ──
@@ -97,14 +98,14 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     else:
         liquid_df = latest_df[latest_df['avg_vol_20d'] >= 50000]
         breadth_pct = (len(liquid_df[liquid_df['close'] > liquid_df['ma20']]) / len(liquid_df) * 100) if not liquid_df.empty else 0
-    
+
     # [INTERNAL HOOK] Calculate Breadth Stability (STD 10D) & Momentum
     with get_connection() as conn:
         if target_date:
             df_hist_b = pd.read_sql(f"SELECT breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 10", conn)
         else:
             df_hist_b = pd.read_sql("SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 10", conn)
-    
+
     # Calculate rolling STD including current data (filter None)
     all_breadth = [b for b in (df_hist_b['breadth_pct'].tolist() + [breadth_pct]) if b is not None]
     breadth_std_10d = np.std(all_breadth) if len(all_breadth) >= 2 else 0.0
@@ -125,7 +126,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             df_idx = pd.read_sql(f"SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= '{target_date}' ORDER BY date", conn)
         else:
             df_idx = pd.read_sql("SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date", conn)
-    
+
     df_idx = df_idx.copy()
     if df_idx.empty:
         latest_date = (pd.to_datetime(target_date) if target_date else datetime.now()).strftime("%Y-%m-%d")
@@ -153,12 +154,12 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     df_idx['ma50'] = df_idx['close'].rolling(50).mean()
     df_idx['adx'] = _calc_adx(df_idx)
     latest_idx = df_idx.iloc[-1]
-    
+
     # MA50 Slope (current vs 5 days ago)
     ma50_today = latest_idx['ma50']
     ma50_5d_ago = df_idx['ma50'].iloc[-6] if len(df_idx) >= 6 else ma50_today
     ma50_slope = ma50_today - ma50_5d_ago
-    
+
     # Trend Score: still discrete (3-state) — MA200 crossing is a structural binary gate
     # ADX sub-level uses 0.6 to preserve the partial-trend signal when above MA200 but low momentum
     if latest_idx['close'] > latest_idx['ma200']:
@@ -172,17 +173,17 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         (df_idx['high'] - df_idx['close'].shift(1)).abs(),
         (df_idx['low'] - df_idx['close'].shift(1)).abs()
     ], axis=1).max(axis=1)
-    
+
     atr_20 = tr.rolling(20).mean()
     atr_today = tr.iloc[-1]
     atr_avg = atr_20.iloc[-1]
-    
+
     # Volatility Score: continuous inverse of ATR ratio excess
     # v_score = 1.0 - clamp(atr_ratio - 1.0, 0.0, 0.8)  ->  range [0.2, 1.0]
     # Replaces discrete 3-step to eliminate cliff-edge jumps at 1.5x ATR boundary
     atr_ratio = (atr_today / atr_avg) if atr_avg and atr_avg > 0 else 1.0
     v_score = max(0.2, min(1.0, 1.0 - max(0.0, min(0.8, atr_ratio - 1.0))))
-    
+
     # 4. Final Aggregation — Raw Score (BREADTH_SUSPENDED → 2-factor fallback)
     if b_score is None:
         regime_score_raw = (0.6 * t_score) + (0.4 * v_score)

@@ -21,11 +21,11 @@ Usage:
     if report.overall_promotable:
         print("CAO can be promoted to LIVE")
 """
-from src.cao_validation.activation_gate import run_full_validation, evaluate_promotion
-from src.cao_validation.consistency_engine import compute_consistency_score, compute_batch_consistency
-from src.cao_validation.trust_accumulator import get_accumulator
+from src.cao_validation.activation_gate import evaluate_promotion, run_full_validation
+from src.cao_validation.consistency_engine import compute_batch_consistency, compute_consistency_score
 from src.cao_validation.regime_promotion_matrix import get_matrix
 from src.cao_validation.shadow_live_comparator import run_distribution_tests, run_per_regime_tests
+from src.cao_validation.trust_accumulator import get_accumulator
 
 __all__ = [
     "run_full_validation",

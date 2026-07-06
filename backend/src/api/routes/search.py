@@ -1,6 +1,9 @@
-import sys, sqlite3
+import sqlite3
+import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):

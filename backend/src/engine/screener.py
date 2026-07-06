@@ -1,6 +1,7 @@
-import sys
 import os
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -23,10 +24,11 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
+import numpy as np
+import pandas as pd
+
 import src.config
 from src.database.db_core import get_connection
-import pandas as pd
-import numpy as np
 
 RS_COLS = ['symbol', 'close', 'rs_21d', 'rs_63d', 'rs_126d', 'mom_5d', 'mom_20d', 'mom_50d',
            'vol_trend', 'rs_improve', 'near_high', 'vol_stability', 'composite']

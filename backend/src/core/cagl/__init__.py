@@ -14,12 +14,12 @@ Usage::
 
     findings = verify_cagl(app, mode="WARN")
 """
-from src.core.cagl.models import EndpointSpec, ValidationFinding, ScanResult
-from src.core.cagl.scanner import RouteScanner
-from src.core.cagl.registry import APIRegistry
-from src.core.cagl.contract import ContractValidator
-from src.core.cagl.shadow_detector import ShadowDetector
 from src.core.cagl.bootstrap import verify_cagl
+from src.core.cagl.contract import ContractValidator
+from src.core.cagl.models import EndpointSpec, ScanResult, ValidationFinding
+from src.core.cagl.registry import APIRegistry
+from src.core.cagl.scanner import RouteScanner
+from src.core.cagl.shadow_detector import ShadowDetector
 
 __all__ = [
     "EndpointSpec",

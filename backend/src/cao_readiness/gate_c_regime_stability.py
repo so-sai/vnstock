@@ -7,12 +7,11 @@ learn incorrect distribution shapes → run CAO in "soft mode" only.
 
 Uses two data sources (prefers regime_history table, falls back to snapshots).
 """
-import sys
-import json
-import math
 import logging
-from pathlib import Path
+import math
+import sys
 from collections import Counter
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +32,9 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
-from src.telemetry.storage import get_all_snapshots
+from src.cao_readiness.models import GateResult, RegimeEntropyPoint, RegimeStabilityReport
 from src.database.db_core import get_connection
-from src.cao_readiness.models import RegimeEntropyPoint, RegimeStabilityReport, GateResult
-
+from src.telemetry.storage import get_all_snapshots
 
 REGIME_LABELS = ["TRENDING", "RANGING", "CRISIS"]
 DEFAULT_WINDOW = 30

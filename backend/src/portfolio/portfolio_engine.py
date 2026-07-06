@@ -2,9 +2,11 @@
 Portfolio State Machine v1.0
 Điều phối vòng đời vị thế — Position Lifecycle Engine.
 """
-import sys, logging
-from pathlib import Path
+import logging
+import sys
 from datetime import datetime
+from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -27,8 +29,7 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.database.portfolio_db import get_portfolio_connection
-from src.portfolio import position_sizer, risk_budget, sector_risk, decision_fusion, exposure_engine, memory_engine
-import src.config
+from src.portfolio import decision_fusion, exposure_engine, memory_engine, position_sizer, risk_budget
 
 logger = logging.getLogger(__name__)
 

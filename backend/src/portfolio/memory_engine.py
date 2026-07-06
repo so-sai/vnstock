@@ -3,9 +3,12 @@ Portfolio State Memory Layer v1.0 — Runtime
 Closed-loop experience memory for adaptive capital control.
 Turns portfolio history into a control signal.
 """
-import sys, sqlite3, logging
-from pathlib import Path
+import logging
+import sqlite3
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -27,7 +30,6 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import src.config
 from src.database.portfolio_db import PORTFOLIO_DB_PATH
 
 logger = logging.getLogger(__name__)

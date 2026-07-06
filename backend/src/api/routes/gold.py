@@ -1,7 +1,8 @@
 import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -20,13 +21,14 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.services.macro.gold_service import get_gold_dashboard, get_gold_cognition_layer
-from src.services.macro.gold_world_service import fetch_world_gold_live, seed_world_gold_to_db
 from core.macro.gold_regime_engine import analyze_gold_regime, cross_reference_with_market
 from core.macro.gold_spread_engine import analyze_domestic_premium, get_premium_driver
-from src.services.macro_service import get_macro_status
 
 from src.core.canonical_output_adapter import localize_output
+from src.services.macro.gold_service import get_gold_cognition_layer, get_gold_dashboard
+from src.services.macro.gold_world_service import fetch_world_gold_live, seed_world_gold_to_db
+from src.services.macro_service import get_macro_status
+
 router = APIRouter()
 
 

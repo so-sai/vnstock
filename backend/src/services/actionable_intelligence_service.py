@@ -3,8 +3,10 @@ Actionable Intelligence Service (Phase 12).
 Compresses all engines → simple, actionable decisions for the user.
 No new analysis — just orchestration + narrative compression.
 """
-import sys, logging
+import logging
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -26,17 +28,19 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from datetime import datetime
+
 import pandas as pd
-from datetime import datetime, timedelta
+
 from src.database.db_core import get_connection
-from src.portfolio.decision_tensor_v2 import compute_v2
+from src.engine.breakout_continuation import get_breakout_market_context, scan_breakout_opportunities
+from src.engine.liquidity_wave import get_market_liquidity_health, scan_liquidity_waves
 from src.engine.regime_engine import detect_regime
-from src.engine.liquidity_wave import scan_liquidity_waves, get_market_liquidity_health, detect_retail_chase
 from src.engine.sector_rotation_graph import get_rotation_beta
-from src.engine.breakout_continuation import scan_breakout_opportunities, get_breakout_market_context, get_continuation_signal
-from src.portfolio.portfolio_engine import get_open_positions
+from src.portfolio.decision_tensor_v2 import compute_v2
 from src.portfolio.exposure_engine import get_portfolio_heat
 from src.portfolio.memory_engine import get_risk_path_window
+from src.portfolio.portfolio_engine import get_open_positions
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +291,7 @@ def _get_scenario_advice(scenario: str, risk: str, loss: float) -> str:
     if scenario == "drop_10pct":
         return f"Giảm 10% là kịch bản xấu nhất (lỗ ~{loss:,.0f} VND). Hệ thống sẽ khóa toàn bộ giao dịch."
     if scenario == "surge_3pct":
-        return f"Tăng 3%: danh mục có thể hạ nhiệt. Có thể tận dụng để mở thêm vị thế mới."
+        return "Tăng 3%: danh mục có thể hạ nhiệt. Có thể tận dụng để mở thêm vị thế mới."
     return "Kịch bản tùy chỉnh. Đánh giá dựa trên tham số hiện tại."
 
 
@@ -307,7 +311,7 @@ def get_position_narrative(symbol: str) -> dict:
 
     with get_connection() as conn:
         current_price_df = pd.read_sql(
-            f"SELECT close, date FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1",
+            "SELECT close, date FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1",
             conn, params=(symbol,)
         )
     current_price = float(current_price_df.iloc[0]["close"]) if not current_price_df.empty else avg_cost

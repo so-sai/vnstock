@@ -5,7 +5,6 @@ Usage:
     python -m src.cao_readiness --json   (machine-readable output)
 """
 import sys
-import json
 from pathlib import Path
 
 
@@ -26,8 +25,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import src.config
-from src.cao_readiness.orchestrator import run_readiness_check, print_verdict
+from src.cao_readiness.orchestrator import print_verdict, run_readiness_check
 
 
 def main():

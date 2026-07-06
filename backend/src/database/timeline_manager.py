@@ -1,8 +1,9 @@
 ﻿
 import sys
-import pandas as pd
-import sqlite3
 from pathlib import Path
+
+import pandas as pd
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -28,6 +29,7 @@ PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import get_connection, save_data_upsert
 from src.engine.ipo_engine import IpoEvent
 
+
 def log_regime_state(verdict):
     """
     Persists the daily regime decision to the regime_history table.
@@ -48,7 +50,7 @@ def log_regime_state(verdict):
         "active_model": [verdict.get('active_model', 'NONE')],
         "recovery_flag": [1 if verdict.get('recovery', {}).get('is_recovery') else 0]
     }
-    
+
     df = pd.DataFrame(data)
     with get_connection() as conn:
         save_data_upsert("regime_history", df, conn)
@@ -236,17 +238,17 @@ def calculate_breadth_velocity(current_breadth, days=5, target_date=None):
                 df = pd.read_sql(f"SELECT breadth_pct, date FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT {days}", conn)
             else:
                 df = pd.read_sql(f"SELECT breadth_pct, date FROM regime_history ORDER BY date DESC LIMIT {days}", conn)
-        
+
         if df.empty:
             return 0.0
-        
+
         past_entry = df.iloc[-1]
         past_breadth = past_entry['breadth_pct']
         velocity = current_breadth - past_breadth
-        
+
         if target_date and velocity != 0:
             print(f"   [VELOCITY] Today: {current_breadth}% | Past: {past_breadth}% (from {past_entry['date']}) | Result: {velocity:+.1f}%")
-            
+
         return velocity
     except Exception:
         # Table might not exist yet on very first run

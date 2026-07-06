@@ -17,13 +17,13 @@ Format:
         "yfinance": {"tripped_at": 1700000123.0, "reason": "timeout"}
     }
 """
-import sys
 import json
-import time
-import threading
-import tempfile
-import os
 import logging
+import os
+import sys
+import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 

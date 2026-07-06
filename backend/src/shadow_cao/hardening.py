@@ -6,15 +6,14 @@ Production-safety guarantees:
 3. Timestamp integrity validator — temporal alignment between decision/outcome/ablation
 4. Replay engine — validate correctness on historical snapshots (benchmark-grade)
 """
-import sys
-import json
-import time
-import queue
-import logging
 import functools
+import json
+import logging
+import queue
+import sys
 import threading
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -298,14 +297,15 @@ class ReplayEngine:
 
         Returns replay result dict (never affects production).
         """
-        from src.shadow_cao.logger import record_from_snapshot
-        from src.shadow_cao.storage import (
-            save_decision_log, save_ablation_result,
-            get_decision_log, get_ablations_for_decision,
-        )
         from src.shadow_cao.ablation import run_decision_ablation
         from src.shadow_cao.attribution import run_dry_run_attribution
-        from src.shadow_cao.storage import save_outcome_log
+        from src.shadow_cao.logger import record_from_snapshot
+        from src.shadow_cao.storage import (
+            get_ablations_for_decision,
+            get_decision_log,
+            save_ablation_result,
+            save_outcome_log,
+        )
 
         decision_id = snapshot.get("decision_id", "unknown")
         timestamp = snapshot.get("timestamp", "")
@@ -319,7 +319,6 @@ class ReplayEngine:
             replay_type = "replay_new"
         ablations = get_ablations_for_decision(decision_id)
         if not ablations:
-            from src.shadow_cao.logger import log_decision
             raw_scores = snapshot.get("engine_scores")
             engine_scores = {}
             if raw_scores:

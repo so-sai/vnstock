@@ -4,10 +4,10 @@ Re-computes engine contribution under ablation conditions.
 Same market outcome — perturbed attribution only.
 Never writes to production engine_attribution table (separate namespace).
 """
-import sys
 import json
-import math
 import logging
+import math
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -29,13 +29,12 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
-from src.shadow_cao.models import AttributionPerturbation, AblationResult, ShadowAttributionSummary
+from src.shadow_cao.models import AblationResult, AttributionPerturbation, ShadowAttributionSummary
 from src.shadow_cao.storage import (
-    initialize_shadow_database, save_attribution_perturbation,
     get_all_decision_logs,
+    initialize_shadow_database,
+    save_attribution_perturbation,
 )
-
 
 CANONICAL_ENGINES = ["regime", "liquidity", "sector", "breakout", "heat", "signal", "memory", "dampener"]
 
@@ -168,7 +167,8 @@ def batch_dry_run_from_logs() -> int:
     except Exception:
         pass
     from src.shadow_cao.storage import (
-        get_all_decision_logs, get_ablations_for_decision, save_outcome_log,
+        get_ablations_for_decision,
+        save_outcome_log,
     )
     shadow_logs = get_all_decision_logs(limit=500)
     processed = 0

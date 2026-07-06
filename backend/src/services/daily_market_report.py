@@ -1,7 +1,7 @@
-import sys
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -443,8 +443,8 @@ def in_bao_cao(report):
 
     # 1. TỔNG QUAN
     tq = report["tong_quan"]
-    print(f"\n  1. TỔNG QUAN THỊ TRƯỜNG")
-    print(f"  --")
+    print("\n  1. TỔNG QUAN THỊ TRƯỜNG")
+    print("  --")
     print(f"  Xu hướng chung:      {tq['xu_huong_chung']}")
     print(f"  Mức độ rõ xu hướng:  {tq['muc_do_ro_xu_huong']}")
     print(f"  Tâm lý thị trường:   {tq['tam_ly_thi_truong']}")
@@ -456,12 +456,12 @@ def in_bao_cao(report):
 
     # 2. DÒNG TIỀN
     dt = report["dong_tien"]
-    print(f"\n  2. DÒNG TIỀN ĐANG ĐI ĐÂU")
-    print(f"  --")
+    print("\n  2. DÒNG TIỀN ĐANG ĐI ĐÂU")
+    print("  --")
     if dt["nhom_manh_nhat"]:
         print(f"  Nhóm mạnh nhất:      {', '.join(dt['nhom_manh_nhat'])}")
     else:
-        print(f"  Nhóm mạnh nhất:      không rõ")
+        print("  Nhóm mạnh nhất:      không rõ")
     if dt["nhom_yeu_nhat"]:
         print(f"  Nhóm yếu nhất:       {', '.join(dt['nhom_yeu_nhat'])}")
     print(f"  Tập trung vài nhóm:  {dt['tap_trung_vai_nhom']}")
@@ -470,8 +470,8 @@ def in_bao_cao(report):
 
     # 3. RỦI RO
     rr = report["rui_ro"]
-    print(f"\n  3. MỨC ĐỘ RỦI RO THỊ TRƯỜNG")
-    print(f"  --")
+    print("\n  3. MỨC ĐỘ RỦI RO THỊ TRƯỜNG")
+    print("  --")
     print(f"  Độ rộng thị trường:  {rr['do_rong_thi_truong']}")
     print(f"  Dòng tiền lan tỏa:   {rr['dong_tien_lan_toa']}")
     print(f"  Biến động giá:       {rr['bien_dong_gia']}")
@@ -482,8 +482,8 @@ def in_bao_cao(report):
 
     # 4. TÍN HIỆU ĐẶC BIỆT
     tin_hieu = report["tin_hieu_dac_biet"]
-    print(f"\n  4. TÍN HIỆU ĐẶC BIỆT")
-    print(f"  --")
+    print("\n  4. TÍN HIỆU ĐẶC BIỆT")
+    print("  --")
     if tin_hieu:
         for th in tin_hieu:
             muc = th.get("muc_do", "")
@@ -495,11 +495,11 @@ def in_bao_cao(report):
                 ky_hieu = "•"
             print(f"  {ky_hieu} {th['noi_dung']}")
     else:
-        print(f"  Không có tín hiệu đặc biệt nào.")
+        print("  Không có tín hiệu đặc biệt nào.")
 
     # 5. KẾT LUẬN HÀNH VI
-    print(f"\n  5. KẾT LUẬN HÀNH VI")
-    print(f"  --")
+    print("\n  5. KẾT LUẬN HÀNH VI")
+    print("  --")
     hanh_vi = report["ket_luan_hanh_vi"]
     ky_hieu_map = {
         "Có thể tham gia": "🟢",
@@ -512,8 +512,8 @@ def in_bao_cao(report):
 
     # 6. CẢNH BÁO SỚM
     cb = report.get("canh_bao_som", {})
-    print(f"\n  6. CẢNH BÁO SỚM CHUYỂN PHA")
-    print(f"  --")
+    print("\n  6. CẢNH BÁO SỚM CHUYỂN PHA")
+    print("  --")
     cap_do = cb.get("cap_do_tieng_viet", "Bình thường")
     ky_hieu_cb = cb.get("cap_do_ky_hieu", "🟡")
     print(f"  {ky_hieu_cb} Cảnh báo: {cap_do}")
@@ -525,8 +525,8 @@ def in_bao_cao(report):
 
     # 7. XÁC NHẬN CHUYỂN PHA
     xn = report.get("xac_nhan_chuyen_pha", {})
-    print(f"\n  7. XÁC NHẬN CHUYỂN PHA THẬT")
-    print(f"  --")
+    print("\n  7. XÁC NHẬN CHUYỂN PHA THẬT")
+    print("  --")
     print(f"  {xn.get('ky_hieu', '🔍')} Kết luận: {xn.get('ten', 'Nhiễu')}")
     print(f"  Số nhóm xác nhận: {xn.get('so_nhom_dat', 0)}/3")
     chi_tiet = xn.get("chi_tiet", {})
@@ -551,8 +551,8 @@ def in_bao_cao(report):
     # 9. PHÂN LOẠI DANH MỤC
     pl = report.get("phan_loai_danh_muc", [])
     if pl:
-        print(f"\n  9. PHÂN LOẠI DANH MỤC CỔ PHIẾU")
-        print(f"  --")
+        print("\n  9. PHÂN LOẠI DANH MỤC CỔ PHIẾU")
+        print("  --")
         nhom_theo_ma = {}
         for item in pl:
             ma = item.get("ma", "THEO_DÕI")

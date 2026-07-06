@@ -1,15 +1,15 @@
 """Optional ASGI middleware for runtime route validation."""
 from __future__ import annotations
-import sys
+
 import logging
+import sys
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from src.core.cagl.models import ValidationFinding
 from src.core.cagl.registry import APIRegistry
 
 

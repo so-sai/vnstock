@@ -5,10 +5,11 @@ Không gọi engine nặng — đọc thẳng regime_history (1 query) → trả
 
 Dùng cho: hiển thị "Phiên tác chiến: DD/MM/YYYY - HH:MM" trên Header.
 """
-import sys
 import io
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
+
 from fastapi import APIRouter
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -33,9 +34,8 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import src.config
-from src.database.db_core import get_connection
 from src.core.canonical_output_adapter import localize_output
+from src.database.db_core import get_connection
 
 router = APIRouter()
 

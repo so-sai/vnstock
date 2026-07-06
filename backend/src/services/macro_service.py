@@ -3,10 +3,11 @@ Macro Service Layer v1.0
 Cầu nối giữa FastAPI Routes và Regime/Breadth Engines.
 Xử lý: Data transformation, Exception handling, Fallback.
 """
-import sys
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -26,9 +27,10 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import pandas as pd
+from core.macro.gold_regime_engine import cross_reference_with_market
+
 from src.database.db_core import get_connection
 from src.registry import registry
-from core.macro.gold_regime_engine import analyze_gold_regime, cross_reference_with_market
 
 logger = logging.getLogger(__name__)
 

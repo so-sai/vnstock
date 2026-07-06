@@ -1,6 +1,8 @@
-import sys, json, os
+import json
+import sys
 from pathlib import Path
 from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -23,9 +25,10 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-import src.config
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+import src.config
 from src.database.db_core import get_connection
 
 VINGROUP_SYMBOLS = {"VIC", "VHM", "VRE"}
@@ -321,18 +324,18 @@ def in_bao_cao(kq: dict):
     print(f"  Chenh lech chi so:          {chenh.get('pct', 0):.1f}% ({chenh.get('status', 'N/A')})")
     print(f"  Thuc trang cau truc:        {struct}")
     print()
-    print(f"  --- Do rong ---")
+    print("  --- Do rong ---")
     print(f"  EWMI (binh quan):           {dr.get('ewmi_pct', 0):+.2f}%")
     print(f"  Weighted return:            {dr.get('weighted_return', 0):+.2f}%")
     print(f"  Median return:              {dr.get('median_return', 0):+.2f}%")
     print(f"  Divergence (W - M):         {dr.get('divergence_value_weighted', 0):+.2f}%")
     print()
-    print(f"  --- Tap trung ---")
+    print("  --- Tap trung ---")
     print(f"  LCR:                        {tc.get('lcr_pct', 0):.1f}% ({tc.get('level', 'N/A')})")
     if vg.get("symbols"):
         print(f"  Nhom Vingroup:               {vg.get('weight_pct', 0):.1f}% GTGD ({', '.join(vg['symbols'])})")
     print()
-    print(f"  --- Do lech Index vs Median ---")
+    print("  --- Do lech Index vs Median ---")
     print(f"  VN-Index hom nay:           {dr_idx.get('idx_pct', 0):+.2f}%")
     print(f"  Co phieu TB (median):       {dr_idx.get('median_pct', 0):+.2f}%")
     print(f"  Khoang cach:                {dr_idx.get('gap', 0):+.2f}%")

@@ -8,7 +8,6 @@ Usage:
     vi_state = localize_market_state(raw_state)
 """
 from __future__ import annotations
-from typing import Any
 
 # === ENUM MAPPINGS ===
 
@@ -173,16 +172,16 @@ def localize_market_state(state: dict) -> dict:
 # Uses cognitive_schema.py as single source of truth for all mappings.
 
 from ..cognitive_schema import (
+    DRIFT_SOURCE_VI,
+    DRIFT_STATUS_VI,
+    DRIFT_TREND_VI,
     DRIVER_VI,
     DRIVER_VI_LOWER,
-    DRIFT_STATUS_VI,
-    DRIFT_SOURCE_VI,
     EARLY_WARNING_VI,
-    DRIFT_TREND_VI,
     ETS_LABEL_VI,
     ETS_STATUS_VI,
-    REGIME_LABEL_VI,
     FLOW_ROTATION_VI,
+    REGIME_LABEL_VI,
 )
 
 

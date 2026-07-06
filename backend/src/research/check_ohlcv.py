@@ -1,7 +1,8 @@
 ﻿import sys
-import os
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -22,6 +23,7 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import sqlite3
+
 conn = sqlite3.connect('data/screener_cache.db')
 df = pd.read_sql("SELECT COUNT(*) as count FROM daily_ohlcv WHERE date = '2022-11-21'", conn)
 print(df)

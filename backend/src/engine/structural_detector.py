@@ -8,10 +8,12 @@ structural_detector.py — Bộ phát hiện lệch cấu trúc thị trường
 
 Output: 1 trong 4 trạng thái cấu trúc + vector nguyên nhân
 """
-import sys, os, json
-from pathlib import Path
+import json
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -34,9 +36,10 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-import src.config
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+import src.config
 from src.database.db_core import get_connection
 
 

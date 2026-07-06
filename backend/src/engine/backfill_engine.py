@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -22,17 +23,16 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import io
-import os
-import time
-import json
-import random
 import logging
+import random
+import time
+from datetime import datetime
+
 import pandas as pd
-from datetime import datetime, timedelta
-import src.config
 from vnstock import Quote
+
 from src.database.db_core import get_connection, save_data_upsert
-from src.engine.data_quality import danh_gia_chat_luong_du_lieu, NHAN_CAO
+from src.engine.data_quality import danh_gia_chat_luong_du_lieu
 
 # ── Encoding ──────────────────────────────────────────────
 if sys.platform == "win32":
@@ -188,7 +188,7 @@ def backfill(symbols: list = None,
         logger.info(f"Mục tiêu: {len(symbols)} mã theo danh sách chỉ định.")
 
     if dry_run:
-        print(f"\n  📋 DANH SÁCH MÃ SẼ BACKFILL (DRY RUN):")
+        print("\n  📋 DANH SÁCH MÃ SẼ BACKFILL (DRY RUN):")
         print(f"  {'Mã':<8} {'Phiên hiện':>10} {'Ngày cuối':>12}")
         print(f"  {'─'*8} {'─'*10} {'─'*12}")
         dg = danh_gia_chat_luong_du_lieu()
@@ -198,7 +198,7 @@ def backfill(symbols: list = None,
                 r = row.iloc[0]
                 print(f"  {s:<8} {r['so_phien']:>10} {r['ngay_max']:>12}")
         print(f"\n  → {len(symbols)} mã sẽ được backfill từ {start} đến {end}.")
-        print(f"    (chạy lại với --apply hoặc bỏ --dry-run để thực thi)")
+        print("    (chạy lại với --apply hoặc bỏ --dry-run để thực thi)")
         print(f"\n  ⏱  Thời gian ước tính: ~{len(symbols) * 3} giây (chưa tính cooldown)")
         print("=" * 70)
         return {'total': len(symbols), 'success': 0, 'failed': 0, 'dry_run': True}

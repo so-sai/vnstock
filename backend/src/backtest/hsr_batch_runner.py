@@ -2,12 +2,12 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from backend.src.engine.drift_prevention import assess_drift
 from backend.src.engine.driver_normalizer import driver_state_from_engine_outputs
 from backend.src.engine.explain_layer import explain_snapshot
 from backend.src.engine.explain_validator import validate_explanation
-from backend.src.engine.drift_prevention import assess_drift
-from backend.src.engine.trader_concierge import trading_insight
 from backend.src.engine.hazard_engine import HazardTransitionEngine
+from backend.src.engine.trader_concierge import trading_insight
 
 
 def _driver_state_from_snapshot(breadth_health: float, flow: dict, structure: dict) -> dict:

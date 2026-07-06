@@ -1,12 +1,13 @@
 
-import os
-import sys
 import io
-import time
 import json
 import logging
+import os
+import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -25,8 +26,7 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
-from src.database.db_core import get_connection, DB_PATH
+from src.database.db_core import DB_PATH, get_connection
 
 # ============================================================
 # LOGGING
@@ -187,8 +187,8 @@ def run_full_maintenance():
 
 if __name__ == "__main__":
     import argparse
-    from datetime import timedelta
     import io
+    from datetime import timedelta
 
     # Fix Windows console encoding
     if sys.platform == "win32":

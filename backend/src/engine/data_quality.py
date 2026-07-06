@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -21,9 +22,11 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import pandas as pd
 import json
 import os
+
+import pandas as pd
+
 import src.config
 from src.database.db_core import get_connection
 
@@ -188,15 +191,15 @@ def xuat_bao_cao(duong_dan: str = None) -> dict:
 
     # Danh sách thiếu dữ liệu
     if danh_sach_thieu:
-        print(f"\n  ⚠ CÁC MÃ THIẾU DỮ LIỆU LỊCH SỬ:")
+        print("\n  ⚠ CÁC MÃ THIẾU DỮ LIỆU LỊCH SỬ:")
         print(f"  {'Mã':<8} {'Số phiên':>9}")
         print(f"  {'─'*8} {'─'*9}")
         for item in danh_sach_thieu:
             print(f"  {item['symbol']:<8} {item['so_phien']:>9}")
-        print(f"\n  → Các mã này chưa đủ điều kiện xếp hạng — cần bổ sung dữ liệu lịch sử.")
+        print("\n  → Các mã này chưa đủ điều kiện xếp hạng — cần bổ sung dữ liệu lịch sử.")
 
     print(f"\n  Báo cáo đã lưu: {duong_dan}")
-    print(f"  ═══ KẾT THÚC ĐÁNH GIÁ ═══\n")
+    print("  ═══ KẾT THÚC ĐÁNH GIÁ ═══\n")
 
     return bao_cao
 
@@ -215,15 +218,15 @@ def kiem_tra_gia_bat_thuong() -> pd.DataFrame:
             WHERE date >= date('now', '-30 days')
             ORDER BY symbol, date
         """, conn)
-    
+
     if df.empty:
         return pd.DataFrame()
-    
+
     van_de = []
-    
+
     for symbol, group in df.groupby('symbol'):
         group = group.sort_values('date')
-        
+
         for _, row in group.iterrows():
             close = row['close']
             if close is None or close == 0:
@@ -232,10 +235,10 @@ def kiem_tra_gia_bat_thuong() -> pd.DataFrame:
                     'date': row['date'],
                     'close': close,
                     'loai_loi': 'GIA_0',
-                    'mo_ta': f'Close = 0 VND'
+                    'mo_ta': 'Close = 0 VND'
                 })
                 continue
-            
+
             if close < GIA_TOI_THIEU_VND:
                 van_de.append({
                     'symbol': symbol,
@@ -244,7 +247,7 @@ def kiem_tra_gia_bat_thuong() -> pd.DataFrame:
                     'loai_loi': 'GIA_THAP',
                     'mo_ta': f'Close = {close} VND (< {GIA_TOI_THIEU_VND})'
                 })
-            
+
             if close > GIA_TOI_DA_VND:
                 van_de.append({
                     'symbol': symbol,
@@ -253,7 +256,7 @@ def kiem_tra_gia_bat_thuong() -> pd.DataFrame:
                     'loai_loi': 'GIA_CAO',
                     'mo_ta': f'Close = {close:,.0f} VND (> {GIA_TOI_DA_VND:,})'
                 })
-        
+
         # Kiểm tra biến động
         if len(group) > 1:
             closes = group['close'].values
@@ -268,10 +271,10 @@ def kiem_tra_gia_bat_thuong() -> pd.DataFrame:
                             'loai_loi': 'BIEN_DONG',
                             'mo_ta': f'Biến động {chg_pct:.1f}% trong 1 ngày'
                         })
-    
+
     if not van_de:
         return pd.DataFrame()
-    
+
     return pd.DataFrame(van_de)
 
 
@@ -280,28 +283,28 @@ def xuat_bao_cao_gia_bat_thuong() -> dict:
     Xuất báo cáo giá bất thường ra màn hình và file JSON.
     """
     df = kiem_tra_gia_bat_thuong()
-    
+
     if df.empty:
         print("  ✅ Không phát hiện giá bất thường.")
         return {'tong_van_de': 0}
-    
+
     tong = len(df)
     theo_loai = df['loai_loi'].value_counts().to_dict()
-    
+
     print("\n  ═══ BÁO CÁO GIÁ BẤT THƯỜNG (P0 VALIDATOR) ═══")
     print(f"  Tổng vấn đề: {tong}")
     for loai, sl in theo_loai.items():
         print(f"    {loai}: {sl}")
-    
+
     print()
     print(f"  {'Mã':<8} {'Ngày':<12} {'Close':>12} {'Loại lỗi':<15} {'Mô tả'}")
     print(f"  {'─'*8} {'─'*12} {'─'*12} {'─'*15} {'─'*40}")
     for _, row in df.head(30).iterrows():
         print(f"  {row['symbol']:<8} {row['date']:<12} {row['close']:>12,.0f} {row['loai_loi']:<15} {row['mo_ta']}")
-    
+
     if tong > 30:
         print(f"  ... ({tong - 30} vấn đề khác)")
-    
+
     # Lưu báo cáo
     import src.config
     report_path = os.path.join(src.config.DATA_DIR, "price_anomaly_report.json")
@@ -312,10 +315,10 @@ def xuat_bao_cao_gia_bat_thuong() -> dict:
     }
     with open(report_path, 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=2, default=str)
-    
+
     print(f"\n  Báo cáo đã lưu: {report_path}")
-    print(f"  ═══ KẾT THÚC KIỂM TRA ═══\n")
-    
+    print("  ═══ KẾT THÚC KIỂM TRA ═══\n")
+
     return report
 
 

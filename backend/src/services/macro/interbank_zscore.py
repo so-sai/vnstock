@@ -1,5 +1,7 @@
-import sys, logging
+import logging
+import sys
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -335,7 +337,8 @@ def assess_interbank_risk() -> dict:
 
 
 if __name__ == "__main__":
-    import io, sys
+    import io
+    import sys
     if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

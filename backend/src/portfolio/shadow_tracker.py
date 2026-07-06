@@ -15,9 +15,9 @@ import os
 import sys
 from datetime import datetime
 
+
 # --- SENTINEL PATH PROTECTION (v2.1 Anchor Fix) ---
 def _hydrate_path():
-    import os, sys
     from pathlib import Path
     current = Path(__file__).resolve().parent
     root_path = current
@@ -31,7 +31,6 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
 from src.database.db_core import get_connection
 
 # --- CONSTANTS ---
@@ -80,7 +79,7 @@ def shadow_reconcile():
 
     positions = data.get("positions", [])
     cash = data.get("cash", 0)
-    
+
     print(f"💰 Cash in Hand: {_format_vnd(cash)}")
     print("-" * 70)
 
@@ -101,17 +100,17 @@ def shadow_reconcile():
 
         # Lay gia thi truong tu Vault
         market_price = _get_latest_price_from_vault(sym)
-        
+
         if market_price is None:
             print(f"⚠️  [{sym}] Khong tim thay gia trong Vault (L0). Hay chay screener.py!")
             continue
 
         market_value = qty * market_price * 1000
         total_market_value += market_value
-        
+
         pnl_pct = ((market_price - buy_price) / buy_price) * 100
         pnl_vnd = market_value - cost_with_fee
-        
+
         status = "🔥" if pnl_pct >= 0 else "❄️"
         print(f"{status} [{sym:<5}] PnL: {pnl_pct:+.2f}% | Value: {_format_vnd(market_value)} | Gain: {_format_vnd(pnl_vnd)}")
 
@@ -122,13 +121,13 @@ def shadow_reconcile():
     if total_cost > 0:
         total_pnl_pct = ((total_market_value - total_cost) / total_cost) * 100
         total_nav = total_market_value + cash
-        
+
         print("-" * 70)
         print(f"📈 TOTAL COST  : {_format_vnd(total_cost)}")
         print(f"📉 MARKET VAL  : {_format_vnd(total_market_value)}")
         print(f"💎 TOTAL NAV   : {_format_vnd(total_nav)}")
         print(f"📊 PORTFOLIO RS: {total_pnl_pct:+.2f}%")
-        
+
     if alerts:
         print("\n" + "!"*70)
         for a in alerts: print(a)

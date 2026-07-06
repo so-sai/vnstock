@@ -1,11 +1,10 @@
 """
 Silver Service — Domestic Silver from BTMC API + silver_service integration.
 """
-import sys
 import logging
+import sys
 from pathlib import Path
-from datetime import datetime
-from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -30,9 +29,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import pandas as pd
 from vnstock.explorer.misc.gold_price import btmc_silver_price
-from src.database.db_core import get_connection
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -28,15 +29,12 @@ Architecture:
 - Log phát hiện qua kit learn --tag friction.
 """
 
-import sys
 import io
-import os
 import json
-import time
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Optional
 
 import requests

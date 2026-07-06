@@ -7,9 +7,9 @@ and check whether the decision distribution changes measurably.
 If removing an engine does not change the decision → it is a decorative signal
 with no causal capacity → CAO would learn noise.
 """
-import sys
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -32,12 +32,12 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
-from src.telemetry.storage import get_all_snapshots
 from src.cao_readiness.models import (
-    CounterfactualResult, InjectabilityReport, GateResult,
+    CounterfactualResult,
+    GateResult,
+    InjectabilityReport,
 )
-
+from src.telemetry.storage import get_all_snapshots
 
 CANONICAL_ENGINES = ["regime", "liquidity", "sector", "breakout", "heat", "signal", "memory", "dampener"]
 ACTION_CHANGE_THRESHOLD = 0.10

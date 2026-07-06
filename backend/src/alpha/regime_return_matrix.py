@@ -10,8 +10,8 @@ Usage:
     from backend.src.alpha.regime_return_matrix import build_matrix, REGIME_BIN_ORDER
 """
 
-import sys
 import math
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional

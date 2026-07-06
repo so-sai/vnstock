@@ -16,18 +16,18 @@ Architecture:
 """
 
 from __future__ import annotations
+
 from typing import Optional
 
 from core.cognitive_schema import (
-    DRIVER_VI_LOWER,
     DRIFT_STATUS_VI,
+    DRIVER_VI_LOWER,
     FLOW_ROTATION_VI,
-    VI_KEYWORDS,
-    VI_PHRASES,
     RISK_KEYWORDS,
     SAFETY_KEYWORDS,
+    VI_KEYWORDS,
+    VI_PHRASES,
 )
-
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 

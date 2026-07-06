@@ -1,7 +1,7 @@
 
+import io
 import os
 import sys
-import io
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -86,9 +86,9 @@ def setup_tasks():
 
         result = os.system(cmd)
         if result == 0:
-            print(f"   ✅ THÀNH CÔNG\n")
+            print("   ✅ THÀNH CÔNG\n")
         else:
-            print(f"   ❌ LỖI (cần chạy PowerShell với quyền Admin)\n")
+            print("   ❌ LỖI (cần chạy PowerShell với quyền Admin)\n")
 
     print("=" * 60)
     print("📋 Xem danh sách tasks:")

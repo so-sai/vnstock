@@ -42,9 +42,12 @@ Lưu ý:
   - Dùng để quan sát, chưa để ra quyết định.
   - Cần ít nhất 3 tháng dữ liệu để kiểm định giá trị dự báo.
 """
-import sys, json, os
+import json
+import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -68,6 +71,7 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import pandas as pd
+
 import src.config
 from src.database.db_core import get_connection
 from src.engine.universe import SECTOR_MAP

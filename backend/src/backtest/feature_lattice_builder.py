@@ -1,6 +1,6 @@
-import pandas as pd
-import numpy as np
 import warnings
+
+import pandas as pd
 
 # Suppress pandas 3.0 CoW chained assignment warnings (cosmetic only)
 # These do not affect correctness in current pandas versions.

@@ -4,12 +4,12 @@ Gate A — Engine Independence Test
 Checks pairwise correlation between engine signals from historical snapshots.
 High correlation (|r| > threshold) = multicollinearity → causal attribution ambiguity.
 """
-import sys
 import json
-import math
 import logging
-from pathlib import Path
+import math
+import sys
 from collections import defaultdict
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,8 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
+from src.cao_readiness.models import EngineCorrelation, GateResult, IndependenceReport
 from src.telemetry.storage import get_all_snapshots
-from src.cao_readiness.models import IndependenceReport, EngineCorrelation, GateResult
-
 
 DEFAULT_CORRELATION_THRESHOLD = 0.70
 CANONICAL_ENGINES = ["regime", "liquidity", "sector", "breakout", "heat", "signal", "memory", "dampener"]

@@ -2,10 +2,10 @@
 Dashboard Service Layer v1.0
 Trạm biến áp trung tâm — gộp Macro + Breadth + Screener cho trang chủ.
 """
-import sys
 import logging
+import sys
 from pathlib import Path
-from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -24,8 +24,6 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import pandas as pd
-from src.database.db_core import get_connection
 from src.services.macro_service import get_macro_status, get_regime_history
 from src.services.screener_service import get_screener_results
 

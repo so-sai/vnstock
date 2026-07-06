@@ -9,8 +9,8 @@ Usage:
     python -m src.shadow_cao --bus-stats        # Show async event bus stats
     python -m src.shadow_cao --json             # Machine-readable output
 """
-import sys
 import json
+import sys
 from pathlib import Path
 
 
@@ -31,11 +31,10 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.shadow_cao.hardening import get_event_bus
+from src.shadow_cao.hooks import run_replay
 from src.shadow_cao.scheduler import run_daily_batch, run_gate_recheck
 from src.shadow_cao.storage import get_shadow_stats
-from src.shadow_cao.belief import get_belief_state
-from src.shadow_cao.hooks import run_replay
-from src.shadow_cao.hardening import get_event_bus
 
 
 def main():

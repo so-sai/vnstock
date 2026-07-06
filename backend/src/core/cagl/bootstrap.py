@@ -12,18 +12,19 @@ Modes:
   - ``"STRICT"`` — raise SystemExit on errors
 """
 from __future__ import annotations
-import sys
+
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI
 
-from src.core.cagl.models import EndpointSpec, ValidationFinding, ScanResult
-from src.core.cagl.scanner import RouteScanner
 from src.core.cagl.contract import ContractValidator
-from src.core.cagl.shadow_detector import ShadowDetector
+from src.core.cagl.models import EndpointSpec, ScanResult
 from src.core.cagl.registry import APIRegistry
+from src.core.cagl.scanner import RouteScanner
+from src.core.cagl.shadow_detector import ShadowDetector
 
 
 def _hydrate_path():

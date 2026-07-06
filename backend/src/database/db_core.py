@@ -1,8 +1,8 @@
-﻿import sys
-import os
-import sqlite3
-from pathlib import Path
+﻿import sqlite3
+import sys
 from contextlib import contextmanager
+from pathlib import Path
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -235,19 +235,19 @@ def save_data_upsert(table_name, df, conn):
     """Lưu dữ liệu vào SQLite sử dụng cơ chế INSERT OR REPLACE (UPSERT)"""
     if df.empty:
         return
-    
+
     # --- SENTINEL SAFE PATTERN: Data Sanitization ---
     df_save = df.copy()
     if 'date' in df_save.columns:
         df_save['date'] = df_save['date'].astype(str)
-    
+
     cursor = conn.cursor()
     columns = df_save.columns.tolist()
     placeholders = ", ".join(["?"] * len(columns))
     col_names = ", ".join(columns)
-    
+
     sql = f"INSERT OR REPLACE INTO {table_name} ({col_names}) VALUES ({placeholders})"
-    
+
     # Chuyển đổi DataFrame thành list of tuples để thực thi batch
     data = [tuple(x) for x in df_save.values]
     cursor.executemany(sql, data)

@@ -13,17 +13,17 @@ Design rules:
   - ALWAYS emit — CAO decides impact
 """
 
+from src.core.data_quality.aggregator import DataQualityAggregator
+from src.core.data_quality.hooks import data_quality_boundary
 from src.core.data_quality.models import (
+    DataIntegrityReport,
     DataQualityEvent,
     DataQualitySnapshot,
-    DataIntegrityReport,
     EventSeverity,
     EventType,
 )
-from src.core.data_quality.registry import EventRegistry
 from src.core.data_quality.quality_score_engine import QualityScoreEngine
-from src.core.data_quality.aggregator import DataQualityAggregator
-from src.core.data_quality.hooks import data_quality_boundary
+from src.core.data_quality.registry import EventRegistry
 
 __all__ = [
     "DataQualityEvent",

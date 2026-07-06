@@ -1,7 +1,9 @@
 import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -20,25 +22,28 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.core.canonical_output_adapter import localize_output
+from src.portfolio.decision_tensor import compute as compute_decision
+from src.portfolio.decision_tensor_v2 import (
+    compute_v2 as compute_decision_v2,
+)
+from src.portfolio.decision_tensor_v2 import (
+    get_decision_history,
+    log_confirm,
+    log_override,
+)
+from src.portfolio.exposure_engine import get_portfolio_heat
+from src.portfolio.memory_engine import get_risk_path_window
+from src.portfolio.portfolio_engine import get_open_positions
+from src.portfolio.portfolio_engine import get_portfolio_summary as get_engine_summary
 from src.services.portfolio_service import (
-    get_portfolio_summary,
     add_position,
+    get_portfolio_summary,
     remove_position,
     update_cash,
     update_position,
 )
-from src.portfolio.portfolio_engine import get_open_positions, get_portfolio_summary as get_engine_summary
-from src.portfolio.exposure_engine import get_portfolio_heat
-from src.portfolio.memory_engine import get_risk_path_window
-from src.portfolio.decision_tensor import compute as compute_decision
-from src.portfolio.decision_tensor_v2 import (
-    compute_v2 as compute_decision_v2,
-    log_override,
-    log_confirm,
-    get_decision_history,
-)
 
-from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 

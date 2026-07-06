@@ -4,22 +4,16 @@ Not the CAO integration path (that's in quality_score_engine.py).
 This is the human-readable layer: dashboard snapshots, trend lines.
 """
 from __future__ import annotations
+
 import logging
-from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
 
-from src.core.data_quality.models import (
-    DataIntegrityReport,
-    DataQualitySnapshot,
-    EventSeverity,
-    EventType,
-)
-from src.core.data_quality.registry import get_registry
 from src.core.data_quality.quality_score_engine import (
     QualityScoreEngine,
     get_quality_engine,
 )
+from src.core.data_quality.registry import get_registry
 
 logger = logging.getLogger(__name__)
 

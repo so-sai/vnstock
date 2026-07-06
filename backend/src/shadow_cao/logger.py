@@ -1,7 +1,7 @@
 """Shadow CAO Logger — captures decision snapshots at decision time (REAL data only)."""
-import sys
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -24,12 +24,13 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
-from src.shadow_cao.models import ShadowDecisionLog, AblationResult
-from src.shadow_cao.storage import (
-    initialize_shadow_database, save_decision_log, save_ablation_result,
-)
 from src.shadow_cao.ablation import run_decision_ablation
+from src.shadow_cao.models import ShadowDecisionLog
+from src.shadow_cao.storage import (
+    initialize_shadow_database,
+    save_ablation_result,
+    save_decision_log,
+)
 
 
 def log_decision(
@@ -113,7 +114,6 @@ def record_from_snapshot(snapshot: dict) -> Optional[ShadowDecisionLog]:
         elif isinstance(raw_weights, dict):
             decision_weights = raw_weights
     regime = snapshot.get("market_regime")
-    from src.shadow_cao.storage import get_shadow_stats
     return log_decision(
         decision_id=snapshot.get("decision_id", "unknown"),
         timestamp=snapshot.get("timestamp", ""),

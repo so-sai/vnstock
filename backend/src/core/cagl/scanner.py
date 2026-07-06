@@ -1,9 +1,9 @@
 """FastAPI route scanner — introspects ``app.routes`` to produce ``EndpointSpec`` list."""
 from __future__ import annotations
-import sys
+
 import logging
+import sys
 from pathlib import Path
-from typing import List
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute

@@ -2,7 +2,6 @@ import os
 import sys
 import warnings
 from pathlib import Path
-from dotenv import load_dotenv
 
 # Pandas warnings suppression:
 #   - ChainedAssignmentError (FutureWarning): from external libs (vnstock/yfinance).
@@ -11,6 +10,8 @@ from dotenv import load_dotenv
 #   - mode.chained_assignment = None: silences SettingWithCopyWarning from same sources.
 #   - Pyarrow warning: pandas 3.0 will require pyarrow; not actionable for us now.
 import pandas as pd
+from dotenv import load_dotenv
+
 pd.set_option('mode.chained_assignment', None)
 
 # ChainedAssignmentError in pandas 2.x is raised as FutureWarning (not Warning subclass)

@@ -13,9 +13,13 @@ Architecture:
         ↓
     decision_engine → conviction boost/penalty
 """
-import sys, io, json, warnings, logging
+import io
+import json
+import logging
+import sys
+import warnings
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, timedelta
 from typing import Optional
 
 warnings.filterwarnings('ignore')
@@ -41,9 +45,10 @@ backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-import src.config
 import numpy as np
 import pandas as pd
+
+import src.config
 from src.database.db_core import get_connection
 
 logger = logging.getLogger(__name__)
@@ -350,7 +355,7 @@ def generate_market_rsi_report(target_date: Optional[str] = None,
                                 preloaded_df: Optional[pd.DataFrame] = None) -> dict:
     today = target_date or datetime.now().strftime('%Y-%m-%d')
     print(f"\n{'='*70}")
-    print(f"  RSI REGIME ENGINE — MARKET SCAN")
+    print("  RSI REGIME ENGINE — MARKET SCAN")
     print(f"  Date: {today}")
     print(f"{'='*70}")
 
@@ -367,7 +372,7 @@ def generate_market_rsi_report(target_date: Optional[str] = None,
 
     print(f"\nScanned: {total_scanned} symbols")
     print(f"Bull habitats: {bull_count} | Bear habitats: {bear_count}")
-    print(f"\nHabitat Distribution:")
+    print("\nHabitat Distribution:")
     for h, cnt in sorted(habitat_counts.items(), key=lambda x: -x[1]):
         pct = round(cnt / total_scanned * 100, 1) if total_scanned > 0 else 0
         label = HABITAT_LABELS.get(h, h)
@@ -376,7 +381,7 @@ def generate_market_rsi_report(target_date: Optional[str] = None,
     bull_symbols = [r for r in results if 'BULL' in r['habitat']]
     bear_symbols = [r for r in results if 'BEAR' in r['habitat']]
 
-    print(f"\n--- TOP BULL CONTROL ---")
+    print("\n--- TOP BULL CONTROL ---")
     for r in bull_symbols[:5]:
         w = r.get('timeframe_alignment', {})
         align = '✅' if w.get('aligned') else '⚠️'
@@ -384,7 +389,7 @@ def generate_market_rsi_report(target_date: Optional[str] = None,
               f"Range={r['rsi_support']}-{r['rsi_resistance']} | "
               f"穩={r['stability']:.2f} | {align} {w.get('signal','')}")
 
-    print(f"\n--- TOP BEAR CONTROL ---")
+    print("\n--- TOP BEAR CONTROL ---")
     for r in bear_symbols[:5]:
         w = r.get('timeframe_alignment', {})
         align = '✅' if w.get('aligned') else '⚠️'
@@ -392,7 +397,7 @@ def generate_market_rsi_report(target_date: Optional[str] = None,
               f"Range={r['rsi_support']}-{r['rsi_resistance']} | "
               f"穩={r['stability']:.2f} | {align} {w.get('signal','')}")
 
-    print(f"\n--- ALIGNMENT CHECK ---")
+    print("\n--- ALIGNMENT CHECK ---")
     aligned = sum(1 for r in results if r.get('timeframe_alignment', {}).get('aligned'))
     misaligned = total_scanned - aligned
     print(f"Aligned: {aligned}/{total_scanned} | Misaligned: {misaligned}")
@@ -497,7 +502,7 @@ def run_analysis(target_symbol: Optional[str] = None) -> dict:
                   f"| {result.get('rsi_weekly',{}).get('habitat_vn','')}")
             print(f"  Alignment: {w.get('signal','')} — {w.get('description','')}")
             if not w.get('aligned', True):
-                print(f"  ⚠️ TIMEFRAME CONFLICT")
+                print("  ⚠️ TIMEFRAME CONFLICT")
         else:
             print(f"  Status: {result.get('status')}")
         print(f"{'='*70}")

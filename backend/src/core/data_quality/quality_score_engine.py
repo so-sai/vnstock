@@ -15,10 +15,10 @@ Design:
     - Uses registry's sliding window + rolling history buffer
 """
 from __future__ import annotations
-import math
+
 import logging
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from src.core.data_quality.models import (

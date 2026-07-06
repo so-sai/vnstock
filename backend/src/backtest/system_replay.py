@@ -1,9 +1,10 @@
 ﻿import os
 import sys
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -25,10 +26,11 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-from src.database.db_core import get_connection, optimize_sqlite_engine
-from src.engine.decision_engine import merge_decisions
-from src.database.timeline_manager import log_regime_state
 from src.backtest.audit_generator import generate_audit_report
+from src.database.db_core import get_connection, optimize_sqlite_engine
+from src.database.timeline_manager import log_regime_state
+from src.engine.decision_engine import merge_decisions
+
 
 class ShadowExecutionTracker:
     """
@@ -149,7 +151,7 @@ class ShadowExecutionTracker:
                     if current_close < prev_close and current_volume > prev_vol * 1.3:
                         exit_reason = "MOMENTUM_FAILURE"
 
-            # 4. Profit decay: peak was > 3%, now below 1% 
+            # 4. Profit decay: peak was > 3%, now below 1%
             if trade['peak_pnl'] > 3.0 and ret < 1.0 and trade['t_count'] >= 5:
                 exit_reason = "PROFIT_DECAY"
 
@@ -191,42 +193,42 @@ def run_stress_test(start_date, end_date):
     Includes the 4 Safety Hooks and Shadow Execution Tracker.
     """
     print(f"\n{'='*60}")
-    print(f"[THE DRAGON SHIELD] 2023 SIDEWAY HELL REPLAY")
+    print("[THE DRAGON SHIELD] 2023 SIDEWAY HELL REPLAY")
     print(f"Period: {start_date} to {end_date}")
     print(f"{'='*60}")
 
     # 1. Prepare Environment
     optimize_sqlite_engine()
     tracker = ShadowExecutionTracker()
-    
+
     with get_connection() as conn:
         conn.execute("DELETE FROM regime_history")
-    
+
     # 2. Fetch trading days
     with get_connection() as conn:
         df_days = pd.read_sql(f"SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN '{start_date}' AND '{end_date}' ORDER BY date", conn)
-    
+
     if df_days.empty:
         print("❌ Error: No historical data found.")
         return
 
     trading_days = df_days['date'].tolist()
-    
+
     # 3. Simulation Loop
     results = []
     prev_status = None
     regime_flips = 0
     dead_zone_days = 0
     breadth_history = []
-    
+
     for i, target_date in enumerate(trading_days):
         print(f"\n>>> REPLAY DAY {i+1}/{len(trading_days)}: [{target_date}]")
-        
+
         try:
             # 3.1 Decision Logic
             verdict = merge_decisions(target_date=target_date)
             log_regime_state(verdict)
-            
+
             # 3.2 Shadow Execution & Hook 4: Dead Zone
             with get_connection() as conn:
                 tracker.update_trades(target_date, conn)
@@ -235,22 +237,22 @@ def run_stress_test(start_date, end_date):
                         tracker.log_picks(verdict['model_b']['top_picks'], target_date, conn)
                     elif verdict['market_status'] == "RANGING":
                         dead_zone_days += 1
-            
+
             # 3.3 Hook 3: Regime Flip Counter
             current_status = verdict['market_status']
             if prev_status and current_status != prev_status:
                 regime_flips += 1
             prev_status = current_status
-            
+
             # 3.4 Hook 2: Breadth Stability (Rolling 10D)
             breadth_history.append(verdict['details']['breadth_pct'])
             if len(breadth_history) > 10: breadth_history.pop(0)
             b_std = np.std(breadth_history) if len(breadth_history) >= 2 else 0.0
-            
+
             # 3.5 Peak/DD Logic (Index-based)
             with get_connection() as conn:
                 current_idx = pd.read_sql(f"SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date = '{target_date}'", conn).iloc[0]['close']
-            
+
             # Extract context_source from the first pick if available
             model_b_context = "BLOCKED"
             if verdict['model_b']['top_picks']:
@@ -271,7 +273,7 @@ def run_stress_test(start_date, end_date):
                 "recovery": verdict['recovery']['status'],
                 "block_reason": verdict['recovery'].get('block_reason', 'NONE')
             })
-            
+
         except Exception as e:
             print(f"[ERROR] processing {target_date}: {e}")
             continue
@@ -279,7 +281,7 @@ def run_stress_test(start_date, end_date):
     # 4. Final Audit Aggregation
     summary = tracker.get_audit_summary()
     total_ranging = sum(1 for r in results if r['status'] == "RANGING")
-    
+
     df_results = pd.DataFrame(results)
     # Add scalar columns for the audit_generator (will be repeated but visible)
     df_results['regime_flips'] = regime_flips
@@ -301,7 +303,7 @@ def run_stress_test(start_date, end_date):
     df_results.to_csv(output_path, index=False)
 
     print(f"\n{'='*60}")
-    print(f"[B2.2 REPLAY COMPLETE]")
+    print("[B2.2 REPLAY COMPLETE]")
     print(f"Total Flips: {regime_flips} | Dead Zone: {dead_zone_days}/{total_ranging} days")
     print(f"Shadow Alpha (T+10): {summary['avg_t10']:.2f}% | Latency: {summary['avg_latency']:.1f} days")
     print(f"Exit Return: {summary['avg_exit_return']:.2f}% | Trades: {summary['trade_count']}")

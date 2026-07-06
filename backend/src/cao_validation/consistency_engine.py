@@ -7,9 +7,8 @@ Evaluates 3 dimensions of shadow-vs-real consistency per decision:
 
 NOT accuracy. This is CAUSAL AGREEMENT measurement.
 """
-import sys
-import math
 import logging
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -33,9 +32,9 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.cao_validation.models import (
-    ConsistencyScore, EngineContribution, TrustHistoryPoint,
+    ConsistencyScore,
+    EngineContribution,
 )
-
 
 CANONICAL_ENGINES = ["regime", "liquidity", "sector", "breakout", "heat", "signal", "memory", "dampener"]
 

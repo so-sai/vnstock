@@ -2,8 +2,11 @@
 Exposure Engine v1.1
 Adaptive feedback loop: conviction dampener + regime memory bias + global risk throttle.
 """
-import sys, sqlite3, logging
+import logging
+import sqlite3
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -27,7 +30,6 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.database.portfolio_db import PORTFOLIO_DB_PATH
 from src.portfolio import memory_engine
-import src.config
 
 logger = logging.getLogger(__name__)
 

@@ -9,13 +9,13 @@ Defines:
 No silent label changes, no backend drift, no UI semantic mutation.
 """
 from __future__ import annotations
+
 import hashlib
 import json
 import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from src.core.psr.models import PSRVersion
 

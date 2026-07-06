@@ -14,9 +14,8 @@ Architecture:
 """
 
 from __future__ import annotations
-from typing import Optional
-from collections import Counter
 
+from collections import Counter
 
 # ── Diagnosis helpers ─────────────────────────────────────────────────────
 

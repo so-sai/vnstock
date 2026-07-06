@@ -1,6 +1,6 @@
-import sys, os
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 
@@ -25,11 +25,9 @@ if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-import src.config
 import pandas as pd
-import numpy as np
-from src.database.db_core import get_connection
 
+from src.database.db_core import get_connection
 
 TRU_COT = ["Ngân hàng", "Bất động sản", "Tài nguyên Cơ bản"]
 
@@ -108,11 +106,11 @@ def kiem_tra_phan_phoi(target_date: Optional[str] = None) -> dict:
     """
     if target_date is None:
         target_date = datetime.now().strftime("%Y-%m-%d")
-    
+
     tru_nguy_hiem = []
     chi_tiet = {}
     tong_diem = 0
-    
+
     for ten_tru in TRU_COT:
         stats = _get_tru_stats(target_date, ten_tru)
         chi_tiet[ten_tru] = stats
@@ -127,7 +125,7 @@ def kiem_tra_phan_phoi(target_date: Optional[str] = None) -> dict:
         elif r > 2.0 and direction == "TRUNG_TINH":
             tong_diem += 1
         # Volume spike + GIÁ TĂNG = inflow — không phạt
-    
+
     if tong_diem >= 5:
         muc_do = "CAO"
     elif tong_diem >= 3:
@@ -136,7 +134,7 @@ def kiem_tra_phan_phoi(target_date: Optional[str] = None) -> dict:
         muc_do = "THAP"
     else:
         muc_do = "KHONG"
-    
+
     return {
         "co_phan_phoi": len(tru_nguy_hiem) > 0 or muc_do in ("CAO", "TRUNG_BINH"),
         "muc_do": muc_do,

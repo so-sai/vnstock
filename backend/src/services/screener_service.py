@@ -3,11 +3,11 @@ Screener Service Layer v1.0
 Cầu nối giữa FastAPI Routes và Screener/RS Engines.
 Xử lý: DataFrame → Dict transformation, RS merge, Fallback.
 """
-import sys
-import os
 import logging
+import os
+import sys
 from pathlib import Path
-from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -26,11 +26,13 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-import pandas as pd
 import json
+
+import pandas as pd
+
+import src.config
 from src.database.db_core import get_connection
 from src.registry import registry
-import src.config
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,9 @@
-import sys
 import logging
 import re
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -25,6 +26,7 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import pandas as pd
+
 from src.database.db_core import get_connection, save_data_upsert
 
 logger = logging.getLogger(__name__)
@@ -111,7 +113,10 @@ def _has_js_rendering(html: str) -> bool:
 
 def _log_sbv_alert(raw_html: str = ""):
     """Ghi alert file khi cấu trúc SBV thay đổi (atomic write) + popup Windows (1 lần)."""
-    import json, os, time, subprocess
+    import json
+    import os
+    import subprocess
+    import time
     was_active = ALERT_FILE.exists()
     ALERT_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -378,7 +383,8 @@ def _doc_cooldown() -> float:
     Trả về 0.0 nếu không có / hỏng.
     """
     try:
-        import json, os
+        import json
+        import os
         # Dọn file .tmp còn sót (OOM/Task Manager kill giữa chừng)
         tmp = RECALL_STATE_PATH.with_suffix(".tmp")
         if tmp.exists():
@@ -405,7 +411,8 @@ def _ghi_cooldown_atomic(epoch: float) -> bool:
     os.replace = MoveFileEx(MOVEFILE_REPLACE_EXISTING) trên Windows.
     """
     try:
-        import json, os
+        import json
+        import os
         tmp = RECALL_STATE_PATH.with_suffix(".tmp")
         RECALL_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:

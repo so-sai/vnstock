@@ -1,8 +1,9 @@
-import sys
 import os
+import sys
 from pathlib import Path
-import sqlite3
+
 import pandas as pd
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -26,10 +27,12 @@ if sys.platform == "win32":
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-import src.config
-from src.database.db_core import get_connection
 from core.macro.gold_regime_engine import analyze_gold_regime
 from core.macro.gold_spread_engine import analyze_domestic_premium
+
+import src.config
+from src.database.db_core import get_connection
+
 
 def check_macro_exceptions():
     """
@@ -48,19 +51,19 @@ def check_macro_exceptions():
     # Xử lý dữ liệu vĩ mô
     df_macro['date'] = pd.to_datetime(df_macro['date'])
     pivot_macro = df_macro.pivot_table(index='date', columns='variable', values='value', aggfunc='max').ffill()
-    
+
     # Tính MA20
     macro_ma20 = pivot_macro.rolling(20).mean()
     latest_vals = pivot_macro.iloc[-1]
     latest_ma20 = macro_ma20.iloc[-1]
-    
+
     alerts = []
-    
+
     # 🚨 RUI RO L1: TY GIA & DXY (100% Cash-out Breakers)
     if 'DXY' in latest_vals.index:
         if latest_vals['DXY'] > latest_ma20['DXY'] * 1.01:
             alerts.append(f"RED ALERT: [L1] DXY HIKE: {latest_vals['DXY']:.2f} > MA20 ({latest_ma20['DXY']:.2f}) -> [ACTION: CASH-OUT]")
-    
+
     if 'USD_VND' in latest_vals.index:
         if latest_vals['USD_VND'] > latest_ma20['USD_VND'] * 1.005:
             alerts.append(f"RED ALERT: [L1] FX TENSION: {latest_vals['USD_VND']:,.0f} > MA20 ({latest_ma20['USD_VND']:,.0f}) -> [ACTION: CASH-OUT]")
@@ -87,12 +90,12 @@ def check_macro_exceptions():
             alerts.append(f"⚠️ [L2] GOLD SPIKE: ${gold_latest:.2f} > 105% MA20 ({gold_ma:.2f}) | regime={label} -> [ACTION: STOP-BUY]")
     elif gold_signals.get("velocity_high", False):
         alerts.append(f"INFO: [L2] GOLD VELOCITY CAO: velocity={gold_regime.get('velocity', 0):.2f} -> [WATCH]")
-    
+
     # Gold regime summary
     if gold_regime.get("macro_bias") == "DEFENSIVE":
         scenarios = gold_regime.get("signals", {})
         if scenarios.get("spread_pressure_high"):
-            alerts.append(f"INFO: [GOLD] Phòng thủ + spread mở rộng — liquidity distortion đang hình thành")
+            alerts.append("INFO: [GOLD] Phòng thủ + spread mở rộng — liquidity distortion đang hình thành")
 
     # Domestic Premium sensor
     try:
@@ -119,7 +122,7 @@ def check_macro_exceptions():
     else:
         # Nếu im lặng, in một dòng nhỏ để biết hệ thống vẫn đang Sentinel
         # (Theo yêu cầu 'Im lặng là Vàng' nhứng vẫn cần nhịp thở)
-        pass 
+        pass
 
 if __name__ == "__main__":
     check_macro_exceptions()

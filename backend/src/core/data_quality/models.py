@@ -1,11 +1,11 @@
 """DataQuality event models — first-class CAO signals, not log lines."""
 from __future__ import annotations
+
 import sys
-from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from pathlib import Path
 
 
 def _hydrate_path():

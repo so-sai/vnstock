@@ -3,13 +3,14 @@ Gold World Service — Fetch XAUUSD via yfinance (GC=F)
 Bổ sung Global Gold vào Gold Cognition Layer.
 Sanity guard: so sánh với rolling 30d median từ DB, cảnh báo nếu lệch >50%.
 """
-import sys
-import os
 import logging
+import os
+import sys
 from contextlib import contextmanager
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -36,9 +37,10 @@ if _LIBS not in sys.path:
 
 import pandas as pd
 import yfinance as yf
-from src.database.db_core import get_connection, save_data_upsert
 from canonical import CanonicalAssetRegistry, Normalizer
 from canonical.validator import ValidationError as CanonicalValidationError
+
+from src.database.db_core import get_connection, save_data_upsert
 
 _CANON = CanonicalAssetRegistry()
 _NORM = Normalizer()

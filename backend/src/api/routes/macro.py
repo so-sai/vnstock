@@ -1,7 +1,9 @@
 ﻿import sys
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Query
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -20,10 +22,10 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.core.canonical_output_adapter import localize_output
 from src.models.models import MacroStatus
 from src.services.macro_service import get_macro_status, get_regime_history
 
-from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 

@@ -2,8 +2,12 @@
 Data Baking Forge (Phase 12.5) — Backfill historical OHLCV for watchlist stocks.
 Ingests 2023→2025 data via KBS API, normalizes, and bakes into daily_ohlcv.
 """
-import sys, time, random, logging
+import logging
+import random
+import sys
+import time
 from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -28,9 +32,10 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+
 import pandas as pd
-from datetime import datetime
 from vnstock import Quote
+
 from src.database.db_core import get_connection, save_data_upsert
 
 logger = logging.getLogger("data_baking_forge")
@@ -84,11 +89,11 @@ def verify_bake(symbols: list):
                 logger.warning(f"  {sym}: NO DATA")
 
 def run():
-    logger.info(f"=== DATA BAKING FORGE ===")
+    logger.info("=== DATA BAKING FORGE ===")
     logger.info(f"Target: {len(TICKERS)} tickers")
     logger.info(f"Range:  {START_DATE} → {END_DATE}")
-    logger.info(f"Source: KBS (KB Securities)")
-    logger.info(f"========================================\n")
+    logger.info("Source: KBS (KB Securities)")
+    logger.info("========================================\n")
 
     total_rows = 0
     success = 0

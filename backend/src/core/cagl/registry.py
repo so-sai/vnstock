@@ -1,10 +1,11 @@
 """Canonical API registry — single source of truth for expected endpoints."""
 from __future__ import annotations
-import sys
+
 import json
 import logging
+import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from src.core.cagl.models import EndpointSpec, ValidationFinding
 

@@ -5,10 +5,11 @@ Usage::
     python -m backend.src.tools.market_report --month 2026-06 --lang vi
 """
 from __future__ import annotations
-import sys
-import io
+
 import argparse
+import io
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -60,7 +61,7 @@ def run_macro_scan(target_date: str):
 
 
 def run_gold_scan():
-    from src.services.macro.gold_service import get_gold_dashboard, get_gold_cognition_layer
+    from src.services.macro.gold_service import get_gold_cognition_layer, get_gold_dashboard
     from src.services.macro.gold_world_service import fetch_world_gold_live, is_gold_conflicted
     dash = get_gold_dashboard()
     cognition = get_gold_cognition_layer()
@@ -76,6 +77,7 @@ def run_gold_scan():
 
 def run_backtest_regime():
     import pandas as pd
+
     from src.database.db_core import get_connection
     from src.engine.backtest_engine import BacktestAlpha
     engine = BacktestAlpha()
@@ -372,7 +374,7 @@ def main():
     # Summary
     print("=" * 56)
     if is_vi:
-        print(f"  TONG QUAN THANG", month)
+        print("  TONG QUAN THANG", month)
         print()
         if regime:
             r = translate_regime(regime.get("status", "UNKNOWN"))

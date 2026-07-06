@@ -1,7 +1,9 @@
-import sys, os, json, warnings, logging
-from pathlib import Path
+import json
+import logging
+import sys
+import warnings
 from datetime import datetime, timedelta
-from typing import Optional
+from pathlib import Path
 
 warnings.filterwarnings('ignore')
 
@@ -29,11 +31,11 @@ backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-import src.config
-import pandas as pd
 import numpy as np
-from src.database.db_core import get_connection
+
+import src.config
 from src.core.presentation.vi_localizer import SECTOR_LABELS
+from src.database.db_core import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +81,8 @@ SECTOR_MAP = {
 }
 
 def _fetch_batch(symbols, interval_days=5):
-    from vnstock import Quote
     import requests
+    from vnstock import Quote
     end = datetime.now().strftime('%Y-%m-%d')
     start = (datetime.now() - timedelta(days=interval_days)).strftime('%Y-%m-%d')
     results = {}
@@ -216,7 +218,7 @@ def scan_liquidity_concentration(target_date=None):
         ibank_signal = ibank.get("signal", "")
         ibank_reason = ibank.get("reason", "")
         if ibank_signal == "SYSTEMIC_LIQUIDITY_SHOCK":
-            signals.append(f"SYSTEMIC_LIQUIDITY_SHOCK")
+            signals.append("SYSTEMIC_LIQUIDITY_SHOCK")
             signals.append(f"Z_fast={ibank['zscore']['z_fast']}")
             signals.append(f"Z_slow={ibank['zscore']['z_slow']}")
             signals.append(f"ON_rate={ibank['zscore']['current_value']}%")
@@ -224,7 +226,7 @@ def scan_liquidity_concentration(target_date=None):
             conviction = "HIGH"
             logger.warning("INTERBANK SHOCK: %s", ibank_reason)
         elif ibank_signal == "WARNING":
-            signals.append(f"INTERBANK_WARNING")
+            signals.append("INTERBANK_WARNING")
             signals.append(f"Z_fast={ibank['zscore']['z_fast']}")
             logger.info("Interbank warning: %s", ibank_reason)
     except Exception as e:

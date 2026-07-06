@@ -1,10 +1,10 @@
 """Attribution Engine v1 (Sprint 2 canonical) — deterministic engine contribution decomposition"""
-import sys
 import json
-import math
 import logging
-from pathlib import Path
+import math
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -27,12 +27,15 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.telemetry.models import EngineAttribution, EnginePerformanceView, DecisionAttributionSummary
-from src.telemetry.storage import (
-    get_snapshot, save_engine_attribution, save_engine_performance,
-    get_attributions, get_attribution_summary,
-)
 from src.database.db_core import get_connection
+from src.telemetry.models import DecisionAttributionSummary, EngineAttribution, EnginePerformanceView
+from src.telemetry.storage import (
+    get_attribution_summary,
+    get_attributions,
+    get_snapshot,
+    save_engine_attribution,
+    save_engine_performance,
+)
 
 ENGINES = ["regime", "liquidity", "sector", "breakout", "heat", "signal", "memory", "dampener"]
 

@@ -26,6 +26,7 @@ Architecture:
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -47,14 +48,16 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import json
-import numpy as np
-import pandas as pd
+import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
-from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+
 from src.database.db_core import get_connection
-from src.engine.universe import get_universe, get_sector, CORE_SECTORS
-import logging
+from src.engine.universe import get_sector, get_universe
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +291,7 @@ def _generate_entry_suggestion(tier: str, conviction: float, regime_status: str)
 def generate_recommendations(target_date: Optional[str] = None) -> dict:
     today = target_date or datetime.now().strftime('%Y-%m-%d')
     print(f"\n{'='*70}")
-    print(f"  PORTFOLIO RECOMMENDATION ENGINE v2")
+    print("  PORTFOLIO RECOMMENDATION ENGINE v2")
     print(f"  Date: {today}")
     print(f"  Scanning: market-wide ({len(get_universe())} symbols)")
     print(f"{'='*70}")
@@ -379,7 +382,7 @@ def generate_recommendations(target_date: Optional[str] = None) -> dict:
     print(f"Regime: {regime_status} (score: {regime['regime_score']})")
     print(f"Breadth: {regime['breadth_pct']:.0f}%")
     print(f"Scanned: {len(scored_symbols)} symbols")
-    print(f"\nRECOMMENDATIONS (3-Tier):")
+    print("\nRECOMMENDATIONS (3-Tier):")
     for tier_name in ['core', 'rotation', 'opportunity']:
         vn_label = TIER_LABELS[tier_name]
         print(f"\n--- {vn_label} ({tier_name.upper()}) ---")
@@ -387,7 +390,7 @@ def generate_recommendations(target_date: Optional[str] = None) -> dict:
             arrow = '🟢' if r['conviction'] >= 65 else '🟡' if r['conviction'] >= 45 else '⚪'
             print(f"  {arrow} {r['symbol']:5s} | {r['conviction']:3.0f}% | "
                   f"{r['sector']:10s} | {r['flow_alignment_label']:12s} | {r['rationale']}")
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  NHÓM ỔN ĐỊNH:      {len(recommendations['core'])} symbols")
     print(f"  DÒNG TIỀN DẪN SÓNG: {len(recommendations['rotation'])} symbols")
     print(f"  CƠ HỘI THEO DÕI:    {len(recommendations['opportunity'])} symbols")

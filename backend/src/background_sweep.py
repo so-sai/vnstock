@@ -1,9 +1,8 @@
-﻿import os
+﻿import random
 import sys
 import time
-import random
-import pandas as pd
 from pathlib import Path
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -22,9 +21,10 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
 from vnstock import Listing, Quote
+
 from src.database.db_core import get_connection
+
 
 def run_background_sweep():
     print("\n" + ">>> " * 10)
@@ -61,18 +61,18 @@ def run_background_sweep():
             try:
                 # Bỏ qua các chỉ số
                 if symbol in ['VNINDEX', 'VN30', 'HNXINDEX', 'UPINDEX']: continue
-                
+
                 print(f"📡 Fetching {symbol}...", end=' ', flush=True)
                 q = Quote(symbol=symbol, source='kbs')
                 df_hist = q.history(length='135', interval='1D') # Get 135 to ensure 125 (6M) after drops
-                
+
                 if df_hist is not None and not df_hist.empty:
                     df_hist = df_hist.rename(columns={'time': 'date'})
                     df_hist['symbol'] = symbol
                     df_hist['source'] = 'kbs'
                     if 'adj_close' not in df_hist.columns:
                         df_hist['adj_close'] = df_hist['close']
-                    
+
                     # Mapping columns for DB
                     cols = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
                     df_hist = df_hist[cols]
@@ -80,7 +80,7 @@ def run_background_sweep():
                     # Persistence
                     with get_connection() as conn:
                         df_hist.to_sql('daily_ohlcv', conn, if_exists='append', index=False)
-                    
+
                     success_count += 1
                     print("✅", flush=True)
                 else:
@@ -96,12 +96,12 @@ def run_background_sweep():
                     time.sleep(60)
 
         # Batch Cooldown
-        print(f"⏱️ Đã xong batch. Nghỉ 5s để giải phóng tài nguyên...")
+        print("⏱️ Đã xong batch. Nghỉ 5s để giải phóng tài nguyên...")
         time.sleep(5)
 
     total_runtime = time.time() - start_time
     print("\n" + "="*50)
-    print(f"🏁 HOÀN TẤT BACKGROUND SWEEP")
+    print("🏁 HOÀN TẤT BACKGROUND SWEEP")
     print(f"📊 Số mã đã nạp thành công: {success_count}")
     print(f"⏱️ Tổng thời gian: {total_runtime/60:.1f} phút")
     print("="*50)

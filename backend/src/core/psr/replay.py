@@ -8,17 +8,15 @@ Only as deterministic as the underlying engines — but captures any
 non-determinism (time-based seeds, external API calls, mutable globals).
 """
 from __future__ import annotations
-import json
+
 import logging
 import time
-from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from src.core.psr.models import (
-    PSRSnapshot,
-    PSRReplayResult,
     PSRDiff,
+    PSRReplayResult,
+    PSRSnapshot,
 )
 from src.core.psr.snapshot import SystemStateSnapshotter
 

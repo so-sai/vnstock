@@ -27,6 +27,7 @@ Usage:
     rows = get_reputation(window_days=90)
 """
 from __future__ import annotations
+
 import json
 import logging
 import sqlite3
@@ -283,10 +284,12 @@ def _build_shadow_from_telemetry_db() -> list[dict]:
     via the canonical extract_driver_state() adapter and match outcomes as realized data.
     """
     try:
-        from src.config import DATA_DIR
-        import sqlite3, json
-        from pathlib import Path
+        import json
+        import sqlite3
         from datetime import datetime
+        from pathlib import Path
+
+        from src.config import DATA_DIR
 
         db_path = Path(DATA_DIR) / "telemetry.db"
         if not db_path.exists():

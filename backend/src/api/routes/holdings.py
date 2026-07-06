@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -22,10 +24,11 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from core.holdings.holdings_view_builder import build_holdings_view
 from core.holdings.exposure_engine import compute_exposure_summary
+from core.holdings.holdings_view_builder import build_holdings_view
 
 from src.core.canonical_output_adapter import localize_output
+
 router = APIRouter()
 
 

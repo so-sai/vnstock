@@ -5,10 +5,11 @@ Chạy: python ptck.py db optimize
 - Chuyển cột JSON text → JSONB (SQLite 3.45+)
 - VACUUM + reindex sau migration
 """
-import sys, os, json, shutil, sqlite3
-from pathlib import Path
-from datetime import datetime
+import shutil
+import sqlite3
+import sys
 from contextlib import contextmanager
+from pathlib import Path
 
 BACKUP_SUFFIX = ".pre_optimize.bak"
 
@@ -31,6 +32,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
+
 DATA_DIR = src.config.DATA_DIR
 
 

@@ -1,9 +1,9 @@
 """PSR data models — snapshot, audit, version, replay diff."""
 from __future__ import annotations
+
 import sys
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
 from typing import Optional
 
 

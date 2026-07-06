@@ -5,6 +5,7 @@ Never modifies system state.
 """
 import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 
 
@@ -27,7 +28,6 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.core.canonical_output_adapter import localize_output
 from src.services.weekly_cognitive_report import build_weekly_report
-
 
 router = APIRouter()
 

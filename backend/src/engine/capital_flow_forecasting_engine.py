@@ -23,6 +23,7 @@ Core math:
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
@@ -44,19 +45,20 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import json
-import warnings
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Optional
-from dataclasses import dataclass, field
+
 from src.database.db_core import get_connection
-import logging
 
 logger = logging.getLogger(__name__)
 
-from src.engine.universe import SECTOR_MAP, CORE_SECTORS
 from src.core.presentation.vi_localizer import SECTOR_LABELS
+from src.engine.universe import CORE_SECTORS, SECTOR_MAP
 
 BROAD_SCAN_SYMBOLS = [s for s in SECTOR_MAP.keys() if s != 'VNINDEX']
 

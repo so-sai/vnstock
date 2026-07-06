@@ -1,9 +1,9 @@
 """Telemetry Layer — Decision Snapshot, Outcome, Attribution (Sprint 1 + 2)"""
 import sys
-import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
 from pydantic import BaseModel, ConfigDict
 
 

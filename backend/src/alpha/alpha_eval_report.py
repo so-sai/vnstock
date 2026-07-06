@@ -15,11 +15,11 @@ Output:
     JSON:    backend/logs/ael_report.json
 """
 
-import sys
-import json
-import math
 import argparse
+import json
 import logging
+import math
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,11 +62,12 @@ def _hydrate_path() -> Path:
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.alpha.forward_return_tagger import build_tagged_rows        # noqa: E402
-from src.alpha.regime_return_matrix import (                         # noqa: E402
-    build_matrix, compute_regime_bias_score, REGIME_BIN_ORDER,
+from src.alpha.forward_return_tagger import build_tagged_rows  # noqa: E402
+from src.alpha.regime_return_matrix import (  # noqa: E402
+    REGIME_BIN_ORDER,
+    build_matrix,
+    compute_regime_bias_score,
 )
-
 
 # ── Console printer ──────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ def _print_report(rows, matrix, bias_score, start_date: str):
     t20_valid = sum(1 for r in rows if r.fwd_ret_t20 is not None)
 
     logger.info(f"\n{'='*72}")
-    logger.info(f"  ALPHA EVALUATION LAYER (AEL) — Regime Return Matrix")
+    logger.info("  ALPHA EVALUATION LAYER (AEL) — Regime Return Matrix")
     logger.info(f"  Period   : {start_date} -> {datetime.now().strftime('%Y-%m-%d')}")
     logger.info(f"  Tagged   : {len(rows)} regime days  "
                 f"| t+5 valid: {t5_valid}  | t+20 valid: {t20_valid}")

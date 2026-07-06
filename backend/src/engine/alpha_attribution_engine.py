@@ -14,14 +14,15 @@ No market prediction. No trade execution. Pure causal decomposition.
 """
 
 from __future__ import annotations
-from typing import Optional, Callable
-from dataclasses import dataclass, field
-from datetime import datetime
+
 import copy
+import json
 import math
 import sys
-import json
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Callable, Optional
 
 
 def _hydrate_path():
@@ -537,7 +538,7 @@ if __name__ == "__main__":
     print(f"  BASELINE PnL:   {report.baseline_pnl_pct:>+8.2f}%")
     print(f"  NET ALPHA:      {report.net_alpha_pct:>+8.2f}%")
     print(f"{'─' * 50}")
-    print(f"  Alpha Attribution:")
+    print("  Alpha Attribution:")
     for mod, contrib in sorted(report.alpha_attribution.items(), key=lambda x: -abs(x[1])):
         print(f"    {mod:<20s}  {contrib:>+8.4f} pp")
     print(f"{'─' * 50}")
@@ -546,10 +547,10 @@ if __name__ == "__main__":
         for pair, val in report.interaction_effects.items():
             print(f"    {pair:<20s}  {val:>+8.4f} pp")
     print(f"{'─' * 50}")
-    print(f"  Sharpe Delta:")
+    print("  Sharpe Delta:")
     for mod, delta in sorted(report.sharpe_delta.items(), key=lambda x: -abs(x[1])):
         print(f"    {mod:<20s}  {delta:>+8.4f}")
-    print(f"  Max Drawdown Delta:")
+    print("  Max Drawdown Delta:")
     for mod, delta in sorted(report.mdd_delta.items(), key=lambda x: -abs(x[1])):
         print(f"    {mod:<20s}  {delta:>+8.4f} pp")
     print(f"{'─' * 50}")

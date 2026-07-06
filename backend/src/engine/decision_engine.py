@@ -1,9 +1,8 @@
 ﻿
-import os
 import json
-import pandas as pd
 from datetime import datetime
 from pathlib import Path
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -24,10 +23,11 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
-from src.engine.regime_engine import detect_regime
+from src.database.timeline_manager import calculate_breadth_velocity
 from src.engine.meanrev_engine import run_meanrev_scan
 from src.engine.recovery_engine import evaluate_recovery_status
-from src.database.timeline_manager import calculate_breadth_velocity
+from src.engine.regime_engine import detect_regime
+
 
 def modulate_conviction(
     base_conviction: float,
@@ -126,7 +126,7 @@ def merge_decisions(
     # 1.2 Evaluate Recovery Status
     recovery = evaluate_recovery_status(regime, breadth_velocity, target_date=target_date)
     regime['recovery_active'] = recovery['is_recovery']
-    
+
     # 2. Get Model B Picks
     model_b_picks = run_meanrev_scan(regime, target_date=target_date)
 
@@ -146,10 +146,10 @@ def merge_decisions(
     if china_nexus_path.exists():
         # In a real scenario, we'd check if SSEC is crashing or USDCNH is spiking
         china_risk_flag = False # Logic placeholder
-    
+
     # Calculate Confidence
     # confidence = RS * SignalStrength (0.5-1.0)
-    base_confidence = rs * 1.0 
+    base_confidence = rs * 1.0
     if china_risk_flag:
         print("[LOCK 4] MACRO DAMPENING: China Risk Flag High. Reducing confidence.")
         base_confidence *= 0.7
@@ -164,11 +164,11 @@ def merge_decisions(
     if mod_reasons:
         print("[COGNITIVE MODULATION] " + " | ".join(mod_reasons))
         base_confidence = modulated_confidence
-    
+
     # 5. Dominance Logic
     active_model = "NONE"
     consensus = "CASH / STANDBY"
-    
+
     if status == "TRENDING":
         active_model = "A (MOMENTUM)"
         if model_a_verdict.get("final_status", "").startswith("GREEN"):
@@ -232,14 +232,14 @@ def merge_decisions(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(board_decision, f, indent=4, ensure_ascii=False)
-    
+
     print("\n--- FINAL CONSENSUS ---")
     print(f"REGIME:     {status} ({rs:.2f})")
     print(f"DOMINANCE:  {active_model}")
     print(f"VERDICT:    {consensus}")
     print(f"CONFIDENCE: {board_decision['confidence']}")
     print("-" * 30)
-    
+
     return board_decision
 
 if __name__ == "__main__":

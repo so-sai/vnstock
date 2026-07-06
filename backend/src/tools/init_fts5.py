@@ -16,12 +16,12 @@ Usage::
     python -m backend.src.tools.init_fts5 --verify   # mặc định bật
 """
 from __future__ import annotations
-import sys
+
+import argparse
 import io
 import logging
-import argparse
+import sys
 from pathlib import Path
-
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -99,6 +99,7 @@ def verify_fts5(verbose: bool = True) -> bool:
     Trả về True nếu tất cả test pass.
     """
     import sqlite3
+
     from src.database.db_core import DB_PATH
 
     test_cases = ["VCB", "VNM", "Ngân hàng", "Bất động sản"]

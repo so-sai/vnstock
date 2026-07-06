@@ -4,16 +4,15 @@ Events are ALWAYS accepted (never block).  Registry maintains a sliding
 window of the last N minutes for score computation.
 """
 from __future__ import annotations
+
 import logging
 import threading
-from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
 
 from src.core.data_quality.models import (
     DataQualityEvent,
     DataQualitySnapshot,
-    EventSeverity,
 )
 
 logger = logging.getLogger(__name__)

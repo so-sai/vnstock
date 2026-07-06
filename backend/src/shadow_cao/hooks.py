@@ -9,9 +9,8 @@ Hardening guarantees (see hardening.py):
     - Timestamp validation: temporal alignment enforced
     - Replay engine: historical validation available
 """
-import sys
-import json
 import logging
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -34,12 +33,11 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.shadow_cao.logger import log_decision, record_from_snapshot
-from src.shadow_cao.attribution import run_dry_run_attribution, batch_dry_run_from_logs
-from src.shadow_cao.belief import update_engine_profiles, compute_stability_index, persist_stability_trace
-from src.shadow_cao.hardening import safe_hook, start_event_bus, SafeHookWrapper, ReplayEngine, ShadowEventBus
 from src.cao_readiness.gate_c_regime_stability import run_regime_stability_test
-
+from src.shadow_cao.attribution import batch_dry_run_from_logs, run_dry_run_attribution
+from src.shadow_cao.belief import compute_stability_index, persist_stability_trace, update_engine_profiles
+from src.shadow_cao.hardening import ReplayEngine, SafeHookWrapper, ShadowEventBus, safe_hook, start_event_bus
+from src.shadow_cao.logger import record_from_snapshot
 
 # ====================================================================
 # Initialize event bus at module load (daemon thread, non-blocking)
@@ -109,7 +107,9 @@ def _raw_on_outcome_evaluated(
     Never writes to production engine_attribution table.
     """
     from src.shadow_cao.storage import (
-        initialize_shadow_database, save_outcome_log, get_ablations_for_decision,
+        get_ablations_for_decision,
+        initialize_shadow_database,
+        save_outcome_log,
     )
     initialize_shadow_database()
     save_outcome_log(decision_id, horizon_days, realized_return, success)

@@ -1,9 +1,8 @@
 
 import sys
-import os
-import json
 from datetime import datetime
 from pathlib import Path
+
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
@@ -22,37 +21,39 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
-from src.daily_updater import run_daily_update
-from src.engine.sentinel_alert import evaluate_sentinel_status
-from src.engine.decision_engine import merge_decisions
-from src.database.timeline_manager import log_regime_state, get_regime_history
-from src.database.db_core import optimize_sqlite_engine
-from src.core.presentation.vi_localizer import render_cognitive_journal
-from src.telemetry.recorder import record_decision
 from uuid import uuid4
+
+import src.config
+from src.core.presentation.vi_localizer import render_cognitive_journal
+from src.daily_updater import run_daily_update
+from src.database.db_core import optimize_sqlite_engine
+from src.database.timeline_manager import get_regime_history, log_regime_state
+from src.engine.decision_engine import merge_decisions
+from src.engine.sentinel_alert import evaluate_sentinel_status
+from src.telemetry.recorder import record_decision
+
 
 def create_markdown_report(verdict, target_date):
     """Lưu nhật ký tác chiến (War Journal) dưới dạng Markdown"""
     report_dir = src.config.DATA_DIR / "reports"
     if not report_dir.exists():
         report_dir.mkdir(parents=True, exist_ok=True)
-    
+
     report_path = report_dir / f"{target_date}_verdict.md"
-    
+
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(f"# 🛡️ NHẬT KÝ TÁC CHIẾN - {target_date}\n\n")
         f.write(f"**Thời gian thực thi:** {datetime.now().strftime('%H:%M:%S')}\n")
-        
+
         # Section 1: Institutional Decision
         if 'decision' in verdict:
             d = verdict['decision']
-            f.write(f"## 🏛️ PHÁN QUYẾT BỘ CHỈ HUY (THE BOARDROOM)\n\n")
+            f.write("## 🏛️ PHÁN QUYẾT BỘ CHỈ HUY (THE BOARDROOM)\n\n")
             f.write(f"- **TRẠNG THÁI THỊ TRƯỜNG:** `{d['market_status']}` (Score: {d['regime_score']})\n")
             f.write(f"- **MÔ HÌNH ƯU TIÊN:** `{d['active_model']}`\n")
             f.write(f"- **PHÁN QUYẾT CUỐI CÙNG:** **{d['consensus']}**\n")
             f.write(f"- **ĐỘ TIN CẬY (CONFIDENCE):** `{d['confidence'] * 100}%`\n\n")
-            
+
             if d['model_b']['top_picks']:
                 f.write("### 🎯 Danh sách Quan tâm (Mean Reversion Selection)\n")
                 for pick in d['model_b']['top_picks']:
@@ -92,7 +93,7 @@ def create_markdown_report(verdict, target_date):
 
         f.write("---\n")
         f.write("*Bản báo cáo này được tạo tự động bởi PTCK_VNSTOCK Multi-Model Decision Stack.*")
-    
+
     return report_path
 
 def run_daily_closer():
@@ -112,7 +113,7 @@ def run_daily_closer():
     # Step 3: Run Decision Engine (Consensus)
     decision = merge_decisions(verdict)
     verdict['decision'] = decision
-    
+
     # Step 3.1: Run Structural Detector
     try:
         from src.engine.structural_detector import detect_cau_truc
@@ -161,7 +162,7 @@ def run_daily_closer():
         print(f"⚠️  SSI probe failed: {e}")
 
     print(f"\n{'='*60}")
-    print(f"🏁 CLOSER COMPLETE. SENTINEL STANDING BY.")
+    print("🏁 CLOSER COMPLETE. SENTINEL STANDING BY.")
     print(f"{'='*60}")
 
 def _adapt_and_record_decision(board: dict):

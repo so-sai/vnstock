@@ -5,6 +5,7 @@ Prevents correlated sector concentration in the portfolio.
 import sys
 from pathlib import Path
 
+
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent

@@ -2,8 +2,10 @@
 Capital Intelligence Engine v1.0
 Position sizing based on Conviction Score, Risk Unit (R) framework, and Regime Matrix.
 """
-import sys, logging
+import logging
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):

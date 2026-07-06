@@ -3,10 +3,12 @@ Decision Tensor v1.0 — Decision Abstraction Engine (Phase 10.1).
 Compresses 5 engine layers → 1 action vector.
 Semantic compression layer, NOT a signal generator.
 """
-import sys, logging
+import logging
+import sys
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
 from typing import Optional
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -30,7 +32,6 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.engine.regime_engine import detect_regime
 from src.portfolio import exposure_engine, memory_engine
-import src.config
 
 logger = logging.getLogger(__name__)
 

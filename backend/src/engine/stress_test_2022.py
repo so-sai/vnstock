@@ -1,7 +1,6 @@
 ﻿import sys
-import os
 from pathlib import Path
-import pandas as pd
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -20,8 +19,8 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
 from src.engine.backtest_engine import BacktestAlpha
+
 
 def run_hell_fire_stress_test():
     """
@@ -33,14 +32,14 @@ def run_hell_fire_stress_test():
     print("\n" + "="*65)
     print("⚔️  ALPHA V4.5: CHIẾN DỊCH 'HELL FIRE' STRESS TEST 2022")
     print("="*65)
-    
+
     # 1. Khoi tao Engine voi muc phi "Ma sat cuc dai" (1.0%)
     # Theo lenh cua Chi huy: fee=0.01
     engine = BacktestAlpha(rebalance_freq=10, initial_capital=100_000_000, fee=0.01)
-    
+
     # 2. Chop thoi co: Xuyen khong ve ngay 01/01/2022
     results = engine.run(start_date='2022-01-01', top_n=5)
-    
+
     if results is None:
         print("❌ Loi: Khong the thuc thi Backtest. Kiem tra lai du lieu Vault.")
         return
@@ -49,21 +48,21 @@ def run_hell_fire_stress_test():
     print("\n" + "="*65)
     print("🏆 BÁO CÁO PHÁP Y: SINH TỒN TRONG TỬ ĐỊA 2022")
     print("="*65)
-    
+
     # Lay cac chi so tu results (Series)
     last_equity = results.iloc[-1]
     total_return = (last_equity / 100_000_000 - 1) * 100
-    
+
     # Tinh toán MDD (Max Drawdown)
     peak = results.cummax()
     drawdown = (results - peak) / peak
     max_drawdown = drawdown.min() * 100
-    
+
     print(f"📈 Total Return:     {total_return:>8.2f}%")
     print(f"📉 Max Drawdown:     {max_drawdown:>8.2f}% (Muc tieu < -20%)")
     print(f"🔄 Slippage (Fee):   {1.0:>8.2f}% per action")
     print("-" * 65)
-    
+
     # Gia lap insight ve "Stay in Cash" days
     # (Trong thuc te phai dem tu loop cua engine, o day ta dump placeholder de hoan thien sau)
     print("🛡️  Lá chắn Vĩ mô (Nấc 0): [ACTIVE]")

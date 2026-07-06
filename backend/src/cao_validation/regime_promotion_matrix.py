@@ -6,8 +6,8 @@ Different strictness levels because market is non-stationary.
 Key principle:
     CAO must be HARDER to promote in crisis, not easier.
 """
-import sys
 import logging
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -30,8 +30,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.cao_validation.models import RegimeThreshold, RECOGNIZED_REGIMES
-
+from src.cao_validation.models import RegimeThreshold
 
 # ====================================================================
 # DEFAULT PROMOTION MATRIX

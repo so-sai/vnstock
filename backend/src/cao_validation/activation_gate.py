@@ -9,9 +9,9 @@ Three conditions must ALL be met:
 
 This is NOT a boolean rule engine. It is a statistical promotion control system.
 """
-import sys
 import json
 import logging
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -35,12 +35,15 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.cao_validation.models import (
-    PromotionContext, PromotionVerdict, TrustState,
-    DistributionTestResult, CABValidationReport,
+    CABValidationReport,
+    DistributionTestResult,
+    PromotionContext,
+    PromotionVerdict,
+    TrustState,
 )
 from src.cao_validation.regime_promotion_matrix import get_matrix
-from src.cao_validation.trust_accumulator import get_accumulator
 from src.cao_validation.shadow_live_comparator import run_per_regime_tests
+from src.cao_validation.trust_accumulator import get_accumulator
 
 
 def evaluate_promotion(
@@ -136,7 +139,7 @@ def run_full_validation(
     4. Build report
     """
     from datetime import datetime
-    from src.cao_validation.consistency_engine import compute_batch_consistency
+
     if shadow_deltas_by_regime is None or live_deltas_by_regime is None:
         shadow_deltas_by_regime, live_deltas_by_regime = _load_deltas_from_storage()
     dist_tests = run_per_regime_tests(shadow_deltas_by_regime, live_deltas_by_regime)

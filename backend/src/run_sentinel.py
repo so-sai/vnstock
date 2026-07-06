@@ -1,9 +1,9 @@
-import sys
-import socket
-import webbrowser
-import io
 import argparse
+import io
 import logging
+import socket
+import sys
+import webbrowser
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -52,6 +52,7 @@ DATA_DIR = _resolve_data_dir()
 logger = logging.getLogger(__name__)
 
 import uvicorn
+
 from src.api.main import app
 
 
@@ -70,8 +71,9 @@ def check_cognitive_modules() -> None:
     print("  🧠 Cognitive modules health check...")
     try:
         from core.guard import DECISION_VIEW_SCHEMA_VERSION, lock_schema
-        from core.presentation import get_label
         from core.signal_provenance import ProvenanceRegistry, SignalProvenanceNode
+
+        from core.presentation import get_label
 
         lb = get_label("risk", "NEUTRAL")
         assert lb is not None

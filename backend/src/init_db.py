@@ -9,9 +9,8 @@ Usage:
     sentinel.exe --init        # via .exe
 """
 
-import sys
-import sqlite3
 import logging
+import sqlite3
 from pathlib import Path
 
 logger = logging.getLogger(__name__)

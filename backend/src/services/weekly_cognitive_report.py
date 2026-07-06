@@ -10,12 +10,10 @@ Aggregates:
 Builds 1 narrative summary_vi. Never overrides CAO verdict.
 Never modifies telemetry. Never writes to production tables.
 """
-import sys
-import json
 import logging
-import warnings
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +35,12 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.cao_validation.activation_gate import run_full_validation
+from src.cao_validation.trust_accumulator import get_accumulator
+from src.core.data_quality.detectors.chained_assignment import capture_chained_assignments
 from src.core.market_state_coordinator import build_market_state
 from src.engine.regime_engine import detect_regime
 from src.shadow_cao.storage import get_shadow_stats
-from src.cao_validation.activation_gate import run_full_validation
-from src.cao_validation.trust_accumulator import get_accumulator
-from src.cao_validation.regime_promotion_matrix import get_matrix
-from src.core.data_quality.detectors.chained_assignment import capture_chained_assignments
-
 
 # ====================================================================
 # 1. MARKET AGGREGATION
@@ -454,8 +450,8 @@ def build_weekly_report() -> dict:
 def _psr_audit(report: dict, trust: dict) -> None:
     """Non-blocking PSR snapshot + audit entry."""
     try:
-        from src.core.psr.snapshot import SystemStateSnapshotter
         from src.core.psr.audit import DecisionAuditTrail
+        from src.core.psr.snapshot import SystemStateSnapshotter
         snapper = SystemStateSnapshotter()
         snap = snapper.capture()
         snapper.persist(snap)

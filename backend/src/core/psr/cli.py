@@ -10,9 +10,9 @@ Usage::
     python -m src.core.psr.cli audit            # recent audit entries
 """
 from __future__ import annotations
-import sys
-import json
+
 import logging
+import sys
 from pathlib import Path
 
 
@@ -77,9 +77,9 @@ def cmd_freeze(version: str):
 
 
 def cmd_status():
-    from src.core.psr.version import VersionFreeze
-    from src.core.psr.snapshot import SystemStateSnapshotter
     from src.core.psr.audit import DecisionAuditTrail
+    from src.core.psr.snapshot import SystemStateSnapshotter
+    from src.core.psr.version import VersionFreeze
     v = VersionFreeze().current()
     snapshots = SystemStateSnapshotter().list_snapshots()
     audit_count = DecisionAuditTrail().count()

@@ -1,11 +1,11 @@
 """Shadow CAO — Separate SQLite storage (never touches production tables)."""
-import sys
 import json
-import sqlite3
 import logging
-from pathlib import Path
+import sqlite3
+import sys
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

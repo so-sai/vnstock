@@ -1,6 +1,7 @@
-import sys
 import os
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -22,10 +23,12 @@ if sys.platform == "win32":
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
+import numpy as np
+import pandas as pd
+
 import src.config
 from src.database.db_core import get_connection
-import pandas as pd
-import numpy as np
+
 
 def calculate_leadership(lookback=60, top_n=15, min_value=1e9):
     """
@@ -280,7 +283,7 @@ def calculate_leadership(lookback=60, top_n=15, min_value=1e9):
 
     high_risk = decay_df[decay_df['decay_score'] >= 0.5]
     watch = decay_df[(decay_df['decay_score'] >= 0.3) & (decay_df['decay_score'] < 0.5)]
-    print(f"\n——— SUY GIẢM DẪN DẮT (Leadership Decay) ———")
+    print("\n——— SUY GIẢM DẪN DẮT (Leadership Decay) ———")
     print(f"{'Mã':<6} {'Điểm suy giảm':>13} {'Xu hướng CG':>11} {'BĐộng đgóp':>11} {'Trừ TQuan':>10} {'Trừ RS':>7} {'Phân loại':>9}")
     print("-"*68)
     for _, row in decay_df.iterrows():

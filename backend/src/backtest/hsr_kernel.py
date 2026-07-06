@@ -13,11 +13,9 @@ Strategy:
     O(n) per day instead of O(n × engines × IO).
 """
 
-import sys, sqlite3, logging
-from pathlib import Path
+import logging
+import sqlite3
 from contextlib import contextmanager
-from typing import Optional
-from unittest.mock import patch
 
 logger = logging.getLogger("sentinel.hsr.kernel")
 
@@ -40,8 +38,9 @@ class InMemoryDB:
         self._create_indexes()
 
     def _load_data(self, start_date: str, end_date: str):
-        from src.database.db_core import get_connection as _disk_conn
         import pandas as pd
+
+        from src.database.db_core import get_connection as _disk_conn
 
         tables_to_copy = ['daily_ohlcv']
         for table in tables_to_copy:

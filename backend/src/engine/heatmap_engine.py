@@ -1,6 +1,7 @@
-import sys
 import os
+import sys
 from pathlib import Path
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -19,11 +20,10 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config 
 import pandas as pd
-import json
-import os
+
 from src.database.db_core import get_connection
+
 
 def run_sector_heatmap():
     """
@@ -35,7 +35,7 @@ def run_sector_heatmap():
     print("\n" + "="*50)
     print("🎨 ĐANG VẼ BẢN ĐỒ NHIỆT DÒNG TIỀN (SECTOR HEATMAP)...")
     print("="*50)
-    
+
     with get_connection() as conn:
         query = """
             SELECT 
@@ -59,7 +59,7 @@ def run_sector_heatmap():
 
     df['date'] = pd.to_datetime(df['date'], format='mixed')
     df = df.sort_values(['symbol', 'date'])
-    
+
     # 1. Tính toán Money Flow & Biến động cho từng mã (VECTORIZED)
     df = df.copy()
     df.loc[:, 'money_flow'] = (df['close'] * df['volume']) / 1_000_000_000
@@ -85,16 +85,16 @@ def run_sector_heatmap():
 
     # 4. Định dạng và Xuất kết quả
     sector_stats = sector_stats.sort_values('avg_change', ascending=False)
-    
+
     top_5_up = sector_stats.head(5)
     top_5_money = sector_stats.sort_values('total_money_flow', ascending=False).head(5)
 
-    print(f"🔥 TOP 5 NGÀNH DẪN DẮT (BIẾN ĐỘNG %)")
+    print("🔥 TOP 5 NGÀNH DẪN DẮT (BIẾN ĐỘNG %)")
     print("-" * 45)
     for _, row in top_5_up.iterrows():
         print(f"🚀 {row['sector'][:20]:<20} | {row['avg_change']:>6.2f}% | {row['total_money_flow']:>8.1f} Tỷ")
 
-    print(f"\n💰 TOP 5 NGÀNH HÚT TIỀN (MONEY FLOW)")
+    print("\n💰 TOP 5 NGÀNH HÚT TIỀN (MONEY FLOW)")
     print("-" * 45)
     for _, row in top_5_money.iterrows():
         print(f"🔥 {row['sector'][:20]:<20} | {row['total_money_flow']:>8.1f} Tỷ | {row['avg_change']:>6.2f}%")
@@ -103,7 +103,7 @@ def run_sector_heatmap():
 
     output_dir = "data/output"
     os.makedirs(output_dir, exist_ok=True)
-    sector_stats.to_json(os.path.join(output_dir, "sector_heatmap.json"), 
+    sector_stats.to_json(os.path.join(output_dir, "sector_heatmap.json"),
                          orient='records', force_ascii=False, indent=4)
 
     return sector_stats

@@ -4,7 +4,9 @@ Cung cấp: giá bạc nội địa (BTMC), thế giới (XAGUSD), Gold/Silver R
 """
 import sys
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -26,11 +28,12 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.services.macro.silver_world_service import fetch_world_silver_live, seed_world_silver_to_db
-from src.services.macro.silver_service import get_silver_dashboard
-from core.macro.precious_metal_ratio import get_gs_ratio_from_db, calculate_gold_silver_ratio, assess_gs_ratio_regime
-from src.services.macro.gold_world_service import fetch_world_gold_live
+from core.macro.precious_metal_ratio import assess_gs_ratio_regime, calculate_gold_silver_ratio, get_gs_ratio_from_db
+
 from src.core.canonical_output_adapter import localize_output
+from src.services.macro.gold_world_service import fetch_world_gold_live
+from src.services.macro.silver_service import get_silver_dashboard
+from src.services.macro.silver_world_service import fetch_world_silver_live, seed_world_silver_to_db
 
 router = APIRouter()
 

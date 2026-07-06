@@ -1,9 +1,9 @@
-import sys
 import logging
-import pandas as pd
+import sys
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ def _mat_can_bang_dong_tien(flow_state, leading_sectors, health_score) -> dict:
     so_nganh_manh = len(leading_sectors)
     if trang_thai in ("MỞ_RỘNG", "MỞ_RỘNG_TÍCH_CỰC") and so_nganh_manh <= 1 and health_score is not None and health_score > 70:
         return {"cap_do": "CAO", "diem": 3,
-                "mo_ta": f"Dòng tiền chỉ tập trung vào 1 nhóm ngành duy nhất"}
+                "mo_ta": "Dòng tiền chỉ tập trung vào 1 nhóm ngành duy nhất"}
     if trang_thai in ("MỞ_RỘNG", "MỞ_RỘNG_TÍCH_CỰC") and so_nganh_manh <= 2:
         return {"cap_do": "TRUNG_BÌNH", "diem": 2,
                 "mo_ta": f"Dòng tiền tập trung hẹp ({so_nganh_manh} nhóm)"}

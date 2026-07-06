@@ -44,7 +44,6 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.database.db_core import get_connection  # noqa: E402
 
-
 # ── Data model ───────────────────────────────────────────────────────────────
 
 @dataclass

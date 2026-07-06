@@ -20,21 +20,29 @@ Contract:
     5. Non-string values → pass through unchanged
 """
 from __future__ import annotations
+
 import re
 from typing import Any
 
 from .cognitive_schema import (
-    REGIME_VI, REGIME_LABEL_VI, REGIME_NOUN_VI,
-    DRIVER_VI, DRIVER_VI_LOWER,
-    DRIFT_SOURCE_VI, DRIFT_STATUS_VI,
-    FLOW_STATE_VI, FLOW_ROTATION_VI,
-    CONVICTION_VI, SECTOR_VI,
-    STATUS_VI, SEVERITY_LABEL_VI,
-    FIELD_LABELS,
-    EARLY_WARNING_VI, DRIFT_TREND_VI,
+    CONVICTION_VI,
+    DRIFT_SOURCE_VI,
+    DRIFT_STATUS_VI,
+    DRIFT_TREND_VI,
+    DRIVER_VI,
+    DRIVER_VI_LOWER,
+    EARLY_WARNING_VI,
     ETS_STATUS_VI,
+    FIELD_LABELS,
+    FLOW_ROTATION_VI,
+    FLOW_STATE_VI,
+    REGIME_LABEL_VI,
+    REGIME_NOUN_VI,
+    REGIME_VI,
+    SECTOR_VI,
+    SEVERITY_LABEL_VI,
+    STATUS_VI,
 )
-
 
 # ====================================================================
 # MASTER MAPPING — aggregate ALL known EN→VI pairs from the system
@@ -338,7 +346,8 @@ def _detect_lang_mode(mode: str) -> str:
     if mode != "auto":
         return mode
     try:
-        import sys, shutil
+        import shutil
+        import sys
         if not sys.stdout.isatty():
             return "annotated"
         cols = shutil.get_terminal_size().columns

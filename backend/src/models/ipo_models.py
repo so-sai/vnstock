@@ -7,9 +7,8 @@ Tuân theo naming convention camelCase (alias generator) của AlphaBaseModel.
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional
 from enum import Enum
-from pydantic import Field, ConfigDict
+from typing import Dict, List, Optional
 
 # Giả định import từ models.py hiện tại
 # (Thực tế cần thêm vào backend/src/models/models.py)
@@ -34,23 +33,23 @@ class IpoSignalResponse:
       - regime: Chu kỳ thị trường (DONG_TIEN_MO_RONG/TANG_GIAN/THOAI_LUI)
       - active_ipos: Danh sách IPO đang "nóng"
     """
-    
+
     signal_date: datetime
     traffic_light: IpoSignalEnum  # 🟢/🟡/🔴
-    
+
     ipo_intensity: str  # CAO / TRUNG_BINH / THAP
     capital_absorption_trend: str  # TANG_MANH / ON_DINH / GIAM
     secondary_market_pressure: float  # 0-100
-    
+
     narrative_heat: str  # BAT_THUONG / BINH_THUONG / THAP
     rotation_risk: str  # CAO / TRUNG_BINH / THAP
     midcap_smallcap_pressure: float  # 0-100
-    
+
     liquidity_regime: str  # DONG_TIEN_MO_RONG / TANG_GIAN / THOAI_LUI
     regime_confidence: float  # 0-1.0
-    
+
     active_ipos: List[Dict[str, str]]  # [{symbol, sector, days_listed}]
-    
+
     interpretation: str  # Giải thích bằng tiếng Việt cho người dùng
 
 
@@ -85,7 +84,7 @@ def generate_ipo_interpretation(
     Returns:
         str: Khẩu lệnh thực chiến (1-2 câu, rõ ràng, ngắn gọn)
     """
-    
+
     if traffic_light == IpoSignalEnum.DO:
         if rotation_risk == "CAO":
             return (
@@ -102,7 +101,7 @@ def generate_ipo_interpretation(
                 "🔴 CẢNH BÁO: Các dấu hiệu tiêu cực kết hợp. "
                 "Chuyển sang phòng thủ, hạ vị thế."
             )
-    
+
     elif traffic_light == IpoSignalEnum.VANG:
         if regime == "TANG_GIAN":
             return (
@@ -114,7 +113,7 @@ def generate_ipo_interpretation(
                 "🟡 THẬN TRỌNG: Áp lực vừa phải từ IPO. "
                 "Tiếp tục đánh nhưng giám sát sát sao."
             )
-    
+
     else:  # XANH
         if ipo_intensity == "CAO" and regime == "DONG_TIEN_MO_RONG":
             return (

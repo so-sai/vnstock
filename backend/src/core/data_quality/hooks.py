@@ -11,19 +11,20 @@ Available hooks:
   - ``capture_upstream(source)`` — decorator for external fetch functions
 """
 from __future__ import annotations
+
 import contextlib
 import functools
 import logging
 import traceback
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import pandas as pd
 
-from src.core.data_quality.models import DataQualityEvent, EventSeverity, EventType
-from src.core.data_quality.registry import emit_event
 from src.core.data_quality.detectors.chained_assignment import (
     ChainedAssignmentWatcher,
 )
+from src.core.data_quality.models import DataQualityEvent, EventSeverity, EventType
+from src.core.data_quality.registry import emit_event
 
 logger = logging.getLogger(__name__)
 

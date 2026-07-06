@@ -1,6 +1,6 @@
 ﻿import sys
-import os
 from pathlib import Path
+
 
 def _hydrate_path():
     """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
@@ -20,11 +20,13 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import logging
-import pandas as pd
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from src.engine.rs_ranker import load_rs_data
+from typing import Any, Dict, List
+
+import pandas as pd
+
 from src.engine.money_flow_engine import MoneyFlowEngine
+from src.engine.rs_ranker import load_rs_data
 from src.engine.unit_normalizer import UnitNormalizer
 
 logging.basicConfig(level=logging.INFO)
@@ -44,7 +46,7 @@ class CommanderDataError(Exception): pass
 
 class StrategyCommander:
     """Bộ chỉ huy tối cao Alpha Brain (v2.0) - Đạt chuẩn Python 3.14."""
-    
+
     def __init__(self, show_log: bool = False) -> None:
         self.show_log: bool = show_log
         self.money_flow: MoneyFlowEngine = MoneyFlowEngine(show_log=self.show_log)
