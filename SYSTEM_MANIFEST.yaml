@@ -262,6 +262,22 @@ entrypoints:
     cli: "python ptck.py clear-crisis"
     category: recovery
 
+  clear_crisis:
+    description: "Xóa crisis_cooldown + micro_stress gate — reset trạng thái khủng hoảng thủ công"
+    cli: "python ptck.py clear-crisis"
+    category: recovery
+
+  # ── Cleanup ─────────────────────────────────────────────
+  cleanup_telemetry:
+    description: "Dọn dẹp entropy_log.csv — giữ lại N dòng gần nhất"
+    cli: "python ptck.py cleanup telemetry [--max-rows N]"
+    category: system
+
+  cleanup_all:
+    description: "Dọn dẹp toàn bộ: telemetry + state cache"
+    cli: "python ptck.py cleanup all"
+    category: system
+
   # ── Calendar ────────────────────────────────────────────
   check_calendar:
     description: "Kiểm tra lịch lễ so với timeanddate.com, có flag auto-update"

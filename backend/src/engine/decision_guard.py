@@ -106,7 +106,7 @@ def kiem_tra_an_toan(
         is_lc = du_lieu_lien_ngan_hang.get("is_liquidity_crisis", False)
 
         from src.engine.partial_data_entropy import compute_temporal_penalty, update_crisis_cooldown, assess_crisis_unlock
-        update_crisis_cooldown(on_rate)
+        update_crisis_cooldown(on_rate, z_fast)
 
         if is_lc:
             he_so_giam_ty_trong = 0.0

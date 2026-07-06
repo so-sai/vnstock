@@ -562,6 +562,32 @@ def cmd_check_calendar(args):
         print(f"  ✅ Đã cập nhật lịch: {len(merged)} ngày.")
 
 
+def cmd_cleanup(args):
+    """Dọn dẹp định kỳ: telemetry, cache, state files."""
+    target = args.target
+    if target == "telemetry":
+        from src.engine.partial_data_entropy import cleanup_telemetry
+        cleanup_telemetry(max_rows=getattr(args, 'max_rows', 1000))
+        print(f"  ✅ Telemetry cleaned (keep last {getattr(args, 'max_rows', 1000)} rows).")
+    elif target == "all":
+        from src.engine.partial_data_entropy import cleanup_telemetry
+        cleanup_telemetry(max_rows=1000)
+        print("  ✅ Telemetry cleaned.")
+        for fname in ["crisis_cooldown.json", "micro_stress.json"]:
+            fp = Path(__file__).resolve().parent / "backend" / "data" / "probe_cache" / fname
+            if fp.exists():
+                fp.unlink()
+                print(f"  ✅ {fname} removed.")
+    else:
+        print("  Usage: python ptck.py cleanup telemetry|all [--max-rows N]")
+
+    # Also delete .tmp orphans
+    probe_dir = Path(__file__).resolve().parent / "backend" / "data" / "probe_cache"
+    for f in probe_dir.glob("*.tmp"):
+        f.unlink()
+        print(f"  ✅ Orphan .tmp cleaned: {f.name}")
+
+
 def cmd_clear_crisis(args):
     """Xóa crisis_cooldown.json + reset micro_stress gate thủ công."""
     from pathlib import Path
@@ -664,7 +690,23 @@ def cmd_sbv_update(args):
     print("\n  [4/5] Nghiệm thu — giải phóng khóa...")
     _clear_sbv_alert()
     cooldown_path = root / "backend" / "data" / "probe_cache" / "crisis_cooldown.json"
+    marker = None
     if cooldown_path.exists():
+        try:
+            import json
+            st = json.loads(cooldown_path.read_text(encoding="utf-8"))
+            marker = st.get("crisis_marker", "")
+        except Exception:
+            pass
+    if cooldown_path.exists():
+        if marker == "CRISIS_REAL":
+            print("  ⚠ THẬN TRỌNG: crisis_cooldown.json có marker CRISIS_REAL —")
+            print("    đây là khủng hoảng thị trường thật, không phải lỗi file.")
+            print("    Chỉ clear nếu bạn xác nhận ON đã dưới 15% trong 3+ phiên.")
+            print("    Gỡ bỏ file: python ptck.py clear-crisis")
+        elif marker in ("FORCED_SAFETY",):
+            print("  ℹ crisis_cooldown.json có marker FORCED_SAFETY —")
+            print("    được tạo do mất file + sensor cảnh báo. Có thể clear an toàn.")
         cooldown_path.unlink()
         print("  ✅ crisis_cooldown.json cleared.")
     stress_path = root / "backend" / "data" / "probe_cache" / "micro_stress.json"
@@ -1098,6 +1140,12 @@ def main():
     # flow-map
     p_fm = sub.add_parser("flow-map", help="Bản đồ Dòng vốn Liên thị trường 4 Tầng")
     p_fm.set_defaults(func=cmd_flow_map)
+
+    # cleanup
+    p_cl = sub.add_parser("cleanup", help="Dọn dẹp định kỳ: telemetry, state files")
+    p_cl.add_argument("target", choices=["telemetry", "all"], help="telemetry: entropy_log; all: telemetry + state")
+    p_cl.add_argument("--max-rows", type=int, default=1000, dest="max_rows", help="Số dòng telemetry giữ lại")
+    p_cl.set_defaults(func=cmd_cleanup)
 
     # clear-crisis
     p_ccr = sub.add_parser("clear-crisis", help="Xóa crisis_cooldown + stress gate — reset trạng thái khủng hoảng thủ công")

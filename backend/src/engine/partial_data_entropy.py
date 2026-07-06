@@ -20,6 +20,7 @@ H_MAX = 0.50
 ALPHA = 0.15
 Z_THRESHOLD = 3.0
 CRISIS_RATE = 15.0
+EARLY_WARNING_THRESHOLD = 12.0
 MIN_CONSECUTIVE = 2
 
 # ── Đường dẫn ──
@@ -137,16 +138,22 @@ def compute_temporal_penalty(
 _COOLDOWN_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "crisis_cooldown.json"
 
 
-def _load_cooldown_state() -> dict:
+def _load_cooldown_state(current_on: float = 0.0, z_fast: float = 0.0) -> dict:
     try:
         return json.loads(_COOLDOWN_PATH.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"crisis_active": False, "consecutive_normal": 0,
-                "last_normal_date": "", "last_crisis_date": ""}
+        # Mất file → kiểm tra sensor thời gian thực trước khi fallback
+        if current_on >= EARLY_WARNING_THRESHOLD or z_fast > Z_THRESHOLD:
+            logger.warning("[COOLDOWN] File missing + ON=%.1f%% >= %.0f%% or Z=%.1f — FORCED_SAFETY",
+                          current_on, EARLY_WARNING_THRESHOLD, z_fast)
+            return {"crisis_active": True, "crisis_marker": "FORCED_SAFETY",
+                    "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": ""}
+        return {"crisis_active": False, "crisis_marker": "",
+                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": ""}
     except (json.JSONDecodeError, ValueError):
-        logger.warning("[COOLDOWN] File hỏng — fail-safe: crisis_active=True")
-        return {"crisis_active": True, "consecutive_normal": 0,
-                "last_normal_date": "", "last_crisis_date": ""}
+        logger.warning("[COOLDOWN] File hỏng — CORRUPTED_FALLBACK: crisis_active=True")
+        return {"crisis_active": True, "crisis_marker": "CORRUPTED_FALLBACK",
+                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": ""}
 
 
 def _save_cooldown_state(state: dict):
@@ -156,17 +163,18 @@ def _save_cooldown_state(state: dict):
     os.replace(tmp, _COOLDOWN_PATH)
 
 
-def update_crisis_cooldown(current_on: float):
+def update_crisis_cooldown(current_on: float, z_fast: float = 0.0):
     """Cập nhật trạng thái cooldown dựa trên lãi suất ON hiện tại.
 
     - ON >= CRISIS_RATE (15%): reset bộ đếm, kích hoạt crisis
     - ON < CRISIS_RATE và crisis_active: tăng consecutive_normal (tối đa 1 lần/ngày)
     """
-    state = _load_cooldown_state()
+    state = _load_cooldown_state(current_on=current_on, z_fast=z_fast)
     today = datetime.now().strftime("%Y-%m-%d")
 
     if current_on >= CRISIS_RATE:
         state["crisis_active"] = True
+        state["crisis_marker"] = "CRISIS_REAL"
         state["consecutive_normal"] = 0
         state["last_crisis_date"] = today
         state["last_normal_date"] = today  # chặn đếm trong cùng phiên
@@ -194,7 +202,7 @@ def assess_crisis_unlock(current_on: float, z_fast: float, recovery_days: int) -
         True nếu không trong cooldown hoặc đã đủ điều kiện mở khóa.
         False nếu vẫn đang trong cooldown (he_so_giam_ty_trong = 0.0).
     """
-    state = _load_cooldown_state()
+    state = _load_cooldown_state(current_on=current_on, z_fast=z_fast)
     if not state.get("crisis_active", False):
         return True
 
@@ -281,6 +289,29 @@ def disable_telemetry():
     if TELEMETRY_FLAG.exists():
         TELEMETRY_FLAG.unlink()
     logger.info("Telemetry disabled")
+
+
+def cleanup_telemetry(max_rows: int = 1000):
+    """Dọn dẹp entropy_log.csv — giữ lại max_rows dòng gần nhất.
+
+    Chạy định kỳ qua 'python ptck.py cleanup telemetry' để tránh phình ổ đĩa.
+    """
+    if not TELEMETRY_PATH.exists():
+        return
+    try:
+        import csv
+        with open(TELEMETRY_PATH, "r", newline="", encoding="utf-8") as f:
+            reader = list(csv.reader(f))
+        if len(reader) <= max_rows + 1:  # +1 for header
+            return
+        header = reader[:1]
+        tail = reader[-(max_rows):]
+        with open(TELEMETRY_PATH, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerows(header + tail)
+        logger.info("[GC] entropy_log.csv: %d → %d rows", len(reader), len(tail) + 1)
+    except Exception as e:
+        logger.warning("[GC] Telemetry cleanup failed: %s", e)
 
 
 def _scrape_holidays() -> list[str]:
