@@ -562,6 +562,25 @@ def cmd_check_calendar(args):
         print(f"  ✅ Đã cập nhật lịch: {len(merged)} ngày.")
 
 
+def cmd_clear_crisis(args):
+    """Xóa crisis_cooldown.json + reset micro_stress gate thủ công."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent
+    cooldown = root / "backend" / "data" / "probe_cache" / "crisis_cooldown.json"
+    stress = root / "backend" / "data" / "probe_cache" / "micro_stress.json"
+    cleared = 0
+    if cooldown.exists():
+        cooldown.unlink()
+        cleared += 1
+    if stress.exists():
+        stress.unlink()
+        cleared += 1
+    if cleared:
+        print(f"  ✅ Đã xóa {cleared} file trạng thái. Hệ thống sẽ khởi tạo lại ở lần chạy tiếp theo.")
+    else:
+        print("  ℹ Không tìm thấy file trạng thái nào — hệ thống đã sạch.")
+
+
 def cmd_sbv_update(args):
     """5-step recovery: backup → fixtures → pytest → scrape → clear alert."""
     import sys, subprocess, shutil
@@ -641,9 +660,17 @@ def cmd_sbv_update(args):
         except Exception:
             print(f"  [3b] ⚠ Lỗi parser — cần fix thủ công")
 
-    # ── Step 4: Clear alert + thông báo ──
+    # ── Step 4: Clear alert + crisis cooldown + thông báo ──
     print("\n  [4/5] Nghiệm thu — giải phóng khóa...")
     _clear_sbv_alert()
+    cooldown_path = root / "backend" / "data" / "probe_cache" / "crisis_cooldown.json"
+    if cooldown_path.exists():
+        cooldown_path.unlink()
+        print("  ✅ crisis_cooldown.json cleared.")
+    stress_path = root / "backend" / "data" / "probe_cache" / "micro_stress.json"
+    if stress_path.exists():
+        stress_path.unlink()
+        print("  ✅ micro_stress.json cleared.")
     print("  ✅ Alert file cleared. Khóa vị thế 0.0 đã được giải phóng.")
     print("  Hệ thống sẽ lấy dữ liệu SBV mới ở lần refresh_interbank_rate() tiếp theo.")
     print("=" * 60)
@@ -1071,6 +1098,10 @@ def main():
     # flow-map
     p_fm = sub.add_parser("flow-map", help="Bản đồ Dòng vốn Liên thị trường 4 Tầng")
     p_fm.set_defaults(func=cmd_flow_map)
+
+    # clear-crisis
+    p_ccr = sub.add_parser("clear-crisis", help="Xóa crisis_cooldown + stress gate — reset trạng thái khủng hoảng thủ công")
+    p_ccr.set_defaults(func=cmd_clear_crisis)
 
     # sbv-update
     p_su = sub.add_parser("sbv-update", help="4-step recovery: fixtures → pytest → scrape → clear alert")

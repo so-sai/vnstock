@@ -202,6 +202,49 @@ def _parse_sbv_html(html_text: str) -> dict[str, float | None]:
     return result
 
 
+VALIDATION_BOUNDS = {
+    "ON": (0, 35), "1W": (0, 35), "2W": (0, 35),
+    "1M": (0, 30), "3M": (0, 25), "6M": (0, 20), "9M": (0, 20),
+}
+TENOR_ORDER_VAL = ["ON", "1W", "2W", "1M", "3M", "6M", "9M"]
+
+
+def _validate_structural_integrity(rates: dict) -> bool:
+    """Kiểm tra parser không nhầm cột (ngày→lãi suất, hoán đổi kỳ hạn).
+
+    Ngưỡng rộng, chỉ bắt lỗi parser ngớ ngẩn. KHÔNG đo rủi ro thị trường.
+    """
+    for k, v in rates.items():
+        lo, hi = VALIDATION_BOUNDS.get(k, (0, 100))
+        if v is not None and not (lo <= v <= hi):
+            logger.warning(f"SBV validation: {k}={v} outside [{lo}, {hi}]")
+            return False
+
+    present = [(t, rates[t]) for t in TENOR_ORDER_VAL if rates.get(t) is not None]
+    if len(present) < 2:
+        return True  # không đủ kỳ hạn để kiểm tra tương quan chéo
+
+    # Crisis mode: nếu kỳ hạn ngắn nhất (ON hoặc 1W) ≥ 15%, bỏ qua kiểm tra đơn điệu
+    # vì lúc này đảo ngược cực đoan là tín hiệu khủng hoảng thật, không phải lỗi parser.
+    shortest = present[0][1]
+    in_crisis = shortest >= 15.0
+
+    if not in_crisis:
+        for i in range(len(present) - 1):
+            t1, r1 = present[i]
+            t2, r2 = present[i + 1]
+            if r1 is None or r2 is None:
+                continue
+            if r1 > r2 * 2.5:
+                logger.warning(f"SBV validation: {t1}={r1} > {t2}={r2}*2.5 — column swap?")
+                return False
+            if r2 > r1 * 5.0:
+                logger.warning(f"SBV validation: {t2}={r2} > {t1}={r1}*5.0 — column swap?")
+                return False
+
+    return True
+
+
 def _try_sbv(force: bool = False) -> dict:
     """Dùng Playwright để trích xuất bảng lãi suất liên ngân hàng từ sbv.gov.vn.
 
@@ -268,6 +311,14 @@ def _try_sbv(force: bool = False) -> dict:
 
             # ── Bước 3: Parse với lxml ──
             result = _parse_sbv_html(html_raw)
+
+            # ── Bước 3a: Runtime structural validation ──
+            # Mục đích: bắt lỗi parser (nhầm cột ngày→2026%), KHÔNG đo rủi ro thị trường.
+            if result and not _validate_structural_integrity(result):
+                logger.warning("SBV: structural integrity check failed — treating as STRUCTURE_CHANGED")
+                _log_sbv_alert(html_raw)
+                browser.close()
+                return {"type": "STRUCTURE_CHANGED", "data": {}, "http_status": 200}
 
             # Trích xuất ngày áp dụng
             body = page.inner_text("body")

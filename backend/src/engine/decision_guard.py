@@ -100,6 +100,31 @@ def kiem_tra_an_toan(
             he_so_giam_ty_trong = 0.0
             logger.warning("[GUARD] Interbank VETO ACTIVE, he_so_giam_ty_trong=0.0")
 
+        # ── Cross-Layer Volatility Coupling (temporal + cooldown) ──
+        on_rate = du_lieu_lien_ngan_hang.get("on_rate", 0.0)
+        recovery_days = du_lieu_lien_ngan_hang.get("recovery_days", 0)
+        is_lc = du_lieu_lien_ngan_hang.get("is_liquidity_crisis", False)
+
+        from src.engine.partial_data_entropy import compute_temporal_penalty, update_crisis_cooldown, assess_crisis_unlock
+        update_crisis_cooldown(on_rate)
+
+        if is_lc:
+            he_so_giam_ty_trong = 0.0
+            logger.critical("[GUARD] LIQUIDITY CRISIS (ON>=15%%) — he_so_giam_ty_trong=0.0")
+        elif z_fast > 3.0:
+            phi = compute_temporal_penalty(z_fast, is_liquidity_crisis=False)
+            he_so_giam_ty_trong *= phi
+            logger.info(
+                "[GUARD] Temporal coupling: Z_fast=%.1f, Φ=%.3f, he_so=%.3f",
+                z_fast, phi, he_so_giam_ty_trong,
+            )
+
+        # ── Crisis Cooldown Gate: chặn mở khóa nếu chưa đủ 3 phiên an toàn ──
+        if he_so_giam_ty_trong > 0.0 and on_rate > 0:
+            if not assess_crisis_unlock(on_rate, z_fast, recovery_days):
+                he_so_giam_ty_trong = 0.0
+                logger.warning("[GUARD] Crisis cooldown active — he_so_giam_ty_trong=0.0")
+
     # Lấy thông tin từ Bộ tự đánh giá
     tam_ngung = do_tin_cay.get("tạm_ngưng_kết_luận", False)
     diem_tin_cay = do_tin_cay.get("điểm_tin_cậy", 0.5)

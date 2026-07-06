@@ -245,3 +245,25 @@ entrypoints:
     description: "Cập nhật dữ liệu EOD kết hợp vá lỗ từ gap-analyzer"
     cli: "python ptck.py daily-update --manifest backend/data/missing_manifest.json"
     category: daily
+
+  # ── SBV Recovery ────────────────────────────────────────
+  sbv_update:
+    description: "5-step SBV recovery: backup → fixtures → pytest → scrape → clear alert"
+    cli: "python ptck.py sbv-update"
+    category: recovery
+
+  restore_backup:
+    description: "Khôi phục alert + recall_state từ backup gần nhất"
+    cli: "python ptck.py restore-backup"
+    category: recovery
+
+  clear_crisis:
+    description: "Xóa crisis_cooldown + micro_stress gate — reset trạng thái khủng hoảng thủ công"
+    cli: "python ptck.py clear-crisis"
+    category: recovery
+
+  # ── Calendar ────────────────────────────────────────────
+  check_calendar:
+    description: "Kiểm tra lịch lễ so với timeanddate.com, có flag auto-update"
+    cli: "python ptck.py check-calendar [--auto-update]"
+    category: system

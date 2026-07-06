@@ -1,4 +1,4 @@
-import math, json, time, logging
+import math, json, time, os, logging
 from datetime import datetime
 from pathlib import Path
 
@@ -16,11 +16,18 @@ TTL = 24.0
 H_MIN = 0.15
 H_MAX = 0.50
 
+# ── Temporal coupling parameters ──
+ALPHA = 0.15
+Z_THRESHOLD = 3.0
+CRISIS_RATE = 15.0
+MIN_CONSECUTIVE = 2
+
 # ── Đường dẫn ──
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 CALENDAR_PATH = PROJECT_ROOT / "backend" / "src" / "config" / "weekend_holidays.json"
 TELEMETRY_PATH = PROJECT_ROOT / "backend" / "data" / "telemetry" / "entropy_log.csv"
 TELEMETRY_FLAG = PROJECT_ROOT / "backend" / "data" / "config" / "telemetry_enabled"
+_STRESS_STATE_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "micro_stress.json"
 
 
 def _read_calendar_safe() -> list[str]:
@@ -64,8 +71,154 @@ def hours_since_last_scrape(tenor: str | None = None) -> float:
     return GRACE
 
 
+def _load_stress_state() -> dict:
+    try:
+        return json.loads(_STRESS_STATE_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"consecutive_high": 0, "gate_active": False, "last_z": 0.0, "last_date": ""}
+
+
+def _save_stress_state(state: dict):
+    _STRESS_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _STRESS_STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, _STRESS_STATE_PATH)
+
+
+def compute_temporal_penalty(
+    z_fast: float | None = None,
+    is_liquidity_crisis: bool = False,
+) -> float:
+    """Tính Φ(Z_fast) = temporal penalty multiplier cho λ (Cross-Layer Volatility Coupling).
+
+    Công thức:
+      is_liquidity_crisis=True  → Φ = 0.0  (xóa sạch trọng số macro)
+      Z_fast > Z_THRESHOLD sustained  → Φ = exp(-ALPHA * (Z_fast - Z_THRESHOLD))
+      Z_fast <= Z_THRESHOLD           → Φ = 1.0  (giữ nguyên)
+
+    Duration gate: cần MIN_CONSECUTIVE phiên liên tiếp Z_fast > Z_THRESHOLD
+    để kích hoạt. Trạng thái persist qua file micro_stress.json xuyên phiên.
+
+    Returns:
+        Φ ∈ [0.0, 1.0]
+    """
+    if z_fast is None:
+        return 1.0
+
+    if is_liquidity_crisis:
+        _save_stress_state({"consecutive_high": 0, "gate_active": True,
+                            "last_z": z_fast, "last_date": datetime.now().strftime("%Y-%m-%d")})
+        return 0.0
+
+    state = _load_stress_state()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if z_fast > Z_THRESHOLD:
+        if state.get("last_date") != today:
+            state["consecutive_high"] = state.get("consecutive_high", 0) + 1
+        state["last_z"] = z_fast
+        if state["consecutive_high"] >= MIN_CONSECUTIVE:
+            state["gate_active"] = True
+    else:
+        state["consecutive_high"] = 0
+        state["gate_active"] = False
+        state["last_z"] = z_fast
+
+    state["last_date"] = today
+    _save_stress_state(state)
+
+    if state["gate_active"]:
+        return math.exp(-ALPHA * (z_fast - Z_THRESHOLD))
+    return 1.0
+
+
+# ── Crisis Cooldown Gate (Chống Bull Trap) ──
+
+_COOLDOWN_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "crisis_cooldown.json"
+
+
+def _load_cooldown_state() -> dict:
+    try:
+        return json.loads(_COOLDOWN_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"crisis_active": False, "consecutive_normal": 0,
+                "last_normal_date": "", "last_crisis_date": ""}
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("[COOLDOWN] File hỏng — fail-safe: crisis_active=True")
+        return {"crisis_active": True, "consecutive_normal": 0,
+                "last_normal_date": "", "last_crisis_date": ""}
+
+
+def _save_cooldown_state(state: dict):
+    _COOLDOWN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _COOLDOWN_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, _COOLDOWN_PATH)
+
+
+def update_crisis_cooldown(current_on: float):
+    """Cập nhật trạng thái cooldown dựa trên lãi suất ON hiện tại.
+
+    - ON >= CRISIS_RATE (15%): reset bộ đếm, kích hoạt crisis
+    - ON < CRISIS_RATE và crisis_active: tăng consecutive_normal (tối đa 1 lần/ngày)
+    """
+    state = _load_cooldown_state()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if current_on >= CRISIS_RATE:
+        state["crisis_active"] = True
+        state["consecutive_normal"] = 0
+        state["last_crisis_date"] = today
+        state["last_normal_date"] = today  # chặn đếm trong cùng phiên
+        logger.info("[COOLDOWN] Crisis active: ON=%.1f%% >= %.0f%%",
+                    current_on, CRISIS_RATE)
+    elif state.get("crisis_active", False):
+        if state.get("last_normal_date") != today:
+            state["consecutive_normal"] = state.get("consecutive_normal", 0) + 1
+            state["last_normal_date"] = today
+            logger.info("[COOLDOWN] Crisis cooldown: ngày an toàn %d/3 (ON=%.1f%%)",
+                        state["consecutive_normal"], current_on)
+
+    _save_cooldown_state(state)
+
+
+def assess_crisis_unlock(current_on: float, z_fast: float, recovery_days: int) -> bool:
+    """Kiểm tra 3 chốt chặn để mở khóa Crisis Mode (Chống Bull Trap).
+
+    Công thức:
+        Unlock = (ON < 15% AND consecutive_normal >= 3)
+             AND (z_fast < 3.0)
+             AND (recovery_days >= 2)
+
+    Returns:
+        True nếu không trong cooldown hoặc đã đủ điều kiện mở khóa.
+        False nếu vẫn đang trong cooldown (he_so_giam_ty_trong = 0.0).
+    """
+    state = _load_cooldown_state()
+    if not state.get("crisis_active", False):
+        return True
+
+    is_on_safe = current_on < CRISIS_RATE and state.get("consecutive_normal", 0) >= 3
+    is_stress_cleared = z_fast < Z_THRESHOLD
+    is_trend_stable = recovery_days >= 2
+
+    if is_on_safe and is_stress_cleared and is_trend_stable:
+        state["crisis_active"] = False
+        state["consecutive_normal"] = 0
+        _save_cooldown_state(state)
+        logger.info("[COOLDOWN] Crisis UNLOCKED: ON=%.1f%%, Z=%.1f, recovery=%d",
+                    current_on, z_fast, recovery_days)
+        return True
+
+    logger.info("[COOLDOWN] Crisis locked: consecutive=%d/3, Z=%.1f, recovery=%d",
+                state.get("consecutive_normal", 0), z_fast, recovery_days)
+    return False
+
+
 def calculate_entropy_penalty(
     stale_hours: dict[str, float] | None = None,
+    z_fast: float | None = None,
+    is_liquidity_crisis: bool = False,
 ) -> float:
     """Tính H(t) = clamp(BASE + γ·(1 - Σw_i·λ_i), 0.15, 0.50).
 
@@ -81,11 +234,12 @@ def calculate_entropy_penalty(
         for t in TENOR_ORDER:
             stale_hours[t] = hours_since_last_scrape(t)
 
+    phi = compute_temporal_penalty(z_fast, is_liquidity_crisis)
     weighted_sum = 0.0
     for t in TENOR_ORDER:
         s = stale_hours.get(t, 24.0)
         t_eff = s if not _today_is_holiday() else 0.0
-        lam = math.exp(-max(0.0, t_eff - GRACE) / TTL)
+        lam = math.exp(-max(0.0, t_eff - GRACE) / TTL) * phi
         weighted_sum += WEIGHTS[t] * lam
 
     H = BASE + GAMMA * (1.0 - weighted_sum)

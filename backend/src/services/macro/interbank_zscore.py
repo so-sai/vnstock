@@ -243,6 +243,9 @@ def assess_interbank_risk() -> dict:
     values = df["value"].values.astype(np.float64)
     zs = compute_dual_ewma_z(values)
 
+    on_rate = float(values[-1])
+    is_liquidity_crisis = on_rate >= 15.0
+
     z_fast = zs["z_fast"]
     z_slow = zs["z_slow"]
     z_history = zs.get("z_fast_history", [])
@@ -324,6 +327,9 @@ def assess_interbank_risk() -> dict:
         "stale_override": stale_override,
         "hours_stale": round(hours_stale, 1),
         "last_date": last_date if len(df) else None,
+        "on_rate": round(on_rate, 2),
+        "is_liquidity_crisis": is_liquidity_crisis,
+        "recovery_days": recovery_days,
         "term_structure": assess_term_structure(),
     }
 
