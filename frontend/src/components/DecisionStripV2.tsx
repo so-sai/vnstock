@@ -174,6 +174,25 @@ const DecisionStripV2: React.FC = () => {
           </span>
         </div>
 
+        {data.ddi_data && (
+          <div className={`flex items-center gap-1.5 px-3 py-3 border-l border-japandi-muted-clay/20`}>
+            <div className={`px-2 py-1 rounded text-[10px] font-bold font-mono border ${
+              data.ddi_data.action_filter === 'block' ? 'bg-rose-100 text-rose-800 border-rose-300' :
+              data.ddi_data.action_filter === 'caution' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+              'bg-emerald-100 text-emerald-800 border-emerald-300'
+            }`}>
+              <span className="mr-1">
+                {data.ddi_data.action_filter === 'block' ? '🔴' :
+                 data.ddi_data.action_filter === 'caution' ? '🟡' : '🟢'}
+              </span>
+              Δ<sub>SA</sub> {data.ddi_data.delta_sa.toFixed(4)}
+              {data.ddi_data.healing_illusion && (
+                <span className="ml-1 animate-pulse">⚠</span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-1 px-3 py-3">
           <button
             onClick={() => confirmMutation.mutate(data.decision_id)}
@@ -232,6 +251,13 @@ const DecisionStripV2: React.FC = () => {
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+          {data.params_hash && (
+            <div className="mt-2 pt-2 border-t border-japandi-muted-clay/10">
+              <span className="text-[9px] font-mono text-japandi-muted-clay/50">
+                params_hash: {data.params_hash}
+              </span>
             </div>
           )}
         </div>

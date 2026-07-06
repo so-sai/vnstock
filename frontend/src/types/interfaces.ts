@@ -368,6 +368,16 @@ export interface DecisionVectorV2 {
   override_action: string | null;
   override_reason: string | null;
   calibrated_weights: Record<string, number>;
+  ddi_data?: {
+    delta_sa: number;
+    dS_dt: number;
+    ac_latency: number;
+    alpha_regime: number;
+    regime: string;
+    healing_illusion: boolean;
+    action_filter: string;
+  };
+  params_hash?: string;
 }
 
 export interface StressTestResult {

@@ -3,12 +3,15 @@ Decision Tensor v2.0 — Cognitive Expansion Layer (Phase 10.2).
 Adds counterfactual awareness, hierarchical rationale, override tracking, adaptive weights.
 Extends v1 determinism with institutional decision depth.
 """
-import sys, json, logging
+import json
+import logging
+import sys
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
 from typing import Optional
-from datetime import datetime, date
 from uuid import uuid4
+
 
 def _hydrate_path():
     if getattr(sys, 'frozen', False):
@@ -30,25 +33,35 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from src.portfolio.decision_tensor import (
-    DecisionTensorInput, DecisionAction,
-    _regime_score, _heat_score, _signal_score,
-    _dampener_score, _memory_score,
-    _resolve_risk_state, _resolve_action, _resolve_constraint,
-    _reason_compressed,
-    MAX_HEAT, WEIGHT_REGIME, WEIGHT_HEAT, WEIGHT_SIGNAL,
-    WEIGHT_DAMPENER, WEIGHT_MEMORY,
-)
-from src.portfolio import exposure_engine, memory_engine
-from src.telemetry.recorder import record_decision
-from src.engine.regime_engine import detect_regime
-from src.engine.liquidity_wave import get_market_liquidity_health, scan_liquidity_waves
-from src.engine.sector_rotation_graph import get_rotation_beta
 from src.engine.breakout_continuation import get_breakout_market_context
 from src.engine.flow_decay_engine import (
-    get_decayed_liquidity_health, get_decayed_rotation_beta,
     get_decayed_foreign_summary,
+    get_decayed_liquidity_health,
+    get_decayed_rotation_beta,
 )
+from src.engine.liquidity_wave import get_market_liquidity_health
+from src.engine.regime_engine import detect_regime
+from src.engine.sector_rotation_graph import get_rotation_beta
+from src.portfolio import exposure_engine, memory_engine
+from src.portfolio.decision_tensor import (
+    MAX_HEAT,
+    WEIGHT_DAMPENER,
+    WEIGHT_HEAT,
+    WEIGHT_MEMORY,
+    WEIGHT_REGIME,
+    WEIGHT_SIGNAL,
+    DecisionTensorInput,
+    _dampener_score,
+    _heat_score,
+    _memory_score,
+    _reason_compressed,
+    _regime_score,
+    _resolve_action,
+    _resolve_constraint,
+    _resolve_risk_state,
+    _signal_score,
+)
+from src.telemetry.recorder import record_decision
 
 logger = logging.getLogger(__name__)
 
@@ -651,7 +664,23 @@ def compute_v2(override_input: Optional[DecisionTensorInput] = None) -> dict:
     except Exception:
         pass
 
-    return asdict(decision)
+    # ── Return ──
+    # Inject DDI + params_hash from final_decision.json so the frontend
+    # DecisionStripV2 can render them without a separate API call.
+    result = asdict(decision)
+    try:
+        _fp = PROJECT_ROOT / "backend" / "data" / "output" / "final_decision.json"
+        if _fp.exists():
+            _fd = json.loads(_fp.read_text(encoding="utf-8"))
+            _ddi = _fd.get("delta_divergence")
+            if _ddi:
+                result["ddi_data"] = _ddi
+            _ph = _fd.get("params_hash")
+            if _ph:
+                result["params_hash"] = _ph
+    except Exception:
+        pass
+    return result
 
 
 def log_override(decision_id: str, override_action: str, override_reason: str) -> dict:

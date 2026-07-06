@@ -489,11 +489,14 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
     anh_chup = locals().get("anh_chup", {})
     ket_qua["params_hash"] = anh_chup.get("params_hash", "unresolved")
 
-    # ---- Lưu file ----
+    # ---- Lưu file (atomic write: temp → rename) ----
     out_dir = Path(src.config.DATA_DIR) / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
-    with open(out_dir / "final_decision.json", "w", encoding="utf-8") as f:
+    _tmp = out_dir / "final_decision.json.tmp"
+    _dst = out_dir / "final_decision.json"
+    with open(_tmp, "w", encoding="utf-8") as f:
         json.dump(ket_qua, f, indent=2, ensure_ascii=False)
+    _tmp.replace(_dst)  # atomic rename (NTFS same-volume = atomic)
 
     return ket_qua
 
