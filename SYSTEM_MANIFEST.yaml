@@ -220,6 +220,12 @@ entrypoints:
     cli: "python ptck.py flow-map"
     category: analysis
 
+  # ── Phase 4 CAS-DSM ─────────────────────────────────────
+  phase4:
+    description: "Phase 4 CAS-DSM — Capitulation Detector: P_cap activation sensor + S_struct position scaler + Scale-In + Abortion Protocol"
+    cli: "python ptck.py phase4"
+    category: decision
+
   # ── Param Fingerprint Registry ───────────────────────────
   registry_view:
     description: "Sổ tay Dấu vân tay Tham số — tra cứu params_hash tốt nhất theo regime, kèm audit trail"

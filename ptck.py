@@ -1045,6 +1045,14 @@ def cmd_registry(args):
     in_bao_cao(regime=args.regime)
 
 
+def cmd_phase4(args):
+    """Phase 4 CAS-DSM — Capitulation Detector + Scale-In + Abortion Protocol."""
+    from src.core.market_snapshot import tao_anh_chup
+    from src.alpha.capitulation_detector import in_bao_cao as p4_report
+    anh_chup = tao_anh_chup(lang_mode=_VERBOSE_LANG)
+    p4_report(anh_chup)
+
+
 def cmd_flow_map(args):
     """Bản đồ Dòng vốn Liên thị trường 4 Tầng."""
     from src.engine.cross_market_flow_map import CrossMarketFlowMap
@@ -1230,6 +1238,11 @@ def main():
     p_reg.add_argument("--regime", default=None, help="Lọc theo regime (TRENDING/RANGING/CRISIS)")
     p_reg.add_argument("--rebuild", action="store_true", help="Xây dựng lại registry từ audit log")
     p_reg.set_defaults(func=cmd_registry)
+
+    # phase4
+    p_p4 = sub.add_parser("phase4", parents=[lang_parent],
+                          help="Phase 4 CAS-DSM — Capitulation Detector + Scale-In + Abortion")
+    p_p4.set_defaults(func=cmd_phase4)
 
     # confidence
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")

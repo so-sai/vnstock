@@ -33,14 +33,13 @@ PROJECT_ROOT = _hydrate_path()
 backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
-from vnstock import Quote, Trading
-
 from src.database.db_core import get_connection, optimize_sqlite_engine, save_data_upsert
 
 # Canonical Asset Registry
 _LIBS = PROJECT_ROOT / "backend" / "libs"
 if str(_LIBS) not in sys.path:
     sys.path.insert(0, str(_LIBS))
+from vnstock import Quote, Trading
 from canonical import CanonicalAssetRegistry, Normalizer
 from canonical.validator import ValidationError as CanonicalValidationError
 
