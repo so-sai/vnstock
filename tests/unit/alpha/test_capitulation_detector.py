@@ -326,35 +326,114 @@ class TestCampaignFactory:
         campaign = campaign_factory(100_000, 0.6)
         assert campaign.campaign_id == "v1"
 
+    def test_hard_shutdown_rejects_new_campaign(self):
+        """accumulated_stale_pct + new_campaign_risk_pct > 25% → None."""
+        result = campaign_factory(
+            max_pos=100_000, s_struct_v2=0.5,
+            accumulated_stale_pct=0.13,
+            max_drawdown_pct=0.25,
+            new_campaign_risk_pct=0.13,
+        )
+        assert result is None, "13% + 13% = 26% > 25% → Hard Shutdown"
+
+    def test_hard_shutdown_edge_exact_limit(self):
+        """accumulated_stale = 25%, new = 0% → OK."""
+        result = campaign_factory(
+            max_pos=100_000, s_struct_v2=0.5,
+            accumulated_stale_pct=0.25,
+            max_drawdown_pct=0.25,
+            new_campaign_risk_pct=0.0,
+        )
+        assert result is not None, "25% + 0% = 25% không vượt quá"
+
+    def test_hard_shutdown_edge_over_limit(self):
+        """accumulated_stale = 25%, new = 1% → None."""
+        result = campaign_factory(
+            max_pos=100_000, s_struct_v2=0.5,
+            accumulated_stale_pct=0.25,
+            max_drawdown_pct=0.25,
+            new_campaign_risk_pct=0.01,
+        )
+        assert result is None, "25% + 1% > 25% → Hard Shutdown"
+
+    def test_no_hard_shutdown_without_risk_pct(self):
+        """Không cung cấp new_campaign_risk_pct → không gate (backward compat)."""
+        campaign = campaign_factory(100_000, 0.75)
+        assert campaign is not None
+        assert campaign.campaign_id == "v1"
+
 
 class TestMaxDrawdownLimit:
-    def test_compute_basic(self):
+    def test_single_stale_linear(self):
+        """Một lớp stale 13%."""
         result = compute_max_drawdown_limit(
             total_capital=1_000_000,
-            isolated_stale_pct=0.13,
-            max_drawdown_pct=0.25,
+            stale_pcts=[0.13],
         )
         assert result["stale_capital"] == 130_000.0
+        assert result["total_stale_pct"] == 0.13
         assert result["remaining_capital"] == 870_000.0
         assert result["max_drawdown_limit"] == 250_000.0
         assert result["stale_drawdown_risk"] == 130_000.0
         assert result["available_drawdown"] == 120_000.0
+        assert result["hard_shutdown"] is False
+
+    def test_linear_accumulation_two_campaigns(self):
+        """13% + 13% = 26% (tuyến tính, không suy giảm)."""
+        result = compute_max_drawdown_limit(
+            total_capital=1_000_000,
+            stale_pcts=[0.13, 0.13],
+        )
+        assert result["total_stale_pct"] == 0.26
+        assert result["stale_capital"] == 260_000.0
+        assert result["available_drawdown"] == 0.0
+
+    def test_linear_accumulation_three_campaigns_exceeds_limit(self):
+        """13% × 3 = 39% > 25% → hard_shutdown = True, available = 0."""
+        result = compute_max_drawdown_limit(
+            total_capital=1_000_000,
+            stale_pcts=[0.13, 0.13, 0.13],
+        )
+        assert result["total_stale_pct"] == 0.39
+        assert result["stale_capital"] == 390_000.0
+        assert result["available_drawdown"] == 0.0
+        assert result["hard_shutdown"] is True
 
     def test_zero_stale(self):
-        result = compute_max_drawdown_limit(1_000_000, 0.0)
+        result = compute_max_drawdown_limit(1_000_000, stale_pcts=[])
         assert result["stale_capital"] == 0.0
+        assert result["hard_shutdown"] is False
         assert result["available_drawdown"] == result["max_drawdown_limit"]
 
     def test_full_stale(self):
-        result = compute_max_drawdown_limit(1_000_000, 1.0)
+        result = compute_max_drawdown_limit(1_000_000, stale_pcts=[1.0])
         assert result["stale_capital"] == 1_000_000.0
         assert result["available_drawdown"] == 0.0
+        assert result["hard_shutdown"] is True
 
     def test_risk_ratio(self):
-        r1 = compute_max_drawdown_limit(1_000_000, 0.25)
-        assert r1["risk_ratio"] == pytest.approx(0.25 / 0.25, abs=0.001)  # 1.0
-        r2 = compute_max_drawdown_limit(1_000_000, 0.0)
+        r1 = compute_max_drawdown_limit(1_000_000, stale_pcts=[0.25])
+        assert r1["risk_ratio"] == pytest.approx(1.0, abs=0.001)
+        r2 = compute_max_drawdown_limit(1_000_000, stale_pcts=[])
         assert r2["risk_ratio"] == 0.0
+
+    def test_hard_shutdown_at_exact_threshold(self):
+        """Stale = 25% → hard_shutdown (vì >=)."""
+        result = compute_max_drawdown_limit(1_000_000, stale_pcts=[0.25])
+        assert result["hard_shutdown"] is True
+        assert result["available_drawdown"] == 0.0
+
+    def test_hard_shutdown_just_below(self):
+        """Stale = 24.99% → hard_shutdown = False."""
+        result = compute_max_drawdown_limit(1_000_000, stale_pcts=[0.2499])
+        assert result["hard_shutdown"] is False
+        assert result["available_drawdown"] > 0.0
+
+    def test_risk_ratio_increases_linearly(self):
+        """Tỷ lệ rủi ro tăng tuyến tính với mỗi lớp stale."""
+        r1 = compute_max_drawdown_limit(1_000_000, stale_pcts=[0.13])
+        r2 = compute_max_drawdown_limit(1_000_000, stale_pcts=[0.26])
+        assert r2["risk_ratio"] == pytest.approx(r1["risk_ratio"] * 2.0, abs=0.001)
 
 
 class TestIntegration:

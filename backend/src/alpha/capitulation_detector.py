@@ -417,44 +417,76 @@ def campaign_factory(
     s_struct_v2: float,
     campaign_id: str = "v1",
     n_tranches: int = 6,
-) -> ScaleInCampaign:
-    """Tạo chiến dịch giải ngân mới (thường dùng sau DOUBLE_SIGNAL)."""
+    accumulated_stale_pct: float = 0.0,
+    max_drawdown_pct: float = 0.25,
+    new_campaign_risk_pct: float | None = None,
+) -> ScaleInCampaign | None:
+    """Tạo chiến dịch giải ngân mới (thường dùng sau DOUBLE_SIGNAL).
+
+    Hard Shutdown gate — chỉ kích hoạt nếu new_campaign_risk_pct được cung cấp:
+        accumulated_stale_pct + new_campaign_risk_pct > max_drawdown_pct
+
+    new_campaign_risk_pct là % tổng vốn mà campaign này sẽ tiêu thụ
+    (thường = max_pos * s_struct_v2 / total_capital).
+
+    Phase 4.2 (StalePositionManager) sẽ chịu trách nhiệm write-off
+    stale positions để giải phóng drawdown buffer.
+    """
+    if new_campaign_risk_pct is not None:
+        stale_pct = _clamp(accumulated_stale_pct, 0, 1)
+        if stale_pct + _clamp(new_campaign_risk_pct, 0, 1) > _clamp(max_drawdown_pct, 0, 1):
+            return None  # HARD SHUTDOWN
     scaler = MultiTrancheScaler(max_pos, s_struct_v2, n=n_tranches)
     scaler.campaign.campaign_id = campaign_id
     return scaler.campaign
 
 
-# ── Max Drawdown Limit Calculator ──────────────────────────
+# ── Max Drawdown Limit Calculator — Linear Accumulation ────
 
 def compute_max_drawdown_limit(
     total_capital: float,
-    isolated_stale_pct: float,
+    stale_pcts: list[float] | None = None,
     max_drawdown_pct: float = 0.25,
 ) -> dict:
-    """Tính giới hạn drawdown, bao gồm vốn bị khóa từ stale tranches.
+    """Tính giới hạn drawdown — LINEAR accumulation cho mọi stale.
 
     Args:
         total_capital: Tổng vốn danh mục (VND)
-        isolated_stale_pct: % vốn bị khóa từ chiến dịch cũ (0..1)
-        max_drawdown_pct: % drawdown tối đa cho phép
+        stale_pcts: Danh sách % vốn bị khóa từ mỗi chiến dịch cũ.
+                     Cộng dồn tuyến tính — không suy giảm.
+                     Mặc định [].
+        max_drawdown_pct: % drawdown tối đa cho phép (mặc định 25%)
 
     Returns:
-        dict với stale_capital, remaining_capital, max_drawdown_limit,
-        stale_drawdown_risk, available_drawdown, risk_ratio
+        dict với:
+        - stale_capital: tổng vốn bị khóa (VND)
+        - total_stale_pct: tổng % vốn bị khóa
+        - remaining_capital: vốn còn lại
+        - max_drawdown_limit: hạn mức drawdown (VND)
+        - stale_drawdown_risk: rủi ro từ stale = stale_capital
+        - available_drawdown: drawdown còn lại
+        - risk_ratio: stale_drawdown_risk / max_drawdown_limit
+        - hard_shutdown: True nếu stale_drawdown_risk >= max_drawdown_limit
     """
-    stale_capital = total_capital * _clamp(isolated_stale_pct, 0, 1)
+    if stale_pcts is None:
+        stale_pcts = []
+    total_stale_pct = sum(_clamp(p, 0, 1) for p in stale_pcts)  # LINEAR
+    stale_capital = total_capital * _clamp(total_stale_pct, 0, 1)
     remaining_capital = total_capital - stale_capital
     max_drawdown_limit = total_capital * _clamp(max_drawdown_pct, 0, 1)
-    stale_drawdown_risk = stale_capital  # worst-case: mất toàn bộ stale
+    stale_drawdown_risk = stale_capital
     available_drawdown = max(0.0, max_drawdown_limit - stale_drawdown_risk)
     risk_ratio = round(stale_drawdown_risk / max_drawdown_limit, 4) if max_drawdown_limit > 0 else 0
+    hard_shutdown = stale_drawdown_risk >= max_drawdown_limit
     return {
         "stale_capital": round(stale_capital, 2),
+        "total_stale_pct": round(total_stale_pct, 4),
         "remaining_capital": round(remaining_capital, 2),
         "max_drawdown_limit": round(max_drawdown_limit, 2),
         "stale_drawdown_risk": round(stale_drawdown_risk, 2),
         "available_drawdown": round(available_drawdown, 2),
         "risk_ratio": risk_ratio,
+        "hard_shutdown": hard_shutdown,
     }
 
 
