@@ -95,6 +95,14 @@ class BrokerAPI:
         order["fill_price"] = fill_price
         order["status"] = "PARTIAL_FILLED" if fill_qty < order["quantity"] else "FILLED"
 
+    def get_best_bid(self, symbol: str) -> float:
+        """Current best bid from order book (simulated)."""
+        return 99.5
+
+    def get_best_ask(self, symbol: str) -> float:
+        """Current best ask from order book (simulated)."""
+        return 100.5
+
 
 class TWAPExecutor:
     """TWAP Execution Engine — thanh lý stale positions qua nhiều slice.
@@ -254,8 +262,11 @@ class TWAPExecutor:
         if slice_obj.broker_order_id:
             self.broker.cancel_order(slice_obj.broker_order_id)
 
-        # Adaptive price: +0.5% từ giá cuối
-        adjusted_price = (slice_obj.fill_price or 100.0) * 1.005
+        # Adaptive price from broker's real-time best bid/ask
+        if self.side.upper() == "SELL":
+            adjusted_price = self.broker.get_best_bid(self.symbol)
+        else:
+            adjusted_price = self.broker.get_best_ask(self.symbol)
         oid = self.broker.place_limit_order(
             symbol=self.symbol, side=self.side,
             quantity=slice_obj.amount, price=round(adjusted_price, 2),
@@ -290,12 +301,59 @@ class TWAPExecutor:
             return 0.0  # signal stop
         return max(INTERVAL_FLOOR_S, min(interval, INTERVAL_CEILING_S))
 
+    # ── DEFERRED Rollover ────────────────────────────────
+
+    def rollover_deferred(self) -> dict:
+        """Rollover DEFERRED slices thành tail slices — không cancel, không phình.
+
+        Mỗi tail slice giữ nguyên kích thước gốc để bảo toàn Market Impact Threshold.
+        """
+        if not self.plan:
+            return {"success": False, "reason": "NO_PLAN"}
+
+        deferred = [s for s in self.plan.slices if s.status == "DEFERRED"]
+        if not deferred:
+            return {"success": False, "reason": "NO_DEFERRED"}
+
+        deferred_amount = sum(s.amount for s in deferred)
+        last_index = max(s.index for s in self.plan.slices)
+
+        # Tạo tail slices — mỗi slice giữ kích thước giống slice gốc
+        original_slice_size = deferred[0].amount
+        new_slices = []
+        remaining = deferred_amount
+        while remaining > 0:
+            last_index += 1
+            sz = min(original_slice_size, remaining)
+            new_slices.append(Slice(index=last_index, amount=round(sz, 2)))
+            remaining -= sz
+
+        self.plan.slices.extend(new_slices)
+        self.plan.n_slices = len(self.plan.slices)
+        self._persist()
+
+        return {
+            "success": True,
+            "deferred_amount": round(deferred_amount, 2),
+            "new_tail_slices": len(new_slices),
+            "total_slices": self.plan.n_slices,
+        }
+
     # ── Complete ─────────────────────────────────────────
 
     def complete_plan(self) -> dict:
-        """Kết thúc plan: ghi nhận write-off vào stale_manager."""
+        """Kết thúc plan: ghi nhận write-off vào stale_manager.
+
+        Nếu còn DEFERRED → rollover trước khi complete.
+        """
         if not self.plan:
             return {"success": False, "reason": "NO_PLAN"}
+
+        # Rollover bất kỳ DEFERRED nào trước khi complete
+        deferred = [s for s in self.plan.slices if s.status == "DEFERRED"]
+        if deferred:
+            return self.rollover_deferred()
+
         filled_amount = sum(
             s.amount for s in self.plan.slices
             if s.status in ("FILLED", "PARTIAL_FILLED")

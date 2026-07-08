@@ -156,16 +156,26 @@ class TestTWAPExecutor:
         assert r["action"] == "DEFERRED"
 
     def test_handle_liquidity_strike_requeues(self, tmp_paths):
-        """Liquidity strike → requeue với adaptive price."""
+        """Liquidity strike → requeue với adaptive price (SELL = best_bid)."""
         mgr = make_mgr(total_capital=1_000_000)
         mgr.ingest_stale("v1", 0.13)
         exe = TWAPExecutor(mgr)
         exe.broker.ping = lambda: True
         exe.build_plan(n_slices=3)
-        exe.plan.slices[0].fill_price = 100.0
         r = exe.handle_liquidity_strike(1, requeue_count=0)
         assert r["action"] == "REQUEUED"
-        assert r["adjusted_price"] == 100.5  # 100 * 1.005
+        assert r["adjusted_price"] == 99.5  # best_bid from broker
+
+    def test_handle_liquidity_strike_buy_side(self, tmp_paths):
+        """BUY side → adaptive price = best_ask."""
+        mgr = make_mgr(total_capital=1_000_000)
+        mgr.ingest_stale("v1", 0.13)
+        exe = TWAPExecutor(mgr, side="BUY")
+        exe.broker.ping = lambda: True
+        exe.build_plan(n_slices=3)
+        r = exe.handle_liquidity_strike(1, requeue_count=0)
+        assert r["action"] == "REQUEUED"
+        assert r["adjusted_price"] == 100.5  # best_ask from broker
 
     def test_compute_interval_dynamic(self, tmp_paths):
         mgr = make_mgr(total_capital=1_000_000)
@@ -182,21 +192,6 @@ class TestTWAPExecutor:
         interval = exe.compute_interval(0.001, 5, 60)  # 1 phút < 15 phút safety
         assert interval == 0.0
 
-    def test_complete_plan(self, tmp_paths):
-        mgr = make_mgr(total_capital=1_000_000)
-        mgr.ingest_stale("v1", 0.13)
-        mgr._layers[0].quantity = 100
-        mgr._layers[0].current_price = 50
-        exe = TWAPExecutor(mgr)
-        exe.broker.ping = lambda: True
-        exe.build_plan(n_slices=1)
-        exe.execute_slice(1, price=100.0)
-        oid = exe.plan.slices[0].broker_order_id
-        exe.broker.fill_order(oid, 100, 99.5)
-        r = exe.complete_plan()
-        assert r["success"] is True
-        assert r["plan_status"] == "COMPLETED"
-
     def test_partial_fill_resume(self, tmp_paths):
         """Resume sau partial fill → requeue phần còn lại."""
         mgr = make_mgr(total_capital=1_000_000)
@@ -210,6 +205,63 @@ class TestTWAPExecutor:
         r = exe.resume()
         assert r["action"] == "partial_fill_requeue"
         assert r["remaining"] > 0
+
+    def test_rollover_deferred_no_deferred(self, tmp_paths):
+        """Không có DEFERRED → rollover trả về NO_DEFERRED."""
+        mgr = make_mgr(total_capital=1_000_000)
+        mgr.ingest_stale("v1", 0.13)
+        exe = TWAPExecutor(mgr)
+        exe.build_plan(n_slices=3)
+        r = exe.rollover_deferred()
+        assert r["success"] is False
+        assert r["reason"] == "NO_DEFERRED"
+
+    def test_rollover_deferred_creates_tail_slices(self, tmp_paths):
+        """DEFERRED slice → rollover tạo tail slices cùng kích thước."""
+        mgr = make_mgr(total_capital=1_000_000)
+        mgr.ingest_stale("v1", 0.13)
+        exe = TWAPExecutor(mgr)
+        exe.broker.ping = lambda: True
+        exe.build_plan(n_slices=3)
+        # Mark slice 2 as DEFERRED
+        exe.plan.slices[1].status = "DEFERRED"
+        orig_count = exe.plan.n_slices
+        r = exe.rollover_deferred()
+        assert r["success"] is True
+        assert r["new_tail_slices"] == 1  # one deferred slice → one tail
+        assert exe.plan.n_slices == orig_count + 1
+        tail = exe.plan.slices[-1]
+        assert tail.amount == exe.plan.slices[1].amount
+        assert tail.status == "PENDING"
+
+    def test_complete_plan_with_deferred_rolls_over(self, tmp_paths):
+        """complete_plan khi còn DEFERRED → rollover thay vì complete."""
+        mgr = make_mgr(total_capital=1_000_000)
+        mgr.ingest_stale("v1", 0.13)
+        exe = TWAPExecutor(mgr)
+        exe.broker.ping = lambda: True
+        exe.build_plan(n_slices=2)
+        exe.plan.slices[0].status = "FILLED"
+        exe.plan.slices[1].status = "DEFERRED"
+        r = exe.complete_plan()
+        assert r["new_tail_slices"] == 1  # rollover occurred
+        assert exe.plan.status == "PENDING"  # not COMPLETED
+
+    def test_complete_plan_no_deferred(self, tmp_paths):
+        """Không DEFERRED → complete bình thường."""
+        mgr = make_mgr(total_capital=1_000_000)
+        mgr.ingest_stale("v1", 0.13)
+        mgr._layers[0].quantity = 100
+        mgr._layers[0].current_price = 50
+        exe = TWAPExecutor(mgr)
+        exe.broker.ping = lambda: True
+        exe.build_plan(n_slices=1)
+        exe.execute_slice(1, price=100.0)
+        oid = exe.plan.slices[0].broker_order_id
+        exe.broker.fill_order(oid, 100, 99.5)
+        r = exe.complete_plan()
+        assert r["success"] is True
+        assert r["plan_status"] == "COMPLETED"
 
     def test_plan_status_output(self, tmp_paths):
         mgr = make_mgr(total_capital=1_000_000)
