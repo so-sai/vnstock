@@ -332,6 +332,98 @@ class TestPaperBrokerIntegration:
         assert o["status"] == "FILLED"
 
 
+# ── Trading Halt ──────────────────────────────────────────
+
+class TestTradingHalt:
+    def test_orderbook_freeze_clears_volume(self):
+        book = OrderBook.build("TEST", mid=100.0)
+        snap = book.freeze()
+        assert all(l.volume == 0 for l in book.bids)
+        assert all(l.volume == 0 for l in book.asks)
+        assert "bids" in snap
+
+    def test_orderbook_unfreeze_restores(self):
+        book = OrderBook.build("TEST", mid=100.0, depth_per_level=5000)
+        orig_bid = book.bids[0].volume
+        snap = book.freeze()
+        book.unfreeze(snap)
+        assert book.bids[0].volume == orig_bid
+
+    def test_broker_ping_fails_during_halt(self):
+        broker = PaperBroker()
+        assert broker.ping() is True
+        broker.set_trading_halt(True)
+        assert broker.ping() is False
+        assert broker.is_trading_halt() is True
+        broker.set_trading_halt(False)
+        assert broker.ping() is True
+
+    def test_broker_bid_ask_zero_during_halt(self):
+        broker = PaperBroker()
+        broker.set_trading_halt(True)
+        assert broker.get_best_bid("X") == 0.0
+        assert broker.get_best_ask("X") == float("inf")
+        broker.set_trading_halt(False)
+        assert broker.get_best_bid("X") > 0
+
+    def test_place_order_during_halt_returns_halted_status(self):
+        book = OrderBook.build("TEST", mid=100.0, depth_per_level=100_000)
+        broker = PaperBroker(book=book)
+        broker.set_trading_halt(True)
+        oid = broker.place_limit_order("TEST", "SELL", 1000, 99.5)
+        o = broker.query_order(oid)
+        assert o["status"] == "HALTED"
+        assert o["filled_qty"] == 0
+
+    def test_resume_after_halt_restores_book(self):
+        book = OrderBook.build("TEST", mid=100.0, depth_per_level=5000)
+        orig_bid = book.best_bid()
+        broker = PaperBroker(book=book)
+        broker.set_trading_halt(True)
+        assert broker.get_best_bid("TEST") == 0.0
+        broker.set_trading_halt(False)
+        assert broker.get_best_bid("TEST") == orig_bid
+
+    def test_halt_prevents_execution_in_twap(self, tmp_paths):
+        """TWAPExecutor không thể execute slice khi trading halted."""
+        book = OrderBook.build("TEST", mid=100.0, depth_per_level=100_000)
+        broker = PaperBroker(book=book)
+        broker.set_trading_halt(True)
+        mgr = StalePositionManager(total_capital=1_000_000)
+        mgr.ingest_stale("v1", 0.13)
+        exe = TWAPExecutor(mgr, broker=broker)
+        exe.build_plan(n_slices=3)
+        with pytest.raises(RuntimeError, match="CIRCUIT_BREAKER"):
+            for _ in range(4):
+                try:
+                    exe.execute_slice(1, price=99.5)
+                except RuntimeError:
+                    pass
+            exe.execute_slice(1, price=99.5)
+
+
+class TestStreamingFeedHalt:
+    def test_force_halt_freezes_book(self):
+        feed = StreamingFeed("TEST")
+        feed.tick()
+        feed.force_halt()
+        assert feed.is_halted() is True
+        assert feed.halt_duration() >= 0
+
+    def test_force_resume_clears_halt(self):
+        feed = StreamingFeed("TEST")
+        feed.force_halt()
+        feed.force_resume()
+        assert feed.is_halted() is False
+
+    def test_tick_after_halt_clears_halt(self):
+        feed = StreamingFeed("TEST")
+        feed.tick()
+        feed.force_halt()
+        feed.tick()
+        assert feed.is_halted() is False
+
+
 # ── StreamingFeed ──────────────────────────────────────────
 
 class TestStreamingFeed:

@@ -1045,6 +1045,125 @@ def cmd_registry(args):
     in_bao_cao(regime=args.regime)
 
 
+def cmd_sandbox(args):
+    """Phase 5 Dashboard — Real-time Paper Trading Terminal."""
+    from src.execution.paper_broker import PaperBroker, OrderBook, StreamingFeed
+    from src.execution.twap_executor import TWAPExecutor
+    from src.portfolio.stale_manager import StalePositionManager
+    from src.portfolio.system_state import get_state as get_sys_state
+    from src.portfolio.paper_context import set_paper_mode
+    import time
+
+    set_paper_mode(True)
+
+    n_slices = args.slices
+    depth = args.depth
+    price = args.price
+
+    book = OrderBook.build("SANDBOX", mid=price, depth_per_level=depth, n_levels=5)
+    broker = PaperBroker(book=book)
+    feed = StreamingFeed("SANDBOX", base_price=price)
+
+    mgr = StalePositionManager(total_capital=args.capital)
+    mgr.ingest_stale("v1", 0.13)
+    mgr.ingest_stale("v2", 0.10)
+
+    exe = TWAPExecutor(mgr, broker=broker)
+    plan = exe.build_plan(n_slices=n_slices)
+
+    executed = 0
+    try:
+        while executed < n_slices:
+            ts = time.strftime("%H:%M:%S")
+            sys_state = get_sys_state()
+            s = exe.status()
+            report = broker.slippage_report()
+
+            halted = "⚠️ HALT" if broker.is_trading_halt() else "✓ LIVE"
+            print(f"\033[2J\033[H", end="")  # clear screen
+            print("=" * 60)
+            print(f"  PHASE 5 — PAPER TRADING DASHBOARD  [{ts}]  [{halted}]")
+            print("=" * 60)
+            print(f"  Portfolio")
+            print(f"    Capital:        {args.capital:>12,.0f}")
+            print(f"    Stale:          {sys_state.get('total_stale_pct', 0):>12.2%}")
+            print(f"    Escrow:         {sys_state.get('escrow_balance', 0):>12.2f}")
+            print(f"    Locked:         {str(sys_state.get('locked', False)):>12}")
+            print(f"  Order Book")
+            print(f"    Best Bid:       {broker.get_best_bid('SANDBOX'):>12.2f}")
+            print(f"    Best Ask:       {broker.get_best_ask('SANDBOX'):>12.2f}")
+            print(f"    Spread:         {book.spread():>12.2f}")
+            print(f"    Mid:            {book.mid_price():>12.2f}")
+            print(f"  TWAP")
+            print(f"    Plan:           {s['plan_status']:>12}")
+            print(f"    Slices:         {executed:>4}/{n_slices}")
+            print(f"    Filled:         {s['filled_amount']:>12.2f}")
+            print(f"    Cursor:         {str(s['cursor']):>12}")
+            print(f"    CB Trips:       {s['circuit_breaker_trips']:>12}")
+            print(f"  Slippage")
+            print(f"    Trades:         {report.get('n', 0):>12}")
+            print(f"    Mean:           {report.get('mean', 0):>12.6f}")
+            print(f"    Max:            {report.get('max', 0):>12.6f}")
+            print(f"  Book Thinning")
+            remaining = sum(l.volume for l in book.bids)
+            initial = depth * 5 * 0.8
+            thinning = 100 * (1 - remaining / max(initial, 1))
+            print(f"    Depth Remaining: {remaining:>12.2f}")
+            print(f"    Thinning:        {thinning:>11.1f}%")
+            print("=" * 60)
+
+            if broker.is_trading_halt():
+                print("  ⏸️  TRADING HALT — execution frozen")
+                time.sleep(1)
+                continue
+
+            idx = executed + 1
+            bid = broker.get_best_bid("SANDBOX")
+            if bid <= 0:
+                print(f"  ⏳ Slice {idx}: empty book, adaptive requeue...")
+                r = exe.handle_liquidity_strike(idx, requeue_count=0)
+                if r.get("action") == "DEFERRED":
+                    exe.rollover_deferred()
+                    n_slices = exe.plan.n_slices
+                time.sleep(0.5)
+                continue
+
+            try:
+                r = exe.execute_slice(idx, price=bid)
+                if r["success"]:
+                    o = broker.query_order(r["broker_order_id"])
+                    fill = o.get("filled_qty", 0)
+                    total = o.get("quantity", 0)
+                    print(f"  ✅ Slice {idx}: {fill:.0f}/{total:.0f} filled")
+                    executed += 1
+                else:
+                    print(f"  ❌ Slice {idx}: {r['reason']}")
+                    executed += 1
+            except RuntimeError as e:
+                print(f"  ❌ {e}")
+                # Circuit breaker — let it reset
+                time.sleep(1)
+
+            time.sleep(0.5)
+
+    except KeyboardInterrupt:
+        print("\n  ⏹️  Dashboard stopped by user.")
+
+    set_paper_mode(False)
+    report = broker.slippage_report()
+    print("\n" + "=" * 60)
+    print("  SESSION SUMMARY")
+    print("=" * 60)
+    print(f"  Slices executed: {executed}/{n_slices}")
+    print(f"  Total slippage trades: {report.get('n', 0)}")
+    print(f"  Mean slippage: {report.get('mean', 0):.6f}")
+    print(f"  Max slippage: {report.get('max', 0):.6f}")
+    remaining = sum(l.volume for l in book.bids)
+    print(f"  Book thinning: {thinning:.1f}% consumed")
+    print(f"  Storage: system_state_paper.json (cô lập)")
+    print("=" * 60)
+
+
 def cmd_phase4(args):
     """Phase 4 CAS-DSM — Capitulation Detector + Scale-In + Abortion Protocol."""
     from src.core.market_snapshot import tao_anh_chup
@@ -1487,6 +1606,14 @@ def main():
     p_p5.add_argument("--depth", type=float, default=5000, help="Depth mỗi level (mặc định 5000)")
     p_p5.add_argument("--price", type=float, default=100.0, help="Giá mid (mặc định 100)")
     p_p5.set_defaults(func=cmd_phase5)
+
+    # sandbox
+    p_sb = sub.add_parser("sandbox", help="Phase 5 Dashboard — Real-time Paper Trading")
+    p_sb.add_argument("--slices", type=int, default=5, help="Số slice (mặc định 5)")
+    p_sb.add_argument("--depth", type=float, default=5000, help="Depth mỗi level (mặc định 5000)")
+    p_sb.add_argument("--price", type=float, default=100.0, help="Giá mid (mặc định 100)")
+    p_sb.add_argument("--capital", type=float, default=1_000_000, help="Vốn giả lập (mặc định 1,000,000)")
+    p_sb.set_defaults(func=cmd_sandbox)
 
     # confidence
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")

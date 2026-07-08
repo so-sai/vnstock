@@ -296,6 +296,11 @@ entrypoints:
     category: decision
 
   # ── Phase 5 — Paper Trading ───────────────────────────
+  sandbox_dashboard:
+    description: "Phase 5 Dashboard — Real-time Paper Trading Terminal (portfolio + orderbook + TWAP + slippage)"
+    cli: "python ptck.py sandbox [--slices N] [--depth P] [--price P] [--capital P]"
+    category: simulation
+
   phase5_simulation:
     description: "Phase 5 UAT — Paper Trading Simulation với Order Book Thinning + slippage Almgren-Chriss + storage sandboxing"
     cli: "python ptck.py phase5 [--slices N] [--depth P] [--price P]"

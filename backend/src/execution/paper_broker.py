@@ -6,6 +6,7 @@ Streaming L1/L2, network failure injection, empty book scenarios.
 
 import math
 import random
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from math import sqrt
@@ -154,6 +155,31 @@ class OrderBook:
         for i, l in enumerate(self.asks):
             l.volume = vol * (1 - i * 0.1)
 
+    def freeze(self) -> dict:
+        """Snapshot and clear book — Trading Halt."""
+        snapshot = {
+            "bids": [(l.price, l.volume) for l in self.bids],
+            "asks": [(l.price, l.volume) for l in self.asks],
+            "last_price": self.last_price,
+        }
+        for l in self.bids:
+            l.volume = 0
+        for l in self.asks:
+            l.volume = 0
+        return snapshot
+
+    def unfreeze(self, snapshot: dict) -> None:
+        """Restore book from freeze snapshot."""
+        for i, (price, vol) in enumerate(snapshot.get("bids", [])):
+            if i < len(self.bids):
+                self.bids[i].price = price
+                self.bids[i].volume = vol
+        for i, (price, vol) in enumerate(snapshot.get("asks", [])):
+            if i < len(self.asks):
+                self.asks[i].price = price
+                self.asks[i].volume = vol
+        self.last_price = snapshot.get("last_price", self.last_price)
+
 
 # ── Paper Broker ───────────────────────────────────────────
 
@@ -174,24 +200,42 @@ class PaperBroker(BrokerAPI):
         self.impact_coeff = impact_coeff
         self.hourly_volume = hourly_volume
         self._network_down: bool = False
+        self._trading_halt: bool = False
+        self._freeze_snapshot: Optional[dict] = None
         self._slippage_log: list[dict] = []
 
-    # ── Network simulation ────────────────────────────────
+    # ── Network & Halt simulation ──────────────────────────
 
     def set_network_failure(self, down: bool) -> None:
         self._network_down = down
 
+    def set_trading_halt(self, halt: bool) -> None:
+        """Trading Halt: freeze book, NO interpolation, reject orders."""
+        self._trading_halt = halt
+        if halt:
+            self._freeze_snapshot = self.book.freeze()
+        elif self._freeze_snapshot:
+            self.book.unfreeze(self._freeze_snapshot)
+            self._freeze_snapshot = None
+
+    def is_trading_halt(self) -> bool:
+        return self._trading_halt
+
     def ping(self, timeout: float = 2) -> bool:
-        if self._network_down:
+        if self._network_down or self._trading_halt:
             return False
         return True
 
     # ── Market data ────────────────────────────────────────
 
     def get_best_bid(self, symbol: str) -> float:
+        if self._trading_halt:
+            return 0.0
         return self.book.best_bid()
 
     def get_best_ask(self, symbol: str) -> float:
+        if self._trading_halt:
+            return float("inf")
         return self.book.best_ask()
 
     # ── Order placement with fill simulation ──────────────
@@ -200,6 +244,18 @@ class PaperBroker(BrokerAPI):
                           quantity: float, price: float) -> str:
         oid = f"PAPER_{self._next_id + 1:06d}"
         self._next_id += 1
+
+        if self._trading_halt:
+            order = {
+                "order_id": oid, "symbol": symbol, "side": side,
+                "quantity": quantity, "filled_qty": 0.0,
+                "price": price, "fill_price": None,
+                "status": "HALTED",
+                "slippage": 0.0,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            self._orders[oid] = order
+            return oid
 
         fill = self._simulate_fill(side, quantity, price)
         order = {
@@ -255,20 +311,61 @@ class PaperBroker(BrokerAPI):
 
 # ── Streaming Feed ─────────────────────────────────────────
 
+HALT_DETECTION_INTERVAL_S = 300  # 5 phút không có tick → halt
+
+
 class StreamingFeed:
-    """Synthetic L1/L2 streaming — sends tick updates to a PaperBroker."""
+    """Synthetic L1/L2 streaming — sends tick updates to a PaperBroker.
+
+    Tự động phát hiện Trading Halt khi không có tick > HALT_DETECTION_INTERVAL_S.
+    """
 
     def __init__(self, symbol: str = "SANDBOX",
                  base_price: float = 100.0,
-                 volatility: float = 0.02):
+                 volatility: float = 0.02,
+                 halt_timeout: float = HALT_DETECTION_INTERVAL_S):
         self.book = OrderBook.build(symbol, mid=base_price, volatility=volatility)
         self.tick_count = 0
+        self._last_tick_time: float = 0.0
+        self._halt_timeout = halt_timeout
+        self._halted: bool = False
+        self._halt_start: Optional[float] = None
 
     def tick(self) -> OrderBook:
         """Advance one tick (random walk)."""
         self.book.random_walk()
         self.tick_count += 1
+        self._last_tick_time = time.time()
+        if self._halted:
+            self._halted = False
+            self._halt_start = None
         return self.book
+
+    def check_halt(self, now: Optional[float] = None) -> bool:
+        """Auto-detect trading halt: no ticks for > halt_timeout seconds."""
+        if self.tick_count == 0:
+            return False
+        elapsed = (now or time.time()) - self._last_tick_time
+        if elapsed > self._halt_timeout and not self._halted:
+            self._halted = True
+            self._halt_start = time.time()
+        return self._halted
+
+    def is_halted(self) -> bool:
+        return self._halted
+
+    def halt_duration(self) -> float:
+        if not self._halt_start:
+            return 0.0
+        return time.time() - self._halt_start
+
+    def force_halt(self) -> None:
+        self._halted = True
+        self._halt_start = time.time()
+
+    def force_resume(self) -> None:
+        self._halted = False
+        self._halt_start = None
 
     def drain(self, side: str = "SELL") -> None:
         if side.upper() == "SELL":
