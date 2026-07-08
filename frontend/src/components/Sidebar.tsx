@@ -1,9 +1,9 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Search, 
-  BarChart3, 
+import {
+  LayoutDashboard,
+  Search,
+  BarChart3,
   History,
   ChevronLeft,
   ChevronRight,
@@ -13,6 +13,7 @@ import {
   Eye,
   Zap,
   ClipboardList,
+  FlaskConical,
 } from 'lucide-react';
 import { useUIStore } from '../stores/uiStore';
 import { clsx, type ClassValue } from 'clsx';
@@ -33,6 +34,7 @@ const navItems = [
   { to: '/quan-tri-danh-muc', label: 'Quản trị Danh mục', icon: Eye },
   { to: '/trung-tam-hanh-dong', label: 'Trung tâm Hành động', icon: Zap },
   { to: '/bao-cao-tuan', label: 'Báo cáo Tuần', icon: ClipboardList },
+  { to: '/paper-trading', label: 'Paper Trading', icon: FlaskConical },
 ] as const;
 
 const Sidebar: React.FC = () => {

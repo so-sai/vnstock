@@ -74,6 +74,7 @@ from src.api.routes import (
     operations,
     portfolio,
     replay,
+    sandbox,
     screener,
     search,
     silver,
@@ -127,6 +128,7 @@ app.include_router(operations.router, prefix="/api/operations", tags=["Operation
 app.include_router(search.router, prefix="/api", tags=["Search - FTS5"])
 app.include_router(system.router, prefix="/api/system", tags=["System - Session Info"])
 app.include_router(snapshot.router, prefix="/api/v1/snapshot", tags=["DDI Gate - Delta Divergence Index"])
+app.include_router(sandbox.router, prefix="/api/sandbox", tags=["Phase 5 - Paper Trading Sandbox"])
 
 
 import time

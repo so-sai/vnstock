@@ -13,6 +13,7 @@ import SectorBreadthPage from './pages/SectorBreadthPage'
 import ReplayTimelinePage from './pages/ReplayTimelinePage'
 import ActionableIntelligencePage from './pages/ActionableIntelligencePage'
 import WeeklyCognitiveReport from './pages/WeeklyCognitiveReport'
+import PaperTradingPage from './pages/PaperTradingPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,6 +53,7 @@ function App() {
             <Route path="duong-chi-lich-su" element={<ReplayTimelinePage />} />
             <Route path="trung-tam-hanh-dong" element={<ActionableIntelligencePage />} />
             <Route path="bao-cao-tuan" element={<WeeklyCognitiveReport />} />
+            <Route path="paper-trading" element={<PaperTradingPage />} />
           </Route>
         </Routes>
       </ErrorBoundary>
