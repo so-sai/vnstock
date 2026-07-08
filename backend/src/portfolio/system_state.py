@@ -1,8 +1,4 @@
-"""Persistence State Lock — reboot-safe system_state.json.
-
-Các cờ khóa cứng được ghi vào `backend/data/system_state.json`.
-Reboot laptop KHÔNG giải phóng lock — chỉ StalePositionManager mới được quyền.
-"""
+"""Persistence State Lock — reboot-safe system_state.json + TWAP context."""
 
 import json
 from datetime import datetime, timezone
@@ -10,10 +6,21 @@ from pathlib import Path
 
 _STATE_PATH = Path(__file__).resolve().parents[3] / "backend" / "data" / "system_state.json"
 
-
-def _lock_path() -> Path:
-    global _STATE_PATH
-    return _STATE_PATH
+_DEFAULT = {
+    "version": 2,
+    "portfolio_critical_lock": False,
+    "total_stale_pct": 0.0,
+    "escrow_balance": 0.0,
+    "last_updated": None,
+    "twap_execution_context": {
+        "twap_resume_cursor": None,
+        "last_known_good_network": None,
+        "pending_slices_count": 0,
+        "active_broker_order_id": None,
+        "circuit_breaker_trips": 0,
+        "slice_history": [],
+    },
+}
 
 
 def set_lock_path(p: Path):
@@ -23,15 +30,17 @@ def set_lock_path(p: Path):
 
 def _read() -> dict:
     try:
-        return json.loads(_STATE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(_STATE_PATH.read_text(encoding="utf-8"))
+        for k, v in _DEFAULT.items():
+            data.setdefault(k, v)
+        if "twap_execution_context" not in data:
+            data["twap_execution_context"] = dict(_DEFAULT["twap_execution_context"])
+        else:
+            for k, v in _DEFAULT["twap_execution_context"].items():
+                data["twap_execution_context"].setdefault(k, v)
+        return data
     except (FileNotFoundError, json.JSONDecodeError):
-        return {
-            "version": 1,
-            "portfolio_critical_lock": False,
-            "total_stale_pct": 0.0,
-            "escrow_balance": 0.0,
-            "last_updated": None,
-        }
+        return dict(_DEFAULT)
 
 
 def _write(state: dict):
@@ -67,4 +76,22 @@ def get_state() -> dict:
 def update_escrow(balance: float):
     s = _read()
     s["escrow_balance"] = balance
+    _write(s)
+
+
+# ── TWAP Context ────────────────────────────────────────
+
+def update_twap_context(ctx: dict):
+    s = _read()
+    s["twap_execution_context"].update(ctx)
+    _write(s)
+
+
+def get_twap_context() -> dict:
+    return _read().get("twap_execution_context", dict(_DEFAULT["twap_execution_context"]))
+
+
+def clear_twap_context():
+    s = _read()
+    s["twap_execution_context"] = dict(_DEFAULT["twap_execution_context"])
     _write(s)

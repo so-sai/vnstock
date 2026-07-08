@@ -1135,6 +1135,56 @@ def cmd_stale(args):
         print(f"  Hard Shutdown:  {mgr.hard_shutdown}")
 
 
+def cmd_twap(args):
+    """TWAPExecutor — thanh lý stale positions qua slices."""
+    from src.portfolio.stale_manager import StalePositionManager
+    from src.execution.twap_executor import TWAPExecutor, BrokerAPI
+    mgr = StalePositionManager()
+    if not mgr.stale_pcts:
+        print("  ❌ Không có stale positions — nothing to TWAP.")
+        return
+    broker = BrokerAPI()
+    exe = TWAPExecutor(mgr, broker=broker)
+    if args.action == "plan":
+        plan = exe.build_plan(n_slices=args.slices)
+        print("=" * 50)
+        print("  TWAP PLAN")
+        print("=" * 50)
+        print(f"  Campaign:     {plan.stale_campaign_id}")
+        print(f"  Total amount: {plan.total_amount:.2f}")
+        print(f"  Slices:       {plan.n_slices} × {plan.slices[0].amount:.2f}")
+        print(f"  Status:       {plan.status}")
+        print("=" * 50)
+    elif args.action == "run":
+        exe.build_plan(n_slices=5)
+        try:
+            result = exe.execute_slice(args.slice, price=args.price)
+            if result["success"]:
+                print(f"  ✅ Slice {args.slice} submitted: {result['broker_order_id']}")
+            else:
+                print(f"  ❌ {result['reason']}")
+        except RuntimeError as e:
+            print(f"  ❌ {e}")
+    elif args.action == "status":
+        s = exe.status()
+        print("=" * 50)
+        print("  TWAP STATUS")
+        print("=" * 50)
+        print(f"  Plan:         {s['plan_status']}")
+        print(f"  Slices:       {s['total_slices']}")
+        print(f"  Filled:       {s['filled_amount']:.2f}")
+        print(f"  Cursor:       {s['cursor']}")
+        print(f"  CB trips:     {s['circuit_breaker_trips']}")
+        print(f"  Last network: {s['last_known_good_network']}")
+        print("=" * 50)
+    elif args.action == "resume":
+        result = exe.resume()
+        if result["success"]:
+            print(f"  ✅ Resume: {result['action']}")
+        else:
+            print(f"  ❌ {result['reason']}")
+
+
 def cmd_flow_map(args):
     """Bản đồ Dòng vốn Liên thị trường 4 Tầng."""
     from src.engine.cross_market_flow_map import CrossMarketFlowMap
@@ -1354,6 +1404,21 @@ def main():
     p_st_re.set_defaults(func=cmd_stale)
     p_st_es = p_st_sub.add_parser("escrow", help="Xem escrow balance")
     p_st_es.set_defaults(func=cmd_stale)
+
+    # twap
+    p_tw = sub.add_parser("twap", help="TWAP Executor — thanh lý stale positions")
+    p_tw_sub = p_tw.add_subparsers(dest="action", required=True)
+    p_tw_plan = p_tw_sub.add_parser("plan", help="Xây dựng kế hoạch TWAP")
+    p_tw_plan.add_argument("--slices", type=int, default=5, help="Số slice (mặc định 5)")
+    p_tw_plan.set_defaults(func=cmd_twap)
+    p_tw_run = p_tw_sub.add_parser("run", help="Thực thi TWAP")
+    p_tw_run.add_argument("--slice", type=int, default=1, help="Slice index bắt đầu")
+    p_tw_run.add_argument("--price", type=float, default=100.0, help="Giá limit")
+    p_tw_run.set_defaults(func=cmd_twap)
+    p_tw_sta = p_tw_sub.add_parser("status", help="Xem trạng thái TWAP")
+    p_tw_sta.set_defaults(func=cmd_twap)
+    p_tw_resume = p_tw_sub.add_parser("resume", help="Resume TWAP sau mất mạng")
+    p_tw_resume.set_defaults(func=cmd_twap)
 
     # confidence
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")

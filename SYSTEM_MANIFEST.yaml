@@ -268,6 +268,27 @@ entrypoints:
     cli: "python ptck.py stale escrow"
     category: portfolio
 
+  # ── Phase 4.3 — TWAP Executor ──────────────────────────
+  twap_plan:
+    description: "TWAP: Xây dựng kế hoạch thanh lý stale positions"
+    cli: "python ptck.py twap plan [--slices N]"
+    category: execution
+
+  twap_run:
+    description: "TWAP: Thực thi một slice"
+    cli: "python ptck.py twap run --slice N --price P"
+    category: execution
+
+  twap_status:
+    description: "TWAP: Xem trạng thái thực thi"
+    cli: "python ptck.py twap status"
+    category: execution
+
+  twap_resume:
+    description: "TWAP: Resume sau mất mạng"
+    cli: "python ptck.py twap resume"
+    category: execution
+
   # ── Param Fingerprint Registry ───────────────────────────
   registry_view:
     description: "Sổ tay Dấu vân tay Tham số — tra cứu params_hash tốt nhất theo regime, kèm audit trail"
