@@ -41,6 +41,11 @@ PROJECT_ROOT = _hydrate_path()
 AUDIT_PATH = PROJECT_ROOT / "backend" / "data" / "decision_audit.jsonl"
 
 
+def set_audit_path(p: Path):
+    global AUDIT_PATH
+    AUDIT_PATH = p
+
+
 def _valid_entry(entry: dict) -> bool:
     """Kiểm tra schema của entry trước khi ghi."""
     if not isinstance(entry, dict):

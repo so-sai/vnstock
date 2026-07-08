@@ -44,6 +44,18 @@ CONSERVATIVE_DEFAULTS = {
     for r in AD
 }
 
+MARKET_IMPACT_THRESHOLD = 0.1  # 10% of total capital max per slice
+
+
+def set_registry_path(p: Path):
+    global REGISTRY_PATH
+    REGISTRY_PATH = p
+
+
+def set_audit_path(p: Path):
+    global AUDIT_PATH
+    AUDIT_PATH = p
+
 
 def build_registry() -> dict:
     """Quét decision_audit.jsonl → registry nhóm theo (params_hash, regime)."""
@@ -118,6 +130,7 @@ def build_registry() -> dict:
         "registry": registry,
         "best_by_regime": best_by_regime,
         "conservative_defaults": CONSERVATIVE_DEFAULTS,
+        "market_impact_threshold": MARKET_IMPACT_THRESHOLD,
         "meta": {
             "total_hashes": len(registry),
             "source": AUDIT_PATH.name,

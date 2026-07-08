@@ -304,9 +304,11 @@ class TWAPExecutor:
     # ── DEFERRED Rollover ────────────────────────────────
 
     def rollover_deferred(self) -> dict:
-        """Rollover DEFERRED slices thành tail slices — không cancel, không phình.
+        """Amortized DEFERRED rollover — phân bổ đều, không cộng dồn thô.
 
-        Mỗi tail slice giữ nguyên kích thước gốc để bảo toàn Market Impact Threshold.
+        Đọc market_impact_threshold từ params_registry.json.
+        Mỗi tail slice ≤ threshold × total_capital.
+        Nếu slice gốc vượt threshold → tự động bẻ nhỏ.
         """
         if not self.plan:
             return {"success": False, "reason": "NO_PLAN"}
@@ -318,13 +320,22 @@ class TWAPExecutor:
         deferred_amount = sum(s.amount for s in deferred)
         last_index = max(s.index for s in self.plan.slices)
 
-        # Tạo tail slices — mỗi slice giữ kích thước giống slice gốc
+        # Đọc Market Impact Threshold từ params_registry
+        from src.portfolio.params_registry import load_or_build
+        registry = load_or_build()
+        threshold = registry.get("market_impact_threshold", 0.1)
+        max_slice_amount = threshold * self.sm.total_capital
+
+        # Reference slice size
         original_slice_size = deferred[0].amount
+        amortized_size = min(original_slice_size, max_slice_amount)
+
+        # Tạo tail slices amortized
         new_slices = []
         remaining = deferred_amount
         while remaining > 0:
             last_index += 1
-            sz = min(original_slice_size, remaining)
+            sz = min(amortized_size, remaining)
             new_slices.append(Slice(index=last_index, amount=round(sz, 2)))
             remaining -= sz
 
@@ -336,6 +347,8 @@ class TWAPExecutor:
             "success": True,
             "deferred_amount": round(deferred_amount, 2),
             "new_tail_slices": len(new_slices),
+            "amortized_size": round(amortized_size, 2),
+            "threshold": threshold,
             "total_slices": self.plan.n_slices,
         }
 

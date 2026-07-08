@@ -295,6 +295,12 @@ entrypoints:
     cli: "python ptck.py registry [--regime RANGING] [--rebuild]"
     category: decision
 
+  # ── Phase 5 — Paper Trading ───────────────────────────
+  phase5_simulation:
+    description: "Phase 5 UAT — Paper Trading Simulation với Order Book Thinning + slippage Almgren-Chriss + storage sandboxing"
+    cli: "python ptck.py phase5 [--slices N] [--depth P] [--price P]"
+    category: simulation
+
   # ── Confidence ────────────────────────────────────────
   confidence:
     description: "Lớp tự đánh giá độ tin cậy — 5 nhân tố + veto"

@@ -1135,6 +1135,67 @@ def cmd_stale(args):
         print(f"  Hard Shutdown:  {mgr.hard_shutdown}")
 
 
+def cmd_phase5(args):
+    """Phase 5 UAT — Paper Trading Simulation với Order Book Thinning."""
+    from src.execution.paper_broker import PaperBroker, OrderBook, StreamingFeed
+    from src.execution.twap_executor import TWAPExecutor
+    from src.portfolio.stale_manager import StalePositionManager
+    from src.portfolio.paper_context import set_paper_mode, is_paper_mode
+
+    # Kích hoạt sandbox storage
+    set_paper_mode(True)
+    print("=" * 55)
+    print("  PHASE 5 — PAPER TRADING SIMULATION")
+    print("  Storage: system_state_paper.json (cô lập)")
+    print("=" * 55)
+
+    n_slices = args.slices
+    order_volume = args.depth
+    base_price = args.price
+
+    # Build market
+    print(f"\n  📊 Market: {base_price} | Depth/level: {order_volume} | Slices: {n_slices}")
+    book = OrderBook.build("SANDBOX", mid=base_price, depth_per_level=order_volume, n_levels=5)
+    broker = PaperBroker(book=book)
+
+    mgr = StalePositionManager(total_capital=1_000_000)
+    mgr.ingest_stale("v1", 0.13)
+    mgr.ingest_stale("v2", 0.10)
+
+    exe = TWAPExecutor(mgr, broker=broker)
+    plan = exe.build_plan(n_slices=n_slices)
+    slice_size = plan.slices[0].amount if plan.slices else 0
+    print(f"  Plan: {plan.n_slices} slices × {slice_size:.2f} = {plan.total_amount:.2f} total")
+
+    # Execute slices
+    print(f"\n  ── Execution ──")
+    for i in range(1, n_slices + 1):
+        price = broker.get_best_bid("SANDBOX")
+        try:
+            r = exe.execute_slice(i, price=price)
+            o = broker.query_order(r["broker_order_id"])
+            slip = o.get("slippage", 0)
+            status = o["status"]
+            fill = o.get("filled_qty", 0)
+            total_qty = o.get("quantity", 0)
+            print(f"  Slice {i}: {status} | fill={fill:.0f}/{total_qty:.0f} | slippage={slip:.4f}")
+        except RuntimeError as e:
+            print(f"  Slice {i}: ❌ {e}")
+
+    # Slippage report + thinning
+    report = broker.slippage_report()
+    print(f"\n  ── Slippage Report ──")
+    print(f"  Trades: {report['n']} | Mean: {report['mean']:.6f} | Max: {report['max']:.6f}")
+    remaining_bid_depth = sum(l.volume for l in book.bids)
+    initial_depth = order_volume * 5 * 0.8  # approximate initial
+    thinning_pct = 100 * (1 - remaining_bid_depth / max(initial_depth, 1))
+    print(f"  Book thinning: {thinning_pct:.1f}% bid depth consumed")
+
+    # Restore production
+    set_paper_mode(False)
+    print(f"\n  ✅ Paper session complete — paths restored to production.")
+
+
 def cmd_twap(args):
     """TWAPExecutor — thanh lý stale positions qua slices."""
     from src.portfolio.stale_manager import StalePositionManager
@@ -1419,6 +1480,13 @@ def main():
     p_tw_sta.set_defaults(func=cmd_twap)
     p_tw_resume = p_tw_sub.add_parser("resume", help="Resume TWAP sau mất mạng")
     p_tw_resume.set_defaults(func=cmd_twap)
+
+    # phase5
+    p_p5 = sub.add_parser("phase5", help="Phase 5 UAT — Paper Trading Simulation")
+    p_p5.add_argument("--slices", type=int, default=5, help="Số slice (mặc định 5)")
+    p_p5.add_argument("--depth", type=float, default=5000, help="Depth mỗi level (mặc định 5000)")
+    p_p5.add_argument("--price", type=float, default=100.0, help="Giá mid (mặc định 100)")
+    p_p5.set_defaults(func=cmd_phase5)
 
     # confidence
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")

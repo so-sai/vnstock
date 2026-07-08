@@ -81,6 +81,44 @@ class OrderBook:
         """All ask levels at or below limit_price (available to lift)."""
         return [l for l in self.asks if l.price <= limit_price]
 
+    def consume(self, side: str, limit_price: float, qty: float) -> dict:
+        """Destructively consume depth — Order Book Thinning simulation.
+
+        Reduces volume at consumed levels. Fully drained levels stay at 0
+        so subsequent orders see thinner book.
+        Returns: {filled_qty, avg_fill_price, slippage, status}
+        """
+        mid = self.mid_price()
+        if side.upper() == "SELL":
+            levels = [l for l in self.bids if l.price >= limit_price]
+            levels.sort(key=lambda x: x.price, reverse=True)
+        else:
+            levels = [l for l in self.asks if l.price <= limit_price]
+            levels.sort(key=lambda x: x.price)
+
+        if not levels or sum(l.volume for l in levels) <= 0:
+            return {"filled_qty": 0, "status": "PENDING"}
+
+        running_qty = 0.0
+        running_notional = 0.0
+        for lvl in levels:
+            take = min(lvl.volume, qty - running_qty)
+            lvl.volume = round(lvl.volume - take, 2)
+            running_qty += take
+            running_notional += take * lvl.price
+            if running_qty >= qty:
+                break
+
+        avg_price = running_notional / running_qty
+        slippage = abs(avg_price - mid) / mid
+        is_full = running_qty >= qty - 1e-9
+        return {
+            "filled_qty": round(running_qty, 2),
+            "fill_price": round(avg_price, 2),
+            "slippage": round(slippage, 6),
+            "status": "FILLED" if is_full else "PARTIAL_FILLED",
+        }
+
     def random_walk(self, sigma: Optional[float] = None) -> None:
         """Advance one tick: geometric Brownian motion with spread refresh."""
         s = sigma or self.volatility
@@ -187,66 +225,12 @@ class PaperBroker(BrokerAPI):
 
     def _simulate_fill(self, side: str, qty: float,
                        limit_price: float) -> dict:
-        """Depth-weighted fill simulation.
+        """Depth-weighted fill with destructive Order Book Thinning.
 
-        SELL: hits bid levels at or above limit_price
-        BUY: lifts ask levels at or below limit_price
+        Consumes depth from live OrderBook — subsequent orders see
+        reduced liquidity, simulating real market impact.
         """
-        mid = self.book.mid_price()
-        if side.upper() == "SELL":
-            levels = self.book.depth_for_sell(limit_price)
-            if not levels:
-                return {"status": "PENDING", "filled_qty": 0}
-            total_depth = sum(l.volume for l in levels)
-            if total_depth <= 0:
-                return {"status": "PENDING", "filled_qty": 0}
-
-            # Consume levels in price-descending order (best first)
-            running_qty = 0.0
-            running_notional = 0.0
-            for lvl in sorted(levels, key=lambda x: x.price, reverse=True):
-                take = min(lvl.volume, qty - running_qty)
-                running_qty += take
-                running_notional += take * lvl.price
-                if running_qty >= qty:
-                    break
-
-            avg_price = running_notional / running_qty
-            slippage = abs(avg_price - mid) / mid
-            is_full = running_qty >= qty - 1e-9
-            return {
-                "status": "FILLED" if is_full else "PARTIAL_FILLED",
-                "filled_qty": round(running_qty, 2),
-                "fill_price": round(avg_price, 2),
-                "slippage": round(slippage, 6),
-            }
-
-        else:  # BUY
-            levels = self.book.depth_for_buy(limit_price)
-            if not levels:
-                return {"status": "PENDING", "filled_qty": 0}
-            total_depth = sum(l.volume for l in levels)
-            if total_depth <= 0:
-                return {"status": "PENDING", "filled_qty": 0}
-
-            running_qty = 0.0
-            running_notional = 0.0
-            for lvl in sorted(levels, key=lambda x: x.price):
-                take = min(lvl.volume, qty - running_qty)
-                running_qty += take
-                running_notional += take * lvl.price
-                if running_qty >= qty:
-                    break
-
-            avg_price = running_notional / running_qty
-            slippage = abs(avg_price - mid) / mid
-            is_full = running_qty >= qty - 1e-9
-            return {
-                "status": "FILLED" if is_full else "PARTIAL_FILLED",
-                "filled_qty": round(running_qty, 2),
-                "fill_price": round(avg_price, 2),
-                "slippage": round(slippage, 6),
-            }
+        return self.book.consume(side, limit_price, qty)
 
     # ── Impact verification (Almgren-Chriss) ───────────────
 
