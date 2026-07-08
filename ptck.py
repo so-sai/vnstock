@@ -1053,6 +1053,88 @@ def cmd_phase4(args):
     p4_report(anh_chup)
 
 
+def cmd_break_glass(args):
+    """Break-Glass Protocol — Single-Pass Key-Anchored Override."""
+    from src.portfolio.break_glass import BreakGlassProtocol
+    bg = BreakGlassProtocol()
+    if args.action == "request":
+        result = bg.request(use_time_delay=args.delay)
+        print("=" * 50)
+        print("  BREAK-GLASSS PROTOCOL — REQUEST")
+        print("=" * 50)
+        print(f"  Ticket:     {result['ticket_id']}")
+        print(f"  Challenge:  {result['challenge']}")
+        if result['use_time_delay']:
+            print(f"  Mode:       TIME-DELAY ({result['time_delay_minutes']} phút)")
+        else:
+            print(f"  Mode:       PASSPHRASE")
+        print(f"  Hạn:        {result['expires_at']}")
+        print(f"  Hint:       python ptck.py break-glass verify {result['ticket_id']} --passphrase <KEY>")
+        print("=" * 50)
+    elif args.action == "verify":
+        result = bg.verify(args.ticket, passphrase=args.passphrase)
+        if result["success"]:
+            print(f"✅ BREAK-GLASS APPROVED (mode={result['mode']})")
+            print("   Khóa đã được gỡ. Có thể thao tác ORPHANED.")
+        else:
+            print(f"❌ BREAK-GLASS DENIED: {result['reason']}")
+            if "remaining_minutes" in result:
+                print(f"   Còn {result['remaining_minutes']} phút trong time-delay.")
+    elif args.action == "cancel":
+        from src.portfolio.break_glass import BreakGlassProtocol
+        bg = BreakGlassProtocol()
+        result = bg.cancel(args.ticket)
+        if result["success"]:
+            print("✅ BREAK-GLASS CANCELLED.")
+        else:
+            print(f"❌ {result['reason']}")
+    elif args.action == "status":
+        from src.portfolio.system_state import get_state
+        st = get_state()
+        print("=" * 50)
+        print("  PORTFOLIO CRITICAL LOCK STATUS")
+        print("=" * 50)
+        print(f"  Locked:         {st.get('locked', False)}")
+        print(f"  Total stale %:  {st.get('total_stale_pct', 0.0)}")
+        print(f"  Escrow balance: {st.get('escrow_balance', 0.0):.2f}")
+        print("=" * 50)
+
+
+def cmd_stale(args):
+    """StalePositionManager — quản lý vốn kẹt + escrow."""
+    from src.portfolio.stale_manager import StalePositionManager
+    mgr = StalePositionManager()
+    if args.action == "status":
+        s = mgr.status()
+        print("=" * 50)
+        print("  STALE POSITION MANAGER")
+        print("=" * 50)
+        print(f"  Lớp stale:     {s['stale_layers']} / {s['total_layers']}")
+        print(f"  stale_pcts:    {s['stale_pcts']}")
+        print(f"  Tổng stale %:  {s['total_stale_pct']}")
+        print(f"  Escrow cache:  {s['escrow_balance']:.2f}")
+        print(f"  Hard Shutdown: {s['hard_shutdown']}")
+        print(f"  Critical Lock: {s['critical_lock']}")
+        print("=" * 50)
+    elif args.action == "writeoff":
+        result = mgr.writeoff_lifo()
+        if result["written"]:
+            for w in result["written"]:
+                print(f"  ✅ Write-off {w['campaign_id']}: {w['proceeds']:.2f} VND (PNL {w['realized_pnl']:.2f})")
+            print(f"  Escrow: {result['escrow_balance']:.2f} | Stale còn lại: {result['remaining_stale_pct']}")
+        else:
+            print("  Không có stale nào để write-off.")
+    elif args.action == "reclaim":
+        if not args.campaign:
+            print("  ❌ Cần --campaign <id>")
+            return
+        result = mgr.reclaim(args.campaign)
+        print(f"  {'✅' if result['success'] else '❌'} {result.get('reason', 'OK')}")
+    elif args.action == "escrow":
+        print(f"  Escrow balance: {mgr.escrow_balance:.2f}")
+        print(f"  Hard Shutdown:  {mgr.hard_shutdown}")
+
+
 def cmd_flow_map(args):
     """Bản đồ Dòng vốn Liên thị trường 4 Tầng."""
     from src.engine.cross_market_flow_map import CrossMarketFlowMap
@@ -1243,6 +1325,35 @@ def main():
     p_p4 = sub.add_parser("phase4", parents=[lang_parent],
                           help="Phase 4 CAS-DSM — Capitulation Detector + Scale-In + Abortion")
     p_p4.set_defaults(func=cmd_phase4)
+
+    # break-glass
+    p_bg = sub.add_parser("break-glass", help="Break-Glass Protocol — override Hard Shutdown")
+    p_bg_sub = p_bg.add_subparsers(dest="action", required=True)
+    p_bg_req = p_bg_sub.add_parser("request", help="Yêu cầu override ticket")
+    p_bg_req.add_argument("--delay", action="store_true", help="Dùng time-delay mode (15 phút)")
+    p_bg_req.set_defaults(func=cmd_break_glass)
+    p_bg_ver = p_bg_sub.add_parser("verify", help="Xác thực ticket")
+    p_bg_ver.add_argument("ticket", help="Ticket ID")
+    p_bg_ver.add_argument("--passphrase", help="Passphrase (nếu không dùng time-delay)")
+    p_bg_ver.set_defaults(func=cmd_break_glass)
+    p_bg_can = p_bg_sub.add_parser("cancel", help="Hủy ticket")
+    p_bg_can.add_argument("ticket", help="Ticket ID")
+    p_bg_can.set_defaults(func=cmd_break_glass)
+    p_bg_sta = p_bg_sub.add_parser("status", help="Xem trạng thái lock")
+    p_bg_sta.set_defaults(func=cmd_break_glass)
+
+    # stale
+    p_st = sub.add_parser("stale", help="StalePositionManager — quản lý vốn kẹt + escrow")
+    p_st_sub = p_st.add_subparsers(dest="action", required=True)
+    p_st_sta = p_st_sub.add_parser("status", help="Xem trạng thái stale layers + escrow")
+    p_st_sta.set_defaults(func=cmd_stale)
+    p_st_wo = p_st_sub.add_parser("writeoff", help="Write-off LIFO (campaign mới nhất trước)")
+    p_st_wo.set_defaults(func=cmd_stale)
+    p_st_re = p_st_sub.add_parser("reclaim", help="Reclaim một lớp stale")
+    p_st_re.add_argument("--campaign", help="Campaign ID (vd: v1)")
+    p_st_re.set_defaults(func=cmd_stale)
+    p_st_es = p_st_sub.add_parser("escrow", help="Xem escrow balance")
+    p_st_es.set_defaults(func=cmd_stale)
 
     # confidence
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")

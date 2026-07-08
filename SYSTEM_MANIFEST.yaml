@@ -226,6 +226,48 @@ entrypoints:
     cli: "python ptck.py phase4"
     category: decision
 
+  # ── Phase 4.2 — Break-Glass ─────────────────────────────
+  break_glass_request:
+    description: "Break-Glass: Yêu cầu override ticket (passphrase hoặc time-delay)"
+    cli: "python ptck.py break-glass request [--delay]"
+    category: emergency
+
+  break_glass_verify:
+    description: "Break-Glass: Xác thực ticket với passphrase"
+    cli: "python ptck.py break-glass verify <ticket> --passphrase <KEY>"
+    category: emergency
+
+  break_glass_cancel:
+    description: "Break-Glass: Hủy ticket"
+    cli: "python ptck.py break-glass cancel <ticket>"
+    category: emergency
+
+  break_glass_status:
+    description: "Break-Glass: Xem trạng thái portfolio critical lock"
+    cli: "python ptck.py break-glass status"
+    category: emergency
+
+  # ── Phase 4.2 — Stale Manager ───────────────────────────
+  stale_status:
+    description: "StalePositionManager: Xem trạng thái stale layers + escrow cache"
+    cli: "python ptck.py stale status"
+    category: portfolio
+
+  stale_writeoff:
+    description: "StalePositionManager: Write-off LIFO — thanh lý campaign mới nhất trước"
+    cli: "python ptck.py stale writeoff"
+    category: portfolio
+
+  stale_reclaim:
+    description: "StalePositionManager: Reclaim một lớp stale"
+    cli: "python ptck.py stale reclaim --campaign <id>"
+    category: portfolio
+
+  stale_escrow:
+    description: "StalePositionManager: Xem escrow balance"
+    cli: "python ptck.py stale escrow"
+    category: portfolio
+
   # ── Param Fingerprint Registry ───────────────────────────
   registry_view:
     description: "Sổ tay Dấu vân tay Tham số — tra cứu params_hash tốt nhất theo regime, kèm audit trail"
