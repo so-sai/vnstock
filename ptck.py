@@ -853,6 +853,51 @@ def cmd_backfill(args):
     backfill(symbols=symbols, start=start, end=end, dry_run=dry_run, verbose=not quiet)
 
 
+def cmd_backfill_macro(args):
+    """Hotfix #2: Backfill 1y historical data for PTD macro tickers (^GSPC, ^IXIC, ^VIX, ^HSI)."""
+    import yfinance as yf
+    import pandas as pd
+    import logging
+    logger = logging.getLogger(__name__)
+
+    days = getattr(args, 'days', 252)
+    tickers = {'SP500': '^GSPC', 'NASDAQ': '^IXIC', 'VIX': '^VIX', 'HANG_SENG': '^HSI'}
+    period = f"{max(days, 252)}d"
+
+    print("=" * 60)
+    print("  PTCK — BACKFILL MACRO (PTD Tickers)")
+    print("=" * 60)
+    print(f"  Tickers: {', '.join(tickers.values())}")
+    print(f"  Period:  {period}")
+    print()
+
+    data = yf.download(list(tickers.values()), period=period, interval="1d", progress=False)
+    if data.empty:
+        print("  [FAIL] Không nhận được dữ liệu từ Yahoo Finance.")
+        return
+
+    close_data = data['Close'] if isinstance(data.columns, pd.MultiIndex) else data
+    inv_map = {v: k for k, v in tickers.items()}
+    close_data = close_data.rename(columns=inv_map)
+    df_melted = close_data.reset_index().melt(id_vars=['Date'], var_name='variable', value_name='value')
+    df_melted.rename(columns={'Date': 'date'}, inplace=True)
+    df_melted['date'] = pd.to_datetime(df_melted['date']).dt.strftime('%Y-%m-%d')
+    df_melted = df_melted.dropna()
+
+    if df_melted.empty:
+        print("  [FAIL] Không có dữ liệu sau khi melt.")
+        return
+
+    print(f"  Downloaded: {len(df_melted)} rows")
+
+    from src.database.db_core import get_connection, save_data_upsert
+    with get_connection() as conn:
+        save_data_upsert('macro_history', df_melted, conn)
+
+    print(f"  [OK] Đã seed {len(df_melted)} rows vào macro_history.")
+    print("=" * 60)
+
+
 def cmd_scan(args):
     """Elite scanner."""
     deep = getattr(args, 'deep', False)
@@ -1703,6 +1748,11 @@ def main():
     p_bf.add_argument("--dry-run", action="store_true", dest="dry_run", help="Chạy thử — không ghi vào DB")
     p_bf.add_argument("--quiet", action="store_true", help="Chỉ in tóm tắt, không in từng mã")
     p_bf.set_defaults(func=cmd_backfill)
+
+    # backfill-macro (Hotfix #2)
+    p_bfm = sub.add_parser("backfill-macro", help="Backfill 1y historical data cho PTD macro tickers")
+    p_bfm.add_argument("--days", type=int, default=252, help="Số ngày lịch sử (mặc định 252)")
+    p_bfm.set_defaults(func=cmd_backfill_macro)
 
     args = parser.parse_args()
     _VERBOSE_LANG = args.verbose_lang

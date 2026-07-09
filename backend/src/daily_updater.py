@@ -327,6 +327,13 @@ MACRO_TICKERS = {
     'GOLD_XAU': 'GC=F',
     'TIP_PRICE': 'TIP',
     'XAGUSD': 'SI=F',
+    # PTD Phase Transition Detector — added 2026-07-09
+    'SP500': '^GSPC',
+    'NASDAQ': '^IXIC',
+    'VIX': '^VIX',
+    'HANG_SENG': '^HSI',
+    # ES futures proxy for holiday gap fill (PTD Module 1)
+    'ES_FUTURES': 'ES=F',
 }
 
 @retry_with_backoff("update_macro", max_retries=2, base_delay=10)

@@ -376,6 +376,12 @@ entrypoints:
     cli: "python ptck.py cleanup all"
     category: system
 
+  # ── Backfill Macro (Hotfix #2) ─────────────────────────
+  backfill_macro:
+    description: "Backfill 1y historical data cho 4 PTD macro tickers (^GSPC, ^IXIC, ^VIX, ^HSI) — tránh ZeroDivisionError / Singular Matrix do cold start"
+    cli: "python ptck.py backfill-macro [--days 252]"
+    category: system
+
   # ── Calendar ────────────────────────────────────────────
   check_calendar:
     description: "Kiểm tra lịch lễ so với timeanddate.com, có flag auto-update"
