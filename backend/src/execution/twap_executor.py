@@ -149,15 +149,19 @@ class TWAPExecutor:
     KOSPI_INTRADAY_TICKER = "KM=F"
     SCAN_WINDOW_START_KST  = "13:15"
     SCAN_WINDOW_END_KST    = "13:31"
-    SCAN_RETRY_SEC         = 45               # check every 45 s between 13:31–13:50 VNT
+    # No polling loop — fetch runs ONCE per execute_slice() call.
+    # 5 slices × 1 yfinance call = 5 requests max, well under rate limit.
 
     @staticmethod
     def _fetch_kospi_intraday() -> Optional[float]:
         """Fetch KOSPI futures (KM=F) 1m candles, return drop % within scan window.
 
-        Scans 13:15–13:31 KST to capture last ~15 minutes of KRX continuous trading.
+        Scans 13:15-13:31 KST to capture last ~15 minutes of KRX continuous trading.
         Returns (latest - open_within_window) / open_within_window as a signed float,
         or None on failure / stale data.
+
+        Rate limit safety: called at most once per execute_slice() invocation.
+        5 slices = 5 yfinance requests = well under 2000 req/h limit.
         """
         try:
             import yfinance as yf
@@ -191,13 +195,20 @@ class TWAPExecutor:
             if first_price <= 0:
                 return None
             pct = (last_close - first_price) / first_price
-            logger.debug("KOSPI intraday scan: first=%.2f last=%.2f Δ=%.4f%%",
+            logger.debug("KOSPI intraday scan: first=%.2f last=%.2f pct=%.4f%%",
                          first_price, last_close, pct * 100)
             return pct
 
         except Exception as exc:
             logger.warning("KOSPI intraday fetch failed: %s", exc)
             return None
+
+    @staticmethod
+    async def _fetch_kospi_intraday_async() -> Optional[float]:
+        """Async wrapper — runs yfinance in thread pool to avoid blocking FastAPI event loop."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, TWAPExecutor._fetch_kospi_intraday)
 
     @staticmethod
     def _fetch_vnindex_intraday() -> Optional[float]:
@@ -224,6 +235,13 @@ class TWAPExecutor:
         except Exception as exc:
             logger.warning("VNINDEX intraday fetch failed: %s", exc)
             return None
+
+    @staticmethod
+    async def _fetch_vnindex_intraday_async() -> Optional[float]:
+        """Async wrapper for database read (fast, but keeps async interface consistent)."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, TWAPExecutor._fetch_vnindex_intraday)
 
     def _asia_canary_check(self) -> Optional[str]:
         """Multi-tiered Adaptive Breaker trigger.
