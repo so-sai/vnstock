@@ -2,8 +2,10 @@
 
 Middleware giữa CLI và StalePositionManager.
 Preflight ping, Idempotent Resume, Circuit Breaker, Liquidity Strike handling.
+Asia Circuit Breaker (Intraday Governor Override) — KOSPI 13:30 canary.
 """
 
+import logging
 import socket
 import time
 from dataclasses import dataclass, field
@@ -15,6 +17,8 @@ from src.portfolio.system_state import (
     is_locked, lock as _lock_state,
 )
 from src.portfolio.stale_manager import StalePositionManager
+
+logger = logging.getLogger(__name__)
 
 PING_TIMEOUT_S = 2
 MAX_CIRCUIT_BREAKER_TRIPS = 3
@@ -95,6 +99,13 @@ class BrokerAPI:
         order["fill_price"] = fill_price
         order["status"] = "PARTIAL_FILLED" if fill_qty < order["quantity"] else "FILLED"
 
+    def get_open_orders(self, symbol: str) -> list[dict]:
+        """Return all non-terminal orders for a given symbol."""
+        return [
+            dict(o) for o in self._orders.values()
+            if o["symbol"] == symbol and o["status"] in ("PENDING", "PARTIAL_FILLED")
+        ]
+
     def get_best_bid(self, symbol: str) -> float:
         """Current best bid from order book (simulated)."""
         return 99.5
@@ -118,6 +129,175 @@ class TWAPExecutor:
         self.symbol = symbol
         self.side = side
         self.plan: Optional[SlicePlan] = None
+
+    # ── Asia Circuit Breaker (Intraday Governor Override v2.1) ──
+    #
+    # Multi-tiered Adaptive Breaker (2026-07-10 hard-lock):
+    #   Tier 1 (Absolute Veto):  KOSPI intraday drop > 1.5% → halt unconditionally
+    #   Tier 2 (Confirmed Canary): KOSPI intraday drop > 1.0% AND VN-Index intraday return < −0.5%
+    #
+    # Data: yfinance 1m candles for KOSPI futures (KM=F), scanned 13:15–13:31 KST
+    #       during the window 13:31–13:50 VN time (KRX data latency tolerance).
+    #
+    #   θ (eigenvector rotation) REMOVED — replaced by direct VN-Index impulse confirmation.
+    #
+
+    ASIA_HALT_KOSPI_TIER2_DROP = 0.01        # 1.0%
+    ASIA_HALT_KOSPI_TIER1_DROP = 0.015       # 1.5% — absolute veto
+    ASIA_HALT_VN_CONFIRM_DROP  = -0.005       # -0.5%
+
+    KOSPI_INTRADAY_TICKER = "KM=F"
+    SCAN_WINDOW_START_KST  = "13:15"
+    SCAN_WINDOW_END_KST    = "13:31"
+    SCAN_RETRY_SEC         = 45               # check every 45 s between 13:31–13:50 VNT
+
+    @staticmethod
+    def _fetch_kospi_intraday() -> Optional[float]:
+        """Fetch KOSPI futures (KM=F) 1m candles, return drop % within scan window.
+
+        Scans 13:15–13:31 KST to capture last ~15 minutes of KRX continuous trading.
+        Returns (latest - open_within_window) / open_within_window as a signed float,
+        or None on failure / stale data.
+        """
+        try:
+            import yfinance as yf
+            import pandas as pd
+
+            ticker = yf.Ticker(TWAPExecutor.KOSPI_INTRADAY_TICKER)
+            df = ticker.history(period="1d", interval="1m")
+            if df is None or df.empty:
+                logger.warning("KOSPI intraday: no 1m data returned")
+                return None
+
+            # Filter to scan window (KST = UTC+9)
+            now_kst = pd.Timestamp.now(tz="Asia/Seoul")
+            scan_start = now_kst.normalize() + pd.Timedelta(TWAPExecutor.SCAN_WINDOW_START_KST)
+            scan_end   = now_kst.normalize() + pd.Timedelta(TWAPExecutor.SCAN_WINDOW_END_KST)
+
+            window = df[df.index >= scan_start.tz_localize(None)]
+            if window.empty:
+                logger.warning("KOSPI intraday: scan window empty (market not yet closed?)")
+                # Fallback: use earliest 1m candle of the day as reference
+                if len(df) < 2:
+                    return None
+                first = float(df["Close"].iloc[0])
+                last  = float(df["Close"].iloc[-1])
+                if first <= 0:
+                    return None
+                return (last - first) / first
+
+            first_price = float(window["Open"].iloc[0])
+            last_close  = float(window["Close"].iloc[-1])
+            if first_price <= 0:
+                return None
+            pct = (last_close - first_price) / first_price
+            logger.debug("KOSPI intraday scan: first=%.2f last=%.2f Δ=%.4f%%",
+                         first_price, last_close, pct * 100)
+            return pct
+
+        except Exception as exc:
+            logger.warning("KOSPI intraday fetch failed: %s", exc)
+            return None
+
+    @staticmethod
+    def _fetch_vnindex_intraday() -> Optional[float]:
+        """Fetch VN-Index intraday return from daily_ohlcv (latest session close).
+
+        Returns % change of the most recent VNINDEX close versus previous session close,
+        or None on failure.
+        """
+        try:
+            from src.database.db_core import get_connection
+
+            with get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT date, close FROM daily_ohlcv "
+                    "WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 2"
+                ).fetchall()
+            if len(rows) < 2:
+                return None
+            latest = float(rows[0][1])
+            prev   = float(rows[1][1])
+            if prev <= 0:
+                return None
+            return (latest - prev) / prev
+        except Exception as exc:
+            logger.warning("VNINDEX intraday fetch failed: %s", exc)
+            return None
+
+    def _asia_canary_check(self) -> Optional[str]:
+        """Multi-tiered Adaptive Breaker trigger.
+
+        Returns halt reason string or None.
+        """
+        kospi_pct = self._fetch_kospi_intraday()
+        if kospi_pct is None:
+            logger.warning("Asia canary: KOSPI data unavailable, skipping check")
+            return None
+
+        # Tier 1 — Absolute Veto Gate (bypass all other conditions)
+        if kospi_pct <= -self.ASIA_HALT_KOSPI_TIER1_DROP:
+            reason = (
+                f"ASIA_TIER1_VETO: KOSPI {kospi_pct*100:+.2f}% | "
+                f"breached 1.5% absolute threshold — emergency halt"
+            )
+            logger.warning("🛑 %s", reason)
+            return reason
+
+        # Tier 2 -- Confirmed Canary (KOSPI + VN-Index confirmation)
+        if kospi_pct > -self.ASIA_HALT_KOSPI_TIER2_DROP:
+            return None  # KOSPI not in panic territory
+
+        vn_pct = self._fetch_vnindex_intraday()
+        if vn_pct is None:
+            logger.warning("Asia canary Tier 2: VN-Index data unavailable -> fallback halt")
+            reason = (
+                f"ASIA_TIER2_NO_VN: KOSPI {kospi_pct*100:+.2f}% | "
+                f"VN-Index data missing -- precautionary halt"
+            )
+            return reason
+
+        if vn_pct >= self.ASIA_HALT_VN_CONFIRM_DROP:
+            return None  # KOSPI dropped but VN hasn't confirmed contagion
+
+        reason = (
+            f"ASIA_TIER2_HALT: KOSPI {kospi_pct*100:+.2f}% | "
+            f"VN {vn_pct*100:+.2f}% | confirmed contagion"
+        )
+        logger.warning("🛑 %s", reason)
+        return reason
+
+    def emergency_halt(self, reason: str) -> None:
+        """Absolute Kill-Switch — cancel ALL active orders on exchange + future slices.
+
+        Three-step sequence:
+          1. Cancel all PENDING slices (internal ledger)
+          2. Force-cancel every open broker order for the target symbol (exchange-level)
+          3. Mark plan FAILED and persist
+        """
+        if not self.plan:
+            logger.warning("emergency_halt: no active plan")
+            return
+
+        logger.warning("🛑 EMERGENCY HALT — %s", reason)
+
+        # Step 1: Cancel future slices (internal)
+        remaining = [s for s in self.plan.slices if s.status == "PENDING"]
+        for s in remaining:
+            s.status = "CANCELED"
+            logger.info("  Slice %d → CANCELED", s.index)
+
+        # Step 2: Force-cancel ALL active orders on the exchange
+        active_orders = self.broker.get_open_orders(self.symbol)
+        for order in active_orders:
+            oid = order.get("order_id", "")
+            ok = self.broker.cancel_order(oid)
+            logger.info("  Broker order %s → %s", oid, "CANCELED" if ok else "CANCEL_FAILED")
+
+        # Step 3: Record final state
+        self.plan.status = "FAILED"
+        self._persist()
+        logger.warning("TWAP plan %s → FAILED (%s)", self.plan.stale_campaign_id[:8], reason)
 
     # ── Plan ─────────────────────────────────────────────
 
@@ -163,6 +343,13 @@ class TWAPExecutor:
         if not self.plan:
             raise RuntimeError("Chưa có plan — gọi build_plan() trước")
         self.preflight_ping()
+
+        # Intraday Governor Override: Asia canary check
+        halt_reason = self._asia_canary_check()
+        if halt_reason:
+            self.emergency_halt(halt_reason)
+            return {"success": False, "reason": halt_reason}
+
         slice_obj = self._find_slice(index)
         if not slice_obj or slice_obj.status != "PENDING":
             return {"success": False, "reason": f"SLICE_{slice_obj.status if slice_obj else 'NOT_FOUND'}"}
