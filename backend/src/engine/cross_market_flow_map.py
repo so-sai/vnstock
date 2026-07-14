@@ -82,6 +82,7 @@ class CrossMarketFlowMap:
         self.macro = macro_data
         self.snapshot = regime_snapshot
         self.flow_map = {}
+        self._macro_stale_mask: dict = {}
 
     def localize(self, data: dict = None) -> dict:
         """Trả về bản thuần Việt của toàn bộ báo cáo."""
@@ -98,14 +99,20 @@ class CrossMarketFlowMap:
         return result
 
     def _get_macro_history(self, variable: str, offset: int = 0) -> float:
-        """Truy vấn macro_history để lấy giá trị T-offset (0 = hiện tại, 5 = T-5)."""
+        """Truy vấn macro_history để lấy giá trị T-offset (0 = hiện tại, 5 = T-5).
+        Trả về giá trị thô; nếu bản ghi có is_stale = 1, hạ lưu sẽ chiết khấu trọng số.
+        """
         try:
             with get_connection() as conn:
                 row = conn.execute(
-                    "SELECT value FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1 OFFSET ?",
+                    "SELECT value, COALESCE(is_stale, 0) AS is_stale "
+                    "FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1 OFFSET ?",
                     (variable, offset)
                 ).fetchone()
-                return float(row[0]) if row else 0.0
+                if row:
+                    self._macro_stale_mask[variable] = bool(row[1])
+                    return float(row[0])
+                return 0.0
         except Exception:
             return 0.0
 

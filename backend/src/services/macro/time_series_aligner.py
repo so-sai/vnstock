@@ -462,3 +462,205 @@ class TimeSeriesAligner:
             "stress_level": stress,
             "n_assets": n,
         }
+
+
+# ── Asia Reference Frame Rotation ─────────────────────────────────────
+
+# Macro ticker names used in macro_history_v2 / macro_history
+ASIA_TICKER_VNINDEX = "VNINDEX"
+ASIA_TICKERS = {
+    "KOSPI": "KOSPI",
+    "TAIEX": "TAIEX",
+    "SHENZHEN": "SHENZHEN",
+    "DXY": "DXY",
+}
+VN_ONLY_ASSETS = [ASIA_TICKER_VNINDEX]
+ASIA_COMBINED_ASSETS = [ASIA_TICKER_VNINDEX, "KOSPI", "TAIEX", "SHENZHEN", "DXY"]
+
+
+def _fetch_macro_as_df(variable: str, db_path: str, n_days: int = 365) -> pd.DataFrame:
+    """Fetch a single macro variable as DataFrame ['date','value','is_stale']."""
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    for tbl in ("macro_history_v2", "macro_history"):
+        try:
+            cursor = conn.execute(
+                f"""SELECT date, value,
+                    COALESCE(is_stale, 0) AS is_stale
+                    FROM [{tbl}]
+                    WHERE variable = ? AND date >= date('now', ?)
+                    ORDER BY date""",
+                (variable, f"-{n_days} days"),
+            )
+            rows = cursor.fetchall()
+            if rows:
+                conn.close()
+                df = pd.DataFrame(rows, columns=["date", "value", "is_stale"])
+                df["date"] = pd.to_datetime(df["date"])
+                return df.sort_values("date").drop_duplicates(subset="date")
+        except Exception:
+            continue
+    conn.close()
+    logger.warning("_fetch_macro_as_df: %s not found in macro_history", variable)
+    return pd.DataFrame(columns=["date", "value", "is_stale"])
+
+
+def _fetch_vnindex(db_path: str, n_days: int = 365) -> pd.DataFrame:
+    """Fetch VNINDEX close data from daily_ohlcv."""
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.execute(
+            "SELECT date, close AS value FROM daily_ohlcv "
+            "WHERE symbol = 'VNINDEX' AND date >= date('now', ?) "
+            "ORDER BY date",
+            (f"-{n_days} days",),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows:
+            logger.warning("_fetch_vnindex: no VNINDEX rows found")
+            return pd.DataFrame(columns=["date", "value"])
+        df = pd.DataFrame(rows, columns=["date", "value"])
+        df["date"] = pd.to_datetime(df["date"])
+        return df.sort_values("date").drop_duplicates(subset="date")
+    except Exception as exc:
+        conn.close()
+        logger.error("_fetch_vnindex: %s", exc)
+        return pd.DataFrame(columns=["date", "value"])
+
+
+def compute_asia_rotation(
+    db_path: Optional[str] = None,
+    window: int = 90,
+) -> dict:
+    """Compute cross-asset eigenvector rotation: VN-only vs VN+KOSPI+TAIEX+SHENZHEN+DXY.
+
+    Architecture (Layer 2 Reference Frame):
+      Old: VN + ES=F                       → US-centric (Wall Street bias)
+      New: VN + KOSPI+TAIEX+SHENZHEN+DXY   → Asia supply-chain + China gravity
+
+    Returns
+    -------
+    dict with:
+        rotation_angle_deg : float  [0, 90] — angle between leading eigenvectors
+        lambda_max         : float  — dominant eigenvalue of combined correlation
+        n_days             : int    — actual number of aligned return days
+        assets             : list   — assets in combined matrix
+        status             : str    — "OK" or "INSUFFICIENT_DATA"
+    """
+    if db_path is None:
+        from src.config import DATA_DIR
+        db_path = str(DATA_DIR / "screener_cache.db")
+
+    # 1. Fetch VNINDEX
+    vn = _fetch_vnindex(db_path, n_days=window * 2)
+    if len(vn) < 30:
+        return {
+            "rotation_angle_deg": None,
+            "lambda_max": None,
+            "n_days": len(vn),
+            "assets": ASIA_COMBINED_ASSETS,
+            "status": "INSUFFICIENT_DATA",
+            "message": f"VNINDEX: only {len(vn)} rows",
+        }
+
+    # 2. Fetch KOSPI, TAIEX, DXY
+    macros = {}
+    for name, var in ASIA_TICKERS.items():
+        df = _fetch_macro_as_df(var, db_path, n_days=window * 2)
+        if len(df) < 10:
+            return {
+                "rotation_angle_deg": None,
+                "lambda_max": None,
+                "n_days": len(vn),
+                "assets": ASIA_COMBINED_ASSETS,
+                "status": "INSUFFICIENT_DATA",
+                "message": f"{name}: only {len(df)} rows",
+            }
+        macros[name] = df
+
+    # 3. Merge all on date → daily returns
+    merged = vn.rename(columns={"value": ASIA_TICKER_VNINDEX})
+    for name, df in macros.items():
+        merged = merged.merge(
+            df.rename(columns={"value": name}),
+            on="date",
+            how="inner",
+        )
+
+    # 3b. Count stale days across all macro sensors
+    stale_accumulated = 0
+    for name, df in macros.items():
+        if "is_stale" in df.columns:
+            stale_accumulated = max(stale_accumulated, int(df["is_stale"].sum()))
+
+    # 4. Compute daily returns (log or simple)
+    returns = merged[ASIA_COMBINED_ASSETS].pct_change().dropna()
+    n_ret = len(returns)
+    if n_ret < 20:
+        return {
+            "rotation_angle_deg": None,
+            "lambda_max": None,
+            "n_days": n_ret,
+            "assets": ASIA_COMBINED_ASSETS,
+            "status": "INSUFFICIENT_DATA",
+            "message": f"return series: only {n_ret} aligned days",
+        }
+
+    # 5. Correlation matrices
+    corr_full = returns.corr(method="spearman").values  # 4×4
+    corr_vn = corr_full[0:1, 0:1]  # 1×1 (VNINDEX only)
+
+    # 5b. COVARIANCE INFLATION PROTOCOL — nếu có stale dữ liệu
+    #     Σ_inflated = Σ + (0.05 * trace_mean * Stale_Days * I)
+    #     trace_mean = Trace(Σ) / N = mean variance across all sensors
+    #     0.05 × trace_mean = 5% of average market variance per stale day
+    inflation_applied = False
+    if stale_accumulated > 0:
+        n = corr_full.shape[0]
+        trace_mean = np.trace(corr_full) / n
+        noise_factor = 0.05 * trace_mean * stale_accumulated
+        noise = noise_factor * np.eye(n)
+        corr_full = corr_full + noise
+        inflation_applied = True
+        logger.critical(
+            "[COV_INFLATION] Stale=%d, trace_mean=%.4f, noise_factor=%.4f, matrix=+%s",
+            stale_accumulated, trace_mean, noise_factor, noise
+        )
+
+    # 6. Compute rotation angle
+    from src.services.macro.market_macro_coordinator import MarketMacroCoordinator
+
+    angle_deg = MarketMacroCoordinator.compute_cross_asset_rotation(
+        corr_vn, corr_full
+    )
+
+    # 7. Spectral info from combined matrix
+    aligner = TimeSeriesAligner()
+    ev = aligner.compute_eigenvalues(corr_full)
+    corr_vn_eigen = aligner.compute_eigenvalues(corr_vn)
+
+    # 8. Pairwise correlations for reference
+    pairs = {}
+    for i, a in enumerate(ASIA_COMBINED_ASSETS):
+        for j, b in enumerate(ASIA_COMBINED_ASSETS):
+            if i < j:
+                pairs[f"{a}__{b}"] = round(float(corr_full[i, j]), 4)
+
+    return {
+        "rotation_angle_deg": angle_deg,
+        "lambda_max": ev["lambda_max"],
+        "lambda_ratio": ev["lambda_ratio"],
+        "spectral_entropy": ev["spectral_entropy"],
+        "vn_lambda_max": corr_vn_eigen["lambda_max"],
+        "n_days": n_ret,
+        "assets": ASIA_COMBINED_ASSETS,
+        "pairwise_corr": pairs,
+        "stale_accumulated": stale_accumulated,
+        "covariance_inflated": inflation_applied,
+        "status": "OK",
+        "message": "VN vs KOSPI+TAIEX+SHENZHEN+DXY rotation computed",
+    }

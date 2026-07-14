@@ -38,13 +38,14 @@ logger = logging.getLogger(__name__)
 def _get_latest_macro_values() -> dict:
     """
     Truy vấn macro_history, xử lý duplicate bằng cách lấy giá trị mới nhất
-    cho mỗi variable (theo rowid DESC).
+    cho mỗi variable (theo rowid DESC). Kèm cờ is_stale = 1 nếu có bản ghi nào
+    trong macro_history bị đánh dấu stale.
     """
     try:
         with get_connection() as conn:
             df = pd.read_sql("""
-                SELECT variable, date, value FROM (
-                    SELECT variable, date, value,
+                SELECT variable, date, value, COALESCE(is_stale, 0) AS is_stale FROM (
+                    SELECT variable, date, value, is_stale,
                            ROW_NUMBER() OVER (PARTITION BY variable ORDER BY rowid DESC) as rn
                     FROM macro_history
                 ) WHERE rn = 1
@@ -54,9 +55,12 @@ def _get_latest_macro_values() -> dict:
             return {}
 
         result = {}
+        macro_stale = False
         for _, row in df.iterrows():
             var = row['variable']
             val = row['value']
+            if int(row.get('is_stale', 0)):
+                macro_stale = True
             if var == 'DXY':
                 result['dxy_index'] = round(val, 2)
             elif var in ('USD_CNH', 'USDCNH', 'FX_IDC:USDCNH'):
@@ -104,10 +108,11 @@ def _get_latest_macro_values() -> dict:
             elif var == 'BREAKEVEN_INFLATION':
                 result['breakeven_inflation'] = round(val, 3)
 
+        result['macro_stale'] = macro_stale
         return result
     except Exception as e:
         logger.error(f"Error fetching macro history: {e}")
-        return {}
+        return {"macro_stale": False}
 
 
 def _get_interbank_rate() -> Optional[float]:
@@ -301,6 +306,7 @@ def get_macro_status(target_date: Optional[str] = None) -> dict:
         "gold_premium_vnd": premium.get("premium_vnd", 0),
         "gold_xau_vnd_per_luong": premium.get("xau_vnd_per_luong", 0),
         "gold_xau_usd_per_oz": premium.get("xau_usd_per_oz", 0),
+        "macro_stale": macro_values.get("macro_stale", False),
     }
 
 

@@ -220,6 +220,12 @@ entrypoints:
     cli: "python ptck.py flow-map"
     category: analysis
 
+  # ── Asia Rotation (Layer 2 Reference Frame) ────────────
+  asia_rotation:
+    description: "Góc xoay chuỗi cung ứng châu Á (Layer 2) — VN vs KOSPI+TAIEX+DXY, thay thế S&P 500 làm hệ quy chiếu chính"
+    cli: "python ptck.py rotation"
+    category: analysis
+
   # ── Phase 4 CAS-DSM ─────────────────────────────────────
   phase4:
     description: "Phase 4 CAS-DSM — Capitulation Detector: P_cap activation sensor + S_struct position scaler + Scale-In + Abortion Protocol"

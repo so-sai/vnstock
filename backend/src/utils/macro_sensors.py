@@ -1,129 +1,130 @@
-import os
-import sys
-from pathlib import Path
+import datetime
+import logging
+from typing import Dict, Any, Tuple, Optional
 
 import pandas as pd
+import requests
+import sqlite3
+from requests import Session
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import yfinance as yf
+
+logger = logging.getLogger("PTK_SYSTEM")
 
 
-def _hydrate_path():
-    """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
-    if getattr(sys, 'frozen', False):
-        root_path = Path(sys.executable).resolve().parent
-    else:
-        current = Path(__file__).resolve().parent
-        root_path = current
-        while current != current.parent:
-            # Săn lùng Root dựa trên các điểm neo độc bản (screener.py, .kit)
-            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
-                root_path = current
-                break
-            current = current.parent
-    if str(root_path) not in sys.path:
-        sys.path.insert(0, str(root_path))
-    return root_path
-
-PROJECT_ROOT = _hydrate_path()
-if sys.platform == "win32":
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
-from core.macro.gold_regime_engine import analyze_gold_regime
-from core.macro.gold_spread_engine import analyze_domestic_premium
-
-import src.config
-from src.database.db_core import get_connection
+class RateLimitException(Exception):
+    """Ngoại lệ chuyên biệt cho lỗi HTTP 429 — chặn ngay lập tức mọi retry."""
 
 
-def check_macro_exceptions():
-    """
-    Alpha V4.4 - Macro Sentinel: Báo cáo ngoại lệ (Exception-based Alerts).
-    Chỉ lên tiếng khi các 'Cầu dao' (Breakers) bị kích hoạt.
-    """
-    db_path = os.path.join(src.config.DATA_DIR, "screener_cache.db")
-    if not os.path.exists(db_path):
-        return
+class MacroSensorEngine:
+    def __init__(self, db_path: str = "backend/data/screener_cache.db"):
+        self.db_path = db_path
+        self.timeout_standard = 30.0
+        self.timeout_fast = 15.0
 
-    with get_connection() as conn:
-        df_macro = pd.read_sql("SELECT * FROM macro_history", conn)
+    def _get_resilient_session(self) -> Session:
+        """Cấu hình Session với cơ chế Retry nâng cao, giải phóng luồng treo 429.
 
-    if df_macro.empty: return
+        Loại trừ 429 khỏi status_forcelist để xử lý thủ công, chống ban IP nhanh.
+        respect_retry_after_header=False — vô hiệu hóa auto-sleep để tránh treo thread.
+        """
+        session = Session()
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=2,
+            status_forcelist=[500, 502, 503, 504],
+            respect_retry_after_header=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        return session
 
-    # Xử lý dữ liệu vĩ mô
-    df_macro['date'] = pd.to_datetime(df_macro['date'])
-    pivot_macro = df_macro.pivot_table(index='date', columns='variable', values='value', aggfunc='max').ffill()
+    def get_fresh_macro_data(self, sensor_name: str) -> Tuple[Optional[pd.DataFrame], bool]:
+        """
+        Lấy dữ liệu vĩ mô tươi (is_stale = 0) từ SQLite.
+        Đây là SQL bắt buộc dùng cho RegimeEngine và các tầng tiêu thụ hạ lưu.
+        Trả về: (DataFrame dữ liệu, có_dữ_liệu_không)
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                query = "SELECT * FROM macro_history WHERE variable = ? AND is_stale = 0 ORDER BY date DESC LIMIT 1"
+                df = pd.read_sql_query(query, conn, params=[sensor_name])
+                if df is not None and not df.empty:
+                    return df, True
+        except Exception as e:
+            logger.error(f"[CRITICAL_DB_ERROR] Không thể truy vấn sensor {sensor_name}: {str(e)}")
+        return None, False
 
-    # Tính MA20
-    macro_ma20 = pivot_macro.rolling(20).mean()
-    latest_vals = pivot_macro.iloc[-1]
-    latest_ma20 = macro_ma20.iloc[-1]
+    def _get_t_minus_one_fallback(self, sensor_name: str) -> Tuple[Optional[pd.DataFrame], bool]:
+        """
+        Trích xuất dữ liệu lịch sử gần nhất (T-1) từ SQLite cache khi API sập.
+        Trả về: (DataFrame dữ liệu, cờ stale=True)
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                query = "SELECT * FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1"
+                df = pd.read_sql_query(query, conn, params=[sensor_name])
+                if df is not None and not df.empty:
+                    logger.warning(f"[MACRO_STALE] Kích hoạt Proxy Sensor cho {sensor_name}. Sử dụng dữ liệu T-1.")
+                    # Override ngày tháng thành ngày hiện tại để tránh lệch trục thời gian LOCF
+                    today_str = datetime.date.today().isoformat()
+                    if "date" in df.columns:
+                        df["date"] = today_str
+                    elif isinstance(df.index, pd.DatetimeIndex):
+                        df.index = pd.DatetimeIndex([today_str] * len(df))
+                    return df, True
+        except Exception as e:
+            logger.error(f"[CRITICAL_DB_ERROR] Không thể đọc cache dự phòng cho {sensor_name}: {str(e)}")
 
-    alerts = []
+        return None, True
 
-    # 🚨 RUI RO L1: TY GIA & DXY (100% Cash-out Breakers)
-    if 'DXY' in latest_vals.index:
-        if latest_vals['DXY'] > latest_ma20['DXY'] * 1.01:
-            alerts.append(f"RED ALERT: [L1] DXY HIKE: {latest_vals['DXY']:.2f} > MA20 ({latest_ma20['DXY']:.2f}) -> [ACTION: CASH-OUT]")
+    def fetch_world_bank_data(self) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """Cập nhật dữ liệu từ World Bank với cơ chế chống nghẽn Timeout.
 
-    if 'USD_VND' in latest_vals.index:
-        if latest_vals['USD_VND'] > latest_ma20['USD_VND'] * 1.005:
-            alerts.append(f"RED ALERT: [L1] FX TENSION: {latest_vals['USD_VND']:,.0f} > MA20 ({latest_ma20['USD_VND']:,.0f}) -> [ACTION: CASH-OUT]")
+        Sử dụng Retry Adapter với exponential backoff để tránh spam API
+        khi server trả về lỗi 5xx (Rate Limit / Server Error).
+        """
+        url = "https://api.worldbank.org/v2/country/VN/indicator/NY.GDP.MKTP.CD?format=json"
+        session = self._get_resilient_session()
+        try:
+            response = session.get(url, timeout=self.timeout_fast)
+            response.raise_for_status()
+            data = response.json()
+            return {"gdp_raw": data}, False
+        except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+            logger.error(f"[NETWORK_TIMEOUT] World Bank API không phản hồi: {str(e)}")
+            return None, True
 
-    # ⚠️ RUI RO L2: BTC & GOLD (Stop-Buy Sensors + Cognitive)
-    if 'BTC' in latest_vals.index:
-        if latest_vals['BTC'] < latest_ma20['BTC'] * 0.90:
-            alerts.append(f"WARNING: [L2] BTC CRASH: {latest_vals['BTC']:,.0f} < 90% MA20 ({latest_ma20['BTC']:,.0f}) -> [ACTION: STOP-BUY]")
-        elif latest_vals['BTC'] > latest_ma20['BTC'] * 1.10:
-            alerts.append(f"INFO: [L2] BTC PUMP: {latest_vals['BTC']:,.0f} > 110% MA20 ({latest_ma20['BTC']:,.0f}) -> [WATCH: RISK-ON]")
+    def fetch_yf_macro_sensor(self, ticker: str) -> Tuple[Optional[pd.DataFrame], bool]:
+        """Cập nhật cảm biến vĩ mô từ Yahoo Finance với cấu hình cô lập luồng.
 
-    gold_regime = analyze_gold_regime()
-    gold_signals = gold_regime.get("signals", {})
-    gold_latest = latest_vals.get('GOLD_XAU', 0)
-    gold_ma = latest_ma20.get('GOLD_XAU', 0) if 'GOLD_XAU' in latest_ma20.index else 0
+        Tiêm trực tiếp session resilient (đã cấu hình Retry 5xx, loại trừ 429)
+        vào yfinance. Khi phát hiện HTTP 429 Rate Limit, ném RateLimitException
+        để kích hoạt gián đoạn khẩn cấp sang Proxy Sensor T-1 ngay lập tức,
+        không bao giờ retry trong cùng một phiên chạy để bảo vệ IP.
+        """
+        try:
+            session = self._get_resilient_session()
+            ticker_obj = yf.Ticker(ticker, session=session)
+            df = ticker_obj.history(period="5d", timeout=self.timeout_standard)
 
-    if gold_signals.get("above_ma20_5pct", False):
-        velocity = gold_regime.get("velocity", 0)
-        spread = gold_regime.get("spread_pressure", 0)
-        label = gold_regime.get("gold_regime", "NEUTRAL")
-        if spread > 0.4:
-            alerts.append(f"⚠️ [L2] GOLD SPIKE + SPREAD MỞ RỘNG: ${gold_latest:.2f} > 105% MA20 | velocity={velocity:.2f} spread={spread:.2f} -> [ACTION: STOP-BUY | EPISTEMIC: DEFENSIVE]")
-        else:
-            alerts.append(f"⚠️ [L2] GOLD SPIKE: ${gold_latest:.2f} > 105% MA20 ({gold_ma:.2f}) | regime={label} -> [ACTION: STOP-BUY]")
-    elif gold_signals.get("velocity_high", False):
-        alerts.append(f"INFO: [L2] GOLD VELOCITY CAO: velocity={gold_regime.get('velocity', 0):.2f} -> [WATCH]")
+            # 429 detection via yfinance shared errors dict (no try/except needed)
+            if ticker in yf.shared._ERRORS:
+                err_val = str(yf.shared._ERRORS[ticker])
+                if "429" in err_val or "too many requests" in err_val.lower():
+                    logger.error("[RATE_LIMIT] Phát hiện HTTP 429 cho %s. Ngắt kết nối khẩn cấp, chuyển sang T-1.", ticker)
+                    return self._get_t_minus_one_fallback(ticker)
 
-    # Gold regime summary
-    if gold_regime.get("macro_bias") == "DEFENSIVE":
-        scenarios = gold_regime.get("signals", {})
-        if scenarios.get("spread_pressure_high"):
-            alerts.append("INFO: [GOLD] Phòng thủ + spread mở rộng — liquidity distortion đang hình thành")
+            if df.empty or "Close" not in df.columns:
+                logger.warning("[SENSOR_WARNING] %s: dữ liệu trả về trống hoặc thiếu cột Close.", ticker)
+                return self._get_t_minus_one_fallback(ticker)
 
-    # Domestic Premium sensor
-    try:
-        premium = analyze_domestic_premium()
-        p_regime = premium.get("premium_regime", "PREMIUM_NORMAL")
-        p_pct = premium.get("premium_pct", 0)
-        if p_regime == "PREMIUM_SURGE":
-            alerts.append(f"⚠️ [GOLD] PREMIUM SURGE: +{p_pct}% — Cầu trú ẩn nội địa cực mạnh, méo mó thanh khoản")
-        elif p_regime == "PREMIUM_ELEVATED":
-            alerts.append(f"INFO: [GOLD] Premium tăng: +{p_pct}% — Tâm lý phòng thủ nội địa")
-        elif p_regime == "PREMIUM_DISCOUNT":
-            alerts.append(f"INFO: [GOLD] Premium âm: {p_pct}% — Vàng trong nước rẻ hơn thế giới, tâm lý ổn định")
-    except Exception:
-        pass
-
-    # KẾT LUẬN: Chỉ in nếu có Alert
-    if alerts:
-        print("\n" + "!"*60)
-        print("HỘI ĐỒNG VĨ MÔ: BÁO ĐỘNG ĐỎ (MACRO EXCEPTIONS)")
-        print("!"*60)
-        for msg in alerts:
-            print(msg)
-        print("!"*60 + "\n")
-    else:
-        # Nếu im lặng, in một dòng nhỏ để biết hệ thống vẫn đang Sentinel
-        # (Theo yêu cầu 'Im lặng là Vàng' nhứng vẫn cần nhịp thở)
-        pass
-
-if __name__ == "__main__":
-    check_macro_exceptions()
-
+            return df, False
+        except RateLimitException:
+            logger.error("[RATE_LIMIT] Phát hiện HTTP 429 cho %s. Ngắt kết nối khẩn cấp, chuyển sang T-1.", ticker)
+            return self._get_t_minus_one_fallback(ticker)
+        except Exception as e:
+            logger.error("[SENSOR_ERROR] Lỗi kết nối cảm biến %s: %s", ticker, str(e))
+            return self._get_t_minus_one_fallback(ticker)

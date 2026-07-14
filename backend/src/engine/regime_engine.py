@@ -26,8 +26,8 @@ PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import get_connection
 
 
-def _calc_adx(df, period=14):
-    """Calculates ADX for a given OHLCV DataFrame."""
+def _calc_adx_dmi(df, period=14):
+    """Calculates ADX, +DI, -DI for DMI-based trend analysis."""
     df = df.copy()
     plus_dm = df['high'].diff()
     minus_dm = -df['low'].diff()
@@ -45,7 +45,7 @@ def _calc_adx(df, period=14):
     minus_di = 100 * (pd.Series(minus_dm).rolling(period).mean() / atr)
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
     adx = dx.rolling(period).mean()
-    return adx
+    return adx, plus_di, minus_di
 
 def _ll(label: str, lang_mode: str = "compact") -> str:
     """Localize label if mode is not compact. Lazy import avoids circular deps."""
@@ -152,20 +152,28 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     df_idx['date'] = pd.to_datetime(df_idx['date'], format='mixed')
     df_idx['ma200'] = df_idx['close'].rolling(200).mean()
     df_idx['ma50'] = df_idx['close'].rolling(50).mean()
-    df_idx['adx'] = _calc_adx(df_idx)
+    df_idx['ma20'] = df_idx['close'].rolling(20).mean()
+    df_idx['adx'], df_idx['plus_di'], df_idx['minus_di'] = _calc_adx_dmi(df_idx)
     latest_idx = df_idx.iloc[-1]
 
-    # MA50 Slope (current vs 5 days ago)
+    # Multi-timeframe position matrix: 40% short(MA20) + 30% medium(MA50) + 30% secular(MA200)
+    t_short = 1.0 if latest_idx['close'] > latest_idx['ma20'] else 0.0
+    t_medium = 1.0 if latest_idx['close'] > latest_idx['ma50'] else 0.0
+    t_long = 1.0 if latest_idx['close'] > latest_idx['ma200'] else 0.0
+    t_base = 0.4 * t_short + 0.3 * t_medium + 0.3 * t_long
+
+    # DMI Penalty: ADX < 20 (low momentum) AND (DMI- − DMI+) > 2.0 (hysteresis band)
+    #   → hair-cut 50%: e.g. 0.60 → 0.30, forces regime into CORRECTING not RANGING
+    #   Band > 2.0 eliminates whipsaw false signals when vectors entangle in low liquidity
+    minus_di_val = float(latest_idx['minus_di']) if not np.isnan(latest_idx['minus_di']) else 0.0
+    plus_di_val = float(latest_idx['plus_di']) if not np.isnan(latest_idx['plus_di']) else 0.0
+    dmi_penalty = bool(latest_idx['adx'] < 20 and (minus_di_val - plus_di_val) > 2.0)
+    t_score = t_base * 0.5 if dmi_penalty else t_base
+
+    # MA50 Slope — diagnostic only (not in T-Score computation)
     ma50_today = latest_idx['ma50']
     ma50_5d_ago = df_idx['ma50'].iloc[-6] if len(df_idx) >= 6 else ma50_today
     ma50_slope = ma50_today - ma50_5d_ago
-
-    # Trend Score: still discrete (3-state) — MA200 crossing is a structural binary gate
-    # ADX sub-level uses 0.6 to preserve the partial-trend signal when above MA200 but low momentum
-    if latest_idx['close'] > latest_idx['ma200']:
-        t_score = 1.0 if latest_idx['adx'] > 20 else 0.6
-    else:
-        t_score = 0.0
 
     # 3. V-Score (Volatility): 20% Weight
     tr = pd.concat([
@@ -223,22 +231,63 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     # EMA formula: RS_smoothed = alpha * RS_raw + (1 - alpha) * RS_prev
     regime_score = (ema_alpha * regime_score_raw) + ((1.0 - ema_alpha) * prev_smoothed)
 
-    # Status classification applied to the SMOOTHED score
+    # ── Momentum Velocity: 5D & 10D Rate of Change (Z-Score) ──
+    velocity_penalty = 0.0
+    momentum = {}
+    try:
+        close_series = df_idx['close']
+        roc_5d = (close_series.iloc[-1] / close_series.iloc[-6] - 1) * 100 if len(close_series) >= 6 else 0.0
+        roc_10d = (close_series.iloc[-1] / close_series.iloc[-11] - 1) * 100 if len(close_series) >= 11 else 0.0
+
+        # Z-Score of 5D ROC (60-session rolling window)
+        roc_5d_series = close_series.pct_change(5) * 100
+        roc_5d_mean = float(roc_5d_series.rolling(60).mean().iloc[-1]) if len(close_series) >= 65 else 0.0
+        roc_5d_std = float(roc_5d_series.rolling(60).std().iloc[-1]) if len(close_series) >= 65 else 1.0
+        roc_5d_z = (roc_5d - roc_5d_mean) / roc_5d_std if roc_5d_std > 0 else 0.0
+
+        roc_10d_series = close_series.pct_change(10) * 100
+        roc_10d_mean = float(roc_10d_series.rolling(60).mean().iloc[-1]) if len(close_series) >= 70 else 0.0
+        roc_10d_std = float(roc_10d_series.rolling(60).std().iloc[-1]) if len(close_series) >= 70 else 1.0
+        roc_10d_z = (roc_10d - roc_10d_mean) / roc_10d_std if roc_10d_std > 0 else 0.0
+
+        momentum = {
+            "roc_5d": round(roc_5d, 2),
+            "roc_10d": round(roc_10d, 2),
+            "roc_5d_z": round(roc_5d_z, 2),
+            "roc_10d_z": round(roc_10d_z, 2),
+        }
+
+        # Velocity penalty: gamma * clamp(|roc_5d| * 0.01, 0, 0.20) when roc_5d negative
+        #   e.g. -3.7% drop → penalty = 1.0 * 0.037 = 0.037
+        #   Absolute bounding: final_raw_score = max(0.0, min(1.0, base_score - penalty))
+        if roc_5d < 0:
+            gamma = 1.0
+            velocity_penalty = gamma * max(0.0, min(0.20, abs(roc_5d) / 100.0))
+            regime_score = max(0.0, min(1.0, regime_score - velocity_penalty))
+    except Exception:
+        pass
+
+    # Status classification applied to the ADJUSTED smoothed score
     status = "TRENDING" if regime_score > 0.65 else "RANGING" if regime_score >= 0.35 else "CRISIS"
 
-    # [RAD] Regime Acceleration Detector — override layer
-    # Detects phase transition BEFORE EMA catches up
+    # [RAD v3] Regime Acceleration Detector — Dynamic Scoring via RPA
+    # Risk Points Accumulation (RPA): each signal contributes 1 point.
+    # Threshold ≥ 2 → override CRISIS_WARNING. Gold is separate Black Swan flag.
     rad = {"activated": False, "override_status": None, "signals": {}}
     try:
         idx_len = len(df_idx)
         if idx_len >= 10:
-            # ΔADX = ADX_today - ADX_{t-3} (find ~3 trading days back)
             lookback = min(4, idx_len - 2)
             adx_today = float(latest_idx['adx'])
             adx_t3 = float(df_idx['adx'].iloc[-1 - lookback])
             delta_adx = adx_today - adx_t3
 
-            # v_breadth = (breadth_today - breadth_prev) / 3 (fixed 3-day lookback per spec)
+            # DMI lead: phe bán (DMI-) đang kiểm soát?
+            minus_di_val = float(latest_idx['minus_di']) if not np.isnan(latest_idx['minus_di']) else 0.0
+            plus_di_val = float(latest_idx['plus_di']) if not np.isnan(latest_idx['plus_di']) else 0.0
+            dmi_lead_bears = bool(minus_di_val > plus_di_val)
+
+            # v_breadth: breadth velocity (3-session lookback)
             with get_connection() as conn:
                 if target_date:
                     df_b = pd.read_sql(
@@ -250,10 +299,36 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
                         "SELECT date, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1",
                         conn
                     )
-            breadth_prev = float(df_b['breadth_pct'].iloc[0]) if not df_b.empty else breadth_pct
-            v_breadth = (breadth_pct - breadth_prev) / 3
+            breadth_prev = float(df_b['breadth_pct'].iloc[0]) if not df_b.empty else (breadth_pct or 0)
+            v_breadth = ((breadth_pct or 0) - breadth_prev) / 3
 
-            # Gold premium (stress signal)
+            # DXY rate of change — macro stress signal
+            dxy_roc = None
+            try:
+                with get_connection() as conn:
+                    df_dxy = pd.read_sql(
+                        "SELECT date, value FROM macro_history WHERE variable='DXY' ORDER BY date DESC LIMIT 6",
+                        conn
+                    )
+                if len(df_dxy) >= 6:
+                    dxy_today = float(df_dxy['value'].iloc[0])
+                    dxy_5d = float(df_dxy['value'].iloc[-1])
+                    dxy_roc = ((dxy_today / dxy_5d) - 1) * 100
+            except Exception:
+                pass
+
+            # Asia cross-asset rotation — spectral signal from Phase 4
+            rotation_angle = None
+            try:
+                from src.services.macro.time_series_aligner import TimeSeriesAligner
+                tsa = TimeSeriesAligner()
+                rotation = tsa.compute_asia_rotation()
+                if rotation and isinstance(rotation, dict):
+                    rotation_angle = rotation.get("rotation_angle_deg")
+            except Exception:
+                pass
+
+            # Gold premium — Black Swan flag, DOES NOT count toward RPA total
             gold_premium = None
             try:
                 sys.path.insert(0, str(PROJECT_ROOT))
@@ -263,19 +338,44 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             except Exception:
                 pass
 
+            # ── Risk Points Accumulation ──
+            risk_points = 0
+            rpa_signals = {}
+
+            rpa_signals["v_breadth_crash"] = v_breadth < -3
+            if rpa_signals["v_breadth_crash"]:
+                risk_points += 1
+
+            rpa_signals["delta_adx_surge"] = bool(delta_adx > 5 and dmi_lead_bears)
+            if rpa_signals["delta_adx_surge"]:
+                risk_points += 1
+
+            rpa_signals["asia_rotation_surge"] = rotation_angle is not None and rotation_angle > 45
+            if rpa_signals["asia_rotation_surge"]:
+                risk_points += 1
+
+            rpa_signals["dxy_stress"] = dxy_roc is not None and dxy_roc > 1
+            if rpa_signals["dxy_stress"]:
+                risk_points += 1
+
+            rpa_signals["black_swan_gold"] = gold_premium is not None and gold_premium > 3
+
             rad["signals"] = {
                 "delta_adx": round(delta_adx, 2),
                 "v_breadth": round(v_breadth, 2),
+                "dmi_lead_bears": dmi_lead_bears,
+                "dxy_roc_pct": round(dxy_roc, 2) if dxy_roc is not None else None,
+                "rotation_angle": round(rotation_angle, 1) if rotation_angle is not None else None,
                 "gold_premium": gold_premium,
+                "rpa": rpa_signals,
+                "risk_points": risk_points,
             }
 
-            # TRANSITION_DOWN_SHOCK: ΔADX > 5 AND v_breadth < -3 AND gold_premium > 3
-            if (delta_adx > 5.0 and v_breadth < -3.0
-                    and gold_premium is not None and gold_premium > 3.0):
+            if risk_points >= 2:
                 status = "CRISIS_WARNING"
                 rad["activated"] = True
                 rad["override_status"] = "CRISIS_WARNING"
-                rad["reason"] = "TRANSITION_DOWN_SHOCK"
+                rad["reason"] = f"RPA≥2 (points={risk_points})"
     except Exception:
         pass
 
@@ -285,6 +385,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         "status": status,
         "regime_score_raw": round(regime_score_raw, 4),
         "ema_alpha": round(ema_alpha, 4),
+        "velocity_penalty": round(velocity_penalty, 4),
         "rad": rad,
         "details": {
             "b_score": round(b_score, 4) if b_score is not None else None,
@@ -292,12 +393,19 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             "breadth_std_10d": round(breadth_std_10d, 2),
             "breadth_momentum": round(breadth_momentum, 1),
             "t_score": round(t_score, 4),
+            "t_short": round(t_short, 1),
+            "t_medium": round(t_medium, 1),
+            "t_long": round(t_long, 1),
+            "dmi_penalty": dmi_penalty,
+            "dmi_hysteresis": round(minus_di_val - plus_di_val, 2) if dmi_penalty else None,
             "vnindex_vs_ma200": "ABOVE" if latest_idx['close'] > latest_idx['ma200'] else "BELOW",
             "vnindex_vs_ma50": "ABOVE" if latest_idx['close'] > latest_idx['ma50'] else "BELOW",
+            "vnindex_vs_ma20": "ABOVE" if latest_idx['close'] > latest_idx['ma20'] else "BELOW",
             "ma50_slope": round(ma50_slope, 2),
             "adx": round(latest_idx['adx'], 1),
             "v_score": round(v_score, 4),
             "atr_ratio": round(atr_ratio, 4),
+            "momentum": momentum,
         }
     }
 
@@ -309,6 +417,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     le = _ll("EMA Alpha", lang_mode)
     lp = _ll("Prev Smoothed", lang_mode)
     ls = _ll("SMOOTHED REGIME SCORE", lang_mode)
+    lm = _ll("Momentum(5D/10D)", lang_mode)
     # Compute dynamic column width for alignment
     labels = [lb, lt, lv, lr]
     max_w = max(len(l) for l in labels)
@@ -316,10 +425,18 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         print(f"  {lb:{max_w}s} {b_score:.4f} ({breadth_pct:.1f}%)")
     else:
         print(f"  {lb:{max_w}s} BREADTH_SUSPENDED (no data for {current_date.date()})")
-    print(f"  {lt:{max_w}s} {t_score:.4f} (VNINDEX {verdict['details']['vnindex_vs_ma200']}, ADX: {verdict['details']['adx']})")
+    print(f"  {lt:{max_w}s} {t_score:.4f} (MA20/50/200: {t_short:.0f}/{t_medium:.0f}/{t_long:.0f}, ADX: {latest_idx['adx']:.1f})")
+    if dmi_penalty:
+        print(f"  DMI HAIRCUT        ACTIVE (ADX<20, DMI--DMI+>2.0, T halved {t_base:.3f}->{t_score:.3f})")
     print(f"  {lv:{max_w}s} {v_score:.4f} (ATR Ratio: {atr_ratio:.4f})")
     print(f"  {lr:{max_w}s} {regime_score_raw:.4f}")
     print(f"  {le:{max_w}s} {ema_alpha:.4f}  |  {lp}: {prev_smoothed:.4f}")
+    if momentum:
+        print(f"  {lm:{max_w}s} {momentum.get('roc_5d','?'):>6}%/{momentum.get('roc_10d','?'):>6}%  Z:{momentum.get('roc_5d_z','?'):>5.1f}/{momentum.get('roc_10d_z','?'):>5.1f}")
+    if velocity_penalty > 0:
+        print(f"  VELOCITY PENALTY   -{velocity_penalty:.4f}")
+    if rad.get("activated"):
+        print(f"  ⚠ RAD OVERRIDE    {rad.get('reason','')} (risk_points={rad['signals'].get('risk_points',0)})")
     print("-" * 30)
     flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
     print(f"{flag} {ls}: {regime_score:.4f} -> {status}")

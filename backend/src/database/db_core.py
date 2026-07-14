@@ -122,7 +122,19 @@ def optimize_sqlite_engine():
                 variable TEXT NOT NULL,
                 date TEXT NOT NULL,
                 value REAL,
+                is_stale INTEGER DEFAULT 0,
                 PRIMARY KEY (variable, date)
+            )
+        """)
+
+        # 6b. TẠO BẢNG SỨC KHỎE HỆ THỐNG (System Health Ledger cho Governor Engine)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_health (
+                component TEXT NOT NULL,
+                status TEXT NOT NULL,
+                last_error TEXT,
+                updated_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (component)
             )
         """)
 

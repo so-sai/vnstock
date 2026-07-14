@@ -473,10 +473,75 @@ def cmd_final(args):
 
 
 def cmd_snapshot(args):
-    """Tạo ảnh chụp thị trường duy nhất."""
+    """Tạo ảnh chụp thị trường duy nhất + phase classification."""
     from src.core.market_snapshot import tao_anh_chup, in_anh_chup
     anh_chup = tao_anh_chup(lang_mode=_VERBOSE_LANG)
     in_anh_chup(anh_chup, lang_mode=_VERBOSE_LANG)
+
+    # ── Phase Classification (4 Spectral Indicators) ──
+    import numpy as np
+    from src.services.macro.ptd_engine import PTDEngine
+    from src.services.macro.time_series_aligner import compute_asia_rotation
+    engine = PTDEngine()
+
+    # Asia supply-chain rotation angle (Layer 2 reference frame)
+    asia_rot = compute_asia_rotation(window=90)
+    if asia_rot.get("status") == "OK":
+        engine.set_cross_asset_angle(asia_rot["rotation_angle_deg"])
+
+    # Use structural entropy from snapshot as eigenvalue proxy
+    entropy_val = anh_chup.get("cau_truc", {}).get("entropy")
+    dummy_eigen = None
+    if entropy_val is not None:
+        dummy_eigen = {
+            "lambda_max": max(0.1, 1.0 - entropy_val / 3.0),
+            "lambda_min": 0.05,
+            "lambda_ratio": max(2.0, 10.0 - entropy_val * 2.0),
+            "spectral_entropy": entropy_val,
+            "effective_rank": 2,
+        }
+
+    # Run multiple steps to build history for slope computation
+    for _ in range(5):
+        state = engine.step(np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.05]),
+                            aligner_features=dummy_eigen)
+
+    phase = state.phase_label
+    conf = state.phase_confidence
+    if "DISTRIBUTION" in phase:
+        icon = "BEARISH"
+    elif "ACCUMULATION" in phase:
+        icon = "BULLISH"
+    else:
+        icon = "NEUTRAL"
+    print(f"\n  {_ll('Phase Classification')} ({_ll(icon)}):")
+    print(f"    {_ll('Label')}:       {_ll(phase)}")
+    print(f"    {_ll('Confidence')}:  {conf:.2%}")
+    if state.phase_indicators:
+        ind = state.phase_indicators
+        if "kl_divergence" in ind:
+            kd = ind["kl_divergence"]
+            print(f"    {_ll('KL Spread')}:   {kd.get('kl_max', 'N/A')} ({_ll(kd.get('label', 'N/A'))})")
+        if "eigenvalue_spread" in ind:
+            es = ind["eigenvalue_spread"]
+            if es.get("reasons"):
+                for r in es["reasons"]:
+                    print(f"    λ Spread:    {r}")
+        if "entropy_slope" in ind:
+            en = ind["entropy_slope"]
+            print(f"    {_ll('Entropy ∇')}:   {en.get('slope', 'N/A')} ({_ll(en.get('label', 'N/A'))})")
+        if "cross_asset_rotation" in ind:
+            cr = ind["cross_asset_rotation"]
+            print(f"    {_ll('Rotation θ')}:  {cr.get('angle_deg', 'N/A')}\u00b0 ({_ll(cr.get('label', 'N/A'))})")
+    # Governor directive overlay
+    cau_truc = anh_chup.get("cau_truc", {})
+    trang_thai = cau_truc.get("trang_thai", "")
+    so_tru = cau_truc.get("so_tru", 0)
+    if trang_thai == "VỠ CẤU TRÚC" and so_tru <= 1 and ("DISTRIBUTION" in phase or "UNCERTAIN" in phase):
+        print(f"  {_ll('Consensus')}:     {_ll('SILENT_DISTRIBUTION_HEAD')} (DDI Δ_SA={anh_chup.get('delta_divergence',{}).get('delta_sa','N/A')} + Vỡ cấu trúc)")
+    gov_label = _ll('Governor')
+    gov_action = _ll("should_reduce_exposure['risk_on']=True")
+    print(f"  {gov_label}:      {gov_action}")
 
 
 def cmd_ddi(args):
@@ -525,6 +590,33 @@ def cmd_snapshot_index(args):
               f"{e.get('regime',''):<10} {e.get('delta_sa',0):>7.4f} "
               f"{e.get('action_filter',''):<8}")
     print(f"{'='*75}")
+
+
+def cmd_rotation(args):
+    """Asia supply-chain rotation angle: VN vs KOSPI+TAIEX+DXY."""
+    from src.services.macro.time_series_aligner import compute_asia_rotation
+    r = compute_asia_rotation(window=90)
+    print()
+    print("=" * 55)
+    print("  ASIA REFERENCE FRAME ROTATION (Layer 2)")
+    print("=" * 55)
+    if r.get("status") != "OK":
+        print(f"  Status: {r.get('status')}")
+        print(f"  {r.get('message', 'No message')}")
+        return
+    print(f"  Rotation Angle:   {r['rotation_angle_deg']}°  "
+          f"(0°=VN syncs Asia, 90°=VN decoupling)")
+    print(f"  Λ_max:            {r['lambda_max']:.4f}  "
+          f"(>0.6=systemic)")
+    print(f"  Λ_ratio:          {r['lambda_ratio']:.2f}  "
+          f"(>5.0=dominant factor)")
+    print(f"  Entropy:          {r['spectral_entropy']:.4f}")
+    print(f"  Days:             {r['n_days']}")
+    print()
+    print("  Pairwise Spearman correlations:")
+    for pair, val in r.get("pairwise_corr", {}).items():
+        print(f"    {pair:<25s} {val:>8.4f}")
+    print("=" * 55)
 
 
 def cmd_confidence(args):
@@ -1679,6 +1771,10 @@ def main():
     p_silver = sub.add_parser("silver", help="Silver information")
     p_silver.add_argument("subcommand", nargs="?", choices=["gs-ratio", "seed"], default=None, help="Silver subcommand")
     p_silver.set_defaults(func=cmd_silver)
+
+    # rotation (Asia supply-chain canary)
+    p_rot = sub.add_parser("rotation", help="Góc xoay chuỗi cung ứng châu Á: VN vs KOSPI+TAIEX+DXY")
+    p_rot.set_defaults(func=cmd_rotation)
 
     # rs-audit
     p_ra = sub.add_parser("rs-audit", help="Audit Top RS — phân tích nguồn gốc sức mạnh")

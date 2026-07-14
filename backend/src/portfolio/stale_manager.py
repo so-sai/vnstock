@@ -4,6 +4,15 @@ FIFO: Mỗi campaign cũ là một lớp chi phí riêng, không gộp giá vố
 Write-off LIFO: Campaign mới nhất thanh lý trước.
 Escrow Cache: Mọi proceeds bị giam đến khi lock gỡ.
 Persistence Lock: system_state.json — reboot không unlock.
+
+SUB-LEDGER ACCOUNTING SEPARATION (2026-07-09):
+  PTD frozen surplus (source="PTD_RISK_ON_SURPLUS") is tracked as a Special
+  Escrow Sub-ledger. It participates in escrow_balance for information display
+  ONLY. It is STRICTLY EXCLUDED from:
+    - total_stale_pct (computed purely from StaleLayer.stale_pct)
+    - hard_shutdown (derived from total_stale_pct)
+    - _lock_state / _unlock_state (triggered by stale layer thresholds)
+  This ensures portfolio risk metrics reflect actual Margin pressure.
 """
 
 import json
@@ -37,10 +46,11 @@ class StaleLayer:
 
 @dataclass
 class EscrowEntry:
-    source: str       # "writeoff" | "dividend" | "rights"
+    source: str       # "writeoff" | "dividend" | "rights" | "PTD_RISK_ON_SURPLUS"
     campaign_id: str
     amount: float
     description: str = ""
+    frozen: bool = False  # PTD surplus frozen until governor unlocks
 
 
 class StalePositionManager:
@@ -79,7 +89,8 @@ class StalePositionManager:
             ],
             "escrow": [
                 {"source": e.source, "campaign_id": e.campaign_id,
-                 "amount": e.amount, "description": e.description}
+                 "amount": e.amount, "description": e.description,
+                 "frozen": e.frozen}
                 for e in self._escrow
             ],
             "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -180,7 +191,58 @@ class StalePositionManager:
         self._save()
         return {"source": source, "amount": round(amount, 2), "escrow_balance": self.escrow_balance}
 
+    # ── PTD Surplus Escrow ────────────────────────────────
+
+    def ingest_ptd_surplus(self, amount: float) -> dict:
+        """Record surplus from PTD risk_on_scalar penalty into frozen escrow."""
+        amount = max(0.0, amount)
+        if amount < 1e-6:
+            return {"source": "PTD_RISK_ON_SURPLUS", "amount": 0.0}
+
+        self._escrow.append(EscrowEntry(
+            source="PTD_RISK_ON_SURPLUS",
+            campaign_id=f"PTD_{len(self._escrow) + 1:04d}",
+            amount=amount,
+            description="Surplus frozen by PTD risk_on_scalar penalty",
+            frozen=True,
+        ))
+        update_escrow(self.escrow_balance)
+        self._save()
+        return {"source": "PTD_RISK_ON_SURPLUS", "amount": round(amount, 2),
+                "total_frozen": self.ptd_frozen_surplus}
+
+    def release_ptd_escrow(self) -> float:
+        """Release all frozen PTD surplus when governor confirms safety.
+
+        Returns total amount unfrozen.
+        """
+        released = 0.0
+        for e in self._escrow:
+            if e.source == "PTD_RISK_ON_SURPLUS" and e.frozen:
+                e.frozen = False
+                released += e.amount
+        if released > 0:
+            update_escrow(self.escrow_balance)
+            self._save()
+        return round(released, 2)
+
+    @property
+    def ptd_frozen_surplus(self) -> float:
+        return round(sum(e.amount for e in self._escrow
+                         if e.source == "PTD_RISK_ON_SURPLUS" and e.frozen), 2)
+
+    @property
+    def ptd_releasable(self) -> float:
+        return round(sum(e.amount for e in self._escrow
+                         if e.source == "PTD_RISK_ON_SURPLUS" and not e.frozen), 2)
+
     # ── Properties ────────────────────────────────────────
+
+    # ── Sub-ledger Accounting Separation ──────────────────
+    # PTD frozen surplus (source="PTD_RISK_ON_SURPLUS") is tracked in a
+    # Special Escrow Sub-ledger. It is excluded from total_stale_pct,
+    # hard_shutdown, and critical lock calculations. The properties below
+    # operate exclusively on StaleLayer (physical position layers).
 
     @property
     def total_stale_pct(self) -> float:
@@ -198,6 +260,15 @@ class StalePositionManager:
     def stale_pcts(self) -> list[float]:
         return [l.stale_pct for l in self._layers if l.status == "STALE"]
 
+    @property
+    def sub_ledger_ptd(self) -> dict:
+        """Return full sub-ledger state for audit."""
+        return {
+            "frozen": self.ptd_frozen_surplus,
+            "releasable": self.ptd_releasable,
+            "total": round(self.ptd_frozen_surplus + self.ptd_releasable, 2),
+        }
+
     def status(self) -> dict:
         return {
             "total_layers": len(self._layers),
@@ -205,6 +276,8 @@ class StalePositionManager:
             "stale_pcts": self.stale_pcts,
             "total_stale_pct": self.total_stale_pct,
             "escrow_balance": self.escrow_balance,
+            "ptd_frozen_surplus": self.ptd_frozen_surplus,
+            "ptd_releasable": self.ptd_releasable,
             "hard_shutdown": self.hard_shutdown,
             "critical_lock": self.hard_shutdown,
         }

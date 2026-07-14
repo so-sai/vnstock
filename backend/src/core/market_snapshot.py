@@ -182,7 +182,44 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
         },
     }
 
-    # ── Bước 6: Delta Divergence Index (DDI) ──
+    # ── Bước 6: Asia Supply-chain Rotation (Layer 2 Reference Frame) ──
+    try:
+        from src.services.macro.time_series_aligner import compute_asia_rotation
+        asia_rot = compute_asia_rotation()
+        if asia_rot.get("status") == "OK":
+            anh_chup["asia_rotation"] = {
+                "angle_deg": asia_rot["rotation_angle_deg"],
+                "lambda_max": asia_rot["lambda_max"],
+                "lambda_ratio": asia_rot["lambda_ratio"],
+                "spectral_entropy": asia_rot["spectral_entropy"],
+                "n_days": asia_rot["n_days"],
+                "pairwise_corr": asia_rot.get("pairwise_corr", {}),
+                "stale_accumulated": asia_rot.get("stale_accumulated", 0),
+                "covariance_inflated": asia_rot.get("covariance_inflated", False),
+            }
+            # Nếu Covariance đã bị lạm phát → gửi tín hiệu hạ governor_confidence
+            if asia_rot.get("covariance_inflated"):
+                try:
+                    from src.services.macro.market_macro_coordinator import MarketMacroCoordinator
+                    coordinator = MarketMacroCoordinator()
+                    coordinator.set_governor_confidence(0.0)
+                    anh_chup["governor_confidence"] = 0.0
+                except Exception:
+                    pass
+        else:
+            anh_chup["asia_rotation"] = {
+                "angle_deg": None,
+                "status": asia_rot.get("status", "ERROR"),
+                "message": asia_rot.get("message", ""),
+            }
+    except Exception as exc:
+        anh_chup["asia_rotation"] = {
+            "angle_deg": None,
+            "status": "ERROR",
+            "message": str(exc),
+        }
+
+    # ── Bước 7: Delta Divergence Index (DDI) ──
     from src.alpha.delta_divergence import DeltaDivergenceIndex
     try:
         ddi = DeltaDivergenceIndex().calculate(anh_chup)
@@ -245,7 +282,7 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     ew = anh_chup.get("canh_bao_som", {})
 
     # Dynamic column auto-fit: compute max localized label width
-    labels = ["Regime", "ADX", "Độ rộng", "ATR ratio", "Entropy", "Cảnh báo sớm"]
+    labels = ["Regime", "ADX", "Độ rộng", "ATR ratio", "Entropy", "Cảnh báo sớm", "Cấu trúc", "Asia θ"]
     max_w = max(len(_ll(label, lang_mode)) for label in labels)
 
     print("\n" + "=" * 55)
@@ -254,7 +291,8 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     print(f"  Ngày: {anh_chup.get('ngay', 'N/A')}")
     print(f"  Tạo lúc: {anh_chup.get('thoi_gian_tao', 'N/A')}")
     print()
-    print(f"  {_ll('Regime', lang_mode):{max_w}s} {r.get('trang_thai', 'N/A')} ({r.get('diem_so', 0):.2f})")
+    regime_raw = r.get('trang_thai', 'N/A')
+    print(f"  {_ll('Regime', lang_mode):{max_w}s} {_ll(regime_raw, lang_mode)} ({r.get('diem_so', 0):.2f})")
     print(f"  {_ll('ADX', lang_mode):{max_w}s} {r.get('adx', 'N/A')}")
     do_rong_raw = r.get('do_rong')
     if do_rong_raw is not None:
@@ -263,10 +301,21 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
         print(f"  {_ll('Độ rộng', lang_mode):{max_w}s} BREADTH_SUSPENDED (đang cập nhật)")
     print(f"  {_ll('ATR ratio', lang_mode):{max_w}s} {r.get('ty_le_atr', 'N/A')}")
     print()
-    print(f"  Cấu trúc:        {c.get('trang_thai', 'N/A')} ({c.get('so_tru', '?')}/3 trụ)")
+    print(f"  {_ll('Cấu trúc', lang_mode):{max_w}s} {_ll(c.get('trang_thai', 'N/A'), lang_mode)} ({c.get('so_tru', '?')}/3 trụ)")
     print(f"  {_ll('Entropy', lang_mode):{max_w}s} {c.get('entropy', 'N/A')}")
+
+    # Asia supply-chain rotation (Layer 2 reference frame)
+    asia_rot = anh_chup.get("asia_rotation", {})
+    if asia_rot.get("angle_deg") is not None:
+        angle = asia_rot["angle_deg"]
+        lmax = asia_rot.get("lambda_max", "?")
+        lrat = asia_rot.get("lambda_ratio", "?")
+        print(f"  {_ll('Asia θ', lang_mode):{max_w}s} {angle}°  (Λ_max={lmax}, Λ_ratio={lrat})")
+
     print()
-    print(f"  {_ll('Cảnh báo sớm', lang_mode):{max_w}s} {ew.get('cap_do', 'N/A')} ({ew.get('diem', 0)}đ)")
+
+    ew_raw = ew.get('cap_do', 'N/A')
+    print(f"  {_ll('Cảnh báo sớm', lang_mode):{max_w}s} {_ll(ew_raw, lang_mode)} ({ew.get('diem', 0)}đ)")
     for cb in ew.get("canh_bao", []):
         print(f"    • {cb}")
 
@@ -275,12 +324,14 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     if ddi:
         ddi_icon = {"pass": "🟢", "caution": "🟡", "block": "🔴"}.get(ddi.get("action_filter"), "⚪")
         print()
-        print(f"  DDI:              {ddi_icon} Δ_SA={ddi.get('delta_sa', 'N/A')}  "
+        ddi_label = _ll('DDI', lang_mode)
+        print(f"  {ddi_label:{max_w}s} {ddi_icon} Δ_SA={ddi.get('delta_sa', 'N/A')}  "
               f"({ddi.get('action_filter', 'N/A')})")
         print(f"    dS/dt={ddi.get('dS_dt', 'N/A')}  AC_lat={ddi.get('ac_latency', 'N/A')}  "
               f"α={ddi.get('alpha_regime', 'N/A')}")
         if ddi.get("healing_illusion"):
-            print("    ⚠ HEALING ILLUSION — stress vượt adaptation")
+            hi_label = _ll('HEALING ILLUSION', lang_mode)
+            print(f"    ⚠ {hi_label} — stress vượt adaptation")
 
     # params_hash
     p_hash = anh_chup.get("params_hash")

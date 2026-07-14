@@ -42,6 +42,7 @@ class MacroStatus(AlphaBaseModel):
     tip_price: Optional[float] = Field(None, description="Giá TIP ETF (iShares TIPS Bond)")
     us_real_yield: Optional[float] = Field(None, description="Lợi suất thực US 10Y (TIPS trailing dividend yield)")
     breakeven_inflation: Optional[float] = Field(None, description="Lạm phát kỳ vọng 10Y (US10Y - US_REAL_YIELD)")
+    macro_stale: bool = Field(False, description="Cờ MACRO_STALE: True khi có bản ghi dữ liệu vĩ mô giả lập (LOCF/Proxy Sensor)")
 
 # 2. Tầng Độ rộng thị trường (Market Breadth)
 class MarketBreadth(AlphaBaseModel):

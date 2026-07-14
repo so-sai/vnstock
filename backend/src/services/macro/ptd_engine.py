@@ -10,6 +10,14 @@ Position sizing penalty (from architectural spec 2026-07-09):
   σ²_mixture = Σ w_i·(σ²_i + μ²_i) - (Σ w_i·μ_i)²
   Penalty = λ · σ²_mixture / (Σ w_i·σ²_i)
   S_effective = S_base / (1 + Penalty)
+
+Hotfix — Escrow Coupling 2026-07-09:
+  Surplus from risk_on_scalar < 1.0 is routed to StalePositionManager
+  as frozen PTD_RISK_ON_SURPLUS escrow (sub-ledger, excluded from
+  total_stale_pct). Release governed by asymmetric hysteresis band:
+    - immediate if confidence > 0.75 AND novelty=False
+    - count-based if confidence > 0.70 AND novelty=False for 3 consecutive sessions
+    - counter resets if novelty appears or confidence drops below 0.70
 """
 
 import logging
@@ -21,6 +29,7 @@ import numpy as np
 from .bp_imm import BPIMM, BP_IMM_Output, GaussianComponent
 from .time_series_aligner import TimeSeriesAligner
 from .phase_transition_detector import PhaseTransitionDetector, NarrativeOutput
+from .market_macro_coordinator import MarketMacroCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +37,9 @@ logger = logging.getLogger(__name__)
 # [Liquidity, Inflation, Growth, Energy, Risk, AI_Capex, Trust]
 N_DRIVERS = 7
 LAMBDA_PENALTY = 1.0  # position sizing penalty scaling
+
+# Hotfix — Escrow Coupling defaults
+RISK_ON_ALLOCATION_PCT = 0.5  # fraction of total capital allocated to risk-on
 
 # ── Driver impact weights per asset class ──
 # Positive value = component with this driver direction hurts the asset class
@@ -59,6 +71,10 @@ class MacroState:
     defensive_scalar: float # position scalar for defensive (Gold/STB@MA50)
     spectral_stress: str
     mixture_moments: dict
+    # Phase classification (2026-07-09: 4 spectral indicators)
+    phase_label: str = "UNCERTAIN"
+    phase_confidence: float = 0.0
+    phase_indicators: Optional[dict] = None
 
 
 class PTDEngine:
@@ -71,12 +87,24 @@ class PTDEngine:
         governor.decide(state)
     """
 
-    def __init__(self, n_drivers: int = N_DRIVERS, n_regimes: int = 4):
+    def __init__(self, n_drivers: int = N_DRIVERS, n_regimes: int = 4,
+                 stale_manager=None, risk_on_pct: float = RISK_ON_ALLOCATION_PCT):
         self.n = n_drivers
         self.aligner = TimeSeriesAligner()
         self.bp_imm = BPIMM(n_drivers=n_drivers, n_regimes=n_regimes)
         self.ptd = PhaseTransitionDetector()
         self._step_count = 0
+        # Hotfix: Escrow Coupling
+        self._stale_mgr = stale_manager
+        self._risk_on_pct = max(0.0, min(1.0, risk_on_pct))
+        self._last_surplus = 0.0
+        self._ptd_escrow_connected = stale_manager is not None
+        # Hysteresis Band — count consecutive sessions with safe confidence
+        self._safe_session_count = 0
+        # Phase classification (4 spectral indicators)
+        self.coordinator = MarketMacroCoordinator()
+        # Asia supply-chain rotation angle (persisted across steps)
+        self._cross_asset_angle: Optional[float] = None
 
     # ── Main Pipeline ─────────────────────────────────────────────────
 
@@ -118,6 +146,38 @@ class PTDEngine:
         # 5. Mixture moments
         moments = self.bp_imm.get_mixture_moments()
 
+        # 5b. Phase classification (4 spectral indicators)
+        phase_result = self.coordinator.update(
+            eigenvalue_data=aligner_features,
+            kl_max=imm_out.max_kl,
+            cross_asset_angle=self._cross_asset_angle,
+        )
+
+        # 6. Hotfix: Escrow Coupling — route surplus / hysteresis band release
+        if self._ptd_escrow_connected:
+            # Route surplus
+            if risk_on_scalar < 1.0:
+                surplus = self._risk_on_pct * self._stale_mgr.total_capital * (1.0 - risk_on_scalar)
+                if surplus > 1.0:
+                    self._stale_mgr.ingest_ptd_surplus(surplus)
+                    logger.info("PTD surplus frozen: %.2f (risk_on_scalar=%.4f)", surplus, risk_on_scalar)
+
+            # Hysteresis Band Unlock
+            if not narrative.novelty_flag and narrative.governor_confidence > 0.70:
+                self._safe_session_count += 1
+            else:
+                self._safe_session_count = 0
+
+            can_release = (not narrative.novelty_flag and (
+                narrative.governor_confidence > 0.75
+                or self._safe_session_count >= 3
+            ))
+            if can_release:
+                released = self._stale_mgr.release_ptd_escrow()
+                if released > 0:
+                    logger.info("PTD escrow released: %.2f (confidence=%.4f, safe_sessions=%d)",
+                                released, narrative.governor_confidence, self._safe_session_count)
+
         return MacroState(
             dominant_narrative=narrative.dominant_narrative,
             narrative_probs=narrative.narrative_probs,
@@ -142,13 +202,29 @@ class PTDEngine:
                 "mean": [round(float(v), 4) for v in moments["mean"]],
                 "n_components": moments["n_components"],
             },
+            phase_label=phase_result.get("phase_label", "UNCERTAIN"),
+            phase_confidence=phase_result.get("confidence", 0.0),
+            phase_indicators=phase_result.get("indicators"),
         )
+
+    def set_cross_asset_angle(self, angle_deg: float) -> None:
+        """Inject cross-asset eigenvector rotation for phase classification.
+
+        Called externally by snapshot pipeline after computing
+        VN+Asia (KOSPI+TAIEX+DXY) leading eigenvector angle.
+        Persisted so step() re-injects it on every call.
+        """
+        self._cross_asset_angle = angle_deg
+        self.coordinator.update(cross_asset_angle=angle_deg)
 
     def reset(self) -> None:
         """Reset engine to initial state."""
         self.bp_imm.reset()
         self.ptd.reset()
+        self.coordinator.reset()
+        self._cross_asset_angle = None
         self._step_count = 0
+        self._safe_session_count = 0
 
     # ── Position Sizing Penalty (Asymmetric Downside Semi-variance) ───
 

@@ -327,7 +327,11 @@ MACRO_TICKERS = {
     'GOLD_XAU': 'GC=F',
     'TIP_PRICE': 'TIP',
     'XAGUSD': 'SI=F',
-    # PTD Phase Transition Detector — added 2026-07-09
+    # Asia supply-chain canary (Layer 2 rotation reference)
+    'KOSPI': '^KS11',
+    'TAIEX': '^TWII',
+    'SHENZHEN': '399001.SZ',
+    # PTD Phase Transition Detector — de-emphasized for Asia-centric ref frame
     'SP500': '^GSPC',
     'NASDAQ': '^IXIC',
     'VIX': '^VIX',
@@ -599,6 +603,28 @@ def run_daily_update(target_date=None, manifest_path=None):
     }
 
     try:
+        logger.info("🌍 Cập nhật cảm biến vĩ mô...")
+        from src.utils.macro_sensors import MacroSensorEngine
+        sensor = MacroSensorEngine(db_path=str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db"))
+
+        macro_df, is_stale = sensor.fetch_world_bank_data()
+        report["macro_stale"] = is_stale
+
+        if is_stale:
+            report["macro_stale_sensors"] = "WorldBank"
+            logger.warning("⚠️ [MACRO_STALE] Mất kết nối API Vĩ mô. Chuyển sang LOCF (T-1).")
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO system_health (component, status, last_error) VALUES (?, ?, ?)",
+                    ('macro_sensors', 'STALE', 'API Timeout/Connection Failed')
+                )
+        else:
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO system_health (component, status, last_error) VALUES (?, ?, ?)",
+                    ('macro_sensors', 'HEALTHY', None)
+                )
+
         # Step 1: Macro Data (yield curve, DXY, gold, TIP, etc.)
         report["macro_rows"] = update_macro_data()
         report["real_yield_rows"] = seed_real_yield()
