@@ -548,6 +548,35 @@ def run_post_update_engines():
         logger.exception("⚠️ Prediction Registry: %s", e)
         record_engine_fault('prediction_registry', str(e))
 
+    # Regime persistence: ghi regime_history cho hôm nay (cập nhật EMA seed)
+    try:
+        from src.engine.regime_engine import detect_regime
+        from src.database.db_core import save_data_upsert
+        import pandas as pd
+        verdict = detect_regime(lang_mode="compact")
+        if verdict and verdict.get('regime_score'):
+            details = verdict.get('details', {})
+            row = {
+                "date": verdict['date'],
+                "regime_score": verdict['regime_score'],
+                "status": verdict['status'],
+                "breadth_pct": details.get('breadth_pct'),
+                "breadth_velocity": details.get('breadth_momentum', 0.0),
+                "trend_score": details.get('t_score'),
+                "vol_score": details.get('v_score'),
+                "atr_ratio": details.get('atr_ratio'),
+                "active_model": 'NONE',
+                "recovery_flag": 0,
+            }
+            with get_connection() as conn:
+                save_data_upsert("regime_history", pd.DataFrame([row]), conn)
+            logger.info("✅ Regime History: %s score=%.2f status=%s", verdict['date'], verdict['regime_score'], verdict['status'])
+        results['regime_persisted'] = True
+    except Exception as e:
+        logger.exception("⚠️ Regime persistence: %s", e)
+        record_engine_fault('regime_persistence', str(e))
+        results['regime_persisted'] = False
+
     return results
 
 # ============================================================

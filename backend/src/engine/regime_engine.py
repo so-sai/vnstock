@@ -208,28 +208,49 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         print(f"{flag} {label_shock} ({label_today} {atr_today:.2f} {label_avg} {atr_avg:.2f}).")
         regime_score_raw *= 0.7
 
-    # 5. Adaptive EMA Smoothing
-    # alpha_t = clamp(0.2 * atr_ratio, 0.1, 1.0)
-    #   -> low volatility  : alpha near 0.1 (heavy smoothing, filters daily noise)
-    #   -> high volatility  : alpha near 1.0 (pass-through, zero-lag on structural breaks)
+    # 5. Irregular Time-Series EMA Smoothing
+    # Base alpha from ATR volatility: clamp(0.2 * atr_ratio, 0.1, 1.0)
+    #   -> low volatility  : alpha near 0.1 (heavy smoothing)
+    #   -> high volatility  : alpha near 1.0 (pass-through)
     ema_alpha = max(0.1, min(1.0, 0.2 * atr_ratio))
 
-    # Seed: fetch the most recent smoothed regime_score from SQLite regime_history
+    # Seed: fetch the most recent smoothed regime_score + its date
     with get_connection() as conn:
         if target_date:
             df_prev = pd.read_sql(
-                f"SELECT regime_score FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",
+                "SELECT date, regime_score FROM regime_history "
+                f"WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",
                 conn
             )
         else:
             df_prev = pd.read_sql(
-                "SELECT regime_score FROM regime_history ORDER BY date DESC LIMIT 1",
+                "SELECT date, regime_score FROM regime_history ORDER BY date DESC LIMIT 1",
                 conn
             )
     prev_smoothed = df_prev['regime_score'].iloc[0] if not df_prev.empty else regime_score_raw
+    prev_date_str = df_prev['date'].iloc[0] if not df_prev.empty else None
 
-    # EMA formula: RS_smoothed = alpha * RS_raw + (1 - alpha) * RS_prev
-    regime_score = (ema_alpha * regime_score_raw) + ((1.0 - ema_alpha) * prev_smoothed)
+    # Time-decay factor: alpha_decay = 1 - exp(-lambda * dt)
+    #   lambda = 0.1 (half-life ~7 trading days)
+    #   When cron dies for 14 days: alpha_decay = 1 - exp(-1.4) ≈ 0.75
+    #     → system forgets stale prev, gives 75% weight to fresh raw score
+    #   When daily update runs (dt=1): alpha_decay = 1 - exp(-0.1) ≈ 0.095
+    #     → ATR-based alpha dominates, preserves smoothing
+    LAMBDA_DECAY = 0.1
+    if prev_date_str:
+        try:
+            dt_days = (current_date - pd.to_datetime(prev_date_str)).days
+        except Exception:
+            dt_days = 1
+    else:
+        dt_days = 1
+    alpha_decay = 1.0 - np.exp(-LAMBDA_DECAY * dt_days)
+
+    # Effective alpha = max(ATR base, time-decay) — more reactive wins
+    alpha_effective = max(ema_alpha, alpha_decay)
+
+    # Irregular EMA: RS_smoothed = alpha_eff * RS_raw + (1 - alpha_eff) * RS_prev
+    regime_score = (alpha_effective * regime_score_raw) + ((1.0 - alpha_effective) * prev_smoothed)
 
     # ── Momentum Velocity: 5D & 10D Rate of Change (Z-Score) ──
     velocity_penalty = 0.0
@@ -385,6 +406,9 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         "status": status,
         "regime_score_raw": round(regime_score_raw, 4),
         "ema_alpha": round(ema_alpha, 4),
+        "alpha_decay": round(alpha_decay, 4),
+        "alpha_effective": round(alpha_effective, 4),
+        "dt_days": dt_days,
         "velocity_penalty": round(velocity_penalty, 4),
         "rad": rad,
         "details": {
@@ -430,7 +454,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         print(f"  DMI HAIRCUT        ACTIVE (ADX<20, DMI--DMI+>2.0, T halved {t_base:.3f}->{t_score:.3f})")
     print(f"  {lv:{max_w}s} {v_score:.4f} (ATR Ratio: {atr_ratio:.4f})")
     print(f"  {lr:{max_w}s} {regime_score_raw:.4f}")
-    print(f"  {le:{max_w}s} {ema_alpha:.4f}  |  {lp}: {prev_smoothed:.4f}")
+    print(f"  {le:{max_w}s} {ema_alpha:.4f}  |  α_decay:{alpha_decay:.4f} α_eff:{alpha_effective:.4f} (Δt={dt_days}d)")
     if momentum:
         print(f"  {lm:{max_w}s} {momentum.get('roc_5d','?'):>6}%/{momentum.get('roc_10d','?'):>6}%  Z:{momentum.get('roc_5d_z','?'):>5.1f}/{momentum.get('roc_10d_z','?'):>5.1f}")
     if velocity_penalty > 0:
@@ -443,6 +467,89 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     print("="*50)
 
     return verdict
+
+
+def backfill_regime_history(target_date=None, batch_size=30):
+    """
+    Backfill regime_history for dates missing from daily_ohlcv.
+    Processes in reverse chronological order (latest first) so EMA
+    seeds are available for each computation.
+
+    Returns: (processed, inserted) count tuple.
+    """
+    from src.database.db_core import save_data_upsert
+    import time
+
+    with get_connection() as conn:
+        # All VNINDEX dates
+        df_idx = pd.read_sql(
+            "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date",
+            conn
+        )
+        # Existing regime dates
+        df_reg = pd.read_sql(
+            "SELECT date FROM regime_history", conn
+        )
+
+    all_dates = set(df_idx['date'].tolist())
+    existing = set(df_reg['date'].tolist())
+    missing = sorted(all_dates - existing)
+
+    if target_date:
+        missing = [d for d in missing if d <= target_date]
+
+    print(f"\n{'='*50}")
+    print(f"BACKFILL REGIME: {len(missing)}/{len(all_dates)} dates missing")
+    print(f"{'='*50}")
+
+    if not missing:
+        print("✅ regime_history đã đầy đủ.")
+        return 0, 0
+
+    processed = 0
+    inserted = 0
+    t0 = time.time()
+
+    for i, d in enumerate(missing):
+        try:
+            verdict = detect_regime(target_date=d, lang_mode="compact")
+            if not verdict or not verdict.get('regime_score'):
+                continue
+
+            details = verdict.get('details', {})
+            row = {
+                "date": d,
+                "regime_score": verdict.get('regime_score'),
+                "status": verdict.get('status', 'RANGING'),
+                "breadth_pct": details.get('breadth_pct'),
+                "breadth_velocity": details.get('breadth_momentum', 0.0),
+                "trend_score": details.get('t_score'),
+                "vol_score": details.get('v_score'),
+                "atr_ratio": details.get('atr_ratio'),
+                "active_model": 'NONE',
+                "recovery_flag": 0,
+            }
+            df_row = pd.DataFrame([row])
+
+            with get_connection() as conn:
+                save_data_upsert("regime_history", df_row, conn)
+
+            inserted += 1
+            if (i + 1) % 10 == 0:
+                elapsed = time.time() - t0
+                eta = (elapsed / (i + 1)) * (len(missing) - i - 1)
+                print(f"  [{i+1}/{len(missing)}] ✅ {d}  score={row['regime_score']}  ({elapsed:.0f}s elapsed, ETA {eta:.0f}s)")
+
+        except Exception as exc:
+            print(f"  [{i+1}/{len(missing)}] ❌ {d}: {exc}")
+        processed += 1
+
+    elapsed = time.time() - t0
+    print(f"\n{'='*50}")
+    print(f"✅ BACKFILL HOÀN TẤT: {inserted}/{processed} inserted trong {elapsed:.0f}s")
+    print(f"{'='*50}")
+    return processed, inserted
+
 
 if __name__ == "__main__":
     detect_regime()

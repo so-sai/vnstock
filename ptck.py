@@ -990,6 +990,18 @@ def cmd_backfill_macro(args):
     print("=" * 60)
 
 
+def cmd_backfill_regime(args):
+    """Backfill regime_history cho toàn bộ ngày bị thiếu."""
+    from src.engine.regime_engine import backfill_regime_history
+    target = args.target
+    batch = getattr(args, 'batch_size', 30)
+    processed, inserted = backfill_regime_history(target_date=target, batch_size=batch)
+    if inserted == 0:
+        print("✅ Không có ngày nào cần backfill.")
+    else:
+        print(f"✅ Đã backfill {inserted} ngày vào regime_history.")
+
+
 def cmd_scan(args):
     """Elite scanner."""
     deep = getattr(args, 'deep', False)
@@ -1849,6 +1861,12 @@ def main():
     p_bfm = sub.add_parser("backfill-macro", help="Backfill 1y historical data cho PTD macro tickers")
     p_bfm.add_argument("--days", type=int, default=252, help="Số ngày lịch sử (mặc định 252)")
     p_bfm.set_defaults(func=cmd_backfill_macro)
+
+    # backfill-regime
+    p_bfr = sub.add_parser("backfill-regime", help="Backfill regime_history cho ngày thiếu trong daily_ohlcv")
+    p_bfr.add_argument("--target", default=None, help="Ngày đích (YYYY-MM-DD, mặc định: tất cả)")
+    p_bfr.add_argument("--batch-size", type=int, default=30, dest="batch_size", help="Batch log interval")
+    p_bfr.set_defaults(func=cmd_backfill_regime)
 
     args = parser.parse_args()
     _VERBOSE_LANG = args.verbose_lang

@@ -202,6 +202,12 @@ entrypoints:
     cli: "python ptck.py backfill-history [--symbols VCB,REE,HDB] [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--dry-run] [--quiet]"
     category: system
 
+  # ── Backfill Regime ────────────────────────────────────
+  backfill_regime:
+    description: "Backfill regime_history cho ngày thiếu — lấp khoảng trống thời gian trong DB"
+    cli: "python ptck.py backfill-regime [--target YYYY-MM-DD] [--batch-size N]"
+    category: system
+
   # ── RS Audit ───────────────────────────────────────────
   rs_audit:
     description: "Audit Top RS — phân tích nguồn gốc sức mạnh (nội tại vs dòng tiền vs tập trung vốn hóa)"
