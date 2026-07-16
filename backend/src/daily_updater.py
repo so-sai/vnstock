@@ -645,6 +645,26 @@ def run_post_update_engines():
         logger.exception("⚠️ Per-symbol absorption: %s", e)
         record_engine_fault('per_symbol_absorption', str(e))
 
+    # Paper Trading Engine — giả lập EOD (Live vs Backtest), KHÔNG đẩy lệnh lên sàn
+    try:
+        from src.engine.paper_trading_engine import PaperTradingEngine
+        paper = PaperTradingEngine.run_daily(offline=True)
+        summary = paper.get('summary', {})
+        results['paper_trading'] = {
+            "decision_date": paper.get("decision_date"),
+            "orders": len(paper.get("orders", [])),
+            "hdr": paper.get("hdr"),
+            "w1": paper.get("w1"),
+            "macro_state": paper.get("macro_state"),
+            "rejection_rate": summary.get("rejection_rate"),
+            "avg_slippage_bps": summary.get("avg_slippage_bps"),
+            "avg_latency_ms": summary.get("avg_latency_ms"),
+        }
+        logger.info(f"✅ Paper Trading: {results['paper_trading']}")
+    except Exception as e:
+        logger.exception("⚠️ Paper Trading: %s", e)
+        record_engine_fault('paper_trading_engine', str(e))
+
     return results
 
 # ============================================================

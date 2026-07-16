@@ -1067,8 +1067,27 @@ def cmd_macro(args):
 def cmd_sel(args):
     """Structure Evolution Layer — Wasserstein Distance + Survival Mode."""
     from src.engine.structure_evolution import StructureEvolutionLayer
-    result = StructureEvolutionLayer.assess_global()
+    as_of = getattr(args, "as_of", None)
+    offline = not getattr(args, "online", False)  # offline mặc định (chống IP ban)
+    result = StructureEvolutionLayer.assess_global(as_of=as_of, offline=offline)
     StructureEvolutionLayer.print_report(result)
+
+
+def cmd_paper(args):
+    """Paper Trading Engine — Giả lập thời gian thực (Live vs Backtest)."""
+    from src.engine.paper_trading_engine import PaperTradingEngine
+    offline = not getattr(args, "online", False)  # offline mặc định (chống IP ban)
+    action = getattr(args, "action", "report")
+
+    if action == "run":
+        result = PaperTradingEngine.run_daily(
+            decision_date=getattr(args, "date", None), offline=offline)
+        PaperTradingEngine.print_report(result)
+    else:  # report
+        engine = PaperTradingEngine(offline=offline)
+        report = engine.get_stability_report(
+            lookback_sessions=getattr(args, "sessions", 45))
+        PaperTradingEngine.print_report(report)
 
 
 def cmd_scan(args):
@@ -1982,7 +2001,23 @@ def main():
 
     # sel
     p_sel = sub.add_parser("sel", help="Structure Evolution Layer — W1 Wasserstein + Survival Mode")
+    p_sel.add_argument("--as-of", dest="as_of", default=None,
+                       help="Mốc ngày T (YYYY-MM-DD) cho anti-lookahead. Mặc định: EOD mới nhất trong DB")
+    p_sel.add_argument("--online", action="store_true",
+                       help="Cho phép gọi API (mặc định OFFLINE — chỉ đọc SQLite, chống IP ban)")
     p_sel.set_defaults(func=cmd_sel)
+
+    # paper
+    p_paper = sub.add_parser("paper", help="Paper Trading Engine — Live vs Backtest simulation")
+    p_paper.add_argument("action", nargs="?", choices=["run", "report"],
+                         default="report", help="run: sinh lệnh phiên; report: báo cáo ổn định")
+    p_paper.add_argument("--date", default=None,
+                         help="Ngày quyết định T (YYYY-MM-DD). Mặc định: EOD mới nhất")
+    p_paper.add_argument("--sessions", type=int, default=45,
+                         help="Số phiên lookback cho báo cáo ổn định (mặc định 45)")
+    p_paper.add_argument("--online", action="store_true",
+                         help="Cho phép gọi API (mặc định OFFLINE — chống IP ban)")
+    p_paper.set_defaults(func=cmd_paper)
 
     args = parser.parse_args()
     _VERBOSE_LANG = args.verbose_lang

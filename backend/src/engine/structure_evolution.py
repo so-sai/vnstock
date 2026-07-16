@@ -22,10 +22,11 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import ot
 
-# Suppress POT sinkhorn numerical warnings for nearly-identical distributions
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="ot")
-warnings.filterwarnings("ignore", category=UserWarning, module="ot")
+# Statsmodels ADF có thể phát RuntimeWarning trên chuỗi ngắn — vô hại.
+# POT không còn cần suppression: epsilon-smoothing + stabilized Sinkhorn khử
+# tận gốc divide-by-zero. Giữ lại filter statsmodels cho ADF.
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="statsmodels")
 
 
@@ -132,70 +133,127 @@ class SpaceNormalizationLayer:
 
 
 class WassersteinEngine:
-    """Đo khoảng cách Wasserstein (Sinkhorn) giữa P và Q.
+    """Đo khoảng cách Wasserstein giữa P và Q — PRODUCTION-GRADE.
 
-    Sử dụng ot.sinkhorn2 cho vector 7-chiều.
+    Kiến trúc Primary-Fallback (ưu tiên độ chính xác toán học tuyệt đối):
+      1. PRIMARY: ot.emd2 (Exact EMD / Network Simplex).
+         - Đảm bảo d(x,x) = 0.0 tuyệt đối → khử triệt để Entropy Bias.
+         - Hội tụ 100%, không sinh NaN/divide-by-zero.
+      2. FALLBACK: ot.sinkhorn2 (reg siêu nhỏ, stabilized) — chỉ khi emd2
+         không hội tụ (cực hiếm ở không gian 7 chiều).
+      3. LAST RESORT: L2 proxy nếu cả hai solver đều lỗi.
+
+    Ghi log mọi lần fallback để audit độ ổn định số học.
     """
 
-    def __init__(self, reg: float = 0.1):
+    # Fallback Sinkhorn: reg siêu nhỏ (sắc nét) → lớn (ổn định).
+    SINKHORN_FALLBACK_LADDER = (0.01, 0.05, 0.2)
+    EPS = 1e-12
+
+    def __init__(self, reg: float = 0.01):
         self.reg = reg
         self._w1_history: List[float] = []
+        # Chẩn đoán độ ổn định số học (audit trail)
+        self.numerical_diagnostics = {
+            "emd2_exact": 0,          # Primary success
+            "sinkhorn_fallbacks": 0,  # emd2 failed → sinkhorn
+            "l2_fallbacks": 0,        # both failed
+        }
 
     @staticmethod
     def _to_distribution(X: np.ndarray) -> np.ndarray:
-        """Chuyển vector [d] thành empirical distribution weights."""
-        # Normalize: softmax-style, sum=1
+        """Chuyển vector [d] thành empirical distribution weights (sum=1, dương ngặt).
+
+        Epsilon smoothing đảm bảo mọi bin > 0 để fallback Sinkhorn (nếu cần)
+        không gặp divide-by-zero. emd2 không yêu cầu điều này nhưng vô hại.
+        """
         x = np.asarray(X, dtype=np.float64).flatten()
         x = x - np.min(x)  # shift to non-negative
+        x = x + WassersteinEngine.EPS
         s = np.sum(x)
-        if s < 1e-10:
+        if s < WassersteinEngine.EPS:
             return np.ones_like(x) / len(x)
         return x / s
 
-    def compute_w1(self, P: np.ndarray, Q: np.ndarray) -> float:
-        """Wasserstein-1 distance via Sinkhorn (POT)."""
-        import ot
+    @staticmethod
+    def _build_cost_matrix(p: np.ndarray, q: np.ndarray) -> np.ndarray:
+        """Ma trận chi phí L2 chuẩn hóa, an toàn với divide-by-zero."""
+        M = ot.dist(p.reshape(-1, 1), q.reshape(-1, 1), metric="sqeuclidean")
+        mmax = float(np.max(M))
+        if mmax > WassersteinEngine.EPS:
+            M = M / mmax
+        return np.ascontiguousarray(M, dtype=np.float64)
 
+    def _stable_ot(self, p: np.ndarray, q: np.ndarray, M: np.ndarray) -> Tuple[float, str]:
+        """Optimal Transport: emd2 Primary → Sinkhorn Fallback → L2.
+
+        Returns: (w1_value, method_used). Trả -1.0 nếu cần L2 proxy (sentinel).
+        """
+        # Trường hợp trùng khớp: cost ~0 → W1=0 chính xác, bỏ qua solver.
+        if float(np.max(M)) <= self.EPS:
+            self.numerical_diagnostics["emd2_exact"] += 1
+            return 0.0, "identity"
+
+        # --- PRIMARY: Exact EMD (Network Simplex) ---
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+            try:
+                val = ot.emd2(p, q, M, numItermax=200000)
+                w1 = float(np.asarray(val).ravel()[0])
+                if np.isfinite(w1) and w1 >= -self.EPS:
+                    self.numerical_diagnostics["emd2_exact"] += 1
+                    return max(w1, 0.0), "emd2_exact"
+                logger.debug(f"[SEL_OT] emd2 returned non-finite/negative: {w1}")
+            except Exception as e:
+                logger.debug(f"[SEL_OT] emd2 primary raised: {e}")
+
+        # --- FALLBACK: Sinkhorn stabilized với reg tăng dần ---
+        for reg in self.SINKHORN_FALLBACK_LADDER:
+            with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+                try:
+                    val = ot.sinkhorn2(p, q, M, reg=reg, numItermax=2000,
+                                       stopThr=1e-9, method="sinkhorn_stabilized")
+                    w1 = float(np.asarray(val).ravel()[0])
+                except Exception as e:
+                    logger.debug(f"[SEL_OT] Sinkhorn fallback reg={reg} raised: {e}")
+                    continue
+            if np.isfinite(w1) and w1 >= -self.EPS:
+                self.numerical_diagnostics["sinkhorn_fallbacks"] += 1
+                logger.info(f"[SEL_OT] emd2 failed — Sinkhorn fallback reg={reg} used.")
+                return max(w1, 0.0), f"sinkhorn_fallback_reg={reg}"
+
+        # --- LAST RESORT: L2 proxy ---
+        self.numerical_diagnostics["l2_fallbacks"] += 1
+        logger.warning("[SEL_OT] Both emd2 and Sinkhorn failed — L2 proxy used.")
+        return -1.0, "l2_proxy"
+
+    def compute_w1(self, P: np.ndarray, Q: np.ndarray) -> float:
+        """Wasserstein-1 distance — Exact EMD primary, an toàn số học."""
         p = self._to_distribution(P)
         q = self._to_distribution(Q)
 
         if len(p) != len(q):
             return 0.0
 
-        n = len(p)
-        # Cost matrix: pairwise L2 distance
-        M = ot.dist(p.reshape(-1, 1), q.reshape(-1, 1), metric="sqeuclidean")
-        M = M / np.max(M) if np.max(M) > 0 else M
-
-        # Sinkhorn
-        try:
-            w1 = float(ot.sinkhorn2(p, q, M, reg=self.reg, numItermax=100))
-        except Exception:
-            # Fallback: L2 difference as proxy
-            w1 = float(np.sqrt(np.mean((P - Q) ** 2)))
+        M = self._build_cost_matrix(p, q)
+        w1, method = self._stable_ot(p, q, M)
+        if method == "l2_proxy" or w1 < 0:
+            w1 = float(np.sqrt(np.mean((np.asarray(P, np.float64) -
+                                        np.asarray(Q, np.float64)) ** 2)))
         self._w1_history.append(w1)
         return w1
 
     @staticmethod
     def compute_pairwise_w1_matrix(vectors: List[np.ndarray],
-                                   reg: float = 0.1) -> np.ndarray:
-        """Ma trận W1 giữa tất cả các cặp vector."""
-        import ot
-
+                                   reg: float = 0.01) -> np.ndarray:
+        """Ma trận W1 giữa tất cả các cặp vector — dùng cùng engine (emd2 primary)."""
         n = len(vectors)
         if n < 2:
             return np.array([[0.0]])
+        engine = WassersteinEngine(reg=reg)
         M = np.zeros((n, n))
         for i in range(n):
-            pi = WassersteinEngine._to_distribution(vectors[i])
             for j in range(i + 1, n):
-                pj = WassersteinEngine._to_distribution(vectors[j])
-                cost = ot.dist(pi.reshape(-1, 1), pj.reshape(-1, 1), metric="sqeuclidean")
-                cost = cost / np.max(cost) if np.max(cost) > 0 else cost
-                try:
-                    w = float(ot.sinkhorn2(pi, pj, cost, reg=reg, numItermax=100))
-                except Exception:
-                    w = float(np.sqrt(np.mean((vectors[i] - vectors[j]) ** 2)))
+                w = engine.compute_w1(vectors[i], vectors[j])
                 M[i, j] = w
                 M[j, i] = w
         return M
@@ -203,6 +261,11 @@ class WassersteinEngine:
 
 class DynamicThresholding:
     """Hệ thống Ngưỡng Động — 99th percentile + exponential HDR mapping."""
+
+    # Bất biến ngưỡng (invariants) — bảo vệ chống Survival Mode kích hoạt sai.
+    THETA_STABLE_FLOOR = 0.10   # ngưỡng ổn định tối thiểu tuyệt đối
+    THETA_NOVELTY_FLOOR = 0.35  # novelty không bao giờ thấp hơn mức này
+    THETA_MIN_GAP = 0.15        # novelty phải cách stable ít nhất khoảng này
 
     def __init__(self):
         self.w1_history: List[float] = []
@@ -236,8 +299,15 @@ class DynamicThresholding:
         if len(self.w1_history) >= 10:
             arr = np.array(self.w1_history)
             self._percentile_99 = float(np.percentile(arr, 99))
-            self.theta_novelty = self._percentile_99
-            self.theta_stable = max(float(np.percentile(arr, 30)), 0.10)
+            # theta_stable: P30 với floor cứng 0.10
+            self.theta_stable = max(float(np.percentile(arr, 30)), self.THETA_STABLE_FLOOR)
+            # theta_novelty: P99 nhưng BẮT BUỘC > theta_stable (biên tối thiểu),
+            # đồng thời có floor tuyệt đối để tránh Survival Mode kích hoạt sai
+            # khi phân phối W1 quá hẹp (emd2 cho giá trị rất nhỏ, đồng nhất).
+            novelty = max(self._percentile_99,
+                          self.theta_stable + self.THETA_MIN_GAP,
+                          self.THETA_NOVELTY_FLOOR)
+            self.theta_novelty = novelty
 
     def record_w1(self, w1: float):
         self.w1_history.append(w1)
@@ -440,12 +510,25 @@ class StructureEvolutionLayer:
         "foreign_flow_10d",
     ]
 
-    def __init__(self):
+    def __init__(self, as_of: Optional[str] = None, offline: bool = True):
+        """Khởi tạo SEL.
+
+        Args:
+          as_of: Mốc ngày T (YYYY-MM-DD). None → dùng ngày EOD mới nhất trong DB.
+                 State vector = dữ liệu <= T. Normalizer fit = dữ liệu < T
+                 (Anti-Lookahead: ma trận hiệp biến của T KHÔNG chứa T).
+          offline: True → CHỈ đọc từ SQLite cục bộ, tuyệt đối không gọi API fetch.
+                   Đây là rào chắn kiểm thử chống IP ban.
+        """
+        self.offline = offline
         self.normalizer = SpaceNormalizationLayer()
         self.wasserstein = WassersteinEngine()
         self.threshold = DynamicThresholding()
         self.validator = StationarityValidator()
         self.survival = SurvivalGovernor()
+
+        # Mốc thời gian T — quyết định biên anti-lookahead.
+        self.as_of: str = self._resolve_as_of(as_of)
 
         self.regime_library: Dict = {}
         self._load_regime_library()
@@ -458,6 +541,24 @@ class StructureEvolutionLayer:
         self.is_survival: bool = False
         self.survival_params: Dict = {}
         self.stationarity_check: Dict = {}
+
+    def _resolve_as_of(self, as_of: Optional[str]) -> str:
+        """Xác định mốc T. Nếu None → ngày macro_history mới nhất trong DB cục bộ.
+
+        KHÔNG bao giờ gọi API — chỉ đọc SQLite (giao thức offline).
+        """
+        if as_of:
+            return as_of
+        try:
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT MAX(date) FROM macro_history WHERE value IS NOT NULL"
+                ).fetchone()
+            if row and row[0]:
+                return str(row[0])
+        except Exception as e:
+            logger.debug(f"[SEL] _resolve_as_of fallback: {e}")
+        return datetime.now().strftime("%Y-%m-%d")
 
     # --- Persistence ---
 
@@ -530,27 +631,32 @@ class StructureEvolutionLayer:
         return vector, details
 
     def _fetch_latest(self, variable: str) -> float:
+        """Giá trị mới nhất TÍNH ĐẾN mốc T (date <= as_of). Anti-lookahead."""
         with get_connection() as conn:
             row = conn.execute(
                 "SELECT value FROM macro_history WHERE variable = ? "
-                "AND value IS NOT NULL ORDER BY date DESC LIMIT 1",
-                (variable,)
+                "AND value IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 1",
+                (variable, self.as_of)
             ).fetchone()
         return float(row[0]) if row else 0.0
 
     def _fetch_foreign_10d(self) -> float:
+        """Dòng vốn ngoại 10 phiên TÍNH ĐẾN T (không vượt quá as_of)."""
         with get_connection() as conn:
             row = conn.execute(
                 "SELECT SUM(net_value) FROM market_foreign_history "
-                "WHERE date >= date('now', '-10 days')"
+                "WHERE date <= ? AND date >= date(?, '-10 days')",
+                (self.as_of, self.as_of)
             ).fetchone()
         return float(row[0]) if row and row[0] else 0.0
 
     def _fetch_gold_momentum(self) -> float:
+        """Momentum vàng 10 phiên gần nhất TÍNH ĐẾN T."""
         with get_connection() as conn:
             rows = conn.execute(
                 "SELECT value FROM macro_history WHERE variable = 'GOLD_XAU' "
-                "AND value IS NOT NULL ORDER BY date DESC LIMIT 10"
+                "AND value IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 10",
+                (self.as_of,)
             ).fetchall()
         if len(rows) >= 2:
             vals = [float(r[0]) for r in rows]
@@ -561,7 +667,9 @@ class StructureEvolutionLayer:
         with get_connection() as conn:
             try:
                 row = conn.execute(
-                    f"SELECT {column} FROM {table} ORDER BY date DESC LIMIT 1"
+                    f"SELECT {column} FROM {table} WHERE date <= ? "
+                    f"ORDER BY date DESC LIMIT 1",
+                    (self.as_of,)
                 ).fetchone()
                 val = row[0] if row else None
                 if column == "active_model":
@@ -571,7 +679,16 @@ class StructureEvolutionLayer:
                 return None
 
     def _build_historical_sample(self) -> Optional[np.ndarray]:
-        """Xây mẫu dữ liệu lịch sử từ 60 phiên gần nhất để fit normalizer."""
+        """Xây mẫu lịch sử để fit normalizer — MÀNG LỌC ANTI-LOOKAHEAD.
+
+        NGUYÊN TẮC BẤT KHẢ XÂM PHẠM:
+          Normalizer (Robust Scaler + Whitening PCA) fit trên dữ liệu 'date < as_of'
+          — NGHIÊM NGẶT loại bỏ ngày T. Ma trận hiệp biến dùng để chuẩn hóa vector
+          của T KHÔNG được chứa bất kỳ thông tin nào từ T hoặc sau T.
+
+        Điều này ngăn chặn rò rỉ dữ liệu (data leakage) khi backtest/paper-trade:
+        thống kê median/IQR/covariance của T được tính CHỈ từ quá khứ (T-1, T-2, ...).
+        """
         rows_per_variable = 60
         variables = ["DXY", "USD_VND", "INTERBANK_ON", "GOLD_XAU"]
         data = {v: [] for v in variables}
@@ -579,8 +696,9 @@ class StructureEvolutionLayer:
             for var in variables:
                 rows = conn.execute(
                     "SELECT value FROM macro_history WHERE variable = ? "
-                    "AND value IS NOT NULL ORDER BY date DESC LIMIT ?",
-                    (var, rows_per_variable)
+                    "AND value IS NOT NULL AND date < ? "  # STRICT '<': loại bỏ T
+                    "ORDER BY date DESC LIMIT ?",
+                    (var, self.as_of, rows_per_variable)
                 ).fetchall()
                 data[var] = [float(r[0]) for r in rows]
 
@@ -677,6 +795,13 @@ class StructureEvolutionLayer:
             },
             "stationarity": self.stationarity_check if self.stationarity_check else None,
             "regime_library_size": len(self.regime_library),
+            "audit": {
+                "as_of": self.as_of,
+                "offline": self.offline,
+                "normalizer_fitted": self.normalizer._is_fitted,
+                "anti_lookahead": "normalizer_fit_on_date_lt_as_of",
+                "ot_diagnostics": dict(self.wasserstein.numerical_diagnostics),
+            },
         }
         logger.info(
             f"[SEL] State={self.state} W1={self.current_w1:.4f} "
@@ -699,9 +824,14 @@ class StructureEvolutionLayer:
         self.survival.survival_data = []
 
     @staticmethod
-    def assess_global() -> Dict:
-        """Static wrapper."""
-        return StructureEvolutionLayer().assess()
+    def assess_global(as_of: Optional[str] = None, offline: bool = True) -> Dict:
+        """Static wrapper.
+
+        Args:
+          as_of: Mốc ngày T. None → EOD mới nhất trong DB cục bộ.
+          offline: True (mặc định) → CHỈ đọc SQLite, không gọi API (chống IP ban).
+        """
+        return StructureEvolutionLayer(as_of=as_of, offline=offline).assess()
 
     @staticmethod
     def print_report(result: Dict, lang: str = "vi"):
