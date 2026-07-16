@@ -33,7 +33,7 @@ PROJECT_ROOT = _hydrate_path()
 backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
-from src.database.db_core import get_connection, optimize_sqlite_engine, save_data_upsert
+from src.database.db_core import get_connection, optimize_sqlite_engine, save_data_upsert, safe_json_dump
 from src.database.data_quality_failover import FailoverMultiSourceAdapter
 
 # Canonical Asset Registry
@@ -807,10 +807,10 @@ def run_daily_update(target_date=None, manifest_path=None):
     finally:
         report["duration_seconds"] = round(time.time() - start_time, 2)
 
-        # Save report
+        # Save report (dùng encoder chịu lỗi Quant — chống np.* làm sập EOD)
         report_path = LOG_DIR / "latest_update_report.json"
         with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=4, ensure_ascii=False)
+            safe_json_dump(report, f, indent=4)
 
         logger.info("=" * 60)
         logger.info(f"🏁 KẾT THÚC: {report['status']}")

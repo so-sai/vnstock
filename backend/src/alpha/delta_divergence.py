@@ -88,7 +88,9 @@ class DeltaDivergenceIndex:
             ac_latency = max(0.1, atr_ratio)
 
         delta_sa = dS_dt - alpha_regime * ac_latency
-        is_healing_illusion = delta_sa > 0.0 and dS_dt > 0.3
+        # Ép về bool Python thuần (defense-in-depth): phép so sánh numpy trả về
+        # np.bool_ → json.dumps ném TypeError, làm sập chu trình EOD tự động.
+        is_healing_illusion = bool(delta_sa > 0.0 and dS_dt > 0.3)
 
         return {
             "delta_sa": round(delta_sa, 4),

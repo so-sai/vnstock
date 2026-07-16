@@ -1,6 +1,10 @@
-﻿import sqlite3
+﻿import json
+import math
+import sqlite3
 import sys
 from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 
@@ -30,6 +34,104 @@ import src.config
 
 # Database file path managed by Elite Config (supports custom paths via .env)
 DB_PATH = str(src.config.DATA_DIR / "screener_cache.db")
+
+
+# ============================================================================
+#  JSON SERIALIZATION BOUNDARY — Numpy/Pandas → pure storage format
+# ============================================================================
+# Hạ tầng serialize tập trung cho TOÀN BỘ luồng xuất dữ liệu PTCK. Đặt tại
+# db_core.py vì đây là RANH GIỚI LƯU TRỮ duy nhất mà mọi module đều import:
+# nơi các kiểu của hệ sinh thái Quant (numpy scalar/array, pandas, Decimal,
+# datetime) buộc phải chuyển thành JSON thuần trước khi ghi CSDL/log/file.
+#
+# Chịu lỗi (Fault Tolerance): json.dumps mặc định KHÔNG serialize được
+# np.bool_ / np.integer / np.floating / np.ndarray → ném TypeError, có thể
+# làm SẬP cả chu trình EOD tự động (vd healing_illusion là np.bool_ sinh ra
+# từ phép so sánh numpy). NumpyEncoder chặn triệt để mọi kiểu này một chỗ,
+# thay cho các encoder cục bộ rải rác dễ bỏ sót.
+class NumpyEncoder(json.JSONEncoder):
+    """Custom JSON encoder ép kiểu Numpy/Pandas/Decimal/datetime → JSON thuần.
+
+    Xử lý:
+      - np.bool_                 → bool
+      - np.integer (mọi độ rộng) → int
+      - np.floating              → float (NaN/Inf → None để JSON hợp lệ)
+      - np.ndarray               → list (đệ quy qua tolist())
+      - Decimal                  → float
+      - datetime / date          → ISO 8601 string
+      - đối tượng có .to_dict()  → dict (pydantic-lite / dataclass tiện ích)
+    """
+
+    def default(self, obj):
+        # Lazy import numpy — db_core không hard-depend numpy lúc import.
+        try:
+            import numpy as np
+        except Exception:  # pragma: no cover
+            np = None
+
+        if np is not None:
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                f = float(obj)
+                return None if (math.isnan(f) or math.isinf(f)) else f
+            if isinstance(obj, np.ndarray):
+                # tolist() rồi sanitize NaN/Inf → None (JSON hợp lệ RFC 8259)
+                return _sanitize_for_json(obj.tolist())
+            # np.datetime64 → ISO string
+            if isinstance(obj, np.datetime64):
+                return str(obj)
+
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        # float thường nhưng NaN/Inf (không phải numpy) — chuẩn hóa về None
+        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+            return None
+        # Đối tượng tiện ích có .to_dict()
+        to_dict = getattr(obj, "to_dict", None)
+        if callable(to_dict):
+            try:
+                return to_dict()
+            except Exception:  # pragma: no cover
+                pass
+        return super().default(obj)
+
+
+def _sanitize_for_json(obj):
+    """Đệ quy chuẩn hóa NaN/Inf → None TRƯỚC khi json.dumps.
+
+    Lý do bắt buộc: np.float64 LÀ subclass của float Python → bộ mã hóa C của
+    json đi đường tắt (fast path) serialize thẳng, KHÔNG gọi default() của
+    NumpyEncoder → NaN/Infinity lọt ra thành JSON KHÔNG hợp lệ (RFC 8259).
+    Pre-sanitize đảm bảo output luôn hợp lệ, chịu lỗi tuyệt đối.
+    """
+    if isinstance(obj, float):  # gồm cả np.float64 (subclass của float)
+        return None if (math.isnan(obj) or math.isinf(obj)) else float(obj)
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
+def safe_json_dumps(obj, *, ensure_ascii: bool = False, **kwargs) -> str:
+    """json.dumps chịu lỗi kiểu Quant — LUÔN dùng cho mọi output PTCK.
+
+    Chống TypeError do np.bool_/np.integer/np.floating/np.ndarray… làm sập
+    chu trình EOD, và chống NaN/Inf (np.float64) tạo JSON không hợp lệ.
+    """
+    kwargs.setdefault("cls", NumpyEncoder)
+    return json.dumps(_sanitize_for_json(obj), ensure_ascii=ensure_ascii, **kwargs)
+
+
+def safe_json_dump(obj, fp, *, ensure_ascii: bool = False, **kwargs) -> None:
+    """json.dump (ghi file) chịu lỗi kiểu Quant — dùng cho persist file/log."""
+    kwargs.setdefault("cls", NumpyEncoder)
+    json.dump(_sanitize_for_json(obj), fp, ensure_ascii=ensure_ascii, **kwargs)
 
 
 @contextmanager

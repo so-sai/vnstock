@@ -1043,8 +1043,8 @@ def cmd_absorption_detector(args):
         if not args.quiet:
             PerSymbolAbsorption.print_report(result)
         if args.quiet:
-            import json
-            print(json.dumps(result, indent=2, ensure_ascii=False))
+            from src.database.db_core import safe_json_dumps
+            print(safe_json_dumps(result, indent=2))
         return
 
     from src.engine.absorption_detector import run_absorption_detection
@@ -1053,8 +1053,8 @@ def cmd_absorption_detector(args):
         show_details=not args.quiet
     )
     if args.quiet:
-        import json
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        from src.database.db_core import safe_json_dumps
+        print(safe_json_dumps(result, indent=2))
 
 
 def cmd_macro(args):

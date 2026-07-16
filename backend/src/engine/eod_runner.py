@@ -45,7 +45,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config  # noqa: E402
-from src.database.db_core import get_connection  # noqa: E402
+from src.database.db_core import get_connection, safe_json_dumps  # noqa: E402
 
 logger = logging.getLogger("PTCK_SYSTEM")
 
@@ -518,4 +518,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     out = run_eod_pipeline(as_of_date=args.date, force=args.force,
                            retry_sleep=args.retry_sleep, catchup=args.catchup)
-    print(out)
+    # safe_json_dumps: chống np.* trong engine_results làm ném TypeError
+    print(safe_json_dumps(out, indent=2))

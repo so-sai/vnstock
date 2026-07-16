@@ -31,7 +31,11 @@ logger = logging.getLogger("ael_report")
 
 
 class _NumpyEncoder(json.JSONEncoder):
-    """Handles numpy scalar types that the default JSON encoder cannot serialize."""
+    """DEPRECATED: dùng db_core.NumpyEncoder / safe_json_dumps (nguồn tập trung).
+
+    Giữ lại để tương thích ngược cho mã cũ tham chiếu trực tiếp. Xử lý numpy
+    scalar mà JSON encoder mặc định không serialize được.
+    """
     def default(self, obj):
         import numpy as np
         if isinstance(obj, (np.bool_,)):
@@ -204,7 +208,9 @@ def main():
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = _build_json(rows, matrix, bias, args.start_date)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False, cls=_NumpyEncoder)
+            # Dùng encoder chịu lỗi Quant tập trung ở db_core (nguồn sự thật duy nhất)
+            from src.database.db_core import safe_json_dump
+            safe_json_dump(payload, f, indent=2)
         logger.info(f"  [AEL] Report written -> {path}")
 
 
