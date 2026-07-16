@@ -29,6 +29,7 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 PTCK_CLI = PROJECT_ROOT / "ptck.py"
 DAILY_UPDATER = BACKEND_DIR / "src" / "daily_updater.py"
 DB_MAINTENANCE = BACKEND_DIR / "src" / "db_maintenance.py"
+DB_GUARDIAN = BACKEND_DIR / "src" / "database" / "database_guardian.py"
 
 TASKS = [
     {
@@ -57,6 +58,13 @@ TASKS = [
         "description": "Cập nhật dữ liệu Vĩ mô hàng tuần (Chủ nhật, 03:00)",
         "action": f'"{PYTHON_EXE}" "{PROJECT_ROOT / "backend" / "screener.py"}" --mode macro',
         "schedule": "/SC WEEKLY /D SUN /ST 03:00",
+        "run_level": "HIGHEST",
+    },
+    {
+        "name": "PTCK_DAILY_BACKUP",
+        "description": "Database Guardian — Integrity Check + Online Backup mỗi tối (23:00)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" db backup',
+        "schedule": "/SC DAILY /ST 23:00",
         "run_level": "HIGHEST",
     },
 ]
@@ -98,6 +106,7 @@ def setup_tasks():
     print('   schtasks /Delete /TN "PTCK_FLOW_MAP_REPORT" /F')
     print('   schtasks /Delete /TN "PTCK_WEEKLY_MAINTENANCE" /F')
     print('   schtasks /Delete /TN "PTCK_WEEKLY_MACRO" /F')
+    print('   schtasks /Delete /TN "PTCK_DAILY_BACKUP" /F')
     print("=" * 60)
 
 def remove_tasks():

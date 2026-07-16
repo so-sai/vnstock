@@ -96,6 +96,11 @@ entrypoints:
     cli: "python ptck.py db optimize"
     category: database
 
+  db_backup:
+    description: "Database Guardian — Integrity Check + Online Backup + Retention (rolling 7-day)"
+    cli: "python ptck.py db backup [--dry-run]"
+    category: database
+
   structural_check:
     description: "Bộ phát hiện lệch cấu trúc thị trường (3 trụ: lan tỏa, đồng thuận ngành, index vs nội bộ)"
     cli: "python ptck.py structural [--date YYYY-MM-DD]"
@@ -399,3 +404,9 @@ entrypoints:
     description: "Kiểm tra lịch lễ so với timeanddate.com, có flag auto-update"
     cli: "python ptck.py check-calendar [--auto-update]"
     category: system
+
+  # ── Absorption Detector ───────────────────────────────
+  absorption_detector:
+    description: "Phát hiện Cân bằng Hấp thụ — SDI (Spectral Dominance Index) + Volume Profile PCA + Adaptive HDR unlock"
+    cli: "python ptck.py absorption-detector [--date YYYY-MM-DD] [--quiet]"
+    category: decision
