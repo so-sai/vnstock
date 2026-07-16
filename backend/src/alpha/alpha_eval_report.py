@@ -16,9 +16,7 @@ Output:
 """
 
 import argparse
-import json
 import logging
-import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,23 +26,6 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("ael_report")
-
-
-class _NumpyEncoder(json.JSONEncoder):
-    """DEPRECATED: dùng db_core.NumpyEncoder / safe_json_dumps (nguồn tập trung).
-
-    Giữ lại để tương thích ngược cho mã cũ tham chiếu trực tiếp. Xử lý numpy
-    scalar mà JSON encoder mặc định không serialize được.
-    """
-    def default(self, obj):
-        import numpy as np
-        if isinstance(obj, (np.bool_,)):
-            return bool(obj)
-        if isinstance(obj, (np.integer,)):
-            return int(obj)
-        if isinstance(obj, (np.floating,)):
-            return None if math.isnan(obj) else float(obj)
-        return super().default(obj)
 
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────────────

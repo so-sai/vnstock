@@ -60,7 +60,8 @@ class NumpyEncoder(json.JSONEncoder):
       - Decimal                  → float
       - datetime / date          → ISO 8601 string
       - đối tượng có .to_dict()  → dict (pydantic-lite / dataclass tiện ích)
-    """
+      - pydantic BaseModel       → dict (model_dump) — thay _PydanticEncoder cũ
+     """
 
     def default(self, obj):
         # Lazy import numpy — db_core không hard-depend numpy lúc import.
@@ -96,6 +97,13 @@ class NumpyEncoder(json.JSONEncoder):
         if callable(to_dict):
             try:
                 return to_dict()
+            except Exception:  # pragma: no cover
+                pass
+        # pydantic BaseModel (model_dump)
+        model_dump = getattr(obj, "model_dump", None)
+        if callable(model_dump):
+            try:
+                return model_dump()
             except Exception:  # pragma: no cover
                 pass
         return super().default(obj)

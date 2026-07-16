@@ -544,7 +544,7 @@ def run_post_update_engines():
 
     try:
         from src.engine.capital_displacement_engine import run_scan
-        cd = run_scan()
+        cd = run_scan(offline=True)
         results['capital_displacement'] = cd['classification']
         logger.info("✅ Capital Displacement: %s (%s)", cd['classification'], cd['conviction'])
     except Exception as e:

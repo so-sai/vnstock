@@ -1,4 +1,3 @@
-import json
 import logging
 import sys
 import warnings
@@ -35,7 +34,7 @@ import numpy as np
 
 import src.config
 from src.core.presentation.vi_localizer import SECTOR_LABELS
-from src.database.db_core import get_connection
+from src.database.db_core import get_connection, safe_json_dump
 
 logger = logging.getLogger(__name__)
 
@@ -93,19 +92,26 @@ def _fetch_batch(symbols, interval_days=5):
         for source, label in sources:
             try:
                 q = Quote(symbol=sym, source=source)
-                df = q.history(start=start, end=end)
+                # Hard timeout: tránh treo vô hạn khi offline / mạng yếu.
+                # (vnstock mặc định timeout=None → chờ mãi → EOD hang >120s).
+                df = q.history(start=start, end=end, timeout=5)
                 if df is not None and len(df) > 0:
                     results[sym] = df
                     if label == 'KBS':
                         fallback_count += 1
                         logger.info("FALLBACK: %s → kbs", sym)
                     break
-            except (requests.Timeout, requests.ConnectionError, Exception) as e:
+            except (requests.Timeout, requests.ConnectionError) as e:
                 if label == 'KBS':
                     fail_count += 1
                     logger.warning("SKIP: %s — cả VCI và KBS đều fail: %s", sym, e)
                 else:
                     logger.debug("VCI fail for %s, trying KBS: %s", sym, e)
+            except Exception as e:
+                # Lỗi không phải mạng → bỏ qua symbol, không nuốt timeout mạng
+                logger.debug("Unexpected error for %s (%s): %s", sym, label, e)
+                if label == 'KBS':
+                    fail_count += 1
     if fallback_count:
         logger.info("Fallback summary: %d/%d symbols dùng KBS, %d skip", fallback_count, len(symbols), fail_count)
     return results
@@ -120,8 +126,22 @@ def _calc_rsi(closes, period=14):
     if avg_l == 0: return 100.0
     return round(100 - (100 / (1 + (avg_g / avg_l))), 1)
 
-def scan_liquidity_concentration(target_date=None):
+def scan_liquidity_concentration(target_date=None, offline: bool = False):
     today = target_date or datetime.now().strftime('%Y-%m-%d')
+    # OFFLINE GUARD: EOD pipeline chạy offline mặc định (chống IP ban + SLA 60s).
+    # Engine này bản chất là online-only (vnstock.Quote). Khi offline → bỏ qua
+    # fetch mạng, trả kết quả 'OFFLINE_SKIPPED' sạch thay vì treo >120s.
+    if offline:
+        logger.warning("[CAPDISP] offline=True → bỏ qua fetch mạng "
+                       "(trả OFFLINE_SKIPPED).")
+        return {
+            "date": today,
+            "classification": "OFFLINE_SKIPPED",
+            "conviction": "ZERO",
+            "signals": [],
+            "note": "Capital Displacement chưa có đường cache offline; "
+                    "bỏ qua trong EOD offline.",
+        }
     logger.info("=" * 70)
     logger.info("  CAPITAL DISPLACEMENT ENGINE v2")
     logger.info("  Scan date: %s | Symbols: %d market-wide", today, len(BROAD_SCAN_SYMBOLS))
@@ -374,14 +394,18 @@ def _store_reference_case(verdict):
     except Exception as e:
         logger.warning("DB store error: %s", e)
 
-def run_scan(target_date=None):
+def run_scan(target_date=None, offline: bool = False):
     try:
-        result = scan_liquidity_concentration(target_date)
-        _store_reference_case(result)
+        result = scan_liquidity_concentration(target_date, offline=offline)
+        if result.get("classification") == "OFFLINE_SKIPPED":
+            # Không có dữ liệu mạng → bỏ qua lưu reference case, chỉ ghi file.
+            pass
+        else:
+            _store_reference_case(result)
         out_path = src.config.DATA_DIR / "output" / "capital_displacement.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
+            safe_json_dump(result, f, indent=2)
         logger.info("Saved to: %s", out_path)
         return result
     except Exception as e:

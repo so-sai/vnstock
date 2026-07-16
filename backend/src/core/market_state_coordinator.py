@@ -29,16 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel
-
 logger = logging.getLogger(__name__)
-
-
-class _PydanticEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, BaseModel):
-            return obj.model_dump()
-        return super().default(obj)
 
 
 def _hydrate_path():
@@ -541,8 +532,9 @@ def export_market_state(state: dict, path: Optional[Path] = None):
     if path is None:
         path = Path(str(PROJECT_ROOT)) / "backend" / "data" / "market_state.json"
     path.parent.mkdir(parents=True, exist_ok=True)
+    from src.database.db_core import safe_json_dump
     with open(path, 'w', encoding='utf-8') as f:
-        json.dump(state, f, indent=2, ensure_ascii=False, cls=_PydanticEncoder)
+        safe_json_dump(state, f, indent=2, ensure_ascii=False)
     print(f"  [Coordinator] Market state saved → {path}")
     return path
 
