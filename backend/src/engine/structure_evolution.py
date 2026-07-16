@@ -260,18 +260,28 @@ class WassersteinEngine:
 
 
 class DynamicThresholding:
-    """Hệ thống Ngưỡng Động — 99th percentile + exponential HDR mapping."""
+    """Hệ thống Ngưỡng Động — Dynamic Band + exponential HDR mapping.
 
-    # Bất biến ngưỡng (invariants) — bảo vệ chống Survival Mode kích hoạt sai.
-    THETA_STABLE_FLOOR = 0.10   # ngưỡng ổn định tối thiểu tuyệt đối
-    THETA_NOVELTY_FLOOR = 0.35  # novelty không bao giờ thấp hơn mức này
-    THETA_MIN_GAP = 0.15        # novelty phải cách stable ít nhất khoảng này
+    theta_novelty được xác định bằng DẢI BĂNG ĐỘNG (Dynamic Band) thay vì
+    hằng số tĩnh (magic number). Điều này giải quyết hiện tượng P99 < theta_stable
+    khi EMD cho phân phối W1 rất hẹp:
+
+        theta_novelty = max(theta_stable + sigma_W1 * k, P99)
+
+    với k = hệ số khoảng cách phân phối (mặc định 3 — quy tắc 3-sigma).
+    """
+
+    # Chỉ giữ 1 bất biến tối thiểu tuyệt đối cho theta_stable (floor an toàn).
+    THETA_STABLE_FLOOR = 0.10
+    # Hệ số dải băng động (khoảng cách phân phối theo sigma). k=3 → 3-sigma.
+    NOVELTY_BAND_K = 3.0
 
     def __init__(self):
         self.w1_history: List[float] = []
         self.theta_stable: float = 0.15
         self.theta_novelty: float = 0.65
         self._percentile_99: float = 0.65
+        self._sigma_w1: float = 0.0
         self.beta: float = 2.0
         self.gamma: float = 3.0
         self._load_history()
@@ -299,15 +309,16 @@ class DynamicThresholding:
         if len(self.w1_history) >= 10:
             arr = np.array(self.w1_history)
             self._percentile_99 = float(np.percentile(arr, 99))
+            self._sigma_w1 = float(np.std(arr))
             # theta_stable: P30 với floor cứng 0.10
-            self.theta_stable = max(float(np.percentile(arr, 30)), self.THETA_STABLE_FLOOR)
-            # theta_novelty: P99 nhưng BẮT BUỘC > theta_stable (biên tối thiểu),
-            # đồng thời có floor tuyệt đối để tránh Survival Mode kích hoạt sai
-            # khi phân phối W1 quá hẹp (emd2 cho giá trị rất nhỏ, đồng nhất).
-            novelty = max(self._percentile_99,
-                          self.theta_stable + self.THETA_MIN_GAP,
-                          self.THETA_NOVELTY_FLOOR)
-            self.theta_novelty = novelty
+            self.theta_stable = max(float(np.percentile(arr, 30)),
+                                    self.THETA_STABLE_FLOOR)
+            # theta_novelty: DẢI BĂNG ĐỘNG (Dynamic Band) — không dùng magic number.
+            #   theta_novelty = max(theta_stable + sigma_W1 * k, P99)
+            # Khi phân phối hẹp (sigma nhỏ, P99 nhỏ do EMD exact), band bám sát
+            # theta_stable + k*sigma → luôn > theta_stable, tự thích nghi biến động.
+            dynamic_band = self.theta_stable + self._sigma_w1 * self.NOVELTY_BAND_K
+            self.theta_novelty = max(dynamic_band, self._percentile_99)
 
     def record_w1(self, w1: float):
         self.w1_history.append(w1)

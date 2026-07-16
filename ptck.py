@@ -1083,6 +1083,17 @@ def cmd_paper(args):
         result = PaperTradingEngine.run_daily(
             decision_date=getattr(args, "date", None), offline=offline)
         PaperTradingEngine.print_report(result)
+    elif action == "pnl":
+        from src.engine.paper_mtm import PaperMtM
+        from src.database.db_core import get_connection
+        engine = PaperTradingEngine(offline=offline)
+        date = getattr(args, "date", None)
+        if not date:
+            with get_connection() as conn:
+                row = conn.execute("SELECT MAX(date) FROM daily_ohlcv").fetchone()
+            date = row[0] if row and row[0] else None
+        snapshot = engine.mtm.mark_to_market(date, hdr_limit=0.0)
+        PaperMtM.print_report(snapshot)
     else:  # report
         engine = PaperTradingEngine(offline=offline)
         report = engine.get_stability_report(
@@ -2009,8 +2020,8 @@ def main():
 
     # paper
     p_paper = sub.add_parser("paper", help="Paper Trading Engine — Live vs Backtest simulation")
-    p_paper.add_argument("action", nargs="?", choices=["run", "report"],
-                         default="report", help="run: sinh lệnh phiên; report: báo cáo ổn định")
+    p_paper.add_argument("action", nargs="?", choices=["run", "report", "pnl"],
+                         default="report", help="run: sinh lệnh; report: ổn định; pnl: Mark-to-Market")
     p_paper.add_argument("--date", default=None,
                          help="Ngày quyết định T (YYYY-MM-DD). Mặc định: EOD mới nhất")
     p_paper.add_argument("--sessions", type=int, default=45,

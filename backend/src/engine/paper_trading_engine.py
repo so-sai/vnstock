@@ -76,10 +76,16 @@ class PaperTradingEngine:
     """
 
     def __init__(self, portfolio_id: str = PAPER_PORTFOLIO_ID,
-                 offline: bool = True):
+                 offline: bool = True,
+                 initial_capital: float = 1_000_000_000.0):
         self.portfolio_id = portfolio_id
         self.offline = offline
+        self.initial_capital = initial_capital
         self._ensure_schema()
+        # Sổ cái Mark-to-Market (cost basis, T+2.5 settlement, corporate actions)
+        from src.engine.paper_mtm import PaperMtM
+        self.mtm = PaperMtM(portfolio_id=portfolio_id,
+                            initial_capital=initial_capital)
 
     # ------------------------------------------------------------------ schema
     def _ensure_schema(self):
@@ -391,14 +397,23 @@ class PaperTradingEngine:
     def generate_orders_from_signals(self, decision_date: str,
                                      watchlist: Optional[List[str]] = None,
                                      capital: float = 1_000_000_000.0) -> Dict:
-        """Sinh lệnh giả lập từ SEL + Macro Governor + Per-Symbol Absorption.
+        """Sinh lệnh giả lập từ SEL + Macro Governor, hạch toán qua MtM.
 
-        Logic sizing tuân thủ HDR: HDR=1.0 → cash-only (không mua).
+        Quy trình EOD (đúng thứ tự kế toán):
+          1. Đầu phiên: process_settlements (tiền/CK T+2 về) + apply corporate actions.
+          2. Lấy Governor context (HDR, W1, macro state).
+          3. Sinh lệnh MUA, sizing theo MtM buying power (tôn trọng HDR + T+2.5).
+          4. book_buy qua MtM (kiểm tra sức mua thực tế, tạo lot + settle_date).
+          5. Cuối phiên: mark_to_market → equity curve + Unrealized/Realized P&L.
         """
         if watchlist is None:
             watchlist = ['FPT', 'VCB', 'HPG', 'VNM', 'TCB']
 
-        # Governor context (offline)
+        # --- 1. Đầu phiên: settle T+2 + áp dụng sự kiện doanh nghiệp trong đêm ---
+        self.mtm.process_settlements(decision_date)
+        self.mtm.apply_corporate_actions(decision_date)
+
+        # --- 2. Governor context (offline) ---
         from src.engine.macro_governor import MacroGovernor
         from src.engine.structure_evolution import StructureEvolutionLayer
 
@@ -426,15 +441,19 @@ class PaperTradingEngine:
         results = {"decision_date": decision_date, "orders": [],
                    "w1": w1, "hdr": effective_hdr, "macro_state": macro_state}
 
-        # HDR=1.0 → cash-only, không sinh lệnh mua
-        if effective_hdr >= 0.999:
-            results["note"] = "HDR=1.0 CASH_ONLY — không sinh lệnh mua."
+        # --- 3. Sức mua thực tế từ MtM (đã tôn trọng HDR + tiền đã settle) ---
+        buying_power = self.mtm.get_buying_power(decision_date, effective_hdr)
+        results["buying_power"] = round(buying_power, 0)
+
+        # HDR=1.0 hoặc hết sức mua → cash-only
+        if effective_hdr >= 0.999 or buying_power < 1e6:
+            results["note"] = ("HDR=1.0 CASH_ONLY" if effective_hdr >= 0.999
+                               else "Sức mua < 1tr — không mua thêm.")
             self.summarize_daily(decision_date, w1=w1, macro_state=macro_state)
+            results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr)
             return results
 
-        # Vốn khả dụng cho equity = capital * (1 - HDR)
-        deployable = capital * (1.0 - effective_hdr)
-        per_symbol = deployable / max(len(watchlist), 1)
+        per_symbol = buying_power / max(len(watchlist), 1)
 
         for sym in watchlist:
             bar = self._get_ohlcv(sym, decision_date)
@@ -444,15 +463,40 @@ class PaperTradingEngine:
             qty = int((per_symbol // price) // 100 * 100)  # lô 100
             if qty < 100:
                 continue
+
+            # Giả lập vi mô thực thi (latency/slippage/rejection)
             fill = self.simulate_fill(
                 sym, "BUY", qty, decision_date, signal_source="SEL_MACRO",
                 hdr=effective_hdr, w1=w1, macro_state=macro_state)
+
+            # Nếu API reject → chỉ ghi log, không hạch toán MtM
+            if fill.get("is_rejected"):
+                self.record_trade(fill)
+                results["orders"].append(fill)
+                continue
+
+            # --- 4. Hạch toán MtM: book_buy tại giá paper fill (T+1) ---
+            book = self.mtm.book_buy(
+                symbol=sym, quantity=qty,
+                fill_price=fill["paper_fill_price"],
+                fill_date=fill.get("fill_date") or decision_date,
+                hdr_limit=effective_hdr)
+            fill["mtm_status"] = book["status"]
+            if book["status"] != "FILLED":
+                # MtM từ chối (hết buying power thực) → đánh dấu reject
+                fill["is_rejected"] = 1
+                fill["reject_reason"] = book["status"]
+            else:
+                fill["settle_date"] = book["settle_date"]
+                fill["cost_basis"] = book["cost_basis"]
             self.record_trade(fill)
             results["orders"].append(fill)
 
         summary = self.summarize_daily(decision_date, w1=w1,
                                        macro_state=macro_state)
         results["summary"] = summary
+        # --- 5. Cuối phiên: mark-to-market ---
+        results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr)
         return results
 
     # ------------------------------------------------------------- reporting
@@ -559,6 +603,17 @@ class PaperTradingEngine:
                 print(f"  Latency TB: {s['avg_latency_ms']}ms  "
                       f"Slippage TB: {s['avg_slippage_bps']}bps  "
                       f"Tracking err: {s['avg_tracking_err_bps']}bps")
+            # MtM snapshot (nếu có)
+            m = result.get("mtm")
+            if m:
+                print(f"\n  -- Mark-to-Market --")
+                print(f"  Tổng vốn (Equity) : {m['total_equity']:>16,.0f}  "
+                      f"({m['total_return_pct']:+.2f}%)")
+                print(f"  Sức mua khả dụng  : {m['buying_power']:>16,.0f}")
+                print(f"  Unrealized (net)  : {m['unrealized_pnl_net']:>16,.0f}")
+                print(f"  Realized (luỹ kế) : {m['realized_pnl_cum']:>16,.0f}")
+                if m.get("unsettled_qty_val"):
+                    print(f"  Hàng chưa settle  : {m['unsettled_qty_val']:>16,.0f}")
             print(f"{'=' * 65}\n")
             return
 
