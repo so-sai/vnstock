@@ -1074,15 +1074,27 @@ def cmd_sel(args):
 
 
 def cmd_eod_run(args):
-    """EOD Runner — tự phục hồi (retry) + lũy đẳng (idempotent) + chống race (SQLite lock)."""
+    """EOD Runner — tự phục hồi (retry) + lũy đẳng (idempotent) + chống race (SQLite lock) + Giao dịch bù (catch-up)."""
     from src.engine.eod_runner import run_eod_pipeline
     result = run_eod_pipeline(
         as_of_date=getattr(args, "date", None),
         force=getattr(args, "force", False),
         retry_sleep=getattr(args, "retry_sleep", 15 * 60),
+        catchup=getattr(args, "catchup", True),
     )
     status = result.get("status")
     icon = {"SUCCESS": "[OK]", "SKIPPED": "[SKIP]", "FAILED": "[ALARM]"}.get(status, "[?]")
+    # Báo cáo Catch-up (nếu có ngày nợ được bù)
+    cu = result.get("catchup") or {}
+    if cu.get("gap_days"):
+        print(f"\n[CATCH-UP] Ngày nợ phát hiện: {len(cu['gap_days'])}")
+        if cu.get("caught_up"):
+            print(f"     Bù đầy đủ (còn hiệu lực): {cu['caught_up']}")
+        if cu.get("mtm_only"):
+            print(f"     Bù STALE (chỉ MtM/settle): {cu['mtm_only']}")
+            print(f"     [!] Cần con người xem xét quyết định giao dịch các ngày trên.")
+        if cu.get("errors"):
+            print(f"     Bù thất bại: {cu['errors']}")
     print(f"\n{icon} EOD {result.get('as_of_date')} → {status}")
     if result.get("reason"):
         print(f"     reason: {result['reason']}")
@@ -2057,7 +2069,9 @@ def main():
                        help="Bỏ qua idempotency check (chạy lại có chủ đích)")
     p_eod.add_argument("--retry-sleep", dest="retry_sleep", type=int, default=15 * 60,
                        help="Giây ngủ giữa các lần retry (mặc định 900s = 15 phút)")
-    p_eod.set_defaults(func=cmd_eod_run)
+    p_eod.add_argument("--no-catchup", dest="catchup", action="store_false",
+                       help="Tắt cơ chế Giao dịch bù (Catch-up) cho các ngày nợ")
+    p_eod.set_defaults(func=cmd_eod_run, catchup=True)
 
     args = parser.parse_args()
     _VERBOSE_LANG = args.verbose_lang

@@ -76,6 +76,11 @@ def _clean_test_data():
                          ("__TEST__%",))
         except Exception:
             pass
+        try:
+            conn.execute("DELETE FROM eod_run_ledger WHERE portfolio_id=?",
+                         (TEST_PORTFOLIO,))
+        except Exception:
+            pass
         conn.commit()
 
 

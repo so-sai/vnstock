@@ -396,7 +396,8 @@ class PaperTradingEngine:
     # --------------------------------------------------------- signal → orders
     def generate_orders_from_signals(self, decision_date: str,
                                      watchlist: Optional[List[str]] = None,
-                                     capital: float = 1_000_000_000.0) -> Dict:
+                                     capital: float = 1_000_000_000.0,
+                                     mtm_only: bool = False) -> Dict:
         """Sinh lệnh giả lập từ SEL + Macro Governor, hạch toán qua MtM.
 
         Quy trình EOD (đúng thứ tự kế toán):
@@ -405,6 +406,13 @@ class PaperTradingEngine:
           3. Sinh lệnh MUA, sizing theo MtM buying power (tôn trọng HDR + T+2.5).
           4. book_buy qua MtM (kiểm tra sức mua thực tế, tạo lot + settle_date).
           5. Cuối phiên: mark_to_market → equity curve + Unrealized/Realized P&L.
+
+        Args:
+          mtm_only: STALE-SIGNAL GUARD (Catch-up). True → CHỈ chạy bước 1 (settle +
+            corporate action) và bước 5 (mark-to-market), BỎ QUA sinh lệnh mới.
+            Dùng khi bù một ngày nợ quá cũ: tín hiệu giao dịch đã hết hiệu lực,
+            nhưng dòng tiền/cổ tức/settlement của ngày đó VẪN phải được hạch toán
+            để đường cong tài sản liền mạch và đúng kế toán.
         """
         if watchlist is None:
             watchlist = ['FPT', 'VCB', 'HPG', 'VNM', 'TCB']
@@ -412,6 +420,15 @@ class PaperTradingEngine:
         # --- 1. Đầu phiên: settle T+2 + áp dụng sự kiện doanh nghiệp trong đêm ---
         self.mtm.process_settlements(decision_date)
         self.mtm.apply_corporate_actions(decision_date)
+
+        # --- STALE-SIGNAL GUARD: bù ngày cũ chỉ hạch toán, không phát lệnh mới ---
+        if mtm_only:
+            summary = self.summarize_daily(decision_date, w1=None,
+                                           macro_state="CATCHUP_MTM_ONLY")
+            mtm_res = self.mtm.mark_to_market(decision_date, hdr_limit=0.0)
+            return {"decision_date": decision_date, "orders": [],
+                    "mtm_only": True, "note": "Stale-signal guard: chỉ MtM/settle.",
+                    "summary": summary, "mtm": mtm_res}
 
         # --- 2. Governor context (offline) ---
         from src.engine.macro_governor import MacroGovernor
@@ -551,8 +568,13 @@ class PaperTradingEngine:
     # ----------------------------------------------------------------- static
     @staticmethod
     def run_daily(decision_date: Optional[str] = None,
-                  offline: bool = True) -> Dict:
-        """Entry point cho cronjob EOD."""
+                  offline: bool = True,
+                  mtm_only: bool = False) -> Dict:
+        """Entry point cho cronjob EOD.
+
+        Args:
+          mtm_only: True → chỉ hạch toán MtM/settlement (Catch-up stale guard).
+        """
         if decision_date is None:
             with get_connection() as conn:
                 row = conn.execute(
@@ -561,7 +583,8 @@ class PaperTradingEngine:
             decision_date = row[0] if row and row[0] else \
                 datetime.now().strftime("%Y-%m-%d")
         engine = PaperTradingEngine(offline=offline)
-        return engine.generate_orders_from_signals(decision_date)
+        return engine.generate_orders_from_signals(decision_date,
+                                                   mtm_only=mtm_only)
 
     @staticmethod
     def print_report(result: Dict, lang: str = "vi"):
