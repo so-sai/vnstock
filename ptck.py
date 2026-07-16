@@ -1089,12 +1089,26 @@ def cmd_eod_run(args):
     if cu.get("gap_days"):
         print(f"\n[CATCH-UP] Ngày nợ phát hiện: {len(cu['gap_days'])}")
         if cu.get("caught_up"):
-            print(f"     Bù đầy đủ (còn hiệu lực): {cu['caught_up']}")
+            print(f"     Nạp hàng đợi (còn hiệu lực): {cu['caught_up']}")
         if cu.get("mtm_only"):
             print(f"     Bù STALE (chỉ MtM/settle): {cu['mtm_only']}")
             print(f"     [!] Cần con người xem xét quyết định giao dịch các ngày trên.")
         if cu.get("errors"):
             print(f"     Bù thất bại: {cu['errors']}")
+    # Báo cáo thực thi hàng đợi (Transpose & Kill-switch)
+    qe = cu.get("queue_execution") or {}
+    if qe.get("processed"):
+        print(f"\n[QUEUE] Ép khớp lệnh bù @ open {qe.get('recovery_date')}: "
+              f"{qe['processed']} lệnh")
+        for f in qe.get("filled", []):
+            print(f"     FILLED {f['symbol']} qty={f['qty']} @ {f['exec_price']:,.0f} "
+                  f"(decay {f['decay_pct']}%, target close={f.get('target_qty')})")
+        for r in qe.get("rejected_decay", []):
+            print(f"     KILL-SWITCH {r['symbol']} {r['decision_date']}: "
+                  f"decay {r['decay_pct']}% > ngưỡng (open={r['open_tk']:,.0f} vs "
+                  f"close_T={r['target_price']:,.0f}) → SIGNAL_DECAY")
+        for r in qe.get("rejected_other", []):
+            print(f"     REJECTED {r['symbol']} {r['decision_date']}: {r['reason']}")
     print(f"\n{icon} EOD {result.get('as_of_date')} → {status}")
     if result.get("reason"):
         print(f"     reason: {result['reason']}")

@@ -353,43 +353,57 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
     """
     gaps = detect_gap_days(as_of_date, portfolio_id)
     report = {"gap_days": gaps, "caught_up": [], "mtm_only": [], "errors": []}
-    if not gaps:
-        return report
-
-    logger.warning(f"[CATCHUP] Phát hiện {len(gaps)} ngày nợ: {gaps}")
-
-    # Cửa sổ tín hiệu còn hiệu lực: MAX_CATCHUP_DAYS phiên gần nhất TRƯỚC as_of
-    recent_sessions = _trading_sessions_up_to(as_of_date, MAX_CATCHUP_DAYS + 1)
-    fresh_window = set(d for d in recent_sessions if d < as_of_date)
 
     from src.engine.paper_trading_engine import PaperTradingEngine
 
-    for d in gaps:  # đã sorted tăng dần
-        is_fresh = d in fresh_window
-        try:
-            if is_fresh:
-                # BÙ ĐẦY ĐỦ — as_of=d → anti-lookahead tự động qua kiến trúc as_of
-                PaperTradingEngine.run_daily(decision_date=d, offline=offline,
-                                             mtm_only=False)
-                _record_ledger(d, portfolio_id, STATUS_CATCHUP_FULL,
+    if gaps:
+        logger.warning(f"[CATCHUP] Phát hiện {len(gaps)} ngày nợ: {gaps}")
+
+        # Cửa sổ tín hiệu còn hiệu lực: MAX_CATCHUP_DAYS phiên gần nhất TRƯỚC as_of
+        recent_sessions = _trading_sessions_up_to(as_of_date, MAX_CATCHUP_DAYS + 1)
+        fresh_window = set(d for d in recent_sessions if d < as_of_date)
+
+        for d in gaps:  # đã sorted tăng dần
+            is_fresh = d in fresh_window
+            try:
+                if is_fresh:
+                    # BÙ ĐẦY ĐỦ — as_of=d → anti-lookahead tự động qua kiến trúc as_of.
+                    # CATCH-UP EXECUTION RULE: tín hiệu tính tại d nhưng lệnh KHÔNG
+                    # khớp giá lịch sử — nạp vào hàng đợi, sẽ ép khớp @ open ngày
+                    # phục hồi (as_of_date) qua process_catchup_queue (chống lookback).
+                    PaperTradingEngine.run_daily(decision_date=d, offline=offline,
+                                                 mtm_only=False, catchup_enqueue=True)
+                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_FULL,
+                                   catchup_of=as_of_date)
+                    report["caught_up"].append(d)
+                    logger.info(f"[CATCHUP] {d}: tín hiệu bù ĐÃ NẠP HÀNG ĐỢI "
+                                f"(sẽ ép khớp @ open {as_of_date}).")
+                else:
+                    # STALE — chỉ MtM/settlement, không phát lệnh cũ
+                    PaperTradingEngine.run_daily(decision_date=d, offline=offline,
+                                                 mtm_only=True)
+                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_MTM_ONLY,
+                                   catchup_of=as_of_date)
+                    report["mtm_only"].append(d)
+                    logger.warning(
+                        f"[CATCHUP] {d}: STALE — chỉ MtM/settle (tín hiệu hết hạn). "
+                        f"⚠️ Cần con người xem xét quyết định giao dịch ngày này.")
+            except Exception as e:
+                _record_ledger(d, portfolio_id, STATUS_FAILED, last_error=str(e),
                                catchup_of=as_of_date)
-                report["caught_up"].append(d)
-                logger.info(f"[CATCHUP] {d}: bù ĐẦY ĐỦ (trong cửa sổ tín hiệu).")
-            else:
-                # STALE — chỉ MtM/settlement, không phát lệnh cũ
-                PaperTradingEngine.run_daily(decision_date=d, offline=offline,
-                                             mtm_only=True)
-                _record_ledger(d, portfolio_id, STATUS_CATCHUP_MTM_ONLY,
-                               catchup_of=as_of_date)
-                report["mtm_only"].append(d)
-                logger.warning(
-                    f"[CATCHUP] {d}: STALE — chỉ MtM/settle (tín hiệu hết hạn). "
-                    f"⚠️ Cần con người xem xét quyết định giao dịch ngày này.")
-        except Exception as e:
-            _record_ledger(d, portfolio_id, STATUS_FAILED, last_error=str(e),
-                           catchup_of=as_of_date)
-            report["errors"].append({"date": d, "error": str(e)})
-            logger.exception(f"[CATCHUP] {d}: bù thất bại: {e}")
+                report["errors"].append({"date": d, "error": str(e)})
+                logger.exception(f"[CATCHUP] {d}: bù thất bại: {e}")
+
+    # --- TRANSPOSE & KILL-SWITCH: ép khớp hàng đợi @ open ngày phục hồi ---
+    # Chạy SAU khi đã nạp mọi lệnh bù, TRƯỚC khi luồng chính sinh tín hiệu mới
+    # của as_of_date → buying_power ngày as_of tự phản ánh vốn đã tiêu cho lệnh bù.
+    try:
+        eng = PaperTradingEngine(portfolio_id=portfolio_id, offline=offline)
+        report["queue_execution"] = eng.process_catchup_queue(as_of_date)
+    except Exception as e:
+        logger.exception(f"[CATCHUP] process_catchup_queue lỗi: {e}")
+        report["queue_execution"] = {"error": str(e)}
+
     return report
 
 

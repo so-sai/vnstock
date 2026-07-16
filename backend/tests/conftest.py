@@ -49,7 +49,7 @@ def _clean_test_data():
         paper_tables = [
             "paper_portfolio_state", "paper_lots", "paper_cash_ledger",
             "paper_realized_pnl", "paper_equity_curve", "paper_trades_log",
-            "paper_performance_daily",
+            "paper_performance_daily", "paper_catchup_queue",
         ]
         for t in paper_tables:
             try:

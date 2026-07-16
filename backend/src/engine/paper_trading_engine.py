@@ -67,6 +67,12 @@ SELL_TAX_BPS = 10.0
 
 PAPER_PORTFOLIO_ID = "SEL_PAPER_V1"
 
+# --- Catch-up Execution Rule --------------------------------------------------
+# Kill-switch trượt giá: nếu open_{T+k} lệch quá ngưỡng này so với giá mục tiêu
+# (close_T), lệnh bù bị HỦY do tín hiệu đã biến chất (Signal Decay). Tuyệt đối
+# không truy đuổi giá (chasing). Có thể override qua tham số hàm.
+CATCHUP_MAX_SLIPPAGE_PCT = 3.0   # 3.0% = 0.03
+
 
 class PaperTradingEngine:
     """Engine giả lập thực thi lệnh + đối chiếu Live-vs-Backtest.
@@ -145,6 +151,50 @@ class PaperTradingEngine:
                     created_at          TEXT,
                     PRIMARY KEY(portfolio_id, date)
                 )
+            """)
+            # ----------------------------------------------------------------
+            # HÀNG ĐỢI LỆNH BÙ (Catch-up Queue) — Persistent, Idempotent
+            # ----------------------------------------------------------------
+            # Khi backfill một ngày lỡ T còn trong cửa sổ tín hiệu (<=3 phiên),
+            # lệnh KHÔNG khớp ngay tại giá lịch sử (chống lookback execution).
+            # Thay vào đó đóng gói vào hàng đợi BỀN VỮNG này với target_price =
+            # close_T (giá quyết định) + ngữ cảnh Governor đóng băng tại T.
+            #
+            # QUAN TRỌNG (Cash consistency — trả lời câu hỏi khai thác sâu):
+            #   Hàng đợi KHÔNG dùng cơ chế reservation (không trừ settled_cash,
+            #   không tạo lot). Do buying_power = min(settled_cash, cap - deployed)
+            #   chỉ tính trên lot ĐÃ khớp thật, một lệnh treo KHÔNG khóa sức mua.
+            #   → Khi Kill-switch hủy lệnh, KHÔNG có tiền nào bị giam để "reclaim".
+            #   → Không cần hàm reclaim_cash (sẽ tạo bút toán ma). Tính nhất quán
+            #     tiền mặt tại T+k được bảo toàn TỰ ĐỘNG, miễn là queue được xử lý
+            #     TRƯỚC khi get_buying_power(T+k) được gọi để sinh tín hiệu mới.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS paper_catchup_queue (
+                    trade_id        TEXT PRIMARY KEY,   -- idempotency key
+                    portfolio_id    TEXT NOT NULL,
+                    decision_date   TEXT NOT NULL,       -- ngày T (tín hiệu lỡ)
+                    symbol          TEXT NOT NULL,
+                    side            TEXT NOT NULL,
+                    target_qty      INTEGER NOT NULL,    -- qty tính tại T (sizing gốc)
+                    target_price    REAL NOT NULL,       -- close_T (giá mục tiêu)
+                    signal_source   TEXT,
+                    hdr_at_decision REAL,
+                    w1_at_decision  REAL,
+                    macro_state     TEXT,
+                    status          TEXT NOT NULL DEFAULT 'PENDING',
+                                    -- PENDING / FILLED / REJECTED_SIGNAL_DECAY / EXPIRED
+                    recovery_date   TEXT,                -- ngày T+k thực thi
+                    exec_price      REAL,                -- giá khớp thực (open_{T+k})
+                    decay_pct       REAL,                -- |open_Tk - close_T|/close_T
+                    filled_qty      INTEGER,
+                    notes           TEXT,
+                    created_at      TEXT,
+                    updated_at      TEXT
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_catchup_queue_status
+                ON paper_catchup_queue(portfolio_id, status)
             """)
             conn.commit()
 
@@ -333,6 +383,189 @@ class PaperTradingEngine:
             )
             conn.commit()
 
+    # ==================================================== CATCH-UP QUEUE
+    def _enqueue_catchup_order(self, symbol: str, side: str, target_qty: int,
+                               target_price: float, decision_date: str,
+                               signal_source: str = "SEL_MACRO",
+                               hdr: Optional[float] = None,
+                               w1: Optional[float] = None,
+                               macro_state: str = "UNKNOWN") -> Dict:
+        """Nạp một lệnh bù vào hàng đợi bền vững (KHÔNG khớp, KHÔNG khóa tiền).
+
+        Idempotent: dùng trade_id = hash(pf|decision_date|symbol|side) làm PK →
+        chạy lại backfill không tạo bản ghi trùng. target_price = close_T.
+        """
+        trade_id = self._trade_id(decision_date, symbol, side)
+        now = datetime.now().isoformat()
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO paper_catchup_queue "
+                "(trade_id, portfolio_id, decision_date, symbol, side, target_qty, "
+                "target_price, signal_source, hdr_at_decision, w1_at_decision, "
+                "macro_state, status, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?, 'PENDING', ?, ?)",
+                (trade_id, self.portfolio_id, decision_date, symbol, side.upper(),
+                 int(target_qty), float(target_price), signal_source, hdr, w1,
+                 macro_state, now, now)
+            )
+            conn.commit()
+        return {"trade_id": trade_id, "symbol": symbol, "side": side.upper(),
+                "target_qty": int(target_qty), "target_price": round(target_price, 4),
+                "decision_date": decision_date, "status": "QUEUED_CATCHUP"}
+
+    def process_catchup_queue(self, recovery_date: str,
+                              max_slippage_pct: float = CATCHUP_MAX_SLIPPAGE_PCT
+                              ) -> Dict:
+        """Xử lý hàng đợi lệnh bù tại ngày phục hồi T+k. GỌI TRƯỚC khi sinh
+        tín hiệu mới của T+k (để buying_power của T+k phản ánh đúng phần vốn
+        đã tiêu cho lệnh bù — bảo toàn tính nhất quán tiền mặt).
+
+        Với mỗi lệnh PENDING:
+          1. CHUYỂN VỊ GIÁ: lấy open_{T+k} (thanh khoản THỰC tại ngày phục hồi).
+          2. KILL-SWITCH: Decay = |open_Tk - target_close_T| / target_close_T.
+             Nếu Decay > max_slippage_pct% → REJECTED_SIGNAL_DECAY (không truy giá).
+          3. SIZING RECONCILIATION: tính lại qty theo buying_power HIỆN TẠI và
+             open_{T+k} (giá có thể đã tăng → qty giảm để không vượt sức mua).
+          4. book_buy tại open_{T+k}. book_buy tự reject nếu vẫn thiếu tiền.
+
+        Cash consistency: KHÔNG reclaim — queue chưa từng khóa tiền. Lệnh bị hủy
+        không giải phóng gì; lệnh khớp trừ settled_cash tại book_buy → get_buying_power
+        của T+k tự thấy đúng.
+        """
+        with get_connection() as conn:
+            pending = conn.execute(
+                "SELECT trade_id, decision_date, symbol, side, target_qty, "
+                "target_price, hdr_at_decision FROM paper_catchup_queue "
+                "WHERE portfolio_id=? AND status='PENDING' "
+                "ORDER BY decision_date ASC",
+                (self.portfolio_id,)
+            ).fetchall()
+
+        report = {"recovery_date": recovery_date, "processed": 0,
+                  "filled": [], "rejected_decay": [], "rejected_other": []}
+        if not pending:
+            return report
+
+        for (trade_id, dec_date, symbol, side, target_qty, target_price,
+             hdr_at_dec) in pending:
+            report["processed"] += 1
+            # --- 1. CHUYỂN VỊ GIÁ: open_{T+k} = thanh khoản thực ---
+            bar = self._get_ohlcv(symbol, recovery_date)
+            if not bar or not bar.get("open"):
+                # Không có giá mở cửa ngày phục hồi → để PENDING, thử lại lần sau
+                logger.warning(f"[CATCHUP-Q] {symbol}: thiếu open @ {recovery_date} "
+                               f"— giữ PENDING.")
+                continue
+            open_tk = float(bar["open"])
+
+            # --- 2. KILL-SWITCH: đo phân rã tín hiệu ---
+            decay = abs(open_tk - target_price) / target_price if target_price else 1.0
+            decay_pct = decay * 100.0
+            if decay_pct > max_slippage_pct:
+                self._update_catchup_status(
+                    trade_id, "REJECTED_SIGNAL_DECAY", recovery_date=recovery_date,
+                    exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
+                    notes=f"Decay {decay_pct:.2f}% > {max_slippage_pct}% — không truy giá.")
+                report["rejected_decay"].append(
+                    {"symbol": symbol, "decision_date": dec_date,
+                     "target_price": round(target_price, 2),
+                     "open_tk": round(open_tk, 2), "decay_pct": round(decay_pct, 2)})
+                logger.warning(
+                    f"[CATCHUP-Q] {symbol} {dec_date}: KILL-SWITCH — decay "
+                    f"{decay_pct:.2f}% > {max_slippage_pct}% → hủy (signal decay).")
+                continue
+
+            # --- 3. SIZING RECONCILIATION: size lại theo giá THỰC + sức mua HIỆN TẠI ---
+            eff_hdr = hdr_at_dec if hdr_at_dec is not None else 0.0
+            bp = self.mtm.get_buying_power(recovery_date, eff_hdr)
+            # qty tối đa mua được tại open_Tk (đã gồm phí mua), làm tròn lô 100
+            from src.engine.paper_mtm import BUY_FEE_BPS
+            unit_cost = open_tk * (1.0 + BUY_FEE_BPS / 10000.0)
+            max_affordable = int((bp // unit_cost) // 100 * 100) if unit_cost > 0 else 0
+            exec_qty = min(int(target_qty), max_affordable)
+
+            if exec_qty < 100:
+                self._update_catchup_status(
+                    trade_id, "REJECTED_INSUFFICIENT_BP", recovery_date=recovery_date,
+                    exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
+                    notes=f"Sức mua {bp:,.0f} không đủ 1 lô @ {open_tk:.0f}.")
+                report["rejected_other"].append(
+                    {"symbol": symbol, "decision_date": dec_date,
+                     "reason": "INSUFFICIENT_BP", "buying_power": round(bp, 0)})
+                continue
+
+            # --- 4. Ép khớp tại open_{T+k} qua MtM ---
+            book = self.mtm.book_buy(symbol=symbol, quantity=exec_qty,
+                                     fill_price=open_tk, fill_date=recovery_date,
+                                     hdr_limit=eff_hdr)
+            if book["status"] != "FILLED":
+                self._update_catchup_status(
+                    trade_id, "REJECTED_" + book["status"], recovery_date=recovery_date,
+                    exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
+                    notes=f"book_buy: {book['status']}")
+                report["rejected_other"].append(
+                    {"symbol": symbol, "decision_date": dec_date,
+                     "reason": book["status"]})
+                continue
+
+            self._update_catchup_status(
+                trade_id, "FILLED", recovery_date=recovery_date,
+                exec_price=open_tk, decay_pct=decay_pct, filled_qty=exec_qty,
+                notes=f"Transposed fill @ open_{recovery_date}={open_tk:.0f} "
+                      f"(target close_{dec_date}={target_price:.0f})")
+            # Ghi vào nhật ký giao dịch để audit (fill_date = recovery_date)
+            self._record_catchup_trade(
+                trade_id, dec_date, recovery_date, symbol, side, exec_qty,
+                target_price, open_tk, decay_pct, book, hdr_at_dec)
+            report["filled"].append(
+                {"symbol": symbol, "decision_date": dec_date,
+                 "recovery_date": recovery_date, "exec_price": round(open_tk, 2),
+                 "qty": exec_qty, "decay_pct": round(decay_pct, 2),
+                 "target_qty": int(target_qty)})
+            logger.info(
+                f"[CATCHUP-Q] {symbol} {dec_date}: FILLED @ open_{recovery_date}="
+                f"{open_tk:.0f} qty={exec_qty} (decay {decay_pct:.2f}%).")
+
+        return report
+
+    def _update_catchup_status(self, trade_id: str, status: str,
+                               recovery_date: str = None, exec_price: float = None,
+                               decay_pct: float = None, filled_qty: int = None,
+                               notes: str = None):
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE paper_catchup_queue SET status=?, recovery_date=?, "
+                "exec_price=?, decay_pct=?, filled_qty=?, notes=?, updated_at=? "
+                "WHERE trade_id=?",
+                (status, recovery_date, exec_price, decay_pct, filled_qty, notes,
+                 datetime.now().isoformat(), trade_id)
+            )
+            conn.commit()
+
+    def _record_catchup_trade(self, trade_id, decision_date, recovery_date,
+                              symbol, side, qty, target_price, exec_price,
+                              decay_pct, book, hdr):
+        """Ghi lệnh bù đã khớp vào paper_trades_log (audit trail)."""
+        slippage_bps = (exec_price - target_price) / target_price * 10000.0 \
+            if target_price else 0.0
+        fill = {
+            "trade_id": trade_id, "portfolio_id": self.portfolio_id,
+            "decision_date": decision_date, "fill_date": recovery_date,
+            "symbol": symbol, "side": side.upper(), "signal_source": "SEL_MACRO_CATCHUP",
+            "quantity": int(qty), "decision_price": round(target_price, 4),
+            "backtest_fill_price": round(target_price, 4),
+            "paper_fill_price": round(exec_price, 4),
+            "latency_ms": None, "slippage_bps": round(slippage_bps, 2),
+            "market_impact_bps": None, "is_rejected": 0, "reject_reason": None,
+            "tracking_error_bps": round(abs(slippage_bps), 2), "fee_bps": FEE_BPS,
+            "hdr_at_decision": hdr, "w1_at_decision": None,
+            "macro_state": "CATCHUP_TRANSPOSED",
+            "notes": f"Catch-up transposed fill; decay={decay_pct:.2f}%; "
+                     f"cost_basis={book.get('cost_basis')}; settle={book.get('settle_date')}",
+            "created_at": datetime.now().isoformat(),
+        }
+        self.record_trade(fill)
+
     def summarize_daily(self, date: str, w1: Optional[float] = None,
                         macro_state: str = "UNKNOWN") -> Dict:
         """Tổng hợp hiệu suất phiên → paper_performance_daily."""
@@ -397,7 +630,8 @@ class PaperTradingEngine:
     def generate_orders_from_signals(self, decision_date: str,
                                      watchlist: Optional[List[str]] = None,
                                      capital: float = 1_000_000_000.0,
-                                     mtm_only: bool = False) -> Dict:
+                                     mtm_only: bool = False,
+                                     catchup_enqueue: bool = False) -> Dict:
         """Sinh lệnh giả lập từ SEL + Macro Governor, hạch toán qua MtM.
 
         Quy trình EOD (đúng thứ tự kế toán):
@@ -413,6 +647,13 @@ class PaperTradingEngine:
             Dùng khi bù một ngày nợ quá cũ: tín hiệu giao dịch đã hết hiệu lực,
             nhưng dòng tiền/cổ tức/settlement của ngày đó VẪN phải được hạch toán
             để đường cong tài sản liền mạch và đúng kế toán.
+          catchup_enqueue: CATCH-UP EXECUTION RULE. True → tín hiệu (W1/HDR đóng
+            băng tại T) vẫn được tính, NHƯNG lệnh KHÔNG khớp tại giá lịch sử.
+            Thay vào đó NẠP VÀO hàng đợi paper_catchup_queue với target_price =
+            close_T. Lệnh sẽ được ép khớp tại open_{T+k} (giá thanh khoản thực) khi
+            process_catchup_queue() chạy ở ngày phục hồi — chống lookback execution.
+            Bước 1 (settle/CA) và bước 5 (MtM vị thế CŨ) VẪN chạy đầy đủ để giữ
+            đường cong tài sản liền mạch qua vùng hổng.
         """
         if watchlist is None:
             watchlist = ['FPT', 'VCB', 'HPG', 'VNM', 'TCB']
@@ -479,6 +720,15 @@ class PaperTradingEngine:
             price = float(bar["close"])
             qty = int((per_symbol // price) // 100 * 100)  # lô 100
             if qty < 100:
+                continue
+
+            # --- CATCH-UP: nạp lệnh vào hàng đợi, KHÔNG khớp tại giá lịch sử ---
+            if catchup_enqueue:
+                enq = self._enqueue_catchup_order(
+                    symbol=sym, side="BUY", target_qty=qty, target_price=price,
+                    decision_date=decision_date, signal_source="SEL_MACRO",
+                    hdr=effective_hdr, w1=w1, macro_state=macro_state)
+                results["orders"].append(enq)
                 continue
 
             # Giả lập vi mô thực thi (latency/slippage/rejection)
@@ -569,11 +819,13 @@ class PaperTradingEngine:
     @staticmethod
     def run_daily(decision_date: Optional[str] = None,
                   offline: bool = True,
-                  mtm_only: bool = False) -> Dict:
+                  mtm_only: bool = False,
+                  catchup_enqueue: bool = False) -> Dict:
         """Entry point cho cronjob EOD.
 
         Args:
           mtm_only: True → chỉ hạch toán MtM/settlement (Catch-up stale guard).
+          catchup_enqueue: True → nạp lệnh vào hàng đợi bù (không khớp giá lịch sử).
         """
         if decision_date is None:
             with get_connection() as conn:
@@ -583,8 +835,8 @@ class PaperTradingEngine:
             decision_date = row[0] if row and row[0] else \
                 datetime.now().strftime("%Y-%m-%d")
         engine = PaperTradingEngine(offline=offline)
-        return engine.generate_orders_from_signals(decision_date,
-                                                   mtm_only=mtm_only)
+        return engine.generate_orders_from_signals(
+            decision_date, mtm_only=mtm_only, catchup_enqueue=catchup_enqueue)
 
     @staticmethod
     def print_report(result: Dict, lang: str = "vi"):
