@@ -61,6 +61,8 @@ SETTLEMENT_DAYS = 2          # T+2 (tiền/CK về ~13:00 T+2 → "T+2.5")
 BUY_FEE_BPS = 15.0           # phí mua ~0.15%
 SELL_FEE_BPS = 15.0          # phí bán ~0.15%
 SELL_TAX_BPS = 10.0          # thuế TNCN chuyển nhượng 0.1% giá trị bán
+# Ứng trước tiền bán (Cash Advance): phí ~0.04%/ngày chờ (lãi suất ứng trước CTCK).
+CASH_ADVANCE_FEE_BPS_PER_DAY = 4.0   # 0.04%/ngày = 4 bps/ngày
 DEFAULT_PORTFOLIO_ID = "SEL_PAPER_V1"
 DEFAULT_INITIAL_CAPITAL = 1_000_000_000.0
 
@@ -405,12 +407,19 @@ class PaperMtM:
                 "proceeds_settle_date": settle_date}
 
     # ==================================================== BUYING POWER / QTY
-    def get_buying_power(self, date: str, hdr_limit: float = 0.0) -> Dict:
+    def get_buying_power(self, date: str, hdr_limit: float = 0.0,
+                         allow_cash_advance: bool = False) -> float:
         """Sức mua khả dụng, TÔN TRỌNG HDR_limit và T+2.5.
 
-        Sức mua = min(settled_cash, cap_theo_HDR - đã_triển_khai).
+        Sức mua cơ sở = min(settled_cash, cap_theo_HDR - đã_triển_khai).
         HDR=1.0 → cap = 0 (cash-only). HDR=0 → cap = initial_capital.
-        KHÔNG dùng pending_cash_in (tiền bán chưa về) → chống cấp vốn vượt thực tế.
+
+        allow_cash_advance:
+          - False (mặc định): KHÔNG dùng pending_cash_in (tiền bán chưa về)
+            → chống cấp vốn vượt sức mua thực tế tại T+1.
+          - True: cộng dồn pending_cash_in KHẢ DỤNG (ứng trước), nhưng trừ phí
+            ứng trước ≈ 0.04%/ngày × số ngày chờ đến settle. Tối ưu vòng quay vốn
+            nhưng tốn chi phí — mô phỏng nghiệp vụ ứng trước tiền bán của CTCK.
         """
         state = self._get_state()
         settled = state["settled_cash"]
@@ -420,8 +429,48 @@ class PaperMtM:
         deployed = self._get_deployed_cost(date)
         headroom = max(equity_cap - deployed, 0.0)
 
-        # Sức mua = min(tiền đã settle, headroom HDR)
-        return min(settled, headroom)
+        available_cash = settled
+        if allow_cash_advance:
+            available_cash += self._advanceable_cash(date)
+
+        # Sức mua = min(tiền khả dụng, headroom HDR)
+        return min(available_cash, headroom)
+
+    def _advanceable_cash(self, date: str) -> float:
+        """Tiền bán chưa settle có thể ứng trước, ĐÃ TRỪ phí ứng trước.
+
+        Phí = net_proceeds × CASH_ADVANCE_FEE_BPS_PER_DAY × days_wait / 10000.
+        days_wait = số phiên giao dịch từ 'date' đến settle_date (>0 mới ứng).
+        """
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT amount, settle_date FROM paper_cash_ledger "
+                "WHERE portfolio_id=? AND entry_type='SELL_PROCEEDS' "
+                "AND settled=0 AND settle_date > ?",
+                (self.portfolio_id, date)
+            ).fetchall()
+        total = 0.0
+        for amount, settle_date in rows:
+            days_wait = self._trading_days_between(date, settle_date)
+            if days_wait <= 0:
+                # đã đến hạn (sẽ settle) → ứng full, không phí
+                total += amount
+                continue
+            fee = amount * CASH_ADVANCE_FEE_BPS_PER_DAY * days_wait / 10000.0
+            total += max(amount - fee, 0.0)
+        return total
+
+    def _trading_days_between(self, start: str, end: str) -> int:
+        """Số phiên giao dịch giữa start (không tính) và end (tính) — dựa daily_ohlcv."""
+        if end <= start:
+            return 0
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(DISTINCT date) FROM daily_ohlcv "
+                "WHERE date > ? AND date <= ?",
+                (start, end)
+            ).fetchone()
+        return int(row[0]) if row and row[0] else 0
 
     def _get_deployed_cost(self, date: str) -> float:
         """Tổng giá vốn CP đang nắm giữ (chưa bán) — vốn đã triển khai."""
