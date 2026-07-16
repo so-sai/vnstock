@@ -48,7 +48,8 @@ def _clean_test_data():
     with get_connection() as conn:
         paper_tables = [
             "paper_portfolio_state", "paper_lots", "paper_cash_ledger",
-            "paper_realized_pnl", "paper_equity_curve",
+            "paper_realized_pnl", "paper_equity_curve", "paper_trades_log",
+            "paper_performance_daily",
         ]
         for t in paper_tables:
             try:
@@ -68,6 +69,11 @@ def _clean_test_data():
         try:
             conn.execute("DELETE FROM macro_history WHERE variable LIKE ?",
                          (TEST_MACRO_PREFIX + "%",))
+        except Exception:
+            pass
+        try:
+            conn.execute("DELETE FROM scheduler_locks WHERE lock_key LIKE ?",
+                         ("__TEST__%",))
         except Exception:
             pass
         conn.commit()

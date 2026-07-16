@@ -243,12 +243,17 @@ class TestSettlementLifecycle:
         assert bp_half == pytest.approx(500_000_000.0)
 
     def test_cash_advance_adds_pending_minus_fee(self, mtm):
-        """allow_cash_advance=True → cộng pending nhưng trừ phí ứng trước."""
+        """allow_cash_advance=True → cộng pending nhưng trừ phí ứng trước.
+
+        Phí = pending × 4bps × CALENDAR days (không phải trading days).
+        Lịch test 2099-01: T2=01-06, settle T4=01-08 → calendar days = 2.
+        """
         T0, T2 = TEST_DATES[0], TEST_DATES[2]
         mtm.book_buy(TEST_SYMBOL, 1000, 10000.0, T0, hdr_limit=0.0)
         sell = mtm.book_sell(TEST_SYMBOL, 1000, 10200.0, T2)
         pending = mtm._get_state()["pending_cash_in"]
         assert pending > 0
+        settle_date = sell["proceeds_settle_date"]  # TEST_DATES[4]
 
         # Không ứng trước: BP không gồm pending
         bp_no_adv = mtm.get_buying_power(T2, hdr_limit=0.0,
@@ -257,11 +262,29 @@ class TestSettlementLifecycle:
         bp_adv = mtm.get_buying_power(T2, hdr_limit=0.0,
                                       allow_cash_advance=True)
         assert bp_adv > bp_no_adv
-        # Phí ứng trước = pending × 4bps × days_wait. days_wait(T2→T4)=2 phiên.
-        expected_advance = pending * (1 - 4.0 * 2 / 10000.0)
-        # BP có thể bị chặn bởi headroom, kiểm tra advanceable trực tiếp
+
+        # Phí ứng trước theo CALENDAR days
+        from src.engine.paper_mtm import PaperMtM
+        cal_days = PaperMtM._calendar_days_between(T2, settle_date)
+        expected_advance = pending * (1 - 4.0 * cal_days / 10000.0)
         adv_cash = mtm._advanceable_cash(T2)
         assert adv_cash == pytest.approx(expected_advance, rel=1e-6)
+
+    def test_cash_advance_fee_uses_calendar_not_trading_days(self, mtm):
+        """Phí ứng trước dùng CALENDAR days, KHÁC trading days qua cuối tuần.
+
+        Chứng minh: khi settle_date cách 'date' bởi cuối tuần, calendar_days
+        > trading_days → phí cao hơn (chống bơm khống P&L qua ngày nghỉ).
+        Lịch 2099: 01-08(Thu) → 01-11(Sun) có gap cuối tuần 01-09/01-10.
+        """
+        from src.engine.paper_mtm import PaperMtM
+        # 2099-01-08 (thứ 5) đến 2099-01-11 (chủ nhật trong lịch test)
+        start, end = "2099-01-08", "2099-01-11"
+        cal = PaperMtM._calendar_days_between(start, end)
+        trading = mtm._trading_days_between(start, end)
+        assert cal == 3  # calendar: 09,10,11
+        # trading days (chỉ ngày có trong daily_ohlcv test) < calendar days
+        assert cal > trading, "Calendar days phải > trading days qua cuối tuần"
 
 
 # ============================================= CHỐT 4: CORPORATE ACTION

@@ -1073,6 +1073,25 @@ def cmd_sel(args):
     StructureEvolutionLayer.print_report(result)
 
 
+def cmd_eod_run(args):
+    """EOD Runner — tự phục hồi (retry) + lũy đẳng (idempotent) + chống race (SQLite lock)."""
+    from src.engine.eod_runner import run_eod_pipeline
+    result = run_eod_pipeline(
+        as_of_date=getattr(args, "date", None),
+        force=getattr(args, "force", False),
+        retry_sleep=getattr(args, "retry_sleep", 15 * 60),
+    )
+    status = result.get("status")
+    icon = {"SUCCESS": "[OK]", "SKIPPED": "[SKIP]", "FAILED": "[ALARM]"}.get(status, "[?]")
+    print(f"\n{icon} EOD {result.get('as_of_date')} → {status}")
+    if result.get("reason"):
+        print(f"     reason: {result['reason']}")
+    if result.get("note"):
+        print(f"     {result['note']}")
+    if result.get("error"):
+        print(f"     error: {result['error']}")
+
+
 def cmd_paper(args):
     """Paper Trading Engine — Giả lập thời gian thực (Live vs Backtest)."""
     from src.engine.paper_trading_engine import PaperTradingEngine
@@ -2029,6 +2048,16 @@ def main():
     p_paper.add_argument("--online", action="store_true",
                          help="Cho phép gọi API (mặc định OFFLINE — chống IP ban)")
     p_paper.set_defaults(func=cmd_paper)
+
+    # eod-run (self-healing scheduler entry point)
+    p_eod = sub.add_parser("eod-run", help="EOD Runner — retry + idempotent + SQLite lock")
+    p_eod.add_argument("--date", default=None,
+                       help="as_of_date (YYYY-MM-DD). Mặc định: EOD mới nhất trong DB")
+    p_eod.add_argument("--force", action="store_true",
+                       help="Bỏ qua idempotency check (chạy lại có chủ đích)")
+    p_eod.add_argument("--retry-sleep", dest="retry_sleep", type=int, default=15 * 60,
+                       help="Giây ngủ giữa các lần retry (mặc định 900s = 15 phút)")
+    p_eod.set_defaults(func=cmd_eod_run)
 
     args = parser.parse_args()
     _VERBOSE_LANG = args.verbose_lang

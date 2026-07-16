@@ -439,8 +439,14 @@ class PaperMtM:
     def _advanceable_cash(self, date: str) -> float:
         """Tiền bán chưa settle có thể ứng trước, ĐÃ TRỪ phí ứng trước.
 
-        Phí = net_proceeds × CASH_ADVANCE_FEE_BPS_PER_DAY × days_wait / 10000.
-        days_wait = số phiên giao dịch từ 'date' đến settle_date (>0 mới ứng).
+        RÀNG BUỘC KẾ TOÁN (Forward Testing integrity):
+          - Trading calendar (T+2 PHIÊN) xác định settle_date của khoản bán.
+          - Phí ứng trước = net × 0.04% × CALENDAR DAYS (số ngày LỊCH thực tế
+            từ 'date' đến settle_date, GỒM cuối tuần/lễ). Đây là chi phí lãi
+            thực tế của CTCK — tiền bị giam qua ngày nghỉ vẫn tính lãi.
+
+        Việc dùng calendar days (thay vì trading days) chống bơm khống P&L do
+        tính thiếu phí qua các ngày nghỉ lễ/cuối tuần.
         """
         with get_connection() as conn:
             rows = conn.execute(
@@ -451,14 +457,30 @@ class PaperMtM:
             ).fetchall()
         total = 0.0
         for amount, settle_date in rows:
-            days_wait = self._trading_days_between(date, settle_date)
-            if days_wait <= 0:
+            # Số phiên giao dịch còn lại (để biết đã đến hạn hay chưa)
+            trading_days_left = self._trading_days_between(date, settle_date)
+            if trading_days_left <= 0:
                 # đã đến hạn (sẽ settle) → ứng full, không phí
                 total += amount
                 continue
-            fee = amount * CASH_ADVANCE_FEE_BPS_PER_DAY * days_wait / 10000.0
+            # Phí tính theo CALENDAR DAYS (gồm cuối tuần/lễ)
+            calendar_days = self._calendar_days_between(date, settle_date)
+            fee = (amount * CASH_ADVANCE_FEE_BPS_PER_DAY
+                   * calendar_days / 10000.0)
             total += max(amount - fee, 0.0)
         return total
+
+    @staticmethod
+    def _calendar_days_between(start: str, end: str) -> int:
+        """Số NGÀY LỊCH giữa start (không tính) và end (tính) — gồm cuối tuần/lễ.
+
+        Ví dụ: bán thứ Sáu, settle thứ Ba → trading=2 phiên nhưng calendar=4 ngày.
+        """
+        if end <= start:
+            return 0
+        d0 = datetime.strptime(start, "%Y-%m-%d")
+        d1 = datetime.strptime(end, "%Y-%m-%d")
+        return (d1 - d0).days
 
     def _trading_days_between(self, start: str, end: str) -> int:
         """Số phiên giao dịch giữa start (không tính) và end (tính) — dựa daily_ohlcv."""

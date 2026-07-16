@@ -40,8 +40,8 @@ TASKS = [
     },
     {
         "name": "PTCK_FLOW_MAP_REPORT",
-        "description": "Báo cáo Dòng vốn Liên thị trường (Thứ 2-6, 16:00)",
-        "action": f'cmd.exe /c ""{PYTHON_EXE}" "{PTCK_CLI}" daily-update && "{PYTHON_EXE}" "{PTCK_CLI}" flow-map"',
+        "description": "EOD Pipeline tự phục hồi + lũy đẳng (Thứ 2-6, 16:00)",
+        "action": f'cmd.exe /c ""{PYTHON_EXE}" "{PTCK_CLI}" eod-run && "{PYTHON_EXE}" "{PTCK_CLI}" flow-map"',
         "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 16:00",
         "run_level": "HIGHEST",
     },
