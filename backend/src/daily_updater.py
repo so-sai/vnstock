@@ -34,6 +34,7 @@ backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 from src.database.db_core import get_connection, optimize_sqlite_engine, save_data_upsert
+from src.database.data_quality_failover import FailoverMultiSourceAdapter
 
 # Canonical Asset Registry
 _LIBS = PROJECT_ROOT / "backend" / "libs"
@@ -227,6 +228,25 @@ def _progress_bar(batch_num: int, total_batches: int, success: int, failed: int,
     sys.stdout.flush()
 
 
+def _fallback_fetch_single(symbol: str) -> pd.DataFrame:
+    """Dùng FailoverMultiSourceAdapter để lấy dữ liệu từ nguồn dự phòng khi batch thất bại."""
+    try:
+        import asyncio
+        adapter = FailoverMultiSourceAdapter(
+            db_path=str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
+        )
+        df_clean, source_used, is_stale = asyncio.run(adapter.fetch_historical_ohlcv_safe(symbol))
+        if df_clean is not None and not df_clean.empty:
+            df_clean['adj_close'] = df_clean['close']
+            df_clean['source'] = source_used
+            df_clean['is_stale'] = int(is_stale)
+            logger.info(f"[FALLBACK] {symbol} thành công từ nguồn dự phòng: {source_used} (stale={is_stale})")
+            return df_clean
+    except Exception as e:
+        logger.error(f"[FALLBACK_FAILED] {symbol}: {e}")
+    return pd.DataFrame()
+
+
 @retry_with_backoff("update_market_batch", max_retries=2, base_delay=10)
 def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
     batch_size = 50
@@ -288,10 +308,24 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
             else:
                 failed += len(active_batch)
         except Exception as e:
-            logger.error(f"📦 Batch {batch_num}/{total_batches}: ❌ {e}")
-            failed += len(active_batch)
+            logger.warning(f"📦 Batch {batch_num}/{total_batches}: ❌ {e} — thử fallback từng mã...")
             for s in active_batch:
-                armor.blacklist(s)
+                try:
+                    df_solo = _fallback_fetch_single(s)
+                    if not df_solo.empty:
+                        cols_ohlcv = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
+                        if 'is_stale' in df_solo.columns:
+                            cols_ohlcv.append('is_stale')
+                        with get_connection() as conn:
+                            save_data_upsert('daily_ohlcv', df_solo[cols_ohlcv], conn)
+                        success += 1
+                    else:
+                        armor.blacklist(s)
+                        failed += 1
+                except Exception as se:
+                    logger.error(f"[FALLBACK] {s}: {se}")
+                    armor.blacklist(s)
+                    failed += 1
             armor.throttling(is_error=True)
             _progress_bar(batch_num, total_batches, success, failed, skipped, start_time)
             continue
@@ -576,6 +610,40 @@ def run_post_update_engines():
         logger.exception("⚠️ Regime persistence: %s", e)
         record_engine_fault('regime_persistence', str(e))
         results['regime_persisted'] = False
+
+    # Per-symbol absorption tracking for watchlist + Macro Governor
+    try:
+        from src.engine.macro_governor import MacroGovernor
+        from src.engine.per_symbol_absorption import PerSymbolAbsorption
+
+        macro_state = MacroGovernor.assess_global()
+        results['macro_governor'] = {
+            "state": macro_state["state"],
+            "confidence": macro_state["confidence"],
+            "hdr_override": macro_state["hdr_override"],
+            "fx_risk_premium": macro_state["fx_risk_premium"],
+        }
+        logger.info(f"✅ Macro Governor: {macro_state['state']} "
+                    f"(conf={macro_state['confidence']:.1f}%, "
+                    f"HDR_override={macro_state['hdr_override']})")
+
+        watchlist = ['FPT', 'VCB', 'HPG', 'VNM', 'TCB']
+        abs_results = {}
+        for sym in watchlist:
+            detector = PerSymbolAbsorption(sym)
+            ar = detector.analyze(macro_state=macro_state)
+            abs_results[sym] = {
+                "phase": ar["phase"],
+                "hdr": ar["hdr"],
+                "sdi": ar["sdi"],
+                "vqa_class": ar.get("vqa", {}).get("classification"),
+                "governor_lock": ar.get("governor_lock", False),
+            }
+        results['per_symbol_absorption'] = abs_results
+        logger.info(f"✅ Per-symbol absorption: {abs_results}")
+    except Exception as e:
+        logger.exception("⚠️ Per-symbol absorption: %s", e)
+        record_engine_fault('per_symbol_absorption', str(e))
 
     return results
 

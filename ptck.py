@@ -20,8 +20,10 @@ import argparse
 from pathlib import Path
 
 # ── Windows encoding fix ──────────────────────────────
-if sys.platform == "win32":
-    sys.stdout = __import__('io').TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if sys.platform.startswith("win"):
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # ── Path setup ─────────────────────────────────────────
 # Không thêm backend/src vào sys.path vì shadowing core/ namespace.
@@ -391,8 +393,32 @@ def cmd_db(args):
         print("  Đang tối ưu hóa toàn bộ database (JSONB + STRICT + VACUUM)...")
         from src.database.db_optimize import run_all
         run_all()
+    elif args.subcommand == "backup":
+        from src.database.database_guardian import run_guardian_cycle, list_backups
+        if args.list_backups:
+            backups = list_backups()
+            if backups:
+                print(f"\n📋 BACKUPS ({len(backups)} bản):")
+                for b in backups:
+                    print(f"  {b['name']:45s} {b['size_mb']:>8.2f} MB  {b['modified']}")
+            else:
+                print("\n📭 Không có bản backup nào.")
+            return
+        report = run_guardian_cycle(dry_run=args.dry_run)
+        if report["status"] in ("SUCCESS", "DRY_RUN_PASSED"):
+            print(f"\n  ✅ Guardian cycle hoàn tất ({report['duration_seconds']:.2f}s)")
+            if not args.dry_run:
+                backups = list_backups()
+                if backups:
+                    latest = backups[0]
+                    print(f"  📦 Backup mới nhất: {latest['name']} ({latest['size_mb']} MB)")
+                    print(f"  📋 Tổng số backup: {len(backups)} bản")
+        elif "BLOCKED" in report["status"]:
+            print(f"\n  ❌ {report['status']}")
+        else:
+            print(f"\n  ❌ Guardian cycle thất bại: {report['status']}")
     else:
-        print("  Usage: python ptck.py db vacuum|stats|optimize")
+        print("  Usage: python ptck.py db vacuum|stats|optimize|backup")
 
 
 def cmd_status(args):
@@ -1002,8 +1028,72 @@ def cmd_backfill_regime(args):
         print(f"✅ Đã backfill {inserted} ngày vào regime_history.")
 
 
+def cmd_absorption_detector(args):
+    """Absorption Detector — SDI + Volume Profile PCA (index hoặc per-symbol)."""
+    symbol = getattr(args, 'symbol', None)
+    show_history = getattr(args, 'history', False)
+
+    if symbol:
+        from src.engine.per_symbol_absorption import PerSymbolAbsorption
+        if show_history:
+            PerSymbolAbsorption.print_history(symbol)
+            return
+        detector = PerSymbolAbsorption(symbol)
+        result = detector.analyze()
+        if not args.quiet:
+            PerSymbolAbsorption.print_report(result)
+        if args.quiet:
+            import json
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
+
+    from src.engine.absorption_detector import run_absorption_detection
+    result = run_absorption_detection(
+        target_date=args.date,
+        show_details=not args.quiet
+    )
+    if args.quiet:
+        import json
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def cmd_macro(args):
+    """Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)."""
+    from src.engine.macro_governor import MacroGovernor
+    result = MacroGovernor.assess_global()
+    MacroGovernor.print_report(result)
+
+
 def cmd_scan(args):
     """Elite scanner."""
+    symbol = getattr(args, 'symbol', None)
+    if symbol:
+        symbol = symbol.upper()
+        print("\n" + "=" * 65)
+        print(f"  PTCK — QUÉT NHANH MÃ: {symbol}")
+        print("=" * 65)
+        from src.database.db_core import get_connection
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT date, open, high, low, close, volume, source
+                FROM daily_ohlcv
+                WHERE symbol = ?
+                ORDER BY date DESC LIMIT 5
+            """, (symbol,))
+            rows = cur.fetchall()
+            if not rows:
+                print(f"\n  ❌ Không tìm thấy dữ liệu cho mã {symbol} trong cơ sở dữ liệu.")
+                print("=" * 65)
+                return
+            print(f"\n  {'Ngày':<12} | {'Mở':<10} | {'Cao':<10} | {'Thấp':<10} | {'Đóng':<10} | {'Khối lượng':>14} | {'Nguồn':>8}")
+            print("  " + "-" * 63)
+            for r in rows:
+                print(f"  {r[0]:<12} | {r[1]:<10.2f} | {r[2]:<10.2f} | {r[3]:<10.2f} | {r[4]:<10.2f} | {r[5]:>14,} | {r[6] or '—':>8}")
+            print("  " + "-" * 63)
+        print("=" * 65)
+        return
+
     deep = getattr(args, 'deep', False)
     print("=" * 60)
     print("  PTCK — ELITE SCANNER")
@@ -1664,7 +1754,9 @@ def main():
 
     # db
     p_db = sub.add_parser("db", help="Database operations")
-    p_db.add_argument("subcommand", choices=["vacuum", "stats", "optimize"])
+    p_db.add_argument("subcommand", choices=["vacuum", "stats", "optimize", "backup"])
+    p_db.add_argument("--dry-run", action="store_true", dest="dry_run", help="Backup: chỉ kiểm tra integrity, không backup thật")
+    p_db.add_argument("--list", action="store_true", dest="list_backups", help="Backup: liệt kê các bản backup hiện có")
     p_db.set_defaults(func=cmd_db)
 
     # status
@@ -1772,6 +1864,7 @@ def main():
     # scan
     p_scan = sub.add_parser("scan", help="Elite scanner")
     p_scan.add_argument("--deep", action="store_true", help="Deep scan")
+    p_scan.add_argument("--symbol", type=str, help="Quét nhanh dữ liệu của 1 mã cổ phiếu riêng lẻ")
     p_scan.set_defaults(func=cmd_scan)
 
     # gold
@@ -1867,6 +1960,18 @@ def main():
     p_bfr.add_argument("--target", default=None, help="Ngày đích (YYYY-MM-DD, mặc định: tất cả)")
     p_bfr.add_argument("--batch-size", type=int, default=30, dest="batch_size", help="Batch log interval")
     p_bfr.set_defaults(func=cmd_backfill_regime)
+
+    # absorption-detector
+    p_ad = sub.add_parser("absorption-detector", help="Phát hiện Cân bằng Hấp thụ thị trường (SDI + Volume Profile PCA)")
+    p_ad.add_argument("--date", default=None, help="Ngày phân tích (YYYY-MM-DD)")
+    p_ad.add_argument("--quiet", action="store_true", help="Chỉ in JSON, không in chi tiết")
+    p_ad.add_argument("--symbol", type=str, default=None, help="Phân tích cho 1 mã cổ phiếu riêng lẻ (VD: FPT)")
+    p_ad.add_argument("--history", action="store_true", help="In lịch sử chuyển pha của mã")
+    p_ad.set_defaults(func=cmd_absorption_detector)
+
+    # macro-governor
+    p_mg = sub.add_parser("macro", help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")
+    p_mg.set_defaults(func=cmd_macro)
 
     args = parser.parse_args()
     _VERBOSE_LANG = args.verbose_lang

@@ -35,13 +35,13 @@ DB_PATH = str(src.config.DATA_DIR / "screener_cache.db")
 @contextmanager
 def get_connection():
     """Quản lý kết nối SQLite dùng Context Manager với PRAGMA tối ưu & check_same_thread=False"""
-    conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA cache_size=-20000;")
     conn.execute("PRAGMA temp_store=MEMORY;")
     conn.execute("PRAGMA mmap_size=268435456;")
-    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute("PRAGMA busy_timeout=15000;")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
