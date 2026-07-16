@@ -334,6 +334,36 @@ class MacroGovernor:
         self.confidence = float(confidence)
         self.hdr_override = hdr_override
 
+        # SEL — Structural Evolution Layer (Tier 1.5)
+        try:
+            from src.engine.structure_evolution import StructureEvolutionLayer
+            self.sel_result = StructureEvolutionLayer().assess()
+            sel_hdr = self.sel_result.get("hdr_limit")
+            sel_state = self.sel_result.get("state")
+            if sel_state == "SURVIVAL_MODE":
+                # Survival Mode overrides EVERYTHING
+                self.state = "SEL_SURVIVAL"
+                self.hdr_override = 1.0
+                self.confidence = 0.0
+                logger.warning(
+                    f"[MACRO_GOV] SEL Survival Mode active — "
+                    f"W1={self.sel_result['w1']:.4f} > θ_novelty={self.sel_result['theta_novelty']:.4f}. "
+                    f"Global HDR locked at 1.0."
+                )
+            elif sel_hdr is not None and sel_hdr > 0:
+                # Structural shift detected — SEL imposes additional HDR constraint
+                current_hdr = 1.0 if self.hdr_override else 0.0
+                if sel_hdr > current_hdr:
+                    self.hdr_override = sel_hdr
+                    self.state = f"SEL_SHIFT_{self.state}"
+                    logger.info(
+                        f"[MACRO_GOV] SEL structural shift — W1={self.sel_result['w1']:.4f}. "
+                        f"HDR override={sel_hdr:.2f}"
+                    )
+        except Exception as e:
+            logger.warning(f"[MACRO_GOV] SEL assessment failed: {e}")
+            self.sel_result = {"status": "FAILED"}
+
         result = {
             "status": "OK",
             "timestamp": datetime.now().isoformat(),
@@ -353,6 +383,13 @@ class MacroGovernor:
             "weights": {
                 "dxy": W_DXY, "usdvnd": W_USDVND,
                 "foreign_flow": W_FOREIGN, "omo": W_OMO, "gold_yield": W_GOLD,
+            },
+            "structure_evolution": {
+                "w1": self.sel_result.get("w1", 0) if hasattr(self, 'sel_result') else 0,
+                "sel_state": self.sel_result.get("state", "UNKNOWN") if hasattr(self, 'sel_result') else "UNKNOWN",
+                "best_match": self.sel_result.get("best_match_regime", "N/A") if hasattr(self, 'sel_result') else "N/A",
+                "theta_novelty": self.sel_result.get("theta_novelty", 0) if hasattr(self, 'sel_result') else 0,
+                "survival_active": self.sel_result.get("survival", {}).get("active", False) if hasattr(self, 'sel_result') else False,
             },
         }
         from src.utils.localization import log_structured

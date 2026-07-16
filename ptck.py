@@ -1064,6 +1064,13 @@ def cmd_macro(args):
     MacroGovernor.print_report(result)
 
 
+def cmd_sel(args):
+    """Structure Evolution Layer — Wasserstein Distance + Survival Mode."""
+    from src.engine.structure_evolution import StructureEvolutionLayer
+    result = StructureEvolutionLayer.assess_global()
+    StructureEvolutionLayer.print_report(result)
+
+
 def cmd_scan(args):
     """Elite scanner."""
     symbol = getattr(args, 'symbol', None)
@@ -1972,6 +1979,10 @@ def main():
     # macro-governor
     p_mg = sub.add_parser("macro", help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")
     p_mg.set_defaults(func=cmd_macro)
+
+    # sel
+    p_sel = sub.add_parser("sel", help="Structure Evolution Layer — W1 Wasserstein + Survival Mode")
+    p_sel.set_defaults(func=cmd_sel)
 
     args = parser.parse_args()
     _VERBOSE_LANG = args.verbose_lang
