@@ -9,7 +9,10 @@ Architecture: Hierarchical Bayesian Control (Meta-labeling, de Prado 2018).
 import math
 from collections import deque
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    from src.core.regime_confusion import RegimeAwareConfusion
 
 # ── Hằng số ---------------------------------------------------------
 
@@ -183,25 +186,40 @@ class ModelQuality:
 # ── Meta Evidence (Calibration Vector) ──────────────────────────────
 
 class MetaEvidence:
-    """Đầu não Meta Evidence — tổng hợp calibration vector 4 chiều.
+    """Đầu não Meta Evidence — tổng hợp calibration vector 5 chiều.
 
     Calibration vector:
       - C_model:     Market Fit (Governor có đang hoạt động tốt không?)
       - E_exec:      Execution Fit (Broker/Execution có ổn không?)
       - Q_data:      Data Quality (Dữ liệu đầu vào có tin cậy không?)
       - R_novelty:   Novelty Risk (Thị trường có đang ở miền mới không?)
+      - S_fit:       Strategy Fit (Chiến lược có hiệu quả trong regime này không?)
 
     Usage:
         meta = MetaEvidence()
         meta.update_from_journal({"exit_reason": "STOP_LOSS", "slippage_bps": 15})
         cv = meta.calibration_vector   # {"market_fit": 0.88, "execution_fit": 0.95, ...}
-        trust = meta.effective_trust   # 0.88 × 0.95 × 1.0 × (1 - 0.12) = ...
+        trust = meta.effective_trust   # 0.88 × 0.95 × 1.0 × (1 - 0.12) × 0.90 = ...
     """
 
     def __init__(self):
         self.execution_quality = ExecutionQuality()
         self.model_quality = ModelQuality(half_life=60)
         self.data_quality_score: float = 1.0
+        self.current_adx: float = 0.0  # set externally each EOD
+
+        # Regime-Aware Confusion Matrix (lazy-loaded)
+        self._regime_confusion: Optional["RegimeAwareConfusion"] = None
+
+    @property
+    def regime_confusion(self):
+        if self._regime_confusion is None:
+            from src.core.regime_confusion import (
+                RegimeAwareConfusion, load_confusion_from_db,
+            )
+            loaded = load_confusion_from_db()
+            self._regime_confusion = loaded if loaded else RegimeAwareConfusion()
+        return self._regime_confusion
 
     def update_from_journal(self, entry: Dict[str, Any]):
         """Cập nhật từ một entry Execution Journal."""
@@ -230,13 +248,19 @@ class MetaEvidence:
         self.model_quality.decay_step()
 
     @property
+    def strategy_fit_score(self) -> float:
+        """Strategy Fit: EV/Kelly gate từ RegimeAwareConfusion."""
+        return self.regime_confusion.calibration_score(self.current_adx)
+
+    @property
     def calibration_vector(self) -> Dict[str, float]:
-        """Calibration vector 4 chiều."""
+        """Calibration vector 5 chiều."""
         return {
             "market_fit": round(self.model_quality.market_fit_score, 4),
             "execution_fit": round(self.execution_quality.score, 4),
             "data_quality": round(self.data_quality_score, 4),
             "novelty_risk": round(self.model_quality.novelty_risk_score, 4),
+            "strategy_fit": round(self.strategy_fit_score, 4),
         }
 
     @property
@@ -251,7 +275,8 @@ class MetaEvidence:
             cv["market_fit"]
             * cv["execution_fit"]
             * cv["data_quality"]
-            * (1.0 - cv["novelty_risk"]),
+            * (1.0 - cv["novelty_risk"])
+            * cv["strategy_fit"],
             4,
         )
 
@@ -260,6 +285,7 @@ class MetaEvidence:
         self.execution_quality.reset()
         self.model_quality.reset()
         self.data_quality_score = 1.0
+        self._regime_confusion = None
 
 
 # Singleton cho toàn bộ hệ thống (reset theo Hard Reset)

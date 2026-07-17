@@ -128,14 +128,16 @@ class TestExecutionJournal:
 # ── META EVIDENCE ──────────────────────────────────────────────────
 
 class TestMetaEvidence:
-    def test_initial_trust_high(self):
+    def test_initial_trust_blocked_by_strategy_fit(self):
+        """Mặc định: skeptical prior → EV < 0 → strategy_fit = 0 → block."""
         meta = MetaEvidence()
-        assert meta.effective_trust > 0.90
+        assert meta.effective_trust == 0.0
+        assert meta.calibration_vector["strategy_fit"] == 0.0
 
-    def test_calibration_vector_4d(self):
+    def test_calibration_vector_5d(self):
         meta = MetaEvidence()
         cv = meta.calibration_vector
-        assert len(cv) == 4
+        assert len(cv) == 5
         for k in ("market_fit", "execution_fit", "data_quality", "novelty_risk"):
             assert k in cv
 
@@ -155,7 +157,8 @@ class TestMetaEvidence:
         meta = MetaEvidence()
         meta.update_from_journal({"exit_reason": "STOP_LOSS"})
         meta.reset()
-        assert meta.effective_trust > 0.90
+        # After reset, skeptical prior blocks again
+        assert meta.effective_trust == 0.0
 
     def test_flow_simulation(self):
         """Mô phỏng 30 phiên EOD với Meta Evidence update."""
@@ -172,7 +175,7 @@ class TestMetaEvidence:
         cv = meta.calibration_vector
         trust = meta.effective_trust
         assert all(0 <= v <= 1 for v in cv.values())
-        assert 0 < trust <= 1
+        assert 0 <= trust <= 1
 
 
 # ── ROLLING MAD ────────────────────────────────────────────────────
@@ -278,3 +281,176 @@ class TestAdaptiveCUSUM:
         diag = cusum.diagnose()
         for key in ("S_plus", "S_minus", "k", "h", "sigma", "steps_since_reset"):
             assert key in diag
+
+
+# ── REGIME-AWARE CONFUSION MATRIX ───────────────────────────────────
+
+class TestRegimeConfusion:
+    """Tests cho Unresolved Queue + EV/Kelly Gating + Bayesian Prior."""
+
+    def test_classify_adx(self):
+        from src.core.regime_confusion import _classify_adx
+        assert _classify_adx(15.0) == "ADX_LT20"
+        assert _classify_adx(20.0) == "ADX_20_30"
+        assert _classify_adx(25.0) == "ADX_20_30"
+        assert _classify_adx(30.0) == "ADX_GT30"
+        assert _classify_adx(50.0) == "ADX_GT30"
+
+    def test_enqueue_and_resolve(self):
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion()
+        sid = c.enqueue_signal("2026-07-10", adx=15.0,
+                               entry_price=100.0, stop_loss=90.0, take_profit=120.0)
+        assert sid == 0
+        assert len(c.unresolved) == 1
+
+        # Resolve at T+5: price hit TP (win)
+        resolved = c.resolve_pending("2026-07-15",
+                                     lambda s, d: 125.0)
+        assert resolved == 1
+        assert c.matrix["ADX_LT20"]["wins"] == 1
+        assert c.matrix["ADX_LT20"]["losses"] == 0
+
+    def test_resolve_stop_loss(self):
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion()
+        c.enqueue_signal("2026-07-10", adx=25.0,
+                         entry_price=100.0, stop_loss=90.0, take_profit=120.0)
+        c.resolve_pending("2026-07-15", lambda s, d: 85.0)
+        assert c.matrix["ADX_20_30"]["losses"] == 1
+        assert c.matrix["ADX_20_30"]["wins"] == 0
+
+    def test_not_resolved_before_t5(self):
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion()
+        c.enqueue_signal("2026-07-10", adx=15.0,
+                         entry_price=100.0, stop_loss=90.0, take_profit=120.0)
+        # T+3 — chưa đủ tuổi
+        resolved = c.resolve_pending("2026-07-13", lambda s, d: 130.0)
+        assert resolved == 0
+        assert len(c.unresolved) == 1  # vẫn trong queue
+
+    def test_bayesian_prior_dominates_for_small_n(self):
+        """Với N < 30, prior chi phối, không special-case needed."""
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion(prior_alpha=1, prior_beta=3)
+
+        # 2 wins, 0 losses trong ADX_LT20 — N = 2 << 30
+        for _ in range(2):
+            c.matrix["ADX_LT20"]["wins"] += 1
+
+        wr = c.posterior_win_rate(15.0)
+        # Posterior = Beta(1+2, 3+0) = Beta(3, 3) → mean = 0.50
+        # Empirical = 2/2 = 1.0, Bayesian = 0.50
+        assert 0.45 < wr < 0.55, f"Bayesian {wr} should be ~0.50, not 1.0"
+
+    def test_bayesian_converges_to_empirical(self):
+        """Khi N → ∞, posterior → empirical win rate."""
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion(prior_alpha=1, prior_beta=3)
+
+        for _ in range(100):
+            c.matrix["ADX_LT20"]["wins"] += 1
+        for _ in range(100):
+            c.matrix["ADX_LT20"]["losses"] += 1
+
+        wr = c.posterior_win_rate(15.0)
+        # Posterior = Beta(1+100, 3+100) = Beta(101, 103) → mean ≈ 0.495
+        assert 0.48 < wr < 0.52, f"Bayesian {wr} should converge to 0.50"
+
+    def test_ev_negative_blocks_zero(self):
+        """EV < 0 → calibration_score = 0.0 (chặn đứng)."""
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion(prior_alpha=1, prior_beta=3)
+
+        # 1 win, 10 losses → win_rate thấp
+        c.matrix["ADX_LT20"]["wins"] = 1
+        c.matrix["ADX_LT20"]["losses"] = 10
+
+        cs = c.calibration_score(adx=15.0, risk_reward=2.0)
+        assert cs == 0.0, f"EV < 0 should give 0.0, got {cs}"
+
+    def test_ev_positive_kelly(self):
+        """EV > 0 → half-kelly fraction."""
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion(prior_alpha=1, prior_beta=3)
+
+        # 18 wins, 2 losses → win_rate ~0.86 (posterior)
+        c.matrix["ADX_LT20"]["wins"] = 18
+        c.matrix["ADX_LT20"]["losses"] = 2
+
+        cs = c.calibration_score(adx=15.0, risk_reward=2.0)
+        # EV = 0.86*2 - 0.14 = 1.58 > 0
+        # Kelly = (0.86*2 - 0.14) / 2 = 0.79
+        # Half-Kelly = 0.395
+        assert 0.10 < cs < 0.60, f"Half-Kelly should be moderate, got {cs}"
+        assert cs > 0.0
+
+    def test_serialization_roundtrip(self):
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c1 = RegimeAwareConfusion()
+        c1.enqueue_signal("2026-07-10", adx=15.0,
+                          entry_price=100.0, stop_loss=90.0, take_profit=120.0)
+        c1.matrix["ADX_LT20"]["wins"] = 5
+
+        data = c1.to_dict()
+        c2 = RegimeAwareConfusion.from_dict(data)
+
+        assert c2.strategy == c1.strategy
+        assert c2.matrix["ADX_LT20"]["wins"] == 5
+        assert len(c2.unresolved) == 1
+        assert c2._next_id == 1
+
+    def test_diagnose(self):
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion()
+        c.matrix["ADX_LT20"]["wins"] = 10
+        diag = c.diagnose(adx=15.0)
+        assert "strategy" in diag
+        assert "buckets" in diag
+        assert "calibration_score" in diag
+        assert "unresolved_count" in diag
+
+    def test_reset(self):
+        from src.core.regime_confusion import RegimeAwareConfusion
+        c = RegimeAwareConfusion()
+        c.enqueue_signal("2026-07-10", adx=15.0,
+                         entry_price=100.0, stop_loss=90.0, take_profit=120.0)
+        c.matrix["ADX_LT20"]["wins"] = 10
+        c.reset()
+        assert len(c.unresolved) == 0
+        assert c.matrix["ADX_LT20"]["wins"] == 0
+
+
+# ── META EVIDENCE — 5th Dimension Strategy Fit ──────────────────────
+
+class TestMetaEvidenceStrategyFit:
+    """Kiểm tra tích hợp RegimeConfusion vào MetaEvidence."""
+
+    def test_calibration_vector_5d(self):
+        meta = MetaEvidence()
+        cv = meta.calibration_vector
+        assert len(cv) == 5
+        assert "strategy_fit" in cv
+        assert 0 <= cv["strategy_fit"] <= 1
+
+    def test_effective_trust_includes_strategy_fit(self):
+        meta = MetaEvidence()
+        trust_with = meta.effective_trust
+        # So sánh với trust không có strategy_fit
+        cv = meta.calibration_vector
+        trust_without = cv["market_fit"] * cv["execution_fit"] * cv["data_quality"] * (1.0 - cv["novelty_risk"])
+        assert trust_with <= trust_without, "Strategy fit should reduce or maintain trust"
+
+    def test_set_adx_affects_strategy_fit(self):
+        meta = MetaEvidence()
+        meta.current_adx = 15.0
+        sf_low = meta.strategy_fit_score
+        # Mặc định không có data → prior dominates → EV ~ 0.25*2 - 0.75 = -0.25 < 0 → 0.0
+        assert sf_low == 0.0
+
+        # Thêm wins để EV > 0
+        meta.regime_confusion.matrix["ADX_LT20"]["wins"] = 18
+        meta.regime_confusion.matrix["ADX_LT20"]["losses"] = 2
+        sf_high = meta.strategy_fit_score
+        assert sf_high > 0.0
