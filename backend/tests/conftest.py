@@ -72,11 +72,6 @@ def _clean_test_data():
         except Exception:
             pass
         try:
-            conn.execute("DELETE FROM scheduler_locks WHERE lock_key LIKE ?",
-                         ("__TEST__%",))
-        except Exception:
-            pass
-        try:
             conn.execute("DELETE FROM eod_run_ledger WHERE portfolio_id=?",
                          (TEST_PORTFOLIO,))
         except Exception:

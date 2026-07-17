@@ -22,6 +22,7 @@ import json
 import logging
 import math
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -50,6 +51,22 @@ import src.config  # noqa: E402
 from src.database.db_core import get_connection  # noqa: E402
 
 logger = logging.getLogger("PTCK_SYSTEM")
+
+
+@contextmanager
+def _conn_or(conn):
+    """Trả connection dùng chung (Global Transaction) hoặc mở mới.
+
+    - conn không None → dùng chung cursor, KHÔNG tự commit (tầng cao quản lý).
+    - conn None → mở connection riêng, TỰ ĐỘNG commit khi block thoát sạch
+      (tương thích ngược cho test / lệnh thủ công `paper run`).
+    """
+    if conn is not None:
+        yield conn
+    else:
+        with get_connection() as c:
+            yield c
+            c.commit()
 
 # --- Constants: Simulation Parameters -----------------------------------------
 # HOSE price band (biên độ dao động) — dùng cho rejection khi giá vượt band.
@@ -364,7 +381,7 @@ class PaperTradingEngine:
         return hashlib.sha256(raw).hexdigest()[:16]
 
     # ---------------------------------------------------------------- persist
-    def record_trade(self, fill: Dict):
+    def record_trade(self, fill: Dict, conn=None):
         cols = [
             "trade_id", "portfolio_id", "decision_date", "fill_date", "symbol",
             "side", "signal_source", "quantity", "decision_price",
@@ -375,30 +392,31 @@ class PaperTradingEngine:
         ]
         vals = [fill.get(c) for c in cols]
         placeholders = ",".join("?" * len(cols))
-        with get_connection() as conn:
-            conn.execute(
+        with _conn_or(conn) as __c:
+            __c.execute(
                 f"INSERT OR REPLACE INTO paper_trades_log ({','.join(cols)}) "
                 f"VALUES ({placeholders})",
                 vals
             )
-            conn.commit()
 
     # ==================================================== CATCH-UP QUEUE
     def _enqueue_catchup_order(self, symbol: str, side: str, target_qty: int,
-                               target_price: float, decision_date: str,
-                               signal_source: str = "SEL_MACRO",
-                               hdr: Optional[float] = None,
-                               w1: Optional[float] = None,
-                               macro_state: str = "UNKNOWN") -> Dict:
+                                target_price: float, decision_date: str,
+                                signal_source: str = "SEL_MACRO",
+                                hdr: Optional[float] = None,
+                                w1: Optional[float] = None,
+                                macro_state: str = "UNKNOWN", conn=None) -> Dict:
         """Nạp một lệnh bù vào hàng đợi bền vững (KHÔNG khớp, KHÔNG khóa tiền).
 
         Idempotent: dùng trade_id = hash(pf|decision_date|symbol|side) làm PK →
         chạy lại backfill không tạo bản ghi trùng. target_price = close_T.
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
         """
         trade_id = self._trade_id(decision_date, symbol, side)
         now = datetime.now().isoformat()
-        with get_connection() as conn:
-            conn.execute(
+        with _conn_or(conn) as __c:
+            __c.execute(
                 "INSERT OR IGNORE INTO paper_catchup_queue "
                 "(trade_id, portfolio_id, decision_date, symbol, side, target_qty, "
                 "target_price, signal_source, hdr_at_decision, w1_at_decision, "
@@ -408,14 +426,13 @@ class PaperTradingEngine:
                  int(target_qty), float(target_price), signal_source, hdr, w1,
                  macro_state, now, now)
             )
-            conn.commit()
         return {"trade_id": trade_id, "symbol": symbol, "side": side.upper(),
                 "target_qty": int(target_qty), "target_price": round(target_price, 4),
                 "decision_date": decision_date, "status": "QUEUED_CATCHUP"}
 
     def process_catchup_queue(self, recovery_date: str,
-                              max_slippage_pct: float = CATCHUP_MAX_SLIPPAGE_PCT
-                              ) -> Dict:
+                               max_slippage_pct: float = CATCHUP_MAX_SLIPPAGE_PCT,
+                               conn=None) -> Dict:
         """Xử lý hàng đợi lệnh bù tại ngày phục hồi T+k. GỌI TRƯỚC khi sinh
         tín hiệu mới của T+k (để buying_power của T+k phản ánh đúng phần vốn
         đã tiêu cho lệnh bù — bảo toàn tính nhất quán tiền mặt).
@@ -431,9 +448,11 @@ class PaperTradingEngine:
         Cash consistency: KHÔNG reclaim — queue chưa từng khóa tiền. Lệnh bị hủy
         không giải phóng gì; lệnh khớp trừ settled_cash tại book_buy → get_buying_power
         của T+k tự thấy đúng.
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
         """
-        with get_connection() as conn:
-            pending = conn.execute(
+        with _conn_or(conn) as c:
+            pending = c.execute(
                 "SELECT trade_id, decision_date, symbol, side, target_qty, "
                 "target_price, hdr_at_decision FROM paper_catchup_queue "
                 "WHERE portfolio_id=? AND status='PENDING' "
@@ -441,110 +460,103 @@ class PaperTradingEngine:
                 (self.portfolio_id,)
             ).fetchall()
 
-        report = {"recovery_date": recovery_date, "processed": 0,
-                  "filled": [], "rejected_decay": [], "rejected_other": []}
-        if not pending:
-            return report
+            report = {"recovery_date": recovery_date, "processed": 0,
+                      "filled": [], "rejected_decay": [], "rejected_other": []}
+            if not pending:
+                return report
 
-        for (trade_id, dec_date, symbol, side, target_qty, target_price,
-             hdr_at_dec) in pending:
-            report["processed"] += 1
-            # --- 1. CHUYỂN VỊ GIÁ: open_{T+k} = thanh khoản thực ---
-            bar = self._get_ohlcv(symbol, recovery_date)
-            if not bar or not bar.get("open"):
-                # Không có giá mở cửa ngày phục hồi → để PENDING, thử lại lần sau
-                logger.warning(f"[CATCHUP-Q] {symbol}: thiếu open @ {recovery_date} "
-                               f"— giữ PENDING.")
-                continue
-            open_tk = float(bar["open"])
+            for (trade_id, dec_date, symbol, side, target_qty, target_price,
+                 hdr_at_dec) in pending:
+                report["processed"] += 1
+                bar = self._get_ohlcv(symbol, recovery_date)
+                if not bar or not bar.get("open"):
+                    logger.warning(f"[CATCHUP-Q] {symbol}: thiếu open @ {recovery_date} "
+                                   f"— giữ PENDING.")
+                    continue
+                open_tk = float(bar["open"])
 
-            # --- 2. KILL-SWITCH: đo phân rã tín hiệu ---
-            decay = abs(open_tk - target_price) / target_price if target_price else 1.0
-            decay_pct = decay * 100.0
-            if decay_pct > max_slippage_pct:
+                decay = abs(open_tk - target_price) / target_price if target_price else 1.0
+                decay_pct = decay * 100.0
+                if decay_pct > max_slippage_pct:
+                    self._update_catchup_status(
+                        trade_id, "REJECTED_SIGNAL_DECAY", recovery_date=recovery_date,
+                        exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
+                        notes=f"Decay {decay_pct:.2f}% > {max_slippage_pct}% — không truy giá.",
+                        conn=c)
+                    report["rejected_decay"].append(
+                        {"symbol": symbol, "decision_date": dec_date,
+                         "target_price": round(target_price, 2),
+                         "open_tk": round(open_tk, 2), "decay_pct": round(decay_pct, 2)})
+                    logger.warning(
+                        f"[CATCHUP-Q] {symbol} {dec_date}: KILL-SWITCH — decay "
+                        f"{decay_pct:.2f}% > {max_slippage_pct}% → hủy (signal decay).")
+                    continue
+
+                eff_hdr = hdr_at_dec if hdr_at_dec is not None else 0.0
+                bp = self.mtm.get_buying_power(recovery_date, eff_hdr)
+                from src.engine.paper_mtm import BUY_FEE_BPS
+                unit_cost = open_tk * (1.0 + BUY_FEE_BPS / 10000.0)
+                max_affordable = int((bp // unit_cost) // 100 * 100) if unit_cost > 0 else 0
+                exec_qty = min(int(target_qty), max_affordable)
+
+                if exec_qty < 100:
+                    self._update_catchup_status(
+                        trade_id, "REJECTED_INSUFFICIENT_BP", recovery_date=recovery_date,
+                        exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
+                        notes=f"Sức mua {bp:,.0f} không đủ 1 lô @ {open_tk:.0f}.",
+                        conn=c)
+                    report["rejected_other"].append(
+                        {"symbol": symbol, "decision_date": dec_date,
+                         "reason": "INSUFFICIENT_BP", "buying_power": round(bp, 0)})
+                    continue
+
+                book = self.mtm.book_buy(symbol=symbol, quantity=exec_qty,
+                                         fill_price=open_tk, fill_date=recovery_date,
+                                         hdr_limit=eff_hdr, conn=c)
+                if book["status"] != "FILLED":
+                    self._update_catchup_status(
+                        trade_id, "REJECTED_" + book["status"], recovery_date=recovery_date,
+                        exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
+                        notes=f"book_buy: {book['status']}", conn=c)
+                    report["rejected_other"].append(
+                        {"symbol": symbol, "decision_date": dec_date,
+                         "reason": book["status"]})
+                    continue
+
                 self._update_catchup_status(
-                    trade_id, "REJECTED_SIGNAL_DECAY", recovery_date=recovery_date,
-                    exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
-                    notes=f"Decay {decay_pct:.2f}% > {max_slippage_pct}% — không truy giá.")
-                report["rejected_decay"].append(
+                    trade_id, "FILLED", recovery_date=recovery_date,
+                    exec_price=open_tk, decay_pct=decay_pct, filled_qty=exec_qty,
+                    notes=f"Transposed fill @ open_{recovery_date}={open_tk:.0f} "
+                          f"(target close_{dec_date}={target_price:.0f})", conn=c)
+                self._record_catchup_trade(
+                    trade_id, dec_date, recovery_date, symbol, side, exec_qty,
+                    target_price, open_tk, decay_pct, book, hdr_at_dec, conn=c)
+                report["filled"].append(
                     {"symbol": symbol, "decision_date": dec_date,
-                     "target_price": round(target_price, 2),
-                     "open_tk": round(open_tk, 2), "decay_pct": round(decay_pct, 2)})
-                logger.warning(
-                    f"[CATCHUP-Q] {symbol} {dec_date}: KILL-SWITCH — decay "
-                    f"{decay_pct:.2f}% > {max_slippage_pct}% → hủy (signal decay).")
-                continue
-
-            # --- 3. SIZING RECONCILIATION: size lại theo giá THỰC + sức mua HIỆN TẠI ---
-            eff_hdr = hdr_at_dec if hdr_at_dec is not None else 0.0
-            bp = self.mtm.get_buying_power(recovery_date, eff_hdr)
-            # qty tối đa mua được tại open_Tk (đã gồm phí mua), làm tròn lô 100
-            from src.engine.paper_mtm import BUY_FEE_BPS
-            unit_cost = open_tk * (1.0 + BUY_FEE_BPS / 10000.0)
-            max_affordable = int((bp // unit_cost) // 100 * 100) if unit_cost > 0 else 0
-            exec_qty = min(int(target_qty), max_affordable)
-
-            if exec_qty < 100:
-                self._update_catchup_status(
-                    trade_id, "REJECTED_INSUFFICIENT_BP", recovery_date=recovery_date,
-                    exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
-                    notes=f"Sức mua {bp:,.0f} không đủ 1 lô @ {open_tk:.0f}.")
-                report["rejected_other"].append(
-                    {"symbol": symbol, "decision_date": dec_date,
-                     "reason": "INSUFFICIENT_BP", "buying_power": round(bp, 0)})
-                continue
-
-            # --- 4. Ép khớp tại open_{T+k} qua MtM ---
-            book = self.mtm.book_buy(symbol=symbol, quantity=exec_qty,
-                                     fill_price=open_tk, fill_date=recovery_date,
-                                     hdr_limit=eff_hdr)
-            if book["status"] != "FILLED":
-                self._update_catchup_status(
-                    trade_id, "REJECTED_" + book["status"], recovery_date=recovery_date,
-                    exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
-                    notes=f"book_buy: {book['status']}")
-                report["rejected_other"].append(
-                    {"symbol": symbol, "decision_date": dec_date,
-                     "reason": book["status"]})
-                continue
-
-            self._update_catchup_status(
-                trade_id, "FILLED", recovery_date=recovery_date,
-                exec_price=open_tk, decay_pct=decay_pct, filled_qty=exec_qty,
-                notes=f"Transposed fill @ open_{recovery_date}={open_tk:.0f} "
-                      f"(target close_{dec_date}={target_price:.0f})")
-            # Ghi vào nhật ký giao dịch để audit (fill_date = recovery_date)
-            self._record_catchup_trade(
-                trade_id, dec_date, recovery_date, symbol, side, exec_qty,
-                target_price, open_tk, decay_pct, book, hdr_at_dec)
-            report["filled"].append(
-                {"symbol": symbol, "decision_date": dec_date,
-                 "recovery_date": recovery_date, "exec_price": round(open_tk, 2),
-                 "qty": exec_qty, "decay_pct": round(decay_pct, 2),
-                 "target_qty": int(target_qty)})
-            logger.info(
-                f"[CATCHUP-Q] {symbol} {dec_date}: FILLED @ open_{recovery_date}="
-                f"{open_tk:.0f} qty={exec_qty} (decay {decay_pct:.2f}%).")
-
+                     "recovery_date": recovery_date, "exec_price": round(open_tk, 2),
+                     "qty": exec_qty, "decay_pct": round(decay_pct, 2),
+                     "target_qty": int(target_qty)})
+                logger.info(
+                    f"[CATCHUP-Q] {symbol} {dec_date}: FILLED @ open_{recovery_date}="
+                    f"{open_tk:.0f} qty={exec_qty} (decay {decay_pct:.2f}%).")
         return report
 
     def _update_catchup_status(self, trade_id: str, status: str,
-                               recovery_date: str = None, exec_price: float = None,
-                               decay_pct: float = None, filled_qty: int = None,
-                               notes: str = None):
-        with get_connection() as conn:
-            conn.execute(
+                                recovery_date: str = None, exec_price: float = None,
+                                decay_pct: float = None, filled_qty: int = None,
+                                notes: str = None, conn=None):
+        with _conn_or(conn) as c:
+            c.execute(
                 "UPDATE paper_catchup_queue SET status=?, recovery_date=?, "
                 "exec_price=?, decay_pct=?, filled_qty=?, notes=?, updated_at=? "
                 "WHERE trade_id=?",
                 (status, recovery_date, exec_price, decay_pct, filled_qty, notes,
                  datetime.now().isoformat(), trade_id)
             )
-            conn.commit()
 
     def _record_catchup_trade(self, trade_id, decision_date, recovery_date,
-                              symbol, side, qty, target_price, exec_price,
-                              decay_pct, book, hdr):
+                               symbol, side, qty, target_price, exec_price,
+                               decay_pct, book, hdr, conn=None):
         """Ghi lệnh bù đã khớp vào paper_trades_log (audit trail)."""
         slippage_bps = (exec_price - target_price) / target_price * 10000.0 \
             if target_price else 0.0
@@ -564,13 +576,16 @@ class PaperTradingEngine:
                      f"cost_basis={book.get('cost_basis')}; settle={book.get('settle_date')}",
             "created_at": datetime.now().isoformat(),
         }
-        self.record_trade(fill)
+        self.record_trade(fill, conn=conn)
 
     def summarize_daily(self, date: str, w1: Optional[float] = None,
-                        macro_state: str = "UNKNOWN") -> Dict:
-        """Tổng hợp hiệu suất phiên → paper_performance_daily."""
-        with get_connection() as conn:
-            rows = conn.execute(
+                        macro_state: str = "UNKNOWN", conn=None) -> Dict:
+        """Tổng hợp hiệu suất phiên → paper_performance_daily.
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
+        """
+        with _conn_or(conn) as c:
+            rows = c.execute(
                 "SELECT is_rejected, latency_ms, slippage_bps, "
                 "tracking_error_bps, hdr_at_decision "
                 "FROM paper_trades_log "
@@ -578,38 +593,37 @@ class PaperTradingEngine:
                 (self.portfolio_id, date)
             ).fetchall()
 
-        n_orders = len(rows)
-        if n_orders == 0:
-            return {"date": date, "n_orders": 0}
+            n_orders = len(rows)
+            if n_orders == 0:
+                return {"date": date, "n_orders": 0}
 
-        filled = [r for r in rows if not r[0]]
-        rejected = [r for r in rows if r[0]]
-        n_filled = len(filled)
-        n_rejected = len(rejected)
+            filled = [r for r in rows if not r[0]]
+            rejected = [r for r in rows if r[0]]
+            n_filled = len(filled)
+            n_rejected = len(rejected)
 
-        def _avg(idx, subset):
-            vals = [r[idx] for r in subset if r[idx] is not None]
-            return float(np.mean(vals)) if vals else 0.0
+            def _avg(idx, subset):
+                vals = [r[idx] for r in subset if r[idx] is not None]
+                return float(np.mean(vals)) if vals else 0.0
 
-        summary = {
-            "portfolio_id": self.portfolio_id,
-            "date": date,
-            "n_orders": n_orders,
-            "n_filled": n_filled,
-            "n_rejected": n_rejected,
-            "rejection_rate": round(n_rejected / n_orders, 4),
-            "avg_latency_ms": round(_avg(1, filled), 1),
-            "avg_slippage_bps": round(_avg(2, filled), 2),
-            "avg_tracking_err_bps": round(_avg(3, filled), 2),
-            "realized_pnl_bps": 0.0,  # cập nhật ở giai đoạn mark-to-market sau
-            "w1": w1,
-            "avg_hdr": round(_avg(4, rows), 4),
-            "macro_state": macro_state,
-            "created_at": datetime.now().isoformat(),
-        }
+            summary = {
+                "portfolio_id": self.portfolio_id,
+                "date": date,
+                "n_orders": n_orders,
+                "n_filled": n_filled,
+                "n_rejected": n_rejected,
+                "rejection_rate": round(n_rejected / n_orders, 4),
+                "avg_latency_ms": round(_avg(1, filled), 1),
+                "avg_slippage_bps": round(_avg(2, filled), 2),
+                "avg_tracking_err_bps": round(_avg(3, filled), 2),
+                "realized_pnl_bps": 0.0,
+                "w1": w1,
+                "avg_hdr": round(_avg(4, rows), 4),
+                "macro_state": macro_state,
+                "created_at": datetime.now().isoformat(),
+            }
 
-        with get_connection() as conn:
-            conn.execute(
+            c.execute(
                 "INSERT OR REPLACE INTO paper_performance_daily "
                 "(portfolio_id, date, n_orders, n_filled, n_rejected, "
                 "rejection_rate, avg_latency_ms, avg_slippage_bps, "
@@ -623,7 +637,6 @@ class PaperTradingEngine:
                  summary["realized_pnl_bps"], summary["w1"], summary["avg_hdr"],
                  summary["macro_state"], summary["created_at"])
             )
-            conn.commit()
         return summary
 
     # --------------------------------------------------------- signal → orders
@@ -631,7 +644,8 @@ class PaperTradingEngine:
                                      watchlist: Optional[List[str]] = None,
                                      capital: float = 1_000_000_000.0,
                                      mtm_only: bool = False,
-                                     catchup_enqueue: bool = False) -> Dict:
+                                     catchup_enqueue: bool = False,
+                                     conn=None) -> Dict:
         """Sinh lệnh giả lập từ SEL + Macro Governor, hạch toán qua MtM.
 
         Quy trình EOD (đúng thứ tự kế toán):
@@ -654,19 +668,25 @@ class PaperTradingEngine:
             process_catchup_queue() chạy ở ngày phục hồi — chống lookback execution.
             Bước 1 (settle/CA) và bước 5 (MtM vị thế CŨ) VẪN chạy đầy đủ để giữ
             đường cong tài sản liền mạch qua vùng hổng.
+          conn: (ACID) connection của Global Transaction. Nếu truyền vào, mọi ghi
+            kế toán thực thi trên cursor chung và KHÔNG tự commit (quyền commit
+            thuộc run_eod_pipeline). Nếu None → tự mở connection riêng (tương
+            thích ngược cho lệnh `paper run` thủ công / unit test).
         """
         if watchlist is None:
             watchlist = ['FPT', 'VCB', 'HPG', 'VNM', 'TCB']
 
         # --- 1. Đầu phiên: settle T+2 + áp dụng sự kiện doanh nghiệp trong đêm ---
-        self.mtm.process_settlements(decision_date)
-        self.mtm.apply_corporate_actions(decision_date)
+        self.mtm.process_settlements(decision_date, conn=conn)
+        self.mtm.apply_corporate_actions(decision_date, conn=conn)
 
         # --- STALE-SIGNAL GUARD: bù ngày cũ chỉ hạch toán, không phát lệnh mới ---
         if mtm_only:
             summary = self.summarize_daily(decision_date, w1=None,
-                                           macro_state="CATCHUP_MTM_ONLY")
-            mtm_res = self.mtm.mark_to_market(decision_date, hdr_limit=0.0)
+                                           macro_state="CATCHUP_MTM_ONLY",
+                                           conn=conn)
+            mtm_res = self.mtm.mark_to_market(decision_date, hdr_limit=0.0,
+                                              conn=conn)
             return {"decision_date": decision_date, "orders": [],
                     "mtm_only": True, "note": "Stale-signal guard: chỉ MtM/settle.",
                     "summary": summary, "mtm": mtm_res}
@@ -707,8 +727,10 @@ class PaperTradingEngine:
         if effective_hdr >= 0.999 or buying_power < 1e6:
             results["note"] = ("HDR=1.0 CASH_ONLY" if effective_hdr >= 0.999
                                else "Sức mua < 1tr — không mua thêm.")
-            self.summarize_daily(decision_date, w1=w1, macro_state=macro_state)
-            results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr)
+            self.summarize_daily(decision_date, w1=w1, macro_state=macro_state,
+                                 conn=conn)
+            results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr,
+                                                     conn=conn)
             return results
 
         per_symbol = buying_power / max(len(watchlist), 1)
@@ -727,7 +749,7 @@ class PaperTradingEngine:
                 enq = self._enqueue_catchup_order(
                     symbol=sym, side="BUY", target_qty=qty, target_price=price,
                     decision_date=decision_date, signal_source="SEL_MACRO",
-                    hdr=effective_hdr, w1=w1, macro_state=macro_state)
+                    hdr=effective_hdr, w1=w1, macro_state=macro_state, conn=conn)
                 results["orders"].append(enq)
                 continue
 
@@ -738,7 +760,7 @@ class PaperTradingEngine:
 
             # Nếu API reject → chỉ ghi log, không hạch toán MtM
             if fill.get("is_rejected"):
-                self.record_trade(fill)
+                self.record_trade(fill, conn=conn)
                 results["orders"].append(fill)
                 continue
 
@@ -747,7 +769,7 @@ class PaperTradingEngine:
                 symbol=sym, quantity=qty,
                 fill_price=fill["paper_fill_price"],
                 fill_date=fill.get("fill_date") or decision_date,
-                hdr_limit=effective_hdr)
+                hdr_limit=effective_hdr, conn=conn)
             fill["mtm_status"] = book["status"]
             if book["status"] != "FILLED":
                 # MtM từ chối (hết buying power thực) → đánh dấu reject
@@ -756,14 +778,15 @@ class PaperTradingEngine:
             else:
                 fill["settle_date"] = book["settle_date"]
                 fill["cost_basis"] = book["cost_basis"]
-            self.record_trade(fill)
+            self.record_trade(fill, conn=conn)
             results["orders"].append(fill)
 
         summary = self.summarize_daily(decision_date, w1=w1,
-                                       macro_state=macro_state)
+                                       macro_state=macro_state, conn=conn)
         results["summary"] = summary
         # --- 5. Cuối phiên: mark-to-market ---
-        results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr)
+        results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr,
+                                                 conn=conn)
         return results
 
     # ------------------------------------------------------------- reporting
@@ -820,23 +843,25 @@ class PaperTradingEngine:
     def run_daily(decision_date: Optional[str] = None,
                   offline: bool = True,
                   mtm_only: bool = False,
-                  catchup_enqueue: bool = False) -> Dict:
+                  catchup_enqueue: bool = False,
+                  conn=None) -> Dict:
         """Entry point cho cronjob EOD.
 
         Args:
           mtm_only: True → chỉ hạch toán MtM/settlement (Catch-up stale guard).
           catchup_enqueue: True → nạp lệnh vào hàng đợi bù (không khớp giá lịch sử).
+          conn: (ACID) connection Global Transaction. Nếu truyền → ghi kế toán
+            trên cursor chung, KHÔNG tự commit. Ngược lại tự mở connection riêng.
         """
         if decision_date is None:
-            with get_connection() as conn:
-                row = conn.execute(
-                    "SELECT MAX(date) FROM daily_ohlcv"
-                ).fetchone()
+            with get_connection() as c:
+                row = c.execute("SELECT MAX(date) FROM daily_ohlcv").fetchone()
             decision_date = row[0] if row and row[0] else \
                 datetime.now().strftime("%Y-%m-%d")
         engine = PaperTradingEngine(offline=offline)
         return engine.generate_orders_from_signals(
-            decision_date, mtm_only=mtm_only, catchup_enqueue=catchup_enqueue)
+            decision_date, mtm_only=mtm_only, catchup_enqueue=catchup_enqueue,
+            conn=conn)
 
     @staticmethod
     def print_report(result: Dict, lang: str = "vi"):

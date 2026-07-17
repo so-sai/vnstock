@@ -10,19 +10,16 @@ Ba cơ chế bắt buộc cho Forward Testing integrity:
      Nếu as_of_date đã có trong paper_trades_log/paper_equity_curve → SKIP,
      tuyệt đối không nhân đôi giao dịch hoặc Unrealized P&L.
 
-  3. SQLITE ADVISORY LOCK (câu hỏi khai thác sâu):
-     Chống Race Condition khi 2 Scheduler chạy đồng thời. Dùng atomic INSERT
-     vào scheduler_locks với PRIMARY KEY constraint + BEGIN IMMEDIATE:
-       - INSERT thành công = chiếm lock (chỉ 1 luồng thắng do UNIQUE).
-       - IntegrityError = luồng khác đang giữ lock → thoát an toàn.
-       - Lock có TTL: stale lock (tiến trình chết) tự bị chiếm lại sau timeout.
+  3. CONCURRENCY GUARD (Zero-Overhead Design):
+     Chống Race Condition khi 2 Scheduler chạy đồng thời. Dùng khóa vật lý
+     BEGIN IMMEDIATE của SQLite — khóa cấp tệp giành ngay lập tức, tiến trình
+     thứ hai văng ResourceLockedException. KHÔNG dùng bảng khóa ứng dụng,
+     không có Stale Lock (SQLite tự rollback khi crash).
 """
 import logging
-import os
 import sqlite3
 import sys
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -49,11 +46,9 @@ from src.database.db_core import get_connection, safe_json_dumps  # noqa: E402
 
 logger = logging.getLogger("PTCK_SYSTEM")
 
-# --- Cấu hình Retry & Lock ----------------------------------------------------
+# --- Cấu hình Retry -----------------------------------------------------------
 MAX_RETRIES = 3
 RETRY_SLEEP_SECONDS = 15 * 60      # 15 phút
-LOCK_TTL_SECONDS = 60 * 60         # lock tự hết hạn sau 60 phút (chống stale)
-EOD_LOCK_KEY = "EOD_PIPELINE"
 DEFAULT_PORTFOLIO_ID = "SEL_PAPER_V1"
 
 # --- Cấu hình Catch-up (Giao dịch bù) ----------------------------------------
@@ -76,114 +71,6 @@ STATUS_PENDING_CATCHUP = "PENDING_CATCHUP" # đã đánh dấu là ngày nợ ch
 STATUS_CATCHUP_FULL = "CATCHUP_FULL"       # bù đầy đủ (còn trong cửa sổ tín hiệu)
 STATUS_CATCHUP_MTM_ONLY = "CATCHUP_MTM_ONLY"  # bù stale: chỉ MtM/settlement
 
-
-class SchedulerLock:
-    """Advisory lock trên SQLite — atomic, chống Race Condition đa luồng.
-
-    Nguyên lý (câu hỏi khai thác sâu):
-      SQLite tuần tự hóa mọi ghi qua write-lock cấp file. Ta khai thác điều này:
-      dùng `BEGIN IMMEDIATE` để giành write-lock NGAY (không đợi đến lúc COMMIT),
-      rồi INSERT một hàng có PRIMARY KEY = lock_key. Do PRIMARY KEY là UNIQUE,
-      nếu hai luồng cùng chạy, chỉ MỘT luồng INSERT thành công; luồng kia nhận
-      IntegrityError → biết mình thua và thoát. Đây là compare-and-swap nguyên tử
-      ở tầng lưu trữ, không cần khóa ngoài (file lock / OS mutex).
-    """
-
-    def __init__(self, lock_key: str = EOD_LOCK_KEY,
-                 ttl_seconds: int = LOCK_TTL_SECONDS):
-        self.lock_key = lock_key
-        self.ttl_seconds = ttl_seconds
-        self.owner = f"{os.getpid()}@{datetime.now().isoformat()}"
-        self._acquired = False
-        self._ensure_schema()
-
-    def _ensure_schema(self):
-        with get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS scheduler_locks (
-                    lock_key    TEXT PRIMARY KEY,
-                    owner       TEXT NOT NULL,
-                    acquired_at TEXT NOT NULL,
-                    expires_at  TEXT NOT NULL
-                )
-            """)
-            conn.commit()
-
-    def acquire(self) -> bool:
-        """Cố giành lock nguyên tử. Trả True nếu chiếm được, False nếu bị chiếm.
-
-        Quy trình atomic:
-          1. BEGIN IMMEDIATE → giành write-lock file NGAY (tuần tự hóa 2 luồng).
-          2. Dọn lock hết hạn (stale) nếu có.
-          3. INSERT lock_key. UNIQUE PK đảm bảo chỉ 1 luồng thành công.
-          4. COMMIT → nhả write-lock file, giữ advisory lock (hàng trong bảng).
-        """
-        now = datetime.now()
-        expires = now + timedelta(seconds=self.ttl_seconds)
-        with get_connection() as conn:
-            # Kiểm soát transaction thủ công (tắt autocommit của sqlite3)
-            conn.isolation_level = None
-            try:
-                # BEGIN IMMEDIATE: giành RESERVED lock ngay → tuần tự hóa 2 luồng
-                conn.execute("BEGIN IMMEDIATE")
-
-                # Dọn stale lock (tiến trình chết giữa chừng, đã quá TTL)
-                conn.execute(
-                    "DELETE FROM scheduler_locks WHERE lock_key=? AND expires_at < ?",
-                    (self.lock_key, now.isoformat())
-                )
-
-                # Atomic claim: INSERT raise IntegrityError nếu lock đang tồn tại
-                conn.execute(
-                    "INSERT INTO scheduler_locks (lock_key, owner, acquired_at, expires_at) "
-                    "VALUES (?,?,?,?)",
-                    (self.lock_key, self.owner, now.isoformat(), expires.isoformat())
-                )
-                conn.execute("COMMIT")
-                self._acquired = True
-                logger.info(f"[LOCK] Acquired '{self.lock_key}' by {self.owner}")
-                return True
-            except sqlite3.IntegrityError:
-                # Luồng khác đang giữ lock (PK collision) → thua cuộc, thoát an toàn
-                try:
-                    conn.execute("ROLLBACK")
-                except Exception:
-                    pass
-                logger.warning(f"[LOCK] '{self.lock_key}' held by another process — skip.")
-                return False
-            except sqlite3.OperationalError as e:
-                # 'database is locked' — luồng khác đang trong BEGIN IMMEDIATE
-                try:
-                    conn.execute("ROLLBACK")
-                except Exception:
-                    pass
-                logger.warning(f"[LOCK] Busy acquiring '{self.lock_key}': {e} — skip.")
-                return False
-
-    def release(self):
-        """Nhả lock (chỉ owner mới xóa được hàng của mình)."""
-        if not self._acquired:
-            return
-        try:
-            with get_connection() as conn:
-                conn.execute(
-                    "DELETE FROM scheduler_locks WHERE lock_key=? AND owner=?",
-                    (self.lock_key, self.owner)
-                )
-                conn.commit()
-            logger.info(f"[LOCK] Released '{self.lock_key}'")
-        except Exception as e:
-            logger.warning(f"[LOCK] Release failed: {e}")
-        finally:
-            self._acquired = False
-
-    def __enter__(self):
-        self.ok = self.acquire()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.release()
-        return False
 
 
 def _is_already_processed(as_of_date: str,
@@ -339,7 +226,7 @@ def detect_gap_days(as_of_date: str,
 
 
 def _catchup_gap_days(as_of_date: str, portfolio_id: str,
-                      offline: bool = True) -> Dict:
+                      offline: bool = True, conn=None) -> Dict:
     """SEQUENTIAL BACKFILL: bù tuần tự các ngày nợ TRƯỚC as_of_date.
 
     Cơ chế Stale-Signal Guard:
@@ -348,6 +235,9 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
         KHÔNG lookahead). Ghi ledger CATCHUP_FULL.
       - Xa hơn → STALE: chỉ hạch toán MtM/settlement/corp-action (mtm_only),
         KHÔNG tái tạo lệnh cũ. Ghi ledger CATCHUP_MTM_ONLY + cảnh báo con người.
+
+    ACID: nhận conn (Global Transaction) → mọi ghi kế toán chạy chung cursor,
+    chịu ROLLBACK nếu lỗi. _record_ledger (sổ cái vận hành) dùng KẾT NỐI RIÊNG.
 
     Xử lý TĂNG DẦN theo thời gian để dòng tiền/settlement diễn ra đúng trình tự.
     """
@@ -372,7 +262,8 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
                     # khớp giá lịch sử — nạp vào hàng đợi, sẽ ép khớp @ open ngày
                     # phục hồi (as_of_date) qua process_catchup_queue (chống lookback).
                     PaperTradingEngine.run_daily(decision_date=d, offline=offline,
-                                                 mtm_only=False, catchup_enqueue=True)
+                                                 mtm_only=False, catchup_enqueue=True,
+                                                 conn=conn)
                     _record_ledger(d, portfolio_id, STATUS_CATCHUP_FULL,
                                    catchup_of=as_of_date)
                     report["caught_up"].append(d)
@@ -381,7 +272,7 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
                 else:
                     # STALE — chỉ MtM/settlement, không phát lệnh cũ
                     PaperTradingEngine.run_daily(decision_date=d, offline=offline,
-                                                 mtm_only=True)
+                                                 mtm_only=True, conn=conn)
                     _record_ledger(d, portfolio_id, STATUS_CATCHUP_MTM_ONLY,
                                    catchup_of=as_of_date)
                     report["mtm_only"].append(d)
@@ -399,7 +290,8 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
     # của as_of_date → buying_power ngày as_of tự phản ánh vốn đã tiêu cho lệnh bù.
     try:
         eng = PaperTradingEngine(portfolio_id=portfolio_id, offline=offline)
-        report["queue_execution"] = eng.process_catchup_queue(as_of_date)
+        report["queue_execution"] = eng.process_catchup_queue(as_of_date,
+                                                               conn=conn)
     except Exception as e:
         logger.exception(f"[CATCHUP] process_catchup_queue lỗi: {e}")
         report["queue_execution"] = {"error": str(e)}
@@ -408,98 +300,125 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
 
 
 def run_eod_pipeline(as_of_date: Optional[str] = None,
-                     portfolio_id: str = DEFAULT_PORTFOLIO_ID,
-                     max_retries: int = MAX_RETRIES,
-                     retry_sleep: int = RETRY_SLEEP_SECONDS,
-                     force: bool = False,
-                     catchup: bool = True) -> Dict:
+                      portfolio_id: str = DEFAULT_PORTFOLIO_ID,
+                      max_retries: int = MAX_RETRIES,
+                      retry_sleep: int = RETRY_SLEEP_SECONDS,
+                      force: bool = False,
+                      catchup: bool = True) -> Dict:
     """Điểm vào EOD tự phục hồi + lũy đẳng + chống race + GIAO DỊCH BÙ.
+
+    GIAO THỨC ACID (Bifurcated Storage):
+      - Lõi Hạch toán (catch-up + paper trading: settle/CA/MtM/lệnh) chạy
+        trong 1 Global Transaction (BEGIN IMMEDIATE) do global_transaction()
+        quản lý → ROLLBACK sạch 100% nếu lỗi giữa chừng (chống double-entry
+        corruption khi cronjob tự chạy lại).
+      - Lõi Viễn trắc (VQA/SEL/macro/stacktrace) ghi .jsonl NGOÀI SQLite →
+        sống sót rollback.
+      - Sổ cái vận hành (eod_run_ledger) ghi QUA KẾT NỐI RIÊNG sau khi
+        rollback + nhả lock (Ledger Fallback) → tránh deadlock khóa ghi WAL.
 
     Args:
       as_of_date: ngày xử lý. None → EOD mới nhất trong DB.
       force: True → bỏ qua idempotency check (chạy lại có chủ đích).
-      catchup: True (mặc định) → trước khi xử lý ngày hôm nay, tự phát hiện &
-        bù tuần tự các ngày nợ (do sập mạng/thất bại trước đó).
-
-    Returns: dict trạng thái {status, reason, catchup, ...}.
+      catchup: True (mặc định) → bù tuần tự các ngày nợ trước khi xử lý hôm nay.
     """
+    from src.database.acid import (global_transaction, get_correlation,
+                                   ResourceLockedException,
+                                   TransactionTimeout, DEFAULT_TXN_TIMEOUT,
+                                   exception_telemetry, vqa_telemetry,
+                                   sel_telemetry, macro_telemetry)
+    from src.engine.paper_trading_engine import PaperTradingEngine
+    from src.daily_updater import run_post_update_engines
+
     if as_of_date is None:
         as_of_date = _resolve_eod_date()
 
     result = {"as_of_date": as_of_date, "portfolio_id": portfolio_id,
               "timestamp": datetime.now().isoformat()}
+    status = None
+    last_error = None
+    corr_id = None
 
-    # --- 1. SQLITE ADVISORY LOCK (chống race condition) ---
-    lock = SchedulerLock(lock_key=EOD_LOCK_KEY)
-    if not lock.acquire():
+    try:
+        # Global Transaction: 1 connection, BEGIN IMMEDIATE, auto-rollback.
+        # ResourceLockedException nếu tiến trình EOD khác đang chạy.
+        with global_transaction(as_of_date, portfolio_id) as (conn, corr):
+            corr_id = corr.correlation_id
+
+            try:
+                # --- 1.5. CATCH-UP: bù các ngày nợ TRƯỚC khi xử lý hôm nay ---
+                # CHẠY TRONG transaction (conn chung) → settlement/MtM bù cũng nằm
+                # dưới sự chi phối của ROLLBACK. Bù tuần tự theo thời gian.
+                if catchup:
+                    try:
+                        result["catchup"] = _catchup_gap_days(as_of_date, portfolio_id,
+                                                               conn=conn)
+                    except Exception as e:
+                        logger.exception(f"[EOD] catch-up thất bại (non-blocking): {e}")
+                        result["catchup"] = {"error": str(e)}
+
+                # --- 2. IDEMPOTENCY (chống nhân đôi) ---
+                if not force and _is_already_processed(as_of_date, portfolio_id):
+                    result.update({"status": "SKIPPED", "reason": "ALREADY_PROCESSED",
+                                   "note": f"{as_of_date} đã xử lý — không chạy lại."})
+                    logger.info(f"[EOD] {as_of_date}: already processed — skipped.")
+                    return result
+
+                # --- 3. ENGINE PHI KẾ TOÁN (read-only / offline) + PAPER TRADING ---
+                logger.info(f"[EOD] {as_of_date}: chạy engines + paper trading "
+                            f"(corr={corr_id})")
+                engine_results = run_post_update_engines()
+                paper = PaperTradingEngine.run_daily(decision_date=as_of_date,
+                                                     offline=True, conn=conn)
+                summary = paper.get('summary', {})
+                engine_results['paper_trading'] = {
+                    "decision_date": paper.get("decision_date"),
+                    "orders": len(paper.get("orders", [])),
+                    "hdr": paper.get("hdr"),
+                    "w1": paper.get("w1"),
+                    "macro_state": paper.get("macro_state"),
+                    "rejection_rate": summary.get("rejection_rate"),
+                    "avg_slippage_bps": summary.get("avg_slippage_bps"),
+                    "avg_latency_ms": summary.get("avg_latency_ms"),
+                }
+                result.update({"status": "SUCCESS", "engine_results": engine_results})
+                logger.info(f"[EOD] {as_of_date}: SUCCESS (corr={corr_id})")
+                return result
+            except Exception as e:
+                last_error = str(e)
+                logger.exception(f"[EOD] {as_of_date}: accounting lỗi → sẽ rollback: {e}")
+                result.update({"status": "FAILED", "reason": "ACCOUNTING_ERROR",
+                               "error": last_error})
+                raise  # để global_transaction thực hiện ROLLBACK
+    except ResourceLockedException:
+        # Concurrency Guard: tiến trình EOD khác đang chiếm khóa CSDL.
+        # Global Transaction chưa từng mở → không cần rollback.
         result.update({"status": "SKIPPED", "reason": "LOCK_HELD",
                        "note": "Tiến trình EOD khác đang chạy — bỏ qua an toàn."})
         logger.warning(f"[EOD] {as_of_date}: lock held — skipped (anti-race).")
         return result
+    except TransactionTimeout:
+        # Kill-switch: giao dịch vượt quá SLA.
+        last_error = f"Transaction vượt quá {DEFAULT_TXN_TIMEOUT}s — kill-switch kích hoạt."
+        logger.critical(f"[EOD] {as_of_date}: TRANSACTION TIMEOUT — {last_error}")
+        result.update({"status": "FAILED", "reason": "TRANSACTION_TIMEOUT",
+                       "error": last_error})
+        # Ledger fallback sẽ ghi FAILED ở bên dưới
 
-    try:
-        # --- 1.5. CATCH-UP: bù các ngày nợ TRƯỚC khi xử lý hôm nay ---
-        # Chạy TRONG lock để không xung đột với tiến trình khác. Bù tuần tự
-        # theo thời gian → settlement/dòng tiền diễn ra đúng trình tự kế toán.
-        if catchup:
-            try:
-                result["catchup"] = _catchup_gap_days(as_of_date, portfolio_id)
-            except Exception as e:
-                # Catch-up lỗi KHÔNG được chặn xử lý ngày hôm nay → chỉ cảnh báo
-                logger.exception(f"[EOD] catch-up failed (non-blocking): {e}")
-                result["catchup"] = {"error": str(e)}
-
-        # --- 2. IDEMPOTENCY (chống nhân đôi) ---
-        if not force and _is_already_processed(as_of_date, portfolio_id):
+    # --- LEDGER FALLBACK: ghi trạng thái qua KẾT NỐI RIÊNG (sau rollback+unlock) ---
+    # Correlation ID đối chiếu rollback (CSDL) ↔ telemetry .jsonl (log rời rạc).
+    final_status = result.get("status")
+    if final_status in ("SUCCESS", "SKIPPED"):
+        if final_status == "SUCCESS":
             _record_ledger(as_of_date, portfolio_id, STATUS_SUCCESS)
-            result.update({"status": "SKIPPED", "reason": "ALREADY_PROCESSED",
-                           "note": f"{as_of_date} đã xử lý — không chạy lại."})
-            logger.info(f"[EOD] {as_of_date}: already processed — skipped (idempotent).")
-            return result
-
-        # --- 3. SELF-HEALING RETRY ---
-        last_error = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                logger.info(f"[EOD] {as_of_date}: attempt {attempt}/{max_retries}")
-                from src.daily_updater import run_post_update_engines
-                engine_results = run_post_update_engines()
-                _record_ledger(as_of_date, portfolio_id, STATUS_SUCCESS,
-                               attempts=attempt)
-                result.update({"status": "SUCCESS", "attempt": attempt,
-                               "engine_results": engine_results})
-                logger.info(f"[EOD] {as_of_date}: SUCCESS on attempt {attempt}")
-                return result
-            except (ConnectionError, TimeoutError, OSError, sqlite3.OperationalError) as e:
-                last_error = str(e)
-                logger.warning(
-                    f"[EOD] {as_of_date}: attempt {attempt} failed "
-                    f"(connection): {e}")
-                if attempt < max_retries:
-                    logger.info(f"[EOD] Sleeping {retry_sleep}s before retry...")
-                    time.sleep(retry_sleep)
-            except Exception as e:
-                # Lỗi không phải kết nối → không retry, báo động ngay
-                last_error = str(e)
-                logger.exception(f"[EOD] {as_of_date}: non-recoverable error: {e}")
-                _record_ledger(as_of_date, portfolio_id, STATUS_FAILED,
-                               attempts=attempt, last_error=last_error)
-                result.update({"status": "FAILED", "reason": "NON_RECOVERABLE",
-                               "error": last_error})
-                return result
-
-        # Hết retry → GHI NỢ vào ledger (ngày mai sẽ tự bù) + phát báo động
+        # SKIPPED (ALREADY_PROCESSED) đã ghi ở trên hoặc không cần
+    else:
         _record_ledger(as_of_date, portfolio_id, STATUS_FAILED,
-                       attempts=max_retries, last_error=last_error)
-        logger.error(
-            f"[EOD] {as_of_date}: ALARM — failed after {max_retries} retries. "
-            f"Ghi NỢ vào ledger để tự bù ngày mai. Last error: {last_error}")
-        result.update({"status": "FAILED", "reason": "MAX_RETRIES_EXCEEDED",
-                       "error": last_error, "attempts": max_retries,
-                       "note": "Đã ghi nợ — sẽ tự Catch-up ở phiên EOD kế tiếp."})
-        return result
-    finally:
-        lock.release()
+                       attempts=1, last_error=last_error)
+        logger.error(f"[EOD] {as_of_date}: FAILED → ghi nợ ledger (corr={corr_id}).")
+    if corr_id:
+        result["correlation_id"] = corr_id
+    return result
 
 
 if __name__ == "__main__":

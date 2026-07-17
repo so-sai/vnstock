@@ -27,6 +27,7 @@ VÒNG ĐỜI THANH TOÁN T+2.5 (câu hỏi khai thác sâu):
 import json
 import logging
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -65,6 +66,22 @@ SELL_TAX_BPS = 10.0          # thuế TNCN chuyển nhượng 0.1% giá trị b�
 CASH_ADVANCE_FEE_BPS_PER_DAY = 4.0   # 0.04%/ngày = 4 bps/ngày
 DEFAULT_PORTFOLIO_ID = "SEL_PAPER_V1"
 DEFAULT_INITIAL_CAPITAL = 1_000_000_000.0
+
+
+@contextmanager
+def _conn_or(conn):
+    """Trả connection dùng chung (Global Transaction) hoặc mở mới.
+
+    - conn không None → dùng chung cursor, KHÔNG tự commit (tầng cao quản lý).
+    - conn None → mở connection riêng, TỰ ĐỘNG commit khi block thoát sạch
+      (tương thích ngược cho test / lệnh thủ công `paper run`).
+    """
+    if conn is not None:
+        yield conn
+    else:
+        with get_connection() as c:
+            yield c
+            c.commit()
 
 
 class PaperMtM:
@@ -236,9 +253,11 @@ class PaperMtM:
                 "pending_cash_in": row[2]}
 
     def _update_cash(self, settled_delta: float = 0.0,
-                     pending_delta: float = 0.0):
-        with get_connection() as conn:
-            conn.execute(
+                      pending_delta: float = 0.0, conn=None):
+        # ACID: nếu có conn (Global Transaction) → execute trên cursor chung,
+        # KHÔNG commit (quyền commit thuộc tầng cao). Ngược lại tự mở + commit.
+        with _conn_or(conn) as __c:
+            __c.execute(
                 "UPDATE paper_portfolio_state SET "
                 "settled_cash = settled_cash + ?, "
                 "pending_cash_in = pending_cash_in + ?, updated_at=? "
@@ -246,31 +265,30 @@ class PaperMtM:
                 (settled_delta, pending_delta, datetime.now().isoformat(),
                  self.portfolio_id)
             )
-            conn.commit()
 
     def _ledger(self, date, entry_type, amount, symbol=None, settle_date=None,
-                settled=0, notes=None):
-        with get_connection() as conn:
-            conn.execute(
+                settled=0, notes=None, conn=None):
+        with _conn_or(conn) as __c:
+            __c.execute(
                 "INSERT INTO paper_cash_ledger (portfolio_id, date, entry_type, "
                 "symbol, amount, settle_date, settled, notes, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
                 (self.portfolio_id, date, entry_type, symbol, amount,
                  settle_date, settled, notes, datetime.now().isoformat())
             )
-            conn.commit()
 
     # ============================================================ SETTLEMENT
-    def process_settlements(self, date: str):
+    def process_settlements(self, date: str, conn=None):
         """Xử lý các khoản đến hạn settle TÍNH ĐẾN 'date' (đầu phiên T).
 
         - Tiền bán (pending_cash_in) có settle_date <= date → chuyển sang settled.
         - Lot mua có settle_date <= date → cổ phiếu 'về' (settled_qty tự động
           suy ra qua so sánh settle_date, không cần cột riêng).
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
         """
-        with get_connection() as conn:
-            # Tiền bán chờ về → settled
-            pending = conn.execute(
+        with _conn_or(conn) as __c:
+            pending = __c.execute(
                 "SELECT entry_id, amount FROM paper_cash_ledger "
                 "WHERE portfolio_id=? AND entry_type='SELL_PROCEEDS' "
                 "AND settled=0 AND settle_date <= ?",
@@ -279,26 +297,27 @@ class PaperMtM:
             total_settled_in = 0.0
             for entry_id, amount in pending:
                 total_settled_in += amount
-                conn.execute(
+                __c.execute(
                     "UPDATE paper_cash_ledger SET settled=1 WHERE entry_id=?",
                     (entry_id,)
                 )
-            conn.commit()
 
         if total_settled_in != 0:
             self._update_cash(settled_delta=total_settled_in,
-                              pending_delta=-total_settled_in)
+                              pending_delta=-total_settled_in, conn=conn)
             self._ledger(date, "SETTLE", total_settled_in,
-                         notes="Sell proceeds settled (T+2)")
+                         notes="Sell proceeds settled (T+2)", conn=conn)
             logger.info(f"[MtM] Settled sell proceeds: {total_settled_in:,.0f}")
 
     # ================================================================== BUY
     def book_buy(self, symbol: str, quantity: int, fill_price: float,
-                 fill_date: str, hdr_limit: float = 0.0) -> Dict:
+                  fill_date: str, hdr_limit: float = 0.0, conn=None) -> Dict:
         """Hạch toán lệnh MUA đã khớp (T+1 fill).
 
         Kiểm tra sức mua (buying power) tôn trọng HDR_limit. Tạo lot với
         settle_date = fill_date + 2 phiên (T+2). Trừ tiền + phí ngay (settled_cash).
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
         """
         gross = quantity * fill_price
         fee = gross * BUY_FEE_BPS / 10000.0
@@ -316,20 +335,20 @@ class PaperMtM:
         cost_basis = total_cost / quantity  # giá vốn đã gồm phí
 
         lot_id = f"{self.portfolio_id}|{symbol}|{fill_date}|{fill_price:.2f}"
-        with get_connection() as conn:
-            conn.execute(
+        with _conn_or(conn) as __c:
+            __c.execute(
                 "INSERT OR REPLACE INTO paper_lots (lot_id, portfolio_id, symbol, "
                 "open_date, settle_date, quantity, original_qty, cost_basis, "
                 "is_closed, created_at) VALUES (?,?,?,?,?,?,?,?,0,?)",
                 (lot_id, self.portfolio_id, symbol, fill_date, settle_date,
                  quantity, quantity, cost_basis, datetime.now().isoformat())
             )
-            conn.commit()
 
-        self._update_cash(settled_delta=-total_cost)
+        self._update_cash(settled_delta=-total_cost, conn=conn)
         self._ledger(fill_date, "BUY", -total_cost, symbol=symbol,
                      settle_date=settle_date, settled=1,
-                     notes=f"qty={quantity} px={fill_price} fee={fee:.0f}")
+                     notes=f"qty={quantity} px={fill_price} fee={fee:.0f}",
+                     conn=conn)
 
         return {"status": "FILLED", "lot_id": lot_id, "symbol": symbol,
                 "quantity": quantity, "cost_basis": round(cost_basis, 2),
@@ -338,10 +357,12 @@ class PaperMtM:
 
     # ================================================================= SELL
     def book_sell(self, symbol: str, quantity: int, fill_price: float,
-                  fill_date: str) -> Dict:
+                   fill_date: str, conn=None) -> Dict:
         """Hạch toán lệnh BÁN (FIFO). CHỈ bán được hàng ĐÃ SETTLE (chống bán khống).
 
         T+2.5: tiền bán về sau 2 phiên → ghi pending_cash_in, settle_date=T+2.
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
         """
         sellable = self.get_sellable_qty(symbol, fill_date)
         if quantity > sellable:
@@ -349,48 +370,43 @@ class PaperMtM:
                     "requested": quantity, "sellable_settled": sellable,
                     "note": "Không thể bán hàng chưa về (T+2.5). Chống bán khống giả."}
 
-        # FIFO qua các lot đã settle
-        with get_connection() as conn:
-            lots = conn.execute(
+        with _conn_or(conn) as __c:
+            lots = __c.execute(
                 "SELECT lot_id, quantity, cost_basis FROM paper_lots "
                 "WHERE portfolio_id=? AND symbol=? AND is_closed=0 "
                 "AND settle_date <= ? ORDER BY open_date ASC",
                 (self.portfolio_id, symbol, fill_date)
             ).fetchall()
 
-        remaining = quantity
-        total_cost_matched = 0.0
-        for lot_id, lot_qty, cost_basis in lots:
-            if remaining <= 0:
-                break
-            take = min(remaining, lot_qty)
-            total_cost_matched += take * cost_basis
-            new_qty = lot_qty - take
-            with get_connection() as conn:
-                conn.execute(
+            remaining = quantity
+            total_cost_matched = 0.0
+            for lot_id, lot_qty, cost_basis in lots:
+                if remaining <= 0:
+                    break
+                take = min(remaining, lot_qty)
+                total_cost_matched += take * cost_basis
+                new_qty = lot_qty - take
+                __c.execute(
                     "UPDATE paper_lots SET quantity=?, is_closed=? WHERE lot_id=?",
                     (new_qty, 1 if new_qty == 0 else 0, lot_id)
                 )
-                conn.commit()
-            remaining -= take
+                remaining -= take
 
-        gross_proceeds = quantity * fill_price
-        fee = gross_proceeds * SELL_FEE_BPS / 10000.0
-        tax = gross_proceeds * SELL_TAX_BPS / 10000.0
-        net_proceeds = gross_proceeds - fee - tax
+            gross_proceeds = quantity * fill_price
+            fee = gross_proceeds * SELL_FEE_BPS / 10000.0
+            tax = gross_proceeds * SELL_TAX_BPS / 10000.0
+            net_proceeds = gross_proceeds - fee - tax
 
-        gross_pnl = gross_proceeds - total_cost_matched
-        net_pnl = net_proceeds - total_cost_matched
+            gross_pnl = gross_proceeds - total_cost_matched
+            net_pnl = net_proceeds - total_cost_matched
 
-        # Tiền bán về sau T+2 → pending, settle qua process_settlements
-        settle_date = self._next_trading_days(fill_date, SETTLEMENT_DAYS)
-        self._update_cash(pending_delta=net_proceeds)
-        self._ledger(fill_date, "SELL_PROCEEDS", net_proceeds, symbol=symbol,
-                     settle_date=settle_date, settled=0,
-                     notes=f"qty={quantity} px={fill_price}")
+            settle_date = self._next_trading_days(fill_date, SETTLEMENT_DAYS)
+            self._update_cash(pending_delta=net_proceeds, conn=__c)
+            self._ledger(fill_date, "SELL_PROCEEDS", net_proceeds, symbol=symbol,
+                         settle_date=settle_date, settled=0,
+                         notes=f"qty={quantity} px={fill_price}", conn=__c)
 
-        with get_connection() as conn:
-            conn.execute(
+            __c.execute(
                 "INSERT INTO paper_realized_pnl (portfolio_id, date, symbol, "
                 "quantity, cost_basis, sell_price, gross_pnl, fees, tax, net_pnl, "
                 "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -399,7 +415,6 @@ class PaperMtM:
                  round(gross_pnl, 2), round(fee, 2), round(tax, 2),
                  round(net_pnl, 2), datetime.now().isoformat())
             )
-            conn.commit()
 
         return {"status": "FILLED", "symbol": symbol, "quantity": quantity,
                 "gross_pnl": round(gross_pnl, 0), "net_pnl": round(net_pnl, 0),
@@ -528,174 +543,170 @@ class PaperMtM:
 
     # ==================================================== CORPORATE ACTIONS
     def register_corporate_action(self, symbol: str, ex_date: str,
-                                  action_type: str, cash_per_share: float = 0.0,
-                                  ratio: float = 0.0, notes: str = None):
-        """Đăng ký sự kiện doanh nghiệp. action_type: CASH_DIV/STOCK_DIV/SPLIT."""
+                                   action_type: str, cash_per_share: float = 0.0,
+                                   ratio: float = 0.0, notes: str = None,
+                                   conn=None):
+        """Đăng ký sự kiện doanh nghiệp. action_type: CASH_DIV/STOCK_DIV/SPLIT.
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
+        """
         action_id = f"{symbol}|{ex_date}|{action_type}"
-        with get_connection() as conn:
-            conn.execute(
+        with _conn_or(conn) as __c:
+            __c.execute(
                 "INSERT OR REPLACE INTO paper_corporate_actions (action_id, symbol, "
                 "ex_date, action_type, cash_per_share, ratio, applied, notes, "
                 "created_at) VALUES (?,?,?,?,?,?,0,?,?)",
                 (action_id, symbol, ex_date, action_type, cash_per_share, ratio,
                  notes, datetime.now().isoformat())
             )
-            conn.commit()
         return {"action_id": action_id, "status": "REGISTERED"}
 
-    def apply_corporate_actions(self, date: str) -> List[Dict]:
+    def apply_corporate_actions(self, date: str, conn=None) -> List[Dict]:
         """Áp dụng CA có ex_date == date lên cost basis/quantity (chạy trong đêm).
 
         Chống báo lỗ giả tạo vào ngày giao dịch không hưởng quyền:
           - CASH_DIV: ghi cổ tức tiền (pending T+ theo quy định) + GIẢM cost_basis.
           - STOCK_DIV/SPLIT: TĂNG quantity + GIẢM cost_basis theo tỉ lệ (giữ tổng vốn).
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
         """
-        with get_connection() as conn:
-            actions = conn.execute(
+        with _conn_or(conn) as __c:
+            actions = __c.execute(
                 "SELECT action_id, symbol, action_type, cash_per_share, ratio "
                 "FROM paper_corporate_actions WHERE ex_date=? AND applied=0",
                 (date,)
             ).fetchall()
 
-        applied = []
-        for action_id, symbol, atype, cps, ratio in actions:
-            with get_connection() as conn:
-                lots = conn.execute(
+            applied = []
+            for action_id, symbol, atype, cps, ratio in actions:
+                lots = __c.execute(
                     "SELECT lot_id, quantity, cost_basis FROM paper_lots "
                     "WHERE portfolio_id=? AND symbol=? AND is_closed=0",
                     (self.portfolio_id, symbol)
                 ).fetchall()
 
-            total_qty = sum(q for _, q, _ in lots)
-            if total_qty == 0:
-                self._mark_ca_applied(action_id)
-                continue
+                total_qty = sum(q for _, q, _ in lots)
+                if total_qty == 0:
+                    self._mark_ca_applied(action_id, conn=__c)
+                    continue
 
-            if atype == "CASH_DIV":
-                # Cổ tức tiền = cps * tổng SL. Giảm cost_basis mỗi lot đi cps.
-                div_cash = cps * total_qty
-                for lot_id, q, cb in lots:
-                    new_cb = max(cb - cps, 0.0)
-                    with get_connection() as conn:
-                        conn.execute(
+                if atype == "CASH_DIV":
+                    div_cash = cps * total_qty
+                    for lot_id, q, cb in lots:
+                        new_cb = max(cb - cps, 0.0)
+                        __c.execute(
                             "UPDATE paper_lots SET cost_basis=? WHERE lot_id=?",
                             (new_cb, lot_id))
-                        conn.commit()
-                # Cổ tức tiền về (thường sau vài phiên); mô hình về sau T+SETTLEMENT
-                sd = self._next_trading_days(date, SETTLEMENT_DAYS)
-                self._update_cash(pending_delta=div_cash)
-                self._ledger(date, "SELL_PROCEEDS", div_cash, symbol=symbol,
-                             settle_date=sd, settled=0,
-                             notes=f"CASH_DIV {cps}/CP x {total_qty}")
-                applied.append({"symbol": symbol, "type": "CASH_DIV",
-                                "cash": div_cash})
+                    sd = self._next_trading_days(date, SETTLEMENT_DAYS)
+                    self._update_cash(pending_delta=div_cash, conn=__c)
+                    self._ledger(date, "SELL_PROCEEDS", div_cash, symbol=symbol,
+                                 settle_date=sd, settled=0,
+                                 notes=f"CASH_DIV {cps}/CP x {total_qty}", conn=__c)
+                    applied.append({"symbol": symbol, "type": "CASH_DIV",
+                                    "cash": div_cash})
 
-            elif atype in ("STOCK_DIV", "SPLIT"):
-                # Tỉ lệ r: SL mới = SL*(1+r); cost_basis mới = cb/(1+r).
-                factor = 1.0 + ratio
-                for lot_id, q, cb in lots:
-                    new_q = int(q * factor)
-                    new_cb = cb / factor if factor > 0 else cb
-                    with get_connection() as conn:
-                        conn.execute(
+                elif atype in ("STOCK_DIV", "SPLIT"):
+                    factor = 1.0 + ratio
+                    for lot_id, q, cb in lots:
+                        new_q = int(q * factor)
+                        new_cb = cb / factor if factor > 0 else cb
+                        __c.execute(
                             "UPDATE paper_lots SET quantity=?, original_qty=?, "
                             "cost_basis=? WHERE lot_id=?",
                             (new_q, new_q, new_cb, lot_id))
-                        conn.commit()
-                applied.append({"symbol": symbol, "type": atype, "ratio": ratio})
+                    applied.append({"symbol": symbol, "type": atype, "ratio": ratio})
 
-            self._mark_ca_applied(action_id)
+                self._mark_ca_applied(action_id, conn=__c)
 
         if applied:
             logger.info(f"[MtM] Applied {len(applied)} corporate actions @ {date}")
         return applied
 
-    def _mark_ca_applied(self, action_id: str):
-        with get_connection() as conn:
-            conn.execute(
+    def _mark_ca_applied(self, action_id: str, conn=None):
+        with _conn_or(conn) as __c:
+            __c.execute(
                 "UPDATE paper_corporate_actions SET applied=1 WHERE action_id=?",
-                (action_id,))
-            conn.commit()
+                (action_id,)
+            )
 
     # ==================================================== VALUATION (MtM)
-    def mark_to_market(self, date: str, hdr_limit: float = 0.0) -> Dict:
+    def mark_to_market(self, date: str, hdr_limit: float = 0.0,
+                       conn=None) -> Dict:
         """Định giá danh mục @ close T. Unrealized P&L đã chiết khấu phí+thuế bán.
 
         Trả về snapshot đầy đủ + ghi paper_equity_curve.
+
+        ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
         """
         state = self._get_state()
-        with get_connection() as conn:
-            lots = conn.execute(
+        with _conn_or(conn) as c:
+            lots = c.execute(
                 "SELECT symbol, quantity, cost_basis, settle_date FROM paper_lots "
                 "WHERE portfolio_id=? AND is_closed=0 AND open_date<=?",
                 (self.portfolio_id, date)
             ).fetchall()
 
-        market_value = 0.0
-        cost_value = 0.0
-        unsettled_val = 0.0
-        positions = {}
-        for symbol, qty, cb, settle_date in lots:
-            close = self._get_close(symbol, date)
-            if close is None:
-                close = cb  # fallback: giá vốn (không lỗ giả)
-            mv = qty * close
-            market_value += mv
-            cost_value += qty * cb
-            if settle_date > date:
-                unsettled_val += mv
-            p = positions.setdefault(symbol, {"qty": 0, "cost": 0.0, "mv": 0.0,
-                                              "unsettled_qty": 0})
-            p["qty"] += qty
-            p["cost"] += qty * cb
-            p["mv"] += mv
-            if settle_date > date:
-                p["unsettled_qty"] += qty
+            market_value = 0.0
+            cost_value = 0.0
+            unsettled_val = 0.0
+            positions = {}
+            for symbol, qty, cb, settle_date in lots:
+                close = self._get_close(symbol, date)
+                if close is None:
+                    close = cb
+                mv = qty * close
+                market_value += mv
+                cost_value += qty * cb
+                if settle_date > date:
+                    unsettled_val += mv
+                p = positions.setdefault(symbol, {"qty": 0, "cost": 0.0, "mv": 0.0,
+                                                  "unsettled_qty": 0})
+                p["qty"] += qty
+                p["cost"] += qty * cb
+                p["mv"] += mv
+                if settle_date > date:
+                    p["unsettled_qty"] += qty
 
-        # Unrealized P&L: nếu thanh lý toàn bộ @ close, trừ phí bán + thuế
-        exit_fee = market_value * (SELL_FEE_BPS + SELL_TAX_BPS) / 10000.0
-        unrealized_gross = market_value - cost_value
-        unrealized_net = unrealized_gross - exit_fee
+            exit_fee = market_value * (SELL_FEE_BPS + SELL_TAX_BPS) / 10000.0
+            unrealized_gross = market_value - cost_value
+            unrealized_net = unrealized_gross - exit_fee
 
-        # Realized P&L luỹ kế
-        with get_connection() as conn:
-            row = conn.execute(
+            row = c.execute(
                 "SELECT COALESCE(SUM(net_pnl),0) FROM paper_realized_pnl "
                 "WHERE portfolio_id=? AND date<=?",
                 (self.portfolio_id, date)
             ).fetchone()
-        realized_cum = float(row[0]) if row else 0.0
+            realized_cum = float(row[0]) if row else 0.0
 
-        total_equity = state["settled_cash"] + state["pending_cash_in"] + market_value
-        buying_power = self.get_buying_power(date, hdr_limit)
+            total_equity = state["settled_cash"] + state["pending_cash_in"] + market_value
+            buying_power = self.get_buying_power(date, hdr_limit)
 
-        snapshot = {
-            "date": date,
-            "portfolio_id": self.portfolio_id,
-            "settled_cash": round(state["settled_cash"], 0),
-            "pending_cash_in": round(state["pending_cash_in"], 0),
-            "market_value": round(market_value, 0),
-            "cost_value": round(cost_value, 0),
-            "unrealized_pnl_gross": round(unrealized_gross, 0),
-            "unrealized_pnl_net": round(unrealized_net, 0),
-            "exit_fee_tax": round(exit_fee, 0),
-            "realized_pnl_cum": round(realized_cum, 0),
-            "total_equity": round(total_equity, 0),
-            "total_return_pct": round(
-                (total_equity / state["initial_capital"] - 1) * 100, 2),
-            "unsettled_qty_val": round(unsettled_val, 0),
-            "buying_power": round(buying_power, 0),
-            "hdr_limit": hdr_limit,
-            "positions": {s: {"qty": p["qty"],
-                              "avg_cost": round(p["cost"] / p["qty"], 2) if p["qty"] else 0,
-                              "market_value": round(p["mv"], 0),
-                              "unsettled_qty": p["unsettled_qty"],
-                              "upl": round(p["mv"] - p["cost"], 0)}
-                          for s, p in positions.items()},
-        }
+            snapshot = {
+                "date": date,
+                "portfolio_id": self.portfolio_id,
+                "settled_cash": round(state["settled_cash"], 0),
+                "pending_cash_in": round(state["pending_cash_in"], 0),
+                "market_value": round(market_value, 0),
+                "cost_value": round(cost_value, 0),
+                "unrealized_pnl_gross": round(unrealized_gross, 0),
+                "unrealized_pnl_net": round(unrealized_net, 0),
+                "exit_fee_tax": round(exit_fee, 0),
+                "realized_pnl_cum": round(realized_cum, 0),
+                "total_equity": round(total_equity, 0),
+                "total_return_pct": round(
+                    (total_equity / state["initial_capital"] - 1) * 100, 2),
+                "unsettled_qty_val": round(unsettled_val, 0),
+                "buying_power": round(buying_power, 0),
+                "hdr_limit": hdr_limit,
+                "positions": {s: {"qty": p["qty"],
+                                  "avg_cost": round(p["cost"] / p["qty"], 2) if p["qty"] else 0,
+                                  "market_value": round(p["mv"], 0),
+                                  "unsettled_qty": p["unsettled_qty"],
+                                  "upl": round(p["mv"] - p["cost"], 0)}
+                              for s, p in positions.items()},
+            }
 
-        with get_connection() as conn:
-            conn.execute(
+            c.execute(
                 "INSERT OR REPLACE INTO paper_equity_curve (portfolio_id, date, "
                 "settled_cash, pending_cash_in, market_value, unrealized_pnl, "
                 "realized_pnl_cum, total_equity, unsettled_qty_val, buying_power, "
@@ -705,7 +716,6 @@ class PaperMtM:
                  realized_cum, total_equity, unsettled_val, buying_power,
                  hdr_limit, datetime.now().isoformat())
             )
-            conn.commit()
 
         return snapshot
 
