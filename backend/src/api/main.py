@@ -81,6 +81,10 @@ from src.api.routes import (
     snapshot,
     system,
     telemetry,
+    v1_absorption,
+    v1_macro,
+    v1_screener,
+    v1_system,
     watchlist,
     weekly,
     xray,
@@ -128,6 +132,10 @@ app.include_router(operations.router, prefix="/api/operations", tags=["Operation
 app.include_router(search.router, prefix="/api", tags=["Search - FTS5"])
 app.include_router(system.router, prefix="/api/system", tags=["System - Session Info"])
 app.include_router(snapshot.router, prefix="/api/v1/snapshot", tags=["DDI Gate - Delta Divergence Index"])
+app.include_router(v1_macro.router, prefix="/api/v1", tags=["V1 - Bilingual Macro"])
+app.include_router(v1_absorption.router, prefix="/api/v1", tags=["V1 - Bilingual Absorption"])
+app.include_router(v1_screener.router, prefix="/api/v1", tags=["V1 - Bilingual Screener"])
+app.include_router(v1_system.router, prefix="/api/v1", tags=["V1 - Bilingual System"])
 app.include_router(sandbox.router, prefix="/api/sandbox", tags=["Phase 5 - Paper Trading Sandbox"])
 
 

@@ -34,6 +34,7 @@ Correlation ID: mã định danh động gắn xuyên suốt 1 phiên EOD, xuấ
 trong telemetry .jsonl VÀ ledger fallback → người vận hành đối chiếu được
 sự cố Rollback ở CSDL với luồng chẩn đoán VQA tương ứng trong log rời rạc.
 """
+import gc
 import json
 import logging
 import os
@@ -275,6 +276,7 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1",
                     "timeout_sec": timeout_sec,
                     "as_of_date": as_of_date,
                 })
+                gc.collect()  # Cưỡng chế dọn dẹp DataFrames/Numpy arrays rác sau kill-switch
                 raise TransactionTimeout(
                     f"Giao dịch vượt quá SLA {timeout_sec}s — đã ngắt bởi kill-switch."
                 ) from e
