@@ -49,7 +49,7 @@ import src.config
 QUYET_DINH = ["THAM GIA FULL", "THAM GIA", "THAM GIA DO", "QUAN SAT", "GIAM RUI RO", "DUNG NGOAI"]
 
 
-def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
+def quyet_dinh_cuoi(target_date: Optional[str] = None, lang_mode: str = "compact") -> dict:
     """Trả về quyết định cuối cùng dựa trên 3 lớp phân tích.
 
     Luồng:
@@ -63,7 +63,7 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None) -> dict:
 
     # ---- Bước 1: Ảnh chụp thị trường duy nhất ----
     from src.core.market_snapshot import tao_anh_chup
-    anh_chup = tao_anh_chup(target_date)
+    anh_chup = tao_anh_chup(target_date, lang_mode=lang_mode)
 
     r = anh_chup.get("regime", {})
     c = anh_chup.get("cau_truc", {})

@@ -494,7 +494,7 @@ def cmd_final(args):
     """Bộ não quyết định cuối cùng."""
     from src.engine.orchestrator import quyet_dinh_cuoi, in_bao_cao
     from datetime import datetime
-    kq = quyet_dinh_cuoi(args.date or datetime.now().strftime("%Y-%m-%d"))
+    kq = quyet_dinh_cuoi(args.date or datetime.now().strftime("%Y-%m-%d"), lang_mode=_VERBOSE_LANG)
     in_bao_cao(kq)
 
 
@@ -649,7 +649,7 @@ def cmd_confidence(args):
     """Bộ tự đánh giá độ tin cậy của quyết định."""
     from src.engine.confidence_layer import đánh_giá_độ_tin_cậy, in_báo_cáo
     from datetime import datetime
-    kq = đánh_giá_độ_tin_cậy(target_date=args.date or datetime.now().strftime("%Y-%m-%d"))
+    kq = đánh_giá_độ_tin_cậy(target_date=args.date or datetime.now().strftime("%Y-%m-%d"), lang_mode=_VERBOSE_LANG)
     in_báo_cáo(kq)
     # Đọc quyết định cuối cùng từ file (không tính lại)
     from pathlib import Path
@@ -1742,7 +1742,7 @@ def cmd_flow_map(args):
 
 
 # Module-level language mode — set by main() before dispatching
-_VERBOSE_LANG: str = "auto"
+_VERBOSE_LANG: str = "full"
 
 
 def _ll(label: str) -> str:
@@ -1779,13 +1779,13 @@ def main():
     lang_parent = argparse.ArgumentParser(add_help=False)
     lang_parent.add_argument(
         '--verbose-lang', choices=['compact', 'annotated', 'full', 'auto'],
-        default='auto', dest='verbose_lang',
+        default='full', dest='verbose_lang',
         help='Chế độ hiển thị ngôn ngữ CLI (compact/annotated/full/auto)',
     )
     # Also accept --verbose-lang before subcommand
     parser.add_argument(
         '--verbose-lang', choices=['compact', 'annotated', 'full', 'auto'],
-        default='auto', dest='verbose_lang',
+        default='full', dest='verbose_lang',
         help=argparse.SUPPRESS,
     )
     sub = parser.add_subparsers(dest="command", required=True)

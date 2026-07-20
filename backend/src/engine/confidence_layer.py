@@ -315,6 +315,7 @@ def đánh_giá_độ_tin_cậy(
     dữ_liệu_cấu_trúc: Optional[dict] = None,
     cảnh_báo_sớm: Optional[dict] = None,
     target_date: Optional[str] = None,
+    lang_mode: str = "compact",
 ) -> dict:
     """Tự đánh giá độ tin cậy của quyết định hiện tại.
 
@@ -359,7 +360,7 @@ def đánh_giá_độ_tin_cậy(
         # ── Fallback: đọc riêng lẻ (cho standalone) ──
         if dữ_liệu_thị_trường is None:
             from src.engine.regime_engine import detect_regime
-            dữ_liệu_thị_trường = detect_regime(target_date=target_date)
+            dữ_liệu_thị_trường = detect_regime(target_date=target_date, lang_mode=lang_mode)
 
         if dữ_liệu_cấu_trúc is None:
             from src.engine.structural_detector import detect_cau_truc
