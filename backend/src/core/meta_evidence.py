@@ -243,6 +243,28 @@ class MetaEvidence:
         penalty = (0.5 if stale else 0.0) + missing_ratio
         self.data_quality_score = _sigmoid(SIGMOID_BIAS - penalty * 3.0)
 
+    def update_calibration_from_quantstats(self, calibration: dict):
+        """Cập nhật calibration penalty từ QuantStatsBridge.
+
+        calibration_penalty [0,1] → điều chỉnh data_quality_score
+        và market_fit score trong calibration vector.
+        """
+        penalty = calibration.get("calibration_penalty", 0.0)
+        action = calibration.get("action", "NONE")
+
+        # Phạt data_quality theo mức độ lệch calibration
+        penalty_factor = 1.0 - penalty * 0.5  # penalty 1.0 → factor 0.5
+        self.data_quality_score = max(0.1, self.data_quality_score * penalty_factor)
+
+        # Nếu ABORT → force data_quality về sát 0 để Governor block
+        if action == "ABORT":
+            self.data_quality_score = min(self.data_quality_score, 0.15)
+
+        # Ghi nhận outlier win ratio
+        owr = calibration.get("outlier_win_ratio", 0.0)
+        if owr > 0.3:
+            self.model_quality.record_signal_flip()
+
     def decay_step(self):
         """Mỗi phiên EOD: decay counters, trừ khi có entry mới."""
         self.model_quality.decay_step()

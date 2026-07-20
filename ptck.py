@@ -663,6 +663,63 @@ def cmd_confidence(args):
             print(f"  ⚠ Đã bị lớp bảo vệ chặn: {final.get('lý_do_chặn', '')}")
 
 
+def cmd_quantstats(args):
+    """QuantStatsBridge — Live Calibration Engine."""
+    from src.core.quantstats_bridge import QuantStatsBridge
+    from src.core.meta_evidence import get_meta_evidence
+    bridge = QuantStatsBridge(window_days=args.window or 30)
+    report = bridge.run_all()
+    bridge.save_to_db(report)
+
+    cal = report.get("calibration", {})
+    live = report.get("live", {})
+    random_b = report.get("random_baseline", {})
+
+    print("\n" + "=" * 60)
+    print("  QUANTSTATS CALIBRATION — KIỂM ĐỊNH NIỀM TIN")
+    print("=" * 60)
+    print(f"\n  {'Window (phiên):':25s} {report['window_days']}")
+    print(f"  {'Live Sharpe (EWMA):':25s} {cal.get('sharpe_live_smoothed', 0):.4f}")
+    print(f"  {'Sharpe vs Random P95:':25s} {cal.get('sharpe_vs_random', 0):.4f}")
+    print(f"  {'Sortino:':25s} {live.get('sortino', 0):.4f}")
+    print(f"  {'Max Drawdown:':25s} {live.get('max_drawdown', 0):.2%}")
+    print(f"  {'Recovery Factor:':25s} {live.get('recovery_factor', 0):.4f}")
+    print(f"  {'Win Rate:':25s} {live.get('win_rate', 0):.2%}")
+    print(f"  {'Profit Factor:':25s} {live.get('profit_factor', 0):.4f}")
+    print(f"  {'Kelly Criterion:':25s} {live.get('kelly_criterion', 0):.4f}")
+    print(f"  {'Outlier Win Ratio:':25s} {cal.get('outlier_win_ratio', 0):.4f}")
+    print(f"  {'Outlier Loss Ratio:':25s} {cal.get('outlier_loss_ratio', 0):.4f}")
+
+    print(f"\n  {'───────────────── RANDOM BASELINE ─────────────────'}")
+    print(f"  {'Random Sharpe P95:':25s} {random_b.get('random_sharpe_p95', 0):.4f}")
+    print(f"  {'Random Sharpe P50:':25s} {random_b.get('random_sharpe_p50', 0):.4f}")
+    print(f"  {'Random Return P95:':25s} {random_b.get('random_return_p95', 0):.2%}")
+    print(f"  {'Random MDD P95:':25s} {random_b.get('random_mdd_p95', 0):.2%}")
+
+    if live.get("n_observations", 0) > 0:
+        print(f"\n  {'───────────────── REJECTED HYPOTHESES ─────────────────'}")
+        rej = report.get("rejected", {})
+        print(f"  {'Rejected n:':25s} {rej.get('n_observations', 0)}")
+        print(f"  {'Rejected Sharpe:':25s} {rej.get('sharpe', 0):.4f}")
+        print(f"  {'Rejected Win Rate:':25s} {rej.get('win_rate', 0):.2%}")
+        cal_penalty = cal.get("calibration_penalty", 0)
+        print(f"  {'Calibration Penalty:':25s} {cal_penalty:.2%}")
+
+    action = cal.get("action", "NONE")
+    reason = cal.get("reason", "")
+    action_icon = {"NONE": "🟢", "SCALE": "🟡", "ABORT": "🔴"}.get(action, "⚪")
+    print(f"\n  {action_icon} Hành động: {action}")
+    if reason:
+        print(f"     Lý do: {reason}")
+
+    # Cập nhật vào MetaEvidence
+    meta = get_meta_evidence()
+    meta.update_calibration_from_quantstats(cal)
+    print(f"\n  ✅ Đã cập nhật calibration penalty vào MetaEvidence")
+    print(f"     Effective Trust sau điều chỉnh: {meta.effective_trust:.4f}")
+    print("=" * 60)
+
+
 def cmd_restore_backup(args):
     """Khôi phục alert từ backup gần nhất."""
     from pathlib import Path
@@ -1942,6 +1999,11 @@ def main():
     p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")
     p_conf.add_argument("--date", help="Ngày phân tích (YYYY-MM-DD)")
     p_conf.set_defaults(func=cmd_confidence)
+
+    # quantstats
+    p_qs = sub.add_parser("quantstats", help="QuantStatsBridge — Live Calibration Engine")
+    p_qs.add_argument("--window", type=int, default=30, help="Cửa sổ phân tích (phiên)")
+    p_qs.set_defaults(func=cmd_quantstats)
 
     # scan
     p_scan = sub.add_parser("scan", help="Elite scanner")
