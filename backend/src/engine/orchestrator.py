@@ -101,18 +101,27 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None, lang_mode: str = "compact
     except Exception:
         pass
 
-    # ---- Bước 0b: Data Fallback Guard — FORCE_LOCK_HDR khi synthetic ----
+    # ---- Bước 0b: Data Fallback Guard — FORCE_LOCK_HDR + Confidence Penalty ----
+    _fallback_penalty = 0.0
     try:
         from src.data.fallback_resolver import resolve
-        # Kiểm tra VNINDEX và 5 mã đầu watchlist
         _critical_symbols = ['VNINDEX', 'FPT', 'VCB', 'HPG', 'VNM', 'TCB']
         _force_lock = False
+        _is_backup = False
         _fallback_reasons = []
         for _sym in _critical_symbols:
             _, _meta = resolve(_sym, target_date)
             if _meta.get("is_synthetic", False):
                 _force_lock = True
                 _fallback_reasons.append(f"{_sym}: synthetic data — FORCE_LOCK_HDR")
+            elif _meta.get("source") == "BACKUP_PROVIDER":
+                _is_backup = True
+                _fallback_reasons.append(
+                    f"{_sym}: backup provider ({_meta.get('provider', '?')}) — hạ confidence 5%"
+                )
+                # Lấy mức phạt confidence cao nhất
+                cp = _meta.get("confidence_penalty", 0.0)
+                _fallback_penalty = min(_fallback_penalty, cp)
         if _force_lock:
             ket_qua_tam = {
                 "ngay": target_date, "quyet_dinh": "DUNG NGOAI",
@@ -232,11 +241,15 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None, lang_mode: str = "compact
     try:
         from src.engine.confidence_layer import đánh_giá_độ_tin_cậy
         đg = đánh_giá_độ_tin_cậy(anh_chup=anh_chup)
+        _raw_score = đg["điểm_tin_cậy"]
+        _adjusted = max(0.0, _raw_score + _fallback_penalty)
         ket_qua["độ_tin_cậy_sau_hiệu_chỉnh"] = {
-            "điểm_số": đg["điểm_tin_cậy"],
-            "mức": đg["mức_đánh_giá"],
+            "điểm_số": round(_adjusted, 4),
+            "mức_raw": đg["mức_đánh_giá"],
+            "mức": "THAP" if _adjusted < 0.3 else ("TRUNG_BINH" if _adjusted < 0.6 else "CAO"),
             "tạm_ngưng": đg["tạm_ngưng_kết_luận"],
             "lý_do_tạm_ngưng": đg["lý_do_tạm_ngưng"],
+            "phạt_nguồn_dữ_liệu": round(_fallback_penalty, 4),
         }
     except Exception:
         ket_qua["độ_tin_cậy_sau_hiệu_chỉnh"] = {

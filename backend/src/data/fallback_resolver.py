@@ -54,7 +54,7 @@ def resolve(
     date: str,
     max_stale_hours: float = MAX_STALE_HOURS,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
-    """3-tầng Fallback Resolver.
+    """4-tầng Auto-Recovery Fallback Resolver.
 
     Args:
         symbol: Mã cổ phiếu
@@ -64,10 +64,32 @@ def resolve(
     Returns:
         Tuple (row_dict, metadata)
         - row_dict: OHLCV dict hoặc None nếu không có dữ liệu
-        - metadata: Dict {source, fallback, is_synthetic, staleness_hours, reason}
+        - metadata: Dict {source, fallback, is_synthetic, staleness_hours, reason,
+          trust_score, confidence_penalty}
           Khi is_synthetic=True → force_hdr = 1.0
     """
-    # === TẦNG 0: Kiểm tra freshness ===
+    # === TẦNG 0 + 0.5: Live Sources (Multi-Source Router) ===
+    try:
+        from src.data.multi_source_router import compute_confidence_penalty, route_live
+        live_row, live_meta = route_live(symbol, date)
+        if live_row is not None:
+            meta = {
+                "source": live_meta.get("source", "PRIMARY"),
+                "provider": live_meta.get("provider", "KBS"),
+                "fallback": live_meta.get("fallback", False),
+                "is_synthetic": False,
+                "staleness_hours": 0.0,
+                "api_status": "OK",
+                "reason": None,
+                "trust_score": live_meta.get("trust_score", 0.95),
+                "confidence_penalty": compute_confidence_penalty(live_meta),
+                "timeout_ms": live_meta.get("timeout_ms", 0),
+            }
+            return live_row, meta
+    except Exception as e:
+        logger.debug(f"[TIER_0] route_live fail: {e}")
+
+    # === TẦNG 1: Kiểm tra freshness ===
     source, staleness, api_status = check_staleness(symbol, date)
 
     # === TẦNG 1: Stale Cache ===
@@ -82,8 +104,9 @@ def resolve(
                 "staleness_hours": round(staleness, 2),
                 "api_status": api_status,
                 "reason": None,
+                "trust_score": 0.6,
+                "confidence_penalty": 0.0,
             }
-        # Cache cũ nhưng vẫn dùng được (nếu trong MAX_STALE)
         if staleness <= max_stale_hours * 2:
             return row, {
                 "source": "CACHE_STALE",
@@ -92,6 +115,8 @@ def resolve(
                 "staleness_hours": round(staleness, 2),
                 "api_status": api_status,
                 "reason": f"stale_cache — {round(staleness, 1)}h tuổi",
+                "trust_score": 0.4,
+                "confidence_penalty": -0.03,
             }
 
     # === TẦNG 2: Bootstrap ===
@@ -104,6 +129,8 @@ def resolve(
             "staleness_hours": -1,
             "api_status": "CACHE_MISS",
             "reason": "bootstrap — dữ liệu lịch sử không có API",
+            "trust_score": 0.3,
+            "confidence_penalty": -0.08,
         }
 
     # === TẦNG 3: Synthetic (RAM-only) ===
@@ -115,6 +142,8 @@ def resolve(
         "staleness_hours": MAX_STALE_HOURS,
         "api_status": "NO_DATA",
         "force_hdr": 1.0,
+        "trust_score": 0.0,
+        "confidence_penalty": -0.15,
         "reason": "synthetic — KHÔNG có dữ liệu thật, FORCE_LOCK_HDR",
     }
 
