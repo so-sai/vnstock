@@ -3,10 +3,15 @@
 Mọi dữ liệu từ Tier 0.5 (KBS, VCI, SSI, TCBS, MSN, Web Scrapers)
 BẮT BUỘC qua `normalize_to_ptd_schema()` trước khi vào pipeline.
 
-Thiết kế: Declarative Alias Registry + get_safe() — không Bao giờ KeyError.
+Thiết kế: Declarative Alias Registry + get_safe() — không bao giờ KeyError.
+Tự động phát hiện và quy chuẩn độ lệch đơn vị (VND/nghìn/triệu) qua auto_scale_ohlcv().
 """
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+
+from src.database.db_core import get_connection
 
 logger = logging.getLogger("PTCK_NORMALIZER")
 
@@ -67,6 +72,13 @@ PROVIDER_IDENTITY: Dict[str, str] = {
     "vietstock": "VIETSTOCK",
 }
 
+# ── Scale Detection Constants ───────────────────────────────────────────
+# PTD internal unit: VND (đồng), khối lượng: cổ phiếu
+# Các web scraper có thể trả về nghìn đồng, triệu đồng,...
+KNOWN_SCALES = [0.000001, 0.001, 1.0, 1000.0, 1000000.0]
+SCALE_TOLERANCE = 0.15  # 15% tolerance cho nhiễm thị trường
+OHLCV_FLOAT_FIELDS = {"open", "high", "low", "close", "adj_close"}
+
 
 def get_safe(row: Dict[str, Any], ptd_field: str,
              default: Any = None, coerce: Optional[type] = None) -> Any:
@@ -99,20 +111,92 @@ def get_safe(row: Dict[str, Any], ptd_field: str,
     return default
 
 
+def _get_reference_close(symbol: str) -> Optional[float]:
+    """Lấy close giá gần nhất từ DB để làm reference cho scale detection."""
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT close FROM daily_ohlcv WHERE symbol=? "
+                "AND close IS NOT NULL AND close > 0 "
+                "ORDER BY date DESC LIMIT 1",
+                (symbol,),
+            ).fetchone()
+            if row:
+                return float(row[0])
+    except Exception:
+        pass
+    return None
+
+
+def auto_scale_ohlcv(
+    row: Dict[str, Any],
+    symbol: str,
+    source_label: Optional[str] = None,
+) -> Tuple[Dict[str, Any], float, bool]:
+    """Tự động phát hiện và quy chuẩn độ lệch đơn vị (×1000, ×0.001, …).
+
+    So sánh incoming close với reference close từ DB.
+    Nếu tỷ lệ lệch ≈ một KNOWN_SCALE, áp dụng scale cho toàn bộ OHLCV.
+
+    Args:
+        row: Dict đã normalize (chứa ít nhất 'close')
+        symbol: Mã cổ phiếu
+        source_label: Nhãn nguồn để log
+
+    Returns:
+        Tuple (row_sau_khi_scale, scale_factor, was_scaled)
+    """
+    close = row.get("close")
+    if close is None or not isinstance(close, (int, float)) or close <= 0:
+        return row, 1.0, False
+
+    ref_close = _get_reference_close(symbol)
+    if ref_close is None or ref_close <= 0:
+        return row, 1.0, False
+
+    ratio = ref_close / float(close)
+    src_tag = f"[{source_label}] " if source_label else ""
+
+    for scale in KNOWN_SCALES:
+        if abs(scale - 1.0) < 0.0001:
+            continue  # bỏ qua scale = 1 (không đổi)
+        # Kiểm tra nếu ratio gần với scale mong đợi
+        if abs(ratio / scale - 1.0) < SCALE_TOLERANCE:
+            scaled = dict(row)
+            for fld in OHLCV_FLOAT_FIELDS:
+                v = scaled.get(fld)
+                if v is not None and isinstance(v, (int, float)):
+                    scaled[fld] = v * scale
+            logger.info(
+                f"{src_tag}{symbol}: auto_scale phát hiện lệch đơn vị "
+                f"×{scale:.6f} (ref={ref_close}, incoming={close})"
+            )
+            return scaled, scale, True
+
+    # Log cảnh báo nếu lệch quá xa nhưng không khớp scale nào
+    if ratio > 100 or ratio < 0.01:
+        logger.warning(
+            f"{src_tag}{symbol}: tỷ lệ lệch {ratio:.4f} không khớp KNOWN_SCALE nào — "
+            f"ref={ref_close}, incoming={close}"
+        )
+
+    return row, 1.0, False
+
+
 def normalize_to_ptd_schema(
     raw: Dict[str, Any],
     source_label: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Ép mọi schema lạ về PTD schema chuẩn.
+) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    """Ép mọi schema lạ về PTD schema chuẩn + tự động scale đơn vị.
 
     Args:
         raw: Dict dữ liệu thô từ bất kỳ provider nào
         source_label: Nhãn nguồn (KBS, VCI, SSI, ...) — để log
 
     Returns:
-        Dict với các trường PTD chuẩn (chỉ chứa trường tìm thấy).
-
-    Không bao giờ raise KeyError. Trường thiếu → None.
+        Tuple (normalized_dict, scale_info)
+        - normalized_dict: Dict với các trường PTD chuẩn
+        - scale_info: None nếu không scale, hoặc dict {scale, was_scaled, ref_close}
     """
     normalized = {}
     src_tag = f"[{source_label}] " if source_label else ""
@@ -132,14 +216,28 @@ def normalize_to_ptd_schema(
     if sym:
         normalized["symbol"] = str(sym).upper()
 
-    return normalized
+    # Tự động scale đơn vị nếu cần
+    scale_info = None
+    if sym and normalized.get("close") is not None:
+        scaled_row, scale_factor, was_scaled = auto_scale_ohlcv(
+            normalized, str(sym).upper(), source_label
+        )
+        if was_scaled:
+            normalized = scaled_row
+            scale_info = {"scale": scale_factor, "was_scaled": True}
+
+    return normalized, scale_info
 
 
 def normalize_batch(
     rows: List[Dict[str, Any]],
     source_label: str,
-) -> List[Dict[str, Any]]:
-    """Batch normalize — áp dụng normalize_to_ptd_schema() cho list dict."""
+) -> List[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]]:
+    """Batch normalize — áp dụng normalize_to_ptd_schema() cho list dict.
+
+    Returns:
+        List of (normalized_dict, scale_info) tuples.
+    """
     return [normalize_to_ptd_schema(r, source_label) for r in rows]
 
 
@@ -149,19 +247,63 @@ def get_missing_fields(record: Dict[str, Any]) -> List[str]:
     return [f for f in required if f not in record or record[f] is None]
 
 
-def validate_ohlcv(row: Dict[str, Any]) -> List[str]:
-    """Kiểm tra tính hợp lệ OHLCV cơ bản."""
+def validate_ohlcv(
+    row: Dict[str, Any],
+    symbol: Optional[str] = None,
+    reference_close: Optional[float] = None,
+) -> List[str]:
+    """Kiểm tra tính hợp lệ OHLCV + phát hiện lệch đơn vị.
+
+    Args:
+        row: Dict OHLCV đã normalize
+        symbol: Mã cổ phiếu (optional) — để tra reference nếu chưa có
+        reference_close: Close tham chiếu (optional) — tránh query lại DB
+
+    Returns:
+        List[str] danh sách vấn đề (rỗng nếu hợp lệ).
+    """
     issues = []
     close = get_safe(row, "close", coerce=float)
     high = get_safe(row, "high", coerce=float)
     low = get_safe(row, "low", coerce=float)
     open_ = get_safe(row, "open", coerce=float)
-    if close and high and close > high:
-        issues.append(f"close({close}) > high({high})")
-    if close and low and close < low:
-        issues.append(f"close({close}) < low({low})")
-    if open_ and high and open_ > high:
-        issues.append(f"open({open_}) > high({high})")
-    if open_ and low and open_ < low:
-        issues.append(f"open({open_}) < low({low})")
+
+    # Geometric consistency (H ≥ max(O,C), L ≤ min(O,C))
+    if close is not None and high is not None and close > high:
+        issues.append(f"close({close}) > high({high}) — vi phạm nến")
+    if close is not None and low is not None and close < low:
+        issues.append(f"close({close}) < low({low}) — vi phạm nến")
+    if open_ is not None and high is not None and open_ > high:
+        issues.append(f"open({open_}) > high({high}) — vi phạm nến")
+    if open_ is not None and low is not None and open_ < low:
+        issues.append(f"open({open_}) < low({low}) — vi phạm nến")
+
+    # Unit scale check: so sánh với reference_close
+    ref = reference_close
+    if ref is None and symbol:
+        ref = _get_reference_close(symbol)
+    if (
+        ref is not None and ref > 0
+        and close is not None and close > 0
+    ):
+        ratio = ref / close
+        # Nếu ratio lệch khỏi tất cả KNOWN_SCALES → scale bất thường
+        matched = any(
+            abs(ratio / s - 1.0) < SCALE_TOLERANCE * 2
+            for s in KNOWN_SCALES
+        )
+        if not matched and (ratio > 50 or ratio < 0.02):
+            issues.append(
+                f"scale bất thường: ref={ref}, close={close}, "
+                f"ratio={ratio:.2f} — không khớp KNOWN_SCALE nào"
+            )
+        # Dù đã scale, kiểm tra nếu giá quá thấp (sót scale)
+        if close < 1.0 and not any(
+            abs(ref / (close * s) - 1.0) < SCALE_TOLERANCE
+            for s in KNOWN_SCALES
+        ):
+            issues.append(
+                f"close={close} quá thấp — nghi ngờ sót scale (ref={ref})"
+            )
+
     return issues

@@ -71,8 +71,8 @@ def fetch_from_vnstock(
             # Chuẩn hóa cột time → date
             if "time" in raw and "date" not in raw:
                 raw["date"] = raw["time"]
-            norm = normalize_to_ptd_schema(raw, source_label=source)
-            issues = validate_ohlcv(norm)
+            norm, scale_info = normalize_to_ptd_schema(raw, source_label=source)
+            issues = validate_ohlcv(norm, symbol=symbol)
             if issues:
                 logger.warning(f"[{source.upper()}] {symbol}: OHLCV issues: {issues}")
             return norm, source
@@ -105,7 +105,7 @@ def fetch_from_ssi_failover(
         )
         if df is not None and not df.empty:
             raw = df.iloc[-1].to_dict()
-            norm = normalize_to_ptd_schema(raw, source_label=source_used)
+            norm, _ = normalize_to_ptd_schema(raw, source_label=source_used)
             return norm, source_used
     except Exception as e:
         logger.debug(f"[SSI] {symbol}: {e}")
