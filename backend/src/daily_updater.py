@@ -35,6 +35,8 @@ if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 from src.database.db_core import get_connection, optimize_sqlite_engine, save_data_upsert, safe_json_dump
 from src.database.data_quality_failover import FailoverMultiSourceAdapter
+from src.database.data_freshness import ensure_table as ensure_freshness_table, upsert_freshness
+from src.data.cache_warming import warm_single
 
 # Canonical Asset Registry
 _LIBS = PROJECT_ROOT / "backend" / "libs"
@@ -203,6 +205,8 @@ def update_vnindex(target_date: str):
 
             with get_connection() as conn:
                 save_data_upsert('daily_ohlcv', df_idx, conn)
+            ensure_freshness_table()
+            upsert_freshness('VNINDEX', target_date, source="API", api_status="OK")
             logger.info(f"✅ VNINDEX: {len(df_idx)} dòng đã lưu (canonical validated).")
             return len(df_idx)
         else:
@@ -304,6 +308,11 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
                     save_data_upsert('daily_ohlcv', df_save[cols_ohlcv], conn)
                     save_data_upsert('market_foreign_history', df_save[cols_foreign], conn)
 
+                # Cache freshness: đánh dấu dữ liệu mới cho mỗi symbol
+                ensure_freshness_table()
+                for sym in active_batch:
+                    upsert_freshness(sym, target_date, source="API", api_status="OK")
+
                 success += len(df_save)
             else:
                 failed += len(active_batch)
@@ -318,6 +327,8 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
                             cols_ohlcv.append('is_stale')
                         with get_connection() as conn:
                             save_data_upsert('daily_ohlcv', df_solo[cols_ohlcv], conn)
+                        ensure_freshness_table()
+                        upsert_freshness(s, target_date, source="FALLBACK", api_status="OK")
                         success += 1
                     else:
                         armor.blacklist(s)
@@ -645,25 +656,10 @@ def run_post_update_engines():
         logger.exception("⚠️ Per-symbol absorption: %s", e)
         record_engine_fault('per_symbol_absorption', str(e))
 
-    # Paper Trading Engine — giả lập EOD (Live vs Backtest), KHÔNG đẩy lệnh lên sàn
-    try:
-        from src.engine.paper_trading_engine import PaperTradingEngine
-        paper = PaperTradingEngine.run_daily(offline=True)
-        summary = paper.get('summary', {})
-        results['paper_trading'] = {
-            "decision_date": paper.get("decision_date"),
-            "orders": len(paper.get("orders", [])),
-            "hdr": paper.get("hdr"),
-            "w1": paper.get("w1"),
-            "macro_state": paper.get("macro_state"),
-            "rejection_rate": summary.get("rejection_rate"),
-            "avg_slippage_bps": summary.get("avg_slippage_bps"),
-            "avg_latency_ms": summary.get("avg_latency_ms"),
-        }
-        logger.info(f"✅ Paper Trading: {results['paper_trading']}")
-    except Exception as e:
-        logger.exception("⚠️ Paper Trading: %s", e)
-        record_engine_fault('paper_trading_engine', str(e))
+    # Ghi chú: Paper Trading Engine (hạch toán kế toán) KHÔNG chạy ở đây.
+    # Nó thuộc sở hữu DUY NHẤT của run_eod_pipeline (cronjob EOD 16:00), chạy
+    # trong 1 Global Transaction (BEGIN IMMEDIATE) để đảm bảo tính nguyên tử
+    # (ACID). Chạy ở đây sẽ gây double-write + phá vỡ ROLLBACK. Xem eod_runner.
 
     return results
 

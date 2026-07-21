@@ -100,6 +100,34 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None, lang_mode: str = "compact
             return ket_qua_tam
     except Exception:
         pass
+
+    # ---- Bước 0b: Data Fallback Guard — FORCE_LOCK_HDR khi synthetic ----
+    try:
+        from src.data.fallback_resolver import resolve
+        # Kiểm tra VNINDEX và 5 mã đầu watchlist
+        _critical_symbols = ['VNINDEX', 'FPT', 'VCB', 'HPG', 'VNM', 'TCB']
+        _force_lock = False
+        _fallback_reasons = []
+        for _sym in _critical_symbols:
+            _, _meta = resolve(_sym, target_date)
+            if _meta.get("is_synthetic", False):
+                _force_lock = True
+                _fallback_reasons.append(f"{_sym}: synthetic data — FORCE_LOCK_HDR")
+        if _force_lock:
+            ket_qua_tam = {
+                "ngay": target_date, "quyet_dinh": "DUNG NGOAI",
+                "ly_do": ["FORCE_LOCK_HDR — dữ liệu thị trường đang ở chế độ Synthetic",
+                          "API ngoại vi không khả dụng, Governor bắt buộc đóng băng",
+                          "chỉ giao dịch lại khi API khôi phục và cache warmed"]
+                + _fallback_reasons[:3],
+                "chi_tiet": {"fallback_guard": True, "fallback_reasons": _fallback_reasons},
+            }
+            ket_qua_tam["độ_tin_cậy_sau_hiệu_chỉnh"] = {"điểm_số": 0, "mức": "THAP", "tạm_ngưng": True, "lý_do_tạm_ngưng": "synthetic data — FORCE_LOCK_HDR"}
+            ket_qua_tam["bi_chặn_bởi_bảo_vệ"] = True
+            ket_qua_tam["lý_do_chặn"] = "FORCE_LOCK_HDR — synthetic data"
+            return ket_qua_tam
+    except Exception:
+        pass
     # ---- Bước 2: Logic quyết định theo thứ tự ưu tiên ----
     ly_do = []
 
