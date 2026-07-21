@@ -689,6 +689,7 @@ def cmd_quantstats(args):
     print(f"  {'Kelly Criterion:':25s} {live.get('kelly_criterion', 0):.4f}")
     print(f"  {'Outlier Win Ratio:':25s} {cal.get('outlier_win_ratio', 0):.4f}")
     print(f"  {'Outlier Loss Ratio:':25s} {cal.get('outlier_loss_ratio', 0):.4f}")
+    print(f"  {'Cumulative IG:':25s} {cal.get('cumulative_information_gain', 0):.6f}")
 
     print(f"\n  {'───────────────── RANDOM BASELINE ─────────────────'}")
     print(f"  {'Random Sharpe P95:':25s} {random_b.get('random_sharpe_p95', 0):.4f}")
@@ -738,11 +739,12 @@ def cmd_rejected_signals(args):
         if not rows:
             print("\n  (trống) — chưa có tín hiệu nào bị từ chối.\n")
             return
-        print(f"\n  {'ID':>4s} | {'Ngày':22s} | {'Mã':8s} | {'Loại':22s} | {'Lý do':28s} | {'Exit5d':>8s}")
-        print(f"  {'-'*4:>4s}   {'-'*22:22s}   {'-'*8:8s}   {'-'*22:22s}   {'-'*28:28s}   {'-'*8:8s}")
+        print(f"\n  {'ID':>4s} | {'Mã':8s} | {'Lý do':22s} | {'Horizon':10s} | {'Status':8s} | {'Exit5d':>8s} | {'IG':>8s}")
+        print(f"  {'-'*4:>4s}   {'-'*8:8s}   {'-'*22:22s}   {'-'*10:10s}   {'-'*8:8s}   {'-'*8:8s}   {'-'*8:8s}")
         for r in rows:
-            exit5 = f"{r.get('simulated_exit_5d', 'N/A'):>8}" if r.get('simulated_exit_5d') is not None else "     N/A"
-            print(f"  {r['id']:>4d} | {r['timestamp']:22s} | {r['ticker']:8s} | {r['signal_type']:22s} | {r['rejection_reason']:28s} | {exit5:>8s}")
+            exit5 = f"{r.get('simulated_exit_5d', 0):>+8.2f}" if r.get('simulated_exit_5d') is not None else "     N/A"
+            ig = f"{r.get('information_gain', 0):>8.4f}" if r.get('information_gain') else "   0.0000"
+            print(f"  {r['id']:>4d} | {r['ticker']:8s} | {r['rejection_reason']:22s} | {r.get('evaluation_horizon', '60d'):10s} | {r.get('status', 'ACTIVE'):8s} | {exit5:>8s} | {ig:>8s}")
         print(f"\n  Tổng: {len(rows)} bản ghi\n")
 
     elif args.action == "stats":

@@ -97,13 +97,18 @@ class QuantStatsBridge:
         return np.array(returns, dtype=np.float64)
 
     def fetch_rejected_signals_archive(self) -> np.ndarray:
-        """Đọc rejected_signals_archive → counterfactual returns.
+        """Đọc Evidence Ledger → counterfactual returns (IG-weighted).
 
-        Dùng module rejected_signals chuyên dụng, có sẵn simulated exit.
+        Chỉ lấy ACTIVE records còn trong evaluation_horizon.
+        Weighted bằng information_gain để Governor học từ IG,
+        không từ số lượng reject.
         """
         try:
-            from src.database.rejected_signals import get_counterfactual_returns
-            returns = get_counterfactual_returns(window_days=self.window_days)
+            from src.database.rejected_signals import (
+                get_counterfactual_returns, get_cumulative_information_gain,
+            )
+            returns = get_counterfactual_returns(window_days=self.window_days, weighted=True)
+            self._cache["cumulative_ig"] = get_cumulative_information_gain()
             if len(returns) > 0:
                 return returns
         except Exception:
@@ -380,6 +385,7 @@ class QuantStatsBridge:
             "calibration_penalty": round(penalty, 4),
             "action": action,
             "reason": reason,
+            "cumulative_information_gain": self._cache.get("cumulative_ig", 0.0),
             "live_metrics": live_metrics,
             "rejected_metrics": rejected_metrics,
             "random_metrics": {k: v for k, v in random_metrics.items()
