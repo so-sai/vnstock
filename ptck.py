@@ -138,7 +138,7 @@ def cmd_report(args):
         from src.services.weekly_cognitive_report import build_narrative
         narrative = build_narrative()
         print("=" * 60)
-        print("  PTCK — WEEKLY COGNITIVE REPORT")
+        print(f"  PTCK — {_ll('WEEKLY COGNITIVE REPORT')}")
         print("=" * 60)
         if isinstance(narrative, dict):
             for section, content in narrative.items():
@@ -172,20 +172,20 @@ def cmd_report(args):
             sys.argv += ["--lang", lang]
         exec(open(backend_dir / "src" / "tools" / "market_report.py", encoding='utf-8-sig').read())
     else:
-        print("  Usage: python ptck.py report weekly|monthly|daily [--month YYYY-MM] [--lang vi]")
+        print(f"  {_ll('Usage')}: python ptck.py report weekly|monthly|daily [--month YYYY-MM] [--lang vi]")
 
 
 def cmd_daily_close(args):
     """Chạy daily closer pipeline."""
     print("=" * 60)
-    print("  PTCK — DAILY CLOSER")
+    print(f"  PTCK — {_ll('DAILY CLOSER')}")
     print("=" * 60)
     try:
         from src.daily_closer import run_daily_closer
         run_daily_closer()
-        print("  [OK] Daily closer hoàn tất.")
+        print(f"  [{_ll('OK')}] {_ll('Daily closer')} hoàn tất.")
     except Exception as e:
-        print(f"  [FAIL] Lỗi: {e}")
+        print(f"  [{_ll('FAIL')}] Lỗi: {e}")
     print("=" * 60)
 
 
@@ -201,9 +201,9 @@ def cmd_daily_update(args):
     print(f"  Chạy: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        print(f"  [FAIL] Lỗi: mã thoát {result.returncode}")
+        print(f"  [{_ll('FAIL')}] Lỗi: mã thoát {result.returncode}")
     else:
-        print("  [OK] Daily update hoàn tất.")
+        print(f"  [{_ll('OK')}] {_ll('Daily update')} hoàn tất.")
 
 
 def cmd_gap_analyzer(args):
@@ -217,7 +217,7 @@ def cmd_gap_analyzer(args):
     print(f"  Chạy: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     if result.returncode != 0:
-        print(f"  [FAIL] Lỗi: mã thoát {result.returncode}")
+        print(f"  [{_ll('FAIL')}] Lỗi: mã thoát {result.returncode}")
 
 
 def _localize_driver(driver: str) -> str:
@@ -245,10 +245,10 @@ def cmd_telemetry(args):
         summary = get_reputation_summary()
         drivers = summary.get("drivers", []) if isinstance(summary, dict) else []
         print("=" * 72)
-        print("  PTCK — DRIVER REPUTATION LEDGER")
+        print(f"  PTCK — {_ll('DRIVER REPUTATION LEDGER')}")
         print("=" * 72)
         if drivers:
-            header = f"  {'Driver':<22s} {'Alpha':>8s} {'Acc':>6s} {'Drift':>8s} {'1/2-life':>10s}"
+            header = f"  {_ll('Driver'):<22s} {_ll('Alpha'):>8s} {_ll('Acc'):>6s} {_ll('Drift'):>8s} {_ll('1/2-life'):>10s}"
             print(header)
             print("  " + "-" * 68)
             for row in drivers:
@@ -293,14 +293,14 @@ def cmd_telemetry(args):
             if top:
                 print(f"\n  🏆 Dẫn đầu: {_localize_driver(top)}")
         else:
-            print("  Chưa có dữ liệu. Chạy 'python ptck.py telemetry reputation --refresh'")
+            print(f"  {_ll('Chưa có dữ liệu')}. Chạy 'python ptck.py telemetry reputation --refresh'")
         print("=" * 72)
 
         # ── Drift Monitor detail ────────────────────────────────────
         is_drift = getattr(args, 'drift', False)
         if is_drift and drivers:
-            print("\n  ═══ DRIFT MONITOR ═══")
-            print(f"  {'Driver':<22s} {'Slope':>10s} {'Drift 30→180':>13s} {'Acc 30d':>8s} {'Acc 180d':>9s} {'1/2-life':>10s}")
+            print(f"\n  ═══ {_ll('DRIFT MONITOR')} ═══")
+            print(f"  {_ll('Driver'):<22s} {_ll('Slope'):>10s} {_ll('Drift 30→180'):>13s} {_ll('Acc 30d'):>8s} {_ll('Acc 180d'):>9s} {_ll('1/2-life'):>10s}")
             print("  " + "-" * 72)
             for row in drivers:
                 dvi = _localize_driver(row.get("driver", ""))
@@ -360,7 +360,7 @@ def cmd_telemetry(args):
         from src.core.shadow_metrics_schema import compute_shadow_metrics
         metrics = compute_shadow_metrics(window_days=days)
         print("=" * 60)
-        print(f"  PTCK — SHADOW METRICS ({days} ngày)")
+        print(f"  PTCK — {_ll('SHADOW METRICS')} ({days} ngày)")
         print("=" * 60)
         for k, v in metrics.items():
             print(f"  {k}: {v}")
@@ -380,17 +380,17 @@ def cmd_db(args):
     """Database operations."""
     from src.db_maintenance import get_table_stats, vacuum_database, get_db_size_mb
     if args.subcommand == "vacuum":
-        print("  Đang VACUUM database...")
+        print(f"  Đang {_ll('VACUUM')} {_ll('database')}...")
         vacuum_database()
     elif args.subcommand == "stats":
-        print("  Đang thống kê database...")
+        print(f"  Đang thống kê {_ll('database')}...")
         stats = get_table_stats()
-        print("\nTABLE STATISTICS:")
+        print(f"\n{_ll('TABLE STATISTICS')}:")
         for table, count in sorted(stats.items()):
-            print(f"  {table}: {count:,} rows")
-        print(f"\nDB Size: {get_db_size_mb():.1f} MB")
+            print(f"  {table}: {count:,} {_ll('rows')}")
+        print(f"\n{_ll('DB Size')}: {get_db_size_mb():.1f} MB")
     elif args.subcommand == "optimize":
-        print("  Đang tối ưu hóa toàn bộ database (JSONB + STRICT + VACUUM)...")
+        print(f"  Đang tối ưu hóa toàn bộ {_ll('database')} (JSONB + STRICT + VACUUM)...")
         from src.database.db_optimize import run_all
         run_all()
     elif args.subcommand == "backup":
@@ -418,13 +418,13 @@ def cmd_db(args):
         else:
             print(f"\n  ❌ Guardian cycle thất bại: {report['status']}")
     else:
-        print("  Usage: python ptck.py db vacuum|stats|optimize|backup")
+        print(f"  {_ll('Usage')}: python ptck.py db vacuum|stats|optimize|backup")
 
 
 def cmd_status(args):
     """Kiểm tra sức khỏe hệ thống."""
     print("=" * 60)
-    print("  PTCK — SYSTEM HEALTH CHECK")
+    print(f"  PTCK — {_ll('SYSTEM HEALTH CHECK')}")
     print("=" * 60)
     
     checks = []
@@ -478,7 +478,7 @@ def cmd_status(args):
     passed = sum(1 for _, _, ok in checks if ok)
     total = len(checks)
     print()
-    print(f"  Kết quả: {passed}/{total} checks passed")
+    print(f"  Kết quả: {passed}/{total} {_ll('checks passed')}")
     print("=" * 60)
 
 
@@ -578,17 +578,17 @@ def cmd_ddi(args):
     ddi = anh_chup.get("delta_divergence", {})
     icon = {"pass": "🟢", "caution": "🟡", "block": "🔴"}.get(ddi.get("action_filter"), "⚪")
     print("\n" + "=" * 55)
-    print("  DELTA DIVERGENCE INDEX (DDI)")
+    print(f"  {_ll('DELTA DIVERGENCE INDEX')} (DDI)")
     print("=" * 55)
     print(f"  {icon} Δ_SA:          {ddi.get('delta_sa', 'N/A')}")
-    print(f"    Action Filter:   {ddi.get('action_filter', 'N/A')}")
-    print(f"    dS/dt:           {ddi.get('dS_dt', 'N/A')}")
-    print(f"    AC Latency:      {ddi.get('ac_latency', 'N/A')}")
+    print(f"    {_ll('Action Filter')}:   {ddi.get('action_filter', 'N/A')}")
+    print(f"    {_ll('dS/dt')}:           {ddi.get('dS_dt', 'N/A')}")
+    print(f"    {_ll('AC Latency')}:      {ddi.get('ac_latency', 'N/A')}")
     print(f"    α ({ddi.get('regime', 'N/A')}): {ddi.get('alpha_regime', 'N/A')}")
     if ddi.get("healing_illusion"):
-        print(f"    ⚠ HEALING ILLUSION — stress vượt adaptation")
+        print(f"    ⚠ {_ll('HEALING ILLUSION')} — stress vượt adaptation")
     p_hash = anh_chup.get("params_hash", "unresolved")
-    print(f"  Params Hash:      {p_hash}")
+    print(f"  {_ll('Params Hash')}:      {p_hash}")
     print("=" * 55)
 
 
@@ -607,7 +607,7 @@ def cmd_snapshot_index(args):
     limit = args.limit if hasattr(args, "limit") else 20
     recent = idx[-limit:]
     print(f"\n{'='*75}")
-    print(f"  SNAPSHOT INDEX — {len(idx)} entries (hiển thị {len(recent)} gần nhất)")
+    print(f"  {_ll('SNAPSHOT INDEX')} — {len(idx)} {_ll('entries')} (hiển thị {len(recent)} gần nhất)")
     print(f"{'='*75}")
     print(f"  {'Ngày':<12} {'Hash':<17} {'Regime':<10} {'Δ_SA':>7} {'Filter':<8}")
     print(f"  {'-'*12} {'-'*17} {'-'*10} {'-'*7} {'-'*8}")
@@ -624,22 +624,22 @@ def cmd_rotation(args):
     r = compute_asia_rotation(window=90)
     print()
     print("=" * 55)
-    print("  ASIA REFERENCE FRAME ROTATION (Layer 2)")
+    print(f"  {_ll('ASIA REFERENCE FRAME ROTATION')} ({_ll('Layer 2')})")
     print("=" * 55)
     if r.get("status") != "OK":
-        print(f"  Status: {r.get('status')}")
+        print(f"  {_ll('Status')}: {r.get('status')}")
         print(f"  {r.get('message', 'No message')}")
         return
-    print(f"  Rotation Angle:   {r['rotation_angle_deg']}°  "
+    print(f"  {_ll('Rotation Angle')}:   {r['rotation_angle_deg']}°  "
           f"(0°=VN syncs Asia, 90°=VN decoupling)")
     print(f"  Λ_max:            {r['lambda_max']:.4f}  "
-          f"(>0.6=systemic)")
+          f"(>0.6={_ll('systemic')})")
     print(f"  Λ_ratio:          {r['lambda_ratio']:.2f}  "
-          f"(>5.0=dominant factor)")
-    print(f"  Entropy:          {r['spectral_entropy']:.4f}")
-    print(f"  Days:             {r['n_days']}")
+          f"(>5.0={_ll('dominant factor')})")
+    print(f"  {_ll('Entropy')}:          {r['spectral_entropy']:.4f}")
+    print(f"  {_ll('Days')}:             {r['n_days']}")
     print()
-    print("  Pairwise Spearman correlations:")
+    print(f"  {_ll('Pairwise Spearman correlations')}:")
     for pair, val in r.get("pairwise_corr", {}).items():
         print(f"    {pair:<25s} {val:>8.4f}")
     print("=" * 55)
@@ -676,35 +676,35 @@ def cmd_quantstats(args):
     random_b = report.get("random_baseline", {})
 
     print("\n" + "=" * 60)
-    print("  QUANTSTATS CALIBRATION — KIỂM ĐỊNH NIỀM TIN")
+    print(f"  {_ll('QUANTSTATS CALIBRATION')} — KIỂM ĐỊNH NIỀM TIN")
     print("=" * 60)
-    print(f"\n  {'Window (phiên):':25s} {report['window_days']}")
-    print(f"  {'Live Sharpe (EWMA):':25s} {cal.get('sharpe_live_smoothed', 0):.4f}")
-    print(f"  {'Sharpe vs Random P95:':25s} {cal.get('sharpe_vs_random', 0):.4f}")
-    print(f"  {'Sortino:':25s} {live.get('sortino', 0):.4f}")
-    print(f"  {'Max Drawdown:':25s} {live.get('max_drawdown', 0):.2%}")
-    print(f"  {'Recovery Factor:':25s} {live.get('recovery_factor', 0):.4f}")
-    print(f"  {'Win Rate:':25s} {live.get('win_rate', 0):.2%}")
-    print(f"  {'Profit Factor:':25s} {live.get('profit_factor', 0):.4f}")
-    print(f"  {'Kelly Criterion:':25s} {live.get('kelly_criterion', 0):.4f}")
-    print(f"  {'Outlier Win Ratio:':25s} {cal.get('outlier_win_ratio', 0):.4f}")
-    print(f"  {'Outlier Loss Ratio:':25s} {cal.get('outlier_loss_ratio', 0):.4f}")
-    print(f"  {'Cumulative IG:':25s} {cal.get('cumulative_information_gain', 0):.6f}")
+    print(f"\n  {_ll('Window')} (phiên):{'':>12s} {report['window_days']}")
+    print(f"  {_ll('Live Sharpe')} (EWMA):{'':>9s} {cal.get('sharpe_live_smoothed', 0):.4f}")
+    print(f"  {_ll('Sharpe vs Random P95')}:{'':>6s} {cal.get('sharpe_vs_random', 0):.4f}")
+    print(f"  {_ll('Sortino')}:{'':>20s} {live.get('sortino', 0):.4f}")
+    print(f"  {_ll('Max Drawdown')}:{'':>15s} {live.get('max_drawdown', 0):.2%}")
+    print(f"  {_ll('Recovery Factor')}:{'':>12s} {live.get('recovery_factor', 0):.4f}")
+    print(f"  {_ll('Win Rate')}:{'':>19s} {live.get('win_rate', 0):.2%}")
+    print(f"  {_ll('Profit Factor')}:{'':>14s} {live.get('profit_factor', 0):.4f}")
+    print(f"  {_ll('Kelly Criterion')}:{'':>12s} {live.get('kelly_criterion', 0):.4f}")
+    print(f"  {_ll('Outlier Win Ratio')}:{'':>10s} {cal.get('outlier_win_ratio', 0):.4f}")
+    print(f"  {_ll('Outlier Loss Ratio')}:{'':>9s} {cal.get('outlier_loss_ratio', 0):.4f}")
+    print(f"  {_ll('Cumulative IG')}:{'':>13s} {cal.get('cumulative_information_gain', 0):.6f}")
 
-    print(f"\n  {'───────────────── RANDOM BASELINE ─────────────────'}")
-    print(f"  {'Random Sharpe P95:':25s} {random_b.get('random_sharpe_p95', 0):.4f}")
-    print(f"  {'Random Sharpe P50:':25s} {random_b.get('random_sharpe_p50', 0):.4f}")
-    print(f"  {'Random Return P95:':25s} {random_b.get('random_return_p95', 0):.2%}")
-    print(f"  {'Random MDD P95:':25s} {random_b.get('random_mdd_p95', 0):.2%}")
+    print(f"\n  {'───────────────── ' + _ll('RANDOM BASELINE') + ' ─────────────────'}")
+    print(f"  {_ll('Random Sharpe P95')}:{'':>9s} {random_b.get('random_sharpe_p95', 0):.4f}")
+    print(f"  {_ll('Random Sharpe P50')}:{'':>9s} {random_b.get('random_sharpe_p50', 0):.4f}")
+    print(f"  {_ll('Random Return P95')}:{'':>9s} {random_b.get('random_return_p95', 0):.2%}")
+    print(f"  {_ll('Random MDD P95')}:{'':>12s} {random_b.get('random_mdd_p95', 0):.2%}")
 
     if live.get("n_observations", 0) > 0:
-        print(f"\n  {'───────────────── REJECTED HYPOTHESES ─────────────────'}")
+        print(f"\n  {'───────────────── ' + _ll('REJECTED HYPOTHESES') + ' ─────────────────'}")
         rej = report.get("rejected", {})
-        print(f"  {'Rejected n:':25s} {rej.get('n_observations', 0)}")
-        print(f"  {'Rejected Sharpe:':25s} {rej.get('sharpe', 0):.4f}")
-        print(f"  {'Rejected Win Rate:':25s} {rej.get('win_rate', 0):.2%}")
+        print(f"  {_ll('Rejected n')}:{'':>15s} {rej.get('n_observations', 0)}")
+        print(f"  {_ll('Rejected Sharpe')}:{'':>11s} {rej.get('sharpe', 0):.4f}")
+        print(f"  {_ll('Rejected Win Rate')}:{'':>10s} {rej.get('win_rate', 0):.2%}")
         cal_penalty = cal.get("calibration_penalty", 0)
-        print(f"  {'Calibration Penalty:':25s} {cal_penalty:.2%}")
+        print(f"  {_ll('Calibration Penalty')}:{'':>8s} {cal_penalty:.2%}")
 
     action = cal.get("action", "NONE")
     reason = cal.get("reason", "")
@@ -717,7 +717,7 @@ def cmd_quantstats(args):
     meta = get_meta_evidence()
     meta.update_calibration_from_quantstats(cal)
     print(f"\n  ✅ Đã cập nhật calibration penalty vào MetaEvidence")
-    print(f"     Effective Trust sau điều chỉnh: {meta.effective_trust:.4f}")
+    print(f"     {_ll('Effective Trust')} sau điều chỉnh: {meta.effective_trust:.4f}")
     print("=" * 60)
 
 
@@ -734,12 +734,12 @@ def cmd_rejected_signals(args):
             days_back=30,
         )
         print(f"\n{'=' * 80}")
-        print("  REJECTED SIGNALS ARCHIVE — Nghĩa địa giả thuyết")
+        print(f"  {_ll('REJECTED SIGNALS ARCHIVE')} — Nghĩa địa giả thuyết")
         print(f"{'=' * 80}")
         if not rows:
             print("\n  (trống) — chưa có tín hiệu nào bị từ chối.\n")
             return
-        print(f"\n  {'ID':>4s} | {'Mã':8s} | {'Lý do':22s} | {'Horizon':10s} | {'Status':8s} | {'Exit5d':>8s} | {'IG':>8s}")
+        print(f"\n  {'ID':>4s} | {'Mã':8s} | {'Lý do':22s} | {_ll('Horizon'):10s} | {_ll('Status'):8s} | {_ll('Exit5d'):>8s} | {'IG':>8s}")
         print(f"  {'-'*4:>4s}   {'-'*8:8s}   {'-'*22:22s}   {'-'*10:10s}   {'-'*8:8s}   {'-'*8:8s}   {'-'*8:8s}")
         for r in rows:
             exit5 = f"{r.get('simulated_exit_5d', 0):>+8.2f}" if r.get('simulated_exit_5d') is not None else "     N/A"
@@ -750,7 +750,7 @@ def cmd_rejected_signals(args):
     elif args.action == "stats":
         counts = count_by_reason(days_back=30)
         print(f"\n{'=' * 60}")
-        print("  REJECTED SIGNALS — Thống kê theo lý do")
+        print(f"  {_ll('REJECTED SIGNALS')} — Thống kê theo lý do")
         print(f"{'=' * 60}")
         if not counts:
             print("\n  (trống)\n")
@@ -764,7 +764,7 @@ def cmd_rejected_signals(args):
 
     elif args.action == "eod-update":
         updated = run_eod_update()
-        print(f"\n  ✅ EOD update: {updated} simulated_exit đã cập nhật.\n")
+        print(f"\n  ✅ {_ll('EOD update')}: {updated} simulated_exit đã cập nhật.\n")
 
 
 def cmd_restore_backup(args):
@@ -838,24 +838,24 @@ def cmd_cleanup(args):
     if target == "telemetry":
         from src.engine.partial_data_entropy import cleanup_telemetry
         cleanup_telemetry(max_rows=getattr(args, 'max_rows', 1000))
-        print(f"  ✅ Telemetry cleaned (keep last {getattr(args, 'max_rows', 1000)} rows).")
+        print(f"  ✅ {_ll('Telemetry cleaned')} (keep last {getattr(args, 'max_rows', 1000)} {_ll('rows')}).")
     elif target == "all":
         from src.engine.partial_data_entropy import cleanup_telemetry
         cleanup_telemetry(max_rows=1000)
-        print("  ✅ Telemetry cleaned.")
+        print(f"  ✅ {_ll('Telemetry cleaned')}.")
         for fname in ["crisis_cooldown.json", "micro_stress.json"]:
             fp = Path(__file__).resolve().parent / "backend" / "data" / "probe_cache" / fname
             if fp.exists():
                 fp.unlink()
-                print(f"  ✅ {fname} removed.")
+                print(f"  ✅ {fname} {_ll('removed')}.")
     else:
-        print("  Usage: python ptck.py cleanup telemetry|all [--max-rows N]")
+        print(f"  {_ll('Usage')}: python ptck.py cleanup telemetry|all [--max-rows N]")
 
     # Also delete .tmp orphans
     probe_dir = Path(__file__).resolve().parent / "backend" / "data" / "probe_cache"
     for f in probe_dir.glob("*.tmp"):
         f.unlink()
-        print(f"  ✅ Orphan .tmp cleaned: {f.name}")
+        print(f"  ✅ {_ll('Orphan')} .tmp {_ll('cleaned')}: {f.name}")
 
 
 def cmd_clear_crisis(args):
@@ -886,7 +886,7 @@ def cmd_sbv_update(args):
     backup_dir = alert_dir / "backup"
 
     print("=" * 60)
-    print("  PTCK — SBV UPDATE (5-step recovery)")
+    print(f"  PTCK — {_ll('SBV UPDATE')} (5-step recovery)")
     print("=" * 60)
 
     # ── Step 0: Backup trạng thái hiện tại (alert + recall_state) ──
@@ -916,7 +916,7 @@ def cmd_sbv_update(args):
     )
     print(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout)
     if result.returncode != 0:
-        print("  [FAIL] Regression test thất bại — cập nhật fixtures chưa đúng.")
+        print(f"  [{_ll('FAIL')}] Regression test thất bại — cập nhật fixtures chưa đúng.")
         print("  Sửa fixtures, sau đó chạy lại: python ptck.py sbv-update")
         return
 
@@ -927,13 +927,13 @@ def cmd_sbv_update(args):
     rates = sbv_result.get("data", {})
 
     if sbv_result.get("type") != "SUCCESS":
-        print(f"  [FAIL] SBV scrape thất bại: type={sbv_result.get('type')}, "
+        print(f"  [{_ll('FAIL')}] SBV scrape thất bại: type={sbv_result.get('type')}, "
               f"HTTP={sbv_result.get('http_status')}")
         print("  Không giải phóng khóa — alert file được giữ nguyên.")
         print("  Kiểm tra: sbv.gov.vn có thể đang bị chặn hoặc thay đổi cấu trúc.")
         return
 
-    print(f"  ✅ SBV scrape OK: {len(rates)} kỳ hạn")
+    print(f"  ✅ SBV scrape {_ll('OK')}: {len(rates)} kỳ hạn")
     for k, v in rates.items():
         print(f"    {k}: {v}")
 
@@ -950,7 +950,7 @@ def cmd_sbv_update(args):
             from src.services.macro.interbank_seeder import _parse_sbv_html
             parsed = _parse_sbv_html(raw_html)
             if parsed:
-                print(f"  [3b] ✅ Parser OK: {len(parsed)} kỳ hạn — {parsed}")
+                print(f"  [3b] ✅ {_ll('Parser')} {_ll('OK')}: {len(parsed)} kỳ hạn — {parsed}")
             else:
                 print(f"  [3b] ⚠ Parser trả về rỗng — cập nhật _parse_sbv_html()")
         except Exception:
@@ -978,7 +978,7 @@ def cmd_sbv_update(args):
     if marker in CRITICAL_MARKERS and not getattr(args, 'sbv_force', False):
         # ── CRISIS_REAL: cảnh báo đỏ, yêu cầu --force, sensor re-scan ──
         print("  ⚠" * 15)
-        print("  ⚠  CRITICAL_WARNING: crisis_marker = CRISIS_REAL")
+        print(f"  ⚠  {_ll('CRITICAL_WARNING')}: crisis_marker = CRISIS_REAL")
         print("  ⚠  Đây là khủng hoảng thanh khoản THỰC TẾ (ON >= 15%)")
         print("  ⚠  Không phải lỗi file — không clear tự động.")
         print("  ⚠" * 15)
@@ -1022,7 +1022,7 @@ def cmd_sbv_update(args):
     stress_path = root / "backend" / "data" / "probe_cache" / "micro_stress.json"
     if stress_path.exists():
         stress_path.unlink()
-        print("  ✅ micro_stress.json cleared.")
+        print(f"  ✅ micro_stress.json {_ll('cleared')}.")
 
     print("  ✅ Alert file cleared. Khóa vị thế 0.0 đã được giải phóng.")
     print("  Hệ thống sẽ lấy dữ liệu SBV mới ở lần refresh_interbank_rate() tiếp theo.")
@@ -1087,15 +1087,15 @@ def cmd_backfill_macro(args):
     period = f"{max(days, 252)}d"
 
     print("=" * 60)
-    print("  PTCK — BACKFILL MACRO (PTD Tickers)")
+    print(f"  PTCK — {_ll('BACKFILL MACRO')} (PTD Tickers)")
     print("=" * 60)
-    print(f"  Tickers: {', '.join(tickers.values())}")
-    print(f"  Period:  {period}")
+    print(f"  {_ll('Tickers')}: {', '.join(tickers.values())}")
+    print(f"  {_ll('Period')}:  {period}")
     print()
 
     data = yf.download(list(tickers.values()), period=period, interval="1d", progress=False)
     if data.empty:
-        print("  [FAIL] Không nhận được dữ liệu từ Yahoo Finance.")
+        print(f"  [{_ll('FAIL')}] Không nhận được dữ liệu từ Yahoo Finance.")
         return
 
     close_data = data['Close'] if isinstance(data.columns, pd.MultiIndex) else data
@@ -1107,16 +1107,16 @@ def cmd_backfill_macro(args):
     df_melted = df_melted.dropna()
 
     if df_melted.empty:
-        print("  [FAIL] Không có dữ liệu sau khi melt.")
+        print(f"  [{_ll('FAIL')}] Không có dữ liệu sau khi melt.")
         return
 
-    print(f"  Downloaded: {len(df_melted)} rows")
+    print(f"  {_ll('Downloaded')}: {len(df_melted)} {_ll('rows')}")
 
     from src.database.db_core import get_connection, save_data_upsert
     with get_connection() as conn:
         save_data_upsert('macro_history', df_melted, conn)
 
-    print(f"  [OK] Đã seed {len(df_melted)} rows vào macro_history.")
+    print(f"  [{_ll('OK')}] Đã seed {len(df_melted)} {_ll('rows')} vào macro_history.")
     print("=" * 60)
 
 
@@ -1127,7 +1127,7 @@ def cmd_backfill_regime(args):
     batch = getattr(args, 'batch_size', 30)
     processed, inserted = backfill_regime_history(target_date=target, batch_size=batch)
     if inserted == 0:
-        print("✅ Không có ngày nào cần backfill.")
+        print(f"✅ {_ll('No days to backfill')}.")
     else:
         print(f"✅ Đã backfill {inserted} ngày vào regime_history.")
 
@@ -1191,7 +1191,7 @@ def cmd_eod_run(args):
     # Báo cáo Catch-up (nếu có ngày nợ được bù)
     cu = result.get("catchup") or {}
     if cu.get("gap_days"):
-        print(f"\n[CATCH-UP] Ngày nợ phát hiện: {len(cu['gap_days'])}")
+        print(f"\n[{_ll('CATCH-UP')}] Ngày nợ phát hiện: {len(cu['gap_days'])}")
         if cu.get("caught_up"):
             print(f"     Nạp hàng đợi (còn hiệu lực): {cu['caught_up']}")
         if cu.get("mtm_only"):
@@ -1202,24 +1202,24 @@ def cmd_eod_run(args):
     # Báo cáo thực thi hàng đợi (Transpose & Kill-switch)
     qe = cu.get("queue_execution") or {}
     if qe.get("processed"):
-        print(f"\n[QUEUE] Ép khớp lệnh bù @ open {qe.get('recovery_date')}: "
+        print(f"\n[{_ll('QUEUE')}] Ép khớp lệnh bù @ open {qe.get('recovery_date')}: "
               f"{qe['processed']} lệnh")
         for f in qe.get("filled", []):
-            print(f"     FILLED {f['symbol']} qty={f['qty']} @ {f['exec_price']:,.0f} "
+            print(f"     {_ll('FILLED')} {f['symbol']} qty={f['qty']} @ {f['exec_price']:,.0f} "
                   f"(decay {f['decay_pct']}%, target close={f.get('target_qty')})")
         for r in qe.get("rejected_decay", []):
-            print(f"     KILL-SWITCH {r['symbol']} {r['decision_date']}: "
+            print(f"     {_ll('KILL-SWITCH')} {r['symbol']} {r['decision_date']}: "
                   f"decay {r['decay_pct']}% > ngưỡng (open={r['open_tk']:,.0f} vs "
                   f"close_T={r['target_price']:,.0f}) → SIGNAL_DECAY")
         for r in qe.get("rejected_other", []):
-            print(f"     REJECTED {r['symbol']} {r['decision_date']}: {r['reason']}")
+            print(f"     {_ll('REJECTED')} {r['symbol']} {r['decision_date']}: {r['reason']}")
     print(f"\n{icon} EOD {result.get('as_of_date')} → {status}")
     if result.get("reason"):
-        print(f"     reason: {result['reason']}")
+        print(f"     {_ll('reason')}: {result['reason']}")
     if result.get("note"):
         print(f"     {result['note']}")
     if result.get("error"):
-        print(f"     error: {result['error']}")
+        print(f"     {_ll('error')}: {result['error']}")
 
 
 def cmd_paper(args):
@@ -1303,7 +1303,7 @@ def cmd_gold(args):
                 pass
             cognition = cross_reference_with_market(macro)
             print("=" * 60)
-            print("  PTCK — GOLD REGIME")
+            print(f"  PTCK — {_ll('GOLD REGIME')}")
             print("=" * 60)
             if isinstance(regime, dict):
                 for k, v in regime.items():
@@ -1314,13 +1314,13 @@ def cmd_gold(args):
                     print(f"  {k}: {v}")
             print("=" * 60)
         except Exception as e:
-            print(f"  [FAIL] Gold regime: {e}")
+            print(f"  [{_ll('FAIL')}] Gold regime: {e}")
     else:
         try:
             from src.services.macro.gold_service import get_gold_dashboard, get_gold_cognition_layer
             dash = get_gold_dashboard()
             print("=" * 60)
-            print("  PTCK — GOLD DASHBOARD")
+            print(f"  PTCK — {_ll('GOLD DASHBOARD')}")
             print("=" * 60)
             print(f"  SJC mua:   {dash.get('sjc_buy', 'N/A'):>12.0f} VND")
             print(f"  SJC bán:   {dash.get('sjc_sell', 'N/A'):>12.0f} VND")
@@ -1330,7 +1330,7 @@ def cmd_gold(args):
             print(f"  BTMC spread: {dash.get('btmc_spread', 'N/A'):>12.0f} VND")
             print("=" * 60)
         except Exception as e:
-            print(f"  [FAIL] Gold dashboard: {e}")
+            print(f"  [{_ll('FAIL')}] Gold dashboard: {e}")
 
 
 def cmd_silver(args):
@@ -1340,25 +1340,25 @@ def cmd_silver(args):
             from core.macro.precious_metal_ratio import get_gs_ratio_from_db
             gs = get_gs_ratio_from_db()
             print("=" * 60)
-            print("  PTCK — GOLD/SILVER RATIO")
+            print(f"  PTCK — {_ll('GOLD/SILVER RATIO')}")
             print("=" * 60)
             print(f"  XAUUSD:          {gs.get('xau_usd', 'N/A')}")
             print(f"  XAGUSD:          {gs.get('xag_usd', 'N/A')}")
-            print(f"  Gold/Silver Ratio: {gs.get('ratio', 'N/A')}")
-            print(f"  Regime:          {gs.get('regime', 'N/A')}")
+            print(f"  {_ll('Gold/Silver Ratio')}: {gs.get('ratio', 'N/A')}")
+            print(f"  {_ll('Regime')}:          {gs.get('regime', 'N/A')}")
             print(f"  Tín hiệu:        {gs.get('signal', 'N/A')}")
-            print(f"  Severity:        {gs.get('severity', 0):.2f}")
+            print(f"  {_ll('Severity')}:        {gs.get('severity', 0):.2f}")
             print("=" * 60)
         except Exception as e:
-            print(f"  [FAIL] GS ratio: {e}")
+            print(f"  [{_ll('FAIL')}] GS ratio: {e}")
     elif args.subcommand == "seed":
         try:
             from src.services.macro.silver_world_service import seed_world_silver_to_db
             print("  Đang seed XAGUSD...")
             ok = seed_world_silver_to_db()
-            print(f"  {'[OK]' if ok else '[FAIL]'} World silver seeded: {ok}")
+            print(f"  {'[' + _ll('OK') + ']' if ok else '[' + _ll('FAIL') + ']'} {_ll('World silver seeded')}: {ok}")
         except Exception as e:
-            print(f"  [FAIL] Silver seed: {e}")
+            print(f"  [{_ll('FAIL')}] Silver seed: {e}")
     else:
         try:
             from src.services.macro.silver_service import get_silver_dashboard
@@ -1371,18 +1371,18 @@ def cmd_silver(args):
             gs = calculate_gold_silver_ratio(xau, xag)
             gsr = assess_gs_ratio_regime(gs)
             print("=" * 60)
-            print("  PTCK — SILVER DASHBOARD")
+            print(f"  PTCK — {_ll('SILVER DASHBOARD')}")
             print("=" * 60)
             print(f"  BTMC mua:    {dash.get('btmc_buy', 0):>12.0f} VND")
             print(f"  BTMC bán:    {dash.get('btmc_sell', 0):>12.0f} VND")
-            print(f"  BTMC spread: {dash.get('btmc_spread', 0):>12.0f} VND")
+            print(f"  BTMC {_ll('spread')}: {dash.get('btmc_spread', 0):>12.0f} VND")
             print(f"  XAGUSD:              {xag if xag else 'N/A'}")
-            print(f"  Gold/Silver Ratio:   {gs if gs else 'N/A'}")
-            print(f"  GS Regime:           {gsr.get('regime', 'N/A')}")
-            print(f"  GS Signal:           {gsr.get('signal', 'N/A')}")
+            print(f"  {_ll('Gold/Silver Ratio')}:   {gs if gs else 'N/A'}")
+            print(f"  {_ll('GS Regime')}:           {gsr.get('regime', 'N/A')}")
+            print(f"  {_ll('GS Signal')}:           {gsr.get('signal', 'N/A')}")
             print("=" * 60)
         except Exception as e:
-            print(f"  [FAIL] Silver dashboard: {e}")
+            print(f"  [{_ll('FAIL')}] Silver dashboard: {e}")
 
 
 def cmd_rs_audit(args):
@@ -1428,7 +1428,7 @@ def cmd_prediction_registry(args):
             print("  [PR] Chưa có dữ liệu.")
             return
         print("=" * 100)
-        print(f"  PREDICTION REGISTRY — {len(entries)} entries gần nhất")
+        print(f"  {_ll('PREDICTION REGISTRY')} — {len(entries)} {_ll('entries')} gần nhất")
         print("=" * 100)
         for e in reversed(entries):
             if e.get("event") == "prediction":
@@ -1441,7 +1441,7 @@ def cmd_prediction_registry(args):
         s = get_registry_stats()
         HORIZONS = [5, 20, 60]
         print("=" * 60)
-        print("  PREDICTION REGISTRY — THỐNG KÊ")
+        print(f"  {_ll('PREDICTION REGISTRY')} — THỐNG KÊ")
         print("=" * 60)
         if not s:
             print("  Chưa có dữ liệu. Chạy 'python ptck.py prediction-registry log' trước.")
@@ -1507,45 +1507,45 @@ def cmd_sandbox(args):
             halted = "⚠️ HALT" if broker.is_trading_halt() else "✓ LIVE"
             print(f"\033[2J\033[H", end="")  # clear screen
             print("=" * 60)
-            print(f"  PHASE 5 — PAPER TRADING DASHBOARD  [{ts}]  [{halted}]")
+            print(f"  {_ll('PHASE 5')} — {_ll('PAPER TRADING DASHBOARD')}  [{ts}]  [{halted}]")
             print("=" * 60)
-            print(f"  Portfolio")
-            print(f"    Capital:        {args.capital:>12,.0f}")
-            print(f"    Stale:          {sys_state.get('total_stale_pct', 0):>12.2%}")
-            print(f"    Escrow:         {sys_state.get('escrow_balance', 0):>12.2f}")
-            print(f"    Locked:         {str(sys_state.get('locked', False)):>12}")
-            print(f"  Order Book")
-            print(f"    Best Bid:       {broker.get_best_bid('SANDBOX'):>12.2f}")
-            print(f"    Best Ask:       {broker.get_best_ask('SANDBOX'):>12.2f}")
-            print(f"    Spread:         {book.spread():>12.2f}")
-            print(f"    Mid:            {book.mid_price():>12.2f}")
-            print(f"  TWAP")
-            print(f"    Plan:           {s['plan_status']:>12}")
-            print(f"    Slices:         {executed:>4}/{n_slices}")
-            print(f"    Filled:         {s['filled_amount']:>12.2f}")
-            print(f"    Cursor:         {str(s['cursor']):>12}")
-            print(f"    CB Trips:       {s['circuit_breaker_trips']:>12}")
-            print(f"  Slippage")
-            print(f"    Trades:         {report.get('n', 0):>12}")
-            print(f"    Mean:           {report.get('mean', 0):>12.6f}")
-            print(f"    Max:            {report.get('max', 0):>12.6f}")
-            print(f"  Book Thinning")
+            print(f"  {_ll('Portfolio')}")
+            print(f"    {_ll('Capital')}:        {args.capital:>12,.0f}")
+            print(f"    {_ll('Stale')}:          {sys_state.get('total_stale_pct', 0):>12.2%}")
+            print(f"    {_ll('Escrow')}:         {sys_state.get('escrow_balance', 0):>12.2f}")
+            print(f"    {_ll('Locked')}:         {str(sys_state.get('locked', False)):>12}")
+            print(f"  {_ll('Order Book')}")
+            print(f"    {_ll('Best Bid')}:       {broker.get_best_bid('SANDBOX'):>12.2f}")
+            print(f"    {_ll('Best Ask')}:       {broker.get_best_ask('SANDBOX'):>12.2f}")
+            print(f"    {_ll('Spread')}:         {book.spread():>12.2f}")
+            print(f"    {_ll('Mid')}:            {book.mid_price():>12.2f}")
+            print(f"  {'TWAP'}")
+            print(f"    {_ll('Plan')}:           {s['plan_status']:>12}")
+            print(f"    {_ll('Slices')}:         {executed:>4}/{n_slices}")
+            print(f"    {_ll('Filled')}:         {s['filled_amount']:>12.2f}")
+            print(f"    {_ll('Cursor')}:         {str(s['cursor']):>12}")
+            print(f"    {_ll('CB Trips')}:       {s['circuit_breaker_trips']:>12}")
+            print(f"  {_ll('Slippage')}")
+            print(f"    {_ll('Trades')}:         {report.get('n', 0):>12}")
+            print(f"    {_ll('Mean')}:           {report.get('mean', 0):>12.6f}")
+            print(f"    {_ll('Max')}:            {report.get('max', 0):>12.6f}")
+            print(f"  {_ll('Book Thinning')}")
             remaining = sum(l.volume for l in book.bids)
             initial = depth * 5 * 0.8
             thinning = 100 * (1 - remaining / max(initial, 1))
-            print(f"    Depth Remaining: {remaining:>12.2f}")
-            print(f"    Thinning:        {thinning:>11.1f}%")
+            print(f"    {_ll('Depth Remaining')}: {remaining:>12.2f}")
+            print(f"    {_ll('Thinning')}:        {thinning:>11.1f}%")
             print("=" * 60)
 
             if broker.is_trading_halt():
-                print("  ⏸️  TRADING HALT — execution frozen")
+                print(f"  ⏸️  {_ll('TRADING HALT')} — execution frozen")
                 time.sleep(1)
                 continue
 
             idx = executed + 1
             bid = broker.get_best_bid("SANDBOX")
             if bid <= 0:
-                print(f"  ⏳ Slice {idx}: empty book, adaptive requeue...")
+                print(f"  ⏳ {_ll('Slice')} {idx}: empty book, adaptive requeue...")
                 r = exe.handle_liquidity_strike(idx, requeue_count=0)
                 if r.get("action") == "DEFERRED":
                     exe.rollover_deferred()
@@ -1559,10 +1559,10 @@ def cmd_sandbox(args):
                     o = broker.query_order(r["broker_order_id"])
                     fill = o.get("filled_qty", 0)
                     total = o.get("quantity", 0)
-                    print(f"  ✅ Slice {idx}: {fill:.0f}/{total:.0f} filled")
+                    print(f"  ✅ {_ll('Slice')} {idx}: {fill:.0f}/{total:.0f} filled")
                     executed += 1
                 else:
-                    print(f"  ❌ Slice {idx}: {r['reason']}")
+                    print(f"  ❌ {_ll('Slice')} {idx}: {r['reason']}")
                     executed += 1
             except RuntimeError as e:
                 print(f"  ❌ {e}")
@@ -1572,20 +1572,20 @@ def cmd_sandbox(args):
             time.sleep(0.5)
 
     except KeyboardInterrupt:
-        print("\n  ⏹️  Dashboard stopped by user.")
+        print(f"\n  ⏹️  {_ll('Dashboard stopped by user')}.")
 
     set_paper_mode(False)
     report = broker.slippage_report()
     print("\n" + "=" * 60)
-    print("  SESSION SUMMARY")
+    print(f"  {_ll('SESSION SUMMARY')}")
     print("=" * 60)
-    print(f"  Slices executed: {executed}/{n_slices}")
-    print(f"  Total slippage trades: {report.get('n', 0)}")
-    print(f"  Mean slippage: {report.get('mean', 0):.6f}")
-    print(f"  Max slippage: {report.get('max', 0):.6f}")
+    print(f"  {_ll('Slices executed')}: {executed}/{n_slices}")
+    print(f"  {_ll('Total slippage trades')}: {report.get('n', 0)}")
+    print(f"  {_ll('Mean slippage')}: {report.get('mean', 0):.6f}")
+    print(f"  {_ll('Max slippage')}: {report.get('max', 0):.6f}")
     remaining = sum(l.volume for l in book.bids)
-    print(f"  Book thinning: {thinning:.1f}% consumed")
-    print(f"  Storage: system_state_paper.json (cô lập)")
+    print(f"  {_ll('Book thinning')}: {thinning:.1f}% {_ll('consumed')}")
+    print(f"  {_ll('Storage')}: system_state_paper.json (cô lập)")
     print("=" * 60)
 
 
@@ -1604,24 +1604,24 @@ def cmd_break_glass(args):
     if args.action == "request":
         result = bg.request(use_time_delay=args.delay)
         print("=" * 50)
-        print("  BREAK-GLASSS PROTOCOL — REQUEST")
+        print(f"  {_ll('BREAK-GLASS PROTOCOL')} — {_ll('REQUEST')}")
         print("=" * 50)
-        print(f"  Ticket:     {result['ticket_id']}")
-        print(f"  Challenge:  {result['challenge']}")
+        print(f"  {_ll('Ticket')}:     {result['ticket_id']}")
+        print(f"  {_ll('Challenge')}:  {result['challenge']}")
         if result['use_time_delay']:
-            print(f"  Mode:       TIME-DELAY ({result['time_delay_minutes']} phút)")
+            print(f"  {_ll('Mode')}:       {_ll('TIME-DELAY')} ({result['time_delay_minutes']} phút)")
         else:
-            print(f"  Mode:       PASSPHRASE")
+            print(f"  {_ll('Mode')}:       {_ll('PASSPHRASE')}")
         print(f"  Hạn:        {result['expires_at']}")
-        print(f"  Hint:       python ptck.py break-glass verify {result['ticket_id']} --passphrase <KEY>")
+        print(f"  {_ll('Hint')}:       python ptck.py break-glass verify {result['ticket_id']} --passphrase <KEY>")
         print("=" * 50)
     elif args.action == "verify":
         result = bg.verify(args.ticket, passphrase=args.passphrase)
         if result["success"]:
-            print(f"✅ BREAK-GLASS APPROVED (mode={result['mode']})")
-            print("   Khóa đã được gỡ. Có thể thao tác ORPHANED.")
+            print(f"✅ {_ll('BREAK-GLASS APPROVED')} (mode={result['mode']})")
+            print(f"   Khóa đã được gỡ. Có thể thao tác {_ll('ORPHANED')}.")
         else:
-            print(f"❌ BREAK-GLASS DENIED: {result['reason']}")
+            print(f"❌ {_ll('BREAK-GLASS DENIED')}: {result['reason']}")
             if "remaining_minutes" in result:
                 print(f"   Còn {result['remaining_minutes']} phút trong time-delay.")
     elif args.action == "cancel":
@@ -1629,18 +1629,18 @@ def cmd_break_glass(args):
         bg = BreakGlassProtocol()
         result = bg.cancel(args.ticket)
         if result["success"]:
-            print("✅ BREAK-GLASS CANCELLED.")
+            print(f"✅ {_ll('BREAK-GLASS CANCELLED')}.")
         else:
             print(f"❌ {result['reason']}")
     elif args.action == "status":
         from src.portfolio.system_state import get_state
         st = get_state()
         print("=" * 50)
-        print("  PORTFOLIO CRITICAL LOCK STATUS")
+        print(f"  {_ll('PORTFOLIO CRITICAL LOCK STATUS')}")
         print("=" * 50)
-        print(f"  Locked:         {st.get('locked', False)}")
-        print(f"  Total stale %:  {st.get('total_stale_pct', 0.0)}")
-        print(f"  Escrow balance: {st.get('escrow_balance', 0.0):.2f}")
+        print(f"  {_ll('Locked')}:         {st.get('locked', False)}")
+        print(f"  {_ll('Total stale %')}:  {st.get('total_stale_pct', 0.0)}")
+        print(f"  {_ll('Escrow balance')}: {st.get('escrow_balance', 0.0):.2f}")
         print("=" * 50)
 
 
@@ -1651,21 +1651,21 @@ def cmd_stale(args):
     if args.action == "status":
         s = mgr.status()
         print("=" * 50)
-        print("  STALE POSITION MANAGER")
+        print(f"  {_ll('STALE POSITION MANAGER')}")
         print("=" * 50)
-        print(f"  Lớp stale:     {s['stale_layers']} / {s['total_layers']}")
+        print(f"  {_ll('Lớp stale')}:     {s['stale_layers']} / {s['total_layers']}")
         print(f"  stale_pcts:    {s['stale_pcts']}")
-        print(f"  Tổng stale %:  {s['total_stale_pct']}")
-        print(f"  Escrow cache:  {s['escrow_balance']:.2f}")
-        print(f"  Hard Shutdown: {s['hard_shutdown']}")
-        print(f"  Critical Lock: {s['critical_lock']}")
+        print(f"  {_ll('Tổng stale %')}:  {s['total_stale_pct']}")
+        print(f"  {_ll('Escrow cache')}:  {s['escrow_balance']:.2f}")
+        print(f"  {_ll('Hard Shutdown')}: {s['hard_shutdown']}")
+        print(f"  {_ll('Critical Lock')}: {s['critical_lock']}")
         print("=" * 50)
     elif args.action == "writeoff":
         result = mgr.writeoff_lifo()
         if result["written"]:
             for w in result["written"]:
-                print(f"  ✅ Write-off {w['campaign_id']}: {w['proceeds']:.2f} VND (PNL {w['realized_pnl']:.2f})")
-            print(f"  Escrow: {result['escrow_balance']:.2f} | Stale còn lại: {result['remaining_stale_pct']}")
+                print(f"  ✅ {_ll('Write-off')} {w['campaign_id']}: {w['proceeds']:.2f} VND (PNL {w['realized_pnl']:.2f})")
+            print(f"  {_ll('Escrow')}: {result['escrow_balance']:.2f} | {_ll('Stale còn lại')}: {result['remaining_stale_pct']}")
         else:
             print("  Không có stale nào để write-off.")
     elif args.action == "reclaim":
@@ -1673,10 +1673,10 @@ def cmd_stale(args):
             print("  ❌ Cần --campaign <id>")
             return
         result = mgr.reclaim(args.campaign)
-        print(f"  {'✅' if result['success'] else '❌'} {result.get('reason', 'OK')}")
+        print(f"  {'✅' if result['success'] else '❌'} {result.get('reason', _ll('OK'))}")
     elif args.action == "escrow":
-        print(f"  Escrow balance: {mgr.escrow_balance:.2f}")
-        print(f"  Hard Shutdown:  {mgr.hard_shutdown}")
+        print(f"  {_ll('Escrow balance')}: {mgr.escrow_balance:.2f}")
+        print(f"  {_ll('Hard Shutdown')}:  {mgr.hard_shutdown}")
 
 
 def cmd_phase5(args):
@@ -1689,8 +1689,8 @@ def cmd_phase5(args):
     # Kích hoạt sandbox storage
     set_paper_mode(True)
     print("=" * 55)
-    print("  PHASE 5 — PAPER TRADING SIMULATION")
-    print("  Storage: system_state_paper.json (cô lập)")
+    print(f"  {_ll('PHASE 5')} — {_ll('PAPER TRADING SIMULATION')}")
+    print(f"  {_ll('Storage')}: system_state_paper.json (cô lập)")
     print("=" * 55)
 
     n_slices = args.slices
@@ -1698,7 +1698,7 @@ def cmd_phase5(args):
     base_price = args.price
 
     # Build market
-    print(f"\n  📊 Market: {base_price} | Depth/level: {order_volume} | Slices: {n_slices}")
+    print(f"\n  📊 {_ll('Market')}: {base_price} | {_ll('Depth/level')}: {order_volume} | {_ll('Slices')}: {n_slices}")
     book = OrderBook.build("SANDBOX", mid=base_price, depth_per_level=order_volume, n_levels=5)
     broker = PaperBroker(book=book)
 
@@ -1709,10 +1709,10 @@ def cmd_phase5(args):
     exe = TWAPExecutor(mgr, broker=broker)
     plan = exe.build_plan(n_slices=n_slices)
     slice_size = plan.slices[0].amount if plan.slices else 0
-    print(f"  Plan: {plan.n_slices} slices × {slice_size:.2f} = {plan.total_amount:.2f} total")
+    print(f"  {_ll('Plan')}: {plan.n_slices} {_ll('slices')} × {slice_size:.2f} = {plan.total_amount:.2f} {_ll('total')}")
 
     # Execute slices
-    print(f"\n  ── Execution ──")
+    print(f"\n  ── {_ll('Execution')} ──")
     for i in range(1, n_slices + 1):
         price = broker.get_best_bid("SANDBOX")
         try:
@@ -1722,22 +1722,22 @@ def cmd_phase5(args):
             status = o["status"]
             fill = o.get("filled_qty", 0)
             total_qty = o.get("quantity", 0)
-            print(f"  Slice {i}: {status} | fill={fill:.0f}/{total_qty:.0f} | slippage={slip:.4f}")
+            print(f"  {_ll('Slice')} {i}: {status} | fill={fill:.0f}/{total_qty:.0f} | slippage={slip:.4f}")
         except RuntimeError as e:
-            print(f"  Slice {i}: ❌ {e}")
+            print(f"  {_ll('Slice')} {i}: ❌ {e}")
 
     # Slippage report + thinning
     report = broker.slippage_report()
-    print(f"\n  ── Slippage Report ──")
-    print(f"  Trades: {report['n']} | Mean: {report['mean']:.6f} | Max: {report['max']:.6f}")
+    print(f"\n  ── {_ll('Slippage Report')} ──")
+    print(f"  {_ll('Trades')}: {report['n']} | {_ll('Mean')}: {report['mean']:.6f} | {_ll('Max')}: {report['max']:.6f}")
     remaining_bid_depth = sum(l.volume for l in book.bids)
     initial_depth = order_volume * 5 * 0.8  # approximate initial
     thinning_pct = 100 * (1 - remaining_bid_depth / max(initial_depth, 1))
-    print(f"  Book thinning: {thinning_pct:.1f}% bid depth consumed")
+    print(f"  {_ll('Book thinning')}: {thinning_pct:.1f}% {_ll('bid depth consumed')}")
 
     # Restore production
     set_paper_mode(False)
-    print(f"\n  ✅ Paper session complete — paths restored to production.")
+    print(f"\n  ✅ {_ll('Paper session complete')} — paths restored to production.")
 
 
 def cmd_twap(args):
@@ -1746,26 +1746,26 @@ def cmd_twap(args):
     from src.execution.twap_executor import TWAPExecutor, BrokerAPI
     mgr = StalePositionManager()
     if not mgr.stale_pcts:
-        print("  ❌ Không có stale positions — nothing to TWAP.")
+        print(f"  ❌ Không có stale positions — {_ll('nothing to TWAP')}.")
         return
     broker = BrokerAPI()
     exe = TWAPExecutor(mgr, broker=broker)
     if args.action == "plan":
         plan = exe.build_plan(n_slices=args.slices)
         print("=" * 50)
-        print("  TWAP PLAN")
+        print(f"  {_ll('TWAP PLAN')}")
         print("=" * 50)
-        print(f"  Campaign:     {plan.stale_campaign_id}")
-        print(f"  Total amount: {plan.total_amount:.2f}")
-        print(f"  Slices:       {plan.n_slices} × {plan.slices[0].amount:.2f}")
-        print(f"  Status:       {plan.status}")
+        print(f"  {_ll('Campaign')}:     {plan.stale_campaign_id}")
+        print(f"  {_ll('Total amount')}: {plan.total_amount:.2f}")
+        print(f"  {_ll('Slices')}:       {plan.n_slices} × {plan.slices[0].amount:.2f}")
+        print(f"  {_ll('Status')}:       {plan.status}")
         print("=" * 50)
     elif args.action == "run":
         exe.build_plan(n_slices=5)
         try:
             result = exe.execute_slice(args.slice, price=args.price)
             if result["success"]:
-                print(f"  ✅ Slice {args.slice} submitted: {result['broker_order_id']}")
+                print(f"  ✅ {_ll('Slice')} {args.slice} {_ll('submitted')}: {result['broker_order_id']}")
             else:
                 print(f"  ❌ {result['reason']}")
         except RuntimeError as e:
@@ -1773,19 +1773,19 @@ def cmd_twap(args):
     elif args.action == "status":
         s = exe.status()
         print("=" * 50)
-        print("  TWAP STATUS")
+        print(f"  {_ll('TWAP STATUS')}")
         print("=" * 50)
-        print(f"  Plan:         {s['plan_status']}")
-        print(f"  Slices:       {s['total_slices']}")
-        print(f"  Filled:       {s['filled_amount']:.2f}")
-        print(f"  Cursor:       {s['cursor']}")
-        print(f"  CB trips:     {s['circuit_breaker_trips']}")
-        print(f"  Last network: {s['last_known_good_network']}")
+        print(f"  {_ll('Plan')}:         {s['plan_status']}")
+        print(f"  {_ll('Slices')}:       {s['total_slices']}")
+        print(f"  {_ll('Filled')}:       {s['filled_amount']:.2f}")
+        print(f"  {_ll('Cursor')}:       {s['cursor']}")
+        print(f"  {_ll('CB trips')}:     {s['circuit_breaker_trips']}")
+        print(f"  {_ll('Last network')}: {s['last_known_good_network']}")
         print("=" * 50)
     elif args.action == "resume":
         result = exe.resume()
         if result["success"]:
-            print(f"  ✅ Resume: {result['action']}")
+            print(f"  ✅ {_ll('Resume')}: {result['action']}")
         else:
             print(f"  ❌ {result['reason']}")
 
@@ -1903,30 +1903,30 @@ def main():
     p_regime.set_defaults(func=cmd_regime)
 
     # report
-    p_report = sub.add_parser("report", help="Báo cáo (weekly/monthly/daily)")
+    p_report = sub.add_parser("report", parents=[lang_parent], help="Báo cáo (weekly/monthly/daily)")
     p_report.add_argument("subcommand", choices=["weekly", "monthly", "daily"], help="Loại báo cáo")
     p_report.add_argument("--month", help="Tháng cho báo cáo monthly (YYYY-MM)")
     p_report.add_argument("--lang", default="vi", help="Ngôn ngữ (vi/en)")
     p_report.set_defaults(func=cmd_report)
 
     # daily-close
-    p_dc = sub.add_parser("daily-close", help="Chạy daily closer pipeline")
+    p_dc = sub.add_parser("daily-close", parents=[lang_parent], help="Chạy daily closer pipeline")
     p_dc.set_defaults(func=cmd_daily_close)
 
     # daily-update
-    p_du = sub.add_parser("daily-update", help="Cập nhật dữ liệu EOD")
+    p_du = sub.add_parser("daily-update", parents=[lang_parent], help="Cập nhật dữ liệu EOD")
     p_du.add_argument("--date", help="Ngày (YYYY-MM-DD)")
     p_du.add_argument("--manifest", help="Path to missing_manifest.json (gap filling)")
     p_du.set_defaults(func=cmd_daily_update)
 
     # gap-analyzer
-    p_ga = sub.add_parser("gap-analyzer", help="Kiểm toán dữ liệu - phát hiện missing symbols/dates")
+    p_ga = sub.add_parser("gap-analyzer", parents=[lang_parent], help="Kiểm toán dữ liệu - phát hiện missing symbols/dates")
     p_ga.add_argument("--output", help="Đường dẫn xuất manifest (mặc định: backend/data/missing_manifest.json)")
     p_ga.add_argument("--lookback-months", type=int, default=3, help="Số tháng phân tích (mặc định: 3)")
     p_ga.set_defaults(func=cmd_gap_analyzer)
 
     # telemetry
-    p_tel = sub.add_parser("telemetry", help="Telemetry & reputation")
+    p_tel = sub.add_parser("telemetry", parents=[lang_parent], help="Telemetry & reputation")
     p_tel.add_argument("subcommand", choices=["reputation", "shadow"])
     p_tel.add_argument("--refresh", action="store_true", help="Refresh dữ liệu")
     p_tel.add_argument("--drift", action="store_true", help="Drift Monitor (chi tiết độ dốc + half-life)")
@@ -1934,12 +1934,12 @@ def main():
     p_tel.set_defaults(func=cmd_telemetry)
 
     # serve
-    p_serve = sub.add_parser("serve", help="Khởi động server")
+    p_serve = sub.add_parser("serve", parents=[lang_parent], help="Khởi động server")
     p_serve.add_argument("--port", type=int, default=17039, help="Port (mặc định 17039)")
     p_serve.set_defaults(func=cmd_serve)
 
     # db
-    p_db = sub.add_parser("db", help="Database operations")
+    p_db = sub.add_parser("db", parents=[lang_parent], help="Database operations")
     p_db.add_argument("subcommand", choices=["vacuum", "stats", "optimize", "backup"])
     p_db.add_argument("--dry-run", action="store_true", dest="dry_run", help="Backup: chỉ kiểm tra integrity, không backup thật")
     p_db.add_argument("--list", action="store_true", dest="list_backups", help="Backup: liệt kê các bản backup hiện có")
@@ -1950,12 +1950,12 @@ def main():
     p_status.set_defaults(func=cmd_status)
 
     # structural
-    p_struct = sub.add_parser("structural", help="Bộ phát hiện lệch cấu trúc thị trường")
+    p_struct = sub.add_parser("structural", parents=[lang_parent], help="Bộ phát hiện lệch cấu trúc thị trường")
     p_struct.add_argument("--date", help="Ngày phân tích (YYYY-MM-DD)")
     p_struct.set_defaults(func=cmd_structural)
 
     # final-decision
-    p_final = sub.add_parser("final-decision", help="Bộ não quyết định cuối cùng")
+    p_final = sub.add_parser("final-decision", parents=[lang_parent], help="Bộ não quyết định cuối cùng")
     p_final.add_argument("--date", help="Ngày quyết định (YYYY-MM-DD)")
     p_final.set_defaults(func=cmd_final)
 
@@ -1968,12 +1968,12 @@ def main():
     p_ddi.set_defaults(func=cmd_ddi)
 
     # snapshot-index
-    p_si = sub.add_parser("snapshot-index", help="Xem lịch sử snapshot_index.json")
+    p_si = sub.add_parser("snapshot-index", parents=[lang_parent], help="Xem lịch sử snapshot_index.json")
     p_si.add_argument("--limit", type=int, default=20, help="Số dòng hiển thị (mặc định 20)")
     p_si.set_defaults(func=cmd_snapshot_index)
 
     # registry
-    p_reg = sub.add_parser("registry", help="Param Fingerprint Registry — tra cứu params_hash theo regime")
+    p_reg = sub.add_parser("registry", parents=[lang_parent], help="Param Fingerprint Registry — tra cứu params_hash theo regime")
     p_reg.add_argument("--regime", default=None, help="Lọc theo regime (TRENDING/RANGING/CRISIS)")
     p_reg.add_argument("--rebuild", action="store_true", help="Xây dựng lại registry từ audit log")
     p_reg.set_defaults(func=cmd_registry)
@@ -2028,14 +2028,14 @@ def main():
     p_tw_resume.set_defaults(func=cmd_twap)
 
     # phase5
-    p_p5 = sub.add_parser("phase5", help="Phase 5 UAT — Paper Trading Simulation")
+    p_p5 = sub.add_parser("phase5", parents=[lang_parent], help="Phase 5 UAT — Paper Trading Simulation")
     p_p5.add_argument("--slices", type=int, default=5, help="Số slice (mặc định 5)")
     p_p5.add_argument("--depth", type=float, default=5000, help="Depth mỗi level (mặc định 5000)")
     p_p5.add_argument("--price", type=float, default=100.0, help="Giá mid (mặc định 100)")
     p_p5.set_defaults(func=cmd_phase5)
 
     # sandbox
-    p_sb = sub.add_parser("sandbox", help="Phase 5 Dashboard — Real-time Paper Trading")
+    p_sb = sub.add_parser("sandbox", parents=[lang_parent], help="Phase 5 Dashboard — Real-time Paper Trading")
     p_sb.add_argument("--slices", type=int, default=5, help="Số slice (mặc định 5)")
     p_sb.add_argument("--depth", type=float, default=5000, help="Depth mỗi level (mặc định 5000)")
     p_sb.add_argument("--price", type=float, default=100.0, help="Giá mid (mặc định 100)")
@@ -2043,12 +2043,12 @@ def main():
     p_sb.set_defaults(func=cmd_sandbox)
 
     # confidence
-    p_conf = sub.add_parser("confidence", help="Bộ tự đánh giá độ tin cậy")
+    p_conf = sub.add_parser("confidence", parents=[lang_parent], help="Bộ tự đánh giá độ tin cậy")
     p_conf.add_argument("--date", help="Ngày phân tích (YYYY-MM-DD)")
     p_conf.set_defaults(func=cmd_confidence)
 
     # quantstats
-    p_qs = sub.add_parser("quantstats", help="QuantStatsBridge — Live Calibration Engine")
+    p_qs = sub.add_parser("quantstats", parents=[lang_parent], help="QuantStatsBridge — Live Calibration Engine")
     p_qs.add_argument("--window", type=int, default=30, help="Cửa sổ phân tích (phiên)")
     p_qs.set_defaults(func=cmd_quantstats)
 
@@ -2065,87 +2065,87 @@ def main():
     p_rs_eod.set_defaults(func=cmd_rejected_signals)
 
     # scan
-    p_scan = sub.add_parser("scan", help="Elite scanner")
+    p_scan = sub.add_parser("scan", parents=[lang_parent], help="Elite scanner")
     p_scan.add_argument("--deep", action="store_true", help="Deep scan")
     p_scan.add_argument("--symbol", type=str, help="Quét nhanh dữ liệu của 1 mã cổ phiếu riêng lẻ")
     p_scan.set_defaults(func=cmd_scan)
 
     # gold
-    p_gold = sub.add_parser("gold", help="Gold information")
+    p_gold = sub.add_parser("gold", parents=[lang_parent], help="Gold information")
     p_gold.add_argument("subcommand", nargs="?", choices=["regime"], default=None, help="Gold subcommand")
     p_gold.set_defaults(func=cmd_gold)
 
     # silver
-    p_silver = sub.add_parser("silver", help="Silver information")
+    p_silver = sub.add_parser("silver", parents=[lang_parent], help="Silver information")
     p_silver.add_argument("subcommand", nargs="?", choices=["gs-ratio", "seed"], default=None, help="Silver subcommand")
     p_silver.set_defaults(func=cmd_silver)
 
     # rotation (Asia supply-chain canary)
-    p_rot = sub.add_parser("rotation", help="Góc xoay chuỗi cung ứng châu Á: VN vs KOSPI+TAIEX+DXY")
+    p_rot = sub.add_parser("rotation", parents=[lang_parent], help="Góc xoay chuỗi cung ứng châu Á: VN vs KOSPI+TAIEX+DXY")
     p_rot.set_defaults(func=cmd_rotation)
 
     # rs-audit
-    p_ra = sub.add_parser("rs-audit", help="Audit Top RS — phân tích nguồn gốc sức mạnh")
+    p_ra = sub.add_parser("rs-audit", parents=[lang_parent], help="Audit Top RS — phân tích nguồn gốc sức mạnh")
     p_ra.add_argument("--top", type=int, default=20, help="Số lượng mã (mặc định 20)")
     p_ra.add_argument("--all", action="store_true", dest="show_all", help="Hiện tất cả mã RS")
     p_ra.set_defaults(func=cmd_rs_audit)
 
     # group-influence
-    p_gi = sub.add_parser("group-influence", help="Bộ đo ảnh hưởng nhóm trụ")
+    p_gi = sub.add_parser("group-influence", parents=[lang_parent], help="Bộ đo ảnh hưởng nhóm trụ")
     p_gi.set_defaults(func=cmd_group_influence)
 
     # strength-discrimination
-    p_sd = sub.add_parser("strength-discrimination", help="Phân tách xung lực nội tại vs ép trụ")
+    p_sd = sub.add_parser("strength-discrimination", parents=[lang_parent], help="Phân tách xung lực nội tại vs ép trụ")
     p_sd.add_argument("--top", type=int, default=20, help="Số lượng mã (mặc định 20)")
     p_sd.set_defaults(func=cmd_strength_discrimination)
 
     # prediction-registry
-    p_pr = sub.add_parser("prediction-registry", help="Nhật ký dự báo — ghi log RS audit + đo kết quả sau 5/20/60 ngày")
+    p_pr = sub.add_parser("prediction-registry", parents=[lang_parent], help="Nhật ký dự báo — ghi log RS audit + đo kết quả sau 5/20/60 ngày")
     p_pr.add_argument("action", choices=["log", "update", "stats", "list"], default="stats", nargs="?")
     p_pr.add_argument("--date", help="Ngày (YYYY-MM-DD)")
     p_pr.add_argument("--limit", type=int, default=20, help="Số entries (mặc định 20)")
     p_pr.set_defaults(func=cmd_prediction_registry)
 
     # flow-map
-    p_fm = sub.add_parser("flow-map", help="Bản đồ Dòng vốn Liên thị trường 4 Tầng")
+    p_fm = sub.add_parser("flow-map", parents=[lang_parent], help="Bản đồ Dòng vốn Liên thị trường 4 Tầng")
     p_fm.set_defaults(func=cmd_flow_map)
 
     # cleanup
-    p_cl = sub.add_parser("cleanup", help="Dọn dẹp định kỳ: telemetry, state files")
+    p_cl = sub.add_parser("cleanup", parents=[lang_parent], help="Dọn dẹp định kỳ: telemetry, state files")
     p_cl.add_argument("target", choices=["telemetry", "all"], help="telemetry: entropy_log; all: telemetry + state")
     p_cl.add_argument("--max-rows", type=int, default=1000, dest="max_rows", help="Số dòng telemetry giữ lại")
     p_cl.set_defaults(func=cmd_cleanup)
 
     # clear-crisis
-    p_ccr = sub.add_parser("clear-crisis", help="Xóa crisis_cooldown + stress gate — reset trạng thái khủng hoảng thủ công")
+    p_ccr = sub.add_parser("clear-crisis", parents=[lang_parent], help="Xóa crisis_cooldown + stress gate — reset trạng thái khủng hoảng thủ công")
     p_ccr.set_defaults(func=cmd_clear_crisis)
 
     # sbv-update
-    p_su = sub.add_parser("sbv-update", help="5-step recovery: backup → fixtures → pytest → scrape → clear alert")
+    p_su = sub.add_parser("sbv-update", parents=[lang_parent], help="5-step recovery: backup → fixtures → pytest → scrape → clear alert")
     p_su.add_argument("--force", action="store_true", dest="sbv_force",
                       help="Bỏ qua CRITICAL_WARNING — clear CRISIS_REAL marker thủ công")
     p_su.set_defaults(func=cmd_sbv_update)
 
     # data-quality
-    p_dq = sub.add_parser("data-quality", help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")
+    p_dq = sub.add_parser("data-quality", parents=[lang_parent], help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")
     p_dq.set_defaults(func=cmd_data_quality)
 
     # index-decompose
-    p_id = sub.add_parser("index-decompose", help="Phân tích chỉ số thị trường thống nhất")
+    p_id = sub.add_parser("index-decompose", parents=[lang_parent], help="Phân tích chỉ số thị trường thống nhất")
     p_id.add_argument("--date", help="Ngày (YYYY-MM-DD)")
     p_id.set_defaults(func=cmd_index_decompose)
 
     # restore-backup
-    p_rb = sub.add_parser("restore-backup", help="Khôi phục trạng thái alert từ backup gần nhất")
+    p_rb = sub.add_parser("restore-backup", parents=[lang_parent], help="Khôi phục trạng thái alert từ backup gần nhất")
     p_rb.set_defaults(func=cmd_restore_backup)
 
     # check-calendar
-    p_cc = sub.add_parser("check-calendar", help="Kiểm tra lịch lễ so với nguồn online")
+    p_cc = sub.add_parser("check-calendar", parents=[lang_parent], help="Kiểm tra lịch lễ so với nguồn online")
     p_cc.add_argument("--auto-update", action="store_true", help="Tự động cập nhật calendar nếu lệch")
     p_cc.set_defaults(func=cmd_check_calendar)
 
     # backfill-history
-    p_bf = sub.add_parser("backfill-history", help="Khôi phục dữ liệu lịch sử cho mã thiếu (Backfill)")
+    p_bf = sub.add_parser("backfill-history", parents=[lang_parent], help="Khôi phục dữ liệu lịch sử cho mã thiếu (Backfill)")
     p_bf.add_argument("--symbols", help="Chỉ định mã cụ thể, cách nhau bằng dấu phẩy (VD: VCB,REE,HDB)")
     p_bf.add_argument("--start", default=None, help="Ngày bắt đầu (YYYY-MM-DD, mặc định 2021-01-01)")
     p_bf.add_argument("--end", default=None, help="Ngày kết thúc (YYYY-MM-DD, mặc định hôm nay)")
@@ -2154,18 +2154,18 @@ def main():
     p_bf.set_defaults(func=cmd_backfill)
 
     # backfill-macro (Hotfix #2)
-    p_bfm = sub.add_parser("backfill-macro", help="Backfill 1y historical data cho PTD macro tickers")
+    p_bfm = sub.add_parser("backfill-macro", parents=[lang_parent], help="Backfill 1y historical data cho PTD macro tickers")
     p_bfm.add_argument("--days", type=int, default=252, help="Số ngày lịch sử (mặc định 252)")
     p_bfm.set_defaults(func=cmd_backfill_macro)
 
     # backfill-regime
-    p_bfr = sub.add_parser("backfill-regime", help="Backfill regime_history cho ngày thiếu trong daily_ohlcv")
+    p_bfr = sub.add_parser("backfill-regime", parents=[lang_parent], help="Backfill regime_history cho ngày thiếu trong daily_ohlcv")
     p_bfr.add_argument("--target", default=None, help="Ngày đích (YYYY-MM-DD, mặc định: tất cả)")
     p_bfr.add_argument("--batch-size", type=int, default=30, dest="batch_size", help="Batch log interval")
     p_bfr.set_defaults(func=cmd_backfill_regime)
 
     # absorption-detector
-    p_ad = sub.add_parser("absorption-detector", help="Phát hiện Cân bằng Hấp thụ thị trường (SDI + Volume Profile PCA)")
+    p_ad = sub.add_parser("absorption-detector", parents=[lang_parent], help="Phát hiện Cân bằng Hấp thụ thị trường (SDI + Volume Profile PCA)")
     p_ad.add_argument("--date", default=None, help="Ngày phân tích (YYYY-MM-DD)")
     p_ad.add_argument("--quiet", action="store_true", help="Chỉ in JSON, không in chi tiết")
     p_ad.add_argument("--symbol", type=str, default=None, help="Phân tích cho 1 mã cổ phiếu riêng lẻ (VD: FPT)")
@@ -2173,11 +2173,11 @@ def main():
     p_ad.set_defaults(func=cmd_absorption_detector)
 
     # macro-governor
-    p_mg = sub.add_parser("macro", help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")
+    p_mg = sub.add_parser("macro", parents=[lang_parent], help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")
     p_mg.set_defaults(func=cmd_macro)
 
     # sel
-    p_sel = sub.add_parser("sel", help="Structure Evolution Layer — W1 Wasserstein + Survival Mode")
+    p_sel = sub.add_parser("sel", parents=[lang_parent], help="Structure Evolution Layer — W1 Wasserstein + Survival Mode")
     p_sel.add_argument("--as-of", dest="as_of", default=None,
                        help="Mốc ngày T (YYYY-MM-DD) cho anti-lookahead. Mặc định: EOD mới nhất trong DB")
     p_sel.add_argument("--online", action="store_true",
@@ -2185,7 +2185,7 @@ def main():
     p_sel.set_defaults(func=cmd_sel)
 
     # paper
-    p_paper = sub.add_parser("paper", help="Paper Trading Engine — Live vs Backtest simulation")
+    p_paper = sub.add_parser("paper", parents=[lang_parent], help="Paper Trading Engine — Live vs Backtest simulation")
     p_paper.add_argument("action", nargs="?", choices=["run", "report", "pnl"],
                          default="report", help="run: sinh lệnh; report: ổn định; pnl: Mark-to-Market")
     p_paper.add_argument("--date", default=None,
@@ -2197,7 +2197,7 @@ def main():
     p_paper.set_defaults(func=cmd_paper)
 
     # eod-run (self-healing scheduler entry point)
-    p_eod = sub.add_parser("eod-run", help="EOD Runner — retry + idempotent + SQLite lock")
+    p_eod = sub.add_parser("eod-run", parents=[lang_parent], help="EOD Runner — retry + idempotent + SQLite lock")
     p_eod.add_argument("--date", default=None,
                        help="as_of_date (YYYY-MM-DD). Mặc định: EOD mới nhất trong DB")
     p_eod.add_argument("--force", action="store_true",

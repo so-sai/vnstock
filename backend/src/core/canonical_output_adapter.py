@@ -297,6 +297,7 @@ def localize_output(data: dict) -> dict:
 # ====================================================================
 
 CLI_LABEL_MAP: dict[str, str] = {
+    # ── Engine & Regime ──
     "Regime": "Trạng thái vĩ mô",
     "ADX": "Xung lực",
     "Entropy": "Mức độ nhiễu",
@@ -315,8 +316,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Trạng thái": "Pha thị trường",
     "Score": "Điểm số",
     "Độ rộng:": "Tỷ lệ tham gia:",
-
-    # Regime Engine Live Analysis block
     "B-Score (continuous)": "Điểm Độ rộng (liên tục)",
     "T-Score": "Điểm Xu hướng",
     "V-Score (continuous)": "Điểm Biến động (liên tục)",
@@ -332,7 +331,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Today:": "Hôm nay:",
     "vs Avg:": "so với TB:",
 
-    # ── Asia Reference Frame + Governor Phase Classification ──
+    # ── Phase Classification ──
     "Phase Classification": "Phân loại Pha Thị trường",
     "RANGING": "ĐI NGANG (BIÊN ĐỘ HẸP)",
     "SILENT_DISTRIBUTION_HEAD": "ĐỈNH PHÂN PHỐI NGẦM",
@@ -361,7 +360,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "RỦI_RO_HỆ_THỐNG": "RỦI RO HỆ THỐNG",
     "CHUYỂN_PHA_MẠNH": "CHUYỂN PHA MẠNH",
 
-    # ── Execution Layer: TWAP + Circuit Breaker status labels ──
+    # ── Execution Layer: TWAP + Circuit Breaker ──
     "PENDING": "CHỜ XỬ LÝ",
     "CANCELED": "ĐÃ HỦY LỆNH (AN TOÀN)",
     "FAILED": "CHIẾN DỊCH ĐÌNH CHỈ",
@@ -375,6 +374,210 @@ CLI_LABEL_MAP: dict[str, str] = {
     "slice": "lát cắt",
     "broker order": "lệnh sàn",
     "CANCEL_FAILED": "HỦY LỆNH THẤT BẠI",
+    "TWAP PLAN": "KẾ HOẠCH TWAP",
+    "TWAP STATUS": "TRẠNG THÁI TWAP",
+    "TWAP CAMPAIGN": "CHIẾN DỊCH TWAP",
+    "PHASE 5 — PAPER TRADING": "GIAI ĐOẠN 5 — MÔ PHỎNG GIAO DỊCH",
+    "BREAK-GLASS PROTOCOL": "GIAO THỨC PHÁ VỠ KÍNH",
+    "DELTA DIVERGENCE INDEX": "CHỈ SỐ PHÂN KỲ DELTA",
+    "PREDICTION REGISTRY — THỐNG KÊ": "SỔ DỰ BÁO — THỐNG KÊ",
+    "GOLD REGIME": "CHẾ ĐỘ VÀNG",
+    "TABLE STATISTICS": "THỐNG KÊ BẢNG",
+    "PORTFOLIO": "DANH MỤC",
+    "Order Book": "SỔ LỆNH",
+    "TWAP Executor": "BỘ THỰC THI TWAP",
+    "StalePositionManager": "QUẢN LÝ VỐN KẸT",
+
+    # ── DB / System ──
+    "Python": "Python",
+    "Project root": "Thư mục gốc",
+    "Backend": "Phụ trợ",
+    "Data": "Dữ liệu",
+    "Libraries": "Thư viện",
+    "Database": "Cơ sở dữ liệu",
+    "Rows": "Dòng",
+    "Row Counts": "Số dòng",
+    "Size": "Kích thước",
+    "Last Modified": "Cập nhật lần cuối",
+    "Table": "Bảng",
+    "Database Info": "Thông tin CSDL",
+    "Version": "Phiên bản",
+    "Driver": "Trình điều khiển",
+    "Used": "Đã dùng",
+    "Free": "Còn trống",
+
+    # ── OHLCV ──
+    "Symbol": "Mã CK",
+    "Date": "Ngày",
+    "Open": "Mở cửa",
+    "High": "Cao nhất",
+    "Low": "Thấp nhất",
+    "Close": "Đóng cửa",
+    "Volume": "Khối lượng",
+    "Time": "Thời gian",
+
+    # ── QuantStats ──
+    "Live Sharpe": "Sharpe Thực tế",
+    "Sharpe": "Sharpe",
+    "Sortino": "Sortino",
+    "Max Drawdown": "Sụt giảm Tối đa",
+    "Recovery Factor": "Hệ số Phục hồi",
+    "Win Rate": "Tỷ lệ Thắng",
+    "Profit Factor": "Hệ số Lợi nhuận",
+    "Kelly Criterion": "Tiêu chí Kelly",
+    "Calibration Penalty": "Mức phạt Hiệu chỉnh",
+    "Live Metrics": "Chỉ số Thực tế",
+    "Rejected Metrics": "Chỉ số Bị từ chối",
+    "Random Baseline": "Đường cơ sở Ngẫu nhiên",
+    "Information Gain": "Lượng thông tin",
+    "DOC Index": "Chỉ số DOC",
+    "n_observations": "số quan sát",
+
+    # ── Rejected Signals ──
+    "Rejected Signals": "Tín hiệu Bị từ chối",
+    "Rejection Stats": "Thống kê Từ chối",
+    "Ticker": "Mã CK",
+    "Reason": "Lý do",
+    "Regime Score": "Điểm Trạng thái",
+    "IG": "TT",
+    "Status": "Trạng thái",
+    "Valid Until": "Hiệu lực đến",
+    "Simulated Exit 5d": "Mô phỏng 5n",
+    "Simulated Exit 10d": "Mô phỏng 10n",
+    "Simulated Exit 20d": "Mô phỏng 20n",
+
+    # ── Telemetry ──
+    "Reputation Score": "Điểm Uy tín",
+    "Reliability": "Độ Tin cậy",
+    "Accuracy": "Độ Chính xác",
+    "Precision": "Độ Chuẩn xác",
+    "Recall": "Độ Bao phủ",
+    "F1 Score": "Điểm F1",
+    "Latency": "Độ trễ",
+    "Downtime": "Thời gian ngừng",
+    "Uptime": "Thời gian hoạt động",
+    "Driver Reputation": "Uy tín Động cơ",
+    "Shadow Metrics": "Chỉ số Bóng",
+
+    # ── Gold / Silver ──
+    "Gold": "Vàng",
+    "Silver": "Bạc",
+    "Gold-to-Silver Ratio": "Tỷ lệ Vàng/Bạc",
+    "XAU": "Vàng Thế giới",
+    "SJC": "Vàng SJC",
+    "BTMC": "Vàng BTMC",
+    "Gold Price": "Giá Vàng",
+    "Silver Price": "Giá Bạc",
+
+    # ── Paper Trading ──
+    "FILLED": "KHỚP",
+    "REJECTED": "TỪ CHỐI",
+    "CASH": "TIỀN MẶT",
+    "BUY": "MUA",
+    "SELL": "BÁN",
+    "Filled": "Đã khớp",
+    "Rejected": "Bị từ chối",
+    "Quantity": "Khối lượng",
+    "Price": "Giá",
+    "Buying Power": "Sức mua",
+    "Total Equity": "Tổng vốn",
+    "Unrealized P&L": "Lãi/Lỗ chưa hiện thực",
+    "Realized P&L": "Lãi/Lỗ đã hiện thực",
+    "Slippage": "Trượt giá",
+    "Latency": "Độ trễ",
+    "Settlement": "Thanh toán",
+
+    # ── Stale Positions ──
+    "Stale Layer": "Lớp vốn kẹt",
+    "Campaign": "Chiến dịch",
+    "Escrow": "Ký quỹ",
+    "Write-off": "Xóa sổ",
+    "Reclaim": "Thu hồi",
+
+    # ── Break-Glass ──
+    "Ticket": "Phiếu",
+    "Challenge": "Thử thách",
+    "Passphrase": "Mật khẩu",
+    "Override": "Ghi đè",
+    "Request": "Yêu cầu",
+    "Verify": "Xác thực",
+    "Cancel": "Hủy",
+    "Time-delay": "Trễ thời gian",
+
+    # ── DDI / Rotation ──
+    "Rotation Angle": "Góc xoay",
+    "Lambda_max": "Lambda cực đại",
+    "Action Filter": "Bộ lọc Hành động",
+    "dS/dt": "dS/dt",
+    "Asia Supply Chain": "Chuỗi cung ứng Châu Á",
+    "Index Reality": "Thực tế Chỉ số",
+
+    # ── Prediction Registry ──
+    "Prediction ID": "Mã dự báo",
+    "Hypothesis": "Giả thuyết",
+    "Outcome": "Kết quả",
+    "Hit": "Đúng",
+    "Miss": "Sai",
+    "Pending": "Chờ",
+    "Accuracy Rate": "Tỷ lệ Chính xác",
+    "Total Predictions": "Tổng Dự báo",
+
+    # ── Statistics ──
+    "Total": "Tổng",
+    "Mean": "Trung bình",
+    "Median": "Trung vị",
+    "Std": "Độ lệch",
+    "Min": "Tối thiểu",
+    "Max": "Tối đa",
+    "Count": "Số lượng",
+    "Sum": "Tổng",
+    "Rate": "Tỷ lệ",
+    "Ratio": "Tỷ số",
+
+    # ── Cleanup / Maintenance ──
+    "cleaned": "đã dọn",
+    "removed": "đã xóa",
+    "skipped": "đã bỏ qua",
+    "archived": "đã lưu trữ",
+    "restored": "đã phục hồi",
+    "backed up": "đã sao lưu",
+
+    # ── Macro ──
+    "DXY": "Chỉ số USD",
+    "US10Y": "Lợi suất 10 năm Mỹ",
+    "INTERBANK ON": "Lãi suất Liên ngân hàng ON",
+    "INTERBANK 1W": "Lãi suất Liên ngân hàng 1W",
+    "BREAKEVEN INFLATION": "Lạm phát kỳ vọng",
+    "REAL YIELD": "Lợi suất thực",
+    "SBV": "Ngân hàng Nhà nước",
+    "World Bank": "Ngân hàng Thế giới",
+
+    # ── Scheduler / EOD ──
+    "EOD RUNNER": "BỘ CHẠY CUỐI NGÀY",
+    "Catch-up": "Bù ngày",
+    "Idempotency": "Tính đơn nhất",
+    "Retry": "Thử lại",
+    "Sleep": "Ngủ",
+    "Scheduler": "Bộ lập lịch",
+
+    # ── Scanner ──
+    "Deep Scan": "Quét sâu",
+    "Quick Scan": "Quét nhanh",
+    "Elite Scanner": "Máy quét Tinh hoa",
+    "Screener": "Bộ sàng lọc",
+    "Signal": "Tín hiệu",
+
+    # ─── Absorption ──
+    "Absorption Detector": "Bộ phát hiện Hấp thụ",
+    "SDI": "Chỉ số Phân kỳ Cấu trúc",
+    "PCA": "Phân tích Thành phần Chính",
+    "Volume Profile": "Hồ sơ Khối lượng",
+
+    # ── Structure Evolution ──
+    "W1": "W1 Wasserstein",
+    "Survival Mode": "Chế độ Sinh tồn",
+    "Structure Evolution": "Tiến hóa Cấu trúc",
+    "HDR": "Tỷ lệ Giảm thiểu Rủi ro",
 }
 
 
