@@ -97,21 +97,15 @@ class QuantStatsBridge:
         return np.array(returns, dtype=np.float64)
 
     def fetch_rejected_signals_archive(self) -> np.ndarray:
-        """Đọc rejected_signals_archive nếu tồn tại (future table)."""
+        """Đọc rejected_signals_archive → counterfactual returns.
+
+        Dùng module rejected_signals chuyên dụng, có sẵn simulated exit.
+        """
         try:
-            with get_connection() as conn:
-                rows = conn.execute(
-                    "SELECT COUNT(*) FROM rejected_signals_archive"
-                ).fetchall()
-            if rows and rows[0][0] > 0:
-                with get_connection() as conn:
-                    data = conn.execute(
-                        "SELECT simulated_return_5d FROM rejected_signals_archive "
-                        "ORDER BY created_at DESC LIMIT ?",
-                        (self.window_days,),
-                    ).fetchall()
-                if data:
-                    return np.array([r[0] for r in data if r[0] is not None], dtype=np.float64)
+            from src.database.rejected_signals import get_counterfactual_returns
+            returns = get_counterfactual_returns(window_days=self.window_days)
+            if len(returns) > 0:
+                return returns
         except Exception:
             pass
         return np.array([])

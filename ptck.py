@@ -720,6 +720,51 @@ def cmd_quantstats(args):
     print("=" * 60)
 
 
+def cmd_rejected_signals(args):
+    """Rejected Signals Archive — Nghĩa địa giả thuyết."""
+    from src.database.rejected_signals import (
+        count_by_reason, get_rejected_signals, run_eod_update,
+    )
+
+    if args.action == "list":
+        rows = get_rejected_signals(
+            limit=args.limit,
+            reason_filter=args.reason,
+            days_back=30,
+        )
+        print(f"\n{'=' * 80}")
+        print("  REJECTED SIGNALS ARCHIVE — Nghĩa địa giả thuyết")
+        print(f"{'=' * 80}")
+        if not rows:
+            print("\n  (trống) — chưa có tín hiệu nào bị từ chối.\n")
+            return
+        print(f"\n  {'ID':>4s} | {'Ngày':22s} | {'Mã':8s} | {'Loại':22s} | {'Lý do':28s} | {'Exit5d':>8s}")
+        print(f"  {'-'*4:>4s}   {'-'*22:22s}   {'-'*8:8s}   {'-'*22:22s}   {'-'*28:28s}   {'-'*8:8s}")
+        for r in rows:
+            exit5 = f"{r.get('simulated_exit_5d', 'N/A'):>8}" if r.get('simulated_exit_5d') is not None else "     N/A"
+            print(f"  {r['id']:>4d} | {r['timestamp']:22s} | {r['ticker']:8s} | {r['signal_type']:22s} | {r['rejection_reason']:28s} | {exit5:>8s}")
+        print(f"\n  Tổng: {len(rows)} bản ghi\n")
+
+    elif args.action == "stats":
+        counts = count_by_reason(days_back=30)
+        print(f"\n{'=' * 60}")
+        print("  REJECTED SIGNALS — Thống kê theo lý do")
+        print(f"{'=' * 60}")
+        if not counts:
+            print("\n  (trống)\n")
+            return
+        total = sum(counts.values())
+        for reason, cnt in sorted(counts.items(), key=lambda x: -x[1]):
+            pct = cnt / total * 100
+            print(f"  {reason:30s} {cnt:>5d} ({pct:5.1f}%)")
+        print(f"  {'─' * 40}")
+        print(f"  {'Tổng':30s} {total:>5d}")
+
+    elif args.action == "eod-update":
+        updated = run_eod_update()
+        print(f"\n  ✅ EOD update: {updated} simulated_exit đã cập nhật.\n")
+
+
 def cmd_restore_backup(args):
     """Khôi phục alert từ backup gần nhất."""
     from pathlib import Path
@@ -2004,6 +2049,18 @@ def main():
     p_qs = sub.add_parser("quantstats", help="QuantStatsBridge — Live Calibration Engine")
     p_qs.add_argument("--window", type=int, default=30, help="Cửa sổ phân tích (phiên)")
     p_qs.set_defaults(func=cmd_quantstats)
+
+    # rejected-signals
+    p_rs = sub.add_parser("rejected-signals", help="Rejected Signals Archive — Nghĩa địa giả thuyết")
+    p_rs_sub = p_rs.add_subparsers(dest="action", required=True)
+    p_rs_list = p_rs_sub.add_parser("list", help="Liệt kê rejected signals gần đây")
+    p_rs_list.add_argument("--limit", type=int, default=20, help="Số bản ghi tối đa")
+    p_rs_list.add_argument("--reason", type=str, default=None, help="Lọc theo rejection_reason")
+    p_rs_list.set_defaults(func=cmd_rejected_signals)
+    p_rs_stats = p_rs_sub.add_parser("stats", help="Thống kê theo rejection_reason")
+    p_rs_stats.set_defaults(func=cmd_rejected_signals)
+    p_rs_eod = p_rs_sub.add_parser("eod-update", help="Cập nhật simulated_exit cho các signal chưa có")
+    p_rs_eod.set_defaults(func=cmd_rejected_signals)
 
     # scan
     p_scan = sub.add_parser("scan", help="Elite scanner")

@@ -315,6 +315,27 @@ class PaperTradingEngine:
         if reject_reason:
             result["is_rejected"] = 1
             result["reject_reason"] = reject_reason
+            # LAW-001: ghi vào rejected_signals_archive
+            try:
+                from src.database.rejected_signals import record_rejected_signal
+                from src.engine.regime_engine import detect_regime
+                reg = detect_regime(target_date=decision_date, lang_mode="compact")
+                record_rejected_signal(
+                    ticker=symbol,
+                    signal_type="MACRO_ORDER",
+                    rejection_reason=reject_reason,
+                    regime_score=reg.get("regime_score", 0.5),
+                    adx_value=reg.get("details", {}).get("adx", 0),
+                    feature_vector={
+                        "side": side, "quantity": quantity,
+                        "decision_price": result.get("decision_price"),
+                        "hdr": hdr, "w1": w1, "macro_state": macro_state,
+                    },
+                    prior_belief=hdr if hdr is not None else 0.5,
+                    posterior_belief=0.0,
+                )
+            except Exception:
+                pass
             return result
 
         # --- 3. Backtest ideal fill: khớp ngay @ close T (không trễ, không impact)
