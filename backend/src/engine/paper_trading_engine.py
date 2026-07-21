@@ -748,6 +748,30 @@ class PaperTradingEngine:
         if effective_hdr >= 0.999 or buying_power < 1e6:
             results["note"] = ("HDR=1.0 CASH_ONLY" if effective_hdr >= 0.999
                                else "Sức mua < 1tr — không mua thêm.")
+            # LAW-001: ghi toàn bộ watchlist vào rejected_signals_archive
+            try:
+                from src.database.rejected_signals import record_rejected_signal
+                from src.engine.regime_engine import detect_regime
+                reg = detect_regime(target_date=decision_date, lang_mode="compact")
+                reject_reason = "GOVERNOR_LOCK_HDR" if effective_hdr >= 0.999 else "BUYING_POWER_INSUFFICIENT"
+                for sym in (watchlist or []):
+                    record_rejected_signal(
+                        ticker=sym,
+                        signal_type="MACRO_ORDER",
+                        rejection_reason=reject_reason,
+                        regime_score=reg.get("regime_score", 0.5),
+                        adx_value=reg.get("details", {}).get("adx", 0),
+                        feature_vector={
+                            "decision_date": decision_date,
+                            "effective_hdr": effective_hdr,
+                            "buying_power": buying_power,
+                            "w1": w1, "macro_state": macro_state,
+                        },
+                        prior_belief=w1 if w1 is not None else 0.5,
+                        posterior_belief=0.0,
+                    )
+            except Exception:
+                pass
             self.summarize_daily(decision_date, w1=w1, macro_state=macro_state,
                                  conn=conn)
             results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr,

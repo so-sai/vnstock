@@ -7,14 +7,24 @@ Counterfactual Pipeline của QuantStatsBridge.
 
 LAW-001 (Anti-Survivorship):
   Không chỉ lưu người sống. Lưu cả nghĩa địa.
+
+Dynamic Slippage Model:
+  Slippage_simulated = max(0.001, α × (OrderVol / ADV_20) + β × (ATR_14 / Close))
+  α = 0.3 (impact coefficient), β = 0.5 (volatility coefficient)
 """
 import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+import pandas as pd
 
 from src.database.db_core import get_connection
+
+# Dynamic Slippage parameters
+ALPHA_IMPACT = 0.3
+BETA_VOLATILITY = 0.5
+MIN_SLIPPAGE = 0.001  # 0.1% floor
 
 TABLE_NAME = "rejected_signals_archive"
 
@@ -194,15 +204,93 @@ def update_simulated_exit(record_id: int, horizon_days: int, exit_return_pct: fl
         )
 
 
-def run_eod_update():
+def _compute_adv_20(symbol: str) -> float:
+    """Average Daily Value (VND) 20 phiên — thanh khoản trung bình."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT close, volume FROM daily_ohlcv "
+            "WHERE symbol = ? ORDER BY date DESC LIMIT 20",
+            (symbol,),
+        ).fetchall()
+    if len(rows) < 5:
+        return 0.0
+    adv = np.mean([float(r[0]) * float(r[1]) for r in rows if r[0] and r[1]])
+    return float(adv)
+
+
+def _compute_atr_14(symbol: str) -> float:
+    """Average True Range 14 phiên — biến động trung bình."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT high, low, close FROM daily_ohlcv "
+            "WHERE symbol = ? ORDER BY date DESC LIMIT 15",
+            (symbol,),
+        ).fetchall()
+    if len(rows) < 3:
+        return 0.0
+    df = pd.DataFrame(rows[::-1], columns=["high", "low", "close"])
+    df["high"] = df["high"].astype(float)
+    df["low"] = df["low"].astype(float)
+    df["close"] = df["close"].astype(float)
+    df["prev_close"] = df["close"].shift(1)
+    df["tr"] = np.maximum(
+        df["high"] - df["low"],
+        np.maximum(
+            abs(df["high"] - df["prev_close"]),
+            abs(df["low"] - df["prev_close"]),
+        ),
+    )
+    atr = df["tr"].iloc[1:].mean()  # bỏ dòng đầu (NaN prev_close)
+    return float(atr) if not np.isnan(atr) else 0.0
+
+
+def _compute_dynamic_slippage(
+    symbol: str,
+    order_volume: float = 100_000_000,  # 100tr VND mặc định
+) -> float:
+    """Dynamic Slippage Model.
+
+    Công thức:
+      Slippage = max(MIN_SLIPPAGE, α × (OrderVol / ADV_20) + β × (ATR_14 / Close))
+
+    Trả về hệ số slippage (1.0 = 0% slippage, 1.01 = 1% phụ phí).
+    """
+    adv = _compute_adv_20(symbol)
+    atr = _compute_atr_14(symbol)
+
+    # Lấy close price mới nhất
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1",
+            (symbol,),
+        ).fetchone()
+    close_price = float(row[0]) if row and row[0] else 0.0
+
+    if adv <= 0 or close_price <= 0:
+        return 1.0 + MIN_SLIPPAGE  # fallback về 0.1%
+
+    vol_ratio = order_volume / adv
+    vol_component = ALPHA_IMPACT * vol_ratio
+
+    atr_ratio = atr / close_price if atr > 0 else 0.0
+    atr_component = BETA_VOLATILITY * atr_ratio
+
+    slippage = max(MIN_SLIPPAGE, vol_component + atr_component)
+    return 1.0 + slippage
+
+
+def run_eod_update(order_volume: float = 100_000_000):
     """Chạy cuối mỗi phiên: cập nhật simulated_exit cho các signal còn thiếu.
 
-    Quét các bản ghi có simulated_exit_5d = NULL và timestamp >= 5 phiên trước.
-    Tính toán exit return dựa trên giá đóng cửa hiện tại.
+    Args:
+        order_volume: Khối lượng giao dịch giả định (VND) để tính slippage động.
+                      Mặc định 100 triệu — tương đương 1 lệnh retail nhỏ.
+
+    Sử dụng Dynamic Slippage Model thay vì hằng số 0.1% để trừng phạt
+    các cổ phiếu thiếu thanh khoản bị Governor từ chối.
     """
     ensure_table()
     with get_connection() as conn:
-        # Lấy tất cả signal chưa có simulated_exit_5d
         rows = conn.execute(
             f"SELECT id, timestamp, ticker, feature_vector_json "
             f"FROM {TABLE_NAME} WHERE simulated_exit_5d IS NULL "
@@ -212,7 +300,6 @@ def run_eod_update():
     if not rows:
         return 0
 
-    # Lấy daily OHLCV để tính exit price
     with get_connection() as conn:
         ohlcv_rows = conn.execute(
             "SELECT symbol, date, adj_close FROM daily_ohlcv "
@@ -220,7 +307,6 @@ def run_eod_update():
             "ORDER BY date"
         ).fetchall()
 
-    # Build lookup: symbol -> {date -> close}
     price_map: Dict[str, Dict[str, float]] = {}
     for r in ohlcv_rows:
         sym = r[0]
@@ -243,7 +329,6 @@ def run_eod_update():
         if not ticker_prices:
             continue
 
-        # Tìm entry price gần nhất với ngày entry
         entry_close = None
         sorted_dates = sorted(ticker_prices.keys())
         for d in sorted_dates:
@@ -253,36 +338,34 @@ def run_eod_update():
         if entry_close is None or entry_close == 0:
             continue
 
-        # Tính exit cho 5, 10, 20 phiên sau
-        for horizon in [5, 10, 20]:
-            col = f"simulated_exit_{horizon}d"
-            if conn.execute(
-                f"SELECT {col} FROM {TABLE_NAME} WHERE id = ?",
-                (record_id,)
-            ).fetchone()[0] is not None:
-                continue
+        # Dynamic slippage cho ticker này
+        slippage_factor = _compute_dynamic_slippage(ticker, order_volume)
 
-            exit_date = None
-            target_date = None
-            for d in sorted_dates:
-                if d > entry_date.isoformat():
-                    if target_date is None:
-                        target_date = d
-                        continue
-                    days_diff = (datetime.fromisoformat(d).date() - datetime.fromisoformat(target_date).date()).days
-                    if days_diff >= horizon:
-                        exit_date = d
-                        break
+        with get_connection() as conn:
+            for horizon in [5, 10, 20]:
+                col = f"simulated_exit_{horizon}d"
+                existing = conn.execute(
+                    f"SELECT {col} FROM {TABLE_NAME} WHERE id = ?",
+                    (record_id,)
+                ).fetchone()[0]
+                if existing is not None:
+                    continue
 
-            if exit_date and exit_date in ticker_prices:
-                exit_close = ticker_prices[exit_date]
-                # Simulated slippage: thêm 0.1% cho thanh khoản giả định
-                slippage_factor = 1.001  # 0.1% slippage
-                exit_pct = ((exit_close / entry_close) - 1.0) * 100 * slippage_factor
-                conn.execute(
-                    f"UPDATE {TABLE_NAME} SET {col} = ? WHERE id = ?",
-                    (round(exit_pct, 4), record_id),
-                )
-                updated += 1
+                exit_date = None
+                for d in sorted_dates:
+                    if d > entry_date.isoformat():
+                        days_diff = (datetime.fromisoformat(d).date() - entry_date).days
+                        if days_diff >= horizon:
+                            exit_date = d
+                            break
+
+                if exit_date and exit_date in ticker_prices:
+                    exit_close = ticker_prices[exit_date]
+                    exit_pct = ((exit_close / entry_close) - 1.0) * 100 * slippage_factor
+                    conn.execute(
+                        f"UPDATE {TABLE_NAME} SET {col} = ? WHERE id = ?",
+                        (round(exit_pct, 4), record_id),
+                    )
+                    updated += 1
 
     return updated
