@@ -769,6 +769,7 @@ class PaperTradingEngine:
                         },
                         prior_belief=w1 if w1 is not None else 0.5,
                         posterior_belief=0.0,
+                        accepted_alternative='CASH',
                     )
             except Exception:
                 pass
@@ -779,6 +780,7 @@ class PaperTradingEngine:
             return results
 
         per_symbol = buying_power / max(len(watchlist), 1)
+        accepted_symbols = []
 
         for sym in watchlist:
             bar = self._get_ohlcv(sym, decision_date)
@@ -823,8 +825,26 @@ class PaperTradingEngine:
             else:
                 fill["settle_date"] = book["settle_date"]
                 fill["cost_basis"] = book["cost_basis"]
+                accepted_symbols.append(sym)
             self.record_trade(fill, conn=conn)
             results["orders"].append(fill)
+
+        # DOC: update accepted_alternative cho rejected signals phiên này
+        if accepted_symbols:
+            # Watchlist ưu tiên theo RS Rank → accepted_symbols[0] là best
+            best_alt = accepted_symbols[0]
+            try:
+                from src.database.rejected_signals import ensure_table
+                ensure_table()
+                with get_connection() as conn2:
+                    conn2.execute(
+                        f"UPDATE rejected_signals_archive "
+                        f"SET accepted_alternative = ? "
+                        f"WHERE timestamp LIKE ? AND accepted_alternative IS NULL",
+                        (best_alt, f"{decision_date}%"),
+                    )
+            except Exception:
+                pass
 
         summary = self.summarize_daily(decision_date, w1=w1,
                                        macro_state=macro_state, conn=conn)

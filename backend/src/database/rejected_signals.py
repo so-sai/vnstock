@@ -61,12 +61,19 @@ def ensure_table():
         ("surprise", "REAL"),
         ("cumulative_ig", "REAL"),
         ("status", "TEXT DEFAULT 'ACTIVE'"),
+        ("accepted_alternative", "TEXT"),
+        ("alternative_return_5d", "REAL"),
+        ("alternative_return_10d", "REAL"),
+        ("alternative_return_20d", "REAL"),
     ]:
         try:
             with get_connection() as conn:
                 conn.execute(f"ALTER TABLE {TABLE_NAME} ADD COLUMN {col} {col_type}")
         except Exception:
             pass
+
+
+RISK_FREE_RATE = 0.05  # 5%/năm — dùng cho CASH alternative
 
 
 def record_rejected_signal(
@@ -79,6 +86,7 @@ def record_rejected_signal(
     prior_belief: float,
     posterior_belief: float,
     evaluation_horizon: str = "60d",
+    accepted_alternative: Optional[str] = None,
 ) -> int:
     """Ghi một tín hiệu bị từ chối vào Evidence Ledger.
 
@@ -118,12 +126,14 @@ def record_rejected_signal(
             "(timestamp, ticker, signal_type, rejection_reason, "
             " regime_score, adx_value, feature_vector_json, "
             " prior_belief, posterior_belief, "
-            " evaluation_horizon, valid_until, information_gain, surprise, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'ACTIVE')",
+            " evaluation_horizon, valid_until, information_gain, surprise, status, "
+            " accepted_alternative) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'ACTIVE', ?)",
             (now.isoformat(), ticker, signal_type, rejection_reason,
              regime_score, adx_value, fv_json,
              prior_belief, posterior_belief,
-             evaluation_horizon, valid_until),
+             evaluation_horizon, valid_until,
+             accepted_alternative),
         )
         return cur.lastrowid
 
@@ -236,6 +246,42 @@ def get_counterfactual_returns(
         return np.array([])
     arr = np.array(returns[-window_days:], dtype=np.float64)
     return arr
+
+
+def fetch_doc_returns(
+    window_days: int = 30,
+) -> List[Dict[str, float]]:
+    """Lấy cặp (alternative_return, simulated_return) để tính DOC_Index.
+
+    DOC = Decision Opportunity Cost — đo độ lệch giữa lợi nhuận
+    của mã được chọn và mã bị từ chối.
+
+    Returns:
+        List[Dict]: mỗi entry có rejected_return, alternative_return
+    """
+    ensure_table()
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT simulated_exit_5d, simulated_exit_10d, simulated_exit_20d, "
+            f"  alternative_return_5d, alternative_return_10d, alternative_return_20d "
+            f"FROM {TABLE_NAME} "
+            f"WHERE valid_until >= ? AND status = 'ACTIVE' "
+            f"AND accepted_alternative IS NOT NULL "
+            f"ORDER BY id DESC LIMIT ?",
+            (now, window_days * 2),
+        ).fetchall()
+    pairs = []
+    for r in rows:
+        # Ưu tiên 20d > 10d > 5d
+        sim = r[2] if r[2] is not None else (r[1] if r[1] is not None else r[0])
+        alt = r[5] if r[5] is not None else (r[4] if r[4] is not None else r[3])
+        if sim is not None and alt is not None:
+            pairs.append({
+                "rejected_return": float(sim) / 100.0,
+                "alternative_return": float(alt) / 100.0,
+            })
+    return pairs[-window_days:]
 
 
 def update_simulated_exit(record_id: int, horizon_days: int, exit_return_pct: float):
@@ -479,6 +525,73 @@ def run_eod_update(order_volume: float = 100_000_000):
                         (exit_pct, ig, surprise, ig, record_id),
                     )
                     updated += 1
+
+    # === DOC: Cập nhật alternative_return cho accepted_alternative ===
+    with get_connection() as conn:
+        alt_rows = conn.execute(
+            f"SELECT id, timestamp, accepted_alternative "
+            f"FROM {TABLE_NAME} WHERE accepted_alternative IS NOT NULL "
+            f"AND alternative_return_5d IS NULL AND status = 'ACTIVE'"
+        ).fetchall()
+
+    for ar in alt_rows:
+        record_id = ar[0]
+        ts_str = ar[1]
+        alt_ticker = ar[2]
+        try:
+            entry_date = datetime.fromisoformat(ts_str).date()
+        except (ValueError, TypeError):
+            entry_date = now.date()
+
+        with get_connection() as conn:
+            for horizon in [5, 10, 20]:
+                col = f"alternative_return_{horizon}d"
+                existing = conn.execute(
+                    f"SELECT {col} FROM {TABLE_NAME} WHERE id = ?",
+                    (record_id,)
+                ).fetchone()[0]
+                if existing is not None:
+                    continue
+
+                if alt_ticker == 'CASH':
+                    # Risk-free rate return
+                    frac_year = horizon / 365.0
+                    rf_return = ((1.0 + RISK_FREE_RATE) ** frac_year - 1.0) * 100
+                    conn.execute(
+                        f"UPDATE {TABLE_NAME} SET {col} = ? WHERE id = ?",
+                        (round(rf_return, 4), record_id),
+                    )
+                    updated += 1
+                else:
+                    alt_prices = price_map.get(alt_ticker, {})
+                    if not alt_prices:
+                        continue
+                    alt_sorted = sorted(alt_prices.keys())
+                    entry_close = None
+                    for d in alt_sorted:
+                        if d >= entry_date.isoformat():
+                            entry_close = alt_prices[d]
+                            break
+                    if entry_close is None or entry_close == 0:
+                        continue
+
+                    exit_date = None
+                    for d in alt_sorted:
+                        if d > entry_date.isoformat():
+                            days_diff = (datetime.fromisoformat(d).date() - entry_date).days
+                            if days_diff >= horizon:
+                                exit_date = d
+                                break
+
+                    if exit_date and exit_date in alt_prices:
+                        exit_close = alt_prices[exit_date]
+                        # Alternative không bị slippage (không fill thật)
+                        alt_pct = ((exit_close / entry_close) - 1.0) * 100
+                        conn.execute(
+                            f"UPDATE {TABLE_NAME} SET {col} = ? WHERE id = ?",
+                            (round(alt_pct, 4), record_id),
+                        )
+                        updated += 1
 
     # Đóng các record hết hạn
     close_expired()

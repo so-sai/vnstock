@@ -313,6 +313,41 @@ class QuantStatsBridge:
         smoothed = float(ewma[-1]) * math.sqrt(252)
         return round(smoothed, 4)
 
+    # ── 4b. DOC INDEX ────────────────────────────────────────────────
+
+    def compute_doc_index(self) -> Dict[str, Any]:
+        """Decision Opportunity Cost — đo Governor mù quyết định.
+
+        DOC_Index = Mean(R_alternative - R_rejected_simulated)
+          - DOC_Index > 0: Governor chọn đúng (thay thế tốt hơn reject)
+          - DOC_Index < 0: Governor mù quyết định (chọn tệ hơn)
+
+        Khi DOC_Index < 0: calibration_penalty cộng thêm 0.2.
+        Khi không đủ dữ liệu: trả về 0 (trung tính).
+        """
+        try:
+            from src.database.rejected_signals import fetch_doc_returns
+            pairs = fetch_doc_returns(window_days=self.window_days)
+        except Exception:
+            pairs = []
+
+        if len(pairs) < 3:
+            return {"doc_index": 0.0, "doc_penalty": 0.0, "n_pairs": len(pairs)}
+
+        diffs = [p["alternative_return"] - p["rejected_return"] for p in pairs]
+        doc_index = float(np.mean(diffs))
+
+        # DOC penalty: chỉ phạt khi Governor chọn tệ hơn
+        doc_penalty = 0.2 if doc_index < 0 else 0.0
+
+        return {
+            "doc_index": round(doc_index, 4),
+            "doc_penalty": doc_penalty,
+            "doc_wins": sum(1 for d in diffs if d > 0),
+            "doc_losses": sum(1 for d in diffs if d < 0),
+            "n_pairs": len(pairs),
+        }
+
     # ── 5. CALIBRATION SIGNAL ────────────────────────────────────────
 
     def calibration_signal(
@@ -330,6 +365,7 @@ class QuantStatsBridge:
           - outlier_win_ratio: tỷ lệ lợi nhuận bất thường
           - calibration_penalty: mức phạt [0,1] cho effective_trust
           - action: "NONE" | "SCALE" | "ABORT"
+          - doc_index: Decision Opportunity Cost
         """
         if len(live_returns) < 5:
             return {
@@ -354,6 +390,9 @@ class QuantStatsBridge:
         # Outlier ratio
         owr, olr = self.compute_outlier_ratio(live_returns)
 
+        # DOC Index
+        doc = self.compute_doc_index()
+
         # Calibration penalty
         penalty = 0.0
         if sharpe_smoothed < 0.5:
@@ -364,6 +403,9 @@ class QuantStatsBridge:
             penalty += 0.2  # lợi nhuận nhờ outlier
         if live_metrics.get("max_drawdown", 0) > 0.15:
             penalty += 0.3
+
+        # DOC penalty: Governor mù quyết định
+        penalty += doc.get("doc_penalty", 0.0)
 
         penalty = min(penalty, 1.0)
 
@@ -385,6 +427,9 @@ class QuantStatsBridge:
             "calibration_penalty": round(penalty, 4),
             "action": action,
             "reason": reason,
+            "doc_index": doc.get("doc_index", 0.0),
+            "doc_wins": doc.get("doc_wins", 0),
+            "doc_losses": doc.get("doc_losses", 0),
             "cumulative_information_gain": self._cache.get("cumulative_ig", 0.0),
             "live_metrics": live_metrics,
             "rejected_metrics": rejected_metrics,
@@ -442,6 +487,9 @@ class QuantStatsBridge:
                 "  calibration_penalty REAL,"
                 "  action TEXT,"
                 "  reason TEXT,"
+                "  doc_index REAL,"
+                "  doc_wins INTEGER,"
+                "  doc_losses INTEGER,"
                 "  live_metrics TEXT,"
                 "  rejected_metrics TEXT,"
                 "  random_metrics TEXT,"
@@ -452,8 +500,9 @@ class QuantStatsBridge:
                 "INSERT INTO quantstats_calibration "
                 "(timestamp, sharpe_live_smoothed, sharpe_vs_random, "
                 " outlier_win_ratio, outlier_loss_ratio, calibration_penalty, "
-                " action, reason, live_metrics, rejected_metrics, random_metrics) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " action, reason, doc_index, doc_wins, doc_losses, "
+                " live_metrics, rejected_metrics, random_metrics) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     report["timestamp"],
                     cal.get("sharpe_live_smoothed"),
@@ -463,6 +512,9 @@ class QuantStatsBridge:
                     cal.get("calibration_penalty"),
                     cal.get("action"),
                     cal.get("reason"),
+                    cal.get("doc_index", 0.0),
+                    cal.get("doc_wins", 0),
+                    cal.get("doc_losses", 0),
                     str(report.get("live", {})),
                     str(report.get("rejected", {})),
                     str(report.get("random_baseline", {})),
