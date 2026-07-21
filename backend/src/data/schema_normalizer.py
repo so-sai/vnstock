@@ -111,18 +111,76 @@ def get_safe(row: Dict[str, Any], ptd_field: str,
     return default
 
 
-def _get_reference_close(symbol: str) -> Optional[float]:
-    """Lấy close giá gần nhất từ DB để làm reference cho scale detection."""
+# ── Corporate Actions Adjustment ───────────────────────────────────────
+# `adj_close` trong daily_ohlcv chỉ là copy của `close`.
+# Để tránh auto_scale_ohlcv() hiểu sai split/stock dividend là scale mismatch,
+# cần điều chỉnh reference price bằng sự kiện doanh nghiệp từ paper_corporate_actions.
+# Công thức: price_factor = 1/(1+ratio) cho STOCK_DIV/SPLIT.
+# ratio > 0 → pha loãng (giá giảm), ratio < 0 → hợp nhất (giá tăng).
+
+
+def _get_corporate_action_factor(symbol: str, ref_date: str) -> float:
+    """Tra cứu hệ số điều chỉnh giá do sự kiện doanh nghiệp.
+
+    Tích lũy tất cả STOCK_DIV/SPLIT có ex_date >= ref_date - 30 ngày
+    và <= ref_date + 1 ngày, để bắt đúng ngày giao dịch không hưởng quyền.
+
+    Returns:
+        float: Hệ số nhân (1.0 = không có sự kiện).
+               VD: split 2:1 (ratio=1.0) → factor=0.5 → ref * 0.5
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT ratio FROM paper_corporate_actions "
+                "WHERE symbol=? AND action_type IN ('STOCK_DIV','SPLIT') "
+                "AND ex_date >= date(?, '-30 days') "
+                "AND ex_date <= date(?, '+1 day') "
+                "ORDER BY ex_date ASC",
+                (symbol, ref_date, ref_date),
+            ).fetchall()
+        if not rows:
+            return 1.0
+        # Tích lũy tất cả sự kiện: price_factor = ∏ 1/(1+r)
+        factor = 1.0
+        for (r,) in rows:
+            price_factor = 1.0 / (1.0 + float(r)) if (1.0 + float(r)) != 0 else 1.0
+            factor *= price_factor
+        if abs(factor - 1.0) > 0.001:
+            logger.info(
+                f"[CA_ADJ] {symbol} @ {ref_date}: {len(rows)} sự kiện → "
+                f"price_factor={factor:.6f}"
+            )
+        return factor
+    except Exception:
+        return 1.0
+
+
+def _get_reference_close(symbol: str, ref_date: Optional[str] = None) -> Optional[float]:
+    """Lấy close giá gần nhất từ DB, điều chỉnh cho corporate actions.
+
+    Args:
+        symbol: Mã cổ phiếu
+        ref_date: Ngày tham chiếu (YYYY-MM-DD) — để tra corporate actions.
+                  Nếu None, dùng ngày hiện tại.
+
+    Returns:
+        float: Giá tham chiếu đã điều chỉnh, hoặc None nếu không có dữ liệu.
+    """
     try:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT close FROM daily_ohlcv WHERE symbol=? "
+                "SELECT close, date FROM daily_ohlcv WHERE symbol=? "
                 "AND close IS NOT NULL AND close > 0 "
                 "ORDER BY date DESC LIMIT 1",
                 (symbol,),
             ).fetchone()
             if row:
-                return float(row[0])
+                ref_price = float(row[0])
+                ref_date_db = row[1] or ref_date
+                # Điều chỉnh cho corporate actions
+                ca_factor = _get_corporate_action_factor(symbol, ref_date or ref_date_db)
+                return ref_price * ca_factor
     except Exception:
         pass
     return None
@@ -132,16 +190,19 @@ def auto_scale_ohlcv(
     row: Dict[str, Any],
     symbol: str,
     source_label: Optional[str] = None,
+    ref_date: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], float, bool]:
     """Tự động phát hiện và quy chuẩn độ lệch đơn vị (×1000, ×0.001, …).
 
-    So sánh incoming close với reference close từ DB.
-    Nếu tỷ lệ lệch ≈ một KNOWN_SCALE, áp dụng scale cho toàn bộ OHLCV.
+    Tích hợp corporate actions: nếu reference date có sự kiện doanh nghiệp
+    (split, stock dividend), reference price được điều chỉnh trước khi so sánh
+    để tránh nhầm lẫn giảm giá hợp lệ với lệch đơn vị.
 
     Args:
         row: Dict đã normalize (chứa ít nhất 'close')
         symbol: Mã cổ phiếu
         source_label: Nhãn nguồn để log
+        ref_date: Ngày tham chiếu (YYYY-MM-DD) — tra corporate actions.
 
     Returns:
         Tuple (row_sau_khi_scale, scale_factor, was_scaled)
@@ -150,7 +211,7 @@ def auto_scale_ohlcv(
     if close is None or not isinstance(close, (int, float)) or close <= 0:
         return row, 1.0, False
 
-    ref_close = _get_reference_close(symbol)
+    ref_close = _get_reference_close(symbol, ref_date)
     if ref_close is None or ref_close <= 0:
         return row, 1.0, False
 
@@ -216,11 +277,16 @@ def normalize_to_ptd_schema(
     if sym:
         normalized["symbol"] = str(sym).upper()
 
-    # Tự động scale đơn vị nếu cần
+    # Tự động lấy ngày tham chiếu để tra corporate actions
+    ref_date = get_safe(raw, "date")
+    if ref_date and isinstance(ref_date, str) and len(ref_date) >= 10:
+        ref_date = ref_date[:10]  # chuẩn hóa YYYY-MM-DD
+
+    # Tự động scale đơn vị nếu cần (có tích hợp corporate actions)
     scale_info = None
     if sym and normalized.get("close") is not None:
         scaled_row, scale_factor, was_scaled = auto_scale_ohlcv(
-            normalized, str(sym).upper(), source_label
+            normalized, str(sym).upper(), source_label, ref_date
         )
         if was_scaled:
             normalized = scaled_row
@@ -251,6 +317,7 @@ def validate_ohlcv(
     row: Dict[str, Any],
     symbol: Optional[str] = None,
     reference_close: Optional[float] = None,
+    ref_date: Optional[str] = None,
 ) -> List[str]:
     """Kiểm tra tính hợp lệ OHLCV + phát hiện lệch đơn vị.
 
@@ -278,10 +345,10 @@ def validate_ohlcv(
     if open_ is not None and low is not None and open_ < low:
         issues.append(f"open({open_}) < low({low}) — vi phạm nến")
 
-    # Unit scale check: so sánh với reference_close
+    # Unit scale check: so sánh với reference_close (đã điều chỉnh CA)
     ref = reference_close
     if ref is None and symbol:
-        ref = _get_reference_close(symbol)
+        ref = _get_reference_close(symbol, ref_date)
     if (
         ref is not None and ref > 0
         and close is not None and close > 0

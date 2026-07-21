@@ -72,7 +72,7 @@ def fetch_from_vnstock(
             if "time" in raw and "date" not in raw:
                 raw["date"] = raw["time"]
             norm, scale_info = normalize_to_ptd_schema(raw, source_label=source)
-            issues = validate_ohlcv(norm, symbol=symbol)
+            issues = validate_ohlcv(norm, symbol=symbol, ref_date=date)
             if issues:
                 logger.warning(f"[{source.upper()}] {symbol}: OHLCV issues: {issues}")
             return norm, source
