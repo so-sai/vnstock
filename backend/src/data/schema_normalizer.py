@@ -111,62 +111,83 @@ def get_safe(row: Dict[str, Any], ptd_field: str,
     return default
 
 
-# ── Corporate Actions Adjustment ───────────────────────────────────────
+# ── Corporate Actions Adjustment (VNX Standard) ────────────────────────
 # `adj_close` trong daily_ohlcv chỉ là copy của `close`.
-# Để tránh auto_scale_ohlcv() hiểu sai split/stock dividend là scale mismatch,
-# cần điều chỉnh reference price bằng sự kiện doanh nghiệp từ paper_corporate_actions.
-# Công thức: price_factor = 1/(1+ratio) cho STOCK_DIV/SPLIT.
-# ratio > 0 → pha loãng (giá giảm), ratio < 0 → hợp nhất (giá tăng).
+# Điều chỉnh reference price bằng sự kiện doanh nghiệp từ
+# paper_corporate_actions để tránh nhầm scale mismatch với ex-date.
+#
+# Công thức chuẩn VNX cho từng loại sự kiện:
+#   STOCK_DIV / SPLIT : P' = P / (1 + r)
+#   CASH_DIV          : P' = max(0.1, P - D)
+#   RIGHT_ISSUE       : P' = (P + IP × r) / (1 + r)
+#
+# Ex-date kép (tiền mặt + CP cùng ngày):
+#   P' = (P - D) / (1 + r)  — trừ tiền trước, chia CP sau
+#
+# In-memory cache: load paper_corporate_actions một lần khi khởi động,
+# đảm bảo tra cứu O(1), không I/O SQLite lúc runtime.
+
+_ca_cache: Dict[str, List[Dict[str, Any]]] = {}
+_ca_cache_loaded: bool = False
 
 
-def _get_corporate_action_factor(symbol: str, ref_date: str) -> float:
-    """Tra cứu hệ số điều chỉnh giá do sự kiện doanh nghiệp.
-
-    Tích lũy tất cả STOCK_DIV/SPLIT có ex_date >= ref_date - 30 ngày
-    và <= ref_date + 1 ngày, để bắt đúng ngày giao dịch không hưởng quyền.
-
-    Returns:
-        float: Hệ số nhân (1.0 = không có sự kiện).
-               VD: split 2:1 (ratio=1.0) → factor=0.5 → ref * 0.5
-    """
+def _load_ca_cache():
+    global _ca_cache, _ca_cache_loaded
+    if _ca_cache_loaded:
+        return
     try:
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT ratio FROM paper_corporate_actions "
-                "WHERE symbol=? AND action_type IN ('STOCK_DIV','SPLIT') "
-                "AND ex_date >= date(?, '-30 days') "
-                "AND ex_date <= date(?, '+1 day') "
-                "ORDER BY ex_date ASC",
-                (symbol, ref_date, ref_date),
+                "SELECT symbol, ex_date, action_type, "
+                "  COALESCE(cash_per_share,0), COALESCE(ratio,0) "
+                "FROM paper_corporate_actions ORDER BY ex_date ASC"
             ).fetchall()
-        if not rows:
-            return 1.0
-        # Tích lũy tất cả sự kiện: price_factor = ∏ 1/(1+r)
-        factor = 1.0
-        for (r,) in rows:
-            price_factor = 1.0 / (1.0 + float(r)) if (1.0 + float(r)) != 0 else 1.0
-            factor *= price_factor
-        if abs(factor - 1.0) > 0.001:
-            logger.info(
-                f"[CA_ADJ] {symbol} @ {ref_date}: {len(rows)} sự kiện → "
-                f"price_factor={factor:.6f}"
-            )
-        return factor
-    except Exception:
-        return 1.0
+        _ca_cache = {}
+        for r in rows:
+            sym = str(r[0])
+            if sym not in _ca_cache:
+                _ca_cache[sym] = []
+            _ca_cache[sym].append({
+                "ex_date": str(r[1]),
+                "action_type": str(r[2]),
+                "cash_per_share": float(r[3]),
+                "ratio": float(r[4]),
+            })
+        _ca_cache_loaded = True
+        if rows:
+            logger.info(f"[CA_CACHE] Loaded {len(rows)} events, {len(_ca_cache)} symbols")
+    except Exception as e:
+        _ca_cache_loaded = True
 
 
-def _get_reference_close(symbol: str, ref_date: Optional[str] = None) -> Optional[float]:
-    """Lấy close giá gần nhất từ DB, điều chỉnh cho corporate actions.
+def adjust_reference_price(
+    p_raw: float,
+    action_type: str,
+    ratio: float,
+    cash_val: float = 0,
+    issue_price: float = 0,
+) -> float:
+    """Điều chỉnh giá cho một sự kiện doanh nghiệp (VNX standard)."""
+    if action_type in ("STOCK_DIV", "SPLIT"):
+        denom = 1.0 + ratio
+        return p_raw / denom if abs(denom) > 1e-10 else p_raw
+    if action_type == "CASH_DIV":
+        return max(0.1, p_raw - cash_val)
+    if action_type == "RIGHT_ISSUE":
+        denom = 1.0 + ratio
+        return (p_raw + issue_price * ratio) / denom if abs(denom) > 1e-10 else p_raw
+    return p_raw
 
-    Args:
-        symbol: Mã cổ phiếu
-        ref_date: Ngày tham chiếu (YYYY-MM-DD) — để tra corporate actions.
-                  Nếu None, dùng ngày hiện tại.
 
-    Returns:
-        float: Giá tham chiếu đã điều chỉnh, hoặc None nếu không có dữ liệu.
+def _get_adjusted_reference(symbol: str, ref_date: str) -> Optional[float]:
+    """Tính reference price đã điều chỉnh cho tất cả corporate actions.
+
+    Với ex-date kép (cùng ngày có cả CASH_DIV + STOCK_DIV):
+      sequential: P_cash = P - D → P_stock = P_cash / (1 + r) = (P - D) / (1 + r) ✓
+
+    Với sự kiện khác ngày: áp dụng tuần tự theo thứ tự thời gian.
     """
+    # Raw reference price
     try:
         with get_connection() as conn:
             row = conn.execute(
@@ -175,15 +196,48 @@ def _get_reference_close(symbol: str, ref_date: Optional[str] = None) -> Optiona
                 "ORDER BY date DESC LIMIT 1",
                 (symbol,),
             ).fetchone()
-            if row:
-                ref_price = float(row[0])
-                ref_date_db = row[1] or ref_date
-                # Điều chỉnh cho corporate actions
-                ca_factor = _get_corporate_action_factor(symbol, ref_date or ref_date_db)
-                return ref_price * ca_factor
+        if not row:
+            return None
+        p = float(row[0])
+        ref_date = ref_date or str(row[1] or "")
     except Exception:
-        pass
-    return None
+        return None
+
+    # Load cache + lấy events trong window [-30, +1] ngày
+    _load_ca_cache()
+    events = _ca_cache.get(symbol, [])
+    if not events:
+        return p
+
+    window = [e for e in events
+              if e["ex_date"] >= _date_shift(ref_date, -30)
+              and e["ex_date"] <= _date_shift(ref_date, 1)]
+    if not window:
+        return p
+
+    # Áp dụng tuần tự theo thời gian
+    p_adj = p
+    for ev in sorted(window, key=lambda x: x["ex_date"]):
+        p_adj = adjust_reference_price(
+            p_adj, ev["action_type"], ev["ratio"], ev["cash_per_share"]
+        )
+
+    if abs(p_adj - p) / max(p, 1) > 0.001:
+        logger.info(
+            f"[CA_ADJ] {symbol} @ {ref_date}: {len(window)} sự kiện → "
+            f"{p:.2f} → {p_adj:.2f}"
+        )
+    return p_adj
+
+
+def _date_shift(date_str: str, days: int) -> str:
+    """Shift date by N days, returning YYYY-MM-DD."""
+    try:
+        from datetime import datetime, timedelta
+        dt = datetime.strptime(date_str[:10], "%Y-%m-%d") if date_str else datetime.now()
+        return (dt + timedelta(days=days)).strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return date_str or datetime.now().strftime("%Y-%m-%d")
 
 
 def auto_scale_ohlcv(
@@ -211,7 +265,7 @@ def auto_scale_ohlcv(
     if close is None or not isinstance(close, (int, float)) or close <= 0:
         return row, 1.0, False
 
-    ref_close = _get_reference_close(symbol, ref_date)
+    ref_close = _get_adjusted_reference(symbol, ref_date)
     if ref_close is None or ref_close <= 0:
         return row, 1.0, False
 
@@ -348,7 +402,7 @@ def validate_ohlcv(
     # Unit scale check: so sánh với reference_close (đã điều chỉnh CA)
     ref = reference_close
     if ref is None and symbol:
-        ref = _get_reference_close(symbol, ref_date)
+        ref = _get_adjusted_reference(symbol, ref_date)
     if (
         ref is not None and ref > 0
         and close is not None and close > 0
