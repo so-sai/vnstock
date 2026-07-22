@@ -1,4 +1,4 @@
-"""
+﻿"""
 Breakout Continuation Engine v1 (Phase 11 — Asia Adaptation Layer).
 Model C for VN market: breakout continuation + liquidity confirmation.
 VN does NOT mean revert cleanly — it trends with liquidity waves.

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card, Text, Metric, Grid, Badge, Button, Flex, Title, Tab, TabList, TabPanel, TabPanels,
+  Card, Text, Metric, Badge, Button, Title,
 } from '@tremor/react';
 import {
   Play, Pause, SkipForward, AlertTriangle, RefreshCw, TrendingDown, TrendingUp,
   Clock, BarChart3, Activity, Shield,
 } from 'lucide-react';
+import { useI18n } from '../lib/i18n';
 
 const API_BASE = '/api';
 
@@ -87,6 +88,7 @@ const statusIcons: Record<string, React.ReactNode> = {
 };
 
 const PaperTradingPage: React.FC = () => {
+  const { t } = useI18n('full');
   const [state, setState] = useState<SandboxState>({
     orderbook: null,
     twap: null,
@@ -168,9 +170,9 @@ const PaperTradingPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <Title className="text-japandi-earth text-xl font-bold">Paper Trading Sandbox</Title>
+          <Title className="text-japandi-earth text-xl font-bold">{t('Paper Trading Sandbox')}</Title>
           <Text className="text-japandi-muted-clay text-sm">
-            Phase 5 UAT — Depth-weighted fill + Almgren-Chriss slippage + Order Book Thinning
+            {t('Phase 5 UAT — Depth-weighted fill + Almgren-Chriss slippage + Order Book Thinning')}
           </Text>
         </div>
         <div className="flex items-center gap-2">
@@ -192,22 +194,22 @@ const PaperTradingPage: React.FC = () => {
       <Card className="bg-white/60 backdrop-blur-sm border-japandi-muted-clay/30">
         <div className="flex items-center gap-6 flex-wrap">
           <div className="flex items-center gap-2">
-            <label className="text-xs text-japandi-muted-clay">Slices:</label>
+            <label className="text-xs text-japandi-muted-clay">{t('Slices:')}</label>
             <input type="number" value={slices} onChange={e => setSlices(+e.target.value)}
               className="w-16 bg-white/80 border border-japandi-muted-clay/30 rounded px-2 py-1 text-xs font-mono" />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs text-japandi-muted-clay">Depth:</label>
+            <label className="text-xs text-japandi-muted-clay">{t('Depth:')}</label>
             <input type="number" value={depth} onChange={e => setDepth(+e.target.value)}
               className="w-20 bg-white/80 border border-japandi-muted-clay/30 rounded px-2 py-1 text-xs font-mono" />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs text-japandi-muted-clay">Price:</label>
+            <label className="text-xs text-japandi-muted-clay">{t('Price:')}</label>
             <input type="number" value={price} step={0.5} onChange={e => setPrice(+e.target.value)}
               className="w-20 bg-white/80 border border-japandi-muted-clay/30 rounded px-2 py-1 text-xs font-mono" />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs text-japandi-muted-clay">Capital:</label>
+            <label className="text-xs text-japandi-muted-clay">{t('Capital:')}</label>
             <input type="number" value={capital} onChange={e => setCapital(+e.target.value)}
               className="w-28 bg-white/80 border border-japandi-muted-clay/30 rounded px-2 py-1 text-xs font-mono" />
           </div>
@@ -215,7 +217,7 @@ const PaperTradingPage: React.FC = () => {
             Khởi chạy
           </Button>
           <Button size="sm" icon={SkipForward} onClick={handleExecuteSlice} className="bg-japandi-moss text-white">
-            Execute Slice
+            {t('Execute Slice')}
           </Button>
           <Button
             size="sm"
@@ -224,7 +226,7 @@ const PaperTradingPage: React.FC = () => {
             onClick={state.halt_active ? handleResume : handleHalt}
             className={state.halt_active ? 'bg-emerald-600 text-white' : 'bg-rose-50 text-rose-700 border-rose-300'}
           >
-            {state.halt_active ? `Resume (${state.halt_duration.toFixed(0)}s)` : 'Trading Halt'}
+            {state.halt_active ? `${t('Resume')} (${state.halt_duration.toFixed(0)}s)` : t('Trading Halt')}
           </Button>
         </div>
       </Card>
@@ -235,24 +237,24 @@ const PaperTradingPage: React.FC = () => {
           <Text className="text-japandi-muted-clay text-xs">Trạng thái</Text>
           <div className="flex items-center gap-2 mt-1">
             {state.halt_active ? (
-              <Badge color="red" icon={Shield} className="bg-red-100">HALT</Badge>
+              <Badge color="red" icon={Shield} className="bg-red-100">{t('HALT')}</Badge>
             ) : (
-              <Badge color="emerald" icon={Play} className="bg-emerald-100">LIVE</Badge>
+              <Badge color="emerald" icon={Play} className="bg-emerald-100">{t('LIVE')}</Badge>
             )}
           </div>
         </Card>
         <Card className="bg-white/60 border-japandi-muted-clay/30 p-4">
-          <Text className="text-japandi-muted-clay text-xs">Plan</Text>
+          <Text className="text-japandi-muted-clay text-xs">{t('Plan')}</Text>
           <Metric className="text-japandi-earth">{twap?.status || 'NO_PLAN'}</Metric>
         </Card>
         <Card className="bg-white/60 border-japandi-muted-clay/30 p-4">
-          <Text className="text-japandi-muted-clay text-xs">Slices</Text>
+          <Text className="text-japandi-muted-clay text-xs">{t('Slices')}</Text>
           <Metric className="text-japandi-earth">
             {twap ? `${twap.slices.filter(s => s.status === 'FILLED').length}/${twap.n_slices}` : '0/0'}
           </Metric>
         </Card>
         <Card className="bg-white/60 border-japandi-muted-clay/30 p-4">
-          <Text className="text-japandi-muted-clay text-xs">Book Thinning</Text>
+          <Text className="text-japandi-muted-clay text-xs">{t('Book Thinning')}</Text>
           <Metric className="text-japandi-earth">{state.book_thinning_pct.toFixed(1)}%</Metric>
         </Card>
       </div>
@@ -260,11 +262,11 @@ const PaperTradingPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Order Book */}
         <Card className="bg-white/60 backdrop-blur-sm border-japandi-muted-clay/30">
-          <Title className="text-sm font-semibold text-japandi-earth mb-4">Order Book</Title>
+          <Title className="text-sm font-semibold text-japandi-earth mb-4">{t('Order Book')}</Title>
           <div className="grid grid-cols-2 gap-4">
             {/* Bids */}
             <div>
-              <Text className="text-xs text-japandi-muted-clay mb-2">BIDS</Text>
+              <Text className="text-xs text-japandi-muted-clay mb-2">{t('BIDS')}</Text>
               <div className="space-y-1">
                 {ob?.bids.map((l, i) => (
                   <div key={i} className="flex justify-between items-center text-xs font-mono bg-emerald-50/50 rounded px-2 py-1">
@@ -273,13 +275,13 @@ const PaperTradingPage: React.FC = () => {
                   </div>
                 ))}
                 {(!ob || ob.bids.length === 0) && (
-                  <div className="text-xs text-japandi-muted-clay/50 italic py-2">Empty</div>
+                  <div className="text-xs text-japandi-muted-clay/50 italic py-2">{t('Empty')}</div>
                 )}
               </div>
             </div>
             {/* Asks */}
             <div>
-              <Text className="text-xs text-japandi-muted-clay mb-2">ASKS</Text>
+              <Text className="text-xs text-japandi-muted-clay mb-2">{t('ASKS')}</Text>
               <div className="space-y-1">
                 {ob?.asks.map((l, i) => (
                   <div key={i} className="flex justify-between items-center text-xs font-mono bg-rose-50/50 rounded px-2 py-1">
@@ -288,35 +290,35 @@ const PaperTradingPage: React.FC = () => {
                   </div>
                 ))}
                 {(!ob || ob.asks.length === 0) && (
-                  <div className="text-xs text-japandi-muted-clay/50 italic py-2">Empty</div>
+                  <div className="text-xs text-japandi-muted-clay/50 italic py-2">{t('Empty')}</div>
                 )}
               </div>
             </div>
           </div>
           <div className="mt-3 pt-3 border-t border-japandi-muted-clay/20 flex justify-between text-xs font-mono">
-            <span className="text-japandi-muted-clay">Mid: <span className="text-japandi-earth font-semibold">{ob?.mid_price?.toFixed(2) || '—'}</span></span>
-            <span className="text-japandi-muted-clay">Spread: <span className="text-japandi-earth font-semibold">{ob?.spread?.toFixed(2) || '—'}</span></span>
+            <span className="text-japandi-muted-clay">{t('Mid:')} <span className="text-japandi-earth font-semibold">{ob?.mid_price?.toFixed(2) || '—'}</span></span>
+            <span className="text-japandi-muted-clay">{t('Spread:')} <span className="text-japandi-earth font-semibold">{ob?.spread?.toFixed(2) || '—'}</span></span>
           </div>
         </Card>
 
         {/* Slippage */}
         <Card className="bg-white/60 backdrop-blur-sm border-japandi-muted-clay/30">
-          <Title className="text-sm font-semibold text-japandi-earth mb-4">Slippage Report</Title>
+          <Title className="text-sm font-semibold text-japandi-earth mb-4">{t('Slippage Report')}</Title>
           <div className="space-y-3">
             <div className="flex justify-between text-xs">
-              <span className="text-japandi-muted-clay">Total trades</span>
+              <span className="text-japandi-muted-clay">{t('Total trades')}</span>
               <span className="font-mono text-japandi-earth">{slip?.n || 0}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-japandi-muted-clay">Mean slippage</span>
+              <span className="text-japandi-muted-clay">{t('Mean slippage')}</span>
               <span className="font-mono text-japandi-earth">{((slip?.mean || 0) * 100).toFixed(4)}%</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-japandi-muted-clay">Max slippage</span>
+              <span className="text-japandi-muted-clay">{t('Max slippage')}</span>
               <span className="font-mono text-japandi-earth">{((slip?.max || 0) * 100).toFixed(4)}%</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-japandi-muted-clay">Total volume</span>
+              <span className="text-japandi-muted-clay">{t('Total volume')}</span>
               <span className="font-mono text-japandi-earth">{(slip?.total_qty || 0).toFixed(0)}</span>
             </div>
           </div>
@@ -325,17 +327,17 @@ const PaperTradingPage: React.FC = () => {
 
       {/* TWAP Slices Table */}
       <Card className="bg-white/60 backdrop-blur-sm border-japandi-muted-clay/30">
-        <Title className="text-sm font-semibold text-japandi-earth mb-4">TWAP Slices</Title>
+        <Title className="text-sm font-semibold text-japandi-earth mb-4">{t('TWAP Slices')}</Title>
         <div className="overflow-x-auto">
           <table className="w-full text-xs font-mono">
             <thead>
               <tr className="text-japandi-muted-clay border-b border-japandi-muted-clay/20">
-                <th className="text-left py-2 px-2">#</th>
-                <th className="text-right py-2 px-2">Amount</th>
-                <th className="text-center py-2 px-2">Status</th>
-                <th className="text-right py-2 px-2">Fill Price</th>
-                <th className="text-right py-2 px-2">Filled Qty</th>
-                <th className="text-right py-2 px-2">Slippage</th>
+                <th className="text-left py-2 px-2">{t('#')}</th>
+                <th className="text-right py-2 px-2">{t('Amount')}</th>
+                <th className="text-center py-2 px-2">{t('Status')}</th>
+                <th className="text-right py-2 px-2">{t('Fill Price')}</th>
+                <th className="text-right py-2 px-2">{t('Filled Qty')}</th>
+                <th className="text-right py-2 px-2">{t('Slippage')}</th>
               </tr>
             </thead>
             <tbody>
@@ -356,7 +358,7 @@ const PaperTradingPage: React.FC = () => {
               ))}
               {(!twap || twap.slices.length === 0) && (
                 <tr>
-                  <td colSpan={6} className="py-4 text-center text-japandi-muted-clay/50 italic">Chưa có plan</td>
+                  <td colSpan={6} className="py-4 text-center text-japandi-muted-clay/50 italic">{t('Chưa có TWAP plan')}</td>
                 </tr>
               )}
             </tbody>

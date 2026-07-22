@@ -1,4 +1,4 @@
-"""Telemetry Layer — Capture, Outcome, Attribution (Sprint 1 + 2 canonical)"""
+﻿"""Telemetry Layer — Capture, Outcome, Attribution (Sprint 1 + 2 canonical)"""
 
 from src.telemetry.attribution import (
     decompose_attribution,

@@ -1,4 +1,4 @@
-"""Vietnamese semantic mapping layer for system reports.
+﻿"""Vietnamese semantic mapping layer for system reports.
 
 Translates PSR / CAGL / CAO raw output into Vietnamese.
 Zero architecture change — presentation only.

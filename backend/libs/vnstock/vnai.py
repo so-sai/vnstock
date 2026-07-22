@@ -1,4 +1,4 @@
-# vnai.py (Mock for vnstock bypass)
+﻿# vnai.py (Mock for vnstock bypass)
 import functools
 
 

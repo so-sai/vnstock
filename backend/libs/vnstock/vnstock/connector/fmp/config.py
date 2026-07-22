@@ -1,4 +1,4 @@
-"""
+﻿"""
 Configuration and utility functions for FMP API connector.
 
 Provides classes and functions for FMP API interaction including

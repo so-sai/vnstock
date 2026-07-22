@@ -1,4 +1,4 @@
-"""
+﻿"""
 Session Info API — endpoint nhẹ cho Header Frontend.
 Chỉ trả về: phiên tác chiến (target_date), thời gian cập nhật, regime status ngắn gọn.
 Không gọi engine nặng — đọc thẳng regime_history (1 query) → trả JSON tức thì.

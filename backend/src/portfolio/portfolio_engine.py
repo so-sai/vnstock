@@ -1,4 +1,4 @@
-"""
+﻿"""
 Portfolio State Machine v1.0
 Điều phối vòng đời vị thế — Position Lifecycle Engine.
 """

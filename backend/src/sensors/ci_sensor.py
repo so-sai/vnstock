@@ -1,4 +1,4 @@
-"""
+﻿"""
 ci_sensor.py — Crowding Index Sensor v3 (Layer 3: Positioning).
 
 Three processing blocks:

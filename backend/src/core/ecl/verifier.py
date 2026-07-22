@@ -1,4 +1,4 @@
-"""ECL verifier — execution contract hash + dependency lock."""
+﻿"""ECL verifier — execution contract hash + dependency lock."""
 
 import hashlib
 import sys

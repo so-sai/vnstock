@@ -13,11 +13,16 @@ import { useDashboard, useBreadthStacked } from '../hooks/useApi';
 import { swuc } from '../lib/swuc';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { CardSkeleton, ChartSkeleton } from '../components/Skeletons';
+import SentinelTelemetryBar from '../components/SentinelTelemetryBar';
+import GovernorBeliefBridge from '../components/GovernorBeliefBridge';
+import RejectedSignalsArchive from '../components/RejectedSignalsArchive';
+import { useDashboardUI } from '../stores/dashboardStore';
 
 const MacroDashboard: React.FC = () => {
   const { data: dashboard, isLoading, error } = useDashboard();
   const { data: breadthStacked } = useBreadthStacked(60);
   const [activeItem, setActiveItem] = React.useState<{ col: (typeof breadthStacked extends (infer T)[] | undefined ? T : never); idx: number } | null>(null);
+  const { isBeliefPanelOpen, toggleBeliefPanel, isRejectedPanelOpen, toggleRejectedPanel } = useDashboardUI();
 
   const formatDateShort = (dateStr: string) => {
     if (!dateStr) return '';
@@ -69,6 +74,25 @@ const MacroDashboard: React.FC = () => {
             DỮ LIỆU PHIÊN: {breadth?.updatedAt ? new Date(breadth.updatedAt).toLocaleDateString('vi-VN') : '21/05/2026'} | SỔ CÁI ĐÃ KHÓA SẠCH
           </p>
         </div>
+      </div>
+
+      <ErrorBoundary>
+        <SentinelTelemetryBar />
+      </ErrorBoundary>
+
+      <div className="flex items-center gap-2 mt-2 mb-4">
+        <button
+          onClick={toggleBeliefPanel}
+          className="px-2 py-1 text-[10px] rounded border border-japandi-border bg-japandi-surface text-japandi-text-dim hover:bg-japandi-accent hover:text-white transition-colors"
+        >
+          {isBeliefPanelOpen ? 'Ẩn' : 'Hiện'} Cầu tin cậy
+        </button>
+        <button
+          onClick={toggleRejectedPanel}
+          className="px-2 py-1 text-[10px] rounded border border-japandi-border bg-japandi-surface text-japandi-text-dim hover:bg-japandi-accent hover:text-white transition-colors"
+        >
+          {isRejectedPanelOpen ? 'Ẩn' : 'Hiện'} Tín hiệu bị từ chối
+        </button>
       </div>
 
       <ErrorBoundary>
@@ -477,6 +501,20 @@ const MacroDashboard: React.FC = () => {
           </Card>
         </div>
       </ErrorBoundary>
+
+      {/* Bayesian Belief + Rejected Signals */}
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {isBeliefPanelOpen && (
+          <ErrorBoundary>
+            <GovernorBeliefBridge />
+          </ErrorBoundary>
+        )}
+        {isRejectedPanelOpen && (
+          <ErrorBoundary>
+            <RejectedSignalsArchive />
+          </ErrorBoundary>
+        )}
+      </div>
     </div>
   );
 };

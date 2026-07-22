@@ -1,4 +1,4 @@
-"""
+﻿"""
 Field name normalization utilities.
 
 Provides tools for converting field names to standardized formats

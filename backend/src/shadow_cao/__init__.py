@@ -1,4 +1,4 @@
-"""Shadow CAO — Safe Pre-Learning Simulation Layer.
+﻿"""Shadow CAO — Safe Pre-Learning Simulation Layer.
 
 Cognitive stress-testing system that runs alongside production.
 Does NOT touch production tables — operates in shadow_cao.db namespace.

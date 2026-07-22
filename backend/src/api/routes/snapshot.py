@@ -1,4 +1,4 @@
-"""
+﻿"""
 /api/v1/snapshot — Delta Divergence Index + Snapshot Index
 Phase: DDI Gate (Delta Divergence Index + Atomic Parameter Identity)
 """

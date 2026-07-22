@@ -1,4 +1,4 @@
-"""Shadow CAO — Integration hooks into Telemetry and Decision Tensor.
+﻿"""Shadow CAO — Integration hooks into Telemetry and Decision Tensor.
 
 These hooks are called from the production pipeline but NEVER write to production tables.
 Shadow CAO operates in a separate DB namespace (shadow_cao.db).

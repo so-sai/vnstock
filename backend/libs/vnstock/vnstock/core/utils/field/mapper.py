@@ -1,4 +1,4 @@
-"""
+﻿"""
 Field mapping utilities.
 
 Provides tools for loading and managing field mappings between

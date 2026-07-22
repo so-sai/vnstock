@@ -1,4 +1,4 @@
-"""
+﻿"""
 Data Baking Forge (Phase 12.5) — Backfill historical OHLCV for watchlist stocks.
 Ingests 2023→2025 data via KBS API, normalizes, and bakes into daily_ohlcv.
 """

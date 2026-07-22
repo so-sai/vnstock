@@ -1,4 +1,4 @@
-"""Trading module for KB Securities (KBS) data source."""
+﻿"""Trading module for KB Securities (KBS) data source."""
 
 import json
 from typing import List, Optional

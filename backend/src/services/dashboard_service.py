@@ -1,4 +1,4 @@
-"""
+﻿"""
 Dashboard Service Layer v1.0
 Trạm biến áp trung tâm — gộp Macro + Breadth + Screener cho trang chủ.
 """

@@ -1,4 +1,4 @@
-"""
+﻿"""
 =======================================================================
  SHADOW TRACKER V1.0 - MODULE DOI SOAT DOC LAP (L4.5)
  Alpha Forge Backend V1.0 Unified

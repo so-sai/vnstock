@@ -1,4 +1,4 @@
-"""test_production_gates.py — Test Suite hồi quy 3 chốt chặn Production.
+﻿"""test_production_gates.py — Test Suite hồi quy 3 chốt chặn Production.
 
 Đúc khuôn bê tông cốt thép cho nền móng hệ thống. Bao phủ:
   1. Exact EMD: d(x,x)=0.0 tuyệt đối, không Warning.

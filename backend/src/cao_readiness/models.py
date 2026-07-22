@@ -1,4 +1,4 @@
-"""CAO Readiness Gate — Data models for readiness report"""
+﻿"""CAO Readiness Gate — Data models for readiness report"""
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path

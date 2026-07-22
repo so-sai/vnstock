@@ -1,4 +1,4 @@
-"""test_catchup_execution.py — Catch-up Execution Rule (Transpose + Kill-switch).
+﻿"""test_catchup_execution.py — Catch-up Execution Rule (Transpose + Kill-switch).
 
 Hiệu chỉnh quyết liệt về định tuyến lệnh bù: "Tín hiệu thuộc về quá khứ, nhưng
 thanh khoản phải thuộc về hiện tại". Kiểm chứng:

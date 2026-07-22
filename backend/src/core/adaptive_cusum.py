@@ -1,4 +1,4 @@
-"""adaptive_cusum.py — Online Structural Break Detection with Robust Statistics.
+﻿"""adaptive_cusum.py — Online Structural Break Detection with Robust Statistics.
 
 Phát hiện gãy cấu trúc thời gian thực (Online Structural Break) cho chuỗi
 Regime Score. Dùng CUSUM (Cumulative Sum Control Chart) với:

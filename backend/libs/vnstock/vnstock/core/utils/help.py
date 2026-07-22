@@ -1,4 +1,4 @@
-def help(obj, method_path):
+﻿def help(obj, method_path):
     """
     Display detailed information about a method in the specified object
     based on its name.

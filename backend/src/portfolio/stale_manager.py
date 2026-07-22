@@ -1,4 +1,4 @@
-"""StalePositionManager — Quản lý vốn kẹt (Double Signal) với FIFO hạch toán.
+﻿"""StalePositionManager — Quản lý vốn kẹt (Double Signal) với FIFO hạch toán.
 
 FIFO: Mỗi campaign cũ là một lớp chi phí riêng, không gộp giá vốn.
 Write-off LIFO: Campaign mới nhất thanh lý trước.

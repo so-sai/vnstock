@@ -1,4 +1,4 @@
-"""
+﻿"""
 capitulation_detector.py — Phase 4 CAS-DSM Capitulation Detector
 
 Two-Step State Machine:

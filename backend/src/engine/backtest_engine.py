@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
+    """Path Hydrator v2.1: Auto-locate Project Root"""
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
     else:
@@ -511,7 +511,7 @@ class BacktestAlpha:
         mdd = drawdown.min() * 100
 
         print("\n" + "="*45)
-        print("📊 BÁO CÁO GIÁM ĐỊNH ALPHA v4.3 (Macro Hub + Risk Shield)")
+        print("📊 BÁO CÁO ĐÁNH GIÁ ALPHA v4.3 (Macro Hub + Risk Shield)")
         print("="*45)
         print(f"💰 Lợi nhuận Tổng:       {total_ret:>8.2f}%")
         print(f"📈 VN-Index Return:     {bench_ret:>8.2f}%")

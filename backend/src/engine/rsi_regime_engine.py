@@ -1,4 +1,4 @@
-"""
+﻿"""
 RSI Regime Engine (Phase 14 — Momentum Habitat Layer).
 Detects RSI range behavior over time — not point values.
 

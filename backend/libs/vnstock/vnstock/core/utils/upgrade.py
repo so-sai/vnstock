@@ -1,4 +1,4 @@
-import re
+﻿import re
 import sys
 import warnings
 from importlib.metadata import version as get_version

@@ -1,4 +1,4 @@
-"""
+﻿"""
 trader_concierge.py — Action layer for traders (100% Vietnamese).
 
 Sits on top of all engine layers. No new computation — only synthesises

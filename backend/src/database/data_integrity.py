@@ -1,4 +1,4 @@
-"""Index Integrity Guard v1.0 — Self-healing data quality layer.
+﻿"""Index Integrity Guard v1.0 — Self-healing data quality layer.
 
 Auto-detects and corrects VNINDEX scale corruption at pipeline entry
 so that RS, correlation, and leadership metrics are never computed on

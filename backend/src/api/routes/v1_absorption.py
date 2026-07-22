@@ -1,4 +1,4 @@
-"""v1_absorption.py — API endpoint: phân tích hấp thụ nội cho từng mã cổ phiếu.
+﻿"""v1_absorption.py — API endpoint: phân tích hấp thụ nội cho từng mã cổ phiếu.
 
 Tuân thủ:
   - Quy tắc Song ngữ API (HCI format): KHÔNG trả chuỗi thuần, trả dict localization.

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Portfolio State Memory Layer v1.0 — Runtime
 Closed-loop experience memory for adaptive capital control.
 Turns portfolio history into a control signal.

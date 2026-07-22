@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gate C — Regime Stability Index
 ================================
 Measures regime entropy over a rolling window.

@@ -1,4 +1,4 @@
-"""CAO Trust Bridge — Activation Gate (Final Promotion Decision).
+﻿"""CAO Trust Bridge — Activation Gate (Final Promotion Decision).
 
 The switch that determines: Shadow CAO → Live CAO.
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Flow Decay Engine (Phase 12C — Time Kernel Layer).
 Overlay kernel — applies regime-modulated exponential decay to raw time series
 BEFORE signal computation. Does NOT modify existing engines.

@@ -1,4 +1,4 @@
-"""Shadow CAO — Dry-run Attribution Engine.
+﻿"""Shadow CAO — Dry-run Attribution Engine.
 
 Re-computes engine contribution under ablation conditions.
 Same market outcome — perturbed attribution only.

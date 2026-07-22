@@ -1,4 +1,4 @@
-"""
+﻿"""
 Multi-platform notification and messaging service for bot integration.
 
 Supports sending messages and files to:

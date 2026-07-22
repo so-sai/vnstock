@@ -1,4 +1,4 @@
-"""
+﻿"""
 Macro Service Layer v1.0
 Cầu nối giữa FastAPI Routes và Regime/Breadth Engines.
 Xử lý: Data transformation, Exception handling, Fallback.

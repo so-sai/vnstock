@@ -1,4 +1,4 @@
-"""PaperBroker — Sandbox API cho Phase 5 UAT & Paper Trading Simulation.
+﻿"""PaperBroker — Sandbox API cho Phase 5 UAT & Paper Trading Simulation.
 
 Mô hình fill Depth-Weighted + Slippage Almgren-Chriss (square-root impact).
 Streaming L1/L2, network failure injection, empty book scenarios.

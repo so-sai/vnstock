@@ -1,4 +1,4 @@
-"""
+﻿"""
 CAO Readiness Gate — Critical Pre-Flight Module
 ================================================
 Validates 3 pre-conditions before CAO Phase 1 (learning) can be safely executed.

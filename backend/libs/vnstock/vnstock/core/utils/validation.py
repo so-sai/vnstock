@@ -1,4 +1,4 @@
-"""
+﻿"""
 Validation utilities for vnstock data sources.
 
 Self-contained module with no dependencies on parser.py to avoid

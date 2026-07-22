@@ -1,4 +1,4 @@
-"""CAO Trust Bridge — Statistical Validation Layer.
+﻿"""CAO Trust Bridge — Statistical Validation Layer.
 
 The transition gate between Shadow CAO (observability) and Live CAO (learning).
 

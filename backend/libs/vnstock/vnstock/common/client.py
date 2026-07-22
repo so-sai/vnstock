@@ -1,4 +1,4 @@
-"""
+﻿"""
 Main entry point and orchestrator for vnstock library.
 
 This module provides the Vnstock class which acts as the primary interface

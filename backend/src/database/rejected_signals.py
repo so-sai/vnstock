@@ -1,12 +1,12 @@
-"""rejected_signals.py — Nghĩa địa giả thuyết + Evidence Ledger.
+﻿"""rejected_signals.py — Kho lưu tín hiệu bị từ chối + Evidence Ledger.
 
 LAW-001 (Anti-Survivorship):
-  Không chỉ lưu người sống. Lưu cả nghĩa địa.
+  Lưu cả tín hiệu bị từ chối để phân tích counterfactual.
 
 Evidence Ledger (thay thế Rolling Window):
   Mỗi rejected signal lưu information_gain = abs(simulated_return) × prior_belief.
   IG tích lũy không bao giờ mất — chỉ có trọng số freshness decay.
-  Governor học từ tổng Information Gain, không từ số lượng reject.
+  Hệ thống học từ tổng Information Gain, không từ số lượng reject.
 
 Evidence Expiry:
   Mỗi signal có evaluation_horizon (7d/20d/60d/120d). Sau horizon,

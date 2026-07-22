@@ -1,4 +1,4 @@
-"""CAO Trust Bridge — Data models for statistical validation layer.
+﻿"""CAO Trust Bridge — Data models for statistical validation layer.
 
 This is NOT a threshold system. It is a distribution alignment validator
 + regime-aware promotion control system.

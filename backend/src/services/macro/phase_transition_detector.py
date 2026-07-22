@@ -1,4 +1,4 @@
-"""
+﻿"""
 phase_transition_detector.py — Module 3: Phase Transition Detector.
 
 Architecture: PTD Layer 3 (Narrative Emergence)

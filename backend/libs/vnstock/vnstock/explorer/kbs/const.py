@@ -1,4 +1,4 @@
-"""Constants for KB Securities (KBS) data source."""
+﻿"""Constants for KB Securities (KBS) data source."""
 
 # Base URLs
 _IIS_BASE_URL = "https://kbbuddywts.kbsec.com.vn/iis-server/investment"

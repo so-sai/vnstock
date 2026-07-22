@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 from pathlib import Path
 
 
@@ -177,7 +177,7 @@ def get_replay_timeline(limit: int = 365) -> list:
             return {"days": [], "events": []}
 
         df = df.sort_values('date').reset_index(drop=True)
-        dates = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+        dates = pd.to_datetime(df['date'], format='mixed').dt.strftime('%Y-%m-%d')
         df = df.assign(date=dates)
         df = df.where(pd.notna(df), None)
 

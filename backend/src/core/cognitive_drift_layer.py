@@ -1,4 +1,4 @@
-"""
+﻿"""
 cognitive_drift_layer.py — Drift UI Layer (100% Vietnamese)
 
 Sits on top of engine/drift_prevention.py (kernel, English).

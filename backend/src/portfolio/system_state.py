@@ -1,4 +1,4 @@
-"""Persistence State Lock — reboot-safe system_state.json + TWAP context."""
+﻿"""Persistence State Lock — reboot-safe system_state.json + TWAP context."""
 
 import json
 from datetime import datetime, timezone

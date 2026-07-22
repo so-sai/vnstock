@@ -1,4 +1,4 @@
-# @title utils/market_hours.py
+﻿# @title utils/market_hours.py
 # Simple utility to check market trading hours and data availability
 
 import datetime

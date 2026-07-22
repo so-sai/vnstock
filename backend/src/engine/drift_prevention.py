@@ -1,4 +1,4 @@
-"""
+﻿"""
 drift_prevention.py — Cognitive drift detection for the control system.
 
 Detects when the narrative (explain_layer) diverges from the driver reality.

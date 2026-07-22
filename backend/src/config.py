@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import warnings
 from pathlib import Path
@@ -26,7 +26,7 @@ os.environ.setdefault("VNAI_QUIET", "1")
 
 # 1. Định vị tọa độ Gốc (Bất chấp ngài chạy lệnh từ thư mục nào hoặc đóng gói .exe)
 def _hydrate_path():
-    """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
+    """Path Hydrator v2.1: Auto-locate Project Root"""
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
     else:

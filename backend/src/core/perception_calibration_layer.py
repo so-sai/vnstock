@@ -1,4 +1,4 @@
-"""
+﻿"""
 perception_calibration_layer.py — Perception Calibration Layer.
 
 Reads shadow log + driver history, diagnoses systematic biases,

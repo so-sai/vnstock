@@ -1,4 +1,4 @@
-"""PyInstaller entry point: boot FastAPI via uvicorn.
+﻿"""PyInstaller entry point: boot FastAPI via uvicorn.
    Implements Dynamic Path Resolution — data lives outside the temp dir
    so that daily-close commits survive sidecar shutdown.
 """

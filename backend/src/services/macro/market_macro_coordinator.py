@@ -1,4 +1,4 @@
-"""
+﻿"""
 market_macro_coordinator.py — Phase Classification via 4 Spectral Indicators.
 
 Architecture: PTD Layer 2.5 (Coordinator Context)

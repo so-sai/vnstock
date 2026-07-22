@@ -1,4 +1,4 @@
-"""Canonical API Gateway Layer (CAGL) — API integrity & contract enforcement.
+﻿"""Canonical API Gateway Layer (CAGL) — API integrity & contract enforcement.
 
 Provides:
   - Route scanning (runtime introspection)

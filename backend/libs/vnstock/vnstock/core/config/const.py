@@ -1,4 +1,4 @@
-import pathlib
+﻿import pathlib
 
 
 def _get_project_dir() -> pathlib.Path:

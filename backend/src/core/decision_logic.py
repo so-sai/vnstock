@@ -1,4 +1,4 @@
-# Regime: regime_status,
+﻿# Regime: regime_status,
 canh_bao_som: "có" if early_warning else "không",
 entropy: round(entropy, 3) if entropy is not None else None,
 so_tru_cau_truc: so_tru_ok,

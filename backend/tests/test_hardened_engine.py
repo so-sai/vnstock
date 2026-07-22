@@ -1,4 +1,4 @@
-"""
+﻿"""
 Production Hardening Smoke Test
 Run: python -X utf8 backend/tests/test_hardened_engine.py (from project root)
 """

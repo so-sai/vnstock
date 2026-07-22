@@ -1,4 +1,4 @@
-"""Shadow CAO — Engine Ablation Simulator.
+﻿"""Shadow CAO — Engine Ablation Simulator.
 
 ABLATION = remove one engine's signal, recompute decision distribution.
 This is NOT synthetic data generation. Market outcome is NEVER perturbed.

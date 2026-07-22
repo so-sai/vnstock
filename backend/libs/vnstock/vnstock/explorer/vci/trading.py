@@ -1,4 +1,4 @@
-# Các thông tin về giao dịch, sở hữu của các bên (đối tượng tham gia thị trường)
+﻿# Các thông tin về giao dịch, sở hữu của các bên (đối tượng tham gia thị trường)
 
 import json
 from typing import List, Optional, Union

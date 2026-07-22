@@ -1,4 +1,4 @@
-"""DB schema audit for AEL design — run from project root"""
+﻿"""DB schema audit for AEL design — run from project root"""
 import sys, pathlib
 p = pathlib.Path(__file__).resolve()
 for parent in p.parents:

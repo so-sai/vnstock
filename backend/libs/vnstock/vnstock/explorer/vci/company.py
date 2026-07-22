@@ -1,4 +1,4 @@
-"""
+﻿"""
 Module quản lý thông tin công ty từ nguồn dữ liệu VCI.
 """
 

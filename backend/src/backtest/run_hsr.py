@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 run_hsr.py — CLI entry point for Historical State Reconstruction + SRV validation.
 

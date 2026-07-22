@@ -1,4 +1,4 @@
-"""Attribution Engine v1 (Sprint 2 canonical) — deterministic engine contribution decomposition"""
+﻿"""Attribution Engine v1 (Sprint 2 canonical) — deterministic engine contribution decomposition"""
 import json
 import logging
 import math

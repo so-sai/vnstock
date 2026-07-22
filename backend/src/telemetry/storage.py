@@ -1,4 +1,4 @@
-"""Telemetry Storage — SQLite persistence for snapshots & outcomes"""
+﻿"""Telemetry Storage — SQLite persistence for snapshots & outcomes"""
 import json
 import logging
 import os

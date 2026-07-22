@@ -1,4 +1,4 @@
-"""Boot-time CAGL verifier — runs at FastAPI startup to validate route integrity.
+﻿"""Boot-time CAGL verifier — runs at FastAPI startup to validate route integrity.
 
 Usage::
 

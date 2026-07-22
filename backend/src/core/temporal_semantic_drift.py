@@ -1,4 +1,4 @@
-"""
+﻿"""
 temporal_semantic_drift.py — Temperal Semantic Drift Index + Early Warning.
 
 Tracks how "meaning" changes across time windows of snapshots.

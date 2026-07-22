@@ -1,4 +1,4 @@
-"""
+﻿"""
 calibrate_rom.py — Calibrate RegimeROM to match real engine state-space dynamics.
 
 Usage: python backend/src/backtest/calibrate_rom.py

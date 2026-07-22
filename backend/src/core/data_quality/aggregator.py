@@ -1,4 +1,4 @@
-"""Time-windowed aggregation — produces summary stats for dashboards.
+﻿"""Time-windowed aggregation — produces summary stats for dashboards.
 
 Not the CAO integration path (that's in quality_score_engine.py).
 This is the human-readable layer: dashboard snapshots, trend lines.

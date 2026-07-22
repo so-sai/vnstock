@@ -1,4 +1,4 @@
-"""
+﻿"""
 Sector Risk Shield v1.0
 Prevents correlated sector concentration in the portfolio.
 """

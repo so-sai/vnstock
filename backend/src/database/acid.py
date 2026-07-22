@@ -1,4 +1,4 @@
-"""acid.py — Giao thức ACID cho luồng hạch toán EOD PTCK.
+﻿"""acid.py — Giao thức ACID cho luồng hạch toán EOD PTCK.
 
 THIẾT KẾ PHÂN MẢNH LƯU TRỮ (Bifurcated Storage Architecture):
 

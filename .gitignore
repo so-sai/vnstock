@@ -245,3 +245,13 @@ backend/logs/
 /report_*.json
 /rom_calibrated_*.json
 /.kit/kernel.port
+
+# Build artifacts (Nuitka / PyInstaller / Tauri)
+backend/build/
+frontend/src-tauri/binaries/
+frontend/src-tauri/target/
+frontend/dist/
+releases/
+
+# Nuitka cache
+.nuitka/

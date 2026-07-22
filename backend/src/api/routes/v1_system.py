@@ -1,4 +1,4 @@
-"""v1_system.py — API endpoint: vận hành hệ thống (EOD run, health).
+﻿"""v1_system.py — API endpoint: vận hành hệ thống (EOD run, health).
 
 Tuân thủ:
   - CLI-First Law: gọi run_eod_pipeline() từ eod_runner, không nhúng logic.

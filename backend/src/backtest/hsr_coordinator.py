@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 hsr_coordinator.py — Historical State Reconstruction Coordinator.
 

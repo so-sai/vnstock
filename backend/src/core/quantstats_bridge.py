@@ -1,4 +1,4 @@
-"""quantstats_bridge.py — Live Calibration Engine cho PTD.
+﻿"""quantstats_bridge.py — Live Calibration Engine cho PTD.
 
 Biến QuantStats thành động cơ giám sát niềm tin (Belief Monitor).
 Không dùng để ngắm backtest, mà để đo độ lệch giữa kỳ vọng và thực tế.

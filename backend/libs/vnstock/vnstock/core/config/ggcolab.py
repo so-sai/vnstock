@@ -1,4 +1,4 @@
-"""
+﻿"""
 Google Colab Integration Module
 
 Centralized management of all Google Colab-related logic:

@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -47,7 +47,7 @@ def kiem_tra_va_nhac_nho():
 
     print()
     print("=" * 55)
-    print("  PHÁO ĐÀI SENTINEL — NHẮC NHỞ TÁC CHIẾN")
+    print("  HỆ THỐNG SENTINEL — NHẮC NHỞ VẬN HÀNH")
     print("=" * 55)
 
     if ngay_du_lieu == ngay_hien_tai:

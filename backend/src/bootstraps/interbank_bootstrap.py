@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import logging
 import sqlite3
 import sys
@@ -171,7 +171,7 @@ def bootstrap():
     # Step 5: Bulk insert CSV data
     batch = [(r["date"], r["variable"], float(r["value"])) for r in rows]
     cur.executemany(
-        "INSERT INTO macro_history (date, variable, value) VALUES (?, ?, ?)",
+        "INSERT OR REPLACE INTO macro_history (date, variable, value) VALUES (?, ?, ?)",
         batch,
     )
     conn.commit()

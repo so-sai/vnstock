@@ -1,4 +1,4 @@
-"""Production Stress Release (PSR) — reproducibility boundary.
+﻿"""Production Stress Release (PSR) — reproducibility boundary.
 
 Transitions the system from "correct" to "provably reproducible".
 

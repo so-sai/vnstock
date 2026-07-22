@@ -1,4 +1,4 @@
-"""paper_mtm.py — Mark-to-Market P&L cho Paper Trading (chuẩn kế toán VN).
+﻿"""paper_mtm.py — Mark-to-Market P&L cho Paper Trading (chuẩn kế toán VN).
 
 Giải quyết 3 giới hạn bắt buộc để đạt tiêu chuẩn Forward Testing:
 

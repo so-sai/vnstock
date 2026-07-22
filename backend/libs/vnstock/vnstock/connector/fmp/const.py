@@ -1,4 +1,4 @@
-"""
+﻿"""
 Constants and configuration for FMP API connector.
 
 Defines API endpoints, default settings, and data mappings for FMP

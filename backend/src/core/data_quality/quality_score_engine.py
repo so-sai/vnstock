@@ -1,4 +1,4 @@
-"""DataIntegrityScore (DIS) — quantifies data reliability as a [0, 1] scalar.
+﻿"""DataIntegrityScore (DIS) — quantifies data reliability as a [0, 1] scalar.
 
 Primary metric:
     DIS = weakest-link of per-source scores (10th percentile)

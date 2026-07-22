@@ -1,4 +1,4 @@
-"""database_guardian.py — Disaster Recovery Pipeline cho PTCK Database.
+﻿"""database_guardian.py — Disaster Recovery Pipeline cho PTCK Database.
 
 Chạy ngầm qua Cronjob/Task Scheduler lúc 23:00 hàng ngày.
 

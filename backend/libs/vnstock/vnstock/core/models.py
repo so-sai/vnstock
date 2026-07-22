@@ -1,4 +1,4 @@
-"""
+﻿"""
 Data validation models for vnstock library.
 
 This module provides Pydantic BaseModel classes for data validation

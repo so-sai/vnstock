@@ -1,4 +1,4 @@
-"""
+﻿"""
 live_fund_simulation.py — Live Fund Simulation Layer.
 
 Reads shadow log entries and simulates PnL as if the system drove

@@ -1,4 +1,4 @@
-"""Quote module for KB Securities (KBS) data source."""
+﻿"""Quote module for KB Securities (KBS) data source."""
 
 import json
 from datetime import datetime

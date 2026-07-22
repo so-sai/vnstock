@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unified provider registry system.
 
 This module provides a centralized registry for all data providers

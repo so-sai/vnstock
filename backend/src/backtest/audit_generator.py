@@ -35,7 +35,7 @@ def generate_audit_report(csv_path):
         return
 
     df = pd.read_csv(csv_path)
-    df['date'] = pd.to_datetime(df['date'])
+    df['date'] = pd.to_datetime(df['date'], format='mixed')
 
     # --- 1. INSTITUTIONAL PILLARS ---
     max_dd = df['drawdown'].max()

@@ -1,4 +1,4 @@
-"""VersionFreeze — immutable version manifest + git integration.
+﻿"""VersionFreeze — immutable version manifest + git integration.
 
 Defines:
   - ``CAO v3.1`` as an immutable semantic + causal contract

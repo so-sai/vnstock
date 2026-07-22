@@ -1,4 +1,4 @@
-# vnstock/api/listing.py
+﻿# vnstock/api/listing.py
 
 from typing import Any
 

@@ -1,4 +1,4 @@
-"""Break-Glass Protocol — Single-Pass Key-Anchored Passphrase.
+﻿"""Break-Glass Protocol — Single-Pass Key-Anchored Passphrase.
 
 Không multi-sig, không multi-admin.
 Operator duy nhất dùng --passphrase <SECRET> để override.

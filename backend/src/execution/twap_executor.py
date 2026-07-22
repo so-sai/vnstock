@@ -1,4 +1,4 @@
-"""TWAPExecutor — Order Execution Layer (Phase 4.3).
+﻿"""TWAPExecutor — Order Execution Layer (Phase 4.3).
 
 Middleware giữa CLI và StalePositionManager.
 Preflight ping, Idempotent Resume, Circuit Breaker, Liquidity Strike handling.

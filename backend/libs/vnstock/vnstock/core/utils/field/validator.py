@@ -1,4 +1,4 @@
-"""
+﻿"""
 Field validation utilities.
 
 Provides tools for validating field names, checking coverage,

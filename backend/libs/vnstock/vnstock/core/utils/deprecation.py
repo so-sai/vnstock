@@ -1,4 +1,4 @@
-"""
+﻿"""
 Deprecation utilities for vnstock.
 
 Provides decorators and utilities to mark and handle deprecated features,

@@ -1,4 +1,4 @@
-"""
+﻿"""
 params_registry.py — Param Fingerprint Registry
 
 Xây dựng kho dữ liệu params_hash từ decision_audit.jsonl.

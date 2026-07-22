@@ -1,4 +1,4 @@
-"""Weekly Cognitive Report — READ-ONLY aggregation layer.
+﻿"""Weekly Cognitive Report — READ-ONLY aggregation layer.
 
 Not an engine. Not a learning layer. Not a scoring layer.
 

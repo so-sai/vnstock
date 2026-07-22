@@ -1,4 +1,4 @@
-"""v1_macro.py — API endpoint: trạng thái vĩ mô song ngữ.
+﻿"""v1_macro.py — API endpoint: trạng thái vĩ mô song ngữ.
 
 Cung cấp macro status dưới định dạng HCI (Human-Computer Interface)
 với localization song ngữ EN/VI cho mọi tín hiệu.

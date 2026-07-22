@@ -165,7 +165,8 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
 - **Unit Mismatch:** `entry_price * 1000` to normalize thousands → raw VND
 - **Windows Encoding:** `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')`
 - **Hydrate Path Anchor:** Use `AGENTS.md + backend is_dir` — unique to project root
-- **Package Manager (Bun):** Node.js and npm have been fully purged from the system. Always use `bun` (e.g. `bun install`, `bun run build`, `bun run dev`) for all frontend package management and building. Do NOT run `npm` or `yarn`.
+- **Package Manager:** Always use `bun` for frontend (e.g. `bun install`, `bun run build`, `bun run dev`). Do NOT run `npm` or `yarn`.
+- **i18n Coverage Test:** Run `bun run i18n-coverage` from `frontend/` to check all `t()` calls in `.tsx` files have matching keys in `vi.json`. This catches bare English strings. ESLint custom rule `no-bare-english-strings` can be added via `eslint-plugin-react` with a custom rule that flags literal JSX text that isn't wrapped in `t()`.
 - **Bộ tự đánh giá độ tin cậy (45% TRUNG_BINH):** 5 yếu tố có trọng số: thị trường rõ ràng(0.25) + cấu trúc lành mạnh(0.25) + tín hiệu đồng thuận(0.25) + biến động ổn định(0.15) + tín hiệu đáng tin(0.10). Tạm ngưng kết luận khi điểm <0.30 hoặc entropy>2.5+số trụ≤1. Dùng `python ptck.py confidence` để chạy. Output key tiếng Việt: `điểm_tin_cậy`, `mức_đánh_giá`, `tạm_ngưng_kết_luận`.
 
 - **Thứ tự ưu tiên quyết định (CAO→THẤP):**

@@ -722,7 +722,7 @@ def cmd_quantstats(args):
 
 
 def cmd_rejected_signals(args):
-    """Rejected Signals Archive — Nghĩa địa giả thuyết."""
+    """Rejected Signals Archive — Kho lưu tín hiệu bị từ chối."""
     from src.database.rejected_signals import (
         count_by_reason, get_rejected_signals, run_eod_update,
     )
@@ -734,7 +734,7 @@ def cmd_rejected_signals(args):
             days_back=30,
         )
         print(f"\n{'=' * 80}")
-        print(f"  {_ll('REJECTED SIGNALS ARCHIVE')} — Nghĩa địa giả thuyết")
+        print(f"  {_ll('REJECTED SIGNALS ARCHIVE')} — Kho lưu tín hiệu bị từ chối")
         print(f"{'=' * 80}")
         if not rows:
             print("\n  (trống) — chưa có tín hiệu nào bị từ chối.\n")
@@ -1385,6 +1385,158 @@ def cmd_silver(args):
             print(f"  [{_ll('FAIL')}] Silver dashboard: {e}")
 
 
+def cmd_governor_report(args):
+    """Báo cáo phân rã đóng góp 3 mô hình vào DecisionGuard."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.core.market_snapshot import tao_anh_chup
+    from src.engine.decision_guard import kiem_tra_an_toan, reset_trap_detector
+    from src.engine.recovery_governor import RecoveryGovernor
+    from src.engine.macro_stale_tracker import StaleTracker
+
+    reset_trap_detector()
+    RecoveryGovernor.reset_instance()
+    StaleTracker.reset_instance()
+
+    snap = tao_anh_chup(lang_mode=_VERBOSE_LANG)
+    import src.engine.confidence_layer as cl
+    func = getattr(cl, '\u0111\u00e1nh_gi\u00e1_\u0111\u1ed9_tin_c\u1eady')
+    confidence = func(anh_chup=snap)
+
+    result = kiem_tra_an_toan(
+        quyet_dinh_de_xuat="PHAN_TICH",
+        ly_do_de_xuat=["governor-report"],
+        do_tin_cay=confidence,
+        anh_chup=snap,
+    )
+
+    c = result.get("contribution", {})
+    models = c.get("models", {})
+
+    print("=" * 62)
+    print(f"  {_ll('GOVERNOR REPORT')} — {_ll('Contribution Breakdown')}")
+    print("=" * 62)
+    print(f"  {_ll('Position Level')}:  {c.get('position_level', 0):.0%}")
+    pos_label_raw = c.get('position_label', 'N/A')
+    print(f"  {_ll('Position Label')}:  {_ll(pos_label_raw)}")
+    blk = c.get('blocking_model', 'none') or 'none'
+    print(f"  {_ll('Blocking Model')}:  {blk}")
+    print(f"  {_ll('Decision')}:        {result.get('quyet_dinh', 'N/A')}")
+    print(f"  {_ll('Blocked')}:         {result.get('bi_chặn', False)}")
+    print(f"  {_ll('Weight Mult')}:     {result.get('he_so_giam_ty_trong', 1.0):.2f}")
+    print()
+
+    for model_id, model_data in models.items():
+        status = model_data.get("status", "N/A")
+        weight = model_data.get("weight", 0)
+        impact = model_data.get("impact_pct", 0)
+        detail = model_data.get("detail", "")
+
+        if status == "VETO":
+            icon = "🔴"
+        elif status == "WARNING":
+            icon = "🟡"
+        elif status == "DEGRADED":
+            icon = "🟠"
+        else:
+            icon = "🟢"
+
+        mid = _ll(model_id.upper())
+        st = _ll(status)
+        imp = _ll("impact")
+        print(f"  {icon} {mid:12s} | {_ll('weight')}={weight:.0%} | {st:12s} | {imp}={impact:.0%}")
+        print(f"     {detail}")
+
+    print()
+
+    # Breadth trap sub-section
+    bt = result.get("breadth_trap", {})
+    if bt:
+        trap_icon = "🔴" if bt.get("trap_deepening") else ("🟢" if bt.get("ready_for_recovery") else "🟡")
+        print(f"  {trap_icon} {_ll('Breadth Trap')}:  {_ll('active')}={bt.get('trap_active')}  "
+              f"{_ll('divergence')}={bt.get('divergence', 0):.1f}  "
+              f"S-={bt.get('S_minus', 0):.2f}")
+
+    # Macro stale sub-section
+    ms = result.get("macro_stale", {})
+    if ms:
+        print(f"  {_ll('Macro Stale')}:    {_ll('fresh_ratio')}={ms.get('fresh_ratio', 0):.0%}  "
+              f"{_ll('terminal_ratio')}={ms.get('terminal_ratio', 0):.0%}  "
+              f"{_ll('veto')}={ms.get('veto', False)}")
+
+    # Recovery Governor sub-section
+    rg = result.get("recovery_governor", {})
+    if rg:
+        print(f"  {_ll('Recovery Gov')}:   S+={rg.get('S_plus', 0):.4f}  "
+              f"S-={rg.get('S_minus', 0):.4f}  "
+              f"dS/dt={rg.get('dS_dt', 0):.6f}  "
+              f"{_ll('warmup')}={rg.get('warmup_days', 0)}d")
+
+    print("=" * 62)
+
+
+def cmd_erl_scan(args):
+    """ERL scan — Entity Resilience Layer + Whitelist generation."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from datetime import datetime
+    from src.config import DATA_DIR
+    from src.engine.erl_worker import scan as erl_scan, get_whitelist
+
+    target = args.date or datetime.now().strftime("%Y-%m-%d")
+    data_dir = str(DATA_DIR)
+
+    print("=" * 62)
+    print(f"  ERL SCAN — {_ll('Entity Resilience Layer')}")
+    print("=" * 62)
+    print(f"  Date: {target}")
+    print(f"  Mode: Phase 1 (Local RS Filter) + Phase 2 (Proxy Scan)")
+    print()
+
+    # Nếu flag --whitelist, chỉ đọc file hiện tại
+    if args.whitelist:
+        wl = get_whitelist(DATA_DIR)
+        if not wl:
+            print("  ⚠ Chưa có whitelist. Chạy 'python ptck.py erl-scan' trước.")
+            print("=" * 62)
+            return
+        print(f"  Whitelist ngày {wl.get('scan_date', 'N/A')} — {wl.get('count', 0)} mã")
+        print(f"  Regime: {wl.get('market_regime', 'N/A')}  |  S+: {wl.get('s_plus', 0):.4f}")
+        print()
+        print(f"  {'Symbol':8s}  {'RS':4s}  {'P(Survive)':12s}  {'Anomaly':7s}  {'Score':7s}")
+        print(f"  {'-'*8}  {'-'*4}  {'-'*12}  {'-'*7}  {'-'*7}")
+        for s in wl.get("whitelist", []):
+            print(f"  {s['symbol']:8s}  {s['rs_rating']:<4.0f}  "
+                  f"{s['p_survive']:<12.2%}  {s['anomaly_streak']:<7d}  "
+                  f"{s['composite_score']:<7.4f}")
+        print("=" * 62)
+        return
+
+    # Chạy full pipeline
+    result = erl_scan(data_dir=data_dir, target_date=target)
+
+    if not result.whitelist:
+        print("  ⚠ Không có mã nào lọt vào whitelist.")
+        print("=" * 62)
+        return
+
+    print(f"  Whitelist Top {len(result.whitelist)} — Survival Resilience Stocks")
+    print(f"  Regime: {result.market_regime}  |  S+: {result.s_plus:.4f}")
+    print(f"  Scan:   {result.scan_date} @ {result.generated_at}")
+    print()
+    print(f"  {'Rank':4s}  {'Symbol':8s}  {'RS':4s}  {'P(Survive)':12s}  {'Value(tỷ)':10s}  {'Anomaly':7s}  {'Score':7s}")
+    print(f"  {'-'*4}  {'-'*8}  {'-'*4}  {'-'*12}  {'-'*10}  {'-'*7}  {'-'*7}")
+    for i, s in enumerate(result.whitelist, 1):
+        anomaly_flag = " ⚠" if s["anomaly_streak"] >= 3 else ""
+        print(f"  {i:<4d}  {s['symbol']:8s}  {s['rs_rating']:<4.0f}  "
+              f"{s['p_survive']:<12.2%}  {s['avg_value_20d']:<10.1f}  "
+              f"{s['anomaly_streak']:<7d}{anomaly_flag}  {s['composite_score']:<7.4f}")
+
+    print()
+    print(f"  ✅ Whitelist đã ghi vào: {DATA_DIR / 'erl_whitelist.json'}")
+    print("=" * 62)
+
+
 def cmd_rs_audit(args):
     """Audit Top RS — phân tích nguồn gốc sức mạnh."""
     top_n = getattr(args, 'top', 20)
@@ -1861,8 +2013,8 @@ def _check_sbv_alert_startup():
         from src.services.macro.interbank_seeder import _is_sbv_alert_active
         if _is_sbv_alert_active():
             print("=" * 60)
-            print(" ⚠ CẢNH BÁO: PHÁO ĐÀI SENTINEL PHÁT HIỆN SỰ CỐ CẤU TRÚC DỮ LIỆU SBV")
-            print(" Hệ thống đang vận hành trong trạng thái MÙ VĨ MÔ (Vị thế khóa cứng = 0.0).")
+            print(" ⚠ CẢNH BÁO: HỆ THỐNG PHÁT HIỆN SỰ CỐ CẤU TRÚC DỮ LIỆU SBV")
+            print(" Hệ thống đang vận hành trong trạng thái PARSER KHÔNG KHẢ DỤNG (Vị thế khóa cứng = 0.0).")
             print(" Thực thi ngay: python ptck.py sbv-update để cập nhật fixtures.")
             print("=" * 60)
             print()
@@ -2053,7 +2205,7 @@ def main():
     p_qs.set_defaults(func=cmd_quantstats)
 
     # rejected-signals
-    p_rs = sub.add_parser("rejected-signals", help="Rejected Signals Archive — Nghĩa địa giả thuyết")
+    p_rs = sub.add_parser("rejected-signals", help="Rejected Signals Archive — Kho lưu tín hiệu bị từ chối")
     p_rs_sub = p_rs.add_subparsers(dest="action", required=True)
     p_rs_list = p_rs_sub.add_parser("list", help="Liệt kê rejected signals gần đây")
     p_rs_list.add_argument("--limit", type=int, default=20, help="Số bản ghi tối đa")
@@ -2079,6 +2231,21 @@ def main():
     p_silver = sub.add_parser("silver", parents=[lang_parent], help="Silver information")
     p_silver.add_argument("subcommand", nargs="?", choices=["gs-ratio", "seed"], default=None, help="Silver subcommand")
     p_silver.set_defaults(func=cmd_silver)
+
+    # governor-report (Contribution Breakdown)
+    p_gov = sub.add_parser("governor-report", parents=[lang_parent],
+                           help="Phân rã đóng góp 3 mô hình vào DecisionGuard")
+    p_gov.set_defaults(func=cmd_governor_report)
+
+    # erl-scan (Entity Resilience Layer + Whitelist)
+    p_erl = sub.add_parser("erl-scan", parents=[lang_parent],
+                           help="Entity Resilience Layer — quét sức khỏe 1.514 mã + Whitelist Top 30")
+    p_erl.add_argument("--top", type=int, default=20, help="Số lượng mã hiển thị (mặc định 20)")
+    p_erl.add_argument("--vn30", action="store_true", help="Chỉ quét top 30 thanh khoản")
+    p_erl.add_argument("--date", help="Ngày (YYYY-MM-DD)")
+    p_erl.add_argument("--whitelist", action="store_true", help="Xem whitelist hiện tại (không chạy scan mới)")
+    p_erl.add_argument("--output", help="Đường dẫn xuất whitelist riêng")
+    p_erl.set_defaults(func=cmd_erl_scan)
 
     # rotation (Asia supply-chain canary)
     p_rot = sub.add_parser("rotation", parents=[lang_parent], help="Góc xoay chuỗi cung ứng châu Á: VN vs KOSPI+TAIEX+DXY")

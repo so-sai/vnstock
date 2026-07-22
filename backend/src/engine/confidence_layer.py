@@ -1,4 +1,4 @@
-"""
+﻿"""
 Bộ tự đánh giá độ tin cậy — quyết định có đáng tin không?
 
 Nhiệm vụ:
@@ -19,10 +19,13 @@ Nhiệm vụ:
 """
 
 import json
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _đường_dẫn_gốc():
@@ -57,12 +60,13 @@ NGƯỠNG = {
 }
 
 TRỌNG_SỐ = {
-    "thị_trường_rõ_ràng": 0.20,
-    "cấu_trúc_lành_mạnh": 0.20,
-    "tín_hiệu_đồng_thuận": 0.20,
-    "chất_lượng_chỉ_số": 0.15,
-    "biến_động_ổn_định": 0.15,
+    "thị_trường_rõ_ràng": 0.19,
+    "cấu_trúc_lành_mạnh": 0.19,
+    "tín_hiệu_đồng_thuận": 0.19,
+    "chất_lượng_chỉ_số": 0.14,
+    "biến_động_ổn_định": 0.14,
     "tín_hiệu_đáng_tin": 0.10,
+    "chất_lượng_vĩ_mô": 0.05,
 }
 
 
@@ -307,6 +311,42 @@ def _6_chất_lượng_chỉ_số(
     return {"điểm": round(min(1.0, điểm), 3), "lý_do": lý_do}
 
 
+def _7_chất_lượng_vĩ_mô(db_path: str = "") -> dict:
+    """Độ tươi của dữ liệu vĩ mô — từ StaleTracker.
+
+    fresh_ratio càng cao → dữ liệu vĩ mô càng đáng tin.
+    Nếu veto được kích hoạt → điểm = 0.
+    """
+    try:
+        if not db_path:
+            from src.config import DATA_DIR
+            db_path = str(DATA_DIR / "screener_cache.db")
+        from src.engine.macro_stale_tracker import StaleTracker
+        tracker = StaleTracker.get_instance()
+        state = tracker.update(db_path=db_path)
+        fresh = state["fresh_ratio"]
+        veto = state["veto"]
+        terminal = state["terminal_ratio"]
+
+        if veto:
+            điểm = 0.0
+            lý_do = [f"dữ liệu vĩ mô mất hiệu lực — fresh_ratio={fresh:.0%}, terminal={terminal:.0%}"]
+        elif fresh >= 0.80:
+            điểm = 1.0
+            lý_do = [f"dữ liệu vĩ mô tươi tốt — fresh_ratio={fresh:.0%}"]
+        elif fresh >= 0.50:
+            điểm = 0.6
+            lý_do = [f"dữ liệu vĩ mô trung bình — fresh_ratio={fresh:.0%}, terminal={terminal:.0%}"]
+        else:
+            điểm = 0.2
+            lý_do = [f"dữ liệu vĩ mô cũ — fresh_ratio={fresh:.0%}, terminal={terminal:.0%}"]
+
+        return {"điểm": round(điểm, 3), "lý_do": lý_do}
+    except Exception as exc:
+        logger.warning("_7_chất_lượng_vĩ_mô: %s", exc)
+        return {"điểm": 0.5, "lý_do": ["không thể đánh giá chất lượng vĩ mô — dùng mặc định 0.5"]}
+
+
 # ── Hàm chính ────────────────────────────────────────────
 
 def đánh_giá_độ_tin_cậy(
@@ -408,6 +448,7 @@ def đánh_giá_độ_tin_cậy(
     yt_4 = _4_biến_động_ổn_định(tỷ_lệ_atr, điểm_v)
     yt_5 = _5_tín_hiệu_đáng_tin(trạng_thái)
     yt_6 = _6_chất_lượng_chỉ_số(breadth, dominant_contribution_pct, top_contribution_pts)
+    yt_7 = _7_chất_lượng_vĩ_mô()
 
     # ── Tính điểm tổng hợp ──
     điểm_tin_cậy = (
@@ -417,6 +458,7 @@ def đánh_giá_độ_tin_cậy(
         + TRỌNG_SỐ["chất_lượng_chỉ_số"] * yt_6["điểm"]
         + TRỌNG_SỐ["biến_động_ổn_định"] * yt_4["điểm"]
         + TRỌNG_SỐ["tín_hiệu_đáng_tin"] * yt_5["điểm"]
+        + TRỌNG_SỐ["chất_lượng_vĩ_mô"] * yt_7["điểm"]
     )
     # ── Hệ số phạt cấu trúc (phi tuyến) ──
     he_so_phat_cau_truc = 1.0
@@ -443,7 +485,8 @@ def đánh_giá_độ_tin_cậy(
     # ── Tổng hợp lý do ──
     tất_cả_lý_do = []
     for yt, tên in [(yt_1, "thị_trường"), (yt_2, "cấu_trúc"), (yt_3, "đồng_thuận"),
-                    (yt_4, "biến_động"), (yt_5, "tín_hiệu"), (yt_6, "chất_lượng")]:
+                    (yt_4, "biến_động"), (yt_5, "tín_hiệu"), (yt_6, "chất_lượng"),
+                    (yt_7, "vĩ_mô")]:
         for ld in yt["lý_do"]:
             if ld not in tất_cả_lý_do:
                 tất_cả_lý_do.append(ld)
@@ -471,6 +514,7 @@ def đánh_giá_độ_tin_cậy(
             "cấu_trúc_lành_mạnh": yt_2,
             "tín_hiệu_đồng_thuận": yt_3,
             "chất_lượng_chỉ_số": yt_6,
+            "chất_lượng_vĩ_mô": yt_7,
             "biến_động_ổn_định": yt_4,
             "tín_hiệu_đáng_tin": yt_5,
         },

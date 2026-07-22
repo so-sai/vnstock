@@ -1,4 +1,4 @@
-
+﻿
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -79,7 +79,7 @@ def create_markdown_report(verdict, target_date):
             f.write(f"- **XÁC NHẬN MA10:** `{'YES' if rec['ma10_reclaim'] else 'NO'}`\n\n")
 
         # Section 4: Sentinel Details
-        f.write("## 🔍 Chi tiết Giám định Sentinel (Model A)\n\n")
+        f.write("## 🔍 Chi tiết Trạng thái Sentinel (Model A)\n\n")
         f.write(f"- **Momentum Expansion (Lớp 1):** {verdict['layer1_mom_expansion']['status']} ({verdict['layer1_mom_expansion']['value']}/{verdict['layer1_mom_expansion']['threshold']})\n")
         f.write(f"- **NH10 Consistency (Lớp 2):** {verdict['layer2_nh10_consistency']['status']} ({verdict['layer2_nh10_consistency']['value']}/{verdict['layer2_nh10_consistency']['threshold']} ngày)\n")
         f.write(f"- **Foreign Absorption (Lớp 3):** {verdict['layer3_foreign_absorption']['status']}\n\n")

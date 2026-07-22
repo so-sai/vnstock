@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 forward_return_tagger.py — Alpha Evaluation Layer (AEL), Module 1
 
@@ -118,7 +118,7 @@ def build_tagged_rows(
         return []
 
     # ── Prepare VNINDEX close series ─────────────────────────────────────────
-    vnindex_df["date"] = pd.to_datetime(vnindex_df["date"])
+    vnindex_df["date"] = pd.to_datetime(vnindex_df["date"], format='mixed')
     vnindex_df = vnindex_df.sort_values("date").reset_index(drop=True)
     vnindex_df["close"] = pd.to_numeric(vnindex_df["close"], errors="coerce")
 
@@ -132,7 +132,7 @@ def build_tagged_rows(
     vni_lookup = vnindex_df.set_index("date")[["close", "fwd_t1", "fwd_t5", "fwd_t20"]]
 
     # ── Join & tag ────────────────────────────────────────────────────────────
-    regime_df["date"] = pd.to_datetime(regime_df["date"])
+    regime_df["date"] = pd.to_datetime(regime_df["date"], format='mixed')
     rows: list[ForwardReturnRow] = []
 
     for _, row in regime_df.iterrows():

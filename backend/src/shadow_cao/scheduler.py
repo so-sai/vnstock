@@ -1,4 +1,4 @@
-"""Shadow CAO — Daily batch scheduler.
+﻿"""Shadow CAO — Daily batch scheduler.
 
 Idempotent: safe to run multiple times. Only processes new data.
 Runs after telemetry evaluation completes.

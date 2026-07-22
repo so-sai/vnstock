@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gate A — Engine Independence Test
 ==================================
 Checks pairwise correlation between engine signals from historical snapshots.

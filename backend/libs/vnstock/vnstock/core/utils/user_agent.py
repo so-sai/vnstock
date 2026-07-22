@@ -1,4 +1,4 @@
-# vnstock/vnstock/core/utils/user_agent.py
+﻿# vnstock/vnstock/core/utils/user_agent.py
 
 import random
 from typing import Dict, Optional

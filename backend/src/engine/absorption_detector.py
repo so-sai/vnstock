@@ -1,4 +1,4 @@
-"""absorption_detector.py — Phát hiện Cân bằng Hấp thụ thị trường.
+﻿"""absorption_detector.py — Phát hiện Cân bằng Hấp thụ thị trường.
 
 Kiến trúc:
   1. Streaming PCA trên Liquidity Matrix [decline, VPOC_volume, slippage]
@@ -88,7 +88,7 @@ class AbsorptionDetector:
         if df.empty:
             return pd.DataFrame()
 
-        df["date"] = pd.to_datetime(df["date"])
+        df["date"] = pd.to_datetime(df["date"], format='mixed')
         return df
 
     def _compute_liquidity_matrix(self, df: pd.DataFrame) -> np.ndarray:

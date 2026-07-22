@@ -1,4 +1,4 @@
-"""
+﻿"""
 vnstock connectors.
 
 Provides connectors to various data sources for financial data.

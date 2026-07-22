@@ -1,4 +1,4 @@
-"""
+﻿"""
 Main field handler that integrates all field utilities.
 
 Provides a high-level interface for field validation, normalization,

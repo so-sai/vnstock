@@ -1,4 +1,4 @@
-"""meta_evidence.py — Dual Belief Calibration: Meta-labeling cho PTD.
+﻿"""meta_evidence.py — Dual Belief Calibration: Meta-labeling cho PTD.
 
 Tách biệt hai vòng suy luận:
   - Market Loop: Governor suy luận trạng thái thị trường (P(State))

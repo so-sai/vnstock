@@ -1,4 +1,4 @@
-"""bilingual_schema.py — HCI Localization Schema v1.0
+﻿"""bilingual_schema.py — HCI Localization Schema v1.0
 
 Cấu trúc song ngữ EN/VI cho mọi metric, tín hiệu, và trạng thái.
 Mỗi metric có: name (tên), tooltip (giải thích), color_code (màu UI).
@@ -279,13 +279,13 @@ GOVERNOR_STATES: dict[str, dict[str, Any]] = {
 EARLY_WARNING: dict[str, dict[str, Any]] = {
     "ATR_SHOCK": {
         "color_code": "#FF4444",
-        "vi": {"name": "Sốc biến động", "tooltip": "ATR tăng đột biến, báo hiệu chuyển pha mạnh sắp xảy ra."},
-        "en": {"name": "ATR Shock", "tooltip": "ATR spike warning of imminent strong phase transition."}
+        "vi": {"name": "Đột biến ATR", "tooltip": "ATR tăng đột biến, báo hiệu chuyển pha mạnh sắp xảy ra."},
+        "en": {"name": "ATR Spike", "tooltip": "ATR spike warning of imminent strong phase transition."}
     },
     "BREADTH_COLLAPSE": {
         "color_code": "#FF8C00",
-        "vi": {"name": "Sụp đổ độ rộng", "tooltip": "Độ rộng thị trường thu hẹp nhanh, số mã giảm áp đảo."},
-        "en": {"name": "Breadth Collapse", "tooltip": "Market breadth narrowing rapidly, decliners overwhelm advancers."}
+        "vi": {"name": "Thu hẹp độ rộng", "tooltip": "Độ rộng thị trường thu hẹp nhanh, số mã giảm áp đảo."},
+        "en": {"name": "Breadth Narrowing", "tooltip": "Market breadth narrowing rapidly, decliners overwhelm advancers."}
     },
     "REGIME_FLIP": {
         "color_code": "#FFD700",

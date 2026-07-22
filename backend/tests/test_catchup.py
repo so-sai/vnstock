@@ -1,4 +1,4 @@
-"""test_catchup.py — Test Suite cho cơ chế Giao dịch bù (Catch-up Execution).
+﻿"""test_catchup.py — Test Suite cho cơ chế Giao dịch bù (Catch-up Execution).
 
 Trả lời câu hỏi khai thác sâu: khi chu kỳ EOD ngày T thất bại hoàn toàn (sập
 mạng kéo dài), ngày T+1 phải TỰ ĐỘNG phát hiện ngày nợ & bù tuần tự, với

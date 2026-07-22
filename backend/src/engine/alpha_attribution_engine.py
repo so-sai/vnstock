@@ -1,4 +1,4 @@
-"""
+﻿"""
 alpha_attribution_engine.py — Alpha Attribution Engine (FAE)
 
 Final closure layer for the decision stack.

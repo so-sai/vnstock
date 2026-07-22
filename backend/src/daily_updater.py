@@ -1,4 +1,4 @@
-
+﻿
 import io
 import json
 import logging
@@ -385,29 +385,156 @@ MACRO_TICKERS = {
     'ES_FUTURES': 'ES=F',
 }
 
+def _forward_fill_macro(variable: str, today: str, conn) -> dict:
+    """Forward fill một macro variable từ giá trị cuối cùng trong DB.
+
+    Trả về dict {variable, date, value, is_stale} hoặc None nếu không có history.
+    """
+    row = conn.execute(
+        "SELECT value FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1",
+        (variable,),
+    ).fetchone()
+    if row:
+        return {
+            "variable": variable,
+            "date": today,
+            "value": float(row[0]),
+            "is_stale": 1,
+        }
+    return None
+
+
+def _fetch_single_yahoo(symbol: str, name: str, period: str = "5d") -> tuple:
+    """Fetch single yahoo ticker, trả về (close_val, None) hoặc (None, error_msg).
+
+    Tier 1: yfinance library.
+    Tier 2: HTTP GET đến Yahoo Chart API trực tiếp (backup khi yfinance fail).
+    """
+    import yfinance as yf
+
+    # ── Tier 1: yfinance ──
+    close_val = None
+    err = None
+    try:
+        df = yf.download(symbol, period=period, interval="1d", progress=False)
+        if df.empty or 'Close' not in df.columns:
+            err = "empty or no Close"
+        else:
+            close_val = float(df['Close'].values[-1])
+            if pd.isna(close_val):
+                close_val = None
+                err = "Close is NaN"
+    except Exception as e:
+        err = str(e)
+
+    if close_val is not None:
+        return close_val, None
+
+    # ── Tier 2: HTTP fallback (Yahoo Chart API trực tiếp) ──
+    import requests
+    try:
+        chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
+        resp = requests.get(chart_url, timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200:
+            return None, f"HTTP {resp.status_code}: {err}"
+        data = resp.json()
+        closes = data.get("chart", {}).get("result", [{}])[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
+        closes = [c for c in closes if c is not None]
+        if closes:
+            return float(closes[-1]), None
+        return None, f"no close data in chart API: {err}"
+    except Exception as e2:
+        return None, f"yfinance({err}) + HTTP({e2})"
+
+
 @retry_with_backoff("update_macro", max_retries=2, base_delay=10)
 def update_macro_data():
-    """Fetch macro tickers via yfinance và seed vào macro_history (v1 + v2)."""
+    """Fetch macro tickers via yfinance và seed vào macro_history (v1 + v2).
+
+    Non-blocking Fallback protocol:
+      Batch → nếu thiếu từng ticker → retry cá nhân → Forward Fill (LOCF) → gắn is_stale=1.
+      Không ticker nào được phép chặn luồng.
+    """
     import yfinance as yf
     logger.info(f"🌍 Cập nhật {len(MACRO_TICKERS)} cảm biến vĩ mô từ Yahoo Finance...")
 
-    data = yf.download(list(MACRO_TICKERS.values()), period="5d", interval="1d", progress=False)
-    if 'Close' not in data.columns.names if isinstance(data.columns, pd.MultiIndex) else 'Close' not in data.columns:
-        logger.warning("⚠️ Macro data: không có cột Close.")
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # ── Pha 1: Batch download (nhanh) ──
+    raw_values: dict[str, float] = {}
+    failed_names: list[str] = []
+    try:
+        batch = yf.download(list(MACRO_TICKERS.values()), period="5d", interval="1d", progress=False)
+        has_close = (
+            'Close' in batch.columns.names
+            if isinstance(getattr(batch, 'columns', None), pd.MultiIndex)
+            else 'Close' in batch.columns
+        ) if batch is not None and not batch.empty else False
+
+        if has_close:
+            close_df = batch['Close'] if isinstance(getattr(batch, 'columns', None), pd.MultiIndex) else batch
+            inv_map = {v: k for k, v in MACRO_TICKERS.items()}
+            for yahoo_sym, name in inv_map.items():
+                try:
+                    val = close_df[yahoo_sym].iloc[-1]
+                    if pd.notna(val):
+                        raw_values[name] = float(val)
+                    else:
+                        failed_names.append(name)
+                except (KeyError, IndexError):
+                    failed_names.append(name)
+        else:
+            failed_names = list(MACRO_TICKERS.keys())
+    except Exception as exc:
+        logger.warning(f"⚠️ Macro batch download failed: {exc} — falling back to per-ticker")
+        failed_names = list(MACRO_TICKERS.keys())
+
+    # ── Pha 2: Rescue failed tickers (individual retry → forward fill) ──
+    stale_vars: list[str] = []
+    if failed_names:
+        logger.warning(f"⚠️ Macro individual rescue for {len(failed_names)} tickers: {', '.join(failed_names[:5])}...")
+        for name in failed_names:
+            yahoo_sym = MACRO_TICKERS[name]
+            close_val, err = _fetch_single_yahoo(yahoo_sym, name)
+            if close_val is not None:
+                raw_values[name] = close_val
+            else:
+                # Forward Fill from DB
+                with get_connection() as conn:
+                    ff = _forward_fill_macro(name, today, conn)
+                if ff:
+                    raw_values[name] = ff["value"]
+                    stale_vars.append(name)
+                    logger.info(f"  ↳ {name}: forward fill → {ff['value']:.2f} (stale)")
+                else:
+                    logger.warning(f"  ↳ {name}: no data at all (skipped)")
+
+    # ── Pha 2b: Ghi nhận vào StaleTracker cho warm-up tracking ──
+    try:
+        from src.engine.macro_stale_tracker import StaleTracker
+        tracker = StaleTracker.get_instance()
+        from src.config import DATA_DIR
+        tracker.db_path = str(DATA_DIR / "screener_cache.db")
+        for name in MACRO_TICKERS:
+            success = name in raw_values and name not in stale_vars
+            tracker.record_fresh(name, success)
+    except Exception:
+        pass
+
+    if not raw_values:
+        logger.warning("⚠️ Macro data: 0 records after full pipeline.")
         return 0
 
-    close_data = data['Close'] if isinstance(data.columns, pd.MultiIndex) else data
-    inv_map = {v: k for k, v in MACRO_TICKERS.items()}
-    close_data = close_data.rename(columns=inv_map)
+    # ── Pha 3: Build DataFrame ──
+    records = []
+    for name, val in raw_values.items():
+        r = {"variable": name, "date": today, "value": round(val, 6)}
+        if name in stale_vars:
+            r["is_stale"] = 1
+        records.append(r)
 
-    df_melted = close_data.reset_index().melt(id_vars=['Date'], var_name='variable', value_name='value')
-    df_melted.rename(columns={'Date': 'date'}, inplace=True)
-    df_melted['date'] = pd.to_datetime(df_melted['date']).dt.strftime('%Y-%m-%d')
-    df_melted = df_melted.dropna()
-
-    if df_melted.empty:
-        logger.warning("⚠️ Macro data: không có dữ liệu sau khi melt.")
-        return 0
+    df_melted = pd.DataFrame(records)
 
     # v1 legacy
     with get_connection() as conn:
@@ -441,6 +568,12 @@ def update_macro_data():
         logger.info(f"✅ Macro seeded: {len(df_melted)} rows v1, {len(v2_records)} v2, {v2_rejects} rejects")
     else:
         logger.warning(f"⚠️ Macro seed: all {v2_rejects} rows rejected by canonical validator")
+
+    if stale_vars:
+        logger.warning(
+            "⚠️ Macro stale fallback: %d/%d — %s",
+            len(stale_vars), len(MACRO_TICKERS), ", ".join(stale_vars),
+        )
 
     return len(df_melted)
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 market_snapshot.py — Ảnh chụp thị trường duy nhất
 
 Nhiệm vụ:
@@ -318,6 +318,23 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     print(f"  {_ll('Cảnh báo sớm', lang_mode):{max_w}s} {_ll(ew_raw, lang_mode)} ({ew.get('diem', 0)}đ)")
     for cb in ew.get("canh_bao", []):
         print(f"    • {cb}")
+
+    # Breadth Trap (từ decision_guard singleton, nếu đã warmup)
+    try:
+        from src.engine.decision_guard import get_trap_detector
+        td = get_trap_detector()
+        if td.steps > td.window:
+            bt_label = _ll("Breadth Trap", lang_mode)
+            if td._weakening_count >= 2:
+                print(f"  {bt_label:{max_w}s} 🟢 SUY YEU ({td._weakening_count}x) — recovery approaching")
+            elif td.S_minus < -td.h:
+                print(f"  {bt_label:{max_w}s} 🟡 SUY YEU — CUSUM S-={td.S_minus:.1f} (h={td.h:.1f})")
+            elif td.S_plus > td.h:
+                print(f"  {bt_label:{max_w}s} 🔴 SAU HON — CUSUM S+={td.S_plus:.1f} (h={td.h:.1f})")
+            else:
+                print(f"  {bt_label:{max_w}s} ⚪ binh thuong (S-={td.S_minus:.1f}, S+={td.S_plus:.1f})")
+    except Exception:
+        pass
 
     # DDI
     ddi = anh_chup.get("delta_divergence", {})

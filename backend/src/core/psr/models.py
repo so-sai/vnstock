@@ -1,4 +1,4 @@
-"""PSR data models — snapshot, audit, version, replay diff."""
+﻿"""PSR data models — snapshot, audit, version, replay diff."""
 from __future__ import annotations
 
 import sys

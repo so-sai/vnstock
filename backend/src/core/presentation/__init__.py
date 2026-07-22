@@ -1,1 +1,1 @@
-"""Core presentation layer for Vietnamese localization."""
+﻿"""Core presentation layer for Vietnamese localization."""

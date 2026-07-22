@@ -1,4 +1,4 @@
-"""Weekly Cognitive Report — API Route.
+﻿"""Weekly Cognitive Report — API Route.
 
 Read-only aggregation endpoint. Single call = full weekly snapshot.
 Never modifies system state.

@@ -1,4 +1,4 @@
-"""
+﻿"""
 /api/v1/telemetry — Decision Telemetry endpoints (Sprint 1 + 2).
 Provides snapshots, outcomes, attribution, and engine performance.
 """

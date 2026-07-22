@@ -1,4 +1,4 @@
-"""
+﻿"""
 Capital Intelligence Engine v1.0
 Position sizing based on Conviction Score, Risk Unit (R) framework, and Regime Matrix.
 """

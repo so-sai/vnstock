@@ -1,4 +1,4 @@
-"""Telemetry Recorder — captures DecisionSnapshot from compute_v2 output"""
+﻿"""Telemetry Recorder — captures DecisionSnapshot from compute_v2 output"""
 import json
 import logging
 import sys

@@ -1,4 +1,4 @@
-"""SystemStateSnapshotter — captures all layer states at one point in time.
+﻿"""SystemStateSnapshotter — captures all layer states at one point in time.
 
 Used before every significant system decision so the exact causal context
 can be reconstructed later.

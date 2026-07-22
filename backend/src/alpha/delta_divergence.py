@@ -1,4 +1,4 @@
-"""
+﻿"""
 delta_divergence.py — Delta Divergence Index (DDI)
 
 Δ_SA = dS/dt - α · AC_latency

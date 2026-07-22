@@ -1,4 +1,4 @@
-"""
+﻿"""
 IPO SIGNAL API ENDPOINT — Cung cấp dữ liệu cho Frontend HUD Widget
 ================================================================================
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Static IPO seed / migration for the Sentinel IPO HUD.
 
 This one-time migration seeds the existing screener_cache.db with a small

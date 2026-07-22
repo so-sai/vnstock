@@ -1,4 +1,4 @@
-"""db_optimize.py — Một lần duy nhất: tối ưu hóa toàn bộ 6 database về cấu hình hiệu năng tối đa.
+﻿"""db_optimize.py — Một lần duy nhất: tối ưu hóa toàn bộ 6 database về cấu hình hiệu năng tối đa.
 
 Chạy: python ptck.py db optimize
 - Ép STRICT tables cho bảng lõi

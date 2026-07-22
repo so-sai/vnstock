@@ -1,4 +1,4 @@
-"""schema_normalizer.py — Schema Normalizer Adapter cho Multi-Source Fallback.
+﻿"""schema_normalizer.py — Schema Normalizer Adapter cho Multi-Source Fallback.
 
 Mọi dữ liệu từ Tier 0.5 (KBS, VCI, SSI, TCBS, MSN, Web Scrapers)
 BẮT BUỘC qua `normalize_to_ptd_schema()` trước khi vào pipeline.

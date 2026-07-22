@@ -1,4 +1,4 @@
-"""DecisionAuditTrail — append-only JSONL audit log.
+﻿"""DecisionAuditTrail — append-only JSONL audit log.
 
 Every significant system output (weekly report, gold scan, CAO gate verdict,
 trust update) creates one append-only entry.  The log is:

@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 def _hydrate_path():
-    """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
+    """Path Hydrator v2.1: Auto-locate Project Root"""
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
     else:
@@ -41,8 +41,8 @@ _NORM = Normalizer()
 
 class EliteArmor:
     """
-    Giáp Trụ Sentinel v1.0: Throttling & Negative Caching (7-day TTL).
-    Hệ thống phòng thủ API tích hợp.
+    Sentinel Throttling v1.0: Rate Limiting & Negative Caching (7-day TTL).
+    API protection module.
     """
     def __init__(self, cache_file=".negative_cache.json"):
         self.cache_file = os.path.join(PROJECT_ROOT, cache_file)

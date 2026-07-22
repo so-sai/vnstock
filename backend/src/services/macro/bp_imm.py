@@ -1,4 +1,4 @@
-"""
+﻿"""
 bp_imm.py — Module 2: Bimodal-Preserving Interacting Multiple Model.
 
 Architecture: PTD Layer 2 (Driver Inference Engine)

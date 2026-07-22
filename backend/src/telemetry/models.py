@@ -1,4 +1,4 @@
-"""Telemetry Layer — Decision Snapshot, Outcome, Attribution (Sprint 1 + 2)"""
+﻿"""Telemetry Layer — Decision Snapshot, Outcome, Attribution (Sprint 1 + 2)"""
 import sys
 from datetime import datetime
 from pathlib import Path

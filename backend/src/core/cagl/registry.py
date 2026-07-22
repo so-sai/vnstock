@@ -1,4 +1,4 @@
-"""Canonical API registry — single source of truth for expected endpoints."""
+﻿"""Canonical API registry — single source of truth for expected endpoints."""
 from __future__ import annotations
 
 import json

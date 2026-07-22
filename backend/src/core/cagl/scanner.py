@@ -1,4 +1,4 @@
-"""FastAPI route scanner — introspects ``app.routes`` to produce ``EndpointSpec`` list."""
+﻿"""FastAPI route scanner — introspects ``app.routes`` to produce ``EndpointSpec`` list."""
 from __future__ import annotations
 
 import logging

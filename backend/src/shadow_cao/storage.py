@@ -1,4 +1,4 @@
-"""Shadow CAO — Separate SQLite storage (never touches production tables)."""
+﻿"""Shadow CAO — Separate SQLite storage (never touches production tables)."""
 import json
 import logging
 import sqlite3

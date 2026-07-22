@@ -1,4 +1,4 @@
-"""Chained-assignment detector — replaces blind suppression with signal capture.
+﻿"""Chained-assignment detector — replaces blind suppression with signal capture.
 
 Instead of ``pd.options.mode.chained_assignment = None`` (global silence),
 this module:

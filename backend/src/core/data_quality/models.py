@@ -1,4 +1,4 @@
-"""DataQuality event models — first-class CAO signals, not log lines."""
+﻿"""DataQuality event models — first-class CAO signals, not log lines."""
 from __future__ import annotations
 
 import sys

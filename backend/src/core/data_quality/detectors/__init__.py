@@ -1,4 +1,4 @@
-"""Detectors — capture specific categories of data-quality events.
+﻿"""Detectors — capture specific categories of data-quality events.
 
 Each detector:
   - Is non-intrusive (never blocks)

@@ -1,4 +1,4 @@
-"""
+﻿"""
 explain_layer.py — Vietnamese consciousness layer.
 
 Pure function layer that translates internal control state into

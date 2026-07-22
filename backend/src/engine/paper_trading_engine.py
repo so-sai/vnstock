@@ -1,4 +1,4 @@
-"""paper_trading_engine.py — Phân hệ Giả lập Thời gian thực (Paper Trading)
+﻿"""paper_trading_engine.py — Phân hệ Giả lập Thời gian thực (Paper Trading)
 
 Mục tiêu (Production Readiness Gate):
   Chạy Cronjob EOD 16:00 hàng ngày, sinh lệnh từ tín hiệu SEL/Macro/Absorption,

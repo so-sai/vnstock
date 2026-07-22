@@ -1,4 +1,4 @@
-"""
+﻿"""
 Field utilities for vnstock library.
 
 This module provides utilities for handling financial field names,

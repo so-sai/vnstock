@@ -1,4 +1,4 @@
-"""
+﻿"""
 Silver API Router — /api/v1/silver/
 Cung cấp: giá bạc nội địa (BTMC), thế giới (XAGUSD), Gold/Silver Ratio.
 """

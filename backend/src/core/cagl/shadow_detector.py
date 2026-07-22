@@ -1,4 +1,4 @@
-"""Shadow route detection — compare multiple sources to find drifts."""
+﻿"""Shadow route detection — compare multiple sources to find drifts."""
 from __future__ import annotations
 
 import logging

@@ -1,4 +1,4 @@
-import json
+﻿import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path

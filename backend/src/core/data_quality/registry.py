@@ -1,4 +1,4 @@
-"""Thread-safe in-memory event registry with optional DB persistence.
+﻿"""Thread-safe in-memory event registry with optional DB persistence.
 
 Events are ALWAYS accepted (never block).  Registry maintains a sliding
 window of the last N minutes for score computation.

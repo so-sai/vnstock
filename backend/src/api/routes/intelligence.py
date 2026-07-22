@@ -1,4 +1,4 @@
-"""
+﻿"""
 Phase 12 — Actionable Intelligence API endpoints.
 Compresses all engine outputs into simple, actionable decisions.
 """

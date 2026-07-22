@@ -1,4 +1,4 @@
-"""
+﻿"""
 CAO Readiness Gate — CLI Entry Point
 Usage:
     python -m src.cao_readiness

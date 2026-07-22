@@ -1,4 +1,4 @@
-"""
+﻿"""
 Liquidity Wave Engine (Phase 11 — Asia Adaptation Layer).
 Measures retail chase velocity, volume acceleration, leader propagation, turnover shock.
 VN/KR/TW markets are liquidity-driven, not efficiently priced.

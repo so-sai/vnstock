@@ -1,4 +1,4 @@
-"""
+﻿"""
 Decision Fusion Engine v1.0
 Deterministic conflict resolver between Model A and Model B signals.
 No AI, no probability — pure regime-based policy matrix.

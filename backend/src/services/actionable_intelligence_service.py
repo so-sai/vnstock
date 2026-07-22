@@ -1,4 +1,4 @@
-"""
+﻿"""
 Actionable Intelligence Service (Phase 12).
 Compresses all engines → simple, actionable decisions for the user.
 No new analysis — just orchestration + narrative compression.

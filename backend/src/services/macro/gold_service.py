@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gold Service — chuẩn hóa SJC + BTMC thành GoldPriceSnapshot
 Dùng provenance-aware để Sentinel hiểu bối cảnh giá vàng.
 

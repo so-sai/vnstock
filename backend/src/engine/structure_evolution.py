@@ -1,4 +1,4 @@
-"""structure_evolution.py — Tầng Tiến hóa Cấu trúc (SEL)
+﻿"""structure_evolution.py — Tầng Tiến hóa Cấu trúc (SEL)
 
 Kiến trúc:
   1. SpaceNormalizationLayer — Robust Scaler + Whitening (PCA chéo)
@@ -853,7 +853,7 @@ class StructureEvolutionLayer:
         state_labels = {
             "NORMAL": "BÌNH THƯỜNG",
             "STRUCTURAL_SHIFT": "LỆCH CẤU TRÚC",
-            "SURVIVAL_MODE": "CHẾ ĐỘ SINH TỒN",
+            "SURVIVAL_MODE": "CHẾ ĐỘ BẢO TOÀN",
         }
         state_vi = state_labels.get(result["state"], result["state"])
 

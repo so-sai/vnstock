@@ -1,4 +1,4 @@
-"""
+﻿"""
 Sentinel Circuit Breaker — bảo vệ IP nhà cung cấp API ở mức phần cứng.
 
 Nguyên tắc:

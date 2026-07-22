@@ -1,4 +1,4 @@
-"""
+﻿"""
 Backtest Service Layer v1.0
 Time Kernel — Kết nối Backtest Engine và Stress Test.
 """

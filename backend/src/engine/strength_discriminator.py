@@ -1,4 +1,4 @@
-"""
+﻿"""
 StrengthDiscriminator — Tầng Phân Tách Xung Lực
 ================================================
 Bóc tách bản chất tăng giá của Top 20 RS:

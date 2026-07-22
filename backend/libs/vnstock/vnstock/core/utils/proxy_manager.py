@@ -1,4 +1,4 @@
-"""
+﻿"""
 Proxy manager for vnstock - fetches and manages free proxies.
 
 Provides functionality to:

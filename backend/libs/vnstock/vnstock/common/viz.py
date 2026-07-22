@@ -1,4 +1,4 @@
-"""
+﻿"""
 Visualization and charting utilities for data exploration.
 
 This module provides a pandas DataFrame/Series extension for creating

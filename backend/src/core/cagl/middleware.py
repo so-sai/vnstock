@@ -1,4 +1,4 @@
-"""Optional ASGI middleware for runtime route validation."""
+﻿"""Optional ASGI middleware for runtime route validation."""
 from __future__ import annotations
 
 import logging

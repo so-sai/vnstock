@@ -1,4 +1,4 @@
-import sys, pathlib
+﻿import sys, pathlib
 
 def _hydrate_path():
     current = pathlib.Path(__file__).resolve().parent

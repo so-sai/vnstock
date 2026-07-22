@@ -1,4 +1,4 @@
-"""
+﻿"""
 decision_audit.py — Append-only JSONL Audit Trail
 
 Ghi mọi chuyển trạng thái quyết định kèm params_hash (chữ ký config).

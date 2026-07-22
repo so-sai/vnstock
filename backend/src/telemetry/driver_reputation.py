@@ -1,4 +1,4 @@
-"""DriverReputationLedger — per-driver performance archive.
+﻿"""DriverReputationLedger — per-driver performance archive.
 
 Read-only reputation store. Never allocates capital.
 Logs what each cognitive driver (FLOW, BREADTH, STRUCTURE, ...) has achieved

@@ -1,4 +1,4 @@
-"""
+﻿"""
 vnstock/api/quote.py
 
 Unified Quote adapter with dynamic method detection and parameter filtering.

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Universe Definition — single source of truth for SECTOR_MAP and market universe.
 All engines import from here instead of duplicating symbol lists.
 

@@ -1,4 +1,4 @@
-"""CAGL CLI — command-line route verification.
+﻿"""CAGL CLI — command-line route verification.
 
 Usage::
 

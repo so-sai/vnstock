@@ -1,4 +1,4 @@
-"""Contract validation rules — enforce API routing conventions."""
+﻿"""Contract validation rules — enforce API routing conventions."""
 from __future__ import annotations
 
 import logging

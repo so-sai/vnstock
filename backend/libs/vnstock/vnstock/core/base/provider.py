@@ -1,4 +1,4 @@
-"""
+﻿"""
 Base provider class for all data providers.
 
 This module provides the base class that all providers (both

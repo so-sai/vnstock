@@ -1,4 +1,4 @@
-"""CAO Trust Bridge — Shadow vs Live Distribution Comparator.
+﻿"""CAO Trust Bridge — Shadow vs Live Distribution Comparator.
 
 Tests whether shadow CAO ΔAlpha distribution and live telemetry ΔAlpha
 distribution are equivalent (same underlying distribution).

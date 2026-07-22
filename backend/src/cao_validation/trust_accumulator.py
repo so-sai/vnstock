@@ -1,4 +1,4 @@
-"""CAO Trust Bridge — Trust Accumulator.
+﻿"""CAO Trust Bridge — Trust Accumulator.
 
 Accumulates regime-weighted confidence over time.
 Confidence is NOT sample count — it is a composite metric:

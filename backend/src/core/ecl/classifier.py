@@ -1,4 +1,4 @@
-"""ECL classifier — determine if a module is execution core or observability."""
+﻿"""ECL classifier — determine if a module is execution core or observability."""
 
 EXECUTION_CORE_PREFIXES = [
     "src.portfolio.decision_tensor",

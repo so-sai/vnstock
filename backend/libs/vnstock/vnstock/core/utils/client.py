@@ -1,4 +1,4 @@
-"""
+﻿"""
 API client utilities for vnstock data sources.
 
 This module provides utilities to send requests to vnstock data sources,

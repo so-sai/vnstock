@@ -1,4 +1,4 @@
-"""
+﻿"""
 Decision Tensor v1.0 — Decision Abstraction Engine (Phase 10.1).
 Compresses 5 engine layers → 1 action vector.
 Semantic compression layer, NOT a signal generator.

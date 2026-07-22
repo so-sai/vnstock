@@ -1,4 +1,4 @@
-"""Tầng 2: DB Guard — Connection Wrapper chống cross-contamination
+﻿"""Tầng 2: DB Guard — Connection Wrapper chống cross-contamination
 Giữa Operational Brain (backend/data/brain.db) và Memory Brain (.kit/local_brain.db)."""
 import logging
 import re

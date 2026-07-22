@@ -1,4 +1,4 @@
-from .core import AssetClass, CanonicalUnit, DataSource, CanonicalRecord
+﻿from .core import AssetClass, CanonicalUnit, DataSource, CanonicalRecord
 from .registry import CanonicalAssetRegistry
 from .normalizer import Normalizer
 from .validator import Validator

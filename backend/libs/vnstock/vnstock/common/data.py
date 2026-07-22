@@ -1,4 +1,4 @@
-"""
+﻿"""
 Data access layer providing unified interface to multiple data sources.
 
 This module implements the facade pattern to access quote, company, finance,

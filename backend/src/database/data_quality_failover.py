@@ -1,4 +1,4 @@
-"""data_quality_failover.py — Lớp kiểm soát chất lượng dữ liệu và cơ chế chuyển dịch nguồn cấp tự động.
+﻿"""data_quality_failover.py — Lớp kiểm soát chất lượng dữ liệu và cơ chế chuyển dịch nguồn cấp tự động.
 
 Kiến trúc:
   - DataQualityNormalizer: Chuẩn hóa schema, hiệu chỉnh tỷ lệ chia tách (Ex-dividend Adjustment)

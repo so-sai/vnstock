@@ -1,4 +1,4 @@
-"""Shadow CAO — CLI Entry Point
+﻿"""Shadow CAO — CLI Entry Point
 
 Usage:
     python -m src.shadow_cao                    # Run daily batch

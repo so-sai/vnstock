@@ -1,4 +1,4 @@
-"""localization.py — Bộ quản lý song ngữ tập trung cho CLI
+﻿"""localization.py — Bộ quản lý song ngữ tập trung cho CLI
 
 Usage:
   from src.utils.localization import translate, localize_state, localize_phase, detect_terminal_utf8

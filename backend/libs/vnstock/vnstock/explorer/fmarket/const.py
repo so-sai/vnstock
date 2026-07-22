@@ -1,4 +1,4 @@
-_BASE_URL = "https://api.fmarket.vn/res/products"
+﻿_BASE_URL = "https://api.fmarket.vn/res/products"
 
 _FUND_TYPE_MAPPING = {
     "": [],

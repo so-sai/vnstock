@@ -1,4 +1,4 @@
-"""
+﻿"""
 hazard_engine.py — Hazard Transition Engine
 
 Replaces deterministic RegimeROM with a stochastic hazard-driven regime sampler.

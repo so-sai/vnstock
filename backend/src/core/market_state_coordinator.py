@@ -1,4 +1,4 @@
-"""
+﻿"""
 market_state_coordinator.py — Central Nervous System of Sentinel OS.
 
 Architecture:

@@ -1,4 +1,4 @@
-"""
+﻿"""
 ptd_engine.py — PTD Integration Engine (Conditioning Gate).
 
 Architecture: PTD Layer 4 (Governor Interface)

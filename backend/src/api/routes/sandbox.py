@@ -1,4 +1,4 @@
-"""Sandbox API — Phase 5 Paper Trading Dashboard endpoints."""
+﻿"""Sandbox API — Phase 5 Paper Trading Dashboard endpoints."""
 
 import sys
 import time

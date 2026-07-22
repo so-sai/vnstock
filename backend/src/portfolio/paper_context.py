@@ -1,4 +1,4 @@
-"""Paper Context — Storage Sandboxing cho Phase 5 UAT.
+﻿"""Paper Context — Storage Sandboxing cho Phase 5 UAT.
 
 Cô lập hoàn toàn mọi đường dẫn persistent:
   system_state.json → system_state_paper.json

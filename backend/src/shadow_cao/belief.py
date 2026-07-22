@@ -1,4 +1,4 @@
-"""Shadow CAO — Belief State Store.
+﻿"""Shadow CAO — Belief State Store.
 
 Accumulates ablation statistics over time.
 NO weight updates — only drift tracking and readiness monitoring.

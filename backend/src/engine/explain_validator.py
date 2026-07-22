@@ -1,4 +1,4 @@
-"""
+﻿"""
 explain_validator.py — Causal alignment between Control Plane and Cognitive Plane.
 
 Measures whether the Vietnamese narrative (explain_layer) accurately reflects

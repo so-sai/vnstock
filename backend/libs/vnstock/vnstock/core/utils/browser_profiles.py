@@ -1,4 +1,4 @@
-# vnstock/core/utils/browser_profiles.py
+﻿# vnstock/core/utils/browser_profiles.py
 
 # Note: User agent strings are constantly evolving. These are set based on the latest available
 # information as of early May 2025. They may need periodic updates to remain current.

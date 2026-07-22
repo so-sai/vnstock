@@ -410,3 +410,15 @@ entrypoints:
     description: "Phát hiện Cân bằng Hấp thụ — SDI (Spectral Dominance Index) + Volume Profile PCA + Adaptive HDR unlock"
     cli: "python ptck.py absorption-detector [--date YYYY-MM-DD] [--quiet]"
     category: decision
+
+  # ── Governor Report ──────────────────────────────────
+  governor_report:
+    description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"
+    cli: "python ptck.py governor-report"
+    category: risk
+
+  # ── ERL Scan ─────────────────────────────────────────
+  erl_scan:
+    description: "Entity Resilience Layer — quét sức khỏe 1.514 mã (Phase 1: Proxy BCTC)"
+    cli: "python ptck.py erl-scan [--top N] [--vn30] [--date YYYY-MM-DD]"
+    category: risk

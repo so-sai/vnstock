@@ -1,4 +1,4 @@
-"""
+﻿"""
 Sector Rotation Graph (Phase 11 — Asia Adaptation Layer).
 Measures inter-sector influence network, rotation phase, money flow propagation.
 VN market flows through sector narratives (Bank → Securities → Midcap → Penny).

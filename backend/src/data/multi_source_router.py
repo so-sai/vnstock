@@ -1,4 +1,4 @@
-"""multi_source_router.py — Tier 0.5 Multi-Source Provider Failover Router.
+﻿"""multi_source_router.py — Tier 0.5 Multi-Source Provider Failover Router.
 
 Kiến trúc:
   Tiến trình: Sequential, ngắt mạch sớm (Aggressive Failover Timeout)

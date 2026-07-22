@@ -1,4 +1,4 @@
-from vnai import *
+﻿from vnai import *
 
 from .utils.env import *
 from .utils.logger import *

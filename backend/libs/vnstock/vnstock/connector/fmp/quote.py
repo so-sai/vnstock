@@ -1,4 +1,4 @@
-"""
+﻿"""
 FMP Quote connector for vnstock.
 
 Handles fetching and processing stock price data from FMP API.

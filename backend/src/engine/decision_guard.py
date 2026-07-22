@@ -1,4 +1,4 @@
-"""
+﻿"""
 decision_guard.py — Lớp bảo vệ quyết định cuối cùng
 
 Vai trò:
@@ -21,11 +21,33 @@ Quy tắc:
         Pha 1 (24h→48h): 1.0→0.3 (suy giảm nhanh tuần đầu)
         Pha 2 (48h→168h): 0.3→0.1 (suy giảm chậm, duy trì probe position)
       INSUFFICIENT_DATA → 0.0 (không có dữ liệu, không giao dịch).
+
+  - Breadth Trap Detector (CUSUM trên Δdivergence):
+      Phát hiện thời điểm Breadth Trap suy yếu để chuẩn bị recovery.
+      Tích hợp qua breadth_trap_state trong output.
 """
 import logging
 from typing import Optional
 
+from src.engine.breadth_trap_detector import BreadthTrapDetector
+
 logger = logging.getLogger(__name__)
+
+# Singleton detector — duy trì CUSUM state xuyên suốt vòng đời
+_breadth_trap_detector: Optional[BreadthTrapDetector] = None
+
+
+def get_trap_detector() -> BreadthTrapDetector:
+    global _breadth_trap_detector
+    if _breadth_trap_detector is None:
+        _breadth_trap_detector = BreadthTrapDetector(window=20, h_factor=2.0)
+    return _breadth_trap_detector
+
+
+def reset_trap_detector():
+    """Reset detector state (dùng trong test)."""
+    global _breadth_trap_detector
+    _breadth_trap_detector = None
 
 
 def _he_so_tuoi_du_lieu(hours_stale: float) -> float:
@@ -129,12 +151,13 @@ def kiem_tra_an_toan(
     tam_ngung = do_tin_cay.get("tạm_ngưng_kết_luận", False)
     diem_tin_cay = do_tin_cay.get("điểm_tin_cậy", 0.5)
 
-    # Lấy entropy, cấu trúc, và index reality từ ảnh chụp (nếu có)
+    # Lấy entropy, cấu trúc, breadth, và index reality từ ảnh chụp (nếu có)
     entropy = None
     so_tru = 0
     diem_thi_truong_that = None
     do_lech_pha = None
     nhan_dien = None
+    breadth_trap_state = None
     if anh_chup:
         c = anh_chup.get("cau_truc", {})
         entropy = c.get("entropy")
@@ -143,6 +166,56 @@ def kiem_tra_an_toan(
         diem_thi_truong_that = ir.get("diem_thi_truong_that")
         do_lech_pha = ir.get("do_lech_pha")
         nhan_dien = ir.get("nhan_dien")
+
+        # Breadth Trap Detector — CUSUM trên Δdivergence
+        breadth_pct = (
+            anh_chup.get("regime", {}).get("do_rong")
+            or anh_chup.get("_regime_details", {}).get("breadth_pct")
+        )
+        if breadth_pct is not None and so_tru > 0:
+            detector = get_trap_detector()
+            breadth_trap_state = detector.update(float(breadth_pct), so_tru)
+
+    # ── Macro Staleness Veto (Layer 1+2: StaleTracker) ──
+    macro_veto = False
+    macro_veto_ly_do = None
+    stale_state = None
+    breadth_momentum = None
+    try:
+        from src.engine.macro_stale_tracker import StaleTracker
+        tracker = StaleTracker.get_instance()
+        from src.config import DATA_DIR
+        db_path = str(DATA_DIR / "screener_cache.db")
+        stale_state = tracker.update(db_path=db_path)
+        if stale_state.get("veto"):
+            macro_veto = True
+            macro_veto_ly_do = (
+                f"dữ liệu vĩ mô mất hiệu lực — "
+                f"fresh_ratio={stale_state['fresh_ratio']:.0%}, "
+                f"terminal={stale_state['terminal_ratio']:.0%}"
+            )
+            logger.warning("[GUARD] Macro stale veto: %s", macro_veto_ly_do)
+    except Exception as exc:
+        logger.warning("[GUARD] StaleTracker error (non-blocking): %s", exc)
+
+    # ── Recovery Governor (Dual CUSUM) ──
+    recovery_gov_state = None
+    try:
+        from src.engine.recovery_governor import RecoveryGovernor
+        gov = RecoveryGovernor.get_instance()
+        # Ghi nhận trạng thái veto (sẽ được xác định sau)
+        # fresh_ratio từ stale_state, so_tru từ c, breadth_momentum từ regime
+        if stale_state and so_tru > 0:
+            regime_details = (anh_chup or {}).get("_regime_details", {})
+            breadth_momentum = regime_details.get("breadth_momentum", 0)
+            gov.record_veto(bi_chặn or macro_veto)
+            recovery_gov_state = gov.update(
+                fresh_ratio=stale_state["fresh_ratio"],
+                so_tru=so_tru,
+                breadth_momentum=float(breadth_momentum or 0),
+            )
+    except Exception as exc:
+        logger.warning("[GUARD] RecoveryGovernor error (non-blocking): %s", exc)
 
     # ── Bước 1: Kiểm tra Cấu trúc & Index Reality (hard override — veto bất chấp confidence) ──
 
@@ -160,7 +233,7 @@ def kiem_tra_an_toan(
         if diem_thi_truong_that is not None and diem_thi_truong_that >= 0.2:
             logger.warning(
                 "[GUARD] DIEM_THI_TRUONG_THAT=%.2f >= 0.2 nhung so_tru=%d/3 — "
-                "phân kỳ cấu trúc, nghi vấn bẫy thanh khoản",
+                "phân kỳ cấu trúc, tính thanh khoản bất thường",
                 diem_thi_truong_that, so_tru,
             )
         quyet_dinh = "DUNG NGOAI"
@@ -188,9 +261,30 @@ def kiem_tra_an_toan(
         ly_do = ["thị trường quá nhiễu — tạm ngưng kết luận"]
         bi_chặn = True
 
+    # ── Bước 3: Macro Staleness Veto ──
+    if not bi_chặn and macro_veto:
+        quyet_dinh = "DUNG NGOAI"
+        ly_do_chặn = macro_veto_ly_do
+        ly_do = ["dữ liệu vĩ mô mất hiệu lực — dừng ngoài"]
+        bi_chặn = True
+
     # ── Nếu bị chặn, ghi đè he_so_giam_ty_trong = 0.0 ──
     if bi_chặn:
         he_so_giam_ty_trong = 0.0
+
+    # ── Contribution Breakdown ──
+    contribution = _build_contribution(
+        bi_chặn=bi_chặn,
+        ly_do_chặn=ly_do_chặn,
+        quyet_dinh=quyet_dinh,
+        so_tru=so_tru,
+        tam_ngung=tam_ngung,
+        macro_veto=macro_veto,
+        stale_state=stale_state,
+        recovery_gov_state=recovery_gov_state,
+        breadth_trap_state=breadth_trap_state,
+        breadth_momentum=breadth_momentum,
+    )
 
     return {
         "quyet_dinh": quyet_dinh,
@@ -198,4 +292,135 @@ def kiem_tra_an_toan(
         "bi_chặn": bi_chặn,
         "ly_do_chặn": ly_do_chặn,
         "he_so_giam_ty_trong": he_so_giam_ty_trong,
+        "breadth_trap": breadth_trap_state or {},
+        "recovery_governor": recovery_gov_state or {},
+        "macro_stale": {
+            "fresh_ratio": stale_state.get("fresh_ratio") if stale_state else None,
+            "terminal_ratio": stale_state.get("terminal_ratio") if stale_state else None,
+            "veto": macro_veto,
+        } if stale_state else {},
+        "contribution": contribution,
+    }
+
+
+def _build_contribution(
+    bi_chặn: bool,
+    ly_do_chặn: str | None,
+    quyet_dinh: str,
+    so_tru: int,
+    tam_ngung: bool,
+    macro_veto: bool,
+    stale_state: dict | None,
+    recovery_gov_state: dict | None,
+    breadth_trap_state: dict | None,
+    breadth_momentum: float | None,
+) -> dict:
+    """Phân rã đóng góp 3 mô hình vào position_level.
+
+    Returns:
+        {
+            "models": { macro/quant/regime: { weight, status, detail, impact_pct } },
+            "blocking_model": "..." | None,
+            "position_level": 0.0~1.0,
+            "position_label": "...",
+        }
+    """
+    pos_level = 0.0
+    pos_label = "CASH_ONLY"
+    if recovery_gov_state:
+        pos_level = recovery_gov_state.get("position_level", 0.0)
+        pos_label = recovery_gov_state.get("position_label", "CASH_ONLY")
+
+    # Xác định model chặn
+    blocking_model = None
+    if bi_chặn:
+        if tam_ngung:
+            blocking_model = "quant"
+        elif so_tru <= 1:
+            blocking_model = "regime"
+        elif macro_veto or (ly_do_chặn and ("vĩ mô" in str(ly_do_chặn) or "liên ngân" in str(ly_do_chặn))):
+            blocking_model = "macro"
+        else:
+            blocking_model = "regime"
+
+    # Macro model
+    fresh = stale_state.get("fresh_ratio", 0) if stale_state else 0
+    terminal = stale_state.get("terminal_ratio", 0) if stale_state else 0
+    if macro_veto:
+        macro_status = "VETO"
+        macro_detail = f"fresh_ratio={fresh:.0%} < 50%, terminal={terminal:.0%} >= 50%"
+        macro_impact = 1.0
+    elif fresh < 0.5:
+        macro_status = "WARNING"
+        macro_detail = f"fresh_ratio={fresh:.0%} < 50%"
+        macro_impact = 0.3
+    elif fresh < 0.8:
+        macro_status = "DEGRADED"
+        macro_detail = f"fresh_ratio={fresh:.0%}"
+        macro_impact = 0.1
+    else:
+        macro_status = "NORMAL"
+        macro_detail = f"fresh_ratio={fresh:.0%}, all sensors healthy"
+        macro_impact = 0.0
+
+    # Quant model
+    bt_active = breadth_trap_state.get("trap_active", False) if breadth_trap_state else False
+    bt_weakening = breadth_trap_state.get("trap_weakening", False) if breadth_trap_state else False
+    if tam_ngung:
+        quant_status = "VETO"
+        quant_detail = "confidence < 30% — tam ngung ket luan"
+        quant_impact = 1.0
+    elif bt_active and bt_weakening:
+        quant_status = "WARNING"
+        quant_detail = "breadth trap weakening — recovery approaching"
+        quant_impact = 0.2
+    elif bt_active:
+        quant_status = "WARNING"
+        quant_detail = "breadth trap active"
+        quant_impact = 0.3
+    else:
+        quant_status = "NORMAL"
+        quant_detail = f"breadth_momentum={breadth_momentum or 0:.1f}%"
+        quant_impact = 0.0
+
+    # Regime model
+    if so_tru <= 1:
+        regime_status = "VETO"
+        regime_detail = f"cấu trúc vỡ ({so_tru}/3 trụ)"
+        regime_impact = 1.0
+    elif so_tru == 2:
+        regime_status = "DEGRADED"
+        regime_detail = f"cấu trúc yếu ({so_tru}/3 trụ)"
+        regime_impact = 0.2
+    else:
+        regime_status = "NORMAL"
+        regime_detail = f"cấu trúc vững ({so_tru}/3 trụ)"
+        regime_impact = 0.0
+
+    models = {
+        "macro": {
+            "weight": 0.20,
+            "status": macro_status,
+            "detail": macro_detail,
+            "impact_pct": round(macro_impact, 4),
+        },
+        "quant": {
+            "weight": 0.30,
+            "status": quant_status,
+            "detail": quant_detail,
+            "impact_pct": round(quant_impact, 4),
+        },
+        "regime": {
+            "weight": 0.50,
+            "status": regime_status,
+            "detail": regime_detail,
+            "impact_pct": round(regime_impact, 4),
+        },
+    }
+
+    return {
+        "models": models,
+        "blocking_model": blocking_model,
+        "position_level": pos_level,
+        "position_label": pos_label,
     }

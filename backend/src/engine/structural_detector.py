@@ -1,4 +1,4 @@
-"""
+﻿"""
 structural_detector.py — Bộ phát hiện lệch cấu trúc thị trường
 
 Đo 3 trụ:

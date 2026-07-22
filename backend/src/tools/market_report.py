@@ -1,4 +1,4 @@
-"""Market Intelligence Report — single command monthly scan.
+﻿"""Market Intelligence Report — single command monthly scan.
 
 Usage::
 

@@ -1,4 +1,4 @@
-# Refactor the original code from https://github.com/andrey-jef contributed to the Vnstock Legacy project.
+﻿# Refactor the original code from https://github.com/andrey-jef contributed to the Vnstock Legacy project.
 # Reference: https://github.com/thinh-vu/vnstock/blob/legacy/vnstock/funds.py
 # Shoutout to andrey_jef for the contribution.
 

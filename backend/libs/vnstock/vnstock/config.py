@@ -1,4 +1,4 @@
-# vnstock/config.py
+﻿# vnstock/config.py
 
 import logging
 

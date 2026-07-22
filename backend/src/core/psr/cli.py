@@ -1,4 +1,4 @@
-"""PSR CLI — command-line interface for production stress release operations.
+﻿"""PSR CLI — command-line interface for production stress release operations.
 
 Usage::
 

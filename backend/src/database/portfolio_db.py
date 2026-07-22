@@ -1,4 +1,4 @@
-"""
+﻿"""
 Portfolio Memory Layer v1.0
 Khởi tạo và quản lý portfolio_state.db — Sổ cái kế toán danh mục độc lập.
 """

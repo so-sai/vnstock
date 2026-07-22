@@ -1,4 +1,4 @@
-"""
+﻿"""
 Portfolio Recommendation Engine (State-Driven Scoring v2).
 NO hardcoded symbols. Purely score-driven, market-wide scan.
 

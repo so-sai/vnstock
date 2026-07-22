@@ -1,4 +1,4 @@
-"""
+﻿"""
 vnstock/core/constants.py
 
 Constants used throughout the vnstock package.

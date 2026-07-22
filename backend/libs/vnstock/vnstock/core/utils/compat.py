@@ -1,4 +1,4 @@
-"""
+﻿"""
 Pandas compatibility utilities for handling differences across versions.
 
 Supports pandas 1.x through 2.2+ with graceful fallbacks for deprecated methods.

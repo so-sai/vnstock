@@ -1,4 +1,4 @@
-"""Shadow CAO — Hardening Layer.
+﻿"""Shadow CAO — Hardening Layer.
 
 Production-safety guarantees:
 1. Crash-proof hook wrapper — shadow exceptions NEVER propagate to production

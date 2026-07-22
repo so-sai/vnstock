@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 hsr_kernel.py — HSR Execution Kernel (zero-DB replay engine).
 

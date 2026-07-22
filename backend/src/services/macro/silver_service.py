@@ -1,4 +1,4 @@
-"""
+﻿"""
 Silver Service — Domestic Silver from BTMC API + silver_service integration.
 """
 import logging

@@ -1,4 +1,4 @@
-"""cache_warming.py — Pre-fetch engine cho Local Cache.
+﻿"""cache_warming.py — Pre-fetch engine cho Local Cache.
 
 Chạy ngầm sau mỗi phiên API thành công. Pre-fetch N+7 ngày vào "hot window"
 và cập nhật data_freshness để các consumer biết dữ liệu đã WARM.

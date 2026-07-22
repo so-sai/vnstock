@@ -1,4 +1,4 @@
-"""per_symbol_absorption.py — Dynamic PCA Absorption Detection (Per-Symbol)
+﻿"""per_symbol_absorption.py — Dynamic PCA Absorption Detection (Per-Symbol)
 
 Kiến trúc:
   1. Adaptive Z-Score Standardization Layer trước PCA

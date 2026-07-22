@@ -1,4 +1,4 @@
-"""Boundary hooks — wrap external library calls with DQ signal capture.
+﻿"""Boundary hooks — wrap external library calls with DQ signal capture.
 
 Each hook is a context manager or decorator that:
   - Calls the original function

@@ -1,4 +1,4 @@
-"""CAO Trust Bridge — CLI Entry Point
+﻿"""CAO Trust Bridge — CLI Entry Point
 
 Usage:
     python -m src.cao_validation                  # Run full validation

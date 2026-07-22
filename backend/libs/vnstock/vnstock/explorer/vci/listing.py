@@ -1,4 +1,4 @@
-"""Listing module."""
+﻿"""Listing module."""
 
 # Đồ thị giá, đồ thị dư mua dư bán, đồ thị mức giá vs khối lượng, thống kê hành vi thị tường
 import json

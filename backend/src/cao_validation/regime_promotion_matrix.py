@@ -1,4 +1,4 @@
-"""CAO Trust Bridge — Regime Promotion Matrix.
+﻿"""CAO Trust Bridge — Regime Promotion Matrix.
 
 Per-regime promotion thresholds (NOT global).
 Different strictness levels because market is non-stationary.

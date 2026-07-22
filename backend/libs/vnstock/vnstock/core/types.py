@@ -1,4 +1,4 @@
-"""
+﻿"""
 Type definitions for vnstock library.
 
 This module provides:

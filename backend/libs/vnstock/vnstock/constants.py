@@ -1,4 +1,4 @@
-"""
+﻿"""
 Standardized market constants for the vnstock library.
 
 This module contains centralized reference data for indices, sectors,

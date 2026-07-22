@@ -1,4 +1,4 @@
-"""
+﻿"""
 Watchlist State Manager v2 — two separate layers:
   Layer 1: USER PINS — user's personal watchlist (persistent, manual)
   Layer 2: AI TIERS — system's dynamic recommendations (read-only, daily recompute)

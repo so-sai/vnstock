@@ -1,4 +1,4 @@
-# vnstock/core/utils/parser.py
+﻿# vnstock/core/utils/parser.py
 
 import re
 import unicodedata

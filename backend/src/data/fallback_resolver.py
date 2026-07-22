@@ -1,4 +1,4 @@
-"""fallback_resolver.py — 3-tầng Fallback Data Pipeline cho API ngoại vi.
+﻿"""fallback_resolver.py — 3-tầng Fallback Data Pipeline cho API ngoại vi.
 
 Kiến trúc:
   Tầng 1: Stale Cache  — dữ liệu cũ trong daily_ohlcv (nếu staleness < MAX_STALE)

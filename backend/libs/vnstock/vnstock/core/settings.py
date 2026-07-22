@@ -1,4 +1,4 @@
-"""
+﻿"""
 Configuration management for vnstock library.
 
 This module provides centralized configuration with environment

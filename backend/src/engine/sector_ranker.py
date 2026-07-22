@@ -6,7 +6,7 @@ import pandas as pd
 
 
 def _hydrate_path():
-    """Zero-Friction Sentinel v2.1: Tự động định vị Project Root (Bulletproof Anchor)"""
+    """Path Hydrator v2.1: Auto-locate Project Root"""
     if getattr(sys, 'frozen', False):
         root_path = Path(sys.executable).resolve().parent
     else:

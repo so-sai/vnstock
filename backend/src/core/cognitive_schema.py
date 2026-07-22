@@ -1,4 +1,4 @@
-"""
+﻿"""
 cognitive_schema.py — Vietnamese Cognitive Schema Layer v1.0
 
 Single source of truth for ALL English→Vietnamese UI mappings.

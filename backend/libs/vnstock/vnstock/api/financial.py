@@ -1,4 +1,4 @@
-# vnstock/api/financial.py
+﻿# vnstock/api/financial.py
 
 from typing import Any
 

@@ -34,7 +34,7 @@ const navItems = [
   { to: '/quan-tri-danh-muc', label: 'Quản trị Danh mục', icon: Eye },
   { to: '/trung-tam-hanh-dong', label: 'Trung tâm Hành động', icon: Zap },
   { to: '/bao-cao-tuan', label: 'Báo cáo Tuần', icon: ClipboardList },
-  { to: '/paper-trading', label: 'Paper Trading', icon: FlaskConical },
+  { to: '/paper-trading', label: 'Mô phỏng Giao dịch', icon: FlaskConical },
 ] as const;
 
 const Sidebar: React.FC = () => {

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Exposure Engine v1.1
 Adaptive feedback loop: conviction dampener + regime memory bias + global risk throttle.
 """

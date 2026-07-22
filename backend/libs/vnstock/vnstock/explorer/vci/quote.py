@@ -1,4 +1,4 @@
-"""History module for VCI."""
+﻿"""History module for VCI."""
 
 from datetime import datetime
 from typing import Optional, Union

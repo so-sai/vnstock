@@ -1,4 +1,4 @@
-"""
+﻿"""
 CAO Readiness Gate — Orchestrator
 ==================================
 Runs all 3 gates (A, B, C) and produces the final verdict:

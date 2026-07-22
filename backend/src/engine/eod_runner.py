@@ -1,4 +1,4 @@
-"""eod_runner.py — Tiến trình EOD 16:00 tự phục hồi + lũy đẳng + chống race.
+﻿"""eod_runner.py — Tiến trình EOD 16:00 tự phục hồi + lũy đẳng + chống race.
 
 Ba cơ chế bắt buộc cho Forward Testing integrity:
 

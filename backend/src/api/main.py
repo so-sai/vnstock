@@ -1,4 +1,4 @@
-import json
+﻿import json
 import math
 import sys
 from pathlib import Path
@@ -62,10 +62,10 @@ PROJECT_ROOT = _hydrate_path()
 
 from src.api import ipo_signal_api
 from src.api.routes import (
-    backtest,
-    breadth,
-    flow,
     gold,
+    breadth,
+    backtest,
+    flow,
     holdings,
     intelligence,
     macro,
@@ -82,6 +82,8 @@ from src.api.routes import (
     system,
     telemetry,
     v1_absorption,
+    v1_belief,
+    v1_i18n,
     v1_macro,
     v1_screener,
     v1_system,
@@ -136,6 +138,8 @@ app.include_router(v1_macro.router, prefix="/api/v1", tags=["V1 - Bilingual Macr
 app.include_router(v1_absorption.router, prefix="/api/v1", tags=["V1 - Bilingual Absorption"])
 app.include_router(v1_screener.router, prefix="/api/v1", tags=["V1 - Bilingual Screener"])
 app.include_router(v1_system.router, prefix="/api/v1", tags=["V1 - Bilingual System"])
+app.include_router(v1_belief.router, prefix="/api/v1", tags=["V1 - Belief & Sentinel"])
+app.include_router(v1_i18n.router, prefix="/api/v1", tags=["V1 - i18n Dictionary"])
 app.include_router(sandbox.router, prefix="/api/sandbox", tags=["Phase 5 - Paper Trading Sandbox"])
 
 

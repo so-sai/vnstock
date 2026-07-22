@@ -1,4 +1,4 @@
-"""
+﻿"""
 driver_normalizer.py — Thin aggregation layer.
 
 Projects existing engine outputs into unified Driver State Vector D_t.

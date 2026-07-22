@@ -1,4 +1,4 @@
-"""
+﻿"""
 run_batch_validation.py — Run full batch runner with calibrated ROM and validate.
 """
 

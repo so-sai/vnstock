@@ -1,4 +1,4 @@
-"""Vietnamese Localizer for Market State Presentation.
+﻿"""Vietnamese Localizer for Market State Presentation.
 
 This module maps raw English enum values from engine output to Vietnamese
 labels for presentation layer. Zero architecture change — presentation only.

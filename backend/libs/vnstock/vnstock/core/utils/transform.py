@@ -1,4 +1,4 @@
-"""Data transformation utilities for vnstock data sources."""
+﻿"""Data transformation utilities for vnstock data sources."""
 
 import re
 from datetime import datetime, time, timedelta

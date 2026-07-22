@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import re
 import sys
 from datetime import datetime
@@ -136,8 +136,8 @@ def _log_sbv_alert(raw_html: str = ""):
         ps_cmd = (
             "[Void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); "
             "[System.Windows.Forms.MessageBox]::Show("
-            "'SBV HTML structure changed — sensor blind. Position forced to 0.0. Run: python ptck.py sbv-update', "
-            "'[PTCK_ALERT] SENSOR CRASHED', "
+            "'SBV HTML structure changed — data parser unavailable. Position forced to 0.0. Run: python ptck.py sbv-update', "
+            "'[PTCK_ALERT] DATA PARSER FAILED', "
             "[System.Windows.Forms.MessageBoxButtons]::OK, "
             "[System.Windows.Forms.MessageBoxIcon]::Warning)"
         )

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Decision Tensor v2.0 — Cognitive Expansion Layer (Phase 10.2).
 Adds counterfactual awareness, hierarchical rationale, override tracking, adaptive weights.
 Extends v1 determinism with institutional decision depth.

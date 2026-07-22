@@ -1,4 +1,4 @@
-"""regime_confusion.py — Regime-Aware Confusion Matrix cho Strategy Evaluation.
+﻿"""regime_confusion.py — Regime-Aware Confusion Matrix cho Strategy Evaluation.
 
 Ba hiệu chỉnh kiến trúc so với thiết kế heuristic:
 

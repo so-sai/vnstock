@@ -1,4 +1,4 @@
-"""v1_screener.py — Batch screener API với Reference-based Localization.
+﻿"""v1_screener.py — Batch screener API với Reference-based Localization.
 
 Tuân thủ:
   - NormalizedPayload pattern: localizations tách biệt, data dùng *ref.

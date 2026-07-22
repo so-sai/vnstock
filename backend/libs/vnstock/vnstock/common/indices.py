@@ -1,4 +1,4 @@
-"""
+﻿"""
 Standardized indices, sectors, and market constants.
 
 Provides centralized reference for indices, sectors, and market constants

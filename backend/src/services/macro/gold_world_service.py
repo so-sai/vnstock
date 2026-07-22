@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gold World Service — Fetch XAUUSD via yfinance (GC=F)
 Bổ sung Global Gold vào Gold Cognition Layer.
 Sanity guard: so sánh với rolling 30d median từ DB, cảnh báo nếu lệch >50%.
@@ -193,7 +193,7 @@ def fetch_world_gold_history(period: str = "1y") -> pd.DataFrame:
             return pd.DataFrame()
         df = data[["Close"]].reset_index()
         df.columns = [c.lower().strip() for c in df.columns]
-        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        df["date"] = pd.to_datetime(df["date"], format='mixed').dt.strftime("%Y-%m-%d")
         return df[["date", "close"]]
     except Exception as e:
         logger.error(f"World gold history fetch failed: {e}")

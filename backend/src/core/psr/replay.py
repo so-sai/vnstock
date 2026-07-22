@@ -1,4 +1,4 @@
-"""DeterministicReplayEngine — load snapshot → reproduce → compare.
+﻿"""DeterministicReplayEngine — load snapshot → reproduce → compare.
 
 The core of PSR reproducibility: given the same input snapshot
 (regime state, gold state, trust state, DQ state), does the system

@@ -1,4 +1,4 @@
-"""
+﻿"""
 time_series_aligner.py — Module 1: Causal-Preserving Time Alignment.
 
 Architecture: PTD Layer 0 (Data Infrastructure)
@@ -479,7 +479,12 @@ ASIA_COMBINED_ASSETS = [ASIA_TICKER_VNINDEX, "KOSPI", "TAIEX", "SHENZHEN", "DXY"
 
 
 def _fetch_macro_as_df(variable: str, db_path: str, n_days: int = 365) -> pd.DataFrame:
-    """Fetch a single macro variable as DataFrame ['date','value','is_stale']."""
+    """Fetch a single macro variable as DataFrame ['date','value','is_stale'].
+
+    Non-blocking Fallback:
+      Nếu không có dữ liệu trong window n_days → Forward Fill (LOCF)
+      từ bản ghi cuối cùng, gắn is_stale=1 để Layer 2 reference biết.
+    """
     import sqlite3
 
     conn = sqlite3.connect(db_path)
@@ -497,12 +502,35 @@ def _fetch_macro_as_df(variable: str, db_path: str, n_days: int = 365) -> pd.Dat
             if rows:
                 conn.close()
                 df = pd.DataFrame(rows, columns=["date", "value", "is_stale"])
-                df["date"] = pd.to_datetime(df["date"])
+                df["date"] = pd.to_datetime(df["date"], format='mixed')
                 return df.sort_values("date").drop_duplicates(subset="date")
         except Exception:
             continue
+
+    # ── Fallback: Forward Fill từ bản ghi cuối cùng (không giới hạn ngày) ──
+    try:
+        cursor = conn.execute(
+            f"""SELECT date, value, 1 AS is_stale
+                FROM [{tbl}]
+                WHERE variable = ?
+                ORDER BY date DESC LIMIT 1""",
+            (variable,),
+        )
+        row = cursor.fetchone()
+        if row:
+            conn.close()
+            df = pd.DataFrame([row], columns=["date", "value", "is_stale"])
+            df["date"] = pd.to_datetime(df["date"], format='mixed')
+            logger.info(
+                "_fetch_macro_as_df: %s forward-filled from %s (val=%.2f)",
+                variable, row[0], row[1],
+            )
+            return df
+    except Exception:
+        pass
+
     conn.close()
-    logger.warning("_fetch_macro_as_df: %s not found in macro_history", variable)
+    logger.warning("_fetch_macro_as_df: %s not found in macro_history (no fallback either)", variable)
     return pd.DataFrame(columns=["date", "value", "is_stale"])
 
 
@@ -524,7 +552,7 @@ def _fetch_vnindex(db_path: str, n_days: int = 365) -> pd.DataFrame:
             logger.warning("_fetch_vnindex: no VNINDEX rows found")
             return pd.DataFrame(columns=["date", "value"])
         df = pd.DataFrame(rows, columns=["date", "value"])
-        df["date"] = pd.to_datetime(df["date"])
+        df["date"] = pd.to_datetime(df["date"], format='mixed')
         return df.sort_values("date").drop_duplicates(subset="date")
     except Exception as exc:
         conn.close()
@@ -567,20 +595,24 @@ def compute_asia_rotation(
             "message": f"VNINDEX: only {len(vn)} rows",
         }
 
-    # 2. Fetch KOSPI, TAIEX, DXY
+    # 2. Fetch KOSPI, TAIEX, DXY (non-blocking — bỏ qua asset nào < 10 rows)
     macros = {}
     for name, var in ASIA_TICKERS.items():
         df = _fetch_macro_as_df(var, db_path, n_days=window * 2)
-        if len(df) < 10:
-            return {
-                "rotation_angle_deg": None,
-                "lambda_max": None,
-                "n_days": len(vn),
-                "assets": ASIA_COMBINED_ASSETS,
-                "status": "INSUFFICIENT_DATA",
-                "message": f"{name}: only {len(df)} rows",
-            }
-        macros[name] = df
+        if len(df) >= 10:
+            macros[name] = df
+        else:
+            logger.warning("asia_rotation: %s insufficient (%d rows) — skipping", name, len(df))
+
+    if not macros:
+        return {
+            "rotation_angle_deg": None,
+            "lambda_max": None,
+            "n_days": len(vn),
+            "assets": ASIA_COMBINED_ASSETS,
+            "status": "INSUFFICIENT_DATA",
+            "message": "all macro sensors had < 10 rows",
+        }
 
     # 3. Merge all on date → daily returns
     merged = vn.rename(columns={"value": ASIA_TICKER_VNINDEX})
@@ -598,20 +630,21 @@ def compute_asia_rotation(
             stale_accumulated = max(stale_accumulated, int(df["is_stale"].sum()))
 
     # 4. Compute daily returns (log or simple)
-    returns = merged[ASIA_COMBINED_ASSETS].pct_change().dropna()
+    available_assets = [ASIA_TICKER_VNINDEX] + list(macros.keys())
+    returns = merged[available_assets].pct_change().dropna()
     n_ret = len(returns)
     if n_ret < 20:
         return {
             "rotation_angle_deg": None,
             "lambda_max": None,
             "n_days": n_ret,
-            "assets": ASIA_COMBINED_ASSETS,
+            "assets": available_assets,
             "status": "INSUFFICIENT_DATA",
             "message": f"return series: only {n_ret} aligned days",
         }
 
     # 5. Correlation matrices
-    corr_full = returns.corr(method="spearman").values  # 4×4
+    corr_full = returns.corr(method="spearman").values
     corr_vn = corr_full[0:1, 0:1]  # 1×1 (VNINDEX only)
 
     # 5b. COVARIANCE INFLATION PROTOCOL — nếu có stale dữ liệu
@@ -645,8 +678,8 @@ def compute_asia_rotation(
 
     # 8. Pairwise correlations for reference
     pairs = {}
-    for i, a in enumerate(ASIA_COMBINED_ASSETS):
-        for j, b in enumerate(ASIA_COMBINED_ASSETS):
+    for i, a in enumerate(available_assets):
+        for j, b in enumerate(available_assets):
             if i < j:
                 pairs[f"{a}__{b}"] = round(float(corr_full[i, j]), 4)
 
@@ -657,10 +690,10 @@ def compute_asia_rotation(
         "spectral_entropy": ev["spectral_entropy"],
         "vn_lambda_max": corr_vn_eigen["lambda_max"],
         "n_days": n_ret,
-        "assets": ASIA_COMBINED_ASSETS,
+        "assets": available_assets,
         "pairwise_corr": pairs,
         "stale_accumulated": stale_accumulated,
         "covariance_inflated": inflation_applied,
         "status": "OK",
-        "message": "VN vs KOSPI+TAIEX+SHENZHEN+DXY rotation computed",
+        "message": f"VN + {'+'.join(macros.keys())} rotation computed",
     }

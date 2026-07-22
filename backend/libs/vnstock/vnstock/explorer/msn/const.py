@@ -1,4 +1,4 @@
-_BASE_URL = "https://assets.msn.com/service/Finance"
+﻿_BASE_URL = "https://assets.msn.com/service/Finance"
 
 _SYMBOL_INDEX_COLS_MAP = {
     "RT00S": "symbol",

@@ -1,4 +1,4 @@
-"""
+﻿"""
 semantic_consistency_guard.py — Constraint validator, not a layer.
 
 Checks 3 inconsistency types between:

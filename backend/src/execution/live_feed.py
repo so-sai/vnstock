@@ -1,4 +1,4 @@
-"""LiveFeed — Real Data Pipeline Adapter (Phase 5 UAT).
+﻿"""LiveFeed — Real Data Pipeline Adapter (Phase 5 UAT).
 
 Kết nối StreamingFeed trực tiếp với API VNSTOCK hoặc nguồn dữ liệu tương đương.
 Xử lý latency jitter: timestamp alignment, out-of-order packets, data gaps.

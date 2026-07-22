@@ -1,4 +1,4 @@
-"""Company module for KB Securities (KBS) data source."""
+﻿"""Company module for KB Securities (KBS) data source."""
 
 from typing import Dict, List, Optional
 

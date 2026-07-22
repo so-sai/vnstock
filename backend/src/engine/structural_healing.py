@@ -1,4 +1,4 @@
-"""
+﻿"""
 structural_healing.py — Máy dò chuyển trạng thái cấu trúc (Temporal Transition)
 
 So sánh trạng thái cấu trúc giữa T-1 và T-0 để xác định:

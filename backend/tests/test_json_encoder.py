@@ -1,4 +1,4 @@
-"""test_json_encoder.py — NumpyEncoder / safe_json_dumps (Fault Tolerance).
+﻿"""test_json_encoder.py — NumpyEncoder / safe_json_dumps (Fault Tolerance).
 
 Bản vá khẩn cấp cho JSON Serialization: hệ sinh thái Quant (numpy/pandas) sinh
 ra np.bool_/np.integer/np.floating/np.ndarray mà json.dumps mặc định KHÔNG

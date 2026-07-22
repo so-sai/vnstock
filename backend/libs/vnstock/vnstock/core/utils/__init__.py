@@ -1,4 +1,4 @@
-"""
+﻿"""
 vnstock.core.utils - Utility functions for data processing and validation.
 
 Public API exports for common utility operations.

@@ -230,6 +230,33 @@ CREATE TABLE IF NOT EXISTS macro_history_v2 (
 );
 """
 
+SCHEMA_QUANT = """
+CREATE TABLE IF NOT EXISTS quant_rs_scores (
+    symbol TEXT NOT NULL, date TEXT NOT NULL,
+    rs_raw REAL, rs_rating INTEGER,
+    rvol REAL, avg_vol_20d REAL, avg_value_20d REAL,
+    price REAL, change_1y REAL,
+    percentile REAL, momentum_3m REAL, momentum_6m REAL,
+    momentum_1y REAL,
+    PRIMARY KEY (symbol, date)
+);
+CREATE TABLE IF NOT EXISTS factor_backtests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy TEXT NOT NULL, symbol TEXT NOT NULL,
+    entry_date TEXT NOT NULL, exit_date TEXT,
+    entry_price REAL NOT NULL, exit_price REAL,
+    direction TEXT NOT NULL CHECK(direction IN ('LONG', 'SHORT')),
+    return_pct REAL, r_multiple REAL,
+    holding_period_days INTEGER,
+    regime_at_entry TEXT, regime_at_exit TEXT,
+    rs_at_entry REAL, rs_at_exit REAL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_quant_rs_date ON quant_rs_scores(date);
+CREATE INDEX IF NOT EXISTS idx_quant_rs_symbol ON quant_rs_scores(symbol);
+CREATE INDEX IF NOT EXISTS idx_factor_backtest_strategy ON factor_backtests(strategy);
+"""
+
 SCHEMA_SHADOW = """
 CREATE TABLE IF NOT EXISTS shadow_decision_logs (
     decision_id TEXT PRIMARY KEY, timestamp TEXT NOT NULL,
@@ -290,7 +317,7 @@ CREATE TABLE IF NOT EXISTS shadow_belief_state (
 # Each entry: (filename, schema_sql, description)
 
 DATABASES: list[tuple[str, str, str]] = [
-    ("quant.db", SCHEMA_SHADOW, "Quant RS scores"),
+    ("quant.db", SCHEMA_QUANT, "Quant RS scores + factor backtests"),
     ("telemetry.db", SCHEMA_TELEMETRY, "Decision telemetry + reputation"),
     ("portfolio_state.db", SCHEMA_PORTFOLIO, "Portfolio positions + risk"),
     ("screener_cache.db", SCHEMA_SCREENER, "Market data cache"),

@@ -1,4 +1,4 @@
-"""data_freshness.py — Theo dõi độ tươi dữ liệu và trạng thái API ngoại vi.
+﻿"""data_freshness.py — Theo dõi độ tươi dữ liệu và trạng thái API ngoại vi.
 
 Bảng `data_freshness` là single source of truth cho mọi consumer:
   - staleness_hours: tuổi dữ liệu (giờ kể từ last_updated)

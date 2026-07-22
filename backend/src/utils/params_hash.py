@@ -1,4 +1,4 @@
-"""
+﻿"""
 params_hash.py — Atomic Parameter Identity
 
 Đảm bảo deterministic cross-platform hash của bộ tham số:

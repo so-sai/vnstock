@@ -1,4 +1,4 @@
-"""test_scheduler.py — Test Suite cho tiến trình EOD tự động (giai đoạn b).
+﻿"""test_scheduler.py — Test Suite cho tiến trình EOD tự động (giai đoạn b).
 
 Bao phủ 3 ràng buộc bắt buộc:
   1. Concurrency Guard (ResourceLockedException khi BEGIN IMMEDIATE bị chặn).

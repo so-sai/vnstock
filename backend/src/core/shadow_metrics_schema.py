@@ -1,4 +1,4 @@
-"""
+﻿"""
 shadow_metrics_schema.py — Shadow Deploy Metrics Store.
 
 Log-only comparator. Never affects the main pipeline.

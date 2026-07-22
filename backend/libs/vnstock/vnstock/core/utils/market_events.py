@@ -1,4 +1,4 @@
-# The comprehensive list of market events in Vietnam from 2000
+﻿# The comprehensive list of market events in Vietnam from 2000
 
 MARKET_EVENTS = {
     # 2000

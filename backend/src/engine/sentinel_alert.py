@@ -1,4 +1,4 @@
-
+﻿
 import json
 import os
 import sys
@@ -32,12 +32,12 @@ from src.engine.breadth_engine import run_breadth_analysis
 
 def evaluate_sentinel_status():
     """
-    Hệ thống Sentinel Alert v2.0 (The Architect Custom): 
-    Giám sát 3 lớp phòng thủ để xác nhận 'Rừng hồi sinh' (First Green Shoots).
+    Hệ thống Sentinel Alert v2.0:
+    Giám sát 3 lớp để xác nhận dấu hiệu phục hồi (Recovery Signals).
     """
-    print("\n" + "🛡️ " * 20)
-    print("      SENTINEL ALERT SYSTEM v2.0: EVALUATING DEFENSES      ")
-    print("🛡️ " * 20)
+    print("\n" + "─" * 50)
+    print("      SENTINEL ALERT SYSTEM v2.0: EVALUATING MARKET STATUS      ")
+    print("─" * 50)
 
     # 0. Bản thiết lập mặc định (Fallback) phòng ngừa lỗi sập luồng
     results = {
@@ -56,7 +56,7 @@ def evaluate_sentinel_status():
         "layer3_foreign_absorption": {
             "status": "FAIL"
         },
-        "final_status": "RED (STANDBY - PHANTOM CITADEL)"
+        "final_status": "RED (STANDBY)"
     }
 
     pulse = None
@@ -122,18 +122,18 @@ def evaluate_sentinel_status():
     # === PHÁN QUYẾT CUỐI CÙNG ===
     total_passed = sum([layer1_mom, layer2_breadth, layer3_flow])
 
-    print("\n--- BÁO CÁO GIÁM ĐỊNH SENTINEL ---")
+    print("\n--- BÁO CÁO TRẠNG THÁI SENTINEL ---")
     print(f"Lớp 1 (Momentum Expansion > 150): {results['layer1_mom_expansion']['status']} ({mom_expansion_count}/150)")
     print(f"Lớp 2 (NH10 Consistency 3D):      {results['layer2_nh10_consistency']['status']} ({nh10_val}/3)")
     print(f"Lớp 3 (Foreign Absorption > -100B): {results['layer3_foreign_absorption']['status']}")
     print("-" * 40)
 
     if total_passed == 3:
-        final_status = "GREEN (ALL CLEAR - BUY SIGNAL)"
+        final_status = "GREEN (CONFIRMED - BUY SIGNAL)"
     elif total_passed >= 1:
-        final_status = "YELLOW (WATCHING - GREEN SHOOTS)"
+        final_status = "YELLOW (RECOVERING)"
     else:
-        final_status = "RED (STANDBY - PHANTOM CITADEL)"
+        final_status = "RED (STANDBY)"
 
     flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
     print(f"{flag} HỆ THỐNG CẢNH BÁO: {final_status}")

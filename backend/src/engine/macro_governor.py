@@ -1,4 +1,4 @@
-"""macro_governor.py — Cấp Quyết định Vĩ mô (Macro Governor Gatekeeper)
+﻿"""macro_governor.py — Cấp Quyết định Vĩ mô (Macro Governor Gatekeeper)
 
 Kiến trúc Two-Tier:
   Tier 1 (Macro Governor): DXY, USDVND, OMO, Foreign flows, Gold/Yield
@@ -106,7 +106,7 @@ class MacroGovernor:
             )
         if not df.empty:
             # De-duplicate: giữ unique(date) gần nhất
-            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+            df["date"] = pd.to_datetime(df["date"], format='mixed').dt.strftime("%Y-%m-%d")
             df = df.drop_duplicates(subset="date", keep="last").sort_values("date")
             df["value"] = pd.to_numeric(df["value"], errors="coerce")
             df = df.dropna()

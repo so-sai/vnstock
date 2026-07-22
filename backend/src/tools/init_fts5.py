@@ -1,4 +1,4 @@
-"""init_fts5.py — Khởi tạo bảng ảo FTS5 cho Instant Search.
+﻿"""init_fts5.py — Khởi tạo bảng ảo FTS5 cho Instant Search.
 
 Root cause đã xác minh: `symbol_fts` table không tồn tại trên DB production
 (`screener_cache.db`). Nguyên nhân: code trong `db_core.py:100-105` chỉ tạo FTS

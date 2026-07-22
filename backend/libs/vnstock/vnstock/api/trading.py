@@ -1,4 +1,4 @@
-"""
+﻿"""
 vnstock/api/trading.py
 
 Unified Trading adapter with dynamic method detection and parameter filtering.

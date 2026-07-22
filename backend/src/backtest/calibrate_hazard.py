@@ -1,4 +1,4 @@
-"""
+﻿"""
 calibrate_hazard.py — Calibrate HazardTransitionEngine weights to match
 real engine state-space dynamics.
 

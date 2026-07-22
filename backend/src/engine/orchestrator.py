@@ -1,4 +1,4 @@
-"""
+﻿"""
 orchestrator.py — Bộ quyết định cuối cùng
 
 Thứ tự ưu tiên (CAO → THẤP):
@@ -126,7 +126,7 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None, lang_mode: str = "compact
             ket_qua_tam = {
                 "ngay": target_date, "quyet_dinh": "DUNG NGOAI",
                 "ly_do": ["FORCE_LOCK_HDR — dữ liệu thị trường đang ở chế độ Synthetic",
-                          "API ngoại vi không khả dụng, Governor bắt buộc đóng băng",
+                          "API ngoại vi không khả dụng, hệ thống đóng băng giao dịch",
                           "chỉ giao dịch lại khi API khôi phục và cache warmed"]
                 + _fallback_reasons[:3],
                 "chi_tiet": {"fallback_guard": True, "fallback_reasons": _fallback_reasons},
@@ -397,7 +397,7 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None, lang_mode: str = "compact
                     ket_qua["quyet_dinh"] = "THAM GIA DO"
                     ket_qua["ly_do"] = [
                         "cấu trúc đã lành — recovery engine xác nhận",
-                        "dòng tiền mồi quay lại (thrust/velocity)",
+                        "dòng tiền dẫn dắt quay lại (thrust/velocity)",
                         "mở lệnh thăm dò — giám sát chặt",
                     ]
                     ket_qua["bi_chặn_bởi_bảo_vệ"] = False
@@ -412,14 +412,14 @@ def quyet_dinh_cuoi(target_date: Optional[str] = None, lang_mode: str = "compact
                     if hs == "TAI_PHAT_BENH":
                         ket_qua["ly_do"] = [
                             "cấu trúc tiếp tục vỡ — hồi phục thất bại",
-                            "cấm tuyệt đối bắt đáy — rủi ro sập lần 2",
+                            "cấm mua ở vùng đáy — rủi ro giảm tiếp",
                             "chờ tín hiệu lành thực sự",
                         ]
                     elif hs in ("BAT_DAU_LANH", "DANG_LANH"):
                         ket_qua["quyet_dinh"] = "QUAN SAT"
                         ket_qua["ly_do"] = [
                             f"cấu trúc đang lành ({hs})",
-                            "máu đã ngừng chảy — hé mắt quan sát",
+                            "biến động đã giảm — theo dõi thận trọng",
                             "chưa mua — chờ recovery hoặc đồng thuận",
                         ]
                         ket_qua["bi_chặn_bởi_bảo_vệ"] = False
@@ -639,7 +639,7 @@ def in_bao_cao(kq: dict):
         from src.services.macro.interbank_seeder import _is_sbv_alert_active
         if _is_sbv_alert_active():
             print(f"  {'='*50}")
-            print("  ⚠ [ACTION REQUIRED]: CẤU TRÚC SBV THAY ĐỔI — CẢM BIẾN MÙ.")
+            print("  ⚠ [ACTION REQUIRED]: CẤU TRÚC SBV THAY ĐỔI — PARSER KHÔNG KHẢ DỤNG.")
             print("  Dữ liệu gốc lưu tại: data/alerts/")
             print("  Chạy: python ptck.py sbv-update")
             print(f"  {'='*50}")
@@ -648,7 +648,7 @@ def in_bao_cao(kq: dict):
 
     ss = kq.get("sensor_status")
     if ss == "CRITICAL_SBV_CHANGED":
-        print("  ⚠ SENSOR: [CRITICAL CONTROL] BACKEND SENSOR CRASHED — DỪNG NGOÀI DO LỖI CẢM BIẾN, KHÔNG PHẢI TÍN HIỆU THỊ TRƯỜNG")
+        print("  ⚠ SENSOR: [CRITICAL CONTROL] DATA PARSER FAILED — DỪNG NGOÀI DO LỖI PARSER, KHÔNG PHẢI TÍN HIỆU THỊ TRƯỜNG")
 
     đg = kq.get("độ_tin_cậy_sau_hiệu_chỉnh", {})
     if đg:

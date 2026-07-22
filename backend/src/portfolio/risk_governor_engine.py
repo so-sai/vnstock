@@ -1,4 +1,4 @@
-"""
+﻿"""
 Risk Governor Engine — institutional-grade risk layer.
 Controls drawdown, leverage, correlation, and VaR limits.
 Feeds into exposure_engine as the outermost risk gate.

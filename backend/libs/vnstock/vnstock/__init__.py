@@ -1,4 +1,4 @@
-import vnai
+﻿import vnai
 
 # Lazy import Vnstock to avoid circular import deadlock
 _Vnstock = None

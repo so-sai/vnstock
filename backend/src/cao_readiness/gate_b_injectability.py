@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gate B — Counterfactual Injectability Test
 ===========================================
 For each engine, simulate removing its signal (set to neutral/zero)

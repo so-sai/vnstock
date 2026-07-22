@@ -32,7 +32,7 @@ def audit_2022_q4():
         print("❌ NO DATA FOUND for 2022-Q4.")
         return
 
-    df['date'] = pd.to_datetime(df['date'])
+    df['date'] = pd.to_datetime(df['date'], format='mixed')
     # Check for gaps (weekdays only)
     all_dates = pd.date_range(start='2022-10-01', end='2022-12-31', freq='B') # Business days
     missing = all_dates[~all_dates.isin(df['date'])]

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Group Influence Engine — Bộ đo ảnh hưởng nhóm trụ
 
 Tính toán ảnh hưởng của từng nhóm cổ phiếu lên VNINDEX:

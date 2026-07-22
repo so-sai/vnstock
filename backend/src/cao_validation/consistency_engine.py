@@ -1,4 +1,4 @@
-"""CAO Trust Bridge — Consistency Engine (Statistical Core).
+﻿"""CAO Trust Bridge — Consistency Engine (Statistical Core).
 
 Evaluates 3 dimensions of shadow-vs-real consistency per decision:
 1. Attribution stability — engine contribution ranking maintained?

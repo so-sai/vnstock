@@ -1,4 +1,4 @@
-# vnstock/core/utils/auth.py
+﻿# vnstock/core/utils/auth.py
 
 """
 User authentication and API key registration for vnstock.

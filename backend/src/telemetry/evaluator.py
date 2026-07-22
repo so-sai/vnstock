@@ -1,4 +1,4 @@
-"""Telemetry Evaluator — judges decisions after 5, 10, 20, 30 days"""
+﻿"""Telemetry Evaluator — judges decisions after 5, 10, 20, 30 days"""
 import logging
 import sys
 from datetime import datetime, timedelta
