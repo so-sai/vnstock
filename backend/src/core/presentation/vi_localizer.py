@@ -1,175 +1,502 @@
-﻿"""Vietnamese Localizer for Market State Presentation.
 
-This module maps raw English enum values from engine output to Vietnamese
-labels for presentation layer. Zero architecture change — presentation only.
+_TRADE_STATE_VI: dict[str, str] = {
+    "PROHIBITED": "Cấm giao dịch",
+    "RESTRICTED": "Hạn chế giao dịch",
+    "SELECTIVE": "Giao dịch chọn lọc",
+    "ACTIVE": "Giao dịch chủ động",
+    "AGGRESSIVE": "Giao dịch tấn công",
+}
 
-Usage:
-    from core.presentation.vi_localizer import localize_market_state
-    vi_state = localize_market_state(raw_state)
-"""
-from __future__ import annotations
-
-# === ENUM MAPPINGS ===
-
-REGIME_MAP = {
-    "TRENDING": "Xu hướng rõ ràng",
+_REGIME_VI: dict[str, str] = {
+    "TRENDING": "Xu hướng rõ",
     "RANGING": "Đi ngang",
     "CRISIS": "Khủng hoảng",
-    "SIDEWAYS": "Đi ngang",
-    "BULL": "Tăng",
-    "BEAR": "Giảm",
+    "RECOVERY": "Phục hồi",
     "UNKNOWN": "Không xác định",
 }
 
-FLOW_STATE_MAP = {
-    "THU_HẸP": "Thu hẹp",
-    "THU_HEP": "Thu hẹp",
-    "MỞ_RỘNG": "Mở rộng",
-    "MO_RONG": "Mở rộng",
-    "BROAD_EXPANSION": "Mở rộng diện rộng",
-    "NARROWING": "Thu hẹp",
-    "CONCENTRATING": "Tập trung",
-    "DISPERSING": "Phân tán",
-    "ROTATING": "Luân chuyển",
-    "Dòng tiền thu hẹp": "Thu hẹp",
-    "Dòng tiền mở rộng": "Mở rộng",
+_BREADTH_VI: dict[str, str] = {
+    "EXPANDING": "Mở rộng",
+    "DIVERGING": "Phân kỳ",
+    "CONTRACTING": "Thu hẹp",
+    "WEAK": "Yếu",
 }
 
-CONVICTION_MAP = {
-    "HIGH": "Cao",
-    "MEDIUM": "Trung bình",
+_FLOW_VI: dict[str, str] = {
+    "MỞ_RỘNG": "Dòng tiền mở rộng",
+    "MỞ_RỘNG_TÍCH_CỰC": "Dòng tiền mở rộng tích cực",
+    "DUY_TRÌ": "Dòng tiền duy trì",
+    "ỔN_ĐỊNH": "Dòng tiền ổn định",
+    "TRUNG_TÍNH": "Dòng tiền trung tính",
+    "PHÂN_HÓA": "Dòng tiền phân hóa",
+    "THU_HẸP": "Dòng tiền thu hẹp",
+    "YẾU": "Dòng tiền yếu",
+    "KÉM": "Dòng tiền kém",
+    "UNKNOWN": "Dòng tiền không xác định",
+}
+
+_RISK_GOV_VI: dict[str, str] = {
+    "NORMAL": "Bình thường",
+    "DEFENSIVE": "Phòng thủ",
+    "RESTRICTED": "Hạn chế",
+    "LOCKDOWN": "Đóng băng rủi ro",
+    "UNKNOWN": "Không xác định",
+}
+
+_BDI_VI: dict[str, str] = {
+    "CAN_BANG": "Cân bằng",
+    "PHAN_KY_DUONG": "Phân kỳ dương — Large-cap vượt trội",
+    "PHAN_KY_AM": "Phân kỳ âm — Small-cap vượt trội",
+}
+
+_SSI_VI: dict[str, str] = {
+    "HIGH": "Ổn định",
+    "MEDIUM": "Đang chuyển pha",
+    "LOW": "Nhiễu / Giả",
+}
+
+_ASSET_BIAS_VI: dict[str, str] = {
+    "STRONG_PREFER": "Ưu tiên cao",
+    "PREFER": "Ưu tiên",
+    "NEUTRAL": "Trung tính",
+    "AVOID": "Hạn chế",
+    "STRONG_AVOID": "Tránh",
+}
+
+_DRIFT_VI: dict[str, str] = {
+    "STRUCTURAL": "Lệch cấu trúc",
+    "TRANSIENT": "Lệch tạm thời",
+    "NOISE": "Nhiễu",
+    "NONE": "Đồng bộ",
+}
+
+_ACTION_ALLOWED_VI: dict[str, str] = {
+    "CASH_ONLY": "Chỉ giữ tiền mặt",
+    "EXIT_ALL": "Đóng toàn bộ vị thế",
+    "HOLD": "Nắm giữ",
+    "REDUCE": "Giảm tỷ trọng",
+    "EXIT": "Thoát vị thế",
+    "BUY_SELECTIVE": "Mua chọn lọc",
+    "ROTATE": "Xoay vòng danh mục",
+    "BUY": "Mua",
+    "ADD": "Thêm vị thế",
+    "LEVERAGE": "Sử dụng đòn bẩy",
+}
+
+_DCL_VERDICT_VI: dict[str, str] = {
+    "ACTIONABLE": "Có thể giao dịch",
+    "OBSERVE": "Quan sát có điều kiện",
+    "NO_TRADE": "Không giao dịch",
+}
+
+_DCL_VERDICT_COLOR: dict[str, str] = {
+    "ACTIONABLE": "green",
+    "OBSERVE": "yellow",
+    "NO_TRADE": "red",
+}
+
+_MARKET_INTENT_VI: dict[str, str] = {
+    "ACCUMULATION": "Thị trường đang trong pha tích lũy — dòng tiền lớn đang vào lệnh",
+    "WAITING": "Thị trường đang chờ — tín hiệu chưa đủ mạnh để hành động",
+    "DISTRIBUTION": "Thị trường đang trong pha phân phối — momentum suy yếu, dòng tiền giảm dần",
+    "PRESERVATION": "Thị trường đang trong chế độ bảo toàn thanh khoản — ưu tiên giữ tiền mặt",
+}
+
+_GATE_NAME_VI: dict[str, str] = {
+    "sentinel": "Mô hình A (Sentinel)",
+    "flow": "Mô hình B (Dòng tiền)",
+    "breadth": "Độ rộng thị trường",
+    "structure": "Cấu trúc thị trường",
+    "ssi": "Độ ổn định state (SSI)",
+    "trade_state": "Chính sách giao dịch",
+}
+
+_GATE_REASON_VI: dict[str, str] = {
+    "GATE_SENTINEL_PASS": "Cả 3 lớp phòng thủ đều xanh — momentum, NH10 và dòng ngoại xác nhận",
+    "GATE_SENTINEL_FAIL": "Sentinel RED — momentum chưa đủ rộng, NH10 chưa 3D, dòng ngoại chưa hấp thụ",
+    "GATE_FLOW_PASS": "Dòng tiền tổ chức duy trì vị thế — flow alignment đạt ngưỡng",
+    "GATE_FLOW_FAIL": "Dòng tiền tổ chức suy yếu — thanh khoản không ủng hộ vị thế mua",
+    "GATE_BREADTH_PASS": "Độ rộng thị trường lan tỏa — index đại diện thực chất",
+    "GATE_BREADTH_FAIL": "Độ rộng thị trường yếu — index giả tạo, thiếu lan tỏa thực",
+    "GATE_STRUCTURE_PASS": "Cấu trúc thị trường cân bằng — LCR và BDI đồng thuận",
+    "GATE_STRUCTURE_FAIL": "Cấu trúc thị trường lệch — LCR cao, BDI phân kỳ, index do vài trụ kéo",
+    "GATE_SSI_PASS": "State thị trường ổn định — các tín hiệu nội tại nhất quán",
+    "GATE_SSI_FAIL": "State thị trường nhiễu — tín hiệu chưa đồng thuận, độ tin cậy thấp",
+    "GATE_TRADE_STATE_PASS": "Chính sách giao dịch cho phép — trade state ở ngưỡng hoạt động",
+    "GATE_TRADE_STATE_FAIL": "Chính sách giao dịch đóng băng/hạn chế — không cho phép mở vị thế mới",
+}
+
+_COMP_CODE_VI: dict[str, str] = {
+    "COMP_SENTINEL_BY_FLOW_SSI": "Dòng tiền ACCELERATION + SSI ổn bù cho Sentinel RED",
+    "COMP_SENTINEL_BY_FLOW_BREADTH": "Flow mạnh + breadth phục hồi bù cho Sentinel",
+    "COMP_BREADTH_BY_SENTINEL_FLOW": "Sentinel GREEN + Flow ACCELERATION bù cho breadth yếu",
+    "COMP_BREADTH_BY_SENTINEL_SSI": "Sentinel GREEN + SSI ổn bù cho breadth thấp",
+    "COMP_SSI_BY_FLOW_BREADTH": "Flow mạnh + breadth phục hồi bù cho SSI thấp",
+    "COMP_SSI_BY_SENTINEL_TRADE_STATE": "Sentinel GREEN + trade state cho phép bù cho SSI trung bình",
+    "COMP_FLOW_BY_SENTINEL_SSI": "Sentinel GREEN + SSI tốt bù cho flow chững",
+    "COMP_FLOW_BY_BREADTH_TRADE_STATE": "Breadth rộng + trade state ACTIVE bù cho flow yếu",
+    "COMP_STRUCTURE_BY_SENTINEL_FLOW_BREADTH": "Sentinel xanh + flow mạnh + breadth cơ bản bù cho cấu trúc lệch",
+    "COMP_TRADE_STATE_BY_SENTINEL_FLOW_SSI": "Sentinel GREEN + Flow ACCELERATION + SSI ổn bù cho policy hạn chế",
+}
+
+_ACTION_CODE_VI: dict[str, str] = {
+    "SELECTIVE_BUY": "Có thể giải ngân",
+    "CONDITIONAL_BUY": "Giải ngân có điều kiện",
+    "STAND_DOWN": "Đứng ngoài quan sát",
+}
+
+_DIRECTIONAL_BIAS_VI: dict[str, str] = {
+    "BULLISH": "Xu hướng tăng",
+    "TRANSITIONAL": "Chuyển pha",
+    "NEUTRAL": "Trung tính",
+    "BEARISH": "Xu hướng giảm",
+    "FRACTURED": "Phân mảnh — không rõ hướng",
+}
+
+_BIAS_FORCE_VI: dict[str, str] = {
+    "FLOW": "Dòng tiền",
+    "STRUCTURE": "Cấu trúc",
+    "BREADTH": "Độ rộng",
+    "REGIME": "Regime",
+    "SSI": "Độ tin cậy",
+    "TRADE_STATE": "Chính sách GD",
+    "NONE": "Không rõ",
+}
+
+_BIAS_COLOR: dict[str, str] = {
+    "BULLISH": "green",
+    "TRANSITIONAL": "lime",
+    "NEUTRAL": "yellow",
+    "BEARISH": "red",
+    "FRACTURED": "purple",
+}
+
+_TREND_QUALITY_VI: dict[str, str] = {
+    "PERSISTENT": "Xu hướng bền vững",
+    "TRANSITIONAL": "Đang chuyển pha",
+    "FLICKERING": "Nhiễu — chưa rõ hướng",
+}
+
+_FLICKER_RISK_VI: dict[str, str] = {
     "LOW": "Thấp",
-    "VERY_HIGH": "Rất cao",
-    "VERY_LOW": "Rất thấp",
+    "MEDIUM": "Trung bình",
+    "HIGH": "Cao",
 }
 
-SECTOR_LABELS = {
-    "BANK": "Ngân hàng",
-    "RE": "Bất động sản",
-    "SEC": "Chứng khoán",
-    "STEEL": "Thép",
-    "OIL": "Dầu khí",
-    "TRANS": "Vận tải",
-    "CONSUMER": "Tiêu dùng",
-    "TECH": "Công nghệ",
-    "UTILITY": "Tiện ích",
-    "CONST": "Xây dựng",
-    "FOOD": "Thực phẩm",
-    "OTHER": "Khác",
+_TREND_QUALITY_COLOR: dict[str, str] = {
+    "PERSISTENT": "green",
+    "TRANSITIONAL": "yellow",
+    "FLICKERING": "red",
 }
 
-FIELD_LABELS = {
-    "market_regime": "Trạng thái thị trường",
-    "flow_state": "Trạng thái dòng tiền",
-    "flow_velocity": "Tốc độ dòng tiền",
-    "rotation_velocity": "Tốc độ luân chuyển",
-    "classification": "Phân loại dòng tiền",
-    "displacement_conviction": "Độ tin cậy dịch chuyển vốn",
-    "leading_sectors": "Ngành dẫn dắt",
-    "lagging_sectors": "Ngành tụt lại",
-    "sector_share": "Phân bổ dòng tiền theo ngành",
-    "sector_performance": "Hiệu suất ngành hôm nay",
-    "health_score": "Điểm sức khỏe thị trường",
-    "advancers": "Số mã tăng",
-    "decliners": "Số mã giảm",
-    "unchanged": "Số mã đứng giá",
-    "total_active": "Tổng mã hoạt động",
-    "nh10_count": "Số mã phá MA10",
-    "status": "Mã trạng thái",
-    "status_vi": "Diễn giải",
-    "active_model": "Model hoạt động",
-    "consensus": "Đồng thuận",
-    "confidence": "Độ tin cậy",
-    "score": "Điểm số",
-    "bull_count": "Số mã tăng (RSI)",
-    "bear_count": "Số mã giảm (RSI)",
-    "total_scanned": "Tổng đã quét",
-    "habitat_distribution": "Phân bố môi trường RSI",
+_TRANSITION_STATE_VI: dict[str, str] = {
+    "STABLE": "Ổn định",
+    "BREWING": "Đang hình thành chuyển pha",
+    "TRIGGERED": "Chuyển pha đã kích hoạt",
+}
+
+_TRANSITION_TYPE_VI: dict[str, str] = {
+    "NONE": "Không có",
+    "FLICKER_TO_TREND": "Nhiễu → Xu hướng",
+    "TREND_TO_FLICKER": "Xu hướng → Nhiễu",
+    "REGIME_SHIFT": "Chuyển đổi Regime",
+    "BIAS_FLIP": "Đảo chiều Bias",
+}
+
+_TRANSITION_STATE_COLOR: dict[str, str] = {
+    "STABLE": "green",
+    "BREWING": "yellow",
+    "TRIGGERED": "red",
+}
+
+_VETO_WARN_CODE_VI: dict[str, str] = {
+    "VETO_TRADE_STATE": "Trade state đóng băng/hạn chế — veto từ policy tổng quát",
+    "WARN_TRADE_STATE": "Trade state hạn chế nhưng DCL cho phép override — yêu cầu xác nhận mạnh",
+    "VETO_SENTINEL": "Sentinel RED — momentum chưa hội tụ, NH10 chưa xác nhận",
+    "WARN_SENTINEL": "Sentinel RED nhưng DCL override — có tín hiệu bù trừ từ Flow/SSI",
+    "VETO_FLOW": "Dòng tiền yếu — thanh khoản tổ chức không ủng hộ vị thế mua",
+    "WARN_FLOW": "Dòng tiền yếu nhưng DCL override — cần xác nhận từ khối lượng và breadth",
+    "VETO_BREADTH": "Độ rộng yếu — rủi ro index giả tạo, thiếu lan tỏa thực",
+    "WARN_BREADTH": "Độ rộng yếu nhưng DCL override — chỉ chọn mã có xác nhận volume mạnh",
+    "VETO_STRUCTURE": "Cấu trúc lệch — thanh khoản tập trung quá hẹp, index do vài trụ kéo",
+    "WARN_STRUCTURE": "Cấu trúc lệch nhưng DCL override — chỉ tập trung mã trụ có dòng tiền",
+    "VETO_SSI": "SSI dưới ngưỡng — tín hiệu thị trường đang nhiễu",
+    "WARN_SSI": "SSI dưới ngưỡng nhưng DCL override — state nhiễu nhưng có cấu trúc bù trừ",
+    "WARN_FLOW_DECELERATION": "Dòng tiền ở trạng thái trung bình — cần xác nhận thêm",
+    "WARN_SENTINEL_RED_FLOW_STRONG": "Sentinel chưa xanh nhưng dòng tiền tích cực — mâu thuẫn cần theo dõi",
 }
 
 
-def _translate_enum(value: str, mapping: dict) -> str:
-    """Translate enum value using mapping dict, fallback to original."""
-    return mapping.get(value, value)
+def localize_trade_state(level: str) -> str:
+    return _TRADE_STATE_VI.get(level, level)
 
 
-def _translate_sector(sector_code: str) -> str:
-    """Translate sector code to Vietnamese label."""
-    return SECTOR_LABELS.get(sector_code, sector_code)
+def localize_regime(status: str) -> str:
+    return _REGIME_VI.get(status, status)
 
 
-def _localize_regime(regime: dict) -> dict:
-    """Localize market regime state."""
-    if not regime:
-        return {}
-    result = dict(regime)
-    if "status" in result:
-        result["status_vi"] = _translate_enum(result["status"], REGIME_MAP)
-    return result
+def localize_breadth(state: str) -> str:
+    return _BREADTH_VI.get(state, state)
 
 
-def _localize_flow_state(flow: dict) -> dict:
-    """Localize flow state."""
-    if not flow:
-        return {}
-    result = dict(flow)
-    if "status" in result:
-        result["status_vi"] = _translate_enum(result["status"], FLOW_STATE_MAP)
-    if "classification" in result:
-        result["classification_vi"] = _translate_enum(
-            result["classification"], FLOW_STATE_MAP
-        )
-    if "displacement_conviction" in result:
-        result["displacement_conviction_vi"] = _translate_enum(
-            result["displacement_conviction"], CONVICTION_MAP
-        )
-    if "leading_sectors" in result:
-        result["leading_sectors_vi"] = [
-            _translate_sector(s) for s in result["leading_sectors"]
-        ]
-    if "lagging_sectors" in result:
-        result["lagging_sectors_vi"] = [
-            _translate_sector(s) for s in result["lagging_sectors"]
-        ]
-    return result
+def localize_flow(status: str) -> str:
+    return _FLOW_VI.get(status, status)
 
 
-def _localize_breadth(breadth: dict) -> dict:
-    """Localize breadth state."""
-    if not breadth:
-        return {}
-    result = dict(breadth)
-    return result
+def localize_risk_governor(state: str) -> str:
+    return _RISK_GOV_VI.get(state, state)
+
+
+def localize_bdi(signal: str) -> str:
+    return _BDI_VI.get(signal, signal)
+
+
+def localize_ssi(level: str) -> str:
+    return _SSI_VI.get(level, level)
+
+
+def localize_asset_bias(bias: str) -> str:
+    return _ASSET_BIAS_VI.get(bias, bias)
+
+
+def localize_drift(label: str) -> str:
+    for eng, vi in _DRIFT_VI.items():
+        if eng in label.upper():
+            return label.replace(eng, vi)
+    return label
+
+
+def localize_allowed_action(action: str) -> str:
+    return _ACTION_ALLOWED_VI.get(action, action)
+
+
+def localize_dcl_verdict(verdict: str) -> str:
+    return _DCL_VERDICT_VI.get(verdict, verdict)
+
+
+def localize_dcl_color(verdict: str) -> str:
+    return _DCL_VERDICT_COLOR.get(verdict, "gray")
+
+
+def localize_market_intent(intent: str) -> str:
+    return _MARKET_INTENT_VI.get(intent, intent)
+
+
+def localize_gate_name(name: str) -> str:
+    return _GATE_NAME_VI.get(name, name)
+
+
+def localize_gate_reason(code: str) -> str:
+    return _GATE_REASON_VI.get(code, code)
+
+
+def localize_comp_code(code: str) -> str:
+    return _COMP_CODE_VI.get(code, code)
+
+
+def localize_action_code(code: str) -> str:
+    return _ACTION_CODE_VI.get(code, code)
+
+
+def localize_bias_code(code: str) -> str:
+    return _DIRECTIONAL_BIAS_VI.get(code, code)
+
+
+def localize_bias_force(force: str) -> str:
+    return _BIAS_FORCE_VI.get(force, force)
+
+
+def localize_bias_color(code: str) -> str:
+    return _BIAS_COLOR.get(code, "gray")
+
+
+def localize_trend_quality(code: str) -> str:
+    return _TREND_QUALITY_VI.get(code, code)
+
+
+def localize_flicker_risk(code: str) -> str:
+    return _FLICKER_RISK_VI.get(code, code)
+
+
+def localize_trend_quality_color(code: str) -> str:
+    return _TREND_QUALITY_COLOR.get(code, "gray")
+
+
+def localize_transition_state(code: str) -> str:
+    return _TRANSITION_STATE_VI.get(code, code)
+
+
+def localize_transition_type(code: str) -> str:
+    return _TRANSITION_TYPE_VI.get(code, code)
+
+
+def localize_transition_state_color(code: str) -> str:
+    return _TRANSITION_STATE_COLOR.get(code, "gray")
+
+
+def localize_veto_warn(code: str) -> str:
+    return _VETO_WARN_CODE_VI.get(code, code)
+
+
+def localize_veto_warn_list(codes: list[str]) -> list[str]:
+    return [localize_veto_warn(c) for c in codes]
 
 
 def localize_market_state(state: dict) -> dict:
-    """Localize full market state to Vietnamese.
-
-    Args:
-        state: Raw market state dict from coordinator.
-
-    Returns:
-        Localized dict with _vi fields added.
-    """
-    if not state:
-        return {}
-
     result = dict(state)
 
-    if "market_regime" in result:
-        result["market_regime"] = _localize_regime(result["market_regime"])
+    ts = result.get("trade_state")
+    if ts:
+        ts = dict(ts)
+        ts["level_vi"] = localize_trade_state(ts.get("level", ""))
+        ts["label_vi"] = localize_trade_state(ts.get("level", ""))
+        allowed = ts.get("allowed_actions", [])
+        ts["allowed_actions_vi"] = [localize_allowed_action(a) for a in allowed]
+        result["trade_state"] = ts
 
-    if "flow_state" in result:
-        result["flow_state"] = _localize_flow_state(result["flow_state"])
+    ap = result.get("asset_preference")
+    if ap:
+        ap = dict(ap)
+        entries = []
+        for e in ap.get("entries", []):
+            e = dict(e)
+            e["label_vi"] = localize_asset_bias(e.get("bias", ""))
+            entries.append(e)
+        ap["entries"] = entries
+        result["asset_preference"] = ap
 
-    if "breadth_state" in result:
-        result["breadth_state"] = _localize_breadth(result["breadth_state"])
+    ss = result.get("state_stability")
+    if ss:
+        ss = dict(ss)
+        ss["label_vi"] = localize_ssi(ss.get("level", ""))
+        for axis_key in ("state_consistency", "breadth_confirmation", "drift_alignment", "flow_stability"):
+            axis = ss.get(axis_key)
+            if axis and isinstance(axis, dict):
+                axis["label_vi"] = localize_ssi(
+                    "HIGH" if axis.get("score", 0) >= 0.65
+                    else "MEDIUM" if axis.get("score", 0) >= 0.35
+                    else "LOW"
+                )
+        result["state_stability"] = ss
+
+    mr = result.get("market_regime")
+    if mr:
+        mr = dict(mr)
+        mr["status_vi"] = localize_regime(mr.get("status", ""))
+        result["market_regime"] = mr
+
+    fs = result.get("flow_state")
+    if fs:
+        fs = dict(fs)
+        fs["status_vi"] = localize_flow(fs.get("status", ""))
+        result["flow_state"] = fs
+
+    rs = result.get("risk_state")
+    if rs:
+        rs = dict(rs)
+        rs["governor_vi"] = localize_risk_governor(rs.get("governor_state", ""))
+        result["risk_state"] = rs
+
+    ms = result.get("market_structure")
+    if ms:
+        ms = dict(ms)
+        ms["bdi_signal_vi"] = localize_bdi(ms.get("bdi_signal", ""))
+        result["market_structure"] = ms
+
+    dcl = result.get("decision_closure")
+    if dcl:
+        dcl = dict(dcl)
+        dcl["verdict_vi"] = localize_dcl_verdict(dcl.get("verdict", ""))
+        dcl["color"] = localize_dcl_color(dcl.get("verdict", ""))
+        dcl["market_intent_vi"] = localize_market_intent(dcl.get("market_intent", ""))
+        gates = dcl.get("gates", {})
+        if gates and isinstance(gates, dict):
+            localized_gates = {}
+            for gname, gscore in gates.items():
+                if isinstance(gscore, dict):
+                    gscore = dict(gscore)
+                    gscore["label_vi"] = localize_gate_name(gname)
+                    gscore["reason_vi"] = localize_gate_reason(gscore.get("reason_code", ""))
+                    if gscore.get("comp_code"):
+                        gscore["compensation_detail_vi"] = localize_comp_code(gscore["comp_code"])
+                    else:
+                        gscore["compensation_detail_vi"] = None
+                    localized_gates[gname] = gscore
+                else:
+                    localized_gates[gname] = gscore
+            dcl["gates"] = localized_gates
+        comps = dcl.get("compensations_applied", [])
+        if comps and isinstance(comps, list):
+            localized_comps = []
+            for c in comps:
+                if isinstance(c, dict):
+                    c = dict(c)
+                    c["description_vi"] = localize_comp_code(c.get("comp_code", ""))
+                    localized_comps.append(c)
+                else:
+                    localized_comps.append(c)
+            dcl["compensations_applied"] = localized_comps
+        result["decision_closure"] = dcl
+
+    db = result.get("directional_bias")
+    if db:
+        db = dict(db)
+        db["label_vi"] = localize_bias_code(db.get("bias_code", ""))
+        db["color"] = localize_bias_color(db.get("bias_code", ""))
+        drivers = db.get("bias_drivers", [])
+        if drivers and isinstance(drivers, list):
+            localized_drivers = []
+            for d in drivers:
+                if isinstance(d, dict):
+                    d = dict(d)
+                    d["source_vi"] = localize_bias_force(d.get("source", ""))
+                    localized_drivers.append(d)
+                else:
+                    localized_drivers.append(d)
+            db["bias_drivers"] = localized_drivers
+        db["dominant_force_vi"] = localize_bias_force(db.get("dominant_force", ""))
+        result["directional_bias"] = db
+
+    dp = result.get("direction_persistence")
+    if dp:
+        dp = dict(dp)
+        dp["label_vi"] = localize_trend_quality(dp.get("trend_quality_code", ""))
+        dp["color"] = localize_trend_quality_color(dp.get("trend_quality_code", ""))
+        dp["flicker_label_vi"] = localize_flicker_risk(dp.get("flicker_risk_code", ""))
+        result["direction_persistence"] = dp
+
+    tt = result.get("transition_trigger")
+    if tt:
+        tt = dict(tt)
+        tt["label_vi"] = localize_transition_state(tt.get("transition_state", ""))
+        tt["color"] = localize_transition_state_color(tt.get("transition_state", ""))
+        tt["transition_type_vi"] = localize_transition_type(tt.get("transition_type", ""))
+        result["transition_trigger"] = tt
+
+    vd = result.get("investment_verdicts")
+    if vd:
+        vd = dict(vd)
+        verdicts_list = vd.get("verdicts", [])
+        if verdicts_list and isinstance(verdicts_list, list):
+            localized_verdicts = []
+            for v in verdicts_list:
+                if isinstance(v, dict):
+                    v = dict(v)
+                    v["action_label"] = localize_action_code(v.get("action_code", ""))
+                    veto_localized = [localize_veto_warn(r) for r in v.get("veto_reasons", [])]
+                    warn_localized = [localize_veto_warn(w) for w in v.get("warnings", [])]
+                    v["veto_reasons_vi"] = veto_localized
+                    v["warnings_vi"] = warn_localized
+                    localized_verdicts.append(v)
+                else:
+                    localized_verdicts.append(v)
+            vd["verdicts"] = localized_verdicts
+        result["investment_verdicts"] = vd
 
     return result
 
 
 # ── Cognitive snapshot localization ──────────────────────────────────────
-# Uses cognitive_schema.py as single source of truth for all mappings.
 
 from ..cognitive_schema import (
     DRIFT_SOURCE_VI,
@@ -211,14 +538,8 @@ def _entropy_label(entropy: float) -> str:
 
 
 def localize_cognitive_snapshot(snapshot: dict) -> dict:
-    """Add Vietnamese _vi fields for cognitive stack to a snapshot.
-
-    Pure presentation — no computation, no validation.
-    Adds fields only; never removes or overwrites kernel data.
-    """
     result = dict(snapshot)
 
-    # ── Driver state ─────────────────────────────────────────────
     ds = snapshot.get("driver_state", {})
     if ds:
         ds_vi = dict(ds)
@@ -229,11 +550,9 @@ def localize_cognitive_snapshot(snapshot: dict) -> dict:
         ds_vi["entropy_vi"] = _entropy_label(ds.get("entropy", 0.5))
         result["driver_state"] = ds_vi
 
-    # ── Regime status ────────────────────────────────────────────
     regime = snapshot.get("regime_status", "UNKNOWN")
     result["regime_status_vi"] = REGIME_LABEL_VI.get(regime, regime)
 
-    # ── Drift assessment ─────────────────────────────────────────
     da = snapshot.get("drift_assessment", {})
     if da:
         da_vi = dict(da)
@@ -246,7 +565,6 @@ def localize_cognitive_snapshot(snapshot: dict) -> dict:
         da_vi["flow_rotation_vi"] = FLOW_ROTATION_VI.get(rotation, rotation) if rotation else None
         result["drift_assessment"] = da_vi
 
-    # ── Explain validation (ETS) ──────────────────────────────────
     ev = snapshot.get("explain_validation", {})
     if ev:
         ev_vi = dict(ev)
@@ -255,7 +573,6 @@ def localize_cognitive_snapshot(snapshot: dict) -> dict:
         ev_vi["status_vi"] = ETS_STATUS_VI.get(ev.get("status", ""), ev.get("status", ""))
         result["explain_validation"] = ev_vi
 
-    # ── Stability / early warning ─────────────────────────────────
     stab = snapshot.get("stability", {})
     if stab:
         stab_vi = dict(stab)
@@ -267,7 +584,6 @@ def localize_cognitive_snapshot(snapshot: dict) -> dict:
         )
         result["stability"] = stab_vi
 
-    # ── Cognitive modulation (from decision_engine) ───────────────
     cm = snapshot.get("cognitive_modulation", {})
     if cm:
         cm_vi = dict(cm)
@@ -282,21 +598,14 @@ def localize_cognitive_snapshot(snapshot: dict) -> dict:
 
 
 def render_cognitive_journal(snapshot: dict) -> str:
-    """Render a full Vietnamese cognitive journal from a snapshot.
-
-    Pure formatting — no computation, no validation.
-    Consumes existing _vi fields (call localize_cognitive_snapshot first).
-    """
     vi = localize_cognitive_snapshot(snapshot)
     lines = []
 
-    # ── Header ────────────────────────────────────────────────────
     lines.append("=" * 56)
     lines.append("  NHẬT KÝ NHẬN THỨC HỆ THỐNG")
     lines.append("=" * 56)
     lines.append("")
 
-    # ── Driver state ──────────────────────────────────────────────
     ds = vi.get("driver_state", {})
     if ds:
         dom = ds.get("dominant_vi", "không xác định")
@@ -308,13 +617,11 @@ def render_cognitive_journal(snapshot: dict) -> str:
         lines.append(f"  Trạng thái:   {ent}")
         lines.append("")
 
-    # ── Regime ────────────────────────────────────────────────────
     regime_vi = vi.get("regime_status_vi", "không xác định")
     lines.append("THỊ TRƯỜNG")
     lines.append(f"  Trạng thái: {regime_vi}")
     lines.append("")
 
-    # ── Drift ─────────────────────────────────────────────────────
     da = vi.get("drift_assessment", {})
     if da:
         drift = da.get("drift_status_vi", "không rõ")
@@ -328,7 +635,6 @@ def render_cognitive_journal(snapshot: dict) -> str:
             lines.append(f"  Dòng tiền:     {rotation}")
         lines.append("")
 
-    # ── ETS ───────────────────────────────────────────────────────
     ev = vi.get("explain_validation", {})
     if ev:
         label = ev.get("ets_label_vi", "không rõ")
@@ -341,7 +647,6 @@ def render_cognitive_journal(snapshot: dict) -> str:
             lines.append(f"  Trạng thái: {status}")
         lines.append("")
 
-    # ── Stability / early warning ─────────────────────────────────
     stab = vi.get("stability", {})
     if stab:
         ew = stab.get("early_warning_vi", "không rõ")
@@ -354,7 +659,6 @@ def render_cognitive_journal(snapshot: dict) -> str:
             lines.append(f"  Xu hướng:   {trend}")
         lines.append("")
 
-    # ── Trading insight ───────────────────────────────────────────
     ti = vi.get("trading_insight", {})
     if ti:
         action = ti.get("hành_động", "")
@@ -369,255 +673,14 @@ def render_cognitive_journal(snapshot: dict) -> str:
             lines.append(f"  Rủi ro:   {risk}")
         lines.append("")
 
-    # ── Modulation reasoning ──────────────────────────────────────
     cm = vi.get("cognitive_modulation", {})
     reasons = cm.get("mod_reasons", [])
     if reasons:
         lines.append("ĐIỀU CHỈNH NHẬN THỨC")
         for r in reasons:
-            lines.append(f"  • {r}")
+            lines.append(f"  \u2022 {r}")
         lines.append("")
 
-    # ── Footer ────────────────────────────────────────────────────
     lines.append("=" * 56)
-
-    return "\n".join(lines)
-
-
-def render_cognitive_journal(snapshot: dict) -> str:
-    """Render a full Vietnamese cognitive journal from a snapshot.
-
-    Pure formatting — no computation, no validation.
-    Consumes existing _vi fields (call localize_cognitive_snapshot first).
-    """
-    vi = localize_cognitive_snapshot(snapshot)
-    lines = []
-
-    # ── Header ────────────────────────────────────────────────────
-    lines.append("=" * 56)
-    lines.append("  NHẬT KÝ NHẬN THỨC HỆ THỐNG")
-    lines.append("=" * 56)
-    lines.append("")
-
-    # ── Driver state ──────────────────────────────────────────────
-    ds = vi.get("driver_state", {})
-    if ds:
-        dom = ds.get("dominant_vi", "không xác định")
-        conf = ds.get("confidence_vi", "không rõ")
-        ent = ds.get("entropy_vi", "không rõ")
-        lines.append("LỰC DẪN DẮT")
-        lines.append(f"  Chính:      {dom}")
-        lines.append(f"  Độ chắc chắn: {conf}")
-        lines.append(f"  Trạng thái:  {ent}")
-        lines.append("")
-
-    # ── Regime ────────────────────────────────────────────────────
-    regime_vi = vi.get("regime_status_vi", "không xác định")
-    lines.append("THỊ TRƯỜNG")
-    lines.append(f"  Trạng thái: {regime_vi}")
-    lines.append("")
-
-    # ── Drift ─────────────────────────────────────────────────────
-    da = vi.get("drift_assessment", {})
-    if da:
-        drift = da.get("drift_status_vi", "không rõ")
-        sources = da.get("drift_sources_vi", [])
-        rotation = da.get("flow_rotation_vi")
-        lines.append("RỦI RO NHẬN THỨC")
-        lines.append(f"  Mức drift:     {drift}")
-        if sources:
-            lines.append(f"  Nguồn drift:   {', '.join(sources)}")
-        if rotation:
-            lines.append(f"  Dòng tiền:     {rotation}")
-        lines.append("")
-
-    # ── ETS ───────────────────────────────────────────────────────
-    ev = vi.get("explain_validation", {})
-    if ev:
-        label = ev.get("ets_label_vi", "không rõ")
-        status = ev.get("status_vi", "")
-        score = ev.get("ets_score", 0.0)
-        lines.append("ĐỘ KHỚP NHẬN THỨC (ETS)")
-        lines.append(f"  Điểm:      {score:.2f}")
-        lines.append(f"  Đánh giá:  {label}")
-        if status:
-            lines.append(f"  Trạng thái: {status}")
-        lines.append("")
-
-    # ── Stability / early warning ─────────────────────────────────
-    stab = vi.get("stability", {})
-    if stab:
-        ew = stab.get("early_warning_vi", "không rõ")
-        trend = stab.get("drift_trend_vi", "")
-        risk = stab.get("risk_of_drift", 0.0)
-        lines.append("CẢNH BÁO SỚM")
-        lines.append(f"  Trạng thái: {ew}")
-        lines.append(f"  Rủi ro:     {risk:.2f}")
-        if trend:
-            lines.append(f"  Xu hướng:   {trend}")
-        lines.append("")
-
-    # ── Trading insight ───────────────────────────────────────────
-    ti = vi.get("trading_insight", {})
-    if ti:
-        action = ti.get("hành_động", "")
-        entry = ti.get("vào_lệnh", "")
-        risk = ti.get("rủi_ro", "")
-        lines.append("HÀNH ĐỘNG")
-        if action:
-            lines.append(f"  {action}")
-        if entry:
-            lines.append(f"  Vào lệnh: {entry}")
-        if risk:
-            lines.append(f"  Rủi ro:   {risk}")
-        lines.append("")
-
-    # ── Modulation reasoning ──────────────────────────────────────
-    cm = vi.get("cognitive_modulation", {})
-    reasons = cm.get("mod_reasons", [])
-    if reasons:
-        lines.append("ĐIỀU CHỈNH NHẬN THỨC")
-        for r in reasons:
-            lines.append(f"  • {r}")
-        lines.append("")
-
-    # ── Footer ────────────────────────────────────────────────────
-    lines.append("=" * 56)
-
-    return "\n".join(lines)
-    """Render a fully Vietnamese market report from localized state.
-
-    Args:
-        state: Raw or localized market state dict.
-
-    Returns:
-        Formatted Vietnamese report string.
-    """
-    vi = localize_market_state(state)
-    lines = []
-
-    # === HEADER ===
-    lines.append("=" * 60)
-    lines.append("  BÁO CÁO THỊ TRƯỜNG")
-    lines.append("=" * 60)
-    lines.append("")
-
-    # === MARKET REGIME ===
-    regime = vi.get("market_regime", {})
-    status = regime.get("status", "N/A")
-    status_vi = regime.get("status_vi", "N/A")
-    confidence = regime.get("confidence", "N/A")
-    lines.append(f"Mã trạng thái: {status}")
-    lines.append(f"Diễn giải: {status_vi}")
-    lines.append(f"Điểm số: {regime.get('score', 'N/A')}")
-    lines.append(f"Độ tin cậy: {confidence}")
-    lines.append(f"Model: {regime.get('active_model', 'N/A')}")
-    lines.append(f"Đồng thuận: {regime.get('consensus', 'N/A')}")
-    lines.append("")
-
-    # === FLOW STATE ===
-    flow = vi.get("flow_state", {})
-    if flow:
-        lines.append("-" * 60)
-        lines.append("DÒNG TIỀN")
-        lines.append("-" * 60)
-        flow_status = flow.get("status", "N/A")
-        flow_vi = flow.get("status_vi", "N/A")
-        lines.append(f"Trạng thái dòng tiền: {flow_vi}")
-        lines.append(f"Mã trạng thái: {flow_status}")
-        lines.append(f"Tốc độ dòng tiền: {flow.get('flow_velocity', 'N/A')}")
-        lines.append(f"Tốc độ luân chuyển: {flow.get('rotation_velocity', 'N/A')}")
-        lines.append(
-            f"Phân loại: {flow.get('classification_vi', flow.get('classification', 'N/A'))}"
-        )
-        lines.append(
-            f"Độ tin cậy dịch chuyển vốn: {flow.get('displacement_conviction_vi', flow.get('displacement_conviction', 'N/A'))}"
-        )
-        lines.append("")
-
-        # Leading sectors
-        leading = flow.get("leading_sectors_vi", flow.get("leading_sectors", []))
-        if leading:
-            lines.append("Ngành dẫn dắt:")
-            for s in leading:
-                share = flow.get("sector_share", {}).get(
-                    s.replace("Ngân hàng", "BANK")
-                    .replace("Bất động sản", "RE")
-                    .replace("Chứng khoán", "SEC"),
-                    "N/A",
-                )
-                lines.append(f"  - {s} ({share}%)")
-            lines.append("")
-
-        # Lagging sectors
-        lagging = flow.get("lagging_sectors_vi", flow.get("lagging_sectors", []))
-        if lagging:
-            lines.append("Ngành tụt lại:")
-            for s in lagging:
-                lines.append(f"  - {s}")
-            lines.append("")
-
-        # Sector performance
-        perf = flow.get("sector_performance", {})
-        if perf:
-            lines.append("Hiệu suất ngành hôm nay:")
-            for sector, chg in sorted(perf.items(), key=lambda x: -x[1]):
-                sector_vi = _translate_sector(sector)
-                sign = "+" if chg >= 0 else ""
-                lines.append(f"  {sector_vi:20s} {sign}{chg:.2f}%")
-            lines.append("")
-
-    # === BREADTH ===
-    breadth = vi.get("breadth_state", {})
-    if breadth:
-        lines.append("-" * 60)
-        lines.append("ĐỘ RỘNG THỊ TRƯỜNG")
-        lines.append("-" * 60)
-        lines.append(
-            f"Điểm sức khỏe: {breadth.get('health_score', 'N/A')}"
-        )
-        lines.append(
-            f"Tổng mã hoạt động: {breadth.get('total_active', 'N/A')}"
-        )
-        lines.append(f"Số mã tăng: {breadth.get('advancers', 'N/A')}")
-        lines.append(f"Số mã giảm: {breadth.get('decliners', 'N/A')}")
-        lines.append(f"Số mã đứng giá: {breadth.get('unchanged', 'N/A')}")
-        lines.append(f"Số mã phá MA10: {breadth.get('nh10_count', 'N/A')}")
-        lines.append("")
-
-    # === CONCLUSION ===
-    lines.append("-" * 60)
-    lines.append("KẾT LUẬN")
-    lines.append("-" * 60)
-    flow_status = flow.get("status", "")
-    regime_status = regime.get("status", "")
-    advancers = breadth.get("advancers", 0)
-    decliners = breadth.get("decliners", 0)
-
-    if regime_status == "TRENDING":
-        regime_text = "đang trong xu hướng rõ ràng"
-    elif regime_status == "RANGING":
-        regime_text = "đang đi ngang"
-    elif regime_status == "CRISIS":
-        regime_text = "đang trong giai đoạn khủng hoảng"
-    else:
-        regime_text = f"đang ở trạng thái {regime_status}"
-
-    flow_text = flow.get("status_vi", flow_status).lower()
-    leading = flow.get("leading_sectors_vi", flow.get("leading_sectors", []))
-    leading_text = ", ".join(leading) if leading else "chưa rõ"
-
-    if advancers > decliners:
-        breadth_text = f"độ rộng thị trường vẫn tích cực ({advancers} tăng vs {decliners} giảm)"
-    else:
-        breadth_text = f"độ rộng thị trường đang yếu ({advancers} tăng vs {decliners} giảm)"
-
-    lines.append(
-        f"Dòng tiền đang {flow_text} nhưng {breadth_text}. "
-        f"Thị trường {regime_text}. "
-        f"Các ngành dẫn dắt hiện tại: {leading_text}."
-    )
-    lines.append("")
-    lines.append("=" * 60)
 
     return "\n".join(lines)

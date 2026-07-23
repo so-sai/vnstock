@@ -62,14 +62,13 @@ class TestCriticalImports:
         except ImportError as e:
             pytest.fail(f"FAIL: {chain} — {e}")
 
-    def test_core_package_is_root_not_backend_src(self):
+    def test_core_package_is_backend_src(self):
         import core
-        expected = str(PROJECT_ROOT / "core")
+        expected = str(PROJECT_ROOT / "backend" / "src" / "core")
         actual = pathlib.Path(core.__file__).parent
         assert str(actual) == expected, (
             f"core package resolved to {actual}, expected {expected}. "
-            "This means backend/src/core/ shadows root core/ — "
-            "sys.path order is broken."
+            "Merge of root core/ into backend/src/core/ may be incomplete."
         )
 
 
@@ -111,10 +110,10 @@ class TestMacroHistorySchema:
 
 
 class TestHydratePathPriority:
-    """Verify that _hydrate_path() ensures PROJECT_ROOT is at sys.path[0].
+    """Verify that PROJECT_ROOT stays at sys.path[0] after hydration.
 
-    Blind Spot 1 continuation: config.py may push vnstock_path to sys.path[0],
-    causing import core to find backend/src/core/ (no macro/) before PROJECT_ROOT/core/.
+    This prevents third-party libs (e.g. vnstock) pushed by config.py
+    from breaking relative path resolution across the stack.
     """
 
     def test_project_root_before_backend_src_in_syspath(self):
@@ -125,16 +124,14 @@ class TestHydratePathPriority:
             src_idx = sys.path.index(src_str)
         except ValueError:
             pytest.fail(f"PROJECT_ROOT={root_str} or backend/src={src_str} not in sys.path")
-        assert root_idx < src_idx, (
-            f"PROJECT_ROOT at sys.path[{root_idx}] but backend/src at sys.path[{src_idx}]. "
-            "backend/src/core/ will shadow root core/."
-        )
+        assert root_idx < src_idx
 
     def test_core_imports_correct_package(self):
         import core
         core_path = pathlib.Path(core.__file__).parent
-        assert core_path == PROJECT_ROOT / "core", (
-            f"core resolves to {core_path}, not {PROJECT_ROOT / 'core'}"
+        expected = PROJECT_ROOT / "backend" / "src" / "core"
+        assert core_path == expected, (
+            f"core resolves to {core_path}, not {expected}"
         )
 
     def test_core_macro_importable(self):
