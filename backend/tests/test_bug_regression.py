@@ -1167,3 +1167,116 @@ class TestTauriV2Sidecar:
             f"@tauri-apps/cli version '{cli_ver}' không phải v2!"
         assert api_ver.startswith("^2"), \
             f"@tauri-apps/api version '{api_ver}' không phải v2!"
+
+
+# ============================================================
+# BUG 31: Step3 Copy Binary — Fallback khi Nuitka Build Lỗi
+# ============================================================
+class TestBuildFailureFallback:
+    """Bug: Nuitka build lỗi → step3_copy_binary truyền path không tồn tại."""
+
+    @pytest.fixture
+    def patched_build(self, monkeypatch, tmp_path):
+        """Monkeypatch BINARIES_DIR, SIDECAR_NAME, TARGET_TRIPLE vào tmp_path."""
+        import backend.build_windows_installer as bwi
+        monkeypatch.setattr(bwi, "BINARIES_DIR", tmp_path)
+        monkeypatch.setattr(bwi, "SIDECAR_NAME", "uv_backend")
+        monkeypatch.setattr(bwi, "TARGET_TRIPLE", "x86_64-pc-windows-msvc")
+        return bwi
+
+    def test_step3_fallback_uses_existing_sidecar(self, patched_build, tmp_path):
+        """nuitka_exe không tồn tại nhưng target có → dùng target, không raise."""
+        bwi = patched_build
+        target = tmp_path / f"{bwi.SIDECAR_NAME}-{bwi.TARGET_TRIPLE}.exe"
+        target.write_bytes(b"dummy sidecar")
+        missing = tmp_path / "nonexistent.exe"
+        result = bwi.step3_copy_binary(missing)
+        assert result == target
+
+    def test_step3_raises_when_both_missing(self, patched_build, tmp_path):
+        """Cả nuitka_exe lẫn target đều không tồn tại → raise FileNotFoundError."""
+        bwi = patched_build
+        missing = tmp_path / "nonexistent.exe"
+        with pytest.raises(FileNotFoundError):
+            bwi.step3_copy_binary(missing)
+
+    def test_step3_skips_copy_when_same_path(self, patched_build, tmp_path):
+        """nuitka_exe == target_path → bỏ qua copy, không lỗi."""
+        bwi = patched_build
+        target = tmp_path / f"{bwi.SIDECAR_NAME}-{bwi.TARGET_TRIPLE}.exe"
+        target.write_bytes(b"dummy sidecar")
+        result = bwi.step3_copy_binary(target)
+        assert result == target
+
+
+# ============================================================
+# BUG 32: Nuitka thiếu --include-package=src/core
+# ============================================================
+class TestNuitkaIncludePackage:
+    """Bug: Nuitka không đóng gói src/core → ModuleNotFoundError runtime."""
+
+    def test_build_script_has_include_package_src(self):
+        """build_windows_installer.py phải có --include-package=src."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        assert '--include-package=src' in content, \
+            "Thiếu --include-package=src trong Nuitka args!"
+
+    def test_build_script_has_include_package_src_core(self):
+        """build_windows_installer.py phải có --include-package=src.core."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        assert '--include-package=src.core' in content, \
+            "Thiếu --include-package=src.core trong Nuitka args!"
+
+    def test_build_script_sets_pythonpath_for_src(self):
+        """build_windows_installer.py phải set PYTHONPATH trước Nuitka."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        assert 'PYTHONPATH' in content and 'backend' in content, \
+            "Thiếu PYTHONPATH=backend/ trước khi chạy Nuitka!"
+
+
+# ============================================================
+# BUG 33: SyntaxError trong src (decision_logic.py)
+# ============================================================
+class TestProjectSyntax:
+    """Bug: file Python chứa SyntaxError làm Nuitka không compile được."""
+
+    def test_decision_logic_syntax_ok(self):
+        """decision_logic.py không được chứa SyntaxError."""
+        import py_compile
+        target = PROJECT_ROOT / "backend" / "src" / "core" / "decision_logic.py"
+        try:
+            py_compile.compile(str(target), doraise=True)
+        except py_compile.PyCompileError as e:
+            pytest.fail(f"SyntaxError trong decision_logic.py: {e}")
+
+    def test_all_py_files_in_src_compile(self):
+        """Tất cả .py trong backend/src/ phải compile không lỗi."""
+        import py_compile
+        errors = []
+        for f in sorted((PROJECT_ROOT / "backend" / "src").rglob("*.py")):
+            if 'tests' in f.parts or f.name.startswith('_'):
+                continue
+            try:
+                py_compile.compile(str(f), doraise=True)
+            except py_compile.PyCompileError as e:
+                errors.append(str(f.relative_to(PROJECT_ROOT)))
+        if errors:
+            pytest.fail(f"SyntaxError trong {len(errors)} file:\n" + "\n".join(errors))
+
+
+# ============================================================
+# BUG 34: ptck.py sys.path thiếu src_dir
+# ============================================================
+class TestPtcKSysPath:
+    """Bug: ptck.py không thêm backend/src vào sys.path."""
+
+    def test_sys_path_includes_src_dir(self):
+        """ptck.py phải thêm src_dir vào sys.path."""
+        content = (PROJECT_ROOT / "ptck.py").read_text(encoding='utf-8')
+        assert 'src_dir' in content, \
+            "ptck.py thiếu biến src_dir!"
+        assert 'p.exists()' in content, \
+            "ptck.py sys.path insert thiếu p.exists() guard (Nuitka onefile)!"

@@ -195,7 +195,7 @@ def step1_nuitka_compile(dev_mode: bool = False) -> Path:
         f"--jobs={max(2, os.cpu_count() // 2)}",
         "--follow-imports",
         "--include-package=src",
-        "--include-package=core",
+        "--include-package=src.core",
         "--include-package=vnstock",
         "--include-package-data=src",
         "--include-package-data=libs",
