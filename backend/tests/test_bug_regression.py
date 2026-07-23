@@ -920,3 +920,250 @@ class TestSBVPipeline:
                 f"Cần >=4 HTML fixtures, found {len(html_files)}"
         else:
             pytest.skip("SBV fixtures không tồn tại")
+
+
+# ============================================================
+# BUG 25: Build Pipeline — Pipe Buffer Deadlock (stream mode)
+# ============================================================
+class TestBuildPipeDeadlock:
+    """Bug: subprocess.run capture_output=True gây deadlock trên Nuitka compile."""
+
+    def test_stream_mode_does_not_deadlock(self):
+        """run() với stream=True dùng stdout=None, không pipe buffer."""
+        import subprocess
+        # Mô phỏng: tiến trình dài với output >64KB
+        proc = subprocess.run(
+            [sys.executable, "-c", "for i in range(10000): print(f'line {i}')"],
+            stdout=None, stderr=None, timeout=30,
+        )
+        assert proc.returncode == 0
+
+    def test_stream_true_avoids_pipe_capture(self):
+        """stream=True KHÔNG dùng capture_output, tránh pipe buffer full."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        assert "stream: bool = False" in content, \
+            "run() function thiếu tham số stream!"
+        assert "stdout=None, stderr=None" in content, \
+            "stream mode không dùng stdout=None (pipe buffer deadlock risk)!"
+
+    def test_stream_mode_shell_true_on_windows(self):
+        """stream=True trên Windows dùng shell=True để tìm npx.cmd."""
+        import subprocess
+        proc = subprocess.run(
+            "echo shell_works", shell=True, capture_output=True, text=True, timeout=10,
+        )
+        assert proc.returncode == 0
+
+
+# ============================================================
+# BUG 26: Windows PATH — Bun/npx không tìm thấy trong subprocess
+# ============================================================
+class TestWindowsPathResolution:
+    """Bug: subprocess.run không tìm thấy npx.ps1 (PowerShell script)."""
+
+    def test_bun_path_injected_at_startup(self):
+        """build_windows_installer.py phải inject Bun path vào os.environ['PATH']."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        assert "~\\" in content or ".bun" in content, \
+            "Không có Bun PATH injection trong build script!"
+        assert "BUN_EXE" in content, \
+            "Thiếu BUN_EXE constant trong build script!"
+
+    def test_which_finds_bun_after_inject(self):
+        """shutil.which('bun') tìm thấy bun sau khi inject path."""
+        original_path = os.environ.get("PATH", "")
+        bun_path = os.path.expanduser(r"~\.bun\bin")
+        if bun_path not in original_path:
+            os.environ["PATH"] += os.pathsep + bun_path
+        import shutil
+        bun = shutil.which("bun")
+        assert bun is not None, "Không tìm thấy bun sau PATH inject!"
+        assert bun.lower().endswith("bun.exe") or bun.lower().endswith("bun"), \
+            f"bun path sai: {bun}"
+
+    def test_npx_not_ps1_is_cmd(self):
+        """npx.cmd được dùng thay vì npx.ps1 để subprocess tìm được."""
+        npx_cmd = Path(r"C:\Program Files\nodejs\npx.cmd")
+        npx_ps1 = Path(r"C:\Program Files\nodejs\npx.ps1")
+        assert npx_cmd.exists(), "npx.cmd không tồn tại — sẽ gây FileNotFoundError!"
+        # Trên Windows, subprocess dùng PATHEXT để tìm .cmd
+        pathext = os.environ.get("PATHEXT", "").lower()
+        assert ".cmd" in pathext, \
+            "PATHEXT không chứa .cmd — npx.cmd sẽ không được tìm thấy!"
+
+
+# ============================================================
+# BUG 27: Tauri v2 Config Schema — identifier sai vị trí
+# ============================================================
+class TestTauriV2ConfigSchema:
+    """Bug: identifier bị inject vào bundle (phải ở root)."""
+
+    def test_identifier_at_root_not_in_bundle(self):
+        """identifier ở root level, KHÔNG trong bundle."""
+        tauri_conf = PROJECT_ROOT / "frontend" / "src-tauri" / "tauri.conf.json"
+        if not tauri_conf.exists():
+            pytest.skip("tauri.conf.json không tồn tại")
+        conf = json.loads(tauri_conf.read_text(encoding='utf-8'))
+        assert "identifier" in conf, "Thiếu identifier ở root!"
+        assert conf["identifier"] == "com.ptckvn.commandcenter"
+        bundle = conf.get("bundle", {})
+        assert "identifier" not in bundle, \
+            "identifier không được ở trong bundle!"
+
+    def test_bundle_is_v2_flat(self):
+        """bundle ở root level (Tauri v2), KHÔNG trong tauri.bundle."""
+        tauri_conf = PROJECT_ROOT / "frontend" / "src-tauri" / "tauri.conf.json"
+        if not tauri_conf.exists():
+            pytest.skip("tauri.conf.json không tồn tại")
+        conf = json.loads(tauri_conf.read_text(encoding='utf-8'))
+        # V2 flat: bundle ở root
+        assert "bundle" in conf
+        # V1 cũ: tauri.bundle — không được còn
+        tauri_section = conf.get("tauri", {})
+        assert "bundle" not in tauri_section, \
+            "Còn cấu trúc v1 cũ: tauri.bundle!"
+
+    def test_before_build_command_no_tsc(self):
+        """beforeBuildCommand dùng vite build, KHÔNG dùng tsc."""
+        tauri_conf = PROJECT_ROOT / "frontend" / "src-tauri" / "tauri.conf.json"
+        if not tauri_conf.exists():
+            pytest.skip("tauri.conf.json không tồn tại")
+        conf = json.loads(tauri_conf.read_text(encoding='utf-8'))
+        cmd = conf.get("build", {}).get("beforeBuildCommand", "")
+        assert "tsc" not in cmd, \
+            f"beforeBuildCommand vẫn dùng tsc: {cmd}"
+        assert "vite build" in cmd or "vite" in cmd, \
+            f"beforeBuildCommand không dùng vite: {cmd}"
+
+    def test_nsis_template_not_set(self):
+        """NSIS config KHÔNG có template (tránh unescape-dollar-sign error)."""
+        tauri_conf = PROJECT_ROOT / "frontend" / "src-tauri" / "tauri.conf.json"
+        if not tauri_conf.exists():
+            pytest.skip("tauri.conf.json không tồn tại")
+        conf = json.loads(tauri_conf.read_text(encoding='utf-8'))
+        nsis = conf.get("bundle", {}).get("windows", {}).get("nsis", {})
+        assert "template" not in nsis, \
+            "template trong NSIS config gây 'unescape-dollar-sign' error!"
+
+    def test_installer_raw_nsi_deleted(self):
+        """installer_raw.nsi (v1 legacy) đã được xóa."""
+        legacy = PROJECT_ROOT / "frontend" / "src-tauri" / "installer_raw.nsi"
+        assert not legacy.exists(), \
+            "installer_raw.nsi (v1) còn tồn tại — cần xóa!"
+
+
+# ============================================================
+# BUG 28: Nuitka Flags — Deprecated flags
+# ============================================================
+class TestNuitkaFlags:
+    """Bug: --plugin-enable=numpy, --no-pyi-file deprecated trong Nuitka 4.x."""
+
+    def test_no_deprecated_nuitka_flags(self):
+        """build_windows_installer.py không chứa deprecated Nuitka flags trong args list."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        # Chỉ kiểm tra trong phần args list (sau 'args = ['), không check docstring
+        args_section = content.split("args = [")[-1].split("]")[0] if "args = [" in content else content
+        deprecated = [
+            "--plugin-enable=numpy",
+            "--plugin-enable=multiprocessing",
+            "--no-pyi-file",
+            "--disable-console",
+        ]
+        for flag in deprecated:
+            assert flag not in args_section, \
+                f"Deprecated Nuitka flag vẫn còn trong args: {flag}"
+
+    def test_required_nuitka_flags_present(self):
+        """Các flag Nuitka 4.x cần thiết phải có."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        required = [
+            "--assume-yes-for-downloads",
+            "--windows-console-mode=disable",
+            "--onefile",
+        ]
+        for flag in required:
+            assert flag in content, \
+                f"Thiếu Nuitka flag bắt buộc: {flag}"
+
+
+# ============================================================
+# BUG 29: Build Script Config Injection — stale data
+# ============================================================
+class TestBuildConfigInjection:
+    """Bug: step4_update_tauri_config inject stale/sai fields."""
+
+    def test_step4_cleans_stale_identifier(self):
+        """step4 phải pop('identifier') khỏi bundle trước khi update."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        assert 'bundle.pop("identifier", None)' in content, \
+            "Step4 không cleanup identifier khỏi bundle!"
+
+    def test_step4_uses_v2_bundle_structure(self):
+        """Step4 dùng config['bundle'] root-level, không config['tauri']['bundle']."""
+        build_script = PROJECT_ROOT / "backend" / "build_windows_installer.py"
+        content = build_script.read_text(encoding='utf-8')
+        # V2: config.setdefault("bundle", {}) — root level
+        assert 'config.setdefault("bundle", {})' in content, \
+            "Step4 không dùng root-level bundle (v2)!"
+        # V1: config.setdefault("tauri", {}).setdefault("bundle", {}) — không còn
+        assert 'config.setdefault("tauri", {}).setdefault("bundle", {})' not in content, \
+            "Step4 vẫn dùng cấu trúc v1 (tauri.bundle)!"
+
+
+# ============================================================
+# BUG 30: Tauri v2 Sidecar — plugin initialization
+# ============================================================
+class TestTauriV2Sidecar:
+    """Bug: sidecar spawn dùng app.shell().sidecar() (v2), không Command::new_sidecar (v1)."""
+
+    def test_uses_tauri_plugin_shell(self):
+        """main.rs dùng tauri_plugin_shell, không tauri::api::process."""
+        main_rs = PROJECT_ROOT / "frontend" / "src-tauri" / "src" / "main.rs"
+        if not main_rs.exists():
+            pytest.skip("main.rs không tồn tại")
+        content = main_rs.read_text(encoding='utf-8')
+        # V2 plugin
+        assert "tauri_plugin_shell" in content, \
+            "main.rs không dùng tauri_plugin_shell!"
+        assert "ShellExt" in content, \
+            "main.rs thiếu ShellExt trait!"
+        assert ".shell()" in content and ".sidecar(" in content, \
+            "main.rs không dùng .shell().sidecar() (v2)!"
+        # V1 API — không được còn
+        assert "tauri::api::process" not in content, \
+            "main.rs vẫn dùng tauri::api::process (v1)!"
+
+    def test_cargo_tauri_plugin_deps(self):
+        """Cargo.toml có tauri-plugin-shell, tauri-plugin-process."""
+        cargo = PROJECT_ROOT / "frontend" / "src-tauri" / "Cargo.toml"
+        if not cargo.exists():
+            pytest.skip("Cargo.toml không tồn tại")
+        content = cargo.read_text(encoding='utf-8')
+        assert "tauri-plugin-shell" in content, \
+            "Thiếu tauri-plugin-shell trong Cargo.toml!"
+        assert "tauri-plugin-process" in content, \
+            "Thiếu tauri-plugin-process trong Cargo.toml!"
+        # V1 — không được còn
+        assert 'tauri = { version = "1.' not in content, \
+            "Cargo.toml vẫn dùng Tauri v1!"
+
+    def test_tauri_package_v2(self):
+        """package.json có @tauri-apps/cli ^2, @tauri-apps/api ^2."""
+        pkg = PROJECT_ROOT / "frontend" / "package.json"
+        if not pkg.exists():
+            pytest.skip("package.json không tồn tại")
+        import json
+        conf = json.loads(pkg.read_text(encoding='utf-8'))
+        dev_deps = conf.get("devDependencies", {})
+        deps = conf.get("dependencies", {})
+        cli_ver = dev_deps.get("@tauri-apps/cli", "")
+        api_ver = deps.get("@tauri-apps/api", "")
+        assert cli_ver.startswith("^2"), \
+            f"@tauri-apps/cli version '{cli_ver}' không phải v2!"
+        assert api_ver.startswith("^2"), \
+            f"@tauri-apps/api version '{api_ver}' không phải v2!"

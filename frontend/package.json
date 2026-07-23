@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.5",
-    "@tauri-apps/api": "^1.5",
+    "@tauri-apps/api": "^2",
     "@tremor/react": "^3.18.7",
     "clsx": "^2.1.1",
     "lightweight-charts": "3.8.0",
@@ -32,7 +32,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.2.4",
-    "@tauri-apps/cli": "^1",
+    "@tauri-apps/cli": "^2",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

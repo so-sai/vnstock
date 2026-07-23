@@ -42,6 +42,12 @@ import tempfile
 import time
 from pathlib import Path
 
+# Nạp đường dẫn Bun cấp User vào PATH của tiến trình Python hiện tại
+_bun_path = os.path.expanduser(r"~\.bun\bin")
+if _bun_path not in os.environ.get("PATH", ""):
+    os.environ["PATH"] += os.pathsep + _bun_path
+BUN_EXE = shutil.which("bun") or os.path.join(_bun_path, "bun.exe")
+
 # ── Paths ───────────────────────────────────────────────────────────
 
 HERE = Path(__file__).resolve().parent
@@ -70,9 +76,28 @@ def log(msg: str, emoji: str = "∙"):
     print(f"  {emoji} [{ts}] {msg}")
 
 
-def run(cmd: list[str], cwd: Path | None = None, timeout: int = 600) -> str:
-    """Run a command and return stdout. Raise on failure."""
+def run(cmd: list[str], cwd: Path | None = None, timeout: int = 600,
+        stream: bool = False) -> str:
+    """Run a command and return stdout. Raise on failure.
+
+    Khi stream=True, stdout/stderr được in trực tiếp ra terminal (tránh
+    pipe buffer deadlock) — bắt buộc cho Nuitka compile lâu.
+    """
     log(f"Running: {' '.join(cmd[:4])}...", "⚙")
+    if stream:
+        # Stream trực tiếp ra terminal — tránh pipe buffer deadlock
+        # shell=True trên Windows để tìm được npx.cmd, bun, v.v.
+        result = subprocess.run(
+            cmd, cwd=cwd or PROJECT_ROOT,
+            stdout=None, stderr=None, timeout=timeout,
+            shell=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Command failed with exit code {result.returncode}:\n"
+                f"  {' '.join(cmd)}"
+            )
+        return ""
     result = subprocess.run(
         cmd, cwd=cwd or PROJECT_ROOT,
         capture_output=True, text=True, timeout=timeout,
@@ -207,7 +232,7 @@ def step1_nuitka_compile(dev_mode: bool = False) -> Path:
     ]
 
     log(f"  Nuitka compiling {BACKEND_ENTRY.name}... (this takes 2-5 min)", "⏳")
-    run(args, timeout=3600)
+    run(args, timeout=3600, stream=True)  # stream=True: in log trực tiếp ra terminal
 
     if not output_exe.exists():
         raise FileNotFoundError(
@@ -332,14 +357,11 @@ def step3_copy_binary(nuitka_exe: Path) -> Path:
 # ── Step 4: Update tauri.conf.json ──────────────────────────────────
 
 def step4_update_tauri_config(data_template: Path) -> None:
-    """Update tauri.conf.json with correct paths and NSIS config.
+    """Update tauri.conf.json (Tauri v2 schema) with correct paths and NSIS config.
 
-    Injects:
-    - Data directory path for runtime
-    - NSIS installer metadata
-    - Sidecar binary name
+    Tauri v2 uses flat schema: no `tauri` root key.
     """
-    log("Step 4/5: Updating tauri.conf.json for NSIS bundler...", "🔧")
+    log("Step 4/5: Updating tauri.conf.json for NSIS bundler (Tauri v2)...", "🔧")
 
     config_path = TAURI_SRC_DIR / "tauri.conf.json"
     if not config_path.exists():
@@ -348,34 +370,32 @@ def step4_update_tauri_config(data_template: Path) -> None:
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
 
-    # Update bundle info
-    bundle = config.setdefault("tauri", {}).setdefault("bundle", {})
-    bundle["identifier"] = "com.ptckvn.commandcenter"
-    bundle["shortDescription"] = "PTCK_VN — Terminal phân tích thị trường chứng khoán Việt Nam"
-    bundle["longDescription"] = (
-        "PTCK_VN Command Center: Hệ thống phân tích thị trường chứng khoán "
-        "Việt Nam với 49 lệnh CLI song ngữ, 4-tier Auto-Recovery Data Pipeline, "
-        "và cơ chế Anti-Survivorship LAW-001."
-    )
-    bundle["category"] = "Finance"
-    bundle["copyright"] = "© 2026 PTCK_VN"
+    # Update bundle info (root-level in v2)
+    bundle = config.setdefault("bundle", {})
+    # Xóa identifier khỏi bundle (nó ở root, không trong bundle)
+    bundle.pop("identifier", None)
+    bundle.update({
+        "active": True,
+        "targets": ["nsis"],
+        "externalBin": [f"binaries/{SIDECAR_NAME}"],
+        "shortDescription": "PTCK_VN — Terminal phân tích thị trường chứng khoán Việt Nam",
+        "longDescription": (
+            "PTCK_VN Command Center: Hệ thống phân tích thị trường chứng khoán "
+            "Việt Nam với 49 lệnh CLI song ngữ, 4-tier Auto-Recovery Data Pipeline, "
+            "và cơ chế Anti-Survivorship LAW-001."
+        ),
+        "category": "Finance",
+        "copyright": "© 2026 PTCK_VN",
+    })
 
-    # Ensure externalBin includes sidecar
-    bundle["externalBin"] = [f"binaries/{SIDECAR_NAME}"]
-
-    # Windows NSIS configuration
-    windows_nsis = bundle.setdefault("windows", {}).setdefault("nsis", {})
-    windows_nsis["installMode"] = "currentUser"
-    windows_nsis["displayLanguageSelector"] = False
-    windows_nsis["headerImage"] = str(TAURI_SRC_DIR / "icons" / "128x128.png")
-    windows_nsis["installerIcon"] = str(TAURI_SRC_DIR / "icons" / "icon.ico")
-    windows_nsis["uninstallerIcon"] = str(TAURI_SRC_DIR / "icons" / "icon.ico")
-    windows_nsis["installerHeaderIcon"] = str(TAURI_SRC_DIR / "icons" / "icon.ico")
-
-    # Add custom NSIS template if we have one
-    nsis_template = TAURI_SRC_DIR / "installer_raw.nsi"
-    if nsis_template.exists():
-        windows_nsis["template"] = "installer_raw.nsi"
+    # Windows NSIS configuration (bundle.windows.nsis in v2)
+    nsis_config = {
+        "installMode": "currentUser",
+        "displayLanguageSelector": False,
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "icons/128x128.png",
+    }
+    bundle.setdefault("windows", {})["nsis"] = nsis_config
 
     # Write back
     with open(config_path, "w", encoding="utf-8") as f:
@@ -397,28 +417,15 @@ def step5_tauri_build() -> Path:
     node_modules = FRONTEND_DIR / "node_modules"
     if not node_modules.exists():
         log("  Installing frontend dependencies...", "📦")
-        # Try bun first, fallback to npm
-        try:
-            run(["bun", "install"], cwd=FRONTEND_DIR, timeout=120)
-        except (RuntimeError, FileNotFoundError):
-            log("  Bun not found, trying npm...", "⚠")
-            run(["npm", "install"], cwd=FRONTEND_DIR, timeout=180)
+        run([BUN_EXE, "install"], cwd=FRONTEND_DIR, timeout=120, stream=True)
 
-    # Build frontend (vite)
+    # Build frontend (vite) — dùng bun x vite build để bỏ qua TypeScript check
     log("  Building frontend (vite)...", "🏗")
-    try:
-        run(["bun", "run", "build"], cwd=FRONTEND_DIR, timeout=120)
-    except (RuntimeError, FileNotFoundError):
-        run(["npx", "tsc", "-b"], cwd=FRONTEND_DIR, timeout=60)
-        run(["npx", "vite", "build"], cwd=FRONTEND_DIR, timeout=120)
+    run([BUN_EXE, "x", "vite", "build"], cwd=FRONTEND_DIR, timeout=120, stream=True)
 
     # Run Tauri build
     log("  Building Tauri app (cargo build + NSIS)...", "🦀")
-    try:
-        run(["bun", "tauri", "build"], cwd=FRONTEND_DIR, timeout=1800)
-    except (RuntimeError, FileNotFoundError):
-        log("  Bun not available, using npx tauri...", "⚠")
-        run(["npx", "tauri", "build"], cwd=FRONTEND_DIR, timeout=1800)
+    run([BUN_EXE, "tauri", "build"], cwd=FRONTEND_DIR, timeout=1800, stream=True)
 
     # Find installer
     installer_dir = TAURI_SRC_DIR / "target" / "release" / "bundle" / "nsis"

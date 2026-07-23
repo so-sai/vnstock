@@ -1,80 +1,14 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "PTCK_VN",
+  "version": "1.0.0",
+  "identifier": "com.ptckvn.commandcenter",
   "build": {
-    "beforeBuildCommand": "bun run build",
-    "beforeDevCommand": "bun run dev",
-    "devPath": "http://localhost:5173",
-    "distDir": "../dist"
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "bun x vite build",
+    "beforeDevCommand": "bun run dev"
   },
-  "package": {
-    "productName": "PTCK_VN",
-    "version": "1.0.0"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "http": {
-        "all": true,
-        "request": true
-      },
-      "process": {
-        "all": true
-      },
-      "shell": {
-        "sidecar": true,
-        "scope": [
-          {
-            "name": "binaries/uv_backend",
-            "sidecar": true,
-            "args": true
-          }
-        ]
-      }
-    },
-    "bundle": {
-      "active": true,
-      "category": "DeveloperTool",
-      "copyright": "PTCK_VN Command Center",
-      "deb": {
-        "depends": []
-      },
-      "externalBin": [
-        "binaries/uv_backend"
-      ],
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ],
-      "identifier": "com.ptckvn.commandcenter",
-      "longDescription": "PTCK_VN — Command Center: Terminal phân tích thị trường chứng khoán Việt Nam",
-      "macOS": {
-        "entitlements": null,
-        "exceptionDomain": "",
-        "frameworks": [],
-        "providerShortName": null,
-        "signingIdentity": null
-      },
-      "resources": [],
-      "shortDescription": "PTCK_VN Command Center",
-      "targets": "all",
-      "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": "",
-        "nsis": {
-          "template": "installer_raw.nsi"
-        }
-      }
-    },
-    "security": {
-      "csp": null
-    },
-    "updater": {
-      "active": false
-    },
+  "app": {
     "windows": [
       {
         "fullscreen": false,
@@ -83,6 +17,49 @@
         "title": "PTCK_VN — COMMAND CENTER",
         "width": 1440
       }
-    ]
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "icons/128x128.png"
+      }
+    },
+    "externalBin": [
+      "binaries/uv_backend"
+    ],
+    "shortDescription": "PTCK_VN — Terminal phân tích thị trường chứng khoán Việt Nam",
+    "longDescription": "PTCK_VN Command Center: Hệ thống phân tích thị trường chứng khoán Việt Nam với 49 lệnh CLI song ngữ, 4-tier Auto-Recovery Data Pipeline, và cơ chế Anti-Survivorship LAW-001.",
+    "category": "Finance",
+    "copyright": "© 2026 PTCK_VN"
+  },
+  "plugins": {
+    "shell": {
+      "sidecar": true,
+      "scope": [
+        {
+          "name": "binaries/uv_backend",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
   }
 }
