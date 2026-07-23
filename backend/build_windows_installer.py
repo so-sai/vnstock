@@ -48,6 +48,9 @@ if _bun_path not in os.environ.get("PATH", ""):
     os.environ["PATH"] += os.pathsep + _bun_path
 BUN_EXE = shutil.which("bun") or os.path.join(_bun_path, "bun.exe")
 
+# Giảm song song MSVC để tránh xung đột clcache + quá tải CPU
+os.environ.setdefault("CLCACHE_NODIRECT", "1")
+
 # ── Paths ───────────────────────────────────────────────────────────
 
 HERE = Path(__file__).resolve().parent
@@ -189,7 +192,13 @@ def step1_nuitka_compile(dev_mode: bool = False) -> Path:
         "--standalone",
         "--windows-console-mode=disable",
         "--assume-yes-for-downloads",
+        f"--jobs={max(2, os.cpu_count() // 2)}",
         "--follow-imports",
+        "--include-package=src",
+        "--include-package=core",
+        "--include-package=vnstock",
+        "--include-package-data=src",
+        "--include-package-data=libs",
         f"--output-dir={BUILD_DIR}",
         "--remove-output",
         f"--output-filename={SIDECAR_NAME}.exe",
@@ -232,6 +241,9 @@ def step1_nuitka_compile(dev_mode: bool = False) -> Path:
     ]
 
     log(f"  Nuitka compiling {BACKEND_ENTRY.name}... (this takes 2-5 min)", "⏳")
+    # Thêm backend/ + project root vào PYTHONPATH để Nuitka tìm được src và core package
+    old_pythonpath = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = str(PROJECT_ROOT / "backend") + os.pathsep + str(PROJECT_ROOT / "backend" / "libs" / "vnstock") + os.pathsep + str(PROJECT_ROOT) + os.pathsep + old_pythonpath
     run(args, timeout=3600, stream=True)  # stream=True: in log trực tiếp ra terminal
 
     if not output_exe.exists():
@@ -331,6 +343,10 @@ def step3_copy_binary(nuitka_exe: Path) -> Path:
     """Copy compiled binary to Tauri sidecar location.
 
     Tauri expects: binaries/uv_backend-x86_64-pc-windows-msvc.exe
+
+    Edge cases handled:
+    - Nuitka build failed → nuitka_exe không tồn tại, dùng target nếu có
+    - Fallback từ sidecar cũ → nuitka_exe == target_path, bỏ qua copy
     """
     log("Step 3/5: Copying binary to Tauri sidecar location...", "📋")
 
@@ -339,8 +355,29 @@ def step3_copy_binary(nuitka_exe: Path) -> Path:
     target_name = f"{SIDECAR_NAME}-{TARGET_TRIPLE}.exe"
     target_path = BINARIES_DIR / target_name
 
-    _unlock_binary(target_path)
+    # 1) Nguồn là chính target (fallback từ sidecar cũ) → giữ nguyên
+    if nuitka_exe.resolve() == target_path.resolve():
+        if target_path.exists():
+            log(f"  Binary already in place: {target_path} ({target_path.stat().st_size / 1024**2:.2f} MB)", "✅")
+            return target_path
+        # Cả nguồn và đích đều mất → không thể tiếp tục
+        raise FileNotFoundError(
+            f"Cannot proceed: nuitka_exe == target_path but neither exists.\n"
+            f"  Nuitka build failed and no valid sidecar found at {target_path}"
+        )
 
+    # 2) Nguồn không tồn tại (Nuitka lỗi không ra file)
+    if not nuitka_exe.exists():
+        if target_path.exists():
+            log(f"  Nuitka build failed, reusing existing sidecar: {target_path}", "⚠")
+            return target_path
+        raise FileNotFoundError(
+            f"Cannot proceed: Nuitka output missing at {nuitka_exe} "
+            f"and no existing sidecar at {target_path}"
+        )
+
+    # 3) Nguồn tồn tại → copy đè lên target
+    _unlock_binary(target_path)
     if target_path.exists():
         try:
             target_path.unlink()
@@ -349,7 +386,9 @@ def step3_copy_binary(nuitka_exe: Path) -> Path:
             raise
 
     shutil.copy2(nuitka_exe, target_path)
-    log(f"  Copied: {nuitka_exe.name} → {target_path} ({target_path.stat().st_size / 1024**2:.2f} MB)", "✅")
+    size = target_path.stat().st_size / 1024**2
+    log(f"  Copied: {nuitka_exe.name} → {target_path} ({size:.2f} MB)", "✅")
+    return target_path
 
     return target_path
 

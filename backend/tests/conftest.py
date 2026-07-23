@@ -21,11 +21,14 @@ def _hydrate_path():
             root_path = current
             break
         current = current.parent
-    backend_path = str(root_path / "backend")
-    if backend_path not in sys.path:
-        sys.path.insert(0, backend_path)
-    if str(root_path) not in sys.path:
-        sys.path.insert(0, str(root_path))
+    for p in [str(root_path / "backend" / "src"), str(root_path / "backend"), str(root_path)]:
+        if p not in sys.path:
+            sys.path.append(p)
+    # Guarantee: PROJECT_ROOT at index 0 for core/ resolution
+    sp = str(root_path)
+    if sp in sys.path:
+        sys.path.remove(sp)
+    sys.path.insert(0, sp)
     return root_path
 
 

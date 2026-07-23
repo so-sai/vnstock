@@ -26,17 +26,22 @@ if sys.platform.startswith("win"):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # ── Path setup ─────────────────────────────────────────
-# Không thêm backend/src vào sys.path vì shadowing core/ namespace.
-# Các module trong backend/src import qua alias src.
+# SENTINEL LAW v3.0: PROJECT_ROOT phải luôn ở sys.path[0] để
+# core/ (PROJECT_ROOT/core/) không bị backend/src/core/ (thiếu macro/) che khuất.
+# Các file trong backend/src/cũng import từ core.* — nếu sai order → ModuleNotFoundError.
+# Chỉ thêm path nếu thực sự tồn tại (tránh lỗi trong Nuitka onefile runtime)
 PROJECT_ROOT = Path(__file__).resolve().parent
 backend_dir = PROJECT_ROOT / "backend"
-for p in [backend_dir, PROJECT_ROOT / "core", PROJECT_ROOT]:
-    if str(p) not in sys.path:
-        sys.path.insert(0, str(p))
-# Thêm backend/libs cho vnstock lib
+src_dir = backend_dir / "src"
 libs_dir = backend_dir / "libs"
-if str(libs_dir) not in sys.path:
-    sys.path.insert(0, str(libs_dir))
+for p in [src_dir, backend_dir, PROJECT_ROOT, libs_dir]:
+    if str(p) not in sys.path and p.exists():
+        sys.path.append(str(p))
+# Guarantee: PROJECT_ROOT at index 0 for core/ resolution
+sp = str(PROJECT_ROOT)
+if sp in sys.path:
+    sys.path.remove(sp)
+sys.path.insert(0, sp)
 
 
 def cmd_market(args):
@@ -2377,6 +2382,12 @@ def main():
 
     args = parser.parse_args()
     _VERBOSE_LANG = args.verbose_lang
+    # Re-hydrate: config.py may push vnstock_path to sys.path[0],
+    # breaking core/ resolution. Ensure PROJECT_ROOT stays at [0].
+    sp = str(PROJECT_ROOT)
+    if sp in sys.path:
+        sys.path.remove(sp)
+    sys.path.insert(0, sp)
     args.func(args)
 
 

@@ -237,6 +237,12 @@ def optimize_sqlite_engine():
             )
         """)
 
+        # Migration: add is_stale column to macro_history if missing
+        try:
+            cursor.execute("ALTER TABLE macro_history ADD COLUMN is_stale INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
         # 6b. TẠO BẢNG SỨC KHỎE HỆ THỐNG (System Health Ledger cho Governor Engine)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_health (

@@ -1,10 +1,4 @@
-﻿# Regime: regime_status,
-canh_bao_som: "có" if early_warning else "không",
-entropy: round(entropy, 3) if entropy is not None else None,
-so_tru_cau_truc: so_tru_ok,
-},
-}
-
+﻿
 # ---- Bước 3: Tự đánh giá độ tin cậy (dùng chung ảnh chụp) ----
 try:
     from src.engine.confidence_layer import đánh_giá_độ_tin_cậy
