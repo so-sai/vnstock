@@ -1,10 +1,10 @@
 """
-test_decision_guard_integration.py — Integration Test cho DecisionGuard pipeline.
+test_decision_guard_integration.py — WHY: end-to-end DecisionGuard pipeline integrity.
 
-Chạy toàn bộ chuỗi: StaleTracker → RecoveryGovernor → BreadthTrapDetector → kiem_tra_an_toan
-với snapshot thật ngày 22/07/2026.
-
-Run: python -m pytest backend/tests/test_decision_guard_integration.py -v
+BOUNDARY: Validates full chain (StaleTracker -> RecoveryGovernor -> BreadthTrapDetector
+-> kiem_tra_an_toan) on real snapshot data. A break at any link produces false-positive
+"AN TOAN" verdicts during CRISIS or false "KHONG AN TOAN" during TRENDING.
+Both are equally catastrophic. Do NOT short-circuit or mock individual steps.
 """
 import sys, io
 from pathlib import Path

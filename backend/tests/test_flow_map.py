@@ -1,4 +1,12 @@
-﻿import sys, pathlib
+﻿"""
+test_flow_map.py — WHY: cross-market flow map Layer 1-3 pipeline integrity.
+
+BOUNDARY: All 4 drivers (delta_real_yield, delta_dxy, delta_gs_ratio,
+delta_liquidity) must produce expected keys and non-null values. Missing
+driver = truncated flow-map output = wrong cash-flow direction signal.
+Do NOT add new drivers without adding corresponding assertions here.
+"""
+import sys, pathlib
 
 def _hydrate_path():
     current = pathlib.Path(__file__).resolve().parent

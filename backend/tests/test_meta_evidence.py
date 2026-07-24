@@ -1,4 +1,13 @@
-﻿"""Tests cho Meta Evidence + Adaptive CUSUM modules."""
+﻿"""
+test_meta_evidence.py — WHY: Meta Evidence scoring + Adaptive CUSUM drift.
+
+BOUNDARY: Sigmoid bias, half-life decay, execution quality, model quality,
+and rolling MAD/SIGMA_FLOOR invariants must hold. Silent drift here causes
+the CUSUM to fire too early (false alarms) or too late (missed regime
+shifts), breaking the entire early-warning system.
+Do NOT change CUSUM baseline or threshold parameters without updating this
+test to the expected NEW invariants.
+"""
 import math
 import sys
 from pathlib import Path

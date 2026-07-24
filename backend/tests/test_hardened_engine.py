@@ -1,5 +1,10 @@
 ﻿"""
-Production Hardening Smoke Test
+test_hardened_engine.py — WHY: adaptive EMA regime engine regression after hardening.
+
+BOUNDARY: All continuous scores (b_score, v_score, regime_score) must stay
+in [0,1] range and status must be a recognized enum. Breaking this produces
+silent NaN in downstream DecisionGuard — no crash, just garbage output.
+Do NOT remove or loosen range assertions.
 Run: python -X utf8 backend/tests/test_hardened_engine.py (from project root)
 """
 import sys

@@ -1,3 +1,12 @@
+"""
+test_tauri_config_guard.py — WHY: Tauri v2 sidecar security/config guard.
+
+BOUNDARY: Forbids shell.sidecar/shell.scope in plugins, bans
+shell:allow-sidecar in capabilities, ensures catch-up sidecar binaries exist,
+and blocks BaseDirectory::Resource in main.rs. A security leak here exposes
+the user's machine to arbitrary binary execution via the Tauri shell plugin.
+Do NOT add new shell permissions without corresponding assertions here.
+"""
 import json
 import pathlib
 import pytest
