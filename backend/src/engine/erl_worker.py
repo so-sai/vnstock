@@ -284,6 +284,13 @@ def build_whitelist(
 
     stocks.sort(key=lambda x: x.composite_score, reverse=True)
 
+    # ==============================================================================
+    # WHY: In TRENDING/RANGING regimes, small-caps with >1B VND liquidity are
+    # tradable. During CRISIS_WARNING / CRISIS, bid orders evaporate instantly
+    # (Liquidity Lockout), turning a 5% stop-loss into 30% slippage.
+    # RULE: Enforce 0.5% HOSE total daily value as liquidity floor when CRISIS.
+    # Gate auto-disables when regime returns to TRENDING/RANGING.
+    # ==============================================================================
     # Hard Liquidity Gate: phạt Small-cap khi regime CRISIS
     regime_info = _load_regime_snapshot(data_dir)
     regime = regime_info.get("regime", "UNKNOWN")

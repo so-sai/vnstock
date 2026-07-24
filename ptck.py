@@ -1984,6 +1984,14 @@ def cmd_init_agent(args):
                 print(f"  ⚠️ Could not delete {legacy_file}: {e}")
 
     # 2. Xác định CLI prefix
+    # ==============================================================================
+    # WHY: Nuitka 4.1.3 on Python 3.14 does NOT reliably set `sys.frozen = True`.
+    # Using `getattr(sys, 'frozen', False)` causes frozen binaries to be
+    # misidentified as dev scripts, generating 'python ptck.py' instead of
+    # the installed exe path in .agent.md.
+    # BOUNDARY: Check executable stem — if it starts with 'python', it's dev mode;
+    # otherwise (uv_backend.exe, app.exe, etc.) it's a frozen build.
+    # ==============================================================================
     exe_path = Path(sys.executable).resolve()
     is_python = exe_path.stem.lower().startswith("python")
     if is_python:

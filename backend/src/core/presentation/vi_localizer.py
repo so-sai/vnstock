@@ -1,3 +1,11 @@
+# ==============================================================================
+# WHY: Legacy engines (capital_displacement_engine.py,
+# capital_flow_forecasting_engine.py) import via:
+#   from core.presentation.vi_localizer import SECTOR_LABELS
+# During the PROJECTO_ROOT/core/ → backend/src/core/ merge, this re-export
+# was dropped, instantly breaking 99 regression tests.
+# BOUNDARY: Preserve this alias permanently as a Single Source of Truth bridge.
+# ==============================================================================
 from ..cognitive_schema import SECTOR_VI as SECTOR_LABELS
 
 _TRADE_STATE_VI: dict[str, str] = {
