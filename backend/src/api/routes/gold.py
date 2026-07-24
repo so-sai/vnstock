@@ -17,12 +17,15 @@ def _hydrate_path():
             current = current.parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
+    backend_dir = root_path / "backend"
+    if backend_dir.exists() and str(backend_dir) not in sys.path:
+        sys.path.append(str(backend_dir))
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
 
-from core.macro.gold_regime_engine import analyze_gold_regime, cross_reference_with_market
-from core.macro.gold_spread_engine import analyze_domestic_premium, get_premium_driver
+from src.core.macro.gold_regime_engine import analyze_gold_regime, cross_reference_with_market
+from src.core.macro.gold_spread_engine import analyze_domestic_premium, get_premium_driver
 
 from src.core.canonical_output_adapter import localize_output
 from src.services.macro.gold_service import get_gold_cognition_layer, get_gold_dashboard
