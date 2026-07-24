@@ -95,6 +95,11 @@ vnstock_path = str(LIBS_DIR / "vnstock")
 if vnstock_path not in sys.path:
     sys.path.insert(0, str(vnstock_path))
 
+# Thêm LIBS_DIR vào sys.path để Nuitka tìm được canonical package
+libs_root = str(LIBS_DIR)
+if libs_root not in sys.path:
+    sys.path.append(libs_root)
+
 # Thêm backend/ vào sys.path để import được package 'src' sau project root
 backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
