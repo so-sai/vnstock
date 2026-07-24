@@ -1506,9 +1506,11 @@ def cmd_erl_scan(args):
             print("=" * 62)
             return
         gate = wl.get('hard_liquidity_gate', 0)
+        total_val = wl.get('total_market_value_bn', 0)
         gate_str = f"  |  🔒 Gate: >= {gate:.0f} tỷ (0.5% TT)" if gate > 0 else ""
+        mkt_str = f"\n  Tổng GTGD toàn TT: {total_val:,.0f} tỷ" if total_val > 0 else ""
         print(f"  Whitelist ngày {wl.get('scan_date', 'N/A')} — {wl.get('count', 0)} mã")
-        print(f"  Regime: {wl.get('market_regime', 'N/A')}  |  S+: {wl.get('s_plus', 0):.4f}{gate_str}")
+        print(f"  Regime: {wl.get('market_regime', 'N/A')}  |  S+: {wl.get('s_plus', 0):.4f}{gate_str}{mkt_str}")
         print()
         print(f"  {'Symbol':8s}  {'RS':4s}  {'P(Survive)':12s}  {'Anomaly':7s}  {'Score':7s}")
         print(f"  {'-'*8}  {'-'*4}  {'-'*12}  {'-'*7}  {'-'*7}")
@@ -1528,8 +1530,9 @@ def cmd_erl_scan(args):
         return
 
     gate_str = f"  |  🔒 Gate: >= {result.hard_liquidity_gate:.0f} tỷ (0.5% TT)" if result.hard_liquidity_gate > 0 else ""
+    mkt_str = f"\n  Tổng GTGD toàn TT: {result.total_market_value_bn:,.0f} tỷ" if result.total_market_value_bn > 0 else ""
     print(f"  Whitelist Top {len(result.whitelist)} — Survival Resilience Stocks")
-    print(f"  Regime: {result.market_regime}  |  S+: {result.s_plus:.4f}{gate_str}")
+    print(f"  Regime: {result.market_regime}  |  S+: {result.s_plus:.4f}{gate_str}{mkt_str}")
     print(f"  Scan:   {result.scan_date} @ {result.generated_at}")
     print()
     print(f"  {'Rank':4s}  {'Symbol':8s}  {'RS':4s}  {'P(Survive)':12s}  {'Value(tỷ)':10s}  {'Anomaly':7s}  {'Score':7s}")

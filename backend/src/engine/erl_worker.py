@@ -55,6 +55,7 @@ class ERLWhitelist:
     market_regime: str = ""
     s_plus: float = 0.0
     hard_liquidity_gate: float = 0.0  # 0 = tắt, >0 = ngưỡng tỷ VND đang kích hoạt
+    total_market_value_bn: float = 0.0  # tổng giá trị giao dịch toàn TT phiên gần nhất (tỷ)
     whitelist: list = field(default_factory=list)
 
     @property
@@ -68,6 +69,7 @@ class ERLWhitelist:
             "market_regime": self.market_regime,
             "s_plus": self.s_plus,
             "hard_liquidity_gate": self.hard_liquidity_gate,
+            "total_market_value_bn": self.total_market_value_bn,
             "whitelist": self.whitelist,
             "count": self.count,
         }
@@ -98,18 +100,17 @@ def _prev_trading_day(d: date) -> date:
             return d
 
 
-def _compute_dynamic_gate(data_dir: Path) -> float:
+def _compute_dynamic_gate(data_dir: Path) -> tuple[float, float]:
     """Tính Dynamic Liquidity Gate = 0.5% tổng giá trị giao dịch toàn thị trường.
 
-    Query screener_cache.db.daily_ohlcv lấy SUM(close*volume/1e9) phiên gần nhất.
-    Fallback về CRISIS_HARD_LIQUIDITY_GATE_FLOOR nếu không có dữ liệu.
+    Returns:
+        (gate_value_tỷ, total_market_value_tỷ)
     """
     db_path = data_dir / "screener_cache.db"
     if not db_path.exists():
-        return CRISIS_HARD_LIQUIDITY_GATE_FLOOR
+        return (CRISIS_HARD_LIQUIDITY_GATE_FLOOR, 0.0)
 
     try:
-        import sqlite3
         conn = sqlite3.connect(str(db_path))
         cursor = conn.execute(
             "SELECT SUM(close * volume / 1e9) FROM daily_ohlcv "
@@ -119,13 +120,13 @@ def _compute_dynamic_gate(data_dir: Path) -> float:
         conn.close()
         total_value = row[0] if row and row[0] else 0.0
     except Exception:
-        return CRISIS_HARD_LIQUIDITY_GATE_FLOOR
+        return (CRISIS_HARD_LIQUIDITY_GATE_FLOOR, 0.0)
 
     if total_value <= 0:
-        return CRISIS_HARD_LIQUIDITY_GATE_FLOOR
+        return (CRISIS_HARD_LIQUIDITY_GATE_FLOOR, 0.0)
 
     gate = total_value * CRISIS_HARD_LIQUIDITY_GATE_PCT
-    return max(gate, CRISIS_HARD_LIQUIDITY_GATE_FLOOR)
+    return (max(gate, CRISIS_HARD_LIQUIDITY_GATE_FLOOR), round(total_value, 0))
 
 
 def latest_closed_session(now: Optional[datetime] = None) -> date:
@@ -287,8 +288,8 @@ def build_whitelist(
     regime_info = _load_regime_snapshot(data_dir)
     regime = regime_info.get("regime", "UNKNOWN")
     gate_active = regime in ("CRISIS_WARNING", "CRISIS")
+    gate_value, total_market_value = _compute_dynamic_gate(data_dir)
     if gate_active:
-        gate_value = _compute_dynamic_gate(data_dir)
         before = len(stocks)
         stocks = [s for s in stocks if s.avg_value_20d >= gate_value]
         removed = before - len(stocks)
@@ -307,7 +308,8 @@ def build_whitelist(
         scan_date=scan_date,
         market_regime=regime,
         s_plus=regime_info.get("delta_sa", 0),
-        hard_liquidity_gate=gate_value,
+        hard_liquidity_gate=gate_value if gate_active else 0.0,
+        total_market_value_bn=total_market_value,
         whitelist=[
             {
                 "symbol": s.symbol,
