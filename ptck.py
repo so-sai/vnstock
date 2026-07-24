@@ -1985,10 +1985,11 @@ def cmd_init_agent(args):
 
     # 2. Xác định CLI prefix
     exe_path = Path(sys.executable).resolve()
-    if exe_path.suffix.lower() == ".exe":
-        cli_prefix = str(exe_path)
+    is_python = exe_path.stem.lower().startswith("python")
+    if is_python:
+        cli_prefix = "python ptck.py"
     else:
-        cli_prefix = f'python "{exe_path}"'
+        cli_prefix = str(exe_path)
 
     # 3. Sinh CLI manifest từ parser
     commands = _walk_cli_commands(build_parser())
