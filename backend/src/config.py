@@ -32,12 +32,14 @@ def _hydrate_path():
     # Without this, onefile mode extracts to a temp dir and the AGENTS.md anchor
     # resolves to the temp dir, not the install dir. Databases are at the install
     # dir, not the temp dir, so the server crashes with "DB not found".
-    # BOUNDARY: sys.frozen check + executable name + __file__ location fallback.
+    # BOUNDARY: sys.frozen check + executable name + temp dir location fallback.
     # ==============================================================================
+    import os as _os
+    import tempfile as _tempfile
+    _temp_root = Path(_tempfile.gettempdir()).resolve()
     is_frozen = (
         getattr(sys, 'frozen', False)
         or not Path(sys.executable).stem.lower().startswith("python")
-        or "onefile" in str(Path(__file__)).lower()
     )
     if is_frozen:
         root_path = Path(sys.executable).resolve().parent
@@ -49,10 +51,14 @@ def _hydrate_path():
                 root_path = current
                 break
             current = current.parent
-    # Safety check: if root still contains "onefile" (temp extraction),
-    # fall back to sys.executable parent
-    if "onefile" in str(root_path).lower():
-        root_path = Path(sys.executable).resolve().parent
+    # Safety: if root_path is inside a system temp dir (Nuitka onefile extraction),
+    # fall back to sys.executable parent (install dir)
+    try:
+        resolved = root_path.resolve()
+        if _temp_root in resolved.parents or resolved == _temp_root:
+            root_path = Path(sys.executable).resolve().parent
+    except (OSError, RuntimeError):
+        pass
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path

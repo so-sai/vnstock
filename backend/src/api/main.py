@@ -46,10 +46,12 @@ def _hydrate_path():
     # Without this, onefile mode resolves PROJECT_ROOT to the temp extraction dir.
     # Databases are at the install dir, causing "DB not found" on every API call.
     # ==============================================================================
+    import os as _os
+    import tempfile as _tempfile
+    _temp_root = Path(_tempfile.gettempdir()).resolve()
     is_frozen = (
         getattr(sys, 'frozen', False)
         or not Path(sys.executable).stem.lower().startswith("python")
-        or "onefile" in str(Path(__file__)).lower()
     )
     if is_frozen:
         root_path = Path(sys.executable).resolve().parent
@@ -61,8 +63,12 @@ def _hydrate_path():
                 root_path = current
                 break
             current = current.parent
-    if "onefile" in str(root_path).lower():
-        root_path = Path(sys.executable).resolve().parent
+    try:
+        resolved = root_path.resolve()
+        if _temp_root in resolved.parents or resolved == _temp_root:
+            root_path = Path(sys.executable).resolve().parent
+    except (OSError, RuntimeError):
+        pass
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     backend_dir = root_path / "backend"

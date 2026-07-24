@@ -16,10 +16,12 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 
 def _hydrate_path():
+    import os as _os
+    import tempfile as _tempfile
+    _temp_root = Path(_tempfile.gettempdir()).resolve()
     is_frozen = (
         getattr(sys, "frozen", False)
         or not Path(sys.executable).stem.lower().startswith("python")
-        or "onefile" in str(Path(__file__)).lower()
     )
     if is_frozen:
         root = Path(sys.executable).resolve().parent
@@ -31,8 +33,12 @@ def _hydrate_path():
                 root = current
                 break
             current = current.parent
-    if "onefile" in str(root).lower():
-        root = Path(sys.executable).resolve().parent
+    try:
+        resolved = root.resolve()
+        if _temp_root in resolved.parents or resolved == _temp_root:
+            root = Path(sys.executable).resolve().parent
+    except (OSError, RuntimeError):
+        pass
     for p in (root, root / "backend"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
