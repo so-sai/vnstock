@@ -25,6 +25,7 @@ LIQUIDITY_MIN_BN = 1.0          # Thanh khoản tối thiểu (tỷ VND)
 RS_RANK_MIN = 50                 # RS Rating percentile tối thiểu
 TOP_CANDIDATES = 100             # Số candidate sau Phase 1
 WHITELIST_SIZE = 30              # Số mã trong whitelist cuối
+CRISIS_HARD_LIQUIDITY_GATE = 100.0  # tỷ VND — loại Small-cap khi regime CRISIS
 WHITELIST_FILENAME = "erl_whitelist.json"
 LAST_SCAN_FILENAME = "erl_last_scan.txt"
 MARKET_CLOSE_HOUR = 15
@@ -51,6 +52,7 @@ class ERLWhitelist:
     scan_date: str = ""
     market_regime: str = ""
     s_plus: float = 0.0
+    hard_liquidity_gate: float = 0.0  # 0 = tắt, >0 = ngưỡng tỷ VND đang kích hoạt
     whitelist: list = field(default_factory=list)
 
     @property
@@ -63,6 +65,7 @@ class ERLWhitelist:
             "scan_date": self.scan_date,
             "market_regime": self.market_regime,
             "s_plus": self.s_plus,
+            "hard_liquidity_gate": self.hard_liquidity_gate,
             "whitelist": self.whitelist,
             "count": self.count,
         }
@@ -247,15 +250,29 @@ def build_whitelist(
         s.composite_score = compute_composite_score(s)
 
     stocks.sort(key=lambda x: x.composite_score, reverse=True)
-    top30 = stocks[:WHITELIST_SIZE]
 
+    # Hard Liquidity Gate: phạt Small-cap khi regime CRISIS
     regime_info = _load_regime_snapshot(data_dir)
+    regime = regime_info.get("regime", "UNKNOWN")
+    gate_active = regime in ("CRISIS_WARNING", "CRISIS")
+    if gate_active:
+        before = len(stocks)
+        stocks = [s for s in stocks if s.avg_value_20d >= CRISIS_HARD_LIQUIDITY_GATE]
+        removed = before - len(stocks)
+        if removed:
+            logger.info(
+                "[Hard Gate] CRISIS regime: loại %d mã Small-cap <%.0f tỷ.",
+                removed, CRISIS_HARD_LIQUIDITY_GATE,
+            )
+
+    top30 = stocks[:WHITELIST_SIZE]
 
     whitelist = ERLWhitelist(
         generated_at=datetime.now().isoformat(),
         scan_date=scan_date,
-        market_regime=regime_info.get("regime", "UNKNOWN"),
+        market_regime=regime,
         s_plus=regime_info.get("delta_sa", 0),
+        hard_liquidity_gate=CRISIS_HARD_LIQUIDITY_GATE if gate_active else 0.0,
         whitelist=[
             {
                 "symbol": s.symbol,
