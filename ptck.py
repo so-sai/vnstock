@@ -1512,12 +1512,13 @@ def cmd_erl_scan(args):
         print(f"  Whitelist ngày {wl.get('scan_date', 'N/A')} — {wl.get('count', 0)} mã")
         print(f"  Regime: {wl.get('market_regime', 'N/A')}  |  S+: {wl.get('s_plus', 0):.4f}{gate_str}{mkt_str}")
         print()
-        print(f"  {'Symbol':8s}  {'RS':4s}  {'P(Survive)':12s}  {'Anomaly':7s}  {'Score':7s}")
-        print(f"  {'-'*8}  {'-'*4}  {'-'*12}  {'-'*7}  {'-'*7}")
+        print(f"  {'Symbol':8s}  {'RS':4s}  {'P(Survive)':12s}  {'Anomaly':7s}  {'Score':7s}  {'Cảnh báo'}")
+        print(f"  {'-'*8}  {'-'*4}  {'-'*12}  {'-'*7}  {'-'*7}  {'-'*14}")
         for s in wl.get("whitelist", []):
+            survival_warn = "⚠️ LOW_SURVIVAL" if s["p_survive"] <= 0.30 else ""
             print(f"  {s['symbol']:8s}  {s['rs_rating']:<4.0f}  "
                   f"{s['p_survive']:<12.2%}  {s['anomaly_streak']:<7d}  "
-                  f"{s['composite_score']:<7.4f}")
+                  f"{s['composite_score']:<7.4f}  {survival_warn}")
         print("=" * 62)
         return
 
@@ -1535,13 +1536,14 @@ def cmd_erl_scan(args):
     print(f"  Regime: {result.market_regime}  |  S+: {result.s_plus:.4f}{gate_str}{mkt_str}")
     print(f"  Scan:   {result.scan_date} @ {result.generated_at}")
     print()
-    print(f"  {'Rank':4s}  {'Symbol':8s}  {'RS':4s}  {'P(Survive)':12s}  {'Value(tỷ)':10s}  {'Anomaly':7s}  {'Score':7s}")
-    print(f"  {'-'*4}  {'-'*8}  {'-'*4}  {'-'*12}  {'-'*10}  {'-'*7}  {'-'*7}")
+    print(f"  {'Rank':4s}  {'Symbol':8s}  {'RS':4s}  {'P(Survive)':12s}  {'Value(tỷ)':10s}  {'Anomaly':7s}  {'Score':7s}  {'Cảnh báo'}")
+    print(f"  {'-'*4}  {'-'*8}  {'-'*4}  {'-'*12}  {'-'*10}  {'-'*7}  {'-'*7}  {'-'*14}")
     for i, s in enumerate(result.whitelist, 1):
         anomaly_flag = " ⚠" if s["anomaly_streak"] >= 3 else ""
+        survival_warn = "⚠️ LOW_SURVIVAL" if s["p_survive"] <= 0.30 else ""
         print(f"  {i:<4d}  {s['symbol']:8s}  {s['rs_rating']:<4.0f}  "
               f"{s['p_survive']:<12.2%}  {s['avg_value_20d']:<10.1f}  "
-              f"{s['anomaly_streak']:<7d}{anomaly_flag}  {s['composite_score']:<7.4f}")
+              f"{s['anomaly_streak']:<7d}{anomaly_flag}  {s['composite_score']:<7.4f}  {survival_warn}")
 
     print()
     print(f"  ✅ Whitelist đã ghi vào: {DATA_DIR / 'erl_whitelist.json'}")
