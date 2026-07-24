@@ -241,9 +241,15 @@ def step1_nuitka_compile(dev_mode: bool = False) -> Path:
     ]
 
     log(f"  Nuitka compiling {BACKEND_ENTRY.name}... (this takes 2-5 min)", "⏳")
-    # Thêm backend/ + project root vào PYTHONPATH để Nuitka tìm được src và core package
+    # Thêm backend/ + libs/ + project root vào PYTHONPATH để Nuitka tìm được src, canonical, và core package
     old_pythonpath = os.environ.get("PYTHONPATH", "")
-    os.environ["PYTHONPATH"] = str(PROJECT_ROOT / "backend") + os.pathsep + str(PROJECT_ROOT / "backend" / "libs" / "vnstock") + os.pathsep + str(PROJECT_ROOT) + os.pathsep + old_pythonpath
+    os.environ["PYTHONPATH"] = (
+        str(PROJECT_ROOT / "backend")
+        + os.pathsep + str(PROJECT_ROOT / "backend" / "libs")
+        + os.pathsep + str(PROJECT_ROOT / "backend" / "libs" / "vnstock")
+        + os.pathsep + str(PROJECT_ROOT)
+        + os.pathsep + old_pythonpath
+    )
     run(args, timeout=3600, stream=True)  # stream=True: in log trực tiếp ra terminal
 
     if not output_exe.exists():
