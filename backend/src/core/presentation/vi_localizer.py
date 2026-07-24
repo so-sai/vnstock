@@ -1,3 +1,4 @@
+from ..cognitive_schema import SECTOR_VI as SECTOR_LABELS
 
 _TRADE_STATE_VI: dict[str, str] = {
     "PROHIBITED": "Cấm giao dịch",

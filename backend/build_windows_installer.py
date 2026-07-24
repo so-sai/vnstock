@@ -199,6 +199,7 @@ def step1_nuitka_compile(dev_mode: bool = False) -> Path:
         "--include-package=vnstock",
         "--include-package-data=src",
         "--include-package-data=libs",
+        "--include-data-file=AGENTS.md=AGENTS.md",
         f"--output-dir={BUILD_DIR}",
         "--remove-output",
         f"--output-filename={SIDECAR_NAME}.exe",

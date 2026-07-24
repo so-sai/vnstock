@@ -422,3 +422,9 @@ entrypoints:
     description: "Entity Resilience Layer — quét sức khỏe 1.514 mã (Phase 1: Proxy BCTC)"
     cli: "python ptck.py erl-scan [--top N] [--vn30] [--date YYYY-MM-DD]"
     category: risk
+
+  # ── init-agent ────────────────────────────────────────
+  init_agent:
+    description: "Initialize IDE agent config files (.clinerules + .cursorrules) from bundled AGENTS.md"
+    cli: "python ptck.py init-agent"
+    category: system
