@@ -52,7 +52,7 @@ assert 0.0 <= result['ema_alpha'] <= 1.0, f"FAIL: ema_alpha out of range: {resul
 assert 0.0 <= result['regime_score'] <= 1.0, f"FAIL: smoothed score out of range: {result['regime_score']}"
 assert 0.0 <= d['b_score'] <= 1.0, f"FAIL: b_score out of range: {d['b_score']}"
 assert 0.2 <= d['v_score'] <= 1.0, f"FAIL: v_score out of range: {d['v_score']}"
-assert result['status'] in ('TRENDING', 'RANGING', 'CRISIS'), f"FAIL: invalid status: {result['status']}"
+assert result['status'] in ('TRENDING', 'RANGING', 'CRISIS', 'CRISIS_WARNING'), f"FAIL: invalid status: {result['status']}"
 
 print()
 print("ALL ASSERTIONS PASSED -- Adaptive EMA engine is production-ready.")
