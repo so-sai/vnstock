@@ -41,7 +41,16 @@ def _canonicalize_json(obj):
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    # ==============================================================================
+    # WHY: Nuitka 4.1.3 on Python 3.14 does NOT reliably set sys.frozen.
+    # Without this, onefile mode resolves PROJECT_ROOT to the temp extraction dir.
+    # Databases are at the install dir, causing "DB not found" on every API call.
+    # ==============================================================================
+    is_frozen = (
+        getattr(sys, 'frozen', False)
+        or not Path(sys.executable).stem.lower().startswith("python")
+    )
+    if is_frozen:
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -97,8 +106,17 @@ app = FastAPI(title="PTCK VNSTOCK API", version="1.5.2", default_response_class=
 
 
 def get_frontend_dist_path() -> Path:
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        candidate = Path(sys._MEIPASS) / "frontend" / "dist"
+    # ==============================================================================
+    # WHY: Nuitka does NOT set sys._MEIPASS (PyInstaller-specific). Use
+    # sys.executable parent (install dir) instead. The frontend dist/
+    # is bundled next to uv_backend.exe by NSIS resources.
+    # ==============================================================================
+    is_frozen = (
+        getattr(sys, 'frozen', False)
+        or not Path(sys.executable).stem.lower().startswith("python")
+    )
+    if is_frozen:
+        candidate = Path(sys.executable).resolve().parent / "backend" / "data" / "frontend" / "dist"
         if candidate.exists():
             return candidate
     candidate = PROJECT_ROOT / "frontend" / "dist"

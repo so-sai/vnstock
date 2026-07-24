@@ -378,7 +378,16 @@ def cmd_serve(args):
     print(f"  Khởi động FastAPI tại http://0.0.0.0:{port}")
     print(f"  Docs: http://localhost:{port}/docs")
     import uvicorn
-    uvicorn.run("src.api.main:app", host="0.0.0.0", port=port, reload=True)
+    # ==============================================================================
+    # WHY: Nuitka onefile does NOT have writable source files. reload=True causes
+    # uvicorn to crash when it tries to watch non-existent .py files.
+    # BOUNDARY: Only enable reload in dev mode (python ptck.py serve).
+    # ==============================================================================
+    is_frozen = (
+        getattr(sys, 'frozen', False)
+        or not Path(sys.executable).stem.lower().startswith("python")
+    )
+    uvicorn.run("src.api.main:app", host="0.0.0.0", port=port, reload=not is_frozen)
 
 
 def cmd_db(args):

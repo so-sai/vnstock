@@ -437,6 +437,17 @@ def step4_update_tauri_config(data_template: Path) -> None:
     }
     bundle.setdefault("windows", {})["nsis"] = nsis_config
 
+    # Bundle data directory into installer
+    # ==============================================================================
+    # WHY: The Nuitka onefile binary runs from a temp extraction dir and has NO
+    # databases. The data template (DB markers, bootstraps, config JSONs) must be
+    # included as NSIS resources so they land next to uv_backend.exe at install time.
+    # prodigy-sport/data-programs without this => backend "DB not found" crash.
+    # ==============================================================================
+    resources = bundle.setdefault("resources", {})
+    data_src = str(data_template)
+    resources[data_src] = "backend/data"
+
     # Write back
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)

@@ -16,7 +16,11 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 
 def _hydrate_path():
-    if getattr(sys, "frozen", False):
+    is_frozen = (
+        getattr(sys, "frozen", False)
+        or not Path(sys.executable).stem.lower().startswith("python")
+    )
+    if is_frozen:
         root = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent.parent

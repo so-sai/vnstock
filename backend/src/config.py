@@ -26,14 +26,24 @@ os.environ.setdefault("VNAI_QUIET", "1")
 
 # 1. Định vị tọa độ Gốc (Bất chấp ngài chạy lệnh từ thư mục nào hoặc đóng gói .exe)
 def _hydrate_path():
-    """Path Hydrator v2.1: Auto-locate Project Root"""
-    if getattr(sys, 'frozen', False):
+    """Path Hydrator v2.2: Auto-locate Project Root (frozen-safe)."""
+    # ==============================================================================
+    # WHY: Nuitka 4.1.3 on Python 3.14 does NOT reliably set sys.frozen.
+    # Without this, onefile mode extracts to a temp dir and the AGENTS.md anchor
+    # resolves to the temp dir, not the install dir. Databases are at the install
+    # dir, not the temp dir, so the server crashes with "DB not found".
+    # BOUNDARY: sys.frozen check + executable name fallback.
+    # ==============================================================================
+    is_frozen = (
+        getattr(sys, 'frozen', False)
+        or not Path(sys.executable).stem.lower().startswith("python")
+    )
+    if is_frozen:
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            # Anchor on AGENTS.md which only exists at true project root
             if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
@@ -48,14 +58,16 @@ PROJECT_ROOT = _hydrate_path()
 load_dotenv(PROJECT_ROOT / '.env')
 
 # 3. Phân bổ các khu vực chiến lược
+# ==============================================================================
+# WHY: When frozen (Nuitka onefile), the extracted temp dir has source code
+# but NO databases. The real databases are at the install dir next to the .exe.
+# DATA_DIR must point to PROJECT_ROOT/backend/data where the installed binary lives.
+# %LOCALAPPDATA%/PTCK_VN/data is only for runtime-generated files.
+# ==============================================================================
 # Ưu tiên lấy đường dẫn từ env (api_server.py set CUSTOM_DATA_PATH khi frozen)
 data_path_env = os.getenv("CUSTOM_DATA_PATH")
 if data_path_env:
     DATA_DIR = Path(data_path_env)
-elif getattr(sys, 'frozen', False):
-    appdata = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "PTCK_VN" / "data"
-    appdata.mkdir(parents=True, exist_ok=True)
-    DATA_DIR = appdata
 elif (PROJECT_ROOT / "backend" / "data").is_dir():
     DATA_DIR = PROJECT_ROOT / "backend" / "data"
 else:
