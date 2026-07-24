@@ -19,6 +19,7 @@ def _hydrate_path():
     is_frozen = (
         getattr(sys, "frozen", False)
         or not Path(sys.executable).stem.lower().startswith("python")
+        or "onefile" in str(Path(__file__)).lower()
     )
     if is_frozen:
         root = Path(sys.executable).resolve().parent
@@ -30,6 +31,8 @@ def _hydrate_path():
                 root = current
                 break
             current = current.parent
+    if "onefile" in str(root).lower():
+        root = Path(sys.executable).resolve().parent
     for p in (root, root / "backend"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))

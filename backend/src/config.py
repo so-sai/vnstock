@@ -32,11 +32,12 @@ def _hydrate_path():
     # Without this, onefile mode extracts to a temp dir and the AGENTS.md anchor
     # resolves to the temp dir, not the install dir. Databases are at the install
     # dir, not the temp dir, so the server crashes with "DB not found".
-    # BOUNDARY: sys.frozen check + executable name fallback.
+    # BOUNDARY: sys.frozen check + executable name + __file__ location fallback.
     # ==============================================================================
     is_frozen = (
         getattr(sys, 'frozen', False)
         or not Path(sys.executable).stem.lower().startswith("python")
+        or "onefile" in str(Path(__file__)).lower()
     )
     if is_frozen:
         root_path = Path(sys.executable).resolve().parent
@@ -48,6 +49,10 @@ def _hydrate_path():
                 root_path = current
                 break
             current = current.parent
+    # Safety check: if root still contains "onefile" (temp extraction),
+    # fall back to sys.executable parent
+    if "onefile" in str(root_path).lower():
+        root_path = Path(sys.executable).resolve().parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path

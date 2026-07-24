@@ -49,6 +49,7 @@ def _hydrate_path():
     is_frozen = (
         getattr(sys, 'frozen', False)
         or not Path(sys.executable).stem.lower().startswith("python")
+        or "onefile" in str(Path(__file__)).lower()
     )
     if is_frozen:
         root_path = Path(sys.executable).resolve().parent
@@ -60,6 +61,8 @@ def _hydrate_path():
                 root_path = current
                 break
             current = current.parent
+    if "onefile" in str(root_path).lower():
+        root_path = Path(sys.executable).resolve().parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     backend_dir = root_path / "backend"
@@ -117,12 +120,16 @@ def get_frontend_dist_path() -> Path:
     is_frozen = (
         getattr(sys, 'frozen', False)
         or not Path(sys.executable).stem.lower().startswith("python")
+        or "onefile" in str(Path(__file__)).lower()
     )
     if is_frozen:
         candidate = Path(sys.executable).resolve().parent / "backend" / "data" / "frontend" / "dist"
         if candidate.exists():
             return candidate
     candidate = PROJECT_ROOT / "frontend" / "dist"
+    # Safety: if candidate still contains onefile temp, fall back to exec parent
+    if "onefile" in str(candidate).lower():
+        candidate = Path(sys.executable).resolve().parent / "frontend" / "dist"
     return candidate
 
 app.add_middleware(

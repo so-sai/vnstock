@@ -5,7 +5,12 @@ from fastapi import APIRouter, HTTPException, Query
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    is_frozen = (
+        getattr(sys, 'frozen', False)
+        or not Path(sys.executable).stem.lower().startswith("python")
+        or "onefile" in str(Path(__file__)).lower()
+    )
+    if is_frozen:
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -15,6 +20,8 @@ def _hydrate_path():
                 root_path = current
                 break
             current = current.parent
+    if "onefile" in str(root_path).lower():
+        root_path = Path(sys.executable).resolve().parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     backend_dir = root_path / "backend"
