@@ -52,14 +52,7 @@
   },
   "plugins": {
     "shell": {
-      "sidecar": true,
-      "scope": [
-        {
-          "name": "binaries/uv_backend",
-          "sidecar": true,
-          "args": true
-        }
-      ]
+      "open": false
     }
   }
 }

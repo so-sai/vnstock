@@ -50,11 +50,9 @@ fn needs_erl_catchup(app_dir: &PathBuf) -> bool {
     }
 }
 
-fn spawn_erl_catchup(app_handle: &tauri::AppHandle) {
-    let app_dir = app_handle
-        .path()
-        .resource_dir()
-        .unwrap_or_else(|_| PathBuf::from("."));
+fn spawn_erl_catchup(_app_handle: &tauri::AppHandle) {
+    let current_exe = std::env::current_exe().expect("Failed to get current exe");
+    let app_dir = current_exe.parent().expect("Failed to get app dir").to_path_buf();
 
     if !needs_erl_catchup(&app_dir) {
         return;
@@ -65,12 +63,19 @@ fn spawn_erl_catchup(app_handle: &tauri::AppHandle) {
         latest_closed_session().format("%Y-%m-%d"),
     );
 
-    let sidecar = app_handle
-        .path()
-        .resolve("binaries/uv_backend", tauri::path::BaseDirectory::Resource)
-        .expect("Failed to resolve sidecar binary");
+    let sidecar_exe = app_dir.join("uv_backend-x86_64-pc-windows-msvc.exe");
+    let fallback_exe = app_dir.join("uv_backend.exe");
+    let binaries_exe = app_dir.join("binaries").join("uv_backend-x86_64-pc-windows-msvc.exe");
 
-    let result = std::process::Command::new(&sidecar)
+    let sidecar_path = if sidecar_exe.exists() {
+        sidecar_exe
+    } else if fallback_exe.exists() {
+        fallback_exe
+    } else {
+        binaries_exe
+    };
+
+    let result = std::process::Command::new(sidecar_path)
         .args(["erl-scan", "--whitelist"])
         .current_dir(&app_dir)
         .output();
