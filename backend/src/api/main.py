@@ -65,6 +65,9 @@ def _hydrate_path():
     backend_dir = root_path / "backend"
     if backend_dir.exists() and str(backend_dir) not in sys.path:
         sys.path.append(str(backend_dir))
+    src_dir = root_path / "backend" / "src"
+    if src_dir.exists() and str(src_dir) not in sys.path:
+        sys.path.append(str(src_dir))
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
