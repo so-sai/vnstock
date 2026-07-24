@@ -13,6 +13,7 @@ Chế độ hoạt động:
 import json
 import logging
 import os
+import sqlite3
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, date
 from pathlib import Path
@@ -25,7 +26,8 @@ LIQUIDITY_MIN_BN = 1.0          # Thanh khoản tối thiểu (tỷ VND)
 RS_RANK_MIN = 50                 # RS Rating percentile tối thiểu
 TOP_CANDIDATES = 100             # Số candidate sau Phase 1
 WHITELIST_SIZE = 30              # Số mã trong whitelist cuối
-CRISIS_HARD_LIQUIDITY_GATE = 100.0  # tỷ VND — loại Small-cap khi regime CRISIS
+CRISIS_HARD_LIQUIDITY_GATE_PCT = 0.005  # % tổng giá trị giao dịch toàn thị trường
+CRISIS_HARD_LIQUIDITY_GATE_FLOOR = 50.0  # tỷ VND — ngưỡng tối thiểu
 WHITELIST_FILENAME = "erl_whitelist.json"
 LAST_SCAN_FILENAME = "erl_last_scan.txt"
 MARKET_CLOSE_HOUR = 15
@@ -94,6 +96,36 @@ def _prev_trading_day(d: date) -> date:
         d = d.__class__.fromordinal(d.toordinal() - 1)
         if not _is_holiday(d):
             return d
+
+
+def _compute_dynamic_gate(data_dir: Path) -> float:
+    """Tính Dynamic Liquidity Gate = 0.5% tổng giá trị giao dịch toàn thị trường.
+
+    Query screener_cache.db.daily_ohlcv lấy SUM(close*volume/1e9) phiên gần nhất.
+    Fallback về CRISIS_HARD_LIQUIDITY_GATE_FLOOR nếu không có dữ liệu.
+    """
+    db_path = data_dir / "screener_cache.db"
+    if not db_path.exists():
+        return CRISIS_HARD_LIQUIDITY_GATE_FLOOR
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.execute(
+            "SELECT SUM(close * volume / 1e9) FROM daily_ohlcv "
+            "WHERE date = (SELECT MAX(date) FROM daily_ohlcv)"
+        )
+        row = cursor.fetchone()
+        conn.close()
+        total_value = row[0] if row and row[0] else 0.0
+    except Exception:
+        return CRISIS_HARD_LIQUIDITY_GATE_FLOOR
+
+    if total_value <= 0:
+        return CRISIS_HARD_LIQUIDITY_GATE_FLOOR
+
+    gate = total_value * CRISIS_HARD_LIQUIDITY_GATE_PCT
+    return max(gate, CRISIS_HARD_LIQUIDITY_GATE_FLOOR)
 
 
 def latest_closed_session(now: Optional[datetime] = None) -> date:
@@ -256,14 +288,17 @@ def build_whitelist(
     regime = regime_info.get("regime", "UNKNOWN")
     gate_active = regime in ("CRISIS_WARNING", "CRISIS")
     if gate_active:
+        gate_value = _compute_dynamic_gate(data_dir)
         before = len(stocks)
-        stocks = [s for s in stocks if s.avg_value_20d >= CRISIS_HARD_LIQUIDITY_GATE]
+        stocks = [s for s in stocks if s.avg_value_20d >= gate_value]
         removed = before - len(stocks)
         if removed:
             logger.info(
-                "[Hard Gate] CRISIS regime: loại %d mã Small-cap <%.0f tỷ.",
-                removed, CRISIS_HARD_LIQUIDITY_GATE,
+                "[Hard Gate] CRISIS regime: loại %d mã Small-cap <%.0f tỷ (%.2f%% tổng TT).",
+                removed, gate_value, CRISIS_HARD_LIQUIDITY_GATE_PCT * 100,
             )
+    else:
+        gate_value = 0.0
 
     top30 = stocks[:WHITELIST_SIZE]
 
@@ -272,7 +307,7 @@ def build_whitelist(
         scan_date=scan_date,
         market_regime=regime,
         s_plus=regime_info.get("delta_sa", 0),
-        hard_liquidity_gate=CRISIS_HARD_LIQUIDITY_GATE if gate_active else 0.0,
+        hard_liquidity_gate=gate_value,
         whitelist=[
             {
                 "symbol": s.symbol,

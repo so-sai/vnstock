@@ -1506,7 +1506,7 @@ def cmd_erl_scan(args):
             print("=" * 62)
             return
         gate = wl.get('hard_liquidity_gate', 0)
-        gate_str = f"  |  🔒 Gate: >= {gate:.0f} tỷ" if gate > 0 else ""
+        gate_str = f"  |  🔒 Gate: >= {gate:.0f} tỷ (0.5% TT)" if gate > 0 else ""
         print(f"  Whitelist ngày {wl.get('scan_date', 'N/A')} — {wl.get('count', 0)} mã")
         print(f"  Regime: {wl.get('market_regime', 'N/A')}  |  S+: {wl.get('s_plus', 0):.4f}{gate_str}")
         print()
@@ -1527,7 +1527,7 @@ def cmd_erl_scan(args):
         print("=" * 62)
         return
 
-    gate_str = f"  |  🔒 Gate: >= {result.hard_liquidity_gate:.0f} tỷ" if result.hard_liquidity_gate > 0 else ""
+    gate_str = f"  |  🔒 Gate: >= {result.hard_liquidity_gate:.0f} tỷ (0.5% TT)" if result.hard_liquidity_gate > 0 else ""
     print(f"  Whitelist Top {len(result.whitelist)} — Survival Resilience Stocks")
     print(f"  Regime: {result.market_regime}  |  S+: {result.s_plus:.4f}{gate_str}")
     print(f"  Scan:   {result.scan_date} @ {result.generated_at}")
