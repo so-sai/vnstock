@@ -1976,10 +1976,11 @@ def cmd_init_agent(args):
                 print(f"  ⚠️ Could not delete {legacy_file}: {e}")
 
     # 2. Xác định CLI prefix
-    if getattr(sys, 'frozen', False):
-        cli_prefix = str(Path(sys.executable).resolve())
+    exe_path = Path(sys.executable).resolve()
+    if exe_path.suffix.lower() == ".exe":
+        cli_prefix = str(exe_path)
     else:
-        cli_prefix = f'python "{Path(sys.argv[0]).resolve()}"'
+        cli_prefix = f'python "{exe_path}"'
 
     # 3. Sinh CLI manifest từ parser
     commands = _walk_cli_commands(build_parser())
