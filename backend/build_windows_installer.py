@@ -206,15 +206,11 @@ def step1_nuitka_compile(dev_mode: bool = False) -> Path:
         # Nofollow: loại bỏ test/docs để giảm dung lượng
         "--nofollow-import-to=*.tests",
         "--nofollow-import-to=*.test",
-        "--nofollow-import-to=*.docs",
         "--nofollow-import-to=*.examples",
         "--nofollow-import-to=unittest",
         # Include modules thiết yếu
         "--include-module=uvicorn",
         "--include-module=fastapi",
-        # WHY: --nofollow-import-to=*.docs cũng bắt false positive fastapi.openapi.docs.
-        # Module này là dependency bắt buộc của FastAPI khi khởi tạo app.
-        "--include-module=fastapi.openapi.docs",
         "--include-module=sqlite3",
         "--include-module=numpy",
         "--include-module=pandas",
