@@ -1501,6 +1501,54 @@ def cmd_counterfactual(args):
     print_counterfactual_report(analysis)
 
 
+def cmd_archetype(args):
+    """Giai đoạn 1: Business Archetype — DNA classification."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.business.archetype import ArchetypeEngine, print_archetype_report
+    engine = ArchetypeEngine()
+    results = engine.classify_many(args.symbols)
+    engine.close()
+    print_archetype_report(results)
+
+
+def cmd_economic_engine(args):
+    """Giai đoạn 1: Economic Engine — propagation chain."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.business.economic_engine import EconomicEngine
+    engine = EconomicEngine()
+    print(f"\n  {'='*80}")
+    print(f"  ECONOMIC ENGINE — CHAIN OF CAUSATION")
+    print(f"  {'='*80}")
+    for sym in args.symbols:
+        chain = engine.get_chain(sym)
+        if chain:
+            step_names = [c.label for c in chain.chain]
+            print(f"\n  📍 {sym} ({chain.label})")
+            print(f"  {'─'*60}")
+            for i, s in enumerate(step_names):
+                arrow = " ↓" if i < len(step_names) - 1 else ""
+                print(f"    {i+1}. {s}{arrow}")
+            drivers = ', '.join(chain.macro_links.keys())
+            print(f"  Macro links: {drivers}")
+            if args.driver:
+                trace = engine.trace_macro_impact(sym, args.driver.upper())
+                print(f"  Trace [{args.driver.upper()}]: {' → '.join(trace)}")
+    engine.close()
+
+
+def cmd_competitive(args):
+    """Giai đoạn 1: Competitive Position — moat & market power."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.business.competitive_position import CompetitiveEngine, print_competitive_report
+    engine = CompetitiveEngine()
+    results = engine.assess_many(args.symbols)
+    engine.close()
+    print_competitive_report(results)
+
+
 def cmd_watch(args):
     """Giám sát Volume Spike — phát hiện nến xác nhận để kích hoạt Scale-In."""
     if sys.platform == "win32":
@@ -2562,6 +2610,30 @@ def build_parser():
         "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
     ], help="Danh sách mã")
     p_cf.set_defaults(func=cmd_counterfactual)
+
+    # ── Giai đoạn 1: Business Ontology Layer ──────────────
+    p_arch = sub.add_parser("archetype", parents=[lang_parent],
+                            help="Business Archetype — DNA classification (Giai đoạn 1)")
+    p_arch.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_arch.set_defaults(func=cmd_archetype)
+
+    p_ee = sub.add_parser("economic-engine", parents=[lang_parent],
+                          help="Economic Engine — propagation chain (Giai đoạn 1)")
+    p_ee.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_ee.add_argument("--driver", type=str, default=None,
+                      help="Macro driver để trace (VD: STEEL_PRICE, AI_CAPEX)")
+    p_ee.set_defaults(func=cmd_economic_engine)
+
+    p_cp = sub.add_parser("competitive", parents=[lang_parent],
+                          help="Competitive Position — moat & market power (Giai đoạn 1)")
+    p_cp.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_cp.set_defaults(func=cmd_competitive)
 
     # watch (Volume Spike Monitor)
     p_watch = sub.add_parser("watch", parents=[lang_parent],

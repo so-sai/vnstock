@@ -477,6 +477,20 @@ entrypoints:
     cli: "python ptck.py counterfactual [--symbols FPT VCB ...]"
     category: reasoning
 
+  # ── Giai đoạn 1: Business Ontology Layer ────────────────
+  business_archetype:
+    description: "Giai đoạn 1 — Business Archetype: DNA classification (8 archetypes: COMPOUNDER, CYCLICAL_HEAVY, FRANCHISE_BANK, ...)"
+    cli: "python ptck.py archetype [--symbols FPT VCB ...]"
+    category: business
+  economic_engine:
+    description: "Giai đoạn 1 — Economic Engine: causal chain from macro driver to financial impact"
+    cli: "python ptck.py economic-engine [--symbols FPT VCB ...] [--driver STEEL_PRICE]"
+    category: business
+  competitive_position:
+    description: "Giai đoạn 1 — Competitive Position: moat assessment (7 pillars) + market power"
+    cli: "python ptck.py competitive [--symbols FPT VCB ...]"
+    category: business
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"
