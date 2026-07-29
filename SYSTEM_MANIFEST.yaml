@@ -453,6 +453,24 @@ entrypoints:
     cli: "python ptck.py governor [--symbols FPT VCB ...] [--output json]"
     category: governor
 
+  # ── P4 Calibration (Meta-Cognition) ────────────────────
+  calibrate_eval:
+    description: "P4 Calibration — evaluate Log-Loss, ECE, MCE on resolved predictions"
+    cli: "python ptck.py calibrate eval [--days 90]"
+    category: calibration
+  calibrate_update_beta:
+    description: "P4 Calibration — update Beta posteriors from actual outcomes"
+    cli: "python ptck.py calibrate update-beta [--days 90]"
+    category: calibration
+  calibrate_lrs:
+    description: "P4 Calibration — view calibrated Likelihood Ratios"
+    cli: "python ptck.py calibrate lrs"
+    category: calibration
+  calibrate_status:
+    description: "P4 Calibration — prediction log status (unresolved vs resolved)"
+    cli: "python ptck.py calibrate status [--days 90]"
+    category: calibration
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"

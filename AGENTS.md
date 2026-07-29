@@ -184,9 +184,9 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
 - **CRITICAL CONSTRAINT - Interbank Z-Score:** Dữ liệu lãi suất liên ngân hàng (`macro_history` variable = `INTERBANK_*`) hiện có N=913 rows, baseline 3.5 năm, đã đủ điều kiện tính Z-Score. Tuy nhiên: đây là dữ liệu sinh từ anchor points + noise, KHÔNG phải dữ liệu thật từ SBV. Cần thay thế bằng real data pipeline (SSI iBoard R&D) trước khi dùng Z-Score để ra quyết định giao dịch.
 - **Unique Constraint:** Toàn bộ `macro_history` không thể có UNIQUE(date,variable) do legacy GOLD_XAU duplicates (11 bản sao/ngày). Interbank data sạch (0 dupes). Seeder đã được fix: xóa (date,variable) trước insert để tránh duplication.
 
-## Session: Phase 4 Perception→Understanding (P0→P3) — Jul 30 2026
+## Session: Phase 4 Perception→Understanding (P0→P3) + P4 Calibration — Jul 30 2026
 
-### Status: ✅ P0+P1+P2 VERIFIED | ✅ P3 BAYESIAN GOVERNOR LIVE | ✅ CLI+EOD WIRED
+### Status: ✅ P0+P1+P2 VERIFIED | ✅ P3 BAYESIAN GOVERNOR LIVE | ✅ P4 CALIBRATION WIRED
 
 ### Work Completed
 1. **P0 MacroStateClassifier**: Bridges PTD pipeline → Governor. Output: discrete label + posterior + Shannon entropy + 7D normalized drivers + 18 raw macro values. Calibrated with interbank Override (max ON/1W/3M > 6% → CREDIT_STRESS). Persisted to `backend/data/macro/macro_state_history.json`.
@@ -208,14 +208,21 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
    - 30/07/2026 snapshot: All 10 symbols → REDUCE (P=39-41%, Alloc=-5% to -7%)
    - Correctly captures: good companies in bad macro (HQC + CHEAP still REDUCE due to CREDIT_STRESS+LIOUIDITY_TRAP dominance)
 
-6. **CLIs**: `python ptck.py macro-state`, `python ptck.py transmission`, `python ptck.py sector`, `python ptck.py health-v2`, `python ptck.py governor` — all 5 added to `ptck.py` + `SYSTEM_MANIFEST.yaml`.
+6. **P4 Calibration Layer** (Meta-Cognition):
+   - `prediction_log.py` — SQLite persistence for every P3 prediction (date, symbol, P(Gain), EU, Kelly alloc, evidence vector)
+   - `scoring.py` — Log-Loss (strictly proper primary loss), Brier Score, ECE, MCE, reliability curve
+   - `calibrator.py` — Beta-posterior conjugate update: `α_new = α + y, β_new = β + (1-y)` per evidence level → `LR_new = (α/(α+β)) / (1-α/(α+β)) / prior_odds`
+   - Auto-logging: every `BayesianGovernor.assess()` call inserts into `backend/data/calibration.db`
+   - CLI: `python ptck.py calibrate {eval|update-beta|lrs|status}`
 
-7. **EOD Automation**: daily_updater.py extended with Step 6 (MacroState), Step 7 (Transmission), Step 8 (SectorRotation), Step 9 (CompanyHealthV2), Step 10 (BayesianGovernor).
+7. **CLIs**: `macro-state`, `transmission`, `sector`, `health-v2`, `governor`, `calibrate` — all 6 in `ptck.py` + `SYSTEM_MANIFEST.yaml`.
 
-8. **Architecture reorganized**: 3-stage pipeline: Perception (P0–P2), Understanding (P3: Bayesian Governor), Meta-Cognition (P4–P5). No decisions before correct perception.
+8. **EOD Automation**: daily_updater.py Steps 6-10 (P0→P3). Step 11 (P4 logging) is inline in govern.assess() — no separate step needed.
+
+9. **Architecture**: 3-stage pipeline: Perception (P0–P2), Understanding (P3), Meta-Cognition (P4). Self-correction via Beta posteriors O(1).
 
 ### Key Architectural Insight
 All four layers converge: CREDIT_STRESS(0.30) + LIQUIDITY_TRAP(0.20) = 0.50 evidence weight dominates even HIGH_QUALITY_COMPOUNDER(0.15) + CHEAP(0.10) + IN_VA(0.10) = 0.35. The Bayesian framework automatically weighs systemic risk above micro quality — no IF/THEN needed.
 
 ### Next Move
-P4: Meta-Cognition Layer — backtest Bayesian calibration, decision audit trail, counterfactual reasoning.
+Real outcome resolution (N days after predictions) → Beta update → LR reload into Governor. Then P5 Counterfactual Reasoning: "What if macro were STABLE?" simulation.

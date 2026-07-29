@@ -600,6 +600,27 @@ class BayesianGovernor:
         # Conviction = Bayesian probability adjusted by calibration
         conviction = p_gain * (1.0 - calib_penalty)
 
+        # P4: log prediction to calibration.db
+        try:
+            _ensure_calib()
+            from calibration.prediction_log import insert_prediction
+            insert_prediction(
+                date_str=str(date.today()),
+                symbol=symbol,
+                p_gain=round(p_gain, 4),
+                eu=round(best_eu, 4),
+                kelly_alloc=round(allocation, 1),
+                action=best_action,
+                macro_state=self._macro["state"],
+                transmission_phase=self._transmission["phase"],
+                sector_phase=sector_phase,
+                health_archetype=health["archetype"],
+                valuation_zone=val.get("overall_zone", "FAIR"),
+                behavior_position=beh.get("position", "UNKNOWN"),
+            )
+        except Exception:
+            pass
+
         return BayesianMandate(
             symbol=symbol,
             action=best_action,
@@ -645,6 +666,20 @@ GovernorEngine = BayesianGovernor
 # =========================================================================
 
 from src.core.report_i18n_mapper import translate
+
+# P4 Calibration hook — lazy init
+_CALIB_INITED = False
+
+
+def _ensure_calib():
+    global _CALIB_INITED
+    if not _CALIB_INITED:
+        try:
+            from calibration.prediction_log import init_schema
+            init_schema()
+            _CALIB_INITED = True
+        except Exception:
+            pass
 
 ARROW_MAP = {
     "VETO": "⛔", "AVOID": "🚫", "REDUCE": "⬇",

@@ -1418,6 +1418,78 @@ def cmd_governor(args):
         print_report(analysis)
 
 
+def cmd_calibrate(args):
+    """P4 Calibration — Meta-Cognition: Log-Loss, ECE, Beta LR update."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from calibration.prediction_log import init_schema, get_unresolved_predictions
+    init_schema()
+
+    if args.action == "eval":
+        from calibration.scoring import log_loss, brier_score, ece, mce, reliability_curve
+        from calibration.prediction_log import get_outcomes_for_calibration
+        outcomes = get_outcomes_for_calibration(args.days)
+        if not outcomes:
+            print("  Không có dữ liệu đã resolve để đánh giá.")
+            return
+        ps = [r["p_gain"] for r in outcomes]
+        ys = [r["outcome"] for r in outcomes]
+        losses = [log_loss(p, y) for p, y in zip(ps, ys)]
+        print(f"\n  {'='*60}")
+        print(f"  P4 CALIBRATION EVALUATION — {args.days}-day window")
+        print(f"  {'='*60}")
+        print(f"  N predictions:    {len(outcomes)}")
+        print(f"  Mean Log-Loss:    {sum(losses)/len(losses):.4f}")
+        print(f"  Median Log-Loss:  {sorted(losses)[len(losses)//2]:.4f}")
+        print(f"  Max Log-Loss:     {max(losses):.4f}")
+        print(f"  ECE (10 bins):    {ece(ps, ys):.4f}")
+        print(f"  MCE:              {mce(ps, ys):.4f}")
+        print(f"  Mean Brier:       {sum(brier_score(p,y) for p,y in zip(ps,ys))/len(ps):.4f}")
+        print(f"\n  Reliability Curve:")
+        print(f"  {'Bin':>3} {'N':>4} {'Conf':>6} {'Acc':>6} {'Gap':>6}")
+        for r in reliability_curve(ps, ys):
+            print(f"  {r['bin']:>3} {r['n']:>4} {r['confidence']:>6.3f} {r['accuracy']:>6.3f} {r['gap']:>+6.3f}")
+
+    elif args.action == "update-beta":
+        from calibration.calibrator import update_beta_posteriors, calibration_summary
+        update_beta_posteriors(args.days)
+        summary = calibration_summary(args.days)
+        print(f"\n  {'='*60}")
+        print(f"  P4 BAYESIAN LR UPDATE — Beta Posteriors")
+        print(f"  {'='*60}")
+        print(f"  N outcomes: {summary['n_outcomes']}")
+        for col, entries in summary["details"].items():
+            print(f"\n  [{col}]")
+            print(f"  {'Value':<24} {'N':>4} {'Acc':>6} {'Alpha':>6} {'Beta':>6} {'LR':>8}")
+            for e in entries:
+                print(f"  {e['value']:<24} {e['n']:>4} {e['accuracy']:>6.3f} "
+                      f"{e['alpha']:>6.1f} {e['beta']:>6.1f} {e['lr_calibrated']:>8.4f}")
+
+    elif args.action == "lrs":
+        from calibration.calibrator import get_calibrated_lrs
+        lrs = get_calibrated_lrs()
+        print(f"\n  {'='*60}")
+        print(f"  P4 CALIBRATED LIKELIHOOD RATIOS")
+        print(f"  {'='*60}")
+        for key in sorted(lrs):
+            print(f"  {key:<48} {lrs[key]:>8.4f}")
+
+    elif args.action == "status":
+        unresolved = get_unresolved_predictions()
+        from calibration.prediction_log import get_outcomes_for_calibration
+        resolved = get_outcomes_for_calibration(args.days)
+        print(f"\n  {'='*60}")
+        print(f"  P4 PREDICTION LOG STATUS")
+        print(f"  {'='*60}")
+        print(f"  Unresolved:  {len(unresolved)}")
+        print(f"  Resolved:    {len(resolved)} (window={args.days}d)")
+        if unresolved:
+            print(f"\n  Pending outcomes (first 10):")
+            print(f"  {'ID':>4} {'Date':<12} {'Symbol':<6} {'P(Gain)':>8} {'Action':<10}")
+            for r in unresolved[:10]:
+                print(f"  {r['id']:>4} {r['date']:<12} {r['symbol']:<6} {r['p_gain']:>8.3f} {r['action']:<10}")
+
+
 def cmd_watch(args):
     """Giám sát Volume Spike — phát hiện nến xác nhận để kích hoạt Scale-In."""
     if sys.platform == "win32":
@@ -2455,6 +2527,22 @@ def build_parser():
     p_gov.add_argument("--output", choices=["report", "json"], default="report",
                        help="Định dạng đầu ra (report hoặc json)")
     p_gov.set_defaults(func=cmd_governor)
+
+    # calibrate (P4 Meta-Cognition)
+    p_cal = sub.add_parser("calibrate", parents=[lang_parent],
+                           help="P4 Calibration — Log-Loss, ECE, Beta-posterior LR update")
+    p_cal_sub = p_cal.add_subparsers(dest="action", required=True)
+    p_cal_eval = p_cal_sub.add_parser("eval", help="Tính Log-Loss, ECE, MCE trên resolved predictions")
+    p_cal_eval.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
+    p_cal_eval.set_defaults(func=cmd_calibrate)
+    p_cal_beta = p_cal_sub.add_parser("update-beta", help="Cập nhật Beta posteriors từ outcomes thực tế")
+    p_cal_beta.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
+    p_cal_beta.set_defaults(func=cmd_calibrate)
+    p_cal_lrs = p_cal_sub.add_parser("lrs", help="Xem Likelihood Ratios đã calibrated")
+    p_cal_lrs.set_defaults(func=cmd_calibrate)
+    p_cal_st = p_cal_sub.add_parser("status", help="Trạng thái prediction log (unresolved/resolved)")
+    p_cal_st.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
+    p_cal_st.set_defaults(func=cmd_calibrate)
 
     # watch (Volume Spike Monitor)
     p_watch = sub.add_parser("watch", parents=[lang_parent],
