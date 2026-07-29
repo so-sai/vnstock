@@ -1549,6 +1549,59 @@ def cmd_competitive(args):
     print_competitive_report(results)
 
 
+def cmd_factor_exposure(args):
+    """Giai đoạn 2: Factor Exposure Matrix — macro sensitivity per symbol."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.business.factor_exposure import (
+        FactorExposureEngine, print_exposure_report, compute_lr_adjustment, main as fe_main,
+    )
+
+    if getattr(args, 'lr_adjust', False):
+        engine = FactorExposureEngine()
+        try:
+            from src.core.macro.macro_state_classifier import MacroStateClassifier
+            ms = MacroStateClassifier()
+            state = ms.classify()
+            macro = state.macro_state
+        except Exception:
+            macro = "CREDIT_STRESS"
+        try:
+            from src.core.macro.economic_transmission_engine import EconomicTransmissionEngine
+            te = EconomicTransmissionEngine()
+            ts = te.compute()
+            trans = ts.transmission_phase
+        except Exception:
+            trans = "LIQUIDITY_TRAP"
+        print(f"\n  {'='*80}")
+        print(f"  LR ADJUSTMENT — Macro={macro} | Transmission={trans}")
+        print(f"  {'='*80}")
+        print(f"  {'Symbol':<6} {'Archetype':<20} {'Base LR':>8} {'Multiplier':>10} {'Adjusted LR':>12}")
+        print(f"  {'─'*60}")
+        for sym in args.symbols:
+            matrix = engine.compute(sym)
+            mult = compute_lr_adjustment(matrix, macro, trans)
+            print(f"  {sym:<6} {matrix.archetype:<20} {1.0:>8.2f} {mult:>10.3f} {1.0*mult:>11.3f}")
+        engine.close()
+        return
+
+    if getattr(args, 'query', None):
+        engine = FactorExposureEngine()
+        for sym in args.symbols:
+            exp = engine.query(sym, args.query.upper())
+            if exp:
+                print(f"\n  {sym}: {exp.factor_label} = {exp.exposure_score:.3f}")
+            else:
+                print(f"\n  {sym}: Không có exposure cho {args.query}")
+        engine.close()
+        return
+
+    engine = FactorExposureEngine()
+    results = engine.compute_many(args.symbols)
+    print_exposure_report(results, args.top)
+    engine.close()
+
+
 def cmd_watch(args):
     """Giám sát Volume Spike — phát hiện nến xác nhận để kích hoạt Scale-In."""
     if sys.platform == "win32":
@@ -2634,6 +2687,32 @@ def build_parser():
         "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
     ], help="Danh sách mã")
     p_cp.set_defaults(func=cmd_competitive)
+
+    # ── Giai đoạn 2: Factor Exposure Matrix ──────────────
+    p_fe = sub.add_parser("factor-exposure", parents=[lang_parent],
+                          help="Giai đoạn 2 — Factor Exposure Matrix: macro sensitivity per symbol")
+    p_fe.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_fe.add_argument("--top", type=int, default=5, help="Số factor hiển thị (mặc định 5)")
+    p_fe.add_argument("--query", type=str, default=None,
+                      help="Tra cứu exposure cho 1 factor cụ thể (VD: INTEREST_RATE)")
+    p_fe.add_argument("--lr-adjust", action="store_true", dest="lr_adjust",
+                      help="Tính LR adjustment cho macro state hiện tại")
+    p_fe.set_defaults(func=cmd_factor_exposure)
+
+    # ── Giai đoạn 2: CLI Vietnamese alias ──────────────
+    p_fe_vi = sub.add_parser("pho-nhiem", parents=[lang_parent],
+                             help="(Giai đoạn 2) Phơi nhiễm yếu tố vĩ mô — Factor Exposure Matrix")
+    p_fe_vi.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_fe_vi.add_argument("--top", type=int, default=5, help="Số factor hiển thị")
+    p_fe_vi.add_argument("--query", type=str, default=None,
+                         help="Tra cứu 1 factor (VD: INTEREST_RATE)")
+    p_fe_vi.add_argument("--lr-adjust", action="store_true", dest="lr_adjust",
+                         help="Tính LR multiplier cho macro hiện tại")
+    p_fe_vi.set_defaults(func=cmd_factor_exposure)
 
     # watch (Volume Spike Monitor)
     p_watch = sub.add_parser("watch", parents=[lang_parent],

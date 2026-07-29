@@ -491,6 +491,30 @@ entrypoints:
     cli: "python ptck.py competitive [--symbols FPT VCB ...]"
     category: business
 
+  # ── Giai đoạn 2: Factor Exposure Matrix ──────────────
+  factor_exposure:
+    description: "Giai đoạn 2 — Factor Exposure Matrix: độ nhạy cảm macro từng symbol (7 nhóm yếu tố × 26 factor)"
+    cli: "python ptck.py factor-exposure [--symbols FPT VCB ...] [--top N]"
+    category: business
+  factor_exposure_query:
+    description: "Tra cứu exposure của 1 factor cụ thể cho symbol (VD: INTEREST_RATE)"
+    cli: "python ptck.py factor-exposure --query INTEREST_RATE --symbols FPT HPG"
+    category: business
+  factor_exposure_lr_adjust:
+    description: "Tính LR adjustment từ factor exposure cho macro state hiện tại"
+    cli: "python ptck.py factor-exposure --lr-adjust [--symbols FPT VCB ...]"
+    category: business
+
+  # ── Giai đoạn 2: Vietnamese CLI alias ────────────────
+  pho_nhiem:
+    description: "(Giai đoạn 2) Phơi nhiễm yếu tố vĩ mô — Factor Exposure Matrix, tiếng Việt"
+    cli: "python ptck.py pho-nhiem [--symbols FPT VCB ...] [--top N]"
+    category: business
+  pho_nhiem_query:
+    description: "Tra cứu phơi nhiễm 1 yếu tố cụ thể"
+    cli: "python ptck.py pho-nhiem --query INTEREST_RATE --symbols FPT HPG"
+    category: business
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"
