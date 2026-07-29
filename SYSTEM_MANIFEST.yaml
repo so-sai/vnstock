@@ -471,6 +471,12 @@ entrypoints:
     cli: "python ptck.py calibrate status [--days 90]"
     category: calibration
 
+  # ── P5 Counterfactual Reasoning ──────────────────────────
+  counterfactual:
+    description: "P5 Counterfactual Reasoning — 'What if?' simulation. 6 scenarios: STABLE_MACRO, CREDIT_UNFREEZE, OPTIMISTIC..."
+    cli: "python ptck.py counterfactual [--symbols FPT VCB ...]"
+    category: reasoning
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"

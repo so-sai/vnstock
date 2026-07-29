@@ -1490,6 +1490,17 @@ def cmd_calibrate(args):
                 print(f"  {r['id']:>4} {r['date']:<12} {r['symbol']:<6} {r['p_gain']:>8.3f} {r['action']:<10}")
 
 
+def cmd_counterfactual(args):
+    """P5 Counterfactual Reasoning — 'What if?' simulation over evidence nodes."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.counterfactual.engine import CounterfactualEngine, print_counterfactual_report
+    engine = CounterfactualEngine()
+    analysis = engine.analyze(args.symbols)
+    engine.close()
+    print_counterfactual_report(analysis)
+
+
 def cmd_watch(args):
     """Giám sát Volume Spike — phát hiện nến xác nhận để kích hoạt Scale-In."""
     if sys.platform == "win32":
@@ -2543,6 +2554,14 @@ def build_parser():
     p_cal_st = p_cal_sub.add_parser("status", help="Trạng thái prediction log (unresolved/resolved)")
     p_cal_st.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
     p_cal_st.set_defaults(func=cmd_calibrate)
+
+    # counterfactual (P5 What-if Reasoning)
+    p_cf = sub.add_parser("counterfactual", parents=[lang_parent],
+                          help="P5 Counterfactual Reasoning — giả lập 'What if?' trên 6 nút bằng chứng")
+    p_cf.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_cf.set_defaults(func=cmd_counterfactual)
 
     # watch (Volume Spike Monitor)
     p_watch = sub.add_parser("watch", parents=[lang_parent],
