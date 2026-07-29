@@ -32,33 +32,21 @@ def _hydrate_path():
     # Without this, onefile mode extracts to a temp dir and the AGENTS.md anchor
     # resolves to the temp dir, not the install dir. Databases are at the install
     # dir, not the temp dir, so the server crashes with "DB not found".
-    # BOUNDARY: sys.frozen check + executable name + temp dir location fallback.
+    # BOUNDARY: sys.frozen check + executable name + AGENTS.md inside temp fallback.
     # ==============================================================================
-    import os as _os
-    import tempfile as _tempfile
-    _temp_root = Path(_tempfile.gettempdir()).resolve()
-    is_frozen = (
-        getattr(sys, 'frozen', False)
-        or not Path(sys.executable).stem.lower().startswith("python")
-    )
-    if is_frozen:
-        root_path = Path(sys.executable).resolve().parent
-    else:
+    # Step 1: Determine candidate from sys.executable parent (works for both
+    # frozen onefile and dev python runs)
+    candidate = Path(sys.executable).resolve().parent
+    # Step 2: In dev mode (python.exe), walk __file__ to find AGENTS.md anchor
+    # which overrides candidate with the dev project root
+    if Path(sys.executable).stem.lower().startswith("python"):
         current = Path(__file__).resolve().parent
-        root_path = current
         while current != current.parent:
             if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
-                root_path = current
+                candidate = current
                 break
             current = current.parent
-    # Safety: if root_path is inside a system temp dir (Nuitka onefile extraction),
-    # fall back to sys.executable parent (install dir)
-    try:
-        resolved = root_path.resolve()
-        if _temp_root in resolved.parents or resolved == _temp_root:
-            root_path = Path(sys.executable).resolve().parent
-    except (OSError, RuntimeError):
-        pass
+    root_path = candidate
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path

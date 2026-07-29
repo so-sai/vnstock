@@ -1399,6 +1399,131 @@ def cmd_silver(args):
             print(f"  [{_ll('FAIL')}] Silver dashboard: {e}")
 
 
+def cmd_governor(args):
+    """Governor Decision Matrix — Bayesian Expected Utility (P3)."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.governor.company_state import BayesianGovernor, print_report
+    engine = BayesianGovernor()
+    analysis = engine.analyze(args.symbols)
+    engine.close()
+    if args.output == "json":
+        def _ser(obj):
+            if hasattr(obj, "__dataclass_fields__"):
+                return {f: getattr(obj, f) for f in obj.__dataclass_fields__}
+            return str(obj)
+        import json
+        print(json.dumps(analysis, indent=2, ensure_ascii=False, default=_ser))
+    else:
+        print_report(analysis)
+
+
+def cmd_watch(args):
+    """Giám sát Volume Spike — phát hiện nến xác nhận để kích hoạt Scale-In."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    symbols = args.symbols
+    threshold = args.threshold
+    from datetime import datetime
+    print(f"\n  {'='*70}")
+    print(f"  GIÁM SÁT VOLUME SPIKE — PHÁT HIỆN NẾN XÁC NHẬN")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  {'='*70}")
+
+    from src.financial.market_behavior_engine import MarketBehaviorEngine
+    mbe = MarketBehaviorEngine()
+    mbe.init_schema()
+    conn = mbe.fin_conn()
+
+    for sym in symbols:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT price_current, poc, val, vah, volume_ratio, price_ma20
+            FROM volume_profile WHERE symbol = ?
+            ORDER BY date DESC LIMIT 1
+        """, (sym.upper(),))
+        row = cur.fetchone()
+        if not row:
+            print(f"\n  {sym}: ⚠ CHƯA CÓ VOLUME PROFILE")
+            continue
+        price, poc, val, vah, vol_ratio, ma20 = row
+        print(f"\n  {'='*60}")
+        print(f"  {sym} — Giá={price:>8,} | MA20={ma20:>8,} | Vol={vol_ratio:.2f}x/{threshold}x")
+        print(f"  VA: [{val:>8,} - {vah:>8,}] | POC={poc:>8,}")
+
+        # Active demand signals
+        cur.execute("SELECT date FROM active_demand WHERE symbol = ? ORDER BY date DESC LIMIT 3", (sym.upper(),))
+        sigs = [r[0] for r in cur.fetchall()]
+
+        if vol_ratio >= threshold:
+            print(f"  🟢🟢🟢 VOLUME SPIKE: {vol_ratio:.2f}x >= {threshold}x")
+            gap = (price - val) / val * 100 if val else 0
+            print(f"  → Giá cách VAL {gap:+.1f}% → SẴN SÀNG SCALE-IN")
+            # Write alert file
+            import json
+            alert_path = Path(__file__).resolve().parent / "backend" / "data" / "alerts" / "volume_spike.json"
+            alert_path.parent.mkdir(parents=True, exist_ok=True)
+            existing = {}
+            if alert_path.exists():
+                existing = json.loads(alert_path.read_text(encoding="utf-8"))
+            existing[sym] = {
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "price": price, "vol_ratio": vol_ratio,
+                "val": val, "vah": vah, "poc": poc,
+            }
+            alert_path.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"  ✅ Đã ghi cảnh báo: {alert_path}")
+        else:
+            pct = (threshold - vol_ratio) / threshold * 100
+            print(f"  ⏳ Volume {vol_ratio:.2f}x, còn {pct:.0f}% để đạt ngưỡng")
+        if sigs:
+            print(f"  📋 Tín hiệu cầu: {', '.join(sigs)}")
+    conn.close()
+
+
+def cmd_macro_state(args):
+    """MacroStateClassifier — trạng thái vĩ mô thống nhất cho Governor."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from datetime import datetime
+    date_str = args.date or datetime.now().strftime("%Y-%m-%d")
+    from src.core.macro.macro_state_classifier import MacroStateClassifier, print_state_report
+    clf = MacroStateClassifier()
+    state = clf.classify(target_date=date_str)
+    print_state_report(state)
+
+
+def cmd_transmission(args):
+    """Economic Transmission Engine — chuỗi dẫn truyền Liquidity→Credit→Confidence."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.core.macro.economic_transmission_engine import (EconomicTransmissionEngine, print_transmission_report)
+    engine = EconomicTransmissionEngine()
+    state = engine.compute()
+    print_transmission_report(state)
+
+
+def cmd_sector_rotation(args):
+    """Sector State Engine — đánh giá 19 ngành ICB trên 4 trụ cột."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.core.macro.sector_state_engine import (SectorStateEngine, print_sector_report)
+    engine = SectorStateEngine()
+    report = engine.analyze()
+    print_sector_report(report)
+
+
+def cmd_health_v2(args):
+    """Company Health v2 — 5-organ latent state engine."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.financial.company_health_v2 import CompanyHealthV2, print_health_report
+    symbols = args.symbols or ["FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS"]
+    engine = CompanyHealthV2()
+    states = engine.analyze_many(symbols)
+    print_health_report(states)
+
+
 def cmd_governor_report(args):
     """Báo cáo phân rã đóng góp 3 mô hình vào DecisionGuard."""
     if sys.platform == "win32":
@@ -2321,10 +2446,29 @@ def build_parser():
     p_silver.add_argument("subcommand", nargs="?", choices=["gs-ratio", "seed"], default=None, help="Silver subcommand")
     p_silver.set_defaults(func=cmd_silver)
 
+    # governor (Decision Matrix)
+    p_gov = sub.add_parser("governor", parents=[lang_parent],
+                           help="P3 Governor — Bayesian Expected Utility (weight-of-evidence P0→P2 + Kelly sizing)")
+    p_gov.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã cổ phiếu (mặc định: 10 mã mục tiêu)")
+    p_gov.add_argument("--output", choices=["report", "json"], default="report",
+                       help="Định dạng đầu ra (report hoặc json)")
+    p_gov.set_defaults(func=cmd_governor)
+
+    # watch (Volume Spike Monitor)
+    p_watch = sub.add_parser("watch", parents=[lang_parent],
+                             help="Giám sát Volume Spike — phát hiện phiên xác nhận Scale-In")
+    p_watch.add_argument("--symbols", nargs="+", default=["FPT", "VCB", "HPG", "MBB", "MWG"],
+                         help="Danh sách mã cần theo dõi (mặc định: WAIT + SCALE_IN)")
+    p_watch.add_argument("--threshold", type=float, default=1.5,
+                         help="Ngưỡng volume/MA20 (mặc định: 1.5x)")
+    p_watch.set_defaults(func=cmd_watch)
+
     # governor-report (Contribution Breakdown)
-    p_gov = sub.add_parser("governor-report", parents=[lang_parent],
-                           help="Phân rã đóng góp 3 mô hình vào DecisionGuard")
-    p_gov.set_defaults(func=cmd_governor_report)
+    p_govr = sub.add_parser("governor-report", parents=[lang_parent],
+                            help="Phân rã đóng góp 3 mô hình vào DecisionGuard")
+    p_govr.set_defaults(func=cmd_governor_report)
 
     # erl-scan (Entity Resilience Layer + Whitelist)
     p_erl = sub.add_parser("erl-scan", parents=[lang_parent],
@@ -2431,6 +2575,31 @@ def build_parser():
     p_ad.add_argument("--symbol", type=str, default=None, help="Phân tích cho 1 mã cổ phiếu riêng lẻ (VD: FPT)")
     p_ad.add_argument("--history", action="store_true", help="In lịch sử chuyển pha của mã")
     p_ad.set_defaults(func=cmd_absorption_detector)
+
+    # macro-state (Phase 4, P0)
+    p_ms = sub.add_parser("macro-state", parents=[lang_parent],
+                          help="MacroStateClassifier — trạng thái vĩ mô thống nhất cho Governor")
+    p_ms.add_argument("--date", default=None, help="Ngày (YYYY-MM-DD, mặc định: hôm nay)")
+    p_ms.set_defaults(func=cmd_macro_state)
+
+    # transmission (Economic Transmission Engine, P1)
+    p_tr = sub.add_parser("transmission", parents=[lang_parent],
+                          help="Economic Transmission Engine — Liquidity→Credit→Confidence")
+    p_tr.set_defaults(func=cmd_transmission)
+
+    # sector (Sector State Engine, P1)
+    p_sc = sub.add_parser("sector", parents=[lang_parent],
+                          help="Sector State Engine — đánh giá 19 ngành ICB trên 4 trụ cột")
+    p_sc.add_argument("--top", type=int, default=10, help="Số ngành top (mặc định 10)")
+    p_sc.set_defaults(func=cmd_sector_rotation)
+
+    # health-v2 (Company Health Latent Engine, P2)
+    p_h2 = sub.add_parser("health-v2", parents=[lang_parent],
+                          help="Company Health v2 — 5-organ latent state engine")
+    p_h2.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_h2.set_defaults(func=cmd_health_v2)
 
     # macro-governor
     p_mg = sub.add_parser("macro", parents=[lang_parent], help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")

@@ -45,30 +45,17 @@ def _hydrate_path():
     # WHY: Nuitka 4.1.3 on Python 3.14 does NOT reliably set sys.frozen.
     # Without this, onefile mode resolves PROJECT_ROOT to the temp extraction dir.
     # Databases are at the install dir, causing "DB not found" on every API call.
+    # BOUNDARY: sys.frozen check + executable name fallback.
     # ==============================================================================
-    import os as _os
-    import tempfile as _tempfile
-    _temp_root = Path(_tempfile.gettempdir()).resolve()
-    is_frozen = (
-        getattr(sys, 'frozen', False)
-        or not Path(sys.executable).stem.lower().startswith("python")
-    )
-    if is_frozen:
-        root_path = Path(sys.executable).resolve().parent
-    else:
+    candidate = Path(sys.executable).resolve().parent
+    if Path(sys.executable).stem.lower().startswith("python"):
         current = Path(__file__).resolve().parent
-        root_path = current
         while current != current.parent:
             if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
-                root_path = current
+                candidate = current
                 break
             current = current.parent
-    try:
-        resolved = root_path.resolve()
-        if _temp_root in resolved.parents or resolved == _temp_root:
-            root_path = Path(sys.executable).resolve().parent
-    except (OSError, RuntimeError):
-        pass
+    root_path = candidate
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     backend_dir = root_path / "backend"
@@ -121,22 +108,13 @@ def get_frontend_dist_path() -> Path:
     # ==============================================================================
     # WHY: Nuitka does NOT set sys._MEIPASS (PyInstaller-specific). Use
     # sys.executable parent (install dir) instead. The frontend dist/
-    # is bundled next to uv_backend.exe by NSIS resources.
+    # is bundled at install_dir/backend/data/frontend/dist by NSIS.
     # ==============================================================================
-    is_frozen = (
-        getattr(sys, 'frozen', False)
-        or not Path(sys.executable).stem.lower().startswith("python")
-        or "onefile" in str(Path(__file__)).lower()
-    )
-    if is_frozen:
+    if not Path(sys.executable).stem.lower().startswith("python"):
         candidate = Path(sys.executable).resolve().parent / "backend" / "data" / "frontend" / "dist"
         if candidate.exists():
             return candidate
-    candidate = PROJECT_ROOT / "frontend" / "dist"
-    # Safety: if candidate still contains onefile temp, fall back to exec parent
-    if "onefile" in str(candidate).lower():
-        candidate = Path(sys.executable).resolve().parent / "frontend" / "dist"
-    return candidate
+    return PROJECT_ROOT / "frontend" / "dist"
 
 app.add_middleware(
     CORSMiddleware,

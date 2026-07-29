@@ -5,29 +5,15 @@ from fastapi import APIRouter, HTTPException, Query
 
 
 def _hydrate_path():
-    import os as _os
-    import tempfile as _tempfile
-    _temp_root = Path(_tempfile.gettempdir()).resolve()
-    is_frozen = (
-        getattr(sys, 'frozen', False)
-        or not Path(sys.executable).stem.lower().startswith("python")
-    )
-    if is_frozen:
-        root_path = Path(sys.executable).resolve().parent
-    else:
+    candidate = Path(sys.executable).resolve().parent
+    if Path(sys.executable).stem.lower().startswith("python"):
         current = Path(__file__).resolve().parent
-        root_path = current
         while current != current.parent:
             if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
-                root_path = current
+                candidate = current
                 break
             current = current.parent
-    try:
-        resolved = root_path.resolve()
-        if _temp_root in resolved.parents or resolved == _temp_root:
-            root_path = Path(sys.executable).resolve().parent
-    except (OSError, RuntimeError):
-        pass
+    root_path = candidate
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     backend_dir = root_path / "backend"

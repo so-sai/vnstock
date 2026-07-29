@@ -48,7 +48,10 @@
     "shortDescription": "PTCK_VN — Terminal phân tích thị trường chứng khoán Việt Nam",
     "longDescription": "PTCK_VN Command Center: Hệ thống phân tích thị trường chứng khoán Việt Nam với 49 lệnh CLI song ngữ, 4-tier Auto-Recovery Data Pipeline, và cơ chế Anti-Survivorship LAW-001.",
     "category": "Finance",
-    "copyright": "© 2026 PTCK_VN"
+    "copyright": "© 2026 PTCK_VN",
+    "resources": {
+      "E:\\DEV\\opensource_contrib\\PTCK_VNSTOCK\\backend\\build\\installer\\data_template": "backend/data"
+    }
   },
   "plugins": {
     "shell": {

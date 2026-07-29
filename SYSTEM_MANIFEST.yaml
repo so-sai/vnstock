@@ -411,6 +411,48 @@ entrypoints:
     cli: "python ptck.py absorption-detector [--date YYYY-MM-DD] [--quiet]"
     category: decision
 
+  # ── Governor Decision Matrix ─────────────────────────
+  governor_matrix:
+    description: "Bộ não Governor — 4 Layer (Health + Valuation + Behavior + Regime) trên 10 mã mục tiêu"
+    cli: "python ptck.py governor [--symbols FPT ACB ...]"
+    category: decision
+
+  # ── Volume Spike Watch ───────────────────────────────
+  volume_spike_watch:
+    description: "Giám sát Volume Spike — phát hiện nến xác nhận cho các mã WAIT, kích hoạt Scale-In"
+    cli: "python ptck.py watch [--symbols FPT HPG ...] [--threshold 1.5]"
+    category: decision
+
+  # ── MacroStateClassifier (Phase 4 P0) ────────────────
+  macro_state:
+    description: "MacroStateClassifier — trạng thái vĩ mô thống nhất (7D drivers + discrete label + PTD pipeline)"
+    cli: "python ptck.py macro-state [--date YYYY-MM-DD]"
+    category: macro
+
+  # ── EconomicTransmissionEngine (Phase 4 P1) ────────────
+  transmission:
+    description: "Economic Transmission Engine — 3 latent states: Liquidity, Credit, Confidence + transmission phase"
+    cli: "python ptck.py transmission"
+    category: macro
+
+  # ── SectorStateEngine (Phase 4 P1) ─────────────────────
+  sector_rotation:
+    description: "Sector State Engine — đánh giá 19 ngành ICB (Momentum+Health+Flow+Valuation) + rotation chain"
+    cli: "python ptck.py sector"
+    category: macro
+
+  # ── CompanyHealthV2 (Phase 4 P2) ───────────────────────
+  health_v2:
+    description: "Company Health v2 — 5-organ latent state (Profitability, Cash, Balance Sheet, Efficiency, Moat) + archetype"
+    cli: "python ptck.py health-v2 [--symbols FPT VCB ...]"
+    category: company
+
+  # ── Governor P3 Bayesian Expected Utility ─────────────
+  governor:
+    description: "P3 Governor — Bayesian Expected Utility. Weight-of-evidence P0→P2 + Kelly sizing. Thay thế IF/THEN."
+    cli: "python ptck.py governor [--symbols FPT VCB ...] [--output json]"
+    category: governor
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"

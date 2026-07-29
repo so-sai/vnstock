@@ -928,6 +928,205 @@ def run_daily_update(target_date=None, manifest_path=None):
         # Step 4: Light Maintenance
         run_light_maintenance()
 
+        # Step 5: Governor Decision Matrix (EOD update)
+        try:
+            logger.info("🧠 Governor Decision Matrix — Đang cập nhật...")
+            target_symbols = ["HPG", "VHM", "DGC", "MWG", "GAS", "FPT", "ACB", "HDB", "MBB", "VCB"]
+
+            # L4: Rescan volume profile + active demand
+            from src.financial.market_behavior_engine import MarketBehaviorEngine
+            mb = MarketBehaviorEngine()
+            mb.init_schema()
+            mb.scan(target_symbols)
+            logger.info(f"  ✅ L4: Volume Profile scanned ({len(target_symbols)} symbols)")
+
+            # L3: Recompute valuation (latest prices from screener_cache.db)
+            from src.financial.valuation_engine import ValuationEngine
+            ve = ValuationEngine()
+            ve.init_schema()
+            for sym in target_symbols:
+                ve.compute_valuation(sym)
+            logger.info(f"  ✅ L3: Valuation recomputed ({len(target_symbols)} symbols)")
+
+            # Governor report
+            from src.governor.company_state import GovernorEngine, print_report
+            ge = GovernorEngine()
+            gov_result = ge.analyze(target_symbols)
+            ge.close()
+            logger.info(f"  ✅ Governor Matrix: {gov_result['symbols']} symbols analyzed")
+
+            # Save JSON report
+            import json
+            gov_path = PROJECT_ROOT / "backend" / "data" / "output" / "governor_matrix_latest.json"
+            gov_path.parent.mkdir(parents=True, exist_ok=True)
+            gov_path.write_text(
+                json.dumps(gov_result, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            report["governor"] = {
+                "status": "SUCCESS",
+                "symbols": gov_result["symbols"],
+                "output": str(gov_path),
+            }
+
+            # Volume Spike Watch — phát hiện nến xác nhận
+            # Danh sách cốt lõi: WAIT (FPT, HPG, MBB, MWG) + SCALE_IN cần confirm (VCB)
+            watch_symbols = ["FPT", "HPG", "MBB", "MWG", "VCB"]
+            THRESHOLD = 1.5
+            from src.financial.market_behavior_engine import MarketBehaviorEngine
+            mbe = MarketBehaviorEngine()
+            watch_conn = mbe.fin_conn()
+            spike_alerts = {}
+            for wsym in watch_symbols:
+                cur = watch_conn.cursor()
+                cur.execute("""
+                    SELECT price_current, val, vah, volume_ratio, price_ma20
+                    FROM volume_profile WHERE symbol = ?
+                    ORDER BY date DESC LIMIT 1
+                """, (wsym.upper(),))
+                wrow = cur.fetchone()
+                if wrow and wrow[3] >= THRESHOLD:
+                    spike_alerts[wsym] = {
+                        "price": wrow[0], "val": wrow[1], "vah": wrow[2],
+                        "volume_ratio": wrow[3], "ma20": wrow[4],
+                        "date": target_date,
+                    }
+                    logger.info(f"  🚀 VOLUME SPIKE {wsym}: {wrow[3]:.2f}x >= {THRESHOLD}x")
+            watch_conn.close()
+
+            # Save spike alerts
+            alert_path = PROJECT_ROOT / "backend" / "data" / "alerts" / "volume_spike.json"
+            alert_path.parent.mkdir(parents=True, exist_ok=True)
+            alert_path.write_text(
+                json.dumps(spike_alerts, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            if spike_alerts:
+                logger.info(f"  📢 Volume Spike ALERT: {', '.join(spike_alerts.keys())}")
+            report["volume_spike"] = spike_alerts
+
+            # Step 6: MacroStateClassifier — Phase 4 P0 bridge
+            try:
+                from src.core.macro.macro_state_classifier import MacroStateClassifier, print_state_report
+                ms_clf = MacroStateClassifier()
+                ms_state = ms_clf.classify()
+                report["macro_state"] = {
+                    "state": ms_state.macro_state,
+                    "posterior": ms_state.posterior,
+                    "entropy": ms_state.entropy,
+                    "drivers": ms_state.drivers,
+                    "raw_drivers": ms_state.raw_drivers,
+                    "phase": ms_state.phase_label,
+                    "novelty": ms_state.novelty_flag,
+                    "stress": ms_state.spectral_stress,
+                }
+                logger.info(f"  🌐 MacroState: {ms_state.macro_state} (P={ms_state.posterior:.2%})")
+            except Exception as e:
+                logger.warning(f"⚠️ MacroState update failed: {e}")
+                report["macro_state"] = {"status": f"FAILED: {str(e)}"}
+
+            # Step 7: Economic Transmission Engine — P1
+            try:
+                from src.core.macro.economic_transmission_engine import EconomicTransmissionEngine
+                tr_engine = EconomicTransmissionEngine()
+                tr_state = tr_engine.compute()
+                report["transmission"] = {
+                    "phase": tr_state.transmission_phase,
+                    "liquidity": tr_state.liquidity,
+                    "credit": tr_state.credit,
+                    "confidence": tr_state.confidence,
+                    "composite": tr_state.transmission_score,
+                }
+                logger.info(f"  🔄 Transmission: {tr_state.transmission_phase} (L={tr_state.liquidity:.0f} C={tr_state.credit:.0f} K={tr_state.confidence:.0f})")
+            except Exception as e:
+                logger.warning(f"⚠️ Transmission update failed: {e}")
+                report["transmission"] = {"status": f"FAILED: {str(e)}"}
+
+            # Step 8: Sector State Engine — P1
+            try:
+                from src.core.macro.sector_state_engine import SectorStateEngine
+                sc_engine = SectorStateEngine()
+                sc_report = sc_engine.analyze()
+                report["sector_rotation"] = {
+                    "top_sector": sc_report.top_sector,
+                    "top_score": sc_report.top_score,
+                    "n_healthy": sc_report.n_sectors_healthy,
+                    "n_weak": sc_report.n_sectors_weak,
+                    "chain": sc_report.rotation_chain[-1] if sc_report.rotation_chain else "",
+                }
+                logger.info(f"  🏭 Sector top: {sc_report.top_sector} ({sc_report.top_score:.1f}) | healthy={sc_report.n_sectors_healthy} weak={sc_report.n_sectors_weak}")
+            except Exception as e:
+                logger.warning(f"⚠️ Sector rotation update failed: {e}")
+                report["sector_rotation"] = {"status": f"FAILED: {str(e)}"}
+
+            # Step 9: CompanyHealthV2 — Phase 4 P2 (5-organ latent state)
+            try:
+                from src.financial.company_health_v2 import CompanyHealthV2
+                TARGET_SYMBOLS = [
+                    "FPT", "ACB", "HDB", "MBB", "VCB",
+                    "HPG", "VHM", "DGC", "MWG", "GAS",
+                ]
+                ch_engine = CompanyHealthV2()
+                ch_states = ch_engine.analyze_many(TARGET_SYMBOLS)
+                report["health_v2"] = {
+                    "n_symbols": len(ch_states),
+                    "high_quality_compounders": [
+                        s.symbol for s in ch_states
+                        if s.archetype == "HIGH_QUALITY_COMPOUNDER"
+                    ],
+                    "steady_earners": [
+                        s.symbol for s in ch_states
+                        if s.archetype == "STEADY_EARNER"
+                    ],
+                    "distressed": [
+                        s.symbol for s in ch_states
+                        if s.archetype == "DISTRESSED"
+                    ],
+                }
+                hqc = report["health_v2"]["high_quality_compounders"]
+                logger.info(f"  🏥 HealthV2: {len(ch_states)} symbols | HQC={hqc}")
+            except Exception as e:
+                logger.warning(f"⚠️ CompanyHealthV2 update failed: {e}")
+                report["health_v2"] = {"status": f"FAILED: {str(e)}"}
+
+            # Step 10: P3 Governor — Bayesian Expected Utility (thay thế IF/THEN)
+            try:
+                from src.governor.company_state import BayesianGovernor
+                TARGET_SYMBOLS = [
+                    "FPT", "ACB", "HDB", "MBB", "VCB",
+                    "HPG", "VHM", "DGC", "MWG", "GAS",
+                ]
+                bg = BayesianGovernor()
+                bg_analysis = bg.analyze(TARGET_SYMBOLS)
+                bg.close()
+                report["governor_bayesian"] = {
+                    "macro_state": bg_analysis["macro_state"]["state"],
+                    "transmission_phase": bg_analysis["transmission"]["phase"],
+                    "sector_phase": bg_analysis["sector"].get("top_phase", "?"),
+                    "decisions": {
+                        k: {
+                            "action": v.action,
+                            "expected_utility": v.expected_utility,
+                            "p_gain": v.p_gain,
+                            "allocation_pct": v.allocation_pct,
+                            "conviction": v.conviction,
+                            "health_archetype": v.health_archetype,
+                            "valuation_zone": v.valuation_zone,
+                            "behavior_position": v.behavior_position,
+                        }
+                        for k, v in bg_analysis["results"].items()
+                    },
+                }
+                actions = [v.action for v in bg_analysis["results"].values()]
+                summary = {a: actions.count(a) for a in set(actions)}
+                logger.info(f"  🧠 Governor Bayesian: {summary}")
+            except Exception as e:
+                logger.warning(f"⚠️ Governor Bayesian update failed: {e}")
+                report["governor_bayesian"] = {"status": f"FAILED: {str(e)}"}
+
+        except Exception as e:
+            logger.warning(f"⚠️ Governor EOD update failed: {e}")
+            report["governor"] = {"status": f"FAILED: {str(e)}"}
+
         report["status"] = "SUCCESS"
 
     except Exception as e:

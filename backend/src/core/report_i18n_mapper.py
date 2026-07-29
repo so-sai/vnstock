@@ -99,6 +99,68 @@ TERMS: dict[str, str] = {
     "info": "thông tin",
     "none": "không có",
     "total": "tổng cộng",
+
+    # Governor: Health Grades
+    "HEALTHY": "Khỏe mạnh",
+    "FAIR": "Trung bình",
+    "WEAK": "Yếu",
+    "NO_DATA": "Ko dữ liệu",
+
+    # Governor: Valuation Zones
+    "ULTRA_CHEAP": "Cực rẻ",
+    "CHEAP": "Rẻ",
+    "FAIR": "Trung bình",
+    "EXPENSIVE": "Đắt",
+    "ULTRA_EXPENSIVE": "Cực đắt",
+
+    # Governor: Behavior Positions
+    "IN_VA": "Trong VA",
+    "BELOW_VA": "Dưới VA",
+    "ABOVE_VA": "Trên VA",
+    "IN_VA_DEMAND": "VA+cầu",
+    "BELOW_VA_DEMAND": "Dưới VA+cầu",
+    "ABOVE_VA_DEMAND": "Trên VA+cầu",
+
+    # Governor: Mandates
+    "VETO": "PHỦ QUYỀN",
+    "OPEN": "MỞ VỊ THẾ",
+    "SCALE_IN": "MUA GIA TĂNG",
+    "HOLD": "GIỮ",
+    "WAIT": "CHỜ",
+    "REDUCE": "GIẢM",
+    "AVOID": "TRÁNH XA",
+
+    # Governor: Behavior Grades
+    "STRONG": "Mạnh",
+    "NEUTRAL": "Trung tính",
+
+    # Governor: Regime
+    "RANGING": "Đi ngang",
+    "TRENDING": "Xu hướng",
+    "CRISIS": "Khủng hoảng",
+    "BULL": "Tăng",
+    "BEAR": "Giảm",
+
+    # Reason phrases
+    "VALUE_TRAP: Cheap due to asset quality risk (Receivables/Revenue high)": "BẪY GIÁ TRỊ: Rẻ do chất lượng TS kém (Phải thu/DT cao)",
+    "WEAK fundamentals across all health metrics": "NỀN TẢNG YẾU trên mọi chỉ số sức khỏe",
+    "Mo vi the tham do (10-15% tai khoan)": "Mở vị thế thăm dò (10-15% tài khoản)",
+    "Tich luy hoang loan: giai ngan theo phan tai phien volume spike >= 1.5x MA20": "Tích lũy hoàn toàn: giải ngân theo phần tại phiên volume spike >= 1.5x MA20",
+    "Nam giu, theo doi them tin hieu": "Nắm giữ, theo dõi thêm tín hiệu",
+    "Chua du dieu kien, cho them tinhieu xac nhan": "Chưa đủ điều kiện, chờ thêm tín hiệu xác nhận",
+    "Giam vi the, dinh gia dat (z=": "Giảm vị thế, định giá đắt (z=",
+    "Tranh xa: dat + yeu": "Tránh xa: đắt + yếu",
+
+    # Logic rule descriptions
+    "L2_RED_FLAG + L3_CHEAP = VALUE_TRAP": "L2_RED_FLAG + L3_RẺ = BẪY GIÁ TRỊ",
+    "L2_WEAK = VETO": "L2_YẾU = PHỦ QUYỀN",
+    "L2_OK + L3_OK + L4_DEMAND = OPEN": "L2_OK + L3_OK + L4_CÓ_CẦU = MỞ VỊ THẾ",
+    "L2_HEALTHY + L3_CHEAP + L4_BELOW_VA = SCALE_IN": "L2_KHỎE + L3_RẺ + L4_DƯỚI_VA = MUA GIA TĂNG",
+    "L2_OK + L3_FAIR + L4_IN_VA = HOLD": "L2_OK + L3_TB + L4_TRONG_VA = GIỮ",
+    "NO_CLEAR_SIGNAL = WAIT": "KO_TÍN_HIỆU_RÕ = CHỜ",
+    "L3_EXPENSIVE = REDUCE": "L3_ĐẮT = GIẢM",
+    "L3_ULTRA_EXPENSIVE = REDUCE": "L3_CỰC_ĐẮT = GIẢM",
+    "L3_ULTRA_EXPENSIVE + L2_WEAK = AVOID": "L3_CỰC_ĐẮT + L2_YẾU = TRÁNH XA",
 }
 
 FIELD_LABELS: dict[str, str] = {
