@@ -393,7 +393,7 @@ class L3ValuationLoader:
     def score_valuation(self, symbol: str) -> Dict:
         vals = self.get_latest_valuation(symbol)
         if not vals:
-            return {"score": 0, "grade": "NO_DATA", "overall_zone": "FAIR", "lowest_z": 0}
+            return {"score": 0, "grade": "NO_DATA", "overall_zone": "NO_DATA", "lowest_z": 0}
 
         zone_scores = {"ULTRA_CHEAP": 2, "CHEAP": 1, "FAIR": 0, "EXPENSIVE": -1, "ULTRA_EXPENSIVE": -2}
         z_scores = []
@@ -1113,8 +1113,9 @@ VALUATION_DISPLAY = {
     "FAIR": "🟡 TRUNG BÌNH (FAIR)",
     "EXPENSIVE": "🔴 ĐẮT (EXPENSIVE)",
     "ULTRA_EXPENSIVE": "🔴 RẤT ĐẮT (ULTRA_EXPENSIVE)",
+    "NO_DATA": "⚪ KHÔNG RÕ (NO DATA)",
 }
-VALUATION_DISPLAY.setdefault("UNKNOWN", "⚪ KHÔNG RÕ")
+VALUATION_DISPLAY.setdefault("UNKNOWN", "⚪ KHÔNG RÕ (UNKNOWN)")
 
 
 def print_report(analysis: Dict):
