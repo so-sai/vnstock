@@ -104,6 +104,62 @@ def build_edge_registry() -> Dict[str, CausalEdge]:
     # ═══════════════════════════════════════════════════════════════════
     # UNIVERSAL (no archetype) — Macro → Transmission → Sector
     # ═══════════════════════════════════════════════════════════════════
+    #
+    # ── World Layer (P0.5) — 8 Fed→Vietnam transmission edges ──
+    # WHY: Fed policy is a SIGNAL GENERATOR, not a direct Vietnam driver.
+    #      Each edge forces the signal to pass through measurable intermediate
+    #      variables (DXY, US10Y, Global Liquidity) before reaching Vietnam
+    #      macro state. This prevents the logical fallacy "Fed hawk → sell VN."
+    #      Reference: ADR #8 (world_sensor.py).
+    #
+    # Chain: FED_TARGET_RATE → DXY_USD → USD_VND (VN FX pressure)
+    #        FED_TARGET_RATE → US10Y_YIELD → INTEREST_RATE (VN rates)
+    #        FOMC_DISSENT → FED_UNCERTAINTY → RISK_OFF_FLIGHT (fear)
+    #        QT_IMPULSE → GLOBAL_LIQUIDITY → LIQUIDITY_TRAP (liquidity)
+    # ═══════════════════════════════════════════════════════════════════
+
+    # Group A: Fed Policy → US Financial Conditions (3 edges)
+    _add("FED_TARGET→DXY_USD", "FED_TARGET_RATE", "DXY_USD",
+         "MACRO→MACRO", lag_min=1, lag_max=30, confidence=0.80, half_life=60,
+         attenuation=0.10,
+         desc="Fed rate change → 1-30 days → USD index (rate differential channel)")
+
+    _add("FED_TARGET→US10Y", "FED_TARGET_RATE", "US10Y_YIELD",
+         "MACRO→MACRO", lag_min=1, lag_max=10, confidence=0.90, half_life=45,
+         attenuation=0.05,
+         desc="Fed rate → 1-10 days → US 10Y yield (expectations channel)")
+
+    _add("FOMC_DISSENT→FED_UNCERTAINTY", "FOMC_DISSENT", "FED_UNCERTAINTY",
+         "MACRO→MACRO", lag_min=0, lag_max=5, confidence=0.60, half_life=90,
+         attenuation=0.15,
+         desc="FOMC dissent vote → 0-5 days → policy uncertainty premium")
+
+    # Group B: US Financial Conditions → Global Transmission (2 edges)
+    _add("QT_IMPULSE→GLOBAL_LIQUIDITY", "QT_IMPULSE", "GLOBAL_LIQUIDITY",
+         "MACRO→MACRO", lag_min=10, lag_max=60, confidence=0.70, half_life=120,
+         attenuation=0.20,
+         desc="Fed QT runoff → 2-8 weeks → global USD liquidity scarcity")
+
+    _add("FED_UNCERTAINTY→RISK_OFF", "FED_UNCERTAINTY", "RISK_OFF_FLIGHT",
+         "MACRO→MACRO", lag_min=0, lag_max=3, confidence=0.65, half_life=30,
+         attenuation=0.10,
+         desc="Policy uncertainty → 0-3 days → risk-off flight-to-safety")
+
+    # Group C: Transmission → Vietnam Macro State (3 edges)
+    _add("DXY_USD→VN_FX", "DXY_USD", "USD_VND",
+         "MACRO→MACRO", lag_min=1, lag_max=10, confidence=0.85, half_life=30,
+         attenuation=0.08,
+         desc="USD strength → 1-10 days → VND depreciation pressure")
+
+    _add("US10Y→VN_RATES", "US10Y_YIELD", "INTEREST_RATE",
+         "MACRO→MACRO", lag_min=5, lag_max=30, confidence=0.65, half_life=60,
+         attenuation=0.20,
+         desc="US 10Y yield → 1-4 weeks → Vietnam domestic rate corridor")
+
+    _add("GLOBAL_LIQUIDITY→VN_LIQUIDITY", "GLOBAL_LIQUIDITY", "LIQUIDITY_TRAP",
+         "MACRO→MACRO", lag_min=3, lag_max=21, confidence=0.60, half_life=45,
+         attenuation=0.25,
+         desc="Global liquidity → 3-21 days → Vietnam interbank liquidity tightness")
 
     _add("CREDIT_STRESS→LIQUIDITY_CRUNCH", "CREDIT_STRESS", "LIQUIDITY_TRAP",
          "MACRO→MACRO", lag_min=1, lag_max=10, confidence=0.85, half_life=45,
