@@ -511,6 +511,24 @@ entrypoints:
     cli: "python ptck.py evidence applicability heatmap"
     category: calibration
 
+  # ── Sprint 3: CausalEdge ────────────────────────────────
+  causal_status:
+    description: "Sprint 3 CausalEdge — graph statistics (nodes, edges, avg confidence)"
+    cli: "python ptck.py causal status"
+    category: calibration
+  causal_propagate:
+    description: "Sprint 3 — propagate signal through causal DAG"
+    cli: "python ptck.py causal propagate --source CREDIT_STRESS --archetype COMPOUNDER"
+    category: calibration
+  causal_trace:
+    description: "Sprint 3 — trace highest-confidence path from source to target"
+    cli: "python ptck.py causal trace CREDIT_STRESS IT_BACKLOG --archetype COMPOUNDER"
+    category: calibration
+  causal_edges:
+    description: "Sprint 3 — list all registered causal edges"
+    cli: "python ptck.py causal edges"
+    category: calibration
+
   # ── Giai đoạn 1: Business Ontology Layer ────────────────
   business_archetype:
     description: "Giai đoạn 1 — Business Archetype: DNA classification (8 archetypes: COMPOUNDER, CYCLICAL_HEAVY, FRANCHISE_BANK, ...)"

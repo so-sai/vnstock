@@ -1899,6 +1899,36 @@ def cmd_evidence(args):
                 print(f"    {n['node_id']:<22} {_ll('drift')}={n['drift_score']:.3f}  {_ll('weight')}={weights.get(n['node_id'], 0):.3f}")
 
 
+def cmd_causal(args):
+    """Sprint 3: CausalEdge — causal propagation graph (lag, confidence, half-life)."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from calibration.causal_edge import (
+        CausalGraph, print_causal_graph_report, trace_report, edge_summary,
+    )
+
+    cg = CausalGraph()
+
+    if args.action == "status":
+        print_causal_graph_report(cg, lang_mode=_VERBOSE_LANG)
+    elif args.action == "propagate":
+        src = args.source or "CREDIT_STRESS"
+        arch = getattr(args, "archetype", None)
+        print_causal_graph_report(cg, source=src, archetype=arch, lang_mode=_VERBOSE_LANG)
+    elif args.action == "trace":
+        src = args.source
+        tgt = args.target
+        arch = getattr(args, "archetype", None)
+        trace_report(cg, src, tgt, arch, _VERBOSE_LANG)
+    elif args.action == "edges":
+        edge_summary(cg, _VERBOSE_LANG)
+    elif args.action == "persist":
+        cg.persist()
+        print(f"  {_ll('Persisted')} {len(cg.edges)} {_ll('edges to calibration.db')}.")
+
+    cg.init_schema()
+
+
 def cmd_counterfactual(args):
     """P5 Counterfactual Reasoning — 'What if?' simulation over evidence nodes."""
     if sys.platform == "win32":
@@ -3155,6 +3185,26 @@ def build_parser():
     p_ev_sim.add_argument("--bias-behavior", type=float, default=0.45, help="Tỷ lệ gain behavior (mặc định 0.45)")
     p_ev_sim.add_argument("--seed", type=int, default=None, help="Random seed để tái lập")
     p_ev_sim.set_defaults(func=cmd_evidence)
+
+    # causal (Sprint 3: CausalEdge)
+    p_cau = sub.add_parser("causal", parents=[lang_parent],
+                           help="Sprint 3: CausalEdge — lag, confidence, half-life, counter-examples")
+    p_cau_sub = p_cau.add_subparsers(dest="action", required=True)
+    p_cau_st = p_cau_sub.add_parser("status", help="Xem thống kê đồ thị nhân quả")
+    p_cau_st.set_defaults(func=cmd_causal)
+    p_cau_prop = p_cau_sub.add_parser("propagate", help="Lan truyền tín hiệu từ nút nguồn qua đồ thị")
+    p_cau_prop.add_argument("--source", type=str, default="CREDIT_STRESS", help="Nút nguồn (mặc định CREDIT_STRESS)")
+    p_cau_prop.add_argument("--archetype", type=str, default=None, help="Lọc theo archetype (COMPOUNDER, FRANCHISE_BANK...)")
+    p_cau_prop.set_defaults(func=cmd_causal)
+    p_cau_trace = p_cau_sub.add_parser("trace", help="Truy vết đường đi nhân quả từ nguồn đến đích")
+    p_cau_trace.add_argument("source", type=str, help="Nút nguồn")
+    p_cau_trace.add_argument("target", type=str, help="Nút đích")
+    p_cau_trace.add_argument("--archetype", type=str, default=None, help="Lọc theo archetype")
+    p_cau_trace.set_defaults(func=cmd_causal)
+    p_cau_edges = p_cau_sub.add_parser("edges", help="Xem tất cả causal edges đã đăng ký")
+    p_cau_edges.set_defaults(func=cmd_causal)
+    p_cau_persist = p_cau_sub.add_parser("persist", help="Ghi edges vào calibration.db")
+    p_cau_persist.set_defaults(func=cmd_causal)
 
     # ── Giai đoạn 1: Business Ontology Layer ──────────────
     p_arch = sub.add_parser("archetype", parents=[lang_parent],

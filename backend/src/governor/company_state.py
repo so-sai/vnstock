@@ -748,6 +748,20 @@ class BayesianGovernor:
         except Exception:
             pass
 
+        # ── Giai đoạn 6: CausalEdge propagation (Sprint 3) ──
+        _causal_conf = None
+        _causal_lag = None
+        try:
+            from calibration.causal_edge import CausalGraph
+            _arch = self._get_archetype_prior(symbol)
+            _cg = CausalGraph()
+            _results = _cg.propagate(_ms, _arch, max_hops=3)
+            if _results:
+                _causal_conf = max(r["confidence"] for r in _results)
+                _causal_lag = max(r["lag_max"] for r in _results)
+        except Exception:
+            pass
+
         # Bayesian inference v2 with optional dynamic weights (LAW-004)
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
