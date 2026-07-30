@@ -295,6 +295,15 @@ def localize_output(data: dict) -> dict:
 # ====================================================================
 # CLI LABEL LOCALIZATION — for direct print() statements in CLI
 # ====================================================================
+# CLI_LABEL_MAP — Master English → Vietnamese label map
+# WHY bilingual "VI (EN)" format for Governor:
+#   company_state.py print_report() calls localize_label("full")
+#   which returns VI value, then wraps as "VI (EN)".
+#   Vietnamese-first: end-user reads VI first.
+#   EN in parentheses: developer debugging/bilingual reference.
+#   WHY not "EN (VI)": annotated mode already produces "EN (VI)"
+#   for API/pipe output. Human CLI gets "VI (EN)".
+# ====================================================================
 
 CLI_LABEL_MAP: dict[str, str] = {
     # ── Engine & Regime ──

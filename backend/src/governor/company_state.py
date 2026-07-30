@@ -1,15 +1,18 @@
-"""company_state.py — P3 Governor Expected Utility (Bayesian Decision Framework)
+"""company_state.py — P3 Governor v3 Bayesian Decision Framework.
 
-Replaces hard-coded IF/THEN rules with Bayesian Weight-of-Evidence.
-Connects 6 evidence nodes into P(Gain|Evidence), Expected Utility, Kelly sizing.
+WHY: Replaces hard-coded IF/THEN with 8-node Bayesian Weight-of-Evidence.
+      Giai đoạn 7 (ModelRegistry BMA) adds competing-hypothesis fusion at
+      0.15 weight, penalising P(Gain) when M1_MACRO dominates (macro stress).
 
-Evidence nodes:
-  P0: MacroState (discrete + entropy)
-  P1: TransmissionState (discrete + L/C/K)
-  P1: SectorState (discrete + n_healthy)
-  P2: HealthArchetype (discrete + 5-organ vector)
-  L3: ValuationZone (discrete + z-scores)
-  L4: BehaviorZone (discrete + signals)
+Evidence nodes (v3):
+  P0: MacroState          P1: TransmissionState    P1: SectorState
+  P2: HealthArchetype     L3: ValuationZone        L4: BehaviorZone
+  GĐ4: CapitalAllocation  GĐ7: ModelRegistry BMA
+
+Output layers (HCI Inverted Pyramid):
+  Tầng 1: verdict + 3 core reasons (end-investor reads first)
+  Tầng 2: action ranking table with human-readable business status
+  Tầng 3: developer audit trail (BMA weights, EU ranking, context)
 """
 
 import json
@@ -65,7 +68,14 @@ PRIOR_BY_ARCHETYPE = {
 }
 
 # ── Evidence weights v3 (8 nodes, sum = 1.0) ──────────────────
-# model_registry (Giai đoạn 7) added at 0.12 — BMA fuses 3 competing hypotheses
+# WHY v2→v3 shift: macro(0.25→0.20), transmission(0.15→0.13),
+# sector(0.12→0.10), health(0.13→0.11), cap_alloc(0.15→0.13),
+# valuation(0.10→0.09), behavior(0.10→0.09) — all reduced
+# proportionally to make room for model_registry at 0.15.
+# WHY 0.15 for BMA: ModelRegistry fuses 3 competing hypotheses;
+# it's a meta-node that modulates all other evidence. Equal to
+# macro weight proportionally — reflects that "which model is
+# right" matters as much as "what does macro say".
 EVIDENCE_WEIGHTS = {
     "macro": 0.20,
     "transmission": 0.13,
@@ -74,7 +84,7 @@ EVIDENCE_WEIGHTS = {
     "capital_allocation": 0.13,
     "valuation": 0.09,
     "behavior": 0.09,
-    "model_registry": 0.15,  # NEW: BMA competition posterior
+    "model_registry": 0.15,
 }
 
 # ── Likelihood Ratios ─────────────────────────────────────────
@@ -146,8 +156,11 @@ LR_CAPITAL_ALLOCATION = {
 
 # ── ModelRegistry LR (Giai đoạn 7) ───────────────────────────
 # LR = 1.0 - 0.5 * P(M1_MACRO | D, context)
-# When macro model dominates (high P), LR < 1 → macro uncertainty penalises
-# When quality/behavior models dominate, LR ~ 1 → neutral/positive
+# WHY: When M1_MACRO dominates (e.g. 0.48 under CREDIT_STRESS),
+#      LR=0.76 < 1 → penalises P(Gain) because macro-driven markets
+#      are harder to predict. When micro models dominate (STABLE),
+#      LR→1.0 (neutral). Clamped [0.30, 1.20] to avoid extreme.
+#      Linear slope 0.5 chosen so 50% M1 weight → LR=0.75 (moderate).
 def compute_model_registry_lr(bma_posterior: dict) -> float:
     """Compute LR from BMA posterior weights.
     
@@ -619,6 +632,10 @@ class BayesianMandate:
     circuit_breaker_trigger: str = ""
 
     # Giai đoạn 7: ModelRegistry BMA competition
+    # WHY: bma_posterior caches P(M_k|D,context) once per batch →
+    #      all symbols share the same BMA weights (market-level).
+    #      model_registry_lr = f(bma_posterior) feeds into
+    #      compute_gain_probability() as evidence node 8.
     bma_posterior: Dict[str, float] = field(default_factory=dict)
     dominant_model: str = ""
     model_registry_lr: float = 1.0
@@ -704,6 +721,8 @@ class BayesianGovernor:
             return "UNKNOWN"
 
     def _get_model_registry(self):
+        # WHY lazy-init: ModelRegistry opens calibration.db connection;
+        #   delay until first assess() call to avoid cold-start penalty.
         if self._model_registry is None:
             from calibration.model_registry import ModelRegistry
             self._model_registry = ModelRegistry()
@@ -802,6 +821,9 @@ class BayesianGovernor:
             pass
 
         # ── Giai đoạn 7: ModelRegistry BMA competition (Sprint 4) ──
+        # WHY: BMA weights are computed ONCE per batch (lazy-cached via
+        #   self._bma_posterior). All symbols share the same market-level
+        #   model competition — computing per-symbol would be redundant.
         model_registry_lr = None
         try:
             mr = self._get_model_registry()
@@ -961,6 +983,10 @@ ARROW_MAP = {
 }
 
 
+# WHY: Human-readable business status for Tầng 2 action ranking table.
+#   Maps P2 HealthArchetype EN keys to "VI (EN)" format.
+#   Used directly (not via _()) in print_report() to avoid double-wrapping.
+#   Ốp 12 archetypes into 4 tiers: Tốt / Trung bình / Rủi ro / Yếu.
 BUSINESS_STATUS_MAP = {
     "HIGH_QUALITY_COMPOUNDER": "Tốt (High Quality Compounder)",
     "STEADY_EARNER": "Tốt (Steady Earner)",
@@ -979,8 +1005,17 @@ BUSINESS_STATUS_MAP = {
 
 
 def print_report(analysis: Dict):
+    """Inverted Pyramid 3-Tầng HCI report.
+    
+    WHY: End-investor reads Tầng 1 (verdict + 3 reasons) first,
+         skims Tầng 2 (ranking table), and ignores Tầng 3 (dev audit).
+         Developers read Tầng 3 for debugging. Separates concerns.
+    """
     try:
         from src.core.canonical_output_adapter import localize_label
+        # WHY: _() returns "VI (EN)" format — VI comes first for
+        #   Vietnamese readers, EN in parentheses for bilingual reference.
+        #   localize_label("full") returns the VI value from CLI_LABEL_MAP.
         def _(x):
             vi = localize_label(x, "full")
             return f"{vi} ({x})" if vi != x else x
@@ -1011,7 +1046,6 @@ def print_report(analysis: Dict):
         capital_verdict = f"{_('Alloc')} = 0%"
         signal_icon = "🟡"
 
-    has_open = any(r.action == "OPEN" for r in results.values())
     deploy_symbols = [sym for sym, r in results.items() if r.action in ("OPEN", "SCALE_IN")]
     deploy_count = len(deploy_symbols)
     buy_ratio = f"{deploy_count}/{n}"

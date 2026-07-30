@@ -1217,13 +1217,18 @@ def run_daily_update(target_date=None, manifest_path=None):
             report["calibration_resolve"] = {"status": f"FAILED: {str(e)}"}
 
         # Step 11c: ModelRegistry BMA — feed resolved outcomes
+        # WHY: After P4 calibration resolves outcomes, we feed aggregate
+        #   accuracy into ModelRegistry.record_outcome() to update BMA
+        #   posterior weights (M1_MACRO / M2_FUNDAMENTAL / M3_BEHAVIORAL).
+        #   Limitation: feeds same accuracy to all 3 models because
+        #   prediction_log doesn't store model_id. Future: add model_id
+        #   column to prediction_log for per-model outcome tracking.
         try:
             mr_n_resolved = cal_result.get("n_resolved", 0)
             if mr_n_resolved > 0 and cal_result.get("n_eligible", 0) > 0:
                 from calibration.model_registry import ModelRegistry
                 mr = ModelRegistry()
                 avg_acc = cal_result.get("accuracy", 0.5)
-                # Feed aggregate accuracy to all 3 models
                 for mid in ("M1_MACRO", "M2_FUNDAMENTAL", "M3_BEHAVIORAL"):
                     mr.record_outcome(mid, p_gain=avg_acc, y_true=1.0)
                 report["model_registry"] = {
