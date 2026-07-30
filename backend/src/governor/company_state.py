@@ -398,19 +398,23 @@ class L3ValuationLoader:
         vals = self.get_latest_valuation(symbol)
         if not vals:
             return {"score": 0, "grade": "NO_DATA", "overall_zone": "NO_DATA",
-                    "overall_zone_peer": "NO_DATA", "lowest_z": 0, "peer_group": None}
+                    "overall_zone_peer": "NO_DATA", "lowest_z": 0, "peer_group": None,
+                    "raw_values": {}}
 
         zone_scores = {"ULTRA_CHEAP": 2, "CHEAP": 1, "FAIR": 0, "EXPENSIVE": -1, "ULTRA_EXPENSIVE": -2}
         z_scores = []
         z_scores_peer = []
         scores = []
         peer_group = None
-        for rinfo in vals.values():
+        raw_values = {}
+        for rname, rinfo in vals.items():
             z_scores.append(rinfo.get("z_score", 0))
             z_scores_peer.append(rinfo.get("z_score_peer", rinfo.get("z_score", 0)))
             scores.append(zone_scores.get(rinfo.get("zone", "FAIR"), 0))
             if rinfo.get("peer_group"):
                 peer_group = rinfo["peer_group"]
+            if rname in ("PE", "PB", "PEG", "PB_TO_ROE"):
+                raw_values[rname] = rinfo.get("value", None)
 
         def _zone_from_avg(avg: float) -> str:
             if avg <= -1.5:  return "ULTRA_CHEAP"
@@ -429,6 +433,7 @@ class L3ValuationLoader:
             "overall_zone_peer": _zone_from_avg(avg_z_peer),
             "lowest_z": round(min(z_scores), 2) if z_scores else 0,
             "peer_group": peer_group,
+            "raw_values": raw_values,
         }
 
     def close(self):
@@ -652,6 +657,8 @@ class BayesianMandate:
     valuation_zone: str
     valuation_zone_peer: str
     behavior_position: str
+    pe_raw: Optional[float] = None
+    pb_raw: Optional[float] = None
 
     # v2 fields
     capital_allocation_archetype: str = ""
@@ -1031,6 +1038,8 @@ class BayesianGovernor:
             health_archetype=health["archetype"],
             valuation_zone=val.get("overall_zone", "FAIR"),
             valuation_zone_peer=val.get("overall_zone_peer", "NO_DATA"),
+            pe_raw=val.get("raw_values", {}).get("PE"),
+            pb_raw=val.get("raw_values", {}).get("PB"),
             behavior_position=beh.get("position", "UNKNOWN"),
             capital_allocation_archetype=capital_arch,
             capital_allocation_score=capital_score,
@@ -1213,8 +1222,8 @@ def print_report(analysis: Dict):
              "EXPENSIVE": "🔴", "ULTRA_EXPENSIVE": "🔴", "NO_DATA": "⚪"}
     ABBR = {"ULTRA_CHEAP": "RR", "CHEAP": "RE", "FAIR": "TB",
             "EXPENSIVE": "DT", "ULTRA_EXPENSIVE": "RDT", "NO_DATA": "??"}
-    print(f"  {'Mã':<5} {'P(Lãi T+30D)':<16} {'Hành động (Action)':<22} {'Vốn%':<8} {'DN (Business)':<28} {'Định giá(L3)':<30}")
-    print(f"  {'─'*113}")
+    print(f"  {'Mã':<5} {'P(Gain)':<9} {'Hành động':<18} {'Vốn%':<7} {'P/E':>6} {'P/B':>6} {'DN (Business)':<22} {'Định giá(L3)':<31}")
+    print(f"  {'─'*110}")
 
     sorted_symbols = sorted(results.items(), key=lambda x: x[1].p_gain, reverse=True)
     for sym, r in sorted_symbols:
@@ -1222,7 +1231,9 @@ def print_report(analysis: Dict):
         status = BUSINESS_STATUS_MAP.get(r.health_archetype, r.health_archetype)
         gz, pz = r.valuation_zone, r.valuation_zone_peer
         l3 = f"{EMOJI.get(gz, '⚪')} {ABBR.get(gz, gz):<4} | {EMOJI.get(pz, '⚪')} {ABBR.get(pz, pz):<4}"
-        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%}      {r.action_vn:<20} {r.allocation_pct:>+7.1f}%   {status:<26} {l3}")
+        pe_s = f"{r.pe_raw:.1f}" if r.pe_raw is not None else "N/A"
+        pb_s = f"{r.pb_raw:.1f}" if r.pb_raw is not None else "N/A"
+        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% {pe_s:>6} {pb_s:>6} {status:<22} {l3}")
 
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)

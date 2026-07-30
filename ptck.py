@@ -1282,6 +1282,8 @@ def cmd_import_financials(args):
         "evebitda": "EV_EBITDA", "ev/ebitda": "EV_EBITDA", "ev_ebitda": "EV_EBITDA",
         "ps": "PS", "p/s": "PS", "price_sales": "PS",
         "roe": "ROE", "eps": "EPS", "debt_equity": "DEBT_EQUITY", "debt/equity": "DEBT_EQUITY",
+        "g": "PROFIT_GROWTH_G", "profit_growth_g": "PROFIT_GROWTH_G", "profit_growth": "PROFIT_GROWTH_G",
+        "tang_truong": "PROFIT_GROWTH_G", "growth": "PROFIT_GROWTH_G",
         "date": "date", "period": "date", "ngay": "date",
         "price": "price", "close": "price", "gia": "price",
     }
@@ -1331,8 +1333,8 @@ def cmd_import_financials(args):
     print(f"  PTCK — IMPORT FINANCIALS ({len(df)} rows, {fpath})")
     print(f"  {'='*60}")
 
-    ratio_cols = [c for c in ["PE", "PB", "EV_EBITDA", "PS", "ROE", "EPS", "DEBT_EQUITY"] if c in df.columns]
-    if not ratio_cols:
+    raw_ratio_cols = [c for c in ["PE", "PB", "EV_EBITDA", "PS", "ROE", "EPS", "DEBT_EQUITY", "PROFIT_GROWTH_G"] if c in df.columns]
+    if not raw_ratio_cols:
         print("  ❌ No recognized ratio columns found. Expected: PE, PB, EV_EBITDA, PS, ROE, EPS, DEBT_EQUITY")
         print(f"     Found columns: {list(df.columns)}")
         conn.close()
@@ -1343,12 +1345,12 @@ def cmd_import_financials(args):
     for _, row in df.iterrows():
         sym = str(row["symbol"]).strip().upper()
         vals = {}
-        for rn in ratio_cols:
+        for rn in raw_ratio_cols:
             v = row.get(rn)
             if v is not None and not (isinstance(v, float) and np.isnan(v)):
                 try:
                     fv = float(v)
-                    if fv > 0:
+                    if fv >= 0:
                         vals[rn] = fv
                 except (ValueError, TypeError):
                     pass
@@ -1360,6 +1362,34 @@ def cmd_import_financials(args):
         else:
             price = None
         symbol_data[sym] = {"ratios": vals, "price": price}
+
+    # ── Compute PEG and PB_TO_ROE from raw ratios ──
+    computed = []
+    has_g = any("PROFIT_GROWTH_G" in d["ratios"] for d in symbol_data.values())
+    has_roe = any("ROE" in d["ratios"] for d in symbol_data.values())
+    for sym, d in symbol_data.items():
+        r = d["ratios"]
+        if has_g and "PE" in r and "PROFIT_GROWTH_G" in r:
+            g = r["PROFIT_GROWTH_G"]
+            if g > 0:
+                peg = r["PE"] / g
+                if peg > 0:
+                    r["PEG"] = round(peg, 4)
+                    computed.append("PEG")
+        if has_roe and "PB" in r and "ROE" in r:
+            roe_dec = r["ROE"] / 100.0
+            if roe_dec > 0:
+                pb_to_roe = r["PB"] / roe_dec
+                if pb_to_roe > 0:
+                    r["PB_TO_ROE"] = round(pb_to_roe, 4)
+                    computed.append("PB_TO_ROE")
+    # Collect all actual ratio keys present across symbols (exclude PROFIT_GROWTH_G — it's an input, not a metric)
+    present_ratios = set()
+    for d in symbol_data.values():
+        present_ratios.update(k for k in d["ratios"] if k != "PROFIT_GROWTH_G")
+    ratio_cols = [c for c in ["PE", "PB", "EV_EBITDA", "PS", "ROE", "EPS", "DEBT_EQUITY", "PEG", "PB_TO_ROE"] if c in present_ratios]
+    if computed:
+        print(f"  📐 Computed: {', '.join(sorted(set(computed)))} from growth/ROE inputs")
 
     print(f"  Parsed {len(symbol_data)} symbols with valid ratio data")
 
