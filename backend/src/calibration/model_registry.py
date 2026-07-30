@@ -1,7 +1,7 @@
 """model_registry.py — Sprint 4: Competing Hypotheses Engine (Bayesian Model Averaging).
 
 Manages 3 competing models (M1_MACRO, M2_FUNDAMENTAL, M3_BEHAVIORAL) with:
-  - State transitions: ACTIVE (P≥0.15) / DORMANT (0.05≤P<0.15) / RETIRED (P<0.05)
+  - State transitions: ACTIVE (P>=0.15) / DORMANT (0.05<=P<0.15) / RETIRED (P<0.05)
   - Bayesian Model Averaging for posterior-weighted ensemble
   - Regime-fit scoring per macro context
   - Counter-signal tracking for conflict resolution
@@ -24,6 +24,15 @@ Schema (model_registry table in calibration.db):
   retirement_reason TEXT DEFAULT ''
   created_at      TEXT
   updated_at      TEXT
+
+# ===================================================================
+# ADR #5 — WHY BMA Nonlinear Weighting in ModelRegistry?
+# ===================================================================
+# Trong CREDIT_STRESS, BMA nen M2_FUNDAMENTAL xuong 8.3% va nang
+# M1_MACRO len 60.9%. Triet tieu bay mua co phieu "dinh gia re"
+# khi thanh khoan he thong bi dong bang. Su dung regime_fit_score
+# trong ham softmax voi temperature=0.33 de dieu chinh do nhay.
+# ===================================================================
 """
 
 from __future__ import annotations

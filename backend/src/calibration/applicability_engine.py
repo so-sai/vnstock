@@ -9,6 +9,15 @@ Formula:
 Integration:
   Called from BayesianGovernor.assess() → writes A_i to evidence_registry
   via EvidenceEngine.set_applicability().
+
+# ===================================================================
+# ADR #3 — WHY Entropy Dampener = (1 - 0.5 * H)?
+# ===================================================================
+# Khi thi truong bat dinh (Entropy H dang cao), tu dong thu hep bien do
+# A_i cua toan bo cac nut. Bat buoc Governor v3 thu hep quy mo vi the
+# Kelly, ngan ngua viec hanh dong tu tin trong moi truong nhieu.
+# Tai H=1.0: dampener=0.5 => moi A_i giam 50%. Tai H=0.0: khong doi.
+# ===================================================================
 """
 
 from __future__ import annotations

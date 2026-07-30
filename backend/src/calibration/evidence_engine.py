@@ -16,6 +16,20 @@ Schema:
     drift_score    REAL DEFAULT 0.0  -- Continuous [0,1] — derived from trend
     applicability  REAL DEFAULT 1.0  -- Per-regime applicability (Sprint 2 stub)
     last_updated   TEXT              -- ISO timestamp
+
+# ===================================================================
+# ADR #1 — WHY Beta Forgetting Decay = 0.995?
+# ===================================================================
+# Chu ky ban ra ~138 phien (~6.5 thang). Triet tieu su xu cuong mo hinh
+# (Old Model Inertia). Dam bao du lieu cu hon 2 quy tai chinh tu dong
+# giam 50% dong gop vao posterior.
+#
+# ADR #2 — WHY Lambda Drift Penalty = 2.0 in exp(-2.0 * D_i)?
+# ===================================================================
+# Duong cong phat phi tuyen: Chiet khau 86.5% trong so khi D_i = 1.0.
+# Bat buoc vo hieu hoa cac nut bang chung bi troi diem ma khong xoa bo
+# hoan toan (cho phep hoi sinh khi drift giam).
+# ===================================================================
 """
 
 from __future__ import annotations

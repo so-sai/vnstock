@@ -11,6 +11,15 @@ Architecture:
   CausalGraph holds all edges in a DAG.
   propagate() computes effective impact with lag-corrected confidence.
   trace_path() returns the full chain with per-hop parameters.
+
+# ===================================================================
+# ADR #4 — WHY Attenuation & Effective Lag in CausalEdge?
+# ===================================================================
+# Tac dong vi mo khong xay ra tuc thoi. Do tre lag_range (90-300 ngay)
+# va suy giam attenuation (10-28%) mo hinh hoa chinh xac thoi gian
+# chuyen hoa tu chinh sach/song nganh vao BCTC doanh nghiep.
+# Moi hop giam tu 10-15% thong tin (attenuation tich luy).
+# ===================================================================
 """
 
 from __future__ import annotations
