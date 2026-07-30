@@ -751,6 +751,18 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Persisted": "Đã ghi",
     "edges to calibration.db": "cạnh vào calibration.db",
     "Hop": "Bước",
+    "Conf": "T.cậy",
+    "Lag": "Trễ",
+    "Atten": "M.mát",
+    "HL": "BK",
+    "LagMin": "TrễMin",
+    "LagMax": "TrễMax",
+    "Depth": "Sâu",
+    "Edge ID": "Cạnh ID",
+    "conf": "tc",
+    "lag": "trễ",
+    "atten": "mm",
+    "cx": "pvd",
 
 }
 

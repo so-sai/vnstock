@@ -603,7 +603,7 @@ def print_causal_graph_report(
         print(f"  {_('CAUSAL PROPAGATION')} — {source}"
               + (f" | {_('Archetype')}: {archetype}" if archetype else ""))
         print(f"  {'='*90}")
-        print(f"  {'Node':<30} {'Conf':>6} {'LagMin':>7} {'LagMax':>7} {'Atten':>6} {'Depth':>6}")
+        print(f"  {_('Node'):<30} {_('Conf'):>6} {_('LagMin'):>7} {_('LagMax'):>7} {_('Atten'):>6} {_('Depth'):>6}")
         print(f"  {'─'*70}")
         for r in results:
             print(f"  {r['node']:<30} {r['confidence']:>6.3f} {r['lag_min']:>7}"
@@ -642,7 +642,7 @@ def trace_report(
     print(f"  {_('CAUSAL PATH')}: {source} → {target}"
           + (f" [{archetype}]" if archetype else ""))
     print(f"  {'='*100}")
-    print(f"  {'Hop':<2} {'Edge ID':<40} {'→':<4} {'Conf':>6} {'Lag':>8} {'Atten':>7} {'HL':>6}")
+    print(f"  {_('Hop'):<2} {_('Edge ID'):<40} {'→':<4} {_('Conf'):>6} {_('Lag'):>8} {_('Atten'):>7} {_('HL'):>6}")
     print(f"  {'─'*80}")
     for i, hop in enumerate(path):
         lag = f"{hop['lag_min']}–{hop['lag_max']}d"
@@ -677,8 +677,8 @@ def edge_summary(graph: CausalGraph, lang_mode: str = "full"):
             current_arch = arch
             print(f"\n  [{arch}]")
         nex = len(e.counter_examples)
-        ce_mark = f" ⚠{nex}cx" if nex else ""
+        ce_mark = f" ⚠{nex}{_('cx')}" if nex else ""
         print(f"    {e.source:<30} → {e.target:<24}"
-              f"  conf={e.confidence:.2f}  lag={e.lag_min}–{e.lag_max}d"
-              f"  HL={e.half_life:.0f}d  atten={e.attenuation:.2f}"
+              f"  {_('conf')}={e.confidence:.2f}  {_('lag')}={e.lag_min}–{e.lag_max}d"
+              f"  {_('HL')}={e.half_life:.0f}d  {_('atten')}={e.attenuation:.2f}"
               f"{ce_mark}")
