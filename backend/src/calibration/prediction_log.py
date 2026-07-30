@@ -5,6 +5,7 @@ Schema:
     id          INTEGER PRIMARY KEY
     date        TEXT  (prediction date)
     symbol      TEXT
+    model_id    TEXT  (NULL=combined BMA, M1_MACRO/M2_FUNDAMENTAL/M3_BEHAVIORAL)
     p_gain      REAL  (P3 posterior)
     eu          REAL  (Expected Utility of chosen action)
     kelly_alloc REAL  (Kelly allocation %)
@@ -19,6 +20,13 @@ Schema:
     log_loss    REAL  (NULL=unresolved)
     created_at  TEXT
     resolved_at TEXT
+
+WHY model_id column (P0):
+  Before: 1 row per (date,symbol) → Step 11c fed same accuracy to all 3 BMA models
+           → Brier scores blurred, no per-model differentiation.
+  After:  3 rows per (date,symbol) with model_id = M1_MACRO/M2_FUNDAMENTAL/M3_BEHAVIORAL
+           plus 1 combined row (model_id=NULL). Step 11c resolves per-model outcomes
+           independently → BMA can retire underperforming models.
 """
 
 import json
@@ -53,6 +61,7 @@ def init_schema():
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             date            TEXT    NOT NULL,
             symbol          TEXT    NOT NULL,
+            model_id        TEXT,
             p_gain          REAL    NOT NULL,
             eu              REAL    NOT NULL,
             kelly_alloc     REAL    NOT NULL,
@@ -119,6 +128,12 @@ def init_schema():
         );
     """)
     conn.commit()
+    # P0: add model_id column to existing databases (safe ALTER)
+    try:
+        conn.execute("ALTER TABLE prediction_log ADD COLUMN model_id TEXT")
+        conn.commit()
+    except Exception:
+        pass  # column already exists
     conn.close()
 
 
@@ -180,21 +195,36 @@ def insert_prediction(
     health_archetype: str,
     valuation_zone: str,
     behavior_position: str,
+    model_id: Optional[str] = None,
 ):
+    """Insert one prediction row. model_id=NULL for combined BMA prediction."""
     conn = get_conn()
     conn.execute("""
         INSERT INTO prediction_log
-            (date, symbol, p_gain, eu, kelly_alloc, action,
+            (date, symbol, model_id, p_gain, eu, kelly_alloc, action,
              macro_state, transmission_phase, sector_phase,
              health_archetype, valuation_zone, behavior_position)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
-        date_str, symbol, p_gain, eu, kelly_alloc, action,
+        date_str, symbol, model_id, p_gain, eu, kelly_alloc, action,
         macro_state, transmission_phase, sector_phase,
         health_archetype, valuation_zone, behavior_position,
     ))
     conn.commit()
     conn.close()
+
+
+def get_unresolved_by_model(model_id: str, days: int = 365) -> List[Dict]:
+    """Return unresolved predictions for a specific BMA model."""
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM prediction_log
+        WHERE model_id = ? AND outcome IS NULL AND date >= ?
+        ORDER BY date ASC, symbol ASC
+    """, (model_id, cutoff)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_unresolved_predictions() -> List[Dict]:

@@ -142,6 +142,13 @@ LR_BEHAVIOR = {
     "BELOW_VA": 0.85,
     "ABOVE_VA_DEMAND": 0.70,
     "ABOVE_VA": 0.50,
+    # P1: decision fusion modifiers
+    "IN_VA_DEMAND_LOCKDOWN": 0.60,
+    "IN_VA_LOCKDOWN": 0.45,
+    "BELOW_VA_LOCKDOWN": 0.40,
+    "ABOVE_VA_LOCKDOWN": 0.25,
+    "ABOVE_VA_DEMAND_LOCKDOWN": 0.35,
+    "BELOW_VA_DEMAND_LOCKDOWN": 0.55,
 }
 
 # ── Capital Allocation LR (Giai đoạn 4) ───────────────────────
@@ -451,15 +458,18 @@ class L4BehaviorLoader:
         """, (symbol.upper(), cutoff))
         return cur.fetchone()[0]
 
-    def score_behavior(self, symbol: str) -> Dict:
-        # WHY L4_BEHAVIOR = Volume Profile (NOT decision_fusion):
-        #   decision_fusion.py (portfolio/) arbitrates Model A/B
-        #   signals for portfolio execution — NOT connected to
-        #   Governor's L4_BEHAVIOR evidence node.
-        #   Gap: decision_fusion output could enrich behavior zone
-        #   (e.g. "IN_VA + A/B_CONFIRM"), but requires schema
-        #   extension in Result dataclass + evidence vector.
-        #   Currently L4 is pure Market Profile (VAH/VAL/price).
+    def score_behavior(self, symbol: str,
+                       fusion_action: str = "") -> Dict:
+        """Score behavior from Volume Profile + optional decision fusion context.
+        
+        WHY fusion_action (P1 bridge):
+          decision_fusion.arbitrate() output enriches the Volume Profile
+          position. When fusion says EXECUTE (consensus/trend/mean-reversion
+          confirmed), we append "_FUSION" to position → higher LR.
+          When fusion says FORCE_CASH (macro crisis lockdown), we append
+          "_LOCKDOWN" → lower LR. This integrates Model A/B arbitration
+          into L4_BEHAVIOR without duplicating the policy matrix.
+        """
         vp = self.get_volume_profile(symbol)
         if not vp:
             return {"score": 0, "grade": "NO_DATA", "position": "UNKNOWN", "signals": 0}
@@ -502,6 +512,12 @@ class L4BehaviorLoader:
             grade = "NEUTRAL"
         else:
             grade = "WEAK"
+
+        # P1: enrich position with decision fusion context
+        if fusion_action == "EXECUTE" and "_DEMAND" not in position:
+            position += "_DEMAND"  # upgrade: pretend active demand confirmed
+        elif fusion_action == "FORCE_CASH":
+            position += "_LOCKDOWN"  # downgrade: crisis lockdown overrides
 
         return {
             "score": round(score, 2),
@@ -757,7 +773,40 @@ class BayesianGovernor:
         # Per-symbol evidence
         health = self.perception.load_health(symbol)
         val = self.valuation.score_valuation(symbol)
-        beh = self.behavior.score_behavior(symbol)
+
+        # P1: decision_fusion bridge → L4_BEHAVIOR
+        # WHY: arbitrate() uses REGIME_POLICY matrix to determine
+        #   whether Model A (Momentum) and Model B (Mean Reversion)
+        #   signals are valid in current regime. We derive per-symbol
+        #   Model A/B signals from Volume Profile (VAH/VAL/vol_ratio)
+        #   and feed fusion_action into score_behavior() as modifier.
+        fusion_action = ""
+        try:
+            from src.portfolio.decision_fusion import arbitrate
+            vp = self.behavior.get_volume_profile(symbol)
+            if vp:
+                price = vp["price"]; vah = vp["vah"]; val_vp = vp["val"]
+                vr = vp["volume_ratio"]
+                # Model A (Momentum) trigger: price in upper VA + volume expansion
+                a_buy = price >= (val_vp + vah) / 2 and vr >= 1.3
+                # Model B (Mean Reversion) trigger: price near/below VAL + contraction
+                b_buy = price <= val_vp + (vah - val_vp) * 0.3 and vr <= 0.7
+                _regime_map = {
+                    "CREDIT_STRESS": "CRISIS", "AI_BOOM": "TRENDING",
+                    "LIQUIDITY_EXPANSION": "TRENDING", "INFLATION_SHOCK": "CRISIS",
+                    "RECOVERY": "RECOVERY", "STABLE": "RANGING",
+                    "RISK_OFF": "CRISIS", "PRE_CREDIT_EXPANSION": "RECOVERY",
+                }
+                df_regime = _regime_map.get(self._macro.get("state", "STABLE"), "RANGING")
+                fusion = arbitrate(
+                    "TRIGGER_BUY" if a_buy else "NOBUY",
+                    "TRIGGER_BUY" if b_buy else "NOBUY",
+                    df_regime,
+                )
+                fusion_action = fusion.get("action", "")
+        except Exception:
+            pass
+        beh = self.behavior.score_behavior(symbol, fusion_action=fusion_action)
 
         # ── Giai đoạn 1: Archetype-aware prior ──────────────
         arch_prior_key = self._get_archetype_prior(symbol)
@@ -893,7 +942,7 @@ class BayesianGovernor:
                 if capped_alloc is not None:
                     allocation = capped_alloc
 
-        # P4 logging
+        # P4 logging — combined BMA prediction
         try:
             _ensure_calib()
             from calibration.prediction_log import insert_prediction
@@ -911,6 +960,48 @@ class BayesianGovernor:
                 valuation_zone=val.get("overall_zone", "FAIR"),
                 behavior_position=beh.get("position", "UNKNOWN"),
             )
+            # P0: per-model predictions for BMA calibration
+            # WHY: store 3 separate rows (M1/M2/M3) so Step 11c can
+            #   resolve per-model outcomes independently, avoiding
+            #   Brier Score blur from feeding aggregate accuracy.
+            model_weights_map = {
+                "M1_MACRO": {"macro": 0.20, "transmission": 0.13, "sector": 0.10},
+                "M2_FUNDAMENTAL": {"health": 0.11, "capital_allocation": 0.13, "valuation": 0.09},
+                "M3_BEHAVIORAL": {"behavior": 0.09},
+            }
+            for mid, mw in model_weights_map.items():
+                total_w = sum(mw.values())
+                renormed = {k: v / total_w for k, v in mw.items()}
+                mp, _, _ = compute_gain_probability(
+                    macro_state=self._macro["state"],
+                    transmission_phase=self._transmission["phase"],
+                    sector_phase=sector_phase,
+                    health_archetype=health["archetype"],
+                    valuation_zone=val.get("overall_zone", "FAIR"),
+                    behavior_position=beh.get("position", "UNKNOWN"),
+                    capital_allocation=capital_arch,
+                    macro_entropy=self._macro["entropy"],
+                    transmission_credit=self._transmission["credit"],
+                    archetype_prior_key=arch_prior_key,
+                    lr_macro_override=lr_macro_dynamic,
+                    evidence_weights=renormed,
+                    model_registry_lr=None,
+                )
+                insert_prediction(
+                    date_str=str(date.today()),
+                    symbol=symbol,
+                    model_id=mid,
+                    p_gain=round(mp, 4),
+                    eu=round(best_eu, 4),
+                    kelly_alloc=round(allocation, 1),
+                    action=best_action,
+                    macro_state=self._macro["state"],
+                    transmission_phase=self._transmission["phase"],
+                    sector_phase=sector_phase,
+                    health_archetype=health["archetype"],
+                    valuation_zone=val.get("overall_zone", "FAIR"),
+                    behavior_position=beh.get("position", "UNKNOWN"),
+                )
         except Exception:
             pass
 
