@@ -1284,6 +1284,10 @@ def cmd_import_financials(args):
         "roe": "ROE", "eps": "EPS", "debt_equity": "DEBT_EQUITY", "debt/equity": "DEBT_EQUITY",
         "g": "PROFIT_GROWTH_G", "profit_growth_g": "PROFIT_GROWTH_G", "profit_growth": "PROFIT_GROWTH_G",
         "tang_truong": "PROFIT_GROWTH_G", "growth": "PROFIT_GROWTH_G",
+        "profit_current": "PROFIT_CURRENT", "profit_6m": "PROFIT_CURRENT", "lntt": "PROFIT_CURRENT",
+        "lntt_6m": "PROFIT_CURRENT", "profit_before_tax": "PROFIT_CURRENT",
+        "profit_prior": "PROFIT_PRIOR", "lntt_prior": "PROFIT_PRIOR", "profit_6m_prior": "PROFIT_PRIOR",
+        "equity": "EQUITY", "vcshe": "EQUITY", "book_value": "EQUITY", "von_chu_so_huu": "EQUITY",
         "date": "date", "period": "date", "ngay": "date",
         "price": "price", "close": "price", "gia": "price",
     }
@@ -1333,8 +1337,12 @@ def cmd_import_financials(args):
     print(f"  PTCK — IMPORT FINANCIALS ({len(df)} rows, {fpath})")
     print(f"  {'='*60}")
 
-    raw_ratio_cols = [c for c in ["PE", "PB", "EV_EBITDA", "PS", "ROE", "EPS", "DEBT_EQUITY", "PROFIT_GROWTH_G"] if c in df.columns]
-    if not raw_ratio_cols:
+    ratio_candidates = ["PE", "PB", "EV_EBITDA", "PS", "ROE", "EPS", "DEBT_EQUITY", "PROFIT_GROWTH_G"]
+    bctc_raw_cols = ["PROFIT_CURRENT", "PROFIT_PRIOR", "EQUITY"]
+    all_cols_needed = ratio_candidates + bctc_raw_cols
+    raw_ratio_cols = [c for c in all_cols_needed if c in df.columns]
+    has_any_ratio = any(c in df.columns for c in ratio_candidates)
+    if not has_any_ratio:
         print("  ❌ No recognized ratio columns found. Expected: PE, PB, EV_EBITDA, PS, ROE, EPS, DEBT_EQUITY")
         print(f"     Found columns: {list(df.columns)}")
         conn.close()
@@ -1363,6 +1371,25 @@ def cmd_import_financials(args):
             price = None
         symbol_data[sym] = {"ratios": vals, "price": price}
 
+    # ── Compute g and ROE from raw BCTC columns (profit_current, equity) ──
+    bctc = {"PROFIT_GROWTH_G", "ROE", "PROFIT_CURRENT", "PROFIT_PRIOR", "EQUITY"}
+    if any(k in bctc for d in symbol_data.values() for k in d["ratios"]):
+        for sym, d in symbol_data.items():
+            r = d["ratios"]
+            pc = r.get("PROFIT_CURRENT")
+            pp = r.get("PROFIT_PRIOR")
+            eq = r.get("EQUITY")
+            if pc is not None:
+                if pp is not None and pp > 0:
+                    r["PROFIT_GROWTH_G"] = round((pc - pp) / abs(pp) * 100, 2)
+                    print(f"  📐 {sym}: g={r['PROFIT_GROWTH_G']:.1f}% (from profit {pp:.0f}→{pc:.0f})")
+                if eq is not None and eq > 0:
+                    r["ROE"] = round(pc / eq * 100, 2)
+                    print(f"  📐 {sym}: ROE={r['ROE']:.1f}% (from profit={pc:.0f}, equity={eq:.0f})")
+            # strip BCTC raw keys so they don't pollute ratio_cols
+            for k in ("PROFIT_CURRENT", "PROFIT_PRIOR", "EQUITY"):
+                r.pop(k, None)
+
     # ── Compute PEG and PB_TO_ROE from raw ratios ──
     computed = []
     has_g = any("PROFIT_GROWTH_G" in d["ratios"] for d in symbol_data.values())
@@ -1383,10 +1410,11 @@ def cmd_import_financials(args):
                 if pb_to_roe > 0:
                     r["PB_TO_ROE"] = round(pb_to_roe, 4)
                     computed.append("PB_TO_ROE")
-    # Collect all actual ratio keys present across symbols (exclude PROFIT_GROWTH_G — it's an input, not a metric)
+    # Collect all actual ratio keys present across symbols
+    exclude_raw = {"PROFIT_GROWTH_G", "PROFIT_CURRENT", "PROFIT_PRIOR", "EQUITY"}
     present_ratios = set()
     for d in symbol_data.values():
-        present_ratios.update(k for k in d["ratios"] if k != "PROFIT_GROWTH_G")
+        present_ratios.update(k for k in d["ratios"] if k not in exclude_raw)
     ratio_cols = [c for c in ["PE", "PB", "EV_EBITDA", "PS", "ROE", "EPS", "DEBT_EQUITY", "PEG", "PB_TO_ROE"] if c in present_ratios]
     if computed:
         print(f"  📐 Computed: {', '.join(sorted(set(computed)))} from growth/ROE inputs")
