@@ -673,6 +673,30 @@ entrypoints:
     cli: "python ptck.py bctc-20q --file 20q.csv [--sheet Sheet1]"
     category: data
 
+  # ── fetch-macro ───────────────────────────────────────
+  fetch_macro:
+    description: "Fetch world macro data (Fed rate, FOMC dissent, QT balance, US10Y, USD, Brent) + VGB 10Y"
+    cli: "python ptck.py fetch-macro [--force] [--skip-vgb]"
+    category: data
+
+  # ── cafef-crawl ────────────────────────────────────────
+  cafef_crawl:
+    description: "Crawl BCTC 20 quarters — nạp vào financial_facts.db. Nguồn mặc định: VCI GraphQL (khuyên dùng)"
+    cli: "python ptck.py cafef-crawl [--symbols FPT ACB ...] [--type STANDARD|BANK] [--source vci|cafef|synthetic] [--playwright]"
+    category: data
+
+  # ── vgb10y ─────────────────────────────────────────────
+  vgb10y:
+    description: "Seed VGB 10Y yield từ World Bank API — ghi REAL vào macro_history"
+    cli: "python ptck.py vgb10y"
+    category: data
+
+  # ── financial-search ──────────────────────────────────
+  financial_search:
+    description: "Tra cứu dữ liệu tài chính từ financial_facts.db — filter theo symbol/metric/period/source"
+    cli: "python ptck.py financial-search [--symbol VCB] [--metric REVENUE] [--period 2026Q1] [--source cafef] [--min-value 1000] [--max-value 100000]"
+    category: data
+
   # ── init-agent ────────────────────────────────────────
   init_agent:
     description: "Initialize IDE agent config files (.clinerules + .cursorrules) from bundled AGENTS.md"

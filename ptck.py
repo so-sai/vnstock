@@ -3544,6 +3544,154 @@ def cmd_flow_map(args):
     print("=" * 60)
 
 
+# ── fetch-macro ──────────────────────────────────────────────
+def cmd_fetch_macro(args):
+    """Fetch world macro data (Fed, FRED, US10Y, USD, Brent) + VGB 10Y."""
+    import json
+    print("=" * 60)
+    print("  FETCH WORLD MACRO SENSOR")
+    print("=" * 60)
+    try:
+        from src.sensors.world_sensor import WorldSensor
+        sensor = WorldSensor(use_cache=not args.force)
+        state = sensor.fetch(force_refresh=args.force)
+        for k, v in state.items():
+            print(f"  {k:20s}: {v}")
+        print(f"  {'source':20s}: WorldSensor (CME FedWatch + FRED + yFinance)")
+    except Exception as e:
+        print(f"  ❌ WorldSensor error: {e}")
+    print()
+    if not args.skip_vgb:
+        print("  ── VGB 10Y Yield ──")
+        try:
+            from src.services.macro.vgb10y_seeder import seed_vgb10y
+            ok = seed_vgb10y()
+            print(f"  {'VGB10Y seed':20s}: {'✅ OK' if ok else '❌ FAILED (using fallback)'}")
+        except Exception as e:
+            print(f"  ❌ VGB10Y error: {e}")
+    print("=" * 60)
+
+
+# ── cafef-crawl ──────────────────────────────────────────────
+def cmd_cafef_crawl(args):
+    """Crawl BCTC 20 quarters cho danh sách mã."""
+    from src.financial.financial_facts import FinancialFactsDB
+    from src.financial.cafef_crawler import CafeFCrawler
+    db = FinancialFactsDB()
+    db.init_schema()
+    use_pw = getattr(args, 'playwright', False)
+    source = getattr(args, 'source', 'vci')
+    crawler = CafeFCrawler(db, use_playwright=use_pw)
+    if args.symbols:
+        entity_type = args.type or "STANDARD"
+        targets = [(s.upper(), entity_type) for s in args.symbols]
+    else:
+        targets = [
+            ("FPT", "STANDARD"), ("ACB", "BANK"), ("HDB", "BANK"),
+            ("MBB", "BANK"), ("VCB", "BANK"),
+        ]
+    print("=" * 60)
+    print(f"  BCTC CRAWLER — {len(targets)} symbols, 20 quarters each")
+    print(f"  Nguồn: {source} | Playwright: {'bật' if use_pw else 'tắt'}")
+    print("=" * 60)
+    overall = crawler.crawl_multi(targets, source=source)
+    print(f"  ✅ Done: {overall['symbols']} symbols, {overall['total_facts']} facts")
+    print("=" * 60)
+
+
+# ── vgb10y ───────────────────────────────────────────────────
+def cmd_vgb10y(args):
+    """Seed VGB 10Y yield từ World Bank API."""
+    from src.services.macro.vgb10y_seeder import seed_vgb10y
+    print("=" * 60)
+    print("  VGB 10Y YIELD SEEDER")
+    print("=" * 60)
+    ok = seed_vgb10y()
+    if ok:
+        print("  ✅ VGB10Y REAL seeded từ World Bank API")
+    else:
+        print("  ⚠️  World Bank không trả dữ liệu — giữ fallback ESTIMATED")
+    print("=" * 60)
+
+
+# ── financial-search ───────────────────────────────────────────
+def cmd_financial_search(args):
+    """Tra cứu dữ liệu tài chính từ financial_facts.db."""
+    from src.financial.financial_facts import FinancialFactsDB
+    import pandas as pd
+
+    db = FinancialFactsDB()
+    conn = db.connect()
+
+    print("=" * 60)
+    print("  TRA CỨU DỮ LIỆU TÀI CHÍNH")
+    print("=" * 60)
+
+    # Build query
+    query = "SELECT symbol, period, metric, value, unit, source FROM financial_facts WHERE 1=1"
+    params = []
+
+    if args.symbol:
+        query += " AND symbol IN (" + ",".join(["?"] * len(args.symbol)) + ")"
+        params.extend([s.upper() for s in args.symbol])
+    if args.metric:
+        query += " AND metric = ?"
+        params.append(args.metric.upper())
+    if args.period:
+        query += " AND period = ?"
+        params.append(args.period)
+    if args.source:
+        query += " AND source = ?"
+        params.append(args.source)
+    if args.min_value is not None:
+        query += " AND value >= ?"
+        params.append(args.min_value)
+    if args.max_value is not None:
+        query += " AND value <= ?"
+        params.append(args.max_value)
+
+    query += " ORDER BY symbol, period DESC, metric"
+
+    try:
+        df = pd.read_sql_query(query, conn, params=params)
+    except Exception as e:
+        print(f"  ❌ Query error: {e}")
+        return
+
+    if df.empty:
+        print("  ❌ Không có dữ liệu phù hợp")
+        return
+
+    print(f"\n  Kết quả: {len(df)} dòng")
+    print(f"  Symbols: {df['symbol'].nunique()}")
+    print(f"  Metrics: {df['metric'].nunique()}")
+    print()
+
+    # Display summary
+    print("  ── TỔNG QUAN ──")
+    summary = df.groupby(['symbol', 'metric']).agg(
+        count=('value', 'count'),
+        last_value=('value', 'last'),
+        last_period=('period', 'last'),
+        source=('source', 'last'),
+    ).reset_index()
+
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 200)
+    pd.set_option('display.max_rows', 50)
+    pd.set_option('display.expand_frame_repr', False)
+
+    print(summary.to_string(index=False))
+    print()
+
+    # Show detailed if limited symbols
+    if args.symbol and len(df) <= 100:
+        print("  ── CHI TIẾT ──")
+        print(df.to_string(index=False))
+
+    print("=" * 60)
+
+
 # Module-level language mode — set by main() before dispatching
 _VERBOSE_LANG: str = "full"
 
@@ -4201,6 +4349,48 @@ def build_parser():
     p_eod.add_argument("--no-catchup", dest="catchup", action="store_false",
                        help="Tắt cơ chế Giao dịch bù (Catch-up) cho các ngày nợ")
     p_eod.set_defaults(func=cmd_eod_run, catchup=True)
+
+    # fetch-macro
+    p_fm = sub.add_parser("fetch-macro", parents=[lang_parent],
+                          help="Fetch world macro data (Fed, FRED, US10Y, USD, Brent) + VGB 10Y")
+    p_fm.add_argument("--force", action="store_true",
+                      help="Bỏ qua cache, fetch mới từ upstream")
+    p_fm.add_argument("--skip-vgb", action="store_true", dest="skip_vgb",
+                      help="Bỏ qua VGB 10Y seeding")
+    p_fm.set_defaults(func=cmd_fetch_macro)
+
+    # cafef-crawl
+    p_cc = sub.add_parser("cafef-crawl", parents=[lang_parent],
+                          help="Crawl BCTC 20 quarters cho danh sách mã")
+    p_cc.add_argument("--symbols", nargs="+", default=[],
+                      help="Danh sách mã cổ phiếu (mặc định: FPT ACB HDB MBB VCB)")
+    p_cc.add_argument("--type", choices=["STANDARD", "BANK"], default=None,
+                      help="Loại thực thể (STANDARD hoặc BANK, mặc định auto)")
+    p_cc.add_argument("--source", choices=["vci", "cafef", "synthetic"], default="vci",
+                      help="Nguồn dữ liệu: vci (VCI GraphQL, khuyên dùng), "
+                           "cafef (requests+Playwright, thường 404), "
+                           "synthetic (nội suy, không cần API)")
+    p_cc.add_argument("--playwright", action="store_true",
+                      help="Force Playwright cho CafeF (bỏ qua requests)")
+    p_cc.set_defaults(func=cmd_cafef_crawl)
+
+    # vgb10y
+    p_vgb = sub.add_parser("vgb10y", parents=[lang_parent],
+                           help="Seed VGB 10Y yield từ World Bank API")
+    p_vgb.set_defaults(func=cmd_vgb10y)
+
+    # financial-search
+    p_fs = sub.add_parser("financial-search", parents=[lang_parent],
+                          help="Tra cứu dữ liệu tài chính từ financial_facts.db")
+    p_fs.add_argument("--symbol", nargs="+", default=None, help="Mã cổ phiếu (VD: VCB ACB FPT)")
+    p_fs.add_argument("--metric", default=None, help="Metric (VD: REVENUE, NET_INCOME, TOTAL_ASSETS)")
+    p_fs.add_argument("--period", default=None, help="Period (VD: 2026Q1)")
+    p_fs.add_argument("--source", default=None, help="Source (VD: cafef, vci, synthetic)")
+    p_fs.add_argument("--min-value", type=float, default=None, dest="min_value",
+                      help="Giá trị tối thiểu")
+    p_fs.add_argument("--max-value", type=float, default=None, dest="max_value",
+                      help="Giá trị tối đa")
+    p_fs.set_defaults(func=cmd_financial_search)
 
     return parser
 
