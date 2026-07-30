@@ -1122,6 +1122,16 @@ def cmd_fetch_financials(args):
             UNIQUE(symbol, period, ratio_name)
         )
     """)
+    for col_sql in [
+        "ALTER TABLE valuation_scores ADD COLUMN z_score_peer REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN zone_peer TEXT",
+        "ALTER TABLE valuation_scores ADD COLUMN peer_group TEXT",
+        "ALTER TABLE valuation_scores ADD COLUMN peer_count INTEGER",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            pass
     conn.commit()
 
     from src.database.db_core import get_connection as screener_conn
@@ -1305,6 +1315,16 @@ def cmd_import_financials(args):
             UNIQUE(symbol, period, ratio_name)
         )
     """)
+    for col_sql in [
+        "ALTER TABLE valuation_scores ADD COLUMN z_score_peer REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN zone_peer TEXT",
+        "ALTER TABLE valuation_scores ADD COLUMN peer_group TEXT",
+        "ALTER TABLE valuation_scores ADD COLUMN peer_count INTEGER",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            pass
     conn.commit()
 
     print(f"\n  {'='*60}")
@@ -1381,6 +1401,59 @@ def cmd_import_financials(args):
                   price))
             total += 1
         print(f"  ✅ {rname}: μ={mean_v:.2f} σ={std_v:.2f} n={n}")
+
+    # ── Peer-group industry z-scores ──
+    try:
+        _p = Path(str(FINANCIAL_DB_PATH))
+        _screener_path = _p.parent / "screener_cache.db"
+        if not _screener_path.exists():
+            _screener_path = _p.parent.parent / "data" / "screener_cache.db"
+        screener = sqlite3.connect(str(_screener_path))
+        indf = pd.read_sql("SELECT symbol, icb_name2 FROM symbol_industry", screener)
+        screener.close()
+        sym_to_industry = dict(zip(indf["symbol"].str.upper(), indf["icb_name2"]))
+        from collections import defaultdict
+        industry_groups = defaultdict(list)
+        for sym in symbol_data:
+            ind = sym_to_industry.get(sym.upper())
+            if ind:
+                industry_groups[ind].append(sym)
+        peer_total = 0
+        for ind, group_syms in sorted(industry_groups.items()):
+            if len(group_syms) < 3:
+                continue
+            for rname in ratio_cols:
+                items = [(sym, symbol_data[sym]["ratios"][rname]) for sym in group_syms if rname in symbol_data[sym]["ratios"]]
+                if len(items) < 3:
+                    continue
+                vals = [v for _, v in items]
+                mean_p, std_p = float(np.mean(vals)), float(np.std(vals))
+                n_p = len(vals)
+                meta = VALUATION_RATIOS.get(rname, {})
+                for sym, val in items:
+                    z_peer = (val - mean_p) / std_p if std_p > 0 else 0.0
+                    if z_peer <= -meta.get("ultra_cheap", 2):
+                        zone_p = "ULTRA_CHEAP"
+                    elif z_peer <= -meta.get("cheap", 1):
+                        zone_p = "CHEAP"
+                    elif z_peer >= meta.get("ultra_expensive", 2):
+                        zone_p = "ULTRA_EXPENSIVE"
+                    elif z_peer >= meta.get("expensive", 1):
+                        zone_p = "EXPENSIVE"
+                    else:
+                        zone_p = "FAIR"
+                    conn.execute("""
+                        UPDATE valuation_scores
+                        SET z_score_peer=?, zone_peer=?, peer_group=?, peer_count=?
+                        WHERE symbol=? AND period=? AND ratio_name=?
+                    """, (round(z_peer, 4), zone_p, ind, n_p,
+                          sym, period, rname))
+                    peer_total += 1
+        if peer_total:
+            print(f"  ✅ Peer-group z-scores: {peer_total} updates across {len(industry_groups)} industries")
+    except Exception as e:
+        print(f"  ⚠️  Peer-group z-score skipped: {e}")
+
     conn.commit()
     conn.close()
     print(f"\n  ✅ Inserted {total} scores for {len(symbol_data)} symbols ({period})")

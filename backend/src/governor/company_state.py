@@ -379,7 +379,10 @@ class L3ValuationLoader:
     def get_latest_valuation(self, symbol: str) -> Dict:
         cur = self.conn.cursor()
         cur.execute("""
-            SELECT ratio_name, ratio_value, z_score, percentile, zone
+            SELECT ratio_name, ratio_value, z_score, percentile, zone,
+                   COALESCE(z_score_peer, z_score) AS z_score_peer,
+                   COALESCE(zone_peer, zone) AS zone_peer,
+                   peer_group
             FROM valuation_scores
             WHERE symbol = ? AND period = (
                 SELECT MAX(period) FROM valuation_scores WHERE symbol = ?
@@ -387,38 +390,45 @@ class L3ValuationLoader:
             ORDER BY ratio_name
         """, (symbol.upper(), symbol.upper()))
         rows = cur.fetchall()
-        return {r[0]: {"value": r[1], "z_score": r[2], "percentile": r[3], "zone": r[4]}
+        return {r[0]: {"value": r[1], "z_score": r[2], "percentile": r[3], "zone": r[4],
+                        "z_score_peer": r[5], "zone_peer": r[6], "peer_group": r[7]}
                 for r in rows}
 
     def score_valuation(self, symbol: str) -> Dict:
         vals = self.get_latest_valuation(symbol)
         if not vals:
-            return {"score": 0, "grade": "NO_DATA", "overall_zone": "NO_DATA", "lowest_z": 0}
+            return {"score": 0, "grade": "NO_DATA", "overall_zone": "NO_DATA",
+                    "overall_zone_peer": "NO_DATA", "lowest_z": 0, "peer_group": None}
 
         zone_scores = {"ULTRA_CHEAP": 2, "CHEAP": 1, "FAIR": 0, "EXPENSIVE": -1, "ULTRA_EXPENSIVE": -2}
         z_scores = []
+        z_scores_peer = []
         scores = []
+        peer_group = None
         for rinfo in vals.values():
             z_scores.append(rinfo.get("z_score", 0))
+            z_scores_peer.append(rinfo.get("z_score_peer", rinfo.get("z_score", 0)))
             scores.append(zone_scores.get(rinfo.get("zone", "FAIR"), 0))
+            if rinfo.get("peer_group"):
+                peer_group = rinfo["peer_group"]
+
+        def _zone_from_avg(avg: float) -> str:
+            if avg <= -1.5:  return "ULTRA_CHEAP"
+            if avg <= -0.5:  return "CHEAP"
+            if avg >= 1.5:   return "ULTRA_EXPENSIVE"
+            if avg >= 0.5:   return "EXPENSIVE"
+            return "FAIR"
 
         avg_z = sum(z_scores) / len(z_scores) if z_scores else 0
-        if avg_z <= -1.5:
-            overall = "ULTRA_CHEAP"
-        elif avg_z <= -0.5:
-            overall = "CHEAP"
-        elif avg_z >= 1.5:
-            overall = "ULTRA_EXPENSIVE"
-        elif avg_z >= 0.5:
-            overall = "EXPENSIVE"
-        else:
-            overall = "FAIR"
+        avg_z_peer = sum(z_scores_peer) / len(z_scores_peer) if z_scores_peer else 0
 
         return {
             "score": round(sum(scores) / len(scores), 2) if scores else 0,
-            "grade": overall,
-            "overall_zone": overall,
+            "grade": _zone_from_avg(avg_z),
+            "overall_zone": _zone_from_avg(avg_z),
+            "overall_zone_peer": _zone_from_avg(avg_z_peer),
             "lowest_z": round(min(z_scores), 2) if z_scores else 0,
+            "peer_group": peer_group,
         }
 
     def close(self):
@@ -640,6 +650,7 @@ class BayesianMandate:
     sector_phase: str
     health_archetype: str
     valuation_zone: str
+    valuation_zone_peer: str
     behavior_position: str
 
     # v2 fields
@@ -1019,6 +1030,7 @@ class BayesianGovernor:
             sector_phase=sector_phase,
             health_archetype=health["archetype"],
             valuation_zone=val.get("overall_zone", "FAIR"),
+            valuation_zone_peer=val.get("overall_zone_peer", "NO_DATA"),
             behavior_position=beh.get("position", "UNKNOWN"),
             capital_allocation_archetype=capital_arch,
             capital_allocation_score=capital_score,
@@ -1197,15 +1209,20 @@ def print_report(analysis: Dict):
     print(f"\n  {'='*90}")
     print(f"  📊 {_('ACTION RANKING')} ({_('SORTED BY P(Gain) DESC')}):")
     print(f"  {'='*90}")
-    print(f"  {'Mã':<5} {'P(Lãi T+30D)':<16} {'Hành động (Action)':<22} {'Vốn%':<8} {'DN (Business)':<30} {'Định giá (L3)':<24}")
-    print(f"  {'─'*108}")
+    EMOJI = {"ULTRA_CHEAP": "🟢", "CHEAP": "🟢", "FAIR": "🟡",
+             "EXPENSIVE": "🔴", "ULTRA_EXPENSIVE": "🔴", "NO_DATA": "⚪"}
+    ABBR = {"ULTRA_CHEAP": "RR", "CHEAP": "RE", "FAIR": "TB",
+            "EXPENSIVE": "DT", "ULTRA_EXPENSIVE": "RDT", "NO_DATA": "??"}
+    print(f"  {'Mã':<5} {'P(Lãi T+30D)':<16} {'Hành động (Action)':<22} {'Vốn%':<8} {'DN (Business)':<28} {'Định giá(L3)':<30}")
+    print(f"  {'─'*113}")
 
     sorted_symbols = sorted(results.items(), key=lambda x: x[1].p_gain, reverse=True)
     for sym, r in sorted_symbols:
         arrow = ARROW_MAP.get(r.action, "?")
         status = BUSINESS_STATUS_MAP.get(r.health_archetype, r.health_archetype)
-        val_label = VALUATION_DISPLAY.get(r.valuation_zone, VALUATION_DISPLAY["UNKNOWN"])
-        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%}      {r.action_vn:<20} {r.allocation_pct:>+7.1f}%   {status:<28} {val_label}")
+        gz, pz = r.valuation_zone, r.valuation_zone_peer
+        l3 = f"{EMOJI.get(gz, '⚪')} {ABBR.get(gz, gz):<4} | {EMOJI.get(pz, '⚪')} {ABBR.get(pz, pz):<4}"
+        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%}      {r.action_vn:<20} {r.allocation_pct:>+7.1f}%   {status:<26} {l3}")
 
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)

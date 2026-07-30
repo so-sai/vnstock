@@ -115,9 +115,19 @@ class ValuationEngine:
             CREATE INDEX IF NOT EXISTS idx_valuation_symbol
             ON valuation_scores(symbol, period)
         """)
+        for col_sql in [
+            "ALTER TABLE valuation_scores ADD COLUMN z_score_peer REAL",
+            "ALTER TABLE valuation_scores ADD COLUMN zone_peer TEXT",
+            "ALTER TABLE valuation_scores ADD COLUMN peer_group TEXT",
+            "ALTER TABLE valuation_scores ADD COLUMN peer_count INTEGER",
+        ]:
+            try:
+                conn.execute(col_sql)
+            except Exception:
+                pass
         conn.commit()
         conn.close()
-        print("  Schema OK: valuation_scores table")
+        print("  Schema OK: valuation_scores table (incl. peer-group columns)")
 
     def _quarter_end_date(self, year: int, quarter: int) -> str:
         m, d = QUARTER_END_MAP[quarter]
