@@ -344,6 +344,10 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
         _progress_bar(batch_num, total_batches, success, failed, skipped, start_time)
         armor.throttling(is_error=False)
 
+        # WHY: Jitter delay 1.2-2.5s giữa các batch tránh bị API (TCBS/SSI/VND) chặn IP
+        #      do rate limit. 42 mã/s không giãn cách → HTTP 429 / ban IP thực tế.
+        time.sleep(random.uniform(1.2, 2.5))
+
     elapsed = time.time() - start_time
     sys.stdout.write(
         f"\n🏁 Hoàn tất {total_symbols} mã trong {elapsed:.0f}s | "
@@ -420,7 +424,9 @@ def _fetch_single_yahoo(symbol: str, name: str, period: str = "5d") -> tuple:
         if df.empty or 'Close' not in df.columns:
             err = "empty or no Close"
         else:
-            close_val = float(df['Close'].values[-1])
+            # WHY: .item() trích xuất scalar Python từ numpy 0-d array, tránh DeprecationWarning
+            #      của NumPy 1.25+ khi gọi float() trực tiếp lên array (ndim>0 → lỗi future).
+            close_val = float(df['Close'].values[-1].item()) if hasattr(df['Close'].values[-1], 'item') else float(df['Close'].values[-1])
             if pd.isna(close_val):
                 close_val = None
                 err = "Close is NaN"
