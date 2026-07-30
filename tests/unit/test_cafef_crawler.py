@@ -414,10 +414,10 @@ class TestFinancialSearchCLI:
 
     def test_search_by_symbol(self):
         """Search --symbol VCB → trả về kết quả (exit code 0)."""
-        from subprocess import run, PIPE
+        from subprocess import run
         result = run(
             [sys.executable, "-m", "ptck", "financial-search", "--symbol", "VCB"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
             cwd=str(Path(__file__).parent.parent.parent),
         )
         assert result.returncode == 0, f"CLI failed: {result.stderr}"
@@ -428,10 +428,10 @@ class TestFinancialSearchCLI:
 
     def test_search_by_metric(self):
         """Search --metric NET_INCOME → có dữ liệu."""
-        from subprocess import run, PIPE
+        from subprocess import run
         result = run(
             [sys.executable, "-m", "ptck", "financial-search", "--metric", "NET_INCOME"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
             cwd=str(Path(__file__).parent.parent.parent),
         )
         assert result.returncode == 0, f"CLI failed: {result.stderr}"
@@ -442,10 +442,10 @@ class TestFinancialSearchCLI:
 
     def test_search_no_results(self):
         """Search symbol không tồn tại → return code 0, không crash."""
-        from subprocess import run, PIPE
+        from subprocess import run
         result = run(
             [sys.executable, "-m", "ptck", "financial-search", "--symbol", "NONEXIST"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
             cwd=str(Path(__file__).parent.parent.parent),
         )
         assert result.returncode == 0, f"CLI failed: {result.stderr}"
@@ -456,11 +456,11 @@ class TestFinancialSearchCLI:
 
     def test_search_multiple_symbols(self):
         """Search multiple --symbol → không crash."""
-        from subprocess import run, PIPE
+        from subprocess import run
         result = run(
             [sys.executable, "-m", "ptck", "financial-search",
              "--symbol", "VCB", "--symbol", "FPT", "--metric", "REVENUE"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
             cwd=str(Path(__file__).parent.parent.parent),
         )
         assert result.returncode == 0, f"CLI failed: {result.stderr}"
