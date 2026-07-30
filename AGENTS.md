@@ -221,14 +221,23 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
    - Key finding 30/07/2026: Even BEST_COMPANY (HQC+CHEAP+IN_VA) only adds +2.2% to P(Gain) — still REDUCE
    - CLI: `python ptck.py counterfactual [--symbols ...]`
 
-8. **CLIs**: `macro-state`, `transmission`, `sector`, `health-v2`, `governor`, `calibrate`, `counterfactual` — all 7 in `ptck.py` + `SYSTEM_MANIFEST.yaml`.
+8. **Giai đoạn 7 — ModelRegistry BMA competition**: Governor v3 with 8 evidence nodes (model_registry=0.15).
+   - `compute_model_registry_lr()`: LR = 1 - 0.5 × P(M1_MACRO) — penalizes when macro model dominates
+   - BMA posterior lazy-cached per batch: 30/07/2026 snapshot shows M1_MACRO=48%, M3=27%, M2=24%
+   - Model LR=0.758 correctly reflects macro-driven uncertainty under CREDIT_STRESS
+   - daily_updater Step 11c: feeds resolved outcomes into ModelRegistry.record_outcome()
+   - CLI: `python ptck.py governor --symbols ...` (same CLI, now includes BMA line in header + GĐ7 in per-symbol detail)
 
-9. **EOD Automation**: daily_updater.py Steps 6-10 (P0→P3). Step 11 (P4 logging) is inline in govern.assess() — no separate step needed.
+9. **CLIs**: `macro-state`, `transmission`, `sector`, `health-v2`, `governor`, `calibrate`, `counterfactual` — all 7 in `ptck.py` + `SYSTEM_MANIFEST.yaml`.
 
-10. **Architecture**: 3-stage pipeline: Perception (P0–P2), Understanding (P3), Meta-Cognition (P4), Reasoning (P5). Self-correction via Beta posteriors O(1).
+10. **EOD Automation**: daily_updater.py Steps 6-10 (P0→P3). Step 11 (P4 logging) inline in govern.assess(). Step 11c (ModelRegistry outcome feed) after calibration resolve.
+
+11. **Architecture**: 4-stage pipeline: Perception (P0–P2), Understanding (P3), Meta-Cognition (P4), Reasoning (P5). Self-correction via Beta posteriors O(1) + BMA model lifecycle (Sprint 4).
 
 ### Key Architectural Insight
-All four layers converge: CREDIT_STRESS(0.30) + LIQUIDITY_TRAP(0.20) = 0.50 evidence weight dominates even HIGH_QUALITY_COMPOUNDER(0.15) + CHEAP(0.10) + IN_VA(0.10) = 0.35. The Bayesian framework automatically weighs systemic risk above micro quality — no IF/THEN needed.
+All four layers converge: CREDIT_STRESS(0.30) + LIQUIDITY_TRAP(0.20) + BMA_M1_MACRO(0.15) = 0.65 evidence weight dominates even HIGH_QUALITY_COMPOUNDER(0.11) + CHEAP(0.09) + IN_VA(0.09) = 0.29. The BMA framework automatically weights competing market hypotheses, confirming that macro/systemic risk dominates micro quality under CREDIT_STRESS.
 
 ### Next Move
-Real outcome resolution (N days after predictions) → Beta update → LR reload into Governor. Then P5 Counterfactual: "What if macro were STABLE?" simulation.
+1. Run stress test / historical backtest once 30d forward data accumulates for the 73 pending predictions
+2. Run counterfactual repeat with new evidence weights: "What if macro were STABLE?" now includes BMA weight shift (M2_FUNDAMENTAL would dominate, model_registry LR → ~1.0)
+3. Monitor BMA posterior evolution as real outcomes resolve (73 unresolved predictions → will update M1/M2/M3 posterior weights via record_outcome)
