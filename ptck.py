@@ -3581,7 +3581,8 @@ def cmd_cafef_crawl(args):
     db.init_schema()
     use_pw = getattr(args, 'playwright', False)
     source = getattr(args, 'source', 'vci')
-    crawler = CafeFCrawler(db, use_playwright=use_pw)
+    delay = getattr(args, 'delay', 0)
+    crawler = CafeFCrawler(db, use_playwright=use_pw, delay=delay)
     if args.symbols:
         entity_type = args.type or "STANDARD"
         targets = [(s.upper(), entity_type) for s in args.symbols]
@@ -3593,6 +3594,8 @@ def cmd_cafef_crawl(args):
     print("=" * 60)
     print(f"  BCTC CRAWLER — {len(targets)} symbols, 20 quarters each")
     print(f"  Nguồn: {source} | Playwright: {'bật' if use_pw else 'tắt'}")
+    if delay > 0:
+        print(f"  Delay: {delay}s giữa các request")
     print("=" * 60)
     overall = crawler.crawl_multi(targets, source=source)
     print(f"  ✅ Done: {overall['symbols']} symbols, {overall['total_facts']} facts")
@@ -4372,6 +4375,8 @@ def build_parser():
                            "synthetic (nội suy, không cần API)")
     p_cc.add_argument("--playwright", action="store_true",
                       help="Force Playwright cho CafeF (bỏ qua requests)")
+    p_cc.add_argument("--delay", type=float, default=0,
+                      help="Độ trễ (giây) giữa các request, tránh IP ban (mặc định: 0)")
     p_cc.set_defaults(func=cmd_cafef_crawl)
 
     # vgb10y

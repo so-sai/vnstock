@@ -682,7 +682,7 @@ entrypoints:
   # ── cafef-crawl ────────────────────────────────────────
   cafef_crawl:
     description: "Crawl BCTC 20 quarters — nạp vào financial_facts.db. Nguồn mặc định: VCI GraphQL (khuyên dùng)"
-    cli: "python ptck.py cafef-crawl [--symbols FPT ACB ...] [--type STANDARD|BANK] [--source vci|cafef|synthetic] [--playwright]"
+    cli: "python ptck.py cafef-crawl [--symbols FPT ACB ...] [--type STANDARD|BANK] [--source vci|cafef|synthetic] [--playwright] [--delay SECONDS]"
     category: data
 
   # ── vgb10y ─────────────────────────────────────────────

@@ -432,10 +432,11 @@ CAFEF_MAP_BANK = {
 class CafeFCrawler:
     """Crawl 20 quarters BCTC from CafeF into financial_facts.db."""
 
-    def __init__(self, db: Optional[FinancialFactsDB] = None, use_playwright: bool = False):
+    def __init__(self, db: Optional[FinancialFactsDB] = None, use_playwright: bool = False, delay: float = 0):
         self.db = db or FinancialFactsDB()
         self.batch_id = f"cafef_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.use_playwright = use_playwright
+        self.delay = delay
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": (
@@ -1367,8 +1368,11 @@ class CafeFCrawler:
 
     def crawl_multi(self, targets: List[Tuple[str, str]], source: str = "vci") -> Dict:
         """Crawl multiple symbols."""
+        import time
         overall = {"symbols": 0, "total_facts": 0}
-        for sym, ent in targets:
+        for i, (sym, ent) in enumerate(targets):
+            if i > 0 and self.delay > 0:
+                time.sleep(self.delay)
             r = self.crawl_symbol(sym, ent, source=source)
             overall["symbols"] += 1
             overall["total_facts"] += r["total_metrics"]
