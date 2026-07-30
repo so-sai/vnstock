@@ -515,6 +515,16 @@ entrypoints:
     cli: "python ptck.py pho-nhiem --query INTEREST_RATE --symbols FPT HPG"
     category: business
 
+  # ── Giai đoạn 3: Contextualized Company Health ──────
+  contextual_health:
+    description: "Giai đoạn 3 — Contextualized Company Health: ngưỡng tài chính động theo Archetype (thay static limits)"
+    cli: "python ptck.py contextual-health [--symbols FPT VCB ...]"
+    category: business
+  suc_khoe_doanh_nghiep:
+    description: "(Giai đoạn 3) Sức khỏe doanh nghiệp theo ngữ cảnh — tiếng Việt"
+    cli: "python ptck.py suc-khoe-doanh-nghiep [--symbols FPT VCB ...]"
+    category: business
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"

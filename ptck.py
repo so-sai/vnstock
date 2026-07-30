@@ -1602,6 +1602,17 @@ def cmd_factor_exposure(args):
     engine.close()
 
 
+def cmd_contextual_health(args):
+    """Giai đoạn 3: Contextualized Company Health — Archetype-Aware Dynamic Thresholds."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.financial.company_health import ContextualHealthEngine, print_contextual_report
+    engine = ContextualHealthEngine()
+    results = engine.assess_many(args.symbols)
+    print_contextual_report(results)
+    engine.close()
+
+
 def cmd_watch(args):
     """Giám sát Volume Spike — phát hiện nến xác nhận để kích hoạt Scale-In."""
     if sys.platform == "win32":
@@ -2713,6 +2724,21 @@ def build_parser():
     p_fe_vi.add_argument("--lr-adjust", action="store_true", dest="lr_adjust",
                          help="Tính LR multiplier cho macro hiện tại")
     p_fe_vi.set_defaults(func=cmd_factor_exposure)
+
+    # ── Giai đoạn 3: Contextualized Company Health ──────
+    p_ch = sub.add_parser("contextual-health", parents=[lang_parent],
+                          help="Giai đoạn 3 — Contextualized Company Health (Archetype-Aware Dynamic Thresholds)")
+    p_ch.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_ch.set_defaults(func=cmd_contextual_health)
+
+    p_ch_vi = sub.add_parser("suc-khoe-doanh-nghiep", parents=[lang_parent],
+                             help="(Giai đoạn 3) Sức khỏe doanh nghiệp theo ngữ cảnh Archetype — Contextualized Health")
+    p_ch_vi.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_ch_vi.set_defaults(func=cmd_contextual_health)
 
     # watch (Volume Spike Monitor)
     p_watch = sub.add_parser("watch", parents=[lang_parent],
