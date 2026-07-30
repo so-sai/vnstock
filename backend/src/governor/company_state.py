@@ -135,18 +135,68 @@ LR_VALUATION = {
     "ULTRA_EXPENSIVE": 0.30,
 }
 
-# WHY: Margin-of-Safety modulates the base valuation LR.
-#   A stock with zone=EXPENSIVE (LR=0.60) but MoS=+20% (fair PE=20, actual=16)
-#   means the premium IS justified by fundamentals → LR should be closer to 1.0.
-#   A stock with zone=FAIR (LR=1.00) but MoS=-30% (fair PE=10, actual=13)
-#   means it's actually expensive despite looking "fair" → LR should be lower.
-#   Mapping: MoS 0% → 1.0 (neutral), ±50% → ±0.5 (full adjustment).
-def _mos_to_lr_modifier(mos_pct: Optional[float]) -> float:
+# ── MoS Zone taxonomy (HCI v2 — Absolute Value First) ───────────
+# WHY: MoS (Margin of Safety) from FairMultipleEngine is the PRIMARY
+#   valuation signal. Z-Score is demoted to secondary context tag.
+#   LR mapping converts MOS zone → internal LR_VALUATION key so
+#   the Bayesian inference uses the correct likelihood ratio.
+MOS_ZONE_UNDERVALUED = "MOS_UNDERVALUED"   # MoS > +20%
+MOS_ZONE_FAIR_VALUE  = "MOS_FAIR_VALUE"    # MoS 0% to +20%
+MOS_ZONE_OVERVALUED  = "MOS_OVERVALUED"    # MoS < 0%
+MOS_ZONE_NO_DATA     = "MOS_NO_DATA"
+
+# Map MOS zone → internal LR_VALUATION key (for compute_gain_probability)
+MOS_TO_LR_KEY = {
+    MOS_ZONE_UNDERVALUED: "CHEAP",
+    MOS_ZONE_FAIR_VALUE:  "FAIR",
+    MOS_ZONE_OVERVALUED:  "EXPENSIVE",
+    MOS_ZONE_NO_DATA:     "FAIR",  # fallback
+}
+
+MOS_ZONE_THRESHOLDS = [
+    (MOS_ZONE_UNDERVALUED, 20.0),   # MoS > +20% → HẤP DẪN
+    (MOS_ZONE_FAIR_VALUE,  0.0),    # MoS >= 0% → HỢP LÝ
+    (MOS_ZONE_OVERVALUED,  float("-inf")),  # MoS < 0% → QUÁ GIÁ
+]
+
+
+def _compute_mos_zone(mos_pct: Optional[float]) -> str:
+    """Map MoS % to zone. MoS is PRIMARY valuation signal (HCI v2)."""
     if mos_pct is None:
-        return 1.0
-    clipped = max(-50.0, min(50.0, mos_pct))
-    modifier = 1.0 + (clipped / 100.0)
-    return max(0.5, min(1.5, modifier))
+        return MOS_ZONE_NO_DATA
+    for zone, threshold in MOS_ZONE_THRESHOLDS:
+        if mos_pct > threshold:
+            return zone
+    return MOS_ZONE_OVERVALUED
+
+
+def _format_market_context_tag(val: dict) -> str:
+    """Format Z-Score context as secondary tag.
+
+    HCI v2: Z-Score is demoted to a Market Context Tag.
+    Tag format: "{mode}: {label}"
+      mode = TS / CS / Peer
+      label = Premium / Discount / Fair
+    """
+    tsz = val.get("overall_zone_ts", "NO_DATA")
+    csz = val.get("overall_zone", "NO_DATA")
+    pz = val.get("overall_zone_peer", "NO_DATA")
+    has_ts = val.get("has_ts", False)
+    # Determine which mode is active (TS preferred, fallback CS)
+    if has_ts and tsz != "NO_DATA":
+        mode = "TS"
+        base_zone = tsz
+    else:
+        mode = "CS"
+        base_zone = csz
+    # Map zone to Premium/Discount label
+    if base_zone in ("ULTRA_EXPENSIVE", "EXPENSIVE"):
+        label = "Phí trội (Premium)"
+    elif base_zone in ("ULTRA_CHEAP", "CHEAP"):
+        label = "Chiết khấu (Discount)"
+    else:
+        label = "Hợp lý (Market Fair)"
+    return f"{mode}: {label}"
 
 LR_BEHAVIOR = {
     "IN_VA_DEMAND": 1.60,
@@ -702,6 +752,10 @@ class BayesianMandate:
     fair_sector: str = ""
     fair_status: str = ""
 
+    # HCI v2 — MoS Zone (PRIMARY signal) + Market Context Tag (secondary)
+    mos_zone: str = MOS_ZONE_NO_DATA
+    market_context_tag: str = "NO_DATA"
+
     # v2 fields
     capital_allocation_archetype: str = ""
     capital_allocation_score: float = 0.0
@@ -861,14 +915,16 @@ class BayesianGovernor:
         except Exception:
             pass
 
+        # ── HCI v2: MoS Zone replaces Z-Score as PRIMARY valuation signal ──
+        mos_zone = _compute_mos_zone(fair.get("margin_of_safety_pct"))
+        market_context_tag = _format_market_context_tag(val)
         lr_val_override = None
-        mos_pct = fair.get("margin_of_safety_pct")
-        if mos_pct is not None:
-            base_lr = _lookup_lr(LR_VALUATION, val.get("overall_zone", "FAIR"))
-            modifier = _mos_to_lr_modifier(mos_pct)
-            lr_val_override = base_lr * modifier
-            lr_val_override = max(0.1, min(3.0, lr_val_override))
+        if mos_zone != MOS_ZONE_NO_DATA:
+            lr_key = MOS_TO_LR_KEY.get(mos_zone, "FAIR")
+            lr_val_override = _lookup_lr(LR_VALUATION, lr_key)
         val["_fair"] = fair
+        val["_mos_zone"] = mos_zone
+        val["_market_context_tag"] = market_context_tag
         val["_lr_val_override"] = lr_val_override
 
         # P1: decision_fusion bridge → L4_BEHAVIOR
@@ -1130,6 +1186,9 @@ class BayesianGovernor:
             fair_g=fair.get("g"),
             fair_sector=fair.get("sector", ""),
             fair_status=fair.get("status", ""),
+            # HCI v2 — MoS Zone (PRIMARY) + Market Context Tag (secondary)
+            mos_zone=val.get("_mos_zone", MOS_ZONE_NO_DATA),
+            market_context_tag=val.get("_market_context_tag", "NO_DATA"),
             behavior_position=beh.get("position", "UNKNOWN"),
             capital_allocation_archetype=capital_arch,
             capital_allocation_score=capital_score,
@@ -1213,20 +1272,13 @@ BUSINESS_STATUS_MAP = {
     "UNKNOWN": "Không rõ (Unknown)",
 }
 
-# ── Valuation L3 display labels for Tầng 2 ────────────────────
-# WHY: valuation_zone comes from Result dataclass (L3_VALUATION).
-#   Emoji signal: 🟢 CHIẾT KHẤU / 🟡 HỢP LÝ / 🔴 VƯỢT TRỘI.
-#   Shown in Tầng 2 alongside Business Type so investor sees
-#   whether cheapness compensates for business quality.
-VALUATION_DISPLAY = {
-    "ULTRA_CHEAP": "🟢 SIÊU CHIẾT KHẤU (ULTRA_CHEAP)",
-    "CHEAP": "🟢 CHIẾT KHẤU (CHEAP)",
-    "FAIR": "🟡 HỢP LÝ (FAIR)",
-    "EXPENSIVE": "🔴 VƯỢT TRỘI (EXPENSIVE)",
-    "ULTRA_EXPENSIVE": "🔴 SIÊU VƯỢT TRỘI (ULTRA_EXPENSIVE)",
-    "NO_DATA": "⚪ KHÔNG RÕ (NO DATA)",
-}
-VALUATION_DISPLAY.setdefault("UNKNOWN", "⚪ KHÔNG RÕ (UNKNOWN)")
+# ── HCI v2 — MoS Zone display (PRIMARY valuation signal) ─────
+# WHY: MoS (Margin of Safety) from FairMultipleEngine replaces
+#   Z-Score as the primary valuation signal in Tầng 2.
+#   Z-Score is demoted to "Market Context Tag" (secondary).
+#   Display is inline in print_report(), not via VALUATION_DISPLAY.
+#   This block kept for reference only; actual display is in
+#   print_report() using MOS_EMOJI/MOS_ABBR/MOS_ZONE_* constants.
 
 
 def print_report(analysis: Dict):
@@ -1305,29 +1357,44 @@ def print_report(analysis: Dict):
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 2 — BẢNG XẾP HẠNG HÀNH ĐỘNG (MIDDLE TIER)
     # ══════════════════════════════════════════════════════════════════
-    print(f"\n  {'='*90}")
+    print(f"\n  {'='*95}")
     print(f"  📊 {_('ACTION RANKING')} ({_('SORTED BY P(Gain) DESC')}):")
-    print(f"  {'='*90}")
-    EMOJI = {"ULTRA_CHEAP": "🟢", "CHEAP": "🟢", "FAIR": "🟡",
-             "EXPENSIVE": "🔴", "ULTRA_EXPENSIVE": "🔴", "NO_DATA": "⚪"}
-    ABBR = {"ULTRA_CHEAP": "SCK", "CHEAP": "CK", "FAIR": "HL",
-             "EXPENSIVE": "VT", "ULTRA_EXPENSIVE": "SVT", "NO_DATA": "??"}
-    print(f"  {'Mã':<5} {'P(Gain)':<9} {'Hành động':<18} {'Vốn%':<7} {'P/E':>6} {'P/B':>6} {'DN (Business)':<22} {'Định giá(L3)':<31} {'MoS%':>7} {'PE_HL':>6} {'PB_HL':>6}")
-    print(f"  {'─'*130}")
+    print(f"  {'='*95}")
+
+    # HCI v2 — Absolute Value First: MoS Zone is PRIMARY
+    MOS_EMOJI = {MOS_ZONE_UNDERVALUED: "🟢", MOS_ZONE_FAIR_VALUE: "🟡",
+                 MOS_ZONE_OVERVALUED: "🔴", MOS_ZONE_NO_DATA: "⚪"}
+    MOS_ABBR = {MOS_ZONE_UNDERVALUED: "HD", MOS_ZONE_FAIR_VALUE: "HL",
+                MOS_ZONE_OVERVALUED: "QG", MOS_ZONE_NO_DATA: "??"}
+    print(f"  {'Mã':<5} {'Hành động':<18} {'Vốn%':<7} {'DN (Business)':<22} "
+          f"{'Định giá Giá trị (MoS)':<34} {'Bối cảnh Thị trường':<30}")
+    print(f"  {'─'*120}")
 
     sorted_symbols = sorted(results.items(), key=lambda x: x[1].p_gain, reverse=True)
     for sym, r in sorted_symbols:
         arrow = ARROW_MAP.get(r.action, "?")
         status = BUSINESS_STATUS_MAP.get(r.health_archetype, r.health_archetype)
-        gz, pz, tsz = r.valuation_zone, r.valuation_zone_peer, r.valuation_zone_ts
-        mode = "TS" if tsz != "NO_DATA" else "CS"
-        l3 = f"{EMOJI.get(gz, '⚪')} {ABBR.get(gz, gz):<3}({mode}) | {EMOJI.get(pz, '⚪')} {ABBR.get(pz, pz):<4}"
-        pe_s = f"{r.pe_raw:.1f}" if r.pe_raw is not None else "N/A"
-        pb_s = f"{r.pb_raw:.1f}" if r.pb_raw is not None else "N/A"
-        mos_s = f"{r.margin_of_safety:>+5.1f}%" if r.margin_of_safety is not None else "  N/A"
-        fpe_s = f"{r.fair_pe:.1f}" if r.fair_pe is not None else "  N/A"
-        fpb_s = f"{r.fair_pb:.1f}" if r.fair_pb is not None else "  N/A"
-        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% {pe_s:>6} {pb_s:>6} {status:<22} {l3} {mos_s:>7} {fpe_s:>6} {fpb_s:>6}")
+
+        # Primary: MoS Zone
+        mz = r.mos_zone
+        mos_label = f"{MOS_EMOJI.get(mz, '⚪')} {MOS_ABBR.get(mz, mz):>3}"
+        if r.margin_of_safety is not None:
+            mos_label += f" (MoS: {r.margin_of_safety:+.1f}%)"
+        else:
+            mos_label += " (MoS: N/A)"
+
+        # Secondary: Market Context Tag (Z-Score)
+        ctx = r.market_context_tag
+        if "Premium" in ctx:
+            ctx_emoji = "🔺"
+        elif "Discount" in ctx:
+            ctx_emoji = "📉"
+        else:
+            ctx_emoji = "➡️"
+        ctx_display = f"{ctx_emoji} {ctx}"
+
+        print(f"  {arrow} {sym:<4} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% "
+              f"{status:<22} {mos_label:<34} {ctx_display:<30}")
 
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)
@@ -1361,7 +1428,11 @@ def print_report(analysis: Dict):
         print(f"  • {_('FairMultipleEngine')} (Gordon Growth PB=(ROE-g)/(Ke-g)):")
         for r in ok:
             mos_s = f"{r.margin_of_safety:+.1f}%" if r.margin_of_safety is not None else "N/A"
-            print(f"      {r.symbol}: Fair PE={r.fair_pe:.1f} PB={r.fair_pb:.1f} "
+            pe_s = f"{r.pe_raw:.1f}" if r.pe_raw is not None else "N/A"
+            pb_s = f"{r.pb_raw:.1f}" if r.pb_raw is not None else "N/A"
+            fpe_s = f"{r.fair_pe:.1f}" if r.fair_pe is not None else "N/A"
+            fpb_s = f"{r.fair_pb:.1f}" if r.fair_pb is not None else "N/A"
+            print(f"      {r.symbol}: P/E={pe_s} P/B={pb_s} → Fair PE={fpe_s} Fair PB={fpb_s} "
                   f"MoS={mos_s} Ke={r.fair_ke:.2%} g={r.fair_g:.2%} Sector={r.fair_sector}")
     else:
         n_err = sum(1 for r in results.values() if r.fair_status != "" and r.fair_status != "OK")

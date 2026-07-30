@@ -37,6 +37,38 @@ if str(BACKEND_DIR) not in sys.path:
 FINANCIAL_DB = DATA_DIR / "financial_facts.db"
 SCREENER_DB = DATA_DIR / "screener_cache.db"
 
+# ==============================================================================
+# ADR-2026-001 — CROSS-DATABASE METADATA ROUTING
+# ==============================================================================
+# WHY: FairMultipleEngine cần xác định phân ngành (ICB Sector) để gán chỉ số
+#   Cost of Equity (Ke) và Terminal Growth (g) chính xác cho từng mã.
+#
+# WARNING (DB FRAGMENTATION):
+#   - Dữ liệu P/E, P/B, ROE nằm ở:   financial_facts.db (bảng valuation_scores)
+#   - Dữ liệu Ngành (symbol_industry) nằm ở: screener_cache.db
+#
+# RULE: Mọi hàm cần tra cứu symbol_industry PHẢI dùng connection riêng trỏ về
+#   screener_cache.db. KHÔNG được dùng chung connection của financial_facts.db.
+#
+# FUTURE: Nếu số lượng cross-DB query tăng >3, trích thành
+#   backend/src/database/cross_db.py với connection-pool registry.
+# ==============================================================================
+
+
+def get_screener_db_connection() -> sqlite3.Connection:
+    """Return a dedicated connection to screener_cache.db.
+
+    WHY: Wrapper chuẩn hóa việc kết nối screener_cache.db để tránh lặp lại
+    lỗi định tuyến CSDL (ADR-2026-001). Mọi module cần tra cứu symbol_industry
+    hoặc daily_ohlcv PHẢI dùng hàm này.
+    """
+    return sqlite3.connect(str(SCREENER_DB))
+
+
+def get_financial_db_connection() -> sqlite3.Connection:
+    """Return a dedicated connection to financial_facts.db."""
+    return sqlite3.connect(str(FINANCIAL_DB))
+
 
 # ── ICB Supersector → Beta mapping ──────────────────────────────────
 # WHY: Beta reflects systematic risk per industry. Values estimated for
@@ -89,10 +121,11 @@ DEFAULT_ERP = 0.10      # Equity risk premium ~10% (emerging market)
 def _get_sector_for_symbol(symbol: str) -> str:
     """Lookup ICB supersector (icb_name3) for a symbol.
 
-    Note: symbol_industry lives in screener_cache.db, not financial_facts.db.
+    ADR-2026-001: PHẢI dùng get_screener_db_connection() —
+    symbol_industry nằm ở screener_cache.db, KHÔNG phải financial_facts.db.
     """
     try:
-        conn = sqlite3.connect(str(SCREENER_DB))
+        conn = get_screener_db_connection()
         cur = conn.cursor()
         cur.execute(
             "SELECT icb_name3 FROM symbol_industry WHERE symbol = ?",
