@@ -357,6 +357,9 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Label": "Nhãn",
     "Confidence": "Độ tin cậy",
     "BÌNH_THƯỜNG": "BÌNH THƯỜNG",
+    "CẢNH_BÁO": "CẢNH BÁO",
+    "KÍCH_HOẠT": "KÍCH HOẠT",
+    "KHẨN_CẤP": "KHẨN CẤP",
     "RỦI_RO_HỆ_THỐNG": "RỦI RO HỆ THỐNG",
     "CHUYỂN_PHA_MẠNH": "CHUYỂN PHA MẠNH",
 
@@ -608,6 +611,85 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Survival Mode": "Chế độ bảo toàn",
     "Structure Evolution": "Tiến hóa Cấu trúc",
     "HDR": "Tỷ lệ Giảm thiểu Rủi ro",
+
+    # ── P4 Calibration ──
+    "Calibration": "Hiệu chỉnh",
+    "Log-Loss": "Mất mát Log",
+    "ECE": "Sai số hiệu chuẩn",
+    "MCE": "Sai số tối đa",
+    "Brier Score": "Điểm Brier",
+    "Reliability Curve": "Đường cong tin cậy",
+    "Bin": "Nhóm",
+    "Conf": "Tin cậy",
+    "Acc": "Chính xác",
+    "Gap": "Chênh lệch",
+    "Prediction Log": "Nhật ký dự báo",
+    "Unresolved": "Chưa giải quyết",
+    "Resolved": "Đã giải quyết",
+    "Outcome": "Kết quả",
+    "Resolution": "Nghiệm thu",
+    "Hold Days": "Số ngày nắm giữ",
+    "Accuracy": "Độ chính xác",
+    "Gain": "Lãi",
+    "Loss": "Lỗ",
+    "Trend": "Xu hướng",
+    "Degradation": "Suy giảm",
+    "Snapshot": "Ảnh chụp",
+    "Likelihood Ratio": "Tỷ số khả năng",
+    "Calibrated LR": "LR đã hiệu chỉnh",
+    "Alpha": "Alpha",
+    "Beta": "Beta",
+    "Entry Price": "Giá vào",
+    "Exit Price": "Giá ra",
+
+    # ── Circuit Breaker ──
+    "Circuit Breaker": "Bộ ngắt mạch",
+
+    # ── P5 Counterfactual ──
+    "Counterfactual": "Phản thực nghiệm",
+    "Scenario": "Kịch bản",
+    "Baseline": "Đường cơ sở",
+    "Leverage": "Đòn bẩy",
+    "Override": "Ghi đè",
+    "Delta": "Chênh lệch",
+
+    # ── Governor v2 ──
+    "Macro LR": "LR Vĩ mô",
+    "Cap.Alloc": "Phân bổ Vốn",
+    "Prior Archetype": "Tiên nghiệm DNA",
+    "Contextual Health": "Sức khỏe theo ngữ cảnh",
+    "Conviction": "Mức tin cậy",
+
+    # ── Counterfactual field labels ──
+    "Prior": "Tiên nghiệm",
+    "Macro": "Vĩ mô",
+    "Transmission": "Lan truyền",
+    "Sector": "Ngành",
+    "Health": "Sức khỏe",
+    "Valuation": "Định giá",
+    "Behavior": "Hành vi",
+    "Node": "Nút",
+    "Current": "Hiện tại",
+    "Action": "Hành động",
+    "Reasoning": "Lập luận",
+    "avg": "tb",
+
+    # ── P4 eval labels ──
+    "CALIBRATION EVALUATION": "ĐÁNH GIÁ HIỆU CHỈNH",
+    "N predictions": "Số dự báo",
+    "Median Log-Loss": "Mất mát Log trung vị",
+    "Max Log-Loss": "Mất mát Log tối đa",
+    "Mean Brier": "Brier trung bình",
+    "Reliability Curve": "Đường cong tin cậy",
+    "Bin": "Nhóm",
+
+    # ── P4 LR status labels ──
+    "CALIBRATED LIKELIHOOD RATIOS": "TỶ SỐ KHẢ NĂNG ĐÃ HIỆU CHỈNH",
+
+    # ── P4 Prediction Log Status ──
+    "PREDICTION LOG STATUS": "TRẠNG THÁI NHẬT KÝ DỰ BÁO",
+    "Pending": "Đang chờ",
+
 }
 
 

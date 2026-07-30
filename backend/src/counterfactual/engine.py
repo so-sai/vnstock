@@ -270,9 +270,16 @@ class CounterfactualEngine:
 # REPORTING
 # ═══════════════════════════════════════════════════════════════
 
-def print_counterfactual_report(analysis: dict):
+def print_counterfactual_report(analysis: dict, lang_mode: str = "full"):
+    """In báo cáo counterfactual (song ngữ)."""
+    try:
+        from src.core.canonical_output_adapter import localize_label
+    except Exception:
+        def localize_label(l, m="full"): return l
+    _ = lambda x: localize_label(x, lang_mode)
+
     print(f"\n  {'='*80}")
-    print(f"  P5 COUNTERFACTUAL REASONING v2 — '{analysis['date']}'")
+    print(f"  P5 {_('Counterfactual')} {_('Reasoning')} v2 — '{analysis['date']}'")
     print(f"  {'='*80}")
 
     for sym, info in sorted(analysis["results"].items()):
@@ -283,19 +290,19 @@ def print_counterfactual_report(analysis: dict):
 
         # Baseline (v2 fields)
         cf0 = info["counterfactuals"][0]
-        print(f"  Baseline:        P(Gain)={cf0.baseline_p_gain:.1%}  "
+        print(f"  {_('Baseline')}:        P(Gain)={cf0.baseline_p_gain:.1%}  "
               f"Action={cf0.baseline_action}  Alloc={cf0.baseline_alloc:+.1f}%")
-        print(f"  Macro:           {params['macro_state']} | Transmission: {params['transmission_phase']} | "
-              f"Sector: {params['sector_phase']}")
-        print(f"  Health:          {params['health_archetype']} | "
-              f"Valuation: {params['valuation_zone']} | Behavior: {params['behavior_position']}")
-        print(f"  Cap.Alloc:       {params['capital_allocation']} | "
-              f"Prior: {params['archetype_prior_key']} | "
-              f"Macro LR: {params.get('lr_macro_override', 0):.3f}")
+        print(f"  {_('Macro')}:           {params['macro_state']} | {_('Transmission')}: {params['transmission_phase']} | "
+              f"{_('Sector')}: {params['sector_phase']}")
+        print(f"  {_('Health')}:          {params['health_archetype']} | "
+              f"{_('Valuation')}: {params['valuation_zone']} | {_('Behavior')}: {params['behavior_position']}")
+        print(f"  {_('Cap.Alloc')}:       {params['capital_allocation']} | "
+              f"{_('Prior')}: {params['archetype_prior_key']} | "
+              f"{_('Macro LR')}: {params.get('lr_macro_override', 0):.3f}")
 
         # Counterfactual scenarios
-        print(f"\n  {'▶ KỊCH BẢN GIẢ ĐỊNH (COUNTERFACTUAL)':─<64}")
-        print(f"  {'Kịch bản':<26} {'P(Gain)':>8} {'Δ':>7} {'Hành động':<12} {'Alloc':>7}")
+        print(f"\n  {'▶ ' + _('Scenario') + ' (' + _('Counterfactual') + ')':─<64}")
+        print(f"  {_('Scenario'):<26} {'P(Gain)':>8} {'Δ':>7} {_('Action'):<12} {'Alloc':>7}")
         print(f"  {'─'*64}")
         for cf in info["counterfactuals"]:
             delta_s = f"+{cf.delta:.1%}" if cf.delta >= 0 else f"{cf.delta:.1%}"
@@ -303,8 +310,8 @@ def print_counterfactual_report(analysis: dict):
                   f"{cf.cf_action:<12} {cf.cf_alloc:>+6.1f}%")
 
         # Leverage ranking (v2: includes capital_allocation)
-        print(f"\n  {'▶ ĐÒN BẨY (LEVERAGE — flip từng nút lên best)':─<64}")
-        print(f"  {'Nút':<16} {'Hiện tại':<18} {'→ Best':<18} {'P(Best)':>8} {'Δ':>7}")
+        print(f"\n  {'▶ ' + _('Leverage') + ' (flip từng nút lên best)':─<64}")
+        print(f"  {_('Node'):<16} {_('Current'):<18} {'→ Best':<18} {'P(Best)':>8} {'Δ':>7}")
         print(f"  {'─'*64}")
         for lp in info["leverage"]:
             delta_s = f"+{lp.delta:.1%}" if lp.delta >= 0 else f"{lp.delta:.1%}"
@@ -313,7 +320,7 @@ def print_counterfactual_report(analysis: dict):
 
     # Summary: which scenario liberates most capital
     print(f"\n  {'='*80}")
-    print(f"  TỔNG HỢP ĐÒN BẨY")
+    print(f"  {_('LEVERAGE SUMMARY')}")
     print(f"  {'='*80}")
     scenario_deltas: Dict[str, List[float]] = {}
     for info in analysis["results"].values():
@@ -322,7 +329,7 @@ def print_counterfactual_report(analysis: dict):
     for sc_name, deltas in sorted(scenario_deltas.items()):
         avg_d = sum(deltas) / len(deltas)
         label = SCENARIOS.get(sc_name, {}).get("label", sc_name)
-        print(f"  {label:<26}: ΔP(trung bình) = {avg_d:+.1%}")
+        print(f"  {label:<26}: ΔP({_('avg')}) = {avg_d:+.1%}")
 
 
 def main():

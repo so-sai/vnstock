@@ -1436,17 +1436,17 @@ def cmd_calibrate(args):
         ys = [r["outcome"] for r in outcomes]
         losses = [log_loss(p, y) for p, y in zip(ps, ys)]
         print(f"\n  {'='*60}")
-        print(f"  P4 CALIBRATION EVALUATION — {args.days}-day window")
+        print(f"  P4 {_ll('CALIBRATION EVALUATION')} — {args.days}-day window")
         print(f"  {'='*60}")
-        print(f"  N predictions:    {len(outcomes)}")
-        print(f"  Mean Log-Loss:    {sum(losses)/len(losses):.4f}")
-        print(f"  Median Log-Loss:  {sorted(losses)[len(losses)//2]:.4f}")
-        print(f"  Max Log-Loss:     {max(losses):.4f}")
-        print(f"  ECE (10 bins):    {ece(ps, ys):.4f}")
-        print(f"  MCE:              {mce(ps, ys):.4f}")
-        print(f"  Mean Brier:       {sum(brier_score(p,y) for p,y in zip(ps,ys))/len(ps):.4f}")
-        print(f"\n  Reliability Curve:")
-        print(f"  {'Bin':>3} {'N':>4} {'Conf':>6} {'Acc':>6} {'Gap':>6}")
+        print(f"  {_ll('N predictions')}:    {len(outcomes)}")
+        print(f"  {_ll('Mean Log-Loss')}:    {sum(losses)/len(losses):.4f}")
+        print(f"  {_ll('Median Log-Loss')}:  {sorted(losses)[len(losses)//2]:.4f}")
+        print(f"  {_ll('Max Log-Loss')}:     {max(losses):.4f}")
+        print(f"  {_ll('ECE')} (10 bins):    {ece(ps, ys):.4f}")
+        print(f"  {_ll('MCE')}:              {mce(ps, ys):.4f}")
+        print(f"  {_ll('Mean Brier')}:       {sum(brier_score(p,y) for p,y in zip(ps,ys))/len(ps):.4f}")
+        print(f"\n  {_ll('Reliability Curve')}:")
+        print(f"  {_ll('Bin'):>3} {'N':>4} {_ll('Conf'):>6} {_ll('Acc'):>6} {_ll('Gap'):>6}")
         for r in reliability_curve(ps, ys):
             print(f"  {r['bin']:>3} {r['n']:>4} {r['confidence']:>6.3f} {r['accuracy']:>6.3f} {r['gap']:>+6.3f}")
 
@@ -1455,12 +1455,12 @@ def cmd_calibrate(args):
         update_beta_posteriors(args.days)
         summary = calibration_summary(args.days)
         print(f"\n  {'='*60}")
-        print(f"  P4 BAYESIAN LR UPDATE — Beta Posteriors")
+        print(f"  P4 {_ll('BAYESIAN LR UPDATE')} — {_ll('Beta Posteriors')}")
         print(f"  {'='*60}")
-        print(f"  N outcomes: {summary['n_outcomes']}")
+        print(f"  {_ll('N outcomes')}: {summary['n_outcomes']}")
         for col, entries in summary["details"].items():
             print(f"\n  [{col}]")
-            print(f"  {'Value':<24} {'N':>4} {'Acc':>6} {'Alpha':>6} {'Beta':>6} {'LR':>8}")
+            print(f"  {_ll('Value'):<24} {'N':>4} {_ll('Acc'):>6} {_ll('Alpha'):>6} {_ll('Beta'):>6} {'LR':>8}")
             for e in entries:
                 print(f"  {e['value']:<24} {e['n']:>4} {e['accuracy']:>6.3f} "
                       f"{e['alpha']:>6.1f} {e['beta']:>6.1f} {e['lr_calibrated']:>8.4f}")
@@ -1469,7 +1469,7 @@ def cmd_calibrate(args):
         from calibration.calibrator import get_calibrated_lrs
         lrs = get_calibrated_lrs()
         print(f"\n  {'='*60}")
-        print(f"  P4 CALIBRATED LIKELIHOOD RATIOS")
+        print(f"  P4 {_ll('CALIBRATED LIKELIHOOD RATIOS')}")
         print(f"  {'='*60}")
         for key in sorted(lrs):
             print(f"  {key:<48} {lrs[key]:>8.4f}")
@@ -1479,13 +1479,13 @@ def cmd_calibrate(args):
         from calibration.prediction_log import get_outcomes_for_calibration
         resolved = get_outcomes_for_calibration(args.days)
         print(f"\n  {'='*60}")
-        print(f"  P4 PREDICTION LOG STATUS")
+        print(f"  P4 {_ll('PREDICTION LOG STATUS')}")
         print(f"  {'='*60}")
-        print(f"  Unresolved:  {len(unresolved)}")
-        print(f"  Resolved:    {len(resolved)} (window={args.days}d)")
+        print(f"  {_ll('Unresolved')}:  {len(unresolved)}")
+        print(f"  {_ll('Resolved')}:    {len(resolved)} (window={args.days}d)")
         if unresolved:
-            print(f"\n  Pending outcomes (first 10):")
-            print(f"  {'ID':>4} {'Date':<12} {'Symbol':<6} {'P(Gain)':>8} {'Action':<10}")
+            print(f"\n  {_ll('Pending')} outcomes (first 10):")
+            print(f"  {'ID':>4} {_ll('Date'):<12} {'Symbol':<6} {'P(Gain)':>8} {_ll('Action'):<10}")
             for r in unresolved[:10]:
                 print(f"  {r['id']:>4} {r['date']:<12} {r['symbol']:<6} {r['p_gain']:>8.3f} {r['action']:<10}")
 
@@ -1495,12 +1495,12 @@ def cmd_calibrate(args):
             hold_days=args.hold_days,
             dry_run=args.dry_run,
         )
-        print_resolve_report(result)
+        print_resolve_report(result, lang_mode=_VERBOSE_LANG)
 
     elif args.action == "report":
         from calibration.calibrator import calibration_trend_report, print_trend_report
         report = calibration_trend_report(days=args.days)
-        print_trend_report(report)
+        print_trend_report(report, lang_mode=_VERBOSE_LANG)
 
     elif args.action == "circuit-breaker":
         from datetime import date as _today
@@ -1518,17 +1518,17 @@ def cmd_calibrate(args):
             state = get_circuit_breaker_state()
 
         print(f"\n  {'='*60}")
-        print(f"  P4 CIRCUIT BREAKER — {state.get('date', str(_today.today()))}")
+        print(f"  P4 {_ll('Circuit Breaker')} — {state.get('date', str(_today.today()))}")
         print(f"  {'='*60}")
         level = state.get("level", 0)
         label = state.get("label", CB_LABELS.get(level, "UNKNOWN"))
         active = state.get("active", 0)
-        print(f"  Trạng thái: {'⛔ KÍCH HOẠT' if active else '🟢 BÌNH_THƯỜNG'} ({label})")
+        print(f"  Trạng thái: {'⛔ ' + _ll('KÍCH_HOẠT') if active else '🟢 ' + _ll('BÌNH_THƯỜNG')} ({_ll(label)})")
         print(f"  Cấp độ:    {level}")
         if state.get("reason"):
             print(f"  Lý do:     {state['reason']}")
         if state.get("mean_log_loss"):
-            print(f"  Log-Loss:  {state['mean_log_loss']:.4f}")
+            print(f"  {_ll('Log-Loss')}:  {state['mean_log_loss']:.4f}")
         if state.get("diff"):
             print(f"  ΔLL:       {state['diff']:+.4f}")
 
@@ -1540,7 +1540,7 @@ def cmd_calibrate(args):
             print(f"  {'-'*65}")
             for entry in log[:10]:
                 print(f"  {entry['date']:<12} {entry['level']:>5} "
-                      f"{'⛔' if entry['active'] else '🟢'}{' ' + entry['label']:<13} "
+                      f"{'⛔' if entry['active'] else '🟢'}{' ' + _ll(entry['label']):<13} "
                       f"{entry.get('trigger_reason', '')[:28]:<30}")
 
 
@@ -1552,7 +1552,7 @@ def cmd_counterfactual(args):
     engine = CounterfactualEngine()
     analysis = engine.analyze(args.symbols)
     engine.close()
-    print_counterfactual_report(analysis)
+    print_counterfactual_report(analysis, lang_mode=_VERBOSE_LANG)
 
 
 def cmd_archetype(args):

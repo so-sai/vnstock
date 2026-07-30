@@ -229,33 +229,39 @@ def resolve_pending_outcomes(
     }
 
 
-def print_resolve_report(result: Dict):
-    """In báo cáo outcome resolution ra console."""
+def print_resolve_report(result: Dict, lang_mode: str = "full"):
+    """In báo cáo outcome resolution ra console (song ngữ)."""
+    try:
+        from src.core.canonical_output_adapter import localize_label
+    except Exception:
+        def localize_label(l, m="full"): return l
+    _ = lambda x: localize_label(x, lang_mode)
+    
     status = result.get("status", "UNKNOWN")
     print(f"\n  {'='*60}")
-    print(f"  P4 OUTCOME RESOLUTION — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  P4 {_('Outcome')} {_('Resolution')} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"  {'='*60}")
     if status == "NO_ELIGIBLE":
-        print(f"  ⏳ Chưa có prediction nào đủ {result.get('n_unresolved', 0)} ngày hold.")
-        print(f"     Unresolved: {result['n_unresolved']} | Eligible: {result['n_eligible']}")
+        print(f"  ⏳ {_('Chưa có prediction nào đủ')} {result.get('n_unresolved', 0)} {_('Hold Days')}.")
+        print(f"     {_('Unresolved')}: {result['n_unresolved']} | {_('Eligible')}: {result['n_eligible']}")
         return
     if status == "DRY_RUN":
-        print(f"  🟡 DRY RUN — không ghi DB")
-        print(f"     Unresolved: {result['n_unresolved']} | Eligible: {result['n_eligible']}")
-        print(f"     Sẽ resolve  : {result['n_resolved']}")
+        print(f"  🟡 DRY RUN — {_('không ghi DB')}")
+        print(f"     {_('Unresolved')}: {result['n_unresolved']} | {_('Eligible')}: {result['n_eligible']}")
+        print(f"     {_('Sẽ resolve')}: {result['n_resolved']}")
         return
     if status == "NO_PRICE_DATA":
-        print(f"  ⚠️ Không tìm thấy dữ liệu giá để resolve.")
+        print(f"  ⚠️ {_('Không tìm thấy dữ liệu giá để resolve')}.")
         return
-    print(f"  ✅ Resolved: {result['n_resolved']} predictions")
-    print(f"     Gain: {result['n_gain']} | Loss: {result['n_loss']}")
-    print(f"     Accuracy: {result['accuracy']:.2%}")
-    print(f"     Mean Log-Loss: {result['mean_log_loss']:.4f}")
-    print(f"     Mean Brier:    {result['mean_brier']:.4f}")
-    print(f"     ECE:           {result['ece']:.4f}")
-    print(f"     MCE:           {result['mce']:.4f}")
+    print(f"  ✅ {_('Resolved')}: {result['n_resolved']} predictions")
+    print(f"     {_('Gain')}: {result['n_gain']} | {_('Loss')}: {result['n_loss']}")
+    print(f"     {_('Accuracy')}: {result['accuracy']:.2%}")
+    print(f"     Mean {_('Log-Loss')}: {result['mean_log_loss']:.4f}")
+    print(f"     Mean {_('Brier Score')}:    {result['mean_brier']:.4f}")
+    print(f"     {_('ECE')}:           {result['ece']:.4f}")
+    print(f"     {_('MCE')}:           {result['mce']:.4f}")
     if result.get("n_unresolved_post", 0) > 0:
-        print(f"  ⏳ Còn {result['n_unresolved_post']} predictions chưa đủ hạn resolve.")
+        print(f"  ⏳ {_('Còn')} {result['n_unresolved_post']} predictions {_('chưa đủ hạn resolve')}.")
 
 
 def update_beta_posteriors(days_back: int = 90):
@@ -353,30 +359,36 @@ def calibration_trend_report(days: int = 90) -> Dict:
     }
 
 
-def print_trend_report(report: Dict):
-    """In báo cáo xu hướng calibration."""
+def print_trend_report(report: Dict, lang_mode: str = "full"):
+    """In báo cáo xu hướng calibration (song ngữ)."""
+    try:
+        from src.core.canonical_output_adapter import localize_label
+    except Exception:
+        def localize_label(l, m="full"): return l
+    _ = lambda x: localize_label(x, lang_mode)
+
     print(f"\n  {'='*60}")
-    print(f"  P4 CALIBRATION TREND — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  P4 {_('Calibration')} {_('Trend')} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"  {'='*60}")
     if report["status"] == "NO_DATA":
-        print("  Chưa có dữ liệu calibration history.")
-        print("  Chạy 'calibrate resolve' để tạo snapshot đầu tiên.")
+        print(f"  {_('Chưa có dữ liệu calibration history')}.")
+        print(f"  {_('Chạy')} 'calibrate resolve' {_('để tạo snapshot đầu tiên')}.")
         return
-    print(f"  Tổng số snapshot: {report['n_snapshots']}")
-    print(f"\n  Latest:")
+    print(f"  {_('Tổng số snapshot')}: {report['n_snapshots']}")
+    print(f"\n  {_('Latest')}:")
     lat = report["latest"]
     print(f"    Date:      {lat['date']}")
-    print(f"    Resolved:  {lat['n_resolved']} predictions")
-    print(f"    Log-Loss:  {lat['mean_log_loss']:.4f}" if lat['mean_log_loss'] else "    Log-Loss:  N/A")
-    print(f"    ECE:       {lat['ece']:.4f}" if lat['ece'] else "    ECE:       N/A")
-    print(f"    Accuracy:  {lat['accuracy']:.2%}" if lat['accuracy'] else "    Accuracy:  N/A")
-    print(f"\n  Trend ({len(report.get('snapshots', []))} snapshots gần nhất):")
+    print(f"    {_('Resolved')}:  {lat['n_resolved']} predictions")
+    print(f"    {_('Log-Loss')}:  {lat['mean_log_loss']:.4f}" if lat['mean_log_loss'] else f"    {_('Log-Loss')}:  N/A")
+    print(f"    {_('ECE')}:       {lat['ece']:.4f}" if lat['ece'] else f"    {_('ECE')}:       N/A")
+    print(f"    {_('Accuracy')}:  {lat['accuracy']:.2%}" if lat['accuracy'] else f"    {_('Accuracy')}:  N/A")
+    print(f"\n  {_('Trend')} ({len(report.get('snapshots', []))} {_('snapshots gần nhất')}):")
     tr = report.get("trend", {})
     if tr:
-        print(f"    Recent avg Log-Loss: {tr.get('recent_avg_log_loss', 'N/A')}")
-        print(f"    Older avg Log-Loss:  {tr.get('older_avg_log_loss', 'N/A')}")
-        flag = "🔴 DEGRADING" if tr.get('degradation_detected') else "🟢 STABLE"
-        print(f"    Xu hướng: {flag}")
+        print(f"    Recent avg {_('Log-Loss')}: {tr.get('recent_avg_log_loss', 'N/A')}")
+        print(f"    Older avg {_('Log-Loss')}:  {tr.get('older_avg_log_loss', 'N/A')}")
+        flag = "🔴 " + _("Degradation") if tr.get('degradation_detected') else "🟢 STABLE"
+        print(f"    {_('Xu hướng')}: {flag}")
 
 
 def calibration_summary(days_back: int = 90) -> dict:
