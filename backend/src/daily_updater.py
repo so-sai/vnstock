@@ -1202,6 +1202,7 @@ def run_daily_update(target_date=None, manifest_path=None):
             report["governor"] = {"status": f"FAILED: {str(e)}"}
 
         # Step 11: Outcome Resolution + Calibration Update
+        cal_result = {"n_resolved": 0, "n_eligible": 0}
         try:
             from calibration.calibrator import resolve_pending_outcomes
             cal_result = resolve_pending_outcomes(hold_days=30)
@@ -1214,6 +1215,24 @@ def run_daily_update(target_date=None, manifest_path=None):
         except Exception as e:
             logger.warning(f"⚠️ Calibration resolve failed: {e}")
             report["calibration_resolve"] = {"status": f"FAILED: {str(e)}"}
+
+        # Step 11c: ModelRegistry BMA — feed resolved outcomes
+        try:
+            mr_n_resolved = cal_result.get("n_resolved", 0)
+            if mr_n_resolved > 0 and cal_result.get("n_eligible", 0) > 0:
+                from calibration.model_registry import ModelRegistry
+                mr = ModelRegistry()
+                avg_acc = cal_result.get("accuracy", 0.5)
+                # Feed aggregate accuracy to all 3 models
+                for mid in ("M1_MACRO", "M2_FUNDAMENTAL", "M3_BEHAVIORAL"):
+                    mr.record_outcome(mid, p_gain=avg_acc, y_true=1.0)
+                report["model_registry"] = {
+                    "n_resolved_fed": mr_n_resolved,
+                    "bma_updated": True,
+                }
+        except Exception as e:
+            logger.warning(f"⚠️ ModelRegistry feed failed: {e}")
+            report["model_registry"] = {"status": f"FAILED: {str(e)}"}
 
         # Step 11b: Circuit Breaker auto-check
         try:

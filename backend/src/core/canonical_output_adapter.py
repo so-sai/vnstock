@@ -654,7 +654,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Delta": "Chênh lệch",
 
     # ── Governor v2 ──
-    "P3 GOVERNOR v2": "P3 GOVERNOR v2",
+    "P3 GOVERNOR v3": "P3 GOVERNOR v3",
     "BAYESIAN EXPECTED UTILITY": "KỲ VỌNG HỮU ÍCH BAYES",
     "Macro": "Vĩ mô",
     "Macro LR": "LR Vĩ mô",
@@ -880,6 +880,16 @@ CLI_LABEL_MAP: dict[str, str] = {
     "DORMANT": "TẠM NGƯNG",
     "RETIRED": "ĐÀO THẢI",
 
+    # Giai đoạn 7: Governor BMA
+    "BMA": "BMA (Tổng hợp Mô hình)",
+    "Dominant": "Chi phối",
+    "Model LR": "LR Mô hình",
+    "ModelRegistry": "Sổ Mô hình",
+    "LR": "LR",
+    "P3 GOVERNOR v3": "P3 GOVERNOR v3",
+    "DECISION DISTRIBUTION": "Phân bổ Quyết định",
+    "PER-SYMBOL DETAIL": "Chi tiết từng mã",
+    "Symbol": "Mã CK",
 }
 
 

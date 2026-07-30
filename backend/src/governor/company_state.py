@@ -64,16 +64,17 @@ PRIOR_BY_ARCHETYPE = {
     "UNKNOWN": 0.53,
 }
 
-# ── Evidence weights v2 (7 nodes, sum = 1.0) ──────────────────
-# Capital Allocation (Giai đoạn 4) added at 0.15, shifted from macro/transmission/sector/health
+# ── Evidence weights v3 (8 nodes, sum = 1.0) ──────────────────
+# model_registry (Giai đoạn 7) added at 0.12 — BMA fuses 3 competing hypotheses
 EVIDENCE_WEIGHTS = {
-    "macro": 0.25,
-    "transmission": 0.15,
-    "sector": 0.12,
-    "health": 0.13,
-    "capital_allocation": 0.15,  # NEW: management capital allocation quality
-    "valuation": 0.10,
-    "behavior": 0.10,
+    "macro": 0.20,
+    "transmission": 0.13,
+    "sector": 0.10,
+    "health": 0.11,
+    "capital_allocation": 0.13,
+    "valuation": 0.09,
+    "behavior": 0.09,
+    "model_registry": 0.15,  # NEW: BMA competition posterior
 }
 
 # ── Likelihood Ratios ─────────────────────────────────────────
@@ -143,6 +144,19 @@ LR_CAPITAL_ALLOCATION = {
     "VALUE_DESTROYER": 0.20,
 }
 
+# ── ModelRegistry LR (Giai đoạn 7) ───────────────────────────
+# LR = 1.0 - 0.5 * P(M1_MACRO | D, context)
+# When macro model dominates (high P), LR < 1 → macro uncertainty penalises
+# When quality/behavior models dominate, LR ~ 1 → neutral/positive
+def compute_model_registry_lr(bma_posterior: dict) -> float:
+    """Compute LR from BMA posterior weights.
+    
+    Higher M1_MACRO posterior = macro-driven uncertainty → penalize (LR < 1).
+    Higher M2/M3 posterior = micro/behavior-driven → neutral/boost (LR ~ 1).
+    """
+    m1_w = float(bma_posterior.get("M1_MACRO", 0.333))
+    return max(0.30, min(1.20, 1.0 - 0.5 * m1_w))
+
 
 def _lookup_lr(table: dict, key: str, default: float = 1.0) -> float:
     """Safe LR lookup with logging-unfriendly fallback."""
@@ -162,17 +176,21 @@ def compute_gain_probability(
     archetype_prior_key: str = "UNKNOWN",
     lr_macro_override: Optional[float] = None,
     evidence_weights: Optional[Dict[str, float]] = None,
+    model_registry_lr: Optional[float] = None,
 ) -> Tuple[float, float, float]:
-    """Bayesian Weight-of-Evidence v2 → P(Gain | Evidence).
+    """Bayesian Weight-of-Evidence v3 → P(Gain | Evidence).
 
     LAW-004: accepts evidence_weights dict from EvidenceEngine
     for dynamically weighted log-LR fusion.
+
+    Giai đoạn 7: model_registry_lr from BMA competition posterior.
 
     So với v1:
       - Thêm capital_allocation node (Giai đoạn 4)
       - Archetype-aware prior (Giai đoạn 1 + 4)
       - dynamic LR macro override (Giai đoạn 2)
       - dynamic evidence weights (LAW-004)
+      - model_registry BMA evidence (Giai đoạn 7)
 
     Returns:
       (posterior_prob, log_posterior_odds, calibration_penalty)
@@ -192,6 +210,7 @@ def compute_gain_probability(
     lr_val = _lookup_lr(LR_VALUATION, valuation_zone)
     lr_beh = _lookup_lr(LR_BEHAVIOR, behavior_position)
     lr_cap = _lookup_lr(LR_CAPITAL_ALLOCATION, capital_allocation)
+    lr_model = model_registry_lr if model_registry_lr is not None else 1.0
 
     log_prior = math.log(prior_odds)
     log_lr = (
@@ -202,6 +221,7 @@ def compute_gain_probability(
         + w.get("capital_allocation", EVIDENCE_WEIGHTS["capital_allocation"]) * math.log(max(lr_cap, 0.01))
         + w.get("valuation", EVIDENCE_WEIGHTS["valuation"]) * math.log(max(lr_val, 0.01))
         + w.get("behavior", EVIDENCE_WEIGHTS["behavior"]) * math.log(max(lr_beh, 0.01))
+        + w.get("model_registry", EVIDENCE_WEIGHTS["model_registry"]) * math.log(max(lr_model, 0.01))
     )
 
     log_posterior_odds = log_prior + log_lr
@@ -598,6 +618,11 @@ class BayesianMandate:
     circuit_breaker_label: str = "BÌNH_THƯỜNG"
     circuit_breaker_trigger: str = ""
 
+    # Giai đoạn 7: ModelRegistry BMA competition
+    bma_posterior: Dict[str, float] = field(default_factory=dict)
+    dominant_model: str = ""
+    model_registry_lr: float = 1.0
+
 
 ACTION_VN = {
     "VETO": "Cấm tuyệt đối",
@@ -611,13 +636,16 @@ ACTION_VN = {
 
 
 class BayesianGovernor:
-    """P3 Governor v2: Bayesian Expected Utility + Giai đoạn 1-4 integration.
+    """P3 Governor v3: Bayesian Expected Utility + Giai đoạn 1-7 integration.
 
-    So với v1:
+    So với v2:
       - Archetype-aware prior (Giai đoạn 1)
       - Dynamic LR macro from Factor Exposure Matrix (Giai đoạn 2)
       - Contextual Health score (Giai đoạn 3)
       - Capital Allocation evidence node (Giai đoạn 4)
+      - Dynamic evidence weights from EvidenceEngine (Giai đoạn 5 / LAW-004)
+      - CausalEdge propagation (Giai đoạn 6 / Sprint 3)
+      - ModelRegistry BMA competition evidence (Giai đoạn 7 / Sprint 4)
     """
 
     def __init__(self):
@@ -633,6 +661,11 @@ class BayesianGovernor:
 
         # Giai đoạn 4: Capital Allocation
         self._capital_engine = None
+
+        # Giai đoạn 7: ModelRegistry (BMA competition)
+        self._model_registry = None
+        self._bma_posterior = None
+        self._dominant_model = None
 
         # Load market-level context once
         self._macro = self.perception.load_macro_state()
@@ -669,6 +702,12 @@ class BayesianGovernor:
             return arch.archetype if arch else "UNKNOWN"
         except Exception:
             return "UNKNOWN"
+
+    def _get_model_registry(self):
+        if self._model_registry is None:
+            from calibration.model_registry import ModelRegistry
+            self._model_registry = ModelRegistry()
+        return self._model_registry
 
     def _check_circuit_breaker(self):
         """Check calibration degradation and cache circuit breaker state.
@@ -762,7 +801,19 @@ class BayesianGovernor:
         except Exception:
             pass
 
-        # Bayesian inference v2 with optional dynamic weights (LAW-004)
+        # ── Giai đoạn 7: ModelRegistry BMA competition (Sprint 4) ──
+        model_registry_lr = None
+        try:
+            mr = self._get_model_registry()
+            if self._bma_posterior is None:
+                _ms = self._macro.get("state", "STABLE")
+                self._bma_posterior = mr.bma_posterior(_ms, arch_prior_key)
+                self._dominant_model = mr.select_best(_ms, arch_prior_key)
+            model_registry_lr = compute_model_registry_lr(self._bma_posterior)
+        except Exception:
+            pass
+
+        # Bayesian inference v3 with Giai đoạn 7 ModelRegistry LR
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
             transmission_phase=self._transmission["phase"],
@@ -776,6 +827,7 @@ class BayesianGovernor:
             archetype_prior_key=arch_prior_key,
             lr_macro_override=lr_macro_dynamic,
             evidence_weights=dynamic_weights,
+            model_registry_lr=model_registry_lr,
         )
 
         # Expected utility
@@ -856,6 +908,9 @@ class BayesianGovernor:
             circuit_breaker_level=cb_level,
             circuit_breaker_label=cb_label,
             circuit_breaker_trigger=cb_reason,
+            bma_posterior=self._bma_posterior or {},
+            dominant_model=(self._dominant_model or {}).get("model_id", ""),
+            model_registry_lr=round(model_registry_lr, 4) if model_registry_lr else 1.0,
         )
 
     def analyze(self, symbols: List[str]) -> Dict:
@@ -918,7 +973,7 @@ def print_report(analysis: Dict):
         def _(x): return x
 
     print(f"\n  {'='*88}")
-    print(f"  {_('P3 GOVERNOR v2')} — {_('BAYESIAN EXPECTED UTILITY')} — {analysis['date']}")
+    print(f"  {_('P3 GOVERNOR v3')} — {_('BAYESIAN EXPECTED UTILITY')} — {analysis['date']}")
     print(f"  {'='*88}")
 
     # Market context
@@ -929,8 +984,15 @@ def print_report(analysis: Dict):
     print(f"  🔄 {_('Transmission')}: {t['phase']} (L={t['liquidity']:.0f} C={t['credit']:.0f} K={t['confidence']:.0f})")
     print(f"  🏭 {_('Sector')}:      Top={s.get('top_sector','?')} | {_('Healthy')}={s.get('n_healthy',0)}/19 | phase={s.get('top_phase','?')}")
 
-    # Circuit breaker status
+    # Giai đoạn 7: ModelRegistry BMA
     first_r = list(analysis["results"].values())[0]
+    bma_dict = first_r.bma_posterior
+    if bma_dict:
+        dominant = first_r.dominant_model
+        bma_str = ", ".join(f"{k}={v:.0%}" for k, v in sorted(bma_dict.items(), key=lambda x: x[1], reverse=True))
+        print(f"  🧠 {_('BMA')}:           {bma_str} | {_('Dominant')}={dominant} ({_('LR')}={first_r.model_registry_lr:.3f})")
+
+    # Circuit breaker status
     cb_active = first_r.circuit_breaker_level > 0
     if cb_active:
         print(f"  ⛔ {_('CIRCUIT BREAKER')}: {first_r.circuit_breaker_label} "
@@ -939,14 +1001,15 @@ def print_report(analysis: Dict):
     print(f"  {'='*88}")
     
     # Table
-    print(f"  {'Mã (Symbol)':<14} {'Hành động (Action)':<18} {_('EU'):>6} {_('P(Gain)'):>10} {_('Alloc%'):>9} {_('Conviction'):>10} {'Prior':<8} {_('Cap.Alloc'):<16} {_('Macro LR'):>8}")
-    print(f"  {'─'*105}")
+    print(f"  {'Mã (Symbol)':<14} {'Hành động (Action)':<18} {_('EU'):>6} {_('P(Gain)'):>10} {_('Alloc%'):>9} {_('Conviction'):>10} {'Prior':<8} {_('Cap.Alloc'):<9} {_('Macro LR'):>8} {_('Model LR'):>9}")
+    print(f"  {'─'*110}")
 
     for sym, r in sorted(analysis["results"].items()):
         arrow = ARROW_MAP.get(r.action, "?")
+        cap_str = r.capital_allocation_archetype[:8] if len(r.capital_allocation_archetype) <= 8 else r.capital_allocation_archetype[:5] + "."
         print(f"  {arrow} {sym:<5} {r.action_vn:<18} {r.expected_utility:>+6.3f} {r.p_gain:>8.1%} "
               f"{r.allocation_pct:>+7.1f}% {r.conviction:>8.1%} "
-              f"{r.archetype_prior:<8} {r.capital_allocation_archetype:<16} {r.lr_macro_dynamic:>7.3f}")
+              f"{r.archetype_prior:<8} {cap_str:<9} {r.lr_macro_dynamic:>7.3f} {r.model_registry_lr:>8.3f}")
 
     print(f"\n  {'='*88}")
     print(f"  {_('DECISION DISTRIBUTION')}")
@@ -960,7 +1023,7 @@ def print_report(analysis: Dict):
             print(f"  {arrow} {_(action):<18}: {counts[action]} {_('Symbol')}")
 
     print(f"\n  {'='*88}")
-    print(f"  {_('PER-SYMBOL DETAIL')} — v2 ({_('Macro')}→{_('Health')}→{_('Behavior')})")
+    print(f"  {_('PER-SYMBOL DETAIL')} — v3 ({_('Macro')}→{_('Health')}→{_('Behavior')}→BMA)")
     print(f"  {'='*88}")
 
     for sym, r in sorted(analysis["results"].items()):
@@ -970,7 +1033,7 @@ def print_report(analysis: Dict):
         print(f"  {'─'*80}")
         print(f"  {_('P(Gain|Evidence)')} = {r.p_gain:.1%}  |  {_('Calib Penalty')} = {r.calibration_penalty:.2f}")
         print(f"  {_('Allocation')}       = {r.allocation_pct:+.1f}%  |  {_('Conviction')}    = {r.conviction:.1%}")
-        print(f"  {_('v2 Inputs')}:")
+        print(f"  {_('v3 Inputs')}:")
         print(f"    GĐ1 Prior:       {r.archetype_prior}")
         print(f"    GĐ2 {_('Macro LR')}:    {r.lr_macro_dynamic:.3f}")
         print(f"    GĐ3 Ctx Health:  {r.contextual_health_score:.3f}")
@@ -982,6 +1045,10 @@ def print_report(analysis: Dict):
         print(f"    {_('P2 Health')}:       {r.health_archetype}")
         print(f"    {_('L3 Valuation')}:    {r.valuation_zone}")
         print(f"    {_('L4 Behavior')}:     {r.behavior_position}")
+        print(f"    GĐ7 {_('ModelRegistry')}: {r.dominant_model} ({_('LR')}={r.model_registry_lr:.3f})")
+        if r.bma_posterior:
+            bma_str = ", ".join(f"{k}={v:.0%}" for k, v in sorted(r.bma_posterior.items(), key=lambda x: x[1], reverse=True))
+            print(f"       BMA:       {bma_str}")
         print(f"  {_('EU Ranking')}:")
         for action, eu in r.eu_ranking:
             marker = "←" if action == r.action else ""
