@@ -1602,6 +1602,17 @@ def cmd_factor_exposure(args):
     engine.close()
 
 
+def cmd_capital_allocation(args):
+    """Giai đoạn 4: Capital Allocation Quality — value creation by management."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.business.capital_allocation import CapitalAllocationEngine, print_allocation_report
+    engine = CapitalAllocationEngine()
+    results = engine.assess_many(args.symbols)
+    print_allocation_report(results)
+    engine.close()
+
+
 def cmd_contextual_health(args):
     """Giai đoạn 3: Contextualized Company Health — Archetype-Aware Dynamic Thresholds."""
     if sys.platform == "win32":
@@ -2739,6 +2750,21 @@ def build_parser():
         "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
     ], help="Danh sách mã")
     p_ch_vi.set_defaults(func=cmd_contextual_health)
+
+    # ── Giai đoạn 4: Capital Allocation Quality ──────────
+    p_ca = sub.add_parser("capital-allocation", parents=[lang_parent],
+                          help="Giai đoạn 4 — Capital Allocation Quality (Management Value Creation)")
+    p_ca.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_ca.set_defaults(func=cmd_capital_allocation)
+
+    p_ca_vi = sub.add_parser("phan-bo-von", parents=[lang_parent],
+                             help="(Giai đoạn 4) Chất lượng phân bổ vốn — Capital Allocation Quality")
+    p_ca_vi.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_ca_vi.set_defaults(func=cmd_capital_allocation)
 
     # watch (Volume Spike Monitor)
     p_watch = sub.add_parser("watch", parents=[lang_parent],

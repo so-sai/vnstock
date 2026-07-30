@@ -525,6 +525,16 @@ entrypoints:
     cli: "python ptck.py suc-khoe-doanh-nghiep [--symbols FPT VCB ...]"
     category: business
 
+  # ── Giai đoạn 4: Capital Allocation Quality ──────────
+  capital_allocation:
+    description: "Giai đoạn 4 — Capital Allocation Quality: ROIC vs WACC, reinvestment efficiency, shareholder returns"
+    cli: "python ptck.py capital-allocation [--symbols FPT VCB ...]"
+    category: business
+  phan_bo_von:
+    description: "(Giai đoạn 4) Chất lượng phân bổ vốn — tiếng Việt"
+    cli: "python ptck.py phan-bo-von [--symbols FPT VCB ...]"
+    category: business
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"
