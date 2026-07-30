@@ -1062,6 +1062,330 @@ def _clear_crisis_state(cooldown_path):
     print("  ✅ crisis_cooldown.json reset → clean state.")
 
 
+def cmd_fetch_financials(args):
+    """
+    Fetch PE/PB from KBS, compute z-scores, seed valuation_scores.
+
+    ADR — VCI/KBS FINANCIAL API INTEGRATION
+    =========================================
+    WHY: VCI GraphQL (apipub.vci.com.vn) has 3 hard failure modes:
+      1. SSL Cert mismatch → SSLCertVerificationError on Python 3.14
+      2. Non-standard response → dict without 'data' key (KeyError)
+      3. Empty response body → JSONDecodeError
+    KBS SAS finance endpoint returns 404 (endpoint retired).
+    WORKAROUND: Import vnstock.explorer.kbs.financial directly (avoids
+    VCI Company GraphQL chain). If KBS 404 persists, all external
+    financial ratio APIs are down — see alternatives in user question.
+    FIX: If a future source works, replace the KBSFinance block but DO
+    NOT revert to VCI Company.ratio_summary() — it will break again.
+    """
+    import os, numpy as np
+
+    # ── sys.path fix: ensure vnstock regular package (not namespace) ──
+    _vnstock_lib = str(Path(__file__).resolve().parent / "backend" / "libs" / "vnstock")
+    if _vnstock_lib not in sys.path and os.path.isdir(_vnstock_lib):
+        sys.path.insert(0, _vnstock_lib)
+
+    symbols = []
+    if args.all:
+        from src.database.db_core import get_connection
+        with get_connection() as conn:
+            symbols = [r[0] for r in conn.execute(
+                "SELECT DISTINCT symbol FROM daily_ohlcv ORDER BY symbol"
+            ).fetchall()]
+    elif args.symbols:
+        symbols = [s.upper() for s in args.symbols]
+    else:
+        print("  ❌ ERROR: Use --symbols SYM1 SYM2 ... or --all")
+        return
+
+    from datetime import datetime
+    now = datetime.now()
+    q = (now.month - 1) // 3 + 1
+    period = f"{now.year}Q{q}"
+    fy, fq = now.year, q
+    entity_type = "STANDARD"
+    ratio_names = ["PE", "PB"]
+
+    from src.financial.financial_facts import FINANCIAL_DB_PATH
+    from src.financial.valuation_engine import VALUATION_RATIOS
+    import sqlite3
+    conn = sqlite3.connect(str(FINANCIAL_DB_PATH))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS valuation_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL, period TEXT NOT NULL,
+            fiscal_year INTEGER, fiscal_quarter INTEGER,
+            entity_type TEXT NOT NULL, ratio_name TEXT NOT NULL,
+            ratio_value REAL, z_score REAL, percentile REAL,
+            mean REAL, std REAL, count INTEGER, zone TEXT, price REAL,
+            UNIQUE(symbol, period, ratio_name)
+        )
+    """)
+    conn.commit()
+
+    from src.database.db_core import get_connection as screener_conn
+
+    print(f"\n  {'='*60}")
+    print(f"  PTCK — FETCH FINANCIALS ({len(symbols)} symbols)")
+    print(f"  {'='*60}")
+
+    # ── Fetch ratios from KBS (fallback chain: KBS→NO_DATA) ──
+    symbol_data = {}
+    ok, err = 0, 0
+    for sym in symbols:
+        try:
+            from vnstock.explorer.kbs.financial import Finance as KBSFinance
+            kf = KBSFinance(symbol=sym)
+            df = kf.ratio(period="year")
+            if df.empty:
+                err += 1
+                print(f"  ⚠️  {sym}: empty KBS ratio response")
+                continue
+            meta_cols = {"item", "item_en", "item_id", "unit", "levels", "row_number"}
+            keys_found = {}
+            for _, r in df.iterrows():
+                iid = str(r.get("item_id", "")).strip().lower()
+                if iid == "pe_ratio":
+                    for col in df.columns:
+                        if col not in meta_cols:
+                            v = r.get(col)
+                            if v is not None and isinstance(v, (int, float)) and v > 0:
+                                keys_found["PE"] = float(v); break
+                elif iid == "pb_ratio":
+                    for col in df.columns:
+                        if col not in meta_cols:
+                            v = r.get(col)
+                            if v is not None and isinstance(v, (int, float)) and v > 0:
+                                keys_found["PB"] = float(v); break
+            if not keys_found:
+                print(f"  ⚠️  {sym}: no PE/PB in KBS response")
+                err += 1
+                continue
+            with screener_conn() as sc:
+                price_row = sc.execute(
+                    "SELECT close FROM daily_ohlcv WHERE symbol=? ORDER BY date DESC LIMIT 1",
+                    (sym,)
+                ).fetchone()
+                price = round(price_row[0], 2) if price_row else None
+            symbol_data[sym] = {"ratios": keys_found, "price": price}
+            ok += 1
+            print(f"  ✅ {sym}: PE={keys_found.get('PE','N/A')} PB={keys_found.get('PB','N/A')}")
+        except Exception as e:
+            err += 1
+            es = str(e)
+            if "404" in es:
+                print(f"  ⛔ {sym}: KBS API 404 — all external financial APIs unavailable. Use alternative import.")
+            else:
+                print(f"  ❌ {sym}: {e}")
+
+    print(f"\n  Fetched: {ok} OK, {err} errors")
+    if not symbol_data:
+        print("  No data fetched. Exiting.")
+        conn.close()
+        return
+
+    total = 0
+    for rname in ratio_names:
+        items = [(sym, symbol_data[sym]["ratios"][rname])
+                 for sym in symbol_data if rname in symbol_data[sym]["ratios"]]
+        if len(items) < 3:
+            print(f"  ⚠️  {rname}: {len(items)} values (need ≥3), skipping z-score")
+            continue
+        values = [v for _, v in items]
+        mean_v, std_v = float(np.mean(values)), float(np.std(values))
+        n = len(values)
+        meta = VALUATION_RATIOS.get(rname, {})
+        for sym, val in items:
+            z = (val - mean_v) / std_v if std_v > 0 else 0.0
+            rank = sum(1 for v in values if v <= val)
+            pct = round(rank / n * 100, 1)
+            if z <= -meta.get("ultra_cheap", 2):
+                zone = "ULTRA_CHEAP"
+            elif z <= -meta.get("cheap", 1):
+                zone = "CHEAP"
+            elif z >= meta.get("ultra_expensive", 2):
+                zone = "ULTRA_EXPENSIVE"
+            elif z >= meta.get("expensive", 1):
+                zone = "EXPENSIVE"
+            else:
+                zone = "FAIR"
+            price = symbol_data[sym].get("price")
+            conn.execute("""
+                INSERT OR REPLACE INTO valuation_scores
+                (symbol, period, fiscal_year, fiscal_quarter, entity_type,
+                 ratio_name, ratio_value, z_score, percentile,
+                 mean, std, count, zone, price)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (sym, period, fy, fq, entity_type, rname,
+                  round(val, 4), round(z, 4), pct,
+                  round(mean_v, 4), round(std_v, 4), n, zone,
+                  round(price, 2) if price else None))
+            total += 1
+        print(f"  ✅ {rname}: μ={mean_v:.2f} σ={std_v:.2f} n={n}")
+    conn.commit()
+    conn.close()
+    print(f"\n  ✅ Inserted {total} scores for {len(symbol_data)} symbols ({period})")
+
+
+def cmd_import_financials(args):
+    """
+    Import financial ratios from CSV/XLSX, compute z-scores, seed valuation_scores.
+
+    WHY: External financial APIs (VCI GraphQL, KBS SAS) are unreliable:
+      - VCI: SSL cert mismatch + no 'data' key in response + empty body
+      - KBS: 404 (endpoint retired)
+    This offline import breaks 100% dependency on third-party APIs.
+    Data source: download CSV/XLSX from CafeF / Vietstock / FiinPro manually.
+    """
+    fpath = args.file
+    if not fpath or not Path(fpath).exists():
+        print("  ❌ ERROR: --file <path> required and must exist")
+        return
+
+    import pandas as pd, numpy as np
+    from datetime import datetime
+
+    # ── Read file ──
+    ext = Path(fpath).suffix.lower()
+    try:
+        if ext == ".csv":
+            df = pd.read_csv(fpath)
+        elif ext in (".xls", ".xlsx"):
+            df = pd.read_excel(fpath, sheet_name=args.sheet or 0)
+        else:
+            print(f"  ❌ Unsupported format: {ext} (use .csv/.xls/.xlsx)")
+            return
+    except Exception as e:
+        print(f"  ❌ Read error: {e}")
+        return
+
+    if df.empty:
+        print("  ❌ File is empty")
+        return
+
+    # ── Normalize columns ──
+    col_map = {
+        "ticker": "symbol", "symbol": "symbol", "stock": "symbol", "ma": "symbol",
+        "pe": "PE", "p/e": "PE", "price_earnings": "PE",
+        "pb": "PB", "p/b": "PB", "price_book": "PB",
+        "evebitda": "EV_EBITDA", "ev/ebitda": "EV_EBITDA", "ev_ebitda": "EV_EBITDA",
+        "ps": "PS", "p/s": "PS", "price_sales": "PS",
+        "roe": "ROE", "eps": "EPS", "debt_equity": "DEBT_EQUITY", "debt/equity": "DEBT_EQUITY",
+        "date": "date", "period": "date", "ngay": "date",
+        "price": "price", "close": "price", "gia": "price",
+    }
+    df.rename(columns={c: col_map.get(c.strip().lower().replace(" ", "_"), c) for c in df.columns}, inplace=True)
+
+    required_cols = {"symbol"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        print(f"  ❌ Missing required column: {missing}. Found: {list(df.columns)}")
+        return
+
+    # ── Determine period ──
+    now = datetime.now()
+    q = (now.month - 1) // 3 + 1
+    period = f"{now.year}Q{q}"
+    fy, fq = now.year, q
+
+    # ── Prepare valuation_scores upsert ──
+    from src.financial.financial_facts import FINANCIAL_DB_PATH
+    from src.financial.valuation_engine import VALUATION_RATIOS
+    import sqlite3
+    conn = sqlite3.connect(str(FINANCIAL_DB_PATH))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS valuation_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL, period TEXT NOT NULL,
+            fiscal_year INTEGER, fiscal_quarter INTEGER,
+            entity_type TEXT NOT NULL, ratio_name TEXT NOT NULL,
+            ratio_value REAL, z_score REAL, percentile REAL,
+            mean REAL, std REAL, count INTEGER, zone TEXT, price REAL,
+            UNIQUE(symbol, period, ratio_name)
+        )
+    """)
+    conn.commit()
+
+    print(f"\n  {'='*60}")
+    print(f"  PTCK — IMPORT FINANCIALS ({len(df)} rows, {fpath})")
+    print(f"  {'='*60}")
+
+    ratio_cols = [c for c in ["PE", "PB", "EV_EBITDA", "PS", "ROE", "EPS", "DEBT_EQUITY"] if c in df.columns]
+    if not ratio_cols:
+        print("  ❌ No recognized ratio columns found. Expected: PE, PB, EV_EBITDA, PS, ROE, EPS, DEBT_EQUITY")
+        print(f"     Found columns: {list(df.columns)}")
+        conn.close()
+        return
+
+    # ── Build symbol_data from file rows ──
+    symbol_data = {}
+    for _, row in df.iterrows():
+        sym = str(row["symbol"]).strip().upper()
+        vals = {}
+        for rn in ratio_cols:
+            v = row.get(rn)
+            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                try:
+                    fv = float(v)
+                    if fv > 0:
+                        vals[rn] = fv
+                except (ValueError, TypeError):
+                    pass
+        if not vals:
+            continue
+        price = row.get("price")
+        if price is not None and not (isinstance(price, float) and np.isnan(price)):
+            price = round(float(price), 2)
+        else:
+            price = None
+        symbol_data[sym] = {"ratios": vals, "price": price}
+
+    print(f"  Parsed {len(symbol_data)} symbols with valid ratio data")
+
+    # ── Compute z-scores and insert ──
+    total = 0
+    for rname in ratio_cols:
+        items = [(sym, d["ratios"][rname]) for sym, d in symbol_data.items() if rname in d["ratios"]]
+        if len(items) < 3:
+            print(f"  ⚠️  {rname}: {len(items)} values (need >=3), skipping")
+            continue
+        values = [v for _, v in items]
+        mean_v, std_v = float(np.mean(values)), float(np.std(values))
+        n = len(values)
+        meta = VALUATION_RATIOS.get(rname, {})
+        for sym, val in items:
+            z = (val - mean_v) / std_v if std_v > 0 else 0.0
+            rank = sum(1 for v in values if v <= val)
+            pct = round(rank / n * 100, 1)
+            if z <= -meta.get("ultra_cheap", 2):
+                zone = "ULTRA_CHEAP"
+            elif z <= -meta.get("cheap", 1):
+                zone = "CHEAP"
+            elif z >= meta.get("ultra_expensive", 2):
+                zone = "ULTRA_EXPENSIVE"
+            elif z >= meta.get("expensive", 1):
+                zone = "EXPENSIVE"
+            else:
+                zone = "FAIR"
+            price = symbol_data[sym].get("price")
+            conn.execute("""
+                INSERT OR REPLACE INTO valuation_scores
+                (symbol, period, fiscal_year, fiscal_quarter, entity_type,
+                 ratio_name, ratio_value, z_score, percentile,
+                 mean, std, count, zone, price)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (sym, period, fy, fq, "STANDARD", rname,
+                  round(val, 4), round(z, 4), pct,
+                  round(mean_v, 4), round(std_v, 4), n, zone,
+                  price))
+            total += 1
+        print(f"  ✅ {rname}: μ={mean_v:.2f} σ={std_v:.2f} n={n}")
+    conn.commit()
+    conn.close()
+    print(f"\n  ✅ Inserted {total} scores for {len(symbol_data)} symbols ({period})")
+
+
 def cmd_data_quality(args):
     """Bộ đánh giá độ tin cậy dữ liệu (TẦNG 0)."""
     from src.engine.data_quality import xuat_bao_cao
@@ -3465,6 +3789,20 @@ def build_parser():
     p_su.add_argument("--force", action="store_true", dest="sbv_force",
                       help="Bỏ qua CRITICAL_WARNING — clear CRISIS_REAL marker thủ công")
     p_su.set_defaults(func=cmd_sbv_update)
+
+    # fetch-financials
+    p_ff = sub.add_parser("fetch-financials", parents=[lang_parent],
+                          help="[BROKEN] VCI/KBS API không hoạt động — dùng import-financials thay thế")
+    p_ff.add_argument("--symbols", nargs="+", default=None, help="Danh sách mã cổ phiếu")
+    p_ff.add_argument("--all", action="store_true", help="Fetch cho tất cả mã có trong daily_ohlcv")
+    p_ff.set_defaults(func=cmd_fetch_financials)
+
+    # import-financials
+    p_imf = sub.add_parser("import-financials", parents=[lang_parent],
+                           help="Import PE/PB/... from CSV/XLSX, compute z-scores, seed valuation_scores")
+    p_imf.add_argument("--file", required=True, help="Đường dẫn file .csv / .xlsx")
+    p_imf.add_argument("--sheet", default=None, help="Tên sheet (mặc định sheet đầu tiên)")
+    p_imf.set_defaults(func=cmd_import_financials)
 
     # data-quality
     p_dq = sub.add_parser("data-quality", parents=[lang_parent], help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")

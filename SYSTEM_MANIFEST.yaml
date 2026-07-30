@@ -655,6 +655,18 @@ entrypoints:
     cli: "python ptck.py model-registry bma"
     category: calibration
 
+  # ── fetch-financials ─────────────────────────────────
+  fetch_financials:
+    description: "Fetch PE/PB/PS/EV-EBITDA từ VCI, compute cross-sectional z-scores, seed valuation_scores"
+    cli: "python ptck.py fetch-financials --symbols FPT ACB HDB [--all]"
+    category: data
+
+  # ── import-financials ────────────────────────────────
+  import_financials:
+    description: "Import PE/PB/EV-EBITDA/ROE/EPS từ CSV/XLSX, compute z-scores, seed valuation_scores"
+    cli: "python ptck.py import-financials --file data.csv [--sheet Sheet1]"
+    category: data
+
   # ── init-agent ────────────────────────────────────────
   init_agent:
     description: "Initialize IDE agent config files (.clinerules + .cursorrules) from bundled AGENTS.md"
