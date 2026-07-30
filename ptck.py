@@ -1541,7 +1541,7 @@ def cmd_calibrate(args):
             for entry in log[:10]:
                 print(f"  {entry['date']:<12} {entry['level']:>5} "
                       f"{'⛔' if entry['active'] else '🟢'}{' ' + _ll(entry['label']):<13} "
-                      f"{entry.get('trigger_reason', '')[:28]:<30}")
+                       f"{(entry.get('trigger_reason') or '')[:28]:<30}")
 
 
 def cmd_counterfactual(args):
