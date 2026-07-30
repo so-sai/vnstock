@@ -667,6 +667,12 @@ entrypoints:
     cli: "python ptck.py import-financials --file data.csv [--sheet Sheet1]"
     category: data
 
+  # ── bctc-20q ─────────────────────────────────────────
+  bctc_20q:
+    description: "Import 20-quarter BCTC CSV, compute time-series z-scores (intrinsic valuation vs 5-year history)"
+    cli: "python ptck.py bctc-20q --file 20q.csv [--sheet Sheet1]"
+    category: data
+
   # ── init-agent ────────────────────────────────────────
   init_agent:
     description: "Initialize IDE agent config files (.clinerules + .cursorrules) from bundled AGENTS.md"

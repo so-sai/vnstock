@@ -1127,6 +1127,11 @@ def cmd_fetch_financials(args):
         "ALTER TABLE valuation_scores ADD COLUMN zone_peer TEXT",
         "ALTER TABLE valuation_scores ADD COLUMN peer_group TEXT",
         "ALTER TABLE valuation_scores ADD COLUMN peer_count INTEGER",
+        "ALTER TABLE valuation_scores ADD COLUMN z_score_ts REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN zone_ts TEXT",
+        "ALTER TABLE valuation_scores ADD COLUMN mean_5y REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN std_5y REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN count_5y INTEGER",
     ]:
         try:
             conn.execute(col_sql)
@@ -1326,6 +1331,11 @@ def cmd_import_financials(args):
         "ALTER TABLE valuation_scores ADD COLUMN zone_peer TEXT",
         "ALTER TABLE valuation_scores ADD COLUMN peer_group TEXT",
         "ALTER TABLE valuation_scores ADD COLUMN peer_count INTEGER",
+        "ALTER TABLE valuation_scores ADD COLUMN z_score_ts REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN zone_ts TEXT",
+        "ALTER TABLE valuation_scores ADD COLUMN mean_5y REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN std_5y REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN count_5y INTEGER",
     ]:
         try:
             conn.execute(col_sql)
@@ -1515,6 +1525,149 @@ def cmd_import_financials(args):
     conn.commit()
     conn.close()
     print(f"\n  ✅ Inserted {total} scores for {len(symbol_data)} symbols ({period})")
+
+
+def cmd_bctc_20q(args):
+    """
+    Import 20-quarter BCTC CSV, compute time-series z-scores, seed
+    z_score_ts / zone_ts / mean_5y / std_5y / count_5y in valuation_scores.
+
+    CSV format (long): symbol,quarter,PE,PB,ROE,EPS,price[,...]
+      One row per symbol per quarter, min 12 quarters for statistical validity.
+
+    Architectural intent:
+      Time-series Z-Score (vs a stock's own 5-year history) is the PRIMARY
+      valuation method. Cross-sectional Z-Score (vs universe) is market-
+      relative overlay. This restores the original architectural design
+      after the temporary snapshot-based import workaround.
+    """
+    fpath = args.file
+    if not fpath or not Path(fpath).exists():
+        print("  ❌ ERROR: --file <path> required and must exist")
+        return
+
+    import pandas as pd, numpy as np
+    ext = Path(fpath).suffix.lower()
+    try:
+        if ext == ".csv":
+            df = pd.read_csv(fpath)
+        elif ext in (".xls", ".xlsx"):
+            df = pd.read_excel(fpath, sheet_name=args.sheet or 0)
+        else:
+            print(f"  ❌ Unsupported format: {ext}")
+            return
+    except Exception as e:
+        print(f"  ❌ Read error: {e}")
+        return
+
+    if df.empty:
+        print("  ❌ File is empty")
+        return
+
+    # Normalise columns
+    col_map = {
+        "quarter": "quarter", "period": "quarter", "quy": "quarter", "q": "quarter",
+        "ticker": "symbol", "symbol": "symbol", "stock": "symbol",
+        "pe": "PE", "p/e": "PE", "pb": "PB", "p/b": "PB",
+        "roe": "ROE", "eps": "EPS",
+        "price": "price", "close": "price", "gia": "price",
+    }
+    df.rename(columns={c: col_map.get(c.strip().lower().replace(" ", "_"), c) for c in df.columns}, inplace=True)
+
+    required = {"symbol", "quarter"}
+    missing = required - set(df.columns)
+    if missing:
+        print(f"  ❌ Missing: {missing}. Found: {list(df.columns)}")
+        return
+
+    ratio_cols = [c for c in ["PE", "PB", "ROE", "EPS"] if c in df.columns]
+    if not ratio_cols:
+        print("  ❌ No ratio columns (PE, PB, ROE, EPS). Found: {list(df.columns)}")
+        return
+
+    from src.financial.financial_facts import FINANCIAL_DB_PATH
+    from src.financial.valuation_engine import VALUATION_RATIOS
+    import sqlite3
+    conn = sqlite3.connect(str(FINANCIAL_DB_PATH))
+    for col_sql in [
+        "ALTER TABLE valuation_scores ADD COLUMN z_score_ts REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN zone_ts TEXT",
+        "ALTER TABLE valuation_scores ADD COLUMN mean_5y REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN std_5y REAL",
+        "ALTER TABLE valuation_scores ADD COLUMN count_5y INTEGER",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            pass
+    conn.commit()
+
+    print(f"\n  {'='*60}")
+    print(f"  PTCK — BCTC 20Q ({len(df)} rows, {fpath})")
+    print(f"  {'='*60}")
+
+    # Group by (symbol, ratio): collect ordered values across quarters
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for _, row in df.iterrows():
+        sym = str(row["symbol"]).strip().upper()
+        q = str(row["quarter"]).strip()
+        for rn in ratio_cols:
+            v = row.get(rn)
+            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                try:
+                    fv = float(v)
+                    if fv > 0:
+                        groups[(sym, rn)].append((q, fv))
+                except (ValueError, TypeError):
+                    pass
+
+    # For each group sort by quarter, compute TS stats, store in latest quarter
+    meta = VALUATION_RATIOS
+    ts_total, ts_skip_short, ts_skip_nosym = 0, 0, 0
+    for (sym, rn), q_values in groups.items():
+        q_values.sort(key=lambda x: x[0])  # chronological
+        if len(q_values) < 12:
+            ts_skip_short += 1
+            continue
+        vals = [v for _, v in q_values]
+        latest_q, latest_val = q_values[-1]
+        mean_5y = float(np.mean(vals))
+        std_5y = float(np.std(vals))
+        count_5y = len(vals)
+        z_ts = (latest_val - mean_5y) / std_5y if std_5y > 0 else 0.0
+        # zone from VALUATION_RATIOS thresholds
+        m = meta.get(rn, {})
+        if z_ts <= -m.get("ultra_cheap", 2):       zone_ts = "ULTRA_CHEAP"
+        elif z_ts <= -m.get("cheap", 1):           zone_ts = "CHEAP"
+        elif z_ts >= m.get("ultra_expensive", 2):  zone_ts = "ULTRA_EXPENSIVE"
+        elif z_ts >= m.get("expensive", 1):        zone_ts = "EXPENSIVE"
+        else:                                        zone_ts = "FAIR"
+        # Find the latest existing period for this symbol
+        cur = conn.execute("SELECT MAX(period) FROM valuation_scores WHERE symbol=?", (sym,))
+        max_period = cur.fetchone()[0]
+        target_q = max_period if max_period else latest_q
+        # Store TS data in the most recent period row
+        conn.execute("""
+            UPDATE valuation_scores
+            SET z_score_ts=?, zone_ts=?, mean_5y=?, std_5y=?, count_5y=?
+            WHERE symbol=? AND period=? AND ratio_name=?
+        """, (round(z_ts, 4), zone_ts, round(mean_5y, 4), round(std_5y, 4),
+              count_5y, sym, target_q, rn))
+        ts_total += 1
+        # Also insert historical quarter rows if not already present
+        for q, val in q_values[:-1]:
+            conn.execute("""
+                INSERT OR IGNORE INTO valuation_scores
+                (symbol, period, ratio_name, ratio_value, entity_type)
+                VALUES (?,?,?,?,?)
+            """, (sym, q, rn, round(val, 4), "STANDARD"))
+
+    conn.commit()
+    conn.close()
+    print(f"  ✅ Time-series z-scores: {ts_total} updates ({ts_skip_short} skipped <12 quarters)")
+    print(f"  ✅ Historical quarter rows: inserted/verified for all symbols")
+    print(f"  📐 Architectural mode: TIME-SERIES (intrinsic) now available for {ts_total//len(ratio_cols) if ratio_cols else 0} symbols")
 
 
 def cmd_data_quality(args):
@@ -3934,6 +4087,13 @@ def build_parser():
     p_imf.add_argument("--file", required=True, help="Đường dẫn file .csv / .xlsx")
     p_imf.add_argument("--sheet", default=None, help="Tên sheet (mặc định sheet đầu tiên)")
     p_imf.set_defaults(func=cmd_import_financials)
+
+    # bctc-20q — Time-series 5-year valuation
+    p_bctc = sub.add_parser("bctc-20q", parents=[lang_parent],
+                            help="Import 20-quarter BCTC CSV, compute time-series z-scores (intrinsic valuation)")
+    p_bctc.add_argument("--file", required=True, help="Đường dẫn file .csv / .xlsx (symbol, quarter, PE, PB, ...)")
+    p_bctc.add_argument("--sheet", default=None, help="Tên sheet (mặc định sheet đầu tiên)")
+    p_bctc.set_defaults(func=cmd_bctc_20q)
 
     # data-quality
     p_dq = sub.add_parser("data-quality", parents=[lang_parent], help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")

@@ -382,7 +382,8 @@ class L3ValuationLoader:
             SELECT ratio_name, ratio_value, z_score, percentile, zone,
                    COALESCE(z_score_peer, z_score) AS z_score_peer,
                    COALESCE(zone_peer, zone) AS zone_peer,
-                   peer_group
+                   peer_group,
+                   z_score_ts, zone_ts, mean_5y, std_5y, count_5y
             FROM valuation_scores
             WHERE symbol = ? AND period = (
                 SELECT MAX(period) FROM valuation_scores WHERE symbol = ?
@@ -391,22 +392,26 @@ class L3ValuationLoader:
         """, (symbol.upper(), symbol.upper()))
         rows = cur.fetchall()
         return {r[0]: {"value": r[1], "z_score": r[2], "percentile": r[3], "zone": r[4],
-                        "z_score_peer": r[5], "zone_peer": r[6], "peer_group": r[7]}
+                        "z_score_peer": r[5], "zone_peer": r[6], "peer_group": r[7],
+                        "z_score_ts": r[8], "zone_ts": r[9],
+                        "mean_5y": r[10], "std_5y": r[11], "count_5y": r[12]}
                 for r in rows}
 
     def score_valuation(self, symbol: str) -> Dict:
         vals = self.get_latest_valuation(symbol)
         if not vals:
             return {"score": 0, "grade": "NO_DATA", "overall_zone": "NO_DATA",
-                    "overall_zone_peer": "NO_DATA", "lowest_z": 0, "peer_group": None,
-                    "raw_values": {}}
+                    "overall_zone_peer": "NO_DATA", "overall_zone_ts": "NO_DATA",
+                    "lowest_z": 0, "peer_group": None, "raw_values": {}}
 
         zone_scores = {"ULTRA_CHEAP": 2, "CHEAP": 1, "FAIR": 0, "EXPENSIVE": -1, "ULTRA_EXPENSIVE": -2}
         z_scores = []
         z_scores_peer = []
+        z_scores_ts = []
         scores = []
         peer_group = None
         raw_values = {}
+        has_ts = False
         for rname, rinfo in vals.items():
             z_scores.append(rinfo.get("z_score", 0))
             z_scores_peer.append(rinfo.get("z_score_peer", rinfo.get("z_score", 0)))
@@ -415,6 +420,11 @@ class L3ValuationLoader:
                 peer_group = rinfo["peer_group"]
             if rname in ("PE", "PB", "PEG", "PB_TO_ROE"):
                 raw_values[rname] = rinfo.get("value", None)
+            # Time-series z-score
+            zts = rinfo.get("z_score_ts")
+            if zts is not None:
+                z_scores_ts.append(zts)
+                has_ts = True
 
         def _zone_from_avg(avg: float) -> str:
             if avg <= -1.5:  return "ULTRA_CHEAP"
@@ -425,16 +435,24 @@ class L3ValuationLoader:
 
         avg_z = sum(z_scores) / len(z_scores) if z_scores else 0
         avg_z_peer = sum(z_scores_peer) / len(z_scores_peer) if z_scores_peer else 0
+        avg_z_ts = sum(z_scores_ts) / len(z_scores_ts) if z_scores_ts else None
 
-        return {
+        result = {
             "score": round(sum(scores) / len(scores), 2) if scores else 0,
             "grade": _zone_from_avg(avg_z),
             "overall_zone": _zone_from_avg(avg_z),
             "overall_zone_peer": _zone_from_avg(avg_z_peer),
+            "overall_zone_ts": _zone_from_avg(avg_z_ts) if avg_z_ts is not None else "NO_DATA",
             "lowest_z": round(min(z_scores), 2) if z_scores else 0,
             "peer_group": peer_group,
             "raw_values": raw_values,
+            "has_ts": has_ts,
         }
+        # architectural rule: when time-series data exists, use TS zone as primary evidence
+        # for the Bayesian Governor (time-series = intrinsic valuation, cross-sectional = fallback)
+        if has_ts and avg_z_ts is not None:
+            result["overall_zone"] = _zone_from_avg(avg_z_ts)
+        return result
 
     def close(self):
         self.conn.close()
@@ -656,6 +674,7 @@ class BayesianMandate:
     health_archetype: str
     valuation_zone: str
     valuation_zone_peer: str
+    valuation_zone_ts: str
     behavior_position: str
     pe_raw: Optional[float] = None
     pb_raw: Optional[float] = None
@@ -1038,6 +1057,7 @@ class BayesianGovernor:
             health_archetype=health["archetype"],
             valuation_zone=val.get("overall_zone", "FAIR"),
             valuation_zone_peer=val.get("overall_zone_peer", "NO_DATA"),
+            valuation_zone_ts=val.get("overall_zone_ts", "NO_DATA"),
             pe_raw=val.get("raw_values", {}).get("PE"),
             pb_raw=val.get("raw_values", {}).get("PB"),
             behavior_position=beh.get("position", "UNKNOWN"),
@@ -1229,8 +1249,9 @@ def print_report(analysis: Dict):
     for sym, r in sorted_symbols:
         arrow = ARROW_MAP.get(r.action, "?")
         status = BUSINESS_STATUS_MAP.get(r.health_archetype, r.health_archetype)
-        gz, pz = r.valuation_zone, r.valuation_zone_peer
-        l3 = f"{EMOJI.get(gz, '⚪')} {ABBR.get(gz, gz):<4} | {EMOJI.get(pz, '⚪')} {ABBR.get(pz, pz):<4}"
+        gz, pz, tsz = r.valuation_zone, r.valuation_zone_peer, r.valuation_zone_ts
+        mode = "TS" if tsz != "NO_DATA" else "CS"
+        l3 = f"{EMOJI.get(gz, '⚪')} {ABBR.get(gz, gz):<3}({mode}) | {EMOJI.get(pz, '⚪')} {ABBR.get(pz, pz):<4}"
         pe_s = f"{r.pe_raw:.1f}" if r.pe_raw is not None else "N/A"
         pb_s = f"{r.pb_raw:.1f}" if r.pb_raw is not None else "N/A"
         print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% {pe_s:>6} {pb_s:>6} {status:<22} {l3}")

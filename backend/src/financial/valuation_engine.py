@@ -120,6 +120,11 @@ class ValuationEngine:
             "ALTER TABLE valuation_scores ADD COLUMN zone_peer TEXT",
             "ALTER TABLE valuation_scores ADD COLUMN peer_group TEXT",
             "ALTER TABLE valuation_scores ADD COLUMN peer_count INTEGER",
+            "ALTER TABLE valuation_scores ADD COLUMN z_score_ts REAL",
+            "ALTER TABLE valuation_scores ADD COLUMN zone_ts TEXT",
+            "ALTER TABLE valuation_scores ADD COLUMN mean_5y REAL",
+            "ALTER TABLE valuation_scores ADD COLUMN std_5y REAL",
+            "ALTER TABLE valuation_scores ADD COLUMN count_5y INTEGER",
         ]:
             try:
                 conn.execute(col_sql)
