@@ -135,6 +135,19 @@ LR_VALUATION = {
     "ULTRA_EXPENSIVE": 0.30,
 }
 
+# WHY: Margin-of-Safety modulates the base valuation LR.
+#   A stock with zone=EXPENSIVE (LR=0.60) but MoS=+20% (fair PE=20, actual=16)
+#   means the premium IS justified by fundamentals → LR should be closer to 1.0.
+#   A stock with zone=FAIR (LR=1.00) but MoS=-30% (fair PE=10, actual=13)
+#   means it's actually expensive despite looking "fair" → LR should be lower.
+#   Mapping: MoS 0% → 1.0 (neutral), ±50% → ±0.5 (full adjustment).
+def _mos_to_lr_modifier(mos_pct: Optional[float]) -> float:
+    if mos_pct is None:
+        return 1.0
+    clipped = max(-50.0, min(50.0, mos_pct))
+    modifier = 1.0 + (clipped / 100.0)
+    return max(0.5, min(1.5, modifier))
+
 LR_BEHAVIOR = {
     "IN_VA_DEMAND": 1.60,
     "IN_VA": 1.15,
@@ -197,6 +210,7 @@ def compute_gain_probability(
     lr_macro_override: Optional[float] = None,
     evidence_weights: Optional[Dict[str, float]] = None,
     model_registry_lr: Optional[float] = None,
+    lr_val_override: Optional[float] = None,
 ) -> Tuple[float, float, float]:
     """Bayesian Weight-of-Evidence v3 → P(Gain | Evidence).
 
@@ -227,7 +241,7 @@ def compute_gain_probability(
     lr_trans = _lookup_lr(LR_TRANSMISSION, transmission_phase)
     lr_sector = _lookup_lr(LR_SECTOR, sector_phase)
     lr_health = _lookup_lr(LR_HEALTH, health_archetype)
-    lr_val = _lookup_lr(LR_VALUATION, valuation_zone)
+    lr_val = lr_val_override if lr_val_override is not None else _lookup_lr(LR_VALUATION, valuation_zone)
     lr_beh = _lookup_lr(LR_BEHAVIOR, behavior_position)
     lr_cap = _lookup_lr(LR_CAPITAL_ALLOCATION, capital_allocation)
     lr_model = model_registry_lr if model_registry_lr is not None else 1.0
@@ -418,7 +432,7 @@ class L3ValuationLoader:
             scores.append(zone_scores.get(rinfo.get("zone", "FAIR"), 0))
             if rinfo.get("peer_group"):
                 peer_group = rinfo["peer_group"]
-            if rname in ("PE", "PB", "PEG", "PB_TO_ROE"):
+            if rname in ("PE", "PB", "ROE", "PEG", "PB_TO_ROE"):
                 raw_values[rname] = rinfo.get("value", None)
             # Time-series z-score
             zts = rinfo.get("z_score_ts")
@@ -679,6 +693,15 @@ class BayesianMandate:
     pe_raw: Optional[float] = None
     pb_raw: Optional[float] = None
 
+    # FairMultipleEngine fields (absolute intrinsic valuation vs current price)
+    fair_pe: Optional[float] = None
+    fair_pb: Optional[float] = None
+    margin_of_safety: Optional[float] = None
+    fair_ke: Optional[float] = None
+    fair_g: Optional[float] = None
+    fair_sector: str = ""
+    fair_status: str = ""
+
     # v2 fields
     capital_allocation_archetype: str = ""
     capital_allocation_score: float = 0.0
@@ -731,6 +754,9 @@ class BayesianGovernor:
         self.valuation = L3ValuationLoader()
         self.behavior = L4BehaviorLoader()
 
+        # FairMultipleEngine: absolute intrinsic valuation via Gordon Growth
+        self._fair_engine = None
+
         # Giai đoạn 2: Factor Exposure
         self._factor_engine = None
 
@@ -781,6 +807,12 @@ class BayesianGovernor:
         except Exception:
             return "UNKNOWN"
 
+    def _get_fair_engine(self):
+        if self._fair_engine is None:
+            from src.governor.fair_multiple_engine import compute_fair_multiple
+            self._fair_engine = compute_fair_multiple
+        return self._fair_engine
+
     def _get_model_registry(self):
         # WHY lazy-init: ModelRegistry opens calibration.db connection;
         #   delay until first assess() call to avoid cold-start penalty.
@@ -810,6 +842,34 @@ class BayesianGovernor:
         # Per-symbol evidence
         health = self.perception.load_health(symbol)
         val = self.valuation.score_valuation(symbol)
+
+        # ── Fair Multiple Engine (absolute intrinsic valuation) ──
+        fair = {}
+        try:
+            raw = val.get("raw_values", {})
+            roe_val = raw.get("ROE")
+            pe_val = raw.get("PE")
+            pb_val = raw.get("PB")
+            if roe_val is not None and pe_val is not None and pb_val is not None:
+                fair = self._get_fair_engine()(
+                    symbol=symbol,
+                    roe=roe_val / 100.0 if roe_val > 1 else roe_val,
+                    pe_current=pe_val,
+                    pb_current=pb_val,
+                    archetype=health.get("archetype", "UNKNOWN"),
+                )
+        except Exception:
+            pass
+
+        lr_val_override = None
+        mos_pct = fair.get("margin_of_safety_pct")
+        if mos_pct is not None:
+            base_lr = _lookup_lr(LR_VALUATION, val.get("overall_zone", "FAIR"))
+            modifier = _mos_to_lr_modifier(mos_pct)
+            lr_val_override = base_lr * modifier
+            lr_val_override = max(0.1, min(3.0, lr_val_override))
+        val["_fair"] = fair
+        val["_lr_val_override"] = lr_val_override
 
         # P1: decision_fusion bridge → L4_BEHAVIOR
         # WHY: arbitrate() uses REGIME_POLICY matrix to determine
@@ -930,6 +990,7 @@ class BayesianGovernor:
             pass
 
         # Bayesian inference v3 with Giai đoạn 7 ModelRegistry LR
+        #   + FairMultipleEngine lr_val_override (MoS-modulated valuation LR)
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
             transmission_phase=self._transmission["phase"],
@@ -944,6 +1005,7 @@ class BayesianGovernor:
             lr_macro_override=lr_macro_dynamic,
             evidence_weights=dynamic_weights,
             model_registry_lr=model_registry_lr,
+            lr_val_override=val.get("_lr_val_override"),
         )
 
         # Expected utility
@@ -1060,6 +1122,14 @@ class BayesianGovernor:
             valuation_zone_ts=val.get("overall_zone_ts", "NO_DATA"),
             pe_raw=val.get("raw_values", {}).get("PE"),
             pb_raw=val.get("raw_values", {}).get("PB"),
+            # FairMultipleEngine fields
+            fair_pe=fair.get("fair_pe") if fair.get("status") == "OK" else None,
+            fair_pb=fair.get("fair_pb") if fair.get("status") == "OK" else None,
+            margin_of_safety=fair.get("margin_of_safety_pct") if fair.get("status") == "OK" else None,
+            fair_ke=fair.get("ke"),
+            fair_g=fair.get("g"),
+            fair_sector=fair.get("sector", ""),
+            fair_status=fair.get("status", ""),
             behavior_position=beh.get("position", "UNKNOWN"),
             capital_allocation_archetype=capital_arch,
             capital_allocation_score=capital_score,
@@ -1145,15 +1215,15 @@ BUSINESS_STATUS_MAP = {
 
 # ── Valuation L3 display labels for Tầng 2 ────────────────────
 # WHY: valuation_zone comes from Result dataclass (L3_VALUATION).
-#   Emoji signal: 🟢 RẺ / 🟡 TRUNG BÌNH / 🔴 ĐẮT.
+#   Emoji signal: 🟢 CHIẾT KHẤU / 🟡 HỢP LÝ / 🔴 VƯỢT TRỘI.
 #   Shown in Tầng 2 alongside Business Type so investor sees
 #   whether cheapness compensates for business quality.
 VALUATION_DISPLAY = {
-    "ULTRA_CHEAP": "🟢 RẤT RẺ (ULTRA_CHEAP)",
-    "CHEAP": "🟢 RẺ (CHEAP)",
-    "FAIR": "🟡 TRUNG BÌNH (FAIR)",
-    "EXPENSIVE": "🔴 ĐẮT (EXPENSIVE)",
-    "ULTRA_EXPENSIVE": "🔴 RẤT ĐẮT (ULTRA_EXPENSIVE)",
+    "ULTRA_CHEAP": "🟢 SIÊU CHIẾT KHẤU (ULTRA_CHEAP)",
+    "CHEAP": "🟢 CHIẾT KHẤU (CHEAP)",
+    "FAIR": "🟡 HỢP LÝ (FAIR)",
+    "EXPENSIVE": "🔴 VƯỢT TRỘI (EXPENSIVE)",
+    "ULTRA_EXPENSIVE": "🔴 SIÊU VƯỢT TRỘI (ULTRA_EXPENSIVE)",
     "NO_DATA": "⚪ KHÔNG RÕ (NO DATA)",
 }
 VALUATION_DISPLAY.setdefault("UNKNOWN", "⚪ KHÔNG RÕ (UNKNOWN)")
@@ -1240,10 +1310,10 @@ def print_report(analysis: Dict):
     print(f"  {'='*90}")
     EMOJI = {"ULTRA_CHEAP": "🟢", "CHEAP": "🟢", "FAIR": "🟡",
              "EXPENSIVE": "🔴", "ULTRA_EXPENSIVE": "🔴", "NO_DATA": "⚪"}
-    ABBR = {"ULTRA_CHEAP": "RR", "CHEAP": "RE", "FAIR": "TB",
-            "EXPENSIVE": "DT", "ULTRA_EXPENSIVE": "RDT", "NO_DATA": "??"}
-    print(f"  {'Mã':<5} {'P(Gain)':<9} {'Hành động':<18} {'Vốn%':<7} {'P/E':>6} {'P/B':>6} {'DN (Business)':<22} {'Định giá(L3)':<31}")
-    print(f"  {'─'*110}")
+    ABBR = {"ULTRA_CHEAP": "SCK", "CHEAP": "CK", "FAIR": "HL",
+             "EXPENSIVE": "VT", "ULTRA_EXPENSIVE": "SVT", "NO_DATA": "??"}
+    print(f"  {'Mã':<5} {'P(Gain)':<9} {'Hành động':<18} {'Vốn%':<7} {'P/E':>6} {'P/B':>6} {'DN (Business)':<22} {'Định giá(L3)':<31} {'MoS%':>7} {'PE_HL':>6} {'PB_HL':>6}")
+    print(f"  {'─'*130}")
 
     sorted_symbols = sorted(results.items(), key=lambda x: x[1].p_gain, reverse=True)
     for sym, r in sorted_symbols:
@@ -1254,7 +1324,10 @@ def print_report(analysis: Dict):
         l3 = f"{EMOJI.get(gz, '⚪')} {ABBR.get(gz, gz):<3}({mode}) | {EMOJI.get(pz, '⚪')} {ABBR.get(pz, pz):<4}"
         pe_s = f"{r.pe_raw:.1f}" if r.pe_raw is not None else "N/A"
         pb_s = f"{r.pb_raw:.1f}" if r.pb_raw is not None else "N/A"
-        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% {pe_s:>6} {pb_s:>6} {status:<22} {l3}")
+        mos_s = f"{r.margin_of_safety:>+5.1f}%" if r.margin_of_safety is not None else "  N/A"
+        fpe_s = f"{r.fair_pe:.1f}" if r.fair_pe is not None else "  N/A"
+        fpb_s = f"{r.fair_pb:.1f}" if r.fair_pb is not None else "  N/A"
+        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% {pe_s:>6} {pb_s:>6} {status:<22} {l3} {mos_s:>7} {fpe_s:>6} {fpb_s:>6}")
 
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)
@@ -1281,6 +1354,20 @@ def print_report(analysis: Dict):
     # Prediction count
     print(f"  • {_('Symbols Analyzed')}: {n} {_('symbol')} | {_('Most Common Action')}: "
           f"{max(set(r.action for r in results.values()), key=lambda a: sum(1 for r in results.values() if r.action == a))}")
+
+    # FairMultipleEngine audit
+    ok = [r for r in results.values() if r.fair_status == "OK"]
+    if ok:
+        print(f"  • {_('FairMultipleEngine')} (Gordon Growth PB=(ROE-g)/(Ke-g)):")
+        for r in ok:
+            mos_s = f"{r.margin_of_safety:+.1f}%" if r.margin_of_safety is not None else "N/A"
+            print(f"      {r.symbol}: Fair PE={r.fair_pe:.1f} PB={r.fair_pb:.1f} "
+                  f"MoS={mos_s} Ke={r.fair_ke:.2%} g={r.fair_g:.2%} Sector={r.fair_sector}")
+    else:
+        n_err = sum(1 for r in results.values() if r.fair_status != "" and r.fair_status != "OK")
+        if n_err:
+            print(f"  • {_('FairMultipleEngine')}: {n_err}/{n} {_('symbol')} {_('skipped')} "
+                  f"(missing ROE/PE/PB or divergence)")
 
 
 def main():
