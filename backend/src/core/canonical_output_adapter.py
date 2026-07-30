@@ -712,6 +712,10 @@ CLI_LABEL_MAP: dict[str, str] = {
     "weight": "trọng số",
     "Weight": "Trọng số",
     "Use calibrate resolve, then evidence update for real outcomes": "Dùng calibrate resolve, sau đó evidence update để nạp outcome thực tế",
+    "SIMULATION DRY-RUN": "MÔ PHỎNG THỬ NGHIỆM",
+    "predictions": "dự báo",
+    "Actual gains": "Kết quả thực tế",
+    "Note": "Ghi chú",
 
 }
 

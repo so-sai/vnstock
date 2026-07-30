@@ -1763,6 +1763,76 @@ def cmd_evidence(args):
         tip_text = _ll("Tip")
         tip_body = _ll("Use calibrate resolve, then evidence update for real outcomes")
         print(f"\n  {tip_text}: {tip_body}.")
+    elif args.action == "simulate":
+        """Dry-run: assign random outcomes to pending predictions, observe weight differentiation."""
+        n_pending = getattr(args, "n_pending", 60)
+        seed = getattr(args, "seed", None)
+        node_biases = {
+            "macro": getattr(args, "bias_macro", 0.55),
+            "transmission": getattr(args, "bias_transmission", 0.52),
+            "sector": getattr(args, "bias_sector", 0.50),
+            "health": getattr(args, "bias_health", 0.58),
+            "capital_allocation": getattr(args, "bias_capital", 0.48),
+            "valuation": getattr(args, "bias_valuation", 0.60),
+            "behavior": getattr(args, "bias_behavior", 0.45),
+        }
+
+        if seed is not None:
+            import random as _rand
+            _rand.seed(seed)
+        else:
+            import random as _rand
+
+        # Snapshot before
+        nodes_before = ee.get_all_nodes()
+        w_before = get_dynamic_evidence_weights()
+
+        # Generate per-node synthetic outcomes with different biases
+        from calibration.evidence_engine import EVIDENCE_NODE_IDS as _NODES
+        node_outcomes: dict = {nid: [] for nid in _NODES}
+        for nid in _NODES:
+            bias = node_biases.get(nid, 0.55)
+            p_gain = bias  # each node predicts at its own accuracy level
+            for _ in range(n_pending):
+                y_true = 1 if _rand.random() < bias else 0
+                ee.record_outcome(nid, p_gain, float(y_true))
+                node_outcomes[nid].append(y_true)
+
+        # Compute actual accuracy per node
+        def _accuracy(ys):
+            return sum(ys) / max(len(ys), 1)
+
+        # Snapshot after
+        nodes_after = ee.get_all_nodes()
+        w_after = get_dynamic_evidence_weights()
+
+        sim_label = _ll("SIMULATION DRY-RUN")
+        print(f"\n  {'='*90}")
+        print(f"  {sim_label} — {n_pending} {_ll('predictions')}, seed={seed}")
+        print(f"  {'='*90}")
+        print(f"  {'─'*90}")
+
+        # Side-by-side table
+        print(f"  {'Node':<22} {'Bias':>6} {'Acc':>6} {'R_before':>9} {'R_after':>9} {'W_before':>9} {'W_after':>9} {'ΔW':<8} {'Drift':>6}")
+        print(f"  {'─'*90}")
+        for nb in nodes_before:
+            nid = nb["node_id"]
+            na = next((n for n in nodes_after if n["node_id"] == nid), None)
+            if not na:
+                continue
+            bias = node_biases.get(nid, 0.55)
+            acc = _accuracy(node_outcomes.get(nid, []))
+            rb = nb["reliability"]
+            ra = na["reliability"]
+            wb = w_before.get(nid, 0)
+            wa = w_after.get(nid, 0)
+            dw = wa - wb
+            arrow = "↑" if dw > 0.003 else ("↓" if dw < -0.003 else "→")
+            drift_b = na.get("drift_score", 0)
+            print(f"  {nid:<22} {bias:>5.1%} {acc:>5.1%} {rb:>8.4f} {ra:>8.4f} {wb:>8.2%} {wa:>8.2%} {arrow} {dw:<+5.2%} {drift_b:>5.3f}")
+        print(f"\n  {_ll('Formula')}: θ_i = R_i × A_i × exp(-2.0 × D_i)")
+        print(f"  {_ll('Forgetting')}: decay=0.995 | {_ll('Note')}: Sprint 1 — per-node p_gain uses node's own bias as a proxy for node-level effective probability")
+
     elif args.action == "reset":
         if getattr(args, "node", None):
             ee.reset_node(args.node)
@@ -3021,6 +3091,17 @@ def build_parser():
     p_ev_reset.set_defaults(func=cmd_evidence)
     p_ev_drift = p_ev_sub.add_parser("drift", help="Xem các node có drift cao")
     p_ev_drift.set_defaults(func=cmd_evidence)
+    p_ev_sim = p_ev_sub.add_parser("simulate", help="Dry-run: gán outcome ngẫu nhiên để test tốc độ phân hóa trọng số")
+    p_ev_sim.add_argument("--n-pending", type=int, default=60, help="Số dự báo giả lập (mặc định 60)")
+    p_ev_sim.add_argument("--bias-macro", type=float, default=0.55, help="Tỷ lệ gain macro (mặc định 0.55)")
+    p_ev_sim.add_argument("--bias-transmission", type=float, default=0.52, help="Tỷ lệ gain transmission (mặc định 0.52)")
+    p_ev_sim.add_argument("--bias-sector", type=float, default=0.50, help="Tỷ lệ gain sector (mặc định 0.50)")
+    p_ev_sim.add_argument("--bias-health", type=float, default=0.58, help="Tỷ lệ gain health (mặc định 0.58)")
+    p_ev_sim.add_argument("--bias-capital", type=float, default=0.48, help="Tỷ lệ gain capital_allocation (mặc định 0.48)")
+    p_ev_sim.add_argument("--bias-valuation", type=float, default=0.60, help="Tỷ lệ gain valuation (mặc định 0.60)")
+    p_ev_sim.add_argument("--bias-behavior", type=float, default=0.45, help="Tỷ lệ gain behavior (mặc định 0.45)")
+    p_ev_sim.add_argument("--seed", type=int, default=None, help="Random seed để tái lập")
+    p_ev_sim.set_defaults(func=cmd_evidence)
 
     # ── Giai đoạn 1: Business Ontology Layer ──────────────
     p_arch = sub.add_parser("archetype", parents=[lang_parent],
