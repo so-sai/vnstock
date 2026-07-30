@@ -930,6 +930,13 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Most Common Action": "Hành động phổ biến",
     "symbol": "mã CK",
     "Alloc": "Vốn",
+
+    # ── Valuation Zone (L3) ──
+    "ULTRA_CHEAP": "RẤT RẺ",
+    "CHEAP": "RẺ",
+    "FAIR": "TRUNG BÌNH",
+    "EXPENSIVE": "ĐẮT",
+    "ULTRA_EXPENSIVE": "RẤT ĐẮT",
 }
 
 

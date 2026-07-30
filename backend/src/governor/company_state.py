@@ -452,6 +452,14 @@ class L4BehaviorLoader:
         return cur.fetchone()[0]
 
     def score_behavior(self, symbol: str) -> Dict:
+        # WHY L4_BEHAVIOR = Volume Profile (NOT decision_fusion):
+        #   decision_fusion.py (portfolio/) arbitrates Model A/B
+        #   signals for portfolio execution — NOT connected to
+        #   Governor's L4_BEHAVIOR evidence node.
+        #   Gap: decision_fusion output could enrich behavior zone
+        #   (e.g. "IN_VA + A/B_CONFIRM"), but requires schema
+        #   extension in Result dataclass + evidence vector.
+        #   Currently L4 is pure Market Profile (VAH/VAL/price).
         vp = self.get_volume_profile(symbol)
         if not vp:
             return {"score": 0, "grade": "NO_DATA", "position": "UNKNOWN", "signals": 0}
@@ -1003,6 +1011,20 @@ BUSINESS_STATUS_MAP = {
     "UNKNOWN": "Không rõ (Unknown)",
 }
 
+# ── Valuation L3 display labels for Tầng 2 ────────────────────
+# WHY: valuation_zone comes from Result dataclass (L3_VALUATION).
+#   Emoji signal: 🟢 RẺ / 🟡 TRUNG BÌNH / 🔴 ĐẮT.
+#   Shown in Tầng 2 alongside Business Type so investor sees
+#   whether cheapness compensates for business quality.
+VALUATION_DISPLAY = {
+    "ULTRA_CHEAP": "🟢 RẤT RẺ (ULTRA_CHEAP)",
+    "CHEAP": "🟢 RẺ (CHEAP)",
+    "FAIR": "🟡 TRUNG BÌNH (FAIR)",
+    "EXPENSIVE": "🔴 ĐẮT (EXPENSIVE)",
+    "ULTRA_EXPENSIVE": "🔴 RẤT ĐẮT (ULTRA_EXPENSIVE)",
+}
+VALUATION_DISPLAY.setdefault("UNKNOWN", "⚪ KHÔNG RÕ")
+
 
 def print_report(analysis: Dict):
     """Inverted Pyramid 3-Tầng HCI report.
@@ -1083,14 +1105,15 @@ def print_report(analysis: Dict):
     print(f"\n  {'='*90}")
     print(f"  📊 {_('ACTION RANKING')} ({_('SORTED BY P(Gain) DESC')}):")
     print(f"  {'='*90}")
-    print(f"  {'Mã':<5} {'P(Lãi T+30D)':<16} {'Hành động (Action)':<24} {'Vốn% (Alloc%)':<14} {'DN (Business)':<24}")
-    print(f"  {'─'*85}")
+    print(f"  {'Mã':<5} {'P(Lãi T+30D)':<16} {'Hành động (Action)':<22} {'Vốn%':<8} {'DN (Business)':<30} {'Định giá (L3)':<24}")
+    print(f"  {'─'*108}")
 
     sorted_symbols = sorted(results.items(), key=lambda x: x[1].p_gain, reverse=True)
     for sym, r in sorted_symbols:
         arrow = ARROW_MAP.get(r.action, "?")
         status = BUSINESS_STATUS_MAP.get(r.health_archetype, r.health_archetype)
-        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%}           {r.action_vn:<22} {r.allocation_pct:>+7.1f}%{'':>7s} {status:<24}")
+        val_label = VALUATION_DISPLAY.get(r.valuation_zone, VALUATION_DISPLAY["UNKNOWN"])
+        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%}      {r.action_vn:<20} {r.allocation_pct:>+7.1f}%   {status:<28} {val_label}")
 
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)
