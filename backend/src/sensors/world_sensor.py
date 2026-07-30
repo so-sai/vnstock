@@ -43,31 +43,61 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# ── Data source URLs ────────────────────────────────────────────────────
+# ===================================================================
+# WORLD SENSOR DATA LINKS & API ENDPOINTS REGISTRY
+# ===================================================================
+# WHY registry format: Centralize every upstream URL in one place so
+# that data-source breakage (URL changes, API deprecations) is visible
+# at a glance. Each endpoint has a documented fallback strategy.
 
+# 1. CME FEDWATCH TOOL (30-day Fed Funds Futures Probability)
+#    Used for: implied Fed rate, next meeting hike/cut probabilities
+#    Fallback: hardcoded DEFAULT_FED_RATE if scrape fails
 CME_FEDWATCH_URL = (
     "https://www.cmegroup.com/markets/interest-rates/"
     "cme-fedwatch-tool.html"
 )
-FOMC_HISTORY_URL = (
-    "https://www.federalreserve.gov/monetarypolicy/fomc_historical.htm"
-)
-FRED_BALANCE_SHEET_API = (
-    "https://api.stlouisfed.org/fred/series/observations"
-    "?series_id=WALCL&sort_order=desc&limit=2"
-    "&file_type=json&api_key="
-)
 
-# ── Defaults (when upstream unavailable) ────────────────────────────────
+# 2. FEDERAL RESERVE BOARD (FOMC Statements & Dissent Voting)
+#    Used for: dissenting vote count at last FOMC meeting
+#    Fallback: DEFAULT_DISSENT (0) if scrape fails
+FOMC_CALENDAR_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+FOMC_STATEMENT_BASE_URL = "https://www.federalreserve.gov/newsevents/pressreleases/monetary"
+FOMC_HISTORY_URL = "https://www.federalreserve.gov/monetarypolicy/fomc_historical.htm"
+
+# 3. ST. LOUIS FRED API (Federal Reserve Economic Data - JSON Endpoints)
+#    WHY FRED over yFinance for US macro? FRED is the canonical source for
+#    US economic data (Fed balance sheet, reserves, yields). yFinance is
+#    a backup when FRED API key is unavailable or rate-limited.
+#    Fallback chain: FRED API → yFinance tickers → CACHE → defaults
+FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
+FRED_SERIES_MAP = {
+    "FED_ASSETS": "WALCL",        # Total Assets of Federal Reserve (QT/QE)
+    "RESERVES": "WRESBAL",        # Reserve Balances with Federal Reserve Banks
+    "US10Y": "DGS10",             # 10-Year Treasury Constant Maturity Rate
+    "USD_INDEX": "DTWEXBGS",      # Nominal Broad U.S. Dollar Index
+}
+
+# 4. YAHOO FINANCE (Backup Realtime Tickers)
+#    WHY yFinance fallback? FRED data is published with 1-day lag (business
+#    days). For same-day EOD runs, yFinance provides real-time/close prices.
+#    These are NOT the primary source — they validate/correct FRED stale data.
+YFINANCE_WORLD_TICKERS = {
+    "DXY": "DX-Y.NYB",
+    "US10Y": "^TNX",
+    "BRENT": "BZ=F",
+}
+
+# ── Defaults (when all upstream sources unavailable) ──────────────────
 
 DEFAULT_FED_RATE = 5.50
 DEFAULT_DISSENT = 0
-DEFAULT_QT_BALANCE = 0.0
+DEFAULT_FRED_VALUE = 0.0
 CACHE_TTL_SECONDS = 3600  # 1 hour
 CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "world_cache"
 CACHE_FILE = CACHE_DIR / "fed_policy_cache.json"
 
-# ── FRED API key (optional, from env) ──────────────────────────────────
+# ── FRED API key (optional, from env) ─────────────────────────────────
 
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 
@@ -95,9 +125,14 @@ def _write_cache(data: dict):
     try:
         _ensure_cache_dir()
         data["cached_at"] = time.time()
-        CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        CACHE_FILE.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     except Exception as e:
         logger.warning(f"World cache write failed: {e}")
+
+
+# ── Block 1: CME FedWatch (30-Day FF Futures) ─────────────────────────
 
 
 def _fetch_cme_fedwatch() -> tuple[float, float, str]:
@@ -108,15 +143,7 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
         On failure: (default, 0.0, "unknown")
     """
     try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0.0.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-        }
+        headers = _browser_headers()
         resp = requests.get(CME_FEDWATCH_URL, headers=headers, timeout=15)
         resp.raise_for_status()
         html = resp.text
@@ -130,7 +157,7 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
         import re
         match = re.search(
             r'<script id="__NEXT_DATA__"[^>]*type="application/json"[^>]*>'
-            r'(.*?)</script>',
+            r"(.*?)</script>",
             html, re.DOTALL,
         )
         if not match:
@@ -138,33 +165,25 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
             return (DEFAULT_FED_RATE, 0.0, "unknown")
 
         payload = json.loads(match.group(1))
-        # Navigate to the pricing data — this path may shift if CME changes their
-        # frontend structure. The key is to find `contractDetails` or `quotes`.
         props = payload.get("props", {})
         page_props = props.get("pageProps", {})
-        # CME typically nests pricing under `pageProps.initialState` or similar
-        # Fallback chain
         data = (
             page_props.get("initialState")
             or page_props.get("dehydratedState")
             or page_props.get("__NEXT_DATA__")
             or {}
         )
-        # Extract the 30-day FF rate from the contract with the nearest expiry.
         implied_rate = DEFAULT_FED_RATE
         hike_prob = 0.0
         meeting_label = "unknown"
 
-        # Attempt to find contracts in the data tree
         try:
             contracts = (
-                data.get("quotes", {})
-                .get("quotes", [])
+                data.get("quotes", {}).get("quotes", [])
             ) or (
                 data.get("contracts", [])
             ) or []
             if not contracts:
-                # Alternative: walk through product page
                 products = data.get("products", [])
                 for p in products:
                     if "30 Day Federal Funds" in p.get("name", ""):
@@ -172,8 +191,9 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
                         break
 
             if contracts:
-                # Sort by expiration, pick nearest
-                sorted_cts = sorted(contracts, key=lambda c: c.get("expiration", "ZZZZ"))
+                sorted_cts = sorted(
+                    contracts, key=lambda c: c.get("expiration", "ZZZZ")
+                )
                 nearest = sorted_cts[0]
                 implied_rate = float(nearest.get("last", implied_rate))
                 hike_prob = float(nearest.get("probability", 0.0))
@@ -188,34 +208,48 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
         return (DEFAULT_FED_RATE, 0.0, "unknown")
 
 
+def _browser_headers() -> dict:
+    """Standard browser-like headers for HTML scraping endpoints."""
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+
+
+# ── Block 2: FOMC Dissent ────────────────────────────────────────────
+
+
 def _fetch_fomc_dissent() -> int:
     """Scrape FOMC historical page for dissent count at last meeting.
+
+    WHY scrape dissent instead of tracking FOMC statements?
+    The FOMC historical page tabulates ALL meetings in one table,
+    making dissent extraction a single request. Parsing individual
+    statements would require 6+ requests per year.
+    FOMC_HISTORY_URL is the canonical Fed source.
 
     Returns:
         Number of dissenting votes (0 if unavailable).
     """
     try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36"
-            ),
-        }
+        headers = _browser_headers()
         resp = requests.get(FOMC_HISTORY_URL, headers=headers, timeout=15)
         resp.raise_for_status()
         html = resp.text
 
-        # Look for the most recent meeting row and count "No" votes
         import re
-        # FOMC historical table rows: <tr><td>Date</td><td>Action</td><td>Votes</td>...
-        # Dissent = "No" votes typically listed alongside the decision.
         rows = re.findall(
-            r'<tr[^>]*>.*?<td[^>]*>(.*?)</td>.*?</tr>',
+            r"<tr[^>]*>.*?<td[^>]*>(.*?)</td>.*?</tr>",
             html, re.DOTALL,
         )
         dissent_count = 0
-        for row in rows[:10]:  # check last 10 meetings
-            cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
+        for row in rows[:10]:
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
             if len(cells) >= 4:
                 vote_cell = cells[3] if len(cells) > 3 else ""
                 dissent_count = vote_cell.lower().count("no")
@@ -229,29 +263,119 @@ def _fetch_fomc_dissent() -> int:
         return DEFAULT_DISSENT
 
 
-def _fetch_fred_balance_sheet() -> float:
-    """Fetch Fed total assets from FRED API (WALCL series).
+# ── Block 3: FRED API (multi-series) ──────────────────────────────────
+
+
+def _fetch_fred_series(series_id: str) -> Optional[float]:
+    """Fetch the latest observation for a FRED series.
+
+    WHY use FRED API instead of scraping FRED pages?
+    FRED provides a first-class JSON API (api.stlouisfed.org).
+    No HTML parsing needed — faster, more stable, and returns
+    structured data. Requires FRED_API_KEY env var (free tier).
+
+    Args:
+        series_id: FRED series ID (e.g. 'WALCL', 'DGS10').
 
     Returns:
-        Latest total assets in trillions USD. 0.0 if unavailable.
+        Float value, or None if unavailable.
     """
     if not FRED_API_KEY:
-        logger.debug("No FRED_API_KEY set — skipping balance sheet fetch")
-        return 0.0
+        return None
 
     try:
-        url = FRED_BALANCE_SHEET_API + FRED_API_KEY
+        url = (
+            f"{FRED_BASE_URL}?series_id={series_id}"
+            f"&sort_order=desc&limit=1&file_type=json&api_key={FRED_API_KEY}"
+        )
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         obs = data.get("observations", [])
-        if len(obs) >= 1:
-            latest = float(obs[0].get("value", 0))
-            return round(latest / 1_000_000_000, 2)  # millions → trillions
-        return 0.0
+        if obs:
+            val = obs[0].get("value", ".")
+            if val and val != ".":
+                return float(val)
+        return None
     except Exception as e:
-        logger.warning(f"FRED balance sheet fetch failed: {e}")
-        return DEFAULT_QT_BALANCE
+        logger.warning(f"FRED series {series_id} fetch failed: {e}")
+        return None
+
+
+def _fetch_fred_all() -> dict:
+    """Fetch ALL configured FRED series in parallel.
+
+    Returns:
+        dict with keys matching FRED_SERIES_MAP, values are floats or None.
+        Keys: 'WALCL', 'WRESBAL', 'DGS10', 'DTWEXBGS'
+    """
+    import concurrent.futures
+
+    results: dict[str, Optional[float]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        future_map = {
+            pool.submit(_fetch_fred_series, sid): name
+            for name, sid in FRED_SERIES_MAP.items()
+        }
+        for future in concurrent.futures.as_completed(future_map):
+            name = future_map[future]
+            try:
+                results[name] = future.result()
+            except Exception:
+                results[name] = None
+    return results
+
+
+def _scale_fred_asset(value: Optional[float]) -> float:
+    """Scale WALCL (millions) → trillions. Returns 0.0 on None."""
+    if value is None:
+        return DEFAULT_FRED_VALUE
+    return round(value / 1_000_000_000, 2)
+
+
+def _scale_fred_reserves(value: Optional[float]) -> float:
+    """Scale WRESBAL (billions) → trillions. Returns 0.0 on None."""
+    if value is None:
+        return DEFAULT_FRED_VALUE
+    return round(value / 1_000_000_000, 2)
+
+
+# ── Block 4: Yahoo Finance Fallback ───────────────────────────────────
+
+
+def _fetch_yfinance_fallback() -> dict:
+    """Fetch DXY, US10Y, BRENT from Yahoo Finance as FRED backup.
+
+    WHY yFinance as fallback? FRED publishes with 1 business day lag.
+    For same-day EOD runs, yFinance provides T data where FRED shows T-1.
+    This is a SECONDARY source — FRED values override when available.
+
+    Returns:
+        dict with keys 'DXY', 'US10Y', 'BRENT' (floats), or 0.0 on failure.
+    """
+    results: dict[str, float] = {}
+    try:
+        import yfinance as yf
+
+        for name, ticker in YFINANCE_WORLD_TICKERS.items():
+            try:
+                df = yf.download(ticker, period="2d", interval="1d", progress=False)
+                if df is not None and not df.empty and "Close" in df.columns:
+                    val = float(df["Close"].values[-1].item())
+                    results[name] = val if not (val != val) else 0.0
+                else:
+                    results[name] = 0.0
+            except Exception:
+                results[name] = 0.0
+    except ImportError:
+        logger.debug("yfinance not installed — skipping Yahoo fallback")
+        for name in YFINANCE_WORLD_TICKERS:
+            results[name] = 0.0
+    except Exception as e:
+        logger.warning(f"yFinance bulk fetch failed: {e}")
+        for name in YFINANCE_WORLD_TICKERS:
+            results[name] = 0.0
+    return results
 
 
 # ── WorldSensor ─────────────────────────────────────────────────────────
@@ -267,8 +391,13 @@ class WorldSensor:
         #   "fed_target_rate": 5.50,
         #   "fomc_dissent": 0,
         #   "qt_balance_tr": 7.23,
+        #   "reserves_tr": 3.10,
+        #   "us10y_yield": 4.20,
+        #   "usd_index": 120.5,
+        #   "brent_oil": 85.0,
         #   "fed_uncertainty": 0.05,
         #   "next_meeting": "2026-09-17",
+        #   "implied_hike_prob": 0.35,
         #   "timestamp": "...",
         # }
     """
@@ -283,6 +412,11 @@ class WorldSensor:
         balance sheet weekly). Polling upstream every call wastes bandwidth and
         risks rate-limiting. 1h is short enough for same-day EOD runs.
 
+        WHY multi-source fallback chain:
+          FRED (canonical, T-1 lag) → yFinance (real-time, backup) → CACHE → defaults.
+          Each layer fills gaps left by the layer above. FRED values always
+          override yFinance when both are available (FRED is authoritative).
+
         Args:
             force_refresh: bypass cache and fetch fresh data.
 
@@ -290,7 +424,11 @@ class WorldSensor:
             dict with keys:
                 fed_target_rate   : float — current Fed funds rate
                 fomc_dissent      : int — dissenting votes at last meeting
-                qt_balance_tr     : float — total assets in trillions
+                qt_balance_tr     : float — Fed total assets in trillions
+                reserves_tr       : float — Reserve balances in trillions
+                us10y_yield       : float — US 10Y Treasury yield %
+                usd_index         : float — Nominal Broad USD Index
+                brent_oil         : float — Brent crude price
                 implied_hike_prob : float — next meeting hike probability
                 next_meeting      : str — next FOMC meeting label
                 fed_uncertainty   : float — composite uncertainty [0, 1]
@@ -301,25 +439,47 @@ class WorldSensor:
             if cached is not None:
                 return self._enrich(cached)
 
-        # Fresh fetch
+        # ── Layer 1: CME FedWatch (scraped) & FOMC dissent ──────────
         fed_rate, hike_prob, meeting = _fetch_cme_fedwatch()
         dissent = _fetch_fomc_dissent()
-        qt_balance = _fetch_fred_balance_sheet()
 
+        # ── Layer 2: FRED API (canonical US macro data) ─────────────
+        fred = _fetch_fred_all()
+        qt_balance = _scale_fred_asset(fred.get("FED_ASSETS"))
+        reserves = _scale_fred_reserves(fred.get("RESERVES"))
+        us10y = fred.get("US10Y")
+        usd_idx = fred.get("USD_INDEX")
+
+        # ── Layer 3: yFinance fallback (fills FRED gaps) ────────────
+        yf_data = _fetch_yfinance_fallback()
+        # WHY FRED overrides yFinance: FRED is the authoritative source.
+        # yFinance only fills in when FRED returns None (stale/no key).
+        if us10y is None:
+            us10y = yf_data.get("US10Y")
+        if usd_idx is None:
+            usd_idx = yf_data.get("DXY")
+        # Brent is not available via FRED free tier — always use yFinance
+        brent = yf_data.get("BRENT", 0.0)
+
+        # ── Composite uncertainty ───────────────────────────────────
         # WHY: fed_uncertainty = dissent/(max_dissent+1) + QT_surprise_factor.
         #      Higher dissent → more uncertainty about future policy path.
         #      This is NOT a directional signal — it measures DISPERSION, not level.
-        max_historical_dissent = 4  # max dissenting votes in modern FOMC
+        max_historical_dissent = 4
         dissent_factor = dissent / (max_historical_dissent + 1)
-
-        # Uncertainty: combine dissent and QT surprise (if QT is large negative)
         qt_surprise = max(0.0, (8.0 - qt_balance) / 8.0) if qt_balance > 0 else 0.0
-        fed_uncertainty = round(min(1.0, dissent_factor * 0.6 + qt_surprise * 0.4), 4)
+        fed_uncertainty = round(
+            min(1.0, dissent_factor * 0.6 + qt_surprise * 0.4), 4
+        )
 
         raw = {
             "fed_target_rate": fed_rate,
             "fomc_dissent": dissent,
             "qt_balance_tr": qt_balance,
+            "reserves_tr": reserves,
+            "us10y_yield": round(us10y, 4) if us10y is not None else DEFAULT_FRED_VALUE,
+            "usd_index": round(usd_idx, 2) if usd_idx is not None else DEFAULT_FRED_VALUE,
+            "brent_oil": round(brent, 2),
             "implied_hike_prob": hike_prob,
             "next_meeting": meeting,
             "fed_uncertainty": fed_uncertainty,
@@ -334,7 +494,11 @@ class WorldSensor:
         raw["timestamp"] = datetime.now(timezone.utc).isoformat()
         raw.setdefault("fed_target_rate", DEFAULT_FED_RATE)
         raw.setdefault("fomc_dissent", DEFAULT_DISSENT)
-        raw.setdefault("qt_balance_tr", DEFAULT_QT_BALANCE)
+        raw.setdefault("qt_balance_tr", DEFAULT_FRED_VALUE)
+        raw.setdefault("reserves_tr", DEFAULT_FRED_VALUE)
+        raw.setdefault("us10y_yield", DEFAULT_FRED_VALUE)
+        raw.setdefault("usd_index", DEFAULT_FRED_VALUE)
+        raw.setdefault("brent_oil", DEFAULT_FRED_VALUE)
         raw.setdefault("implied_hike_prob", 0.0)
         raw.setdefault("next_meeting", "unknown")
         raw.setdefault("fed_uncertainty", 0.0)
@@ -348,7 +512,11 @@ class WorldSensor:
         return self._enrich({
             "fed_target_rate": DEFAULT_FED_RATE,
             "fomc_dissent": DEFAULT_DISSENT,
-            "qt_balance_tr": DEFAULT_QT_BALANCE,
+            "qt_balance_tr": DEFAULT_FRED_VALUE,
+            "reserves_tr": DEFAULT_FRED_VALUE,
+            "us10y_yield": DEFAULT_FRED_VALUE,
+            "usd_index": DEFAULT_FRED_VALUE,
+            "brent_oil": DEFAULT_FRED_VALUE,
             "implied_hike_prob": 0.0,
             "next_meeting": "unknown",
             "fed_uncertainty": 0.0,
