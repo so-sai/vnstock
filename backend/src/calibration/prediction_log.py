@@ -123,7 +123,13 @@ def init_schema():
 
 
 def init_model_registry_schema():
-    """Initialize model_registry table for Sprint 4 Competing Hypotheses Engine."""
+    """Initialize model_registry table for Sprint 4 Competing Hypotheses Engine.
+    
+    WHY separate table from prediction_log? model_registry tracks hypothesis-level
+    lifecycle (state transitions ACTIVE/DORMANT/RETIRED) and BMA weights, while
+    prediction_log tracks per-symbol Governor decisions. The two tables join on
+    date for audit: "which hypothesis dominated when and why."
+    """
     conn = get_conn()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS model_registry (

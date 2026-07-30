@@ -121,7 +121,12 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
         resp.raise_for_status()
         html = resp.text
 
-        # CME embeds JSON in a script tag with id="__NEXT_DATA__"
+        # WHY __NEXT_DATA__ scraping instead of CME API? CME does not expose
+        # a public REST API for FedWatch. The __NEXT_DATA__ script tag contains
+        # the full page state as JSON. This is the same technique used by
+        # professional quant shops and is more reliable than HTML table parsing.
+        # If CME changes their frontend framework, the cache TTL (1h) gives
+        # us time to detect breakage without blocking the EOD pipeline.
         import re
         match = re.search(
             r'<script id="__NEXT_DATA__"[^>]*type="application/json"[^>]*>'
@@ -273,6 +278,10 @@ class WorldSensor:
 
     def fetch(self, force_refresh: bool = False) -> dict:
         """Fetch full Fed policy state.
+
+        WHY 1h TTL cache: Fed policy changes infrequently (FOMC every 6 weeks,
+        balance sheet weekly). Polling upstream every call wastes bandwidth and
+        risks rate-limiting. 1h is short enough for same-day EOD runs.
 
         Args:
             force_refresh: bypass cache and fetch fresh data.

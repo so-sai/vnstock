@@ -119,6 +119,19 @@ def build_edge_registry() -> Dict[str, CausalEdge]:
     # ═══════════════════════════════════════════════════════════════════
 
     # Group A: Fed Policy → US Financial Conditions (3 edges)
+    # WHY lag/confidence values for World edges:
+    #   FED→DXY (1-30d, 0.80): Rate differentials take days-weeks to fully
+    #     transmit into FX, but confidence is high due to UIP theory.
+    #   FED→US10Y (1-10d, 0.90): Bond market reprices expectations within days,
+    #     highest confidence of all world links.
+    #   DISSENT→UNCERTAINTY (0-5d, 0.60): Dissent ≠ immediate policy change,
+    #     it measures dispersion (weaker signal).
+    #   QT→LIQUIDITY (10-60d, 0.70): Balance sheet runoff is slow and telegraphed.
+    #   UNCERTAINTY→RISK_OFF (0-3d, 0.65): Fear is fast but less predictable.
+    #   DXY→USD_VND (1-10d, 0.85): SBV actively manages VND → smoother pass-through.
+    #   US10Y→INTEREST_RATE (5-30d, 0.65): VN rates partially decoupled from US.
+    #   GLOBAL_LIQUIDITY→LIQUIDITY_TRAP (3-21d, 0.60): Weakest link due to
+    #     SBV buffer (FX reserves, policy tools).
     _add("FED_TARGET→DXY_USD", "FED_TARGET_RATE", "DXY_USD",
          "MACRO→MACRO", lag_min=1, lag_max=30, confidence=0.80, half_life=60,
          attenuation=0.10,
