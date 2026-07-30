@@ -91,6 +91,18 @@ def init_schema():
             accuracy        REAL,
             created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
         );
+        CREATE TABLE IF NOT EXISTS evidence_registry (
+            node_id        TEXT PRIMARY KEY,
+            alpha          REAL DEFAULT 10.0,
+            beta           REAL DEFAULT 10.0,
+            brier_accum    REAL DEFAULT 0.0,
+            n_updates      INTEGER DEFAULT 0,
+            ece_score      REAL DEFAULT 0.0,
+            reliability    REAL DEFAULT 0.5,
+            drift_score    REAL DEFAULT 0.0,
+            applicability  REAL DEFAULT 1.0,
+            last_updated   TEXT
+        );
         CREATE TABLE IF NOT EXISTS circuit_breaker (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             date            TEXT    NOT NULL,

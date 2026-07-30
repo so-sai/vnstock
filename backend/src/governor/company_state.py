@@ -161,13 +161,18 @@ def compute_gain_probability(
     transmission_credit: float = 50.0,
     archetype_prior_key: str = "UNKNOWN",
     lr_macro_override: Optional[float] = None,
+    evidence_weights: Optional[Dict[str, float]] = None,
 ) -> Tuple[float, float, float]:
     """Bayesian Weight-of-Evidence v2 → P(Gain | Evidence).
+
+    LAW-004: accepts evidence_weights dict from EvidenceEngine
+    for dynamically weighted log-LR fusion.
 
     So với v1:
       - Thêm capital_allocation node (Giai đoạn 4)
       - Archetype-aware prior (Giai đoạn 1 + 4)
       - dynamic LR macro override (Giai đoạn 2)
+      - dynamic evidence weights (LAW-004)
 
     Returns:
       (posterior_prob, log_posterior_odds, calibration_penalty)
@@ -175,6 +180,9 @@ def compute_gain_probability(
     # Archetype-aware prior
     prior_prob = PRIOR_BY_ARCHETYPE.get(archetype_prior_key, PRIOR_PROB_GAIN)
     prior_odds = prior_prob / (1.0 - prior_prob)
+
+    # Dynamic evidence weights (LAW-004) or fallback to static
+    w = evidence_weights if evidence_weights is not None else EVIDENCE_WEIGHTS
 
     # Dynamic LR override from Factor Exposure Matrix (Giai đoạn 2)
     lr_macro = lr_macro_override if lr_macro_override is not None else _lookup_lr(LR_MACRO, macro_state)
@@ -187,13 +195,13 @@ def compute_gain_probability(
 
     log_prior = math.log(prior_odds)
     log_lr = (
-        EVIDENCE_WEIGHTS["macro"] * math.log(max(lr_macro, 0.01))
-        + EVIDENCE_WEIGHTS["transmission"] * math.log(max(lr_trans, 0.01))
-        + EVIDENCE_WEIGHTS["sector"] * math.log(max(lr_sector, 0.01))
-        + EVIDENCE_WEIGHTS["health"] * math.log(max(lr_health, 0.01))
-        + EVIDENCE_WEIGHTS["capital_allocation"] * math.log(max(lr_cap, 0.01))
-        + EVIDENCE_WEIGHTS["valuation"] * math.log(max(lr_val, 0.01))
-        + EVIDENCE_WEIGHTS["behavior"] * math.log(max(lr_beh, 0.01))
+        w.get("macro", EVIDENCE_WEIGHTS["macro"]) * math.log(max(lr_macro, 0.01))
+        + w.get("transmission", EVIDENCE_WEIGHTS["transmission"]) * math.log(max(lr_trans, 0.01))
+        + w.get("sector", EVIDENCE_WEIGHTS["sector"]) * math.log(max(lr_sector, 0.01))
+        + w.get("health", EVIDENCE_WEIGHTS["health"]) * math.log(max(lr_health, 0.01))
+        + w.get("capital_allocation", EVIDENCE_WEIGHTS["capital_allocation"]) * math.log(max(lr_cap, 0.01))
+        + w.get("valuation", EVIDENCE_WEIGHTS["valuation"]) * math.log(max(lr_val, 0.01))
+        + w.get("behavior", EVIDENCE_WEIGHTS["behavior"]) * math.log(max(lr_beh, 0.01))
     )
 
     log_posterior_odds = log_prior + log_lr
@@ -727,7 +735,17 @@ class BayesianGovernor:
         # Derive sector phase
         sector_phase = self._sector.get("top_phase", "NEUTRAL")
 
-        # Bayesian inference v2
+        # ── Giai đoạn 5: Dynamic evidence weights (LAW-004) ──
+        dynamic_weights = None
+        try:
+            from calibration.evidence_engine import get_dynamic_evidence_weights
+            dw = get_dynamic_evidence_weights()
+            if dw:
+                dynamic_weights = dw
+        except Exception:
+            pass
+
+        # Bayesian inference v2 with optional dynamic weights (LAW-004)
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
             transmission_phase=self._transmission["phase"],
@@ -740,6 +758,7 @@ class BayesianGovernor:
             transmission_credit=self._transmission["credit"],
             archetype_prior_key=arch_prior_key,
             lr_macro_override=lr_macro_dynamic,
+            evidence_weights=dynamic_weights,
         )
 
         # Expected utility

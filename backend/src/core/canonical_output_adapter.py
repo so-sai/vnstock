@@ -690,6 +690,29 @@ CLI_LABEL_MAP: dict[str, str] = {
     "PREDICTION LOG STATUS": "TRẠNG THÁI NHẬT KÝ DỰ BÁO",
     "Pending": "Đang chờ",
 
+    # ── LAW-004 Evidence Engine ──
+    "EVIDENCE REGISTRY": "SỔ ĐĂNG KÝ BẰNG CHỨNG",
+    "Dynamic Weighting": "Trọng số Động",
+    "Dynamic Weights": "Trọng số Động",
+    "Drift": "Trôi dạt",
+    "Brier": "Brier",
+    "N/A": "K.D",
+    "DRIFTING": "TRÔI DẠT",
+    "Formula": "Công thức",
+    "Forgetting": "Quên",
+    "Dominant node": "Nút trội nhất",
+    "HIGH DRIFT NODES": "NÚT TRÔI DẠT CAO",
+    "Updated": "Đã cập nhật",
+    "nodes (placeholders)": "nút (tạm thời)",
+    "Tip": "Mẹo",
+    "Reset node": "Đặt lại nút",
+    "Reset all evidence nodes to prior": "Đặt lại tất cả nút về tiên nghiệm",
+    "node": "nút",
+    "drift": "trôi dạt",
+    "weight": "trọng số",
+    "Weight": "Trọng số",
+    "Use calibrate resolve, then evidence update for real outcomes": "Dùng calibrate resolve, sau đó evidence update để nạp outcome thực tế",
+
 }
 
 

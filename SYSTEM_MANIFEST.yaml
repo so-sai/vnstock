@@ -489,6 +489,20 @@ entrypoints:
     cli: "python ptck.py counterfactual [--symbols FPT VCB ...]"
     category: reasoning
 
+  # ── LAW-004 Evidence Engine ─────────────────────────────
+  evidence_list:
+    description: "LAW-004 Evidence Engine — view all evidence nodes (reliability, drift, dynamic weight)"
+    cli: "python ptck.py evidence list"
+    category: calibration
+  evidence_weights:
+    description: "LAW-004 Evidence Engine — view current dynamic weights"
+    cli: "python ptck.py evidence weights"
+    category: calibration
+  evidence_drift:
+    description: "LAW-004 Evidence Engine — view high-drift (>0.30) nodes"
+    cli: "python ptck.py evidence drift"
+    category: calibration
+
   # ── Giai đoạn 1: Business Ontology Layer ────────────────
   business_archetype:
     description: "Giai đoạn 1 — Business Archetype: DNA classification (8 archetypes: COMPOUNDER, CYCLICAL_HEAVY, FRANCHISE_BANK, ...)"

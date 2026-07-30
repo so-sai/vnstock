@@ -1728,6 +1728,60 @@ def cmd_drift(args):
         print(f"    có thể tính Model Evidence và Retirement Score một cách có ý nghĩa.")
 
 
+def cmd_evidence(args):
+    """LAW-004 Evidence Engine — Dynamic weighting from Beta posteriors."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from calibration.evidence_engine import EvidenceEngine, print_evidence_report, get_dynamic_evidence_weights
+    from calibration.prediction_log import get_conn
+    ee = EvidenceEngine()
+    ee.init_schema()
+
+    if args.action == "list":
+        nodes = ee.get_all_nodes()
+        weights = get_dynamic_evidence_weights()
+        print_evidence_report(nodes, weights, _VERBOSE_LANG)
+    elif args.action == "weights":
+        w = get_dynamic_evidence_weights()
+        name = _ll("Dynamic Weights")
+        print(f"\n  {name} (LAW-004):")
+        for k, v in sorted(w.items()):
+            print(f"    {k:<22} {v:.3%}")
+    elif args.action == "update":
+        node_id = getattr(args, "node", None)
+        from calibration.evidence_engine import EVIDENCE_NODE_IDS
+        targets = [node_id] if node_id else EVIDENCE_NODE_IDS
+        count = 0
+        for nid in targets:
+            # Simulate with current prior until real outcomes arrive
+            ee.record_outcome(nid, 0.5, 0.5)  # no-op placeholder
+            count += 1
+        print(f"  {_ll('Updated')} {count} {_ll('nodes (placeholders)')}.")
+        nodes = ee.get_all_nodes()
+        weights = get_dynamic_evidence_weights()
+        print_evidence_report(nodes, weights, _VERBOSE_LANG)
+        tip_text = _ll("Tip")
+        tip_body = _ll("Use calibrate resolve, then evidence update for real outcomes")
+        print(f"\n  {tip_text}: {tip_body}.")
+    elif args.action == "reset":
+        if getattr(args, "node", None):
+            ee.reset_node(args.node)
+            print(f"  {_ll('Reset node')}: {args.node}")
+        else:
+            ee.reset_all()
+            print(f"  {_ll('Reset all evidence nodes to prior')}.")
+    elif args.action == "drift":
+        nodes = ee.get_all_nodes()
+        weights = get_dynamic_evidence_weights()
+        print_evidence_report(nodes, weights, _VERBOSE_LANG)
+        high_drift = [n for n in nodes if n["drift_score"] > 0.30]
+        if high_drift:
+            hdr_label = _ll("HIGH DRIFT NODES")
+            print(f"\n  {hdr_label} ({_ll('drift')} > 0.30):")
+            for n in high_drift:
+                print(f"    {n['node_id']:<22} {_ll('drift')}={n['drift_score']:.3f}  {_ll('weight')}={weights.get(n['node_id'], 0):.3f}")
+
+
 def cmd_counterfactual(args):
     """P5 Counterfactual Reasoning — 'What if?' simulation over evidence nodes."""
     if sys.platform == "win32":
@@ -2950,6 +3004,23 @@ def build_parser():
         "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
     ], help="Danh sách mã")
     p_cf.set_defaults(func=cmd_counterfactual)
+
+    # evidence (LAW-004 Dynamic Weighting)
+    p_ev = sub.add_parser("evidence", parents=[lang_parent],
+                          help="LAW-004 Evidence Engine — Beta posterior reliability + dynamic weighting")
+    p_ev_sub = p_ev.add_subparsers(dest="action", required=True)
+    p_ev_list = p_ev_sub.add_parser("list", help="Xem tất cả evidence nodes (reliability, drift, weight)")
+    p_ev_list.set_defaults(func=cmd_evidence)
+    p_ev_w = p_ev_sub.add_parser("weights", help="Xem dynamic weights đang áp dụng")
+    p_ev_w.set_defaults(func=cmd_evidence)
+    p_ev_upd = p_ev_sub.add_parser("update", help="Update posteriors từ resolved predictions (Sprint 2)")
+    p_ev_upd.add_argument("--node", type=str, default=None, help="Node ID (mặc định: tất cả)")
+    p_ev_upd.set_defaults(func=cmd_evidence)
+    p_ev_reset = p_ev_sub.add_parser("reset", help="Reset về prior (alpha=10, beta=10)")
+    p_ev_reset.add_argument("--node", type=str, default=None, help="Node ID (mặc định: tất cả)")
+    p_ev_reset.set_defaults(func=cmd_evidence)
+    p_ev_drift = p_ev_sub.add_parser("drift", help="Xem các node có drift cao")
+    p_ev_drift.set_defaults(func=cmd_evidence)
 
     # ── Giai đoạn 1: Business Ontology Layer ──────────────
     p_arch = sub.add_parser("archetype", parents=[lang_parent],
