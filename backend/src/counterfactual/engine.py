@@ -1,7 +1,12 @@
-"""counterfactual/engine.py — P5 Counterfactual Reasoning.
+"""counterfactual/engine.py — P5 Counterfactual Reasoning v2.
 
-Given a BayesianGovernor assessment, asks 'What if?' for each evidence node,
-reports the P(Gain) delta, and identifies leverage points.
+Given a Governor v2 BayesianMandate (7 evidence nodes), asks 'What if?'
+for each evidence node, reports P(Gain) delta, and identifies leverage.
+
+v2 changes:
+  - Baseline sourced from Governor v2 assess() → full 7-node Bayesian network
+  - Includes capital_allocation, archetype_prior_key, lr_macro_override
+  - Baseline P(Gain) exactly matches Governor v2 output
 
 Usage:
     from src.counterfactual.engine import CounterfactualEngine
@@ -18,19 +23,18 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# Reuse Bayesian internals from Governor
+# Reuse Bayesian internals from Governor v2
 from src.governor.company_state import (
     BayesianGovernor, BayesianMandate,
-    PRIOR_ODDS, EVIDENCE_WEIGHTS,
-    LR_MACRO, LR_TRANSMISSION, LR_SECTOR,
-    LR_HEALTH, LR_VALUATION, LR_BEHAVIOR,
-    _lookup_lr, compute_gain_probability,
+    EVIDENCE_WEIGHTS,
+    compute_gain_probability,
     compute_expected_utilities, pick_best_action,
     kelly_allocation, ACTION_VN,
 )
 
 
 # ── Best / Worst values for each evidence node ──────────────
+# v2: includes capital_allocation (Giai đoạn 4)
 BEST_EVIDENCE = {
     "macro": "STABLE",
     "transmission": "HEALTHY_TRANSMISSION",
@@ -38,6 +42,7 @@ BEST_EVIDENCE = {
     "health": "HIGH_QUALITY_COMPOUNDER",
     "valuation": "ULTRA_CHEAP",
     "behavior": "IN_VA_DEMAND",
+    "capital_allocation": "VALUE_CREATOR",
 }
 
 WORST_EVIDENCE = {
@@ -47,9 +52,21 @@ WORST_EVIDENCE = {
     "health": "DISTRESSED",
     "valuation": "ULTRA_EXPENSIVE",
     "behavior": "ABOVE_VA",
+    "capital_allocation": "VALUE_DESTROYER",
 }
 
-# ── Named scenarios ─────────────────────────────────────────
+# Map scenario key → compute_gain_probability() parameter name
+EVIDENCE_PARAM_MAP = {
+    "macro": "macro_state",
+    "transmission": "transmission_phase",
+    "sector": "sector_phase",
+    "health": "health_archetype",
+    "valuation": "valuation_zone",
+    "behavior": "behavior_position",
+    "capital_allocation": "capital_allocation",
+}
+
+# ── Named scenarios (v2) ────────────────────────────────────
 SCENARIOS = {
     "STABLE_MACRO": {
         "label": "Vĩ mô ổn định",
@@ -66,12 +83,18 @@ SCENARIOS = {
         "desc": "Chuyển phase ngành → MID (tốt nhất)",
         "overrides": {"sector": "MID"},
     },
+    "CAP_ALLOC_BOOST": {
+        "label": "Phân bổ vốn tối ưu",
+        "desc": "Chuyển capital_allocation → VALUE_CREATOR",
+        "overrides": {"capital_allocation": "VALUE_CREATOR"},
+    },
     "BEST_COMPANY": {
         "label": "Doanh nghiệp hoàn hảo",
-        "desc": "HQC + ULTRA_CHEAP + IN_VA_DEMAND",
+        "desc": "HQC + ULTRA_CHEAP + IN_VA_DEMAND + VALUE_CREATOR",
         "overrides": {"health": "HIGH_QUALITY_COMPOUNDER",
                       "valuation": "ULTRA_CHEAP",
-                      "behavior": "IN_VA_DEMAND"},
+                      "behavior": "IN_VA_DEMAND",
+                      "capital_allocation": "VALUE_CREATOR"},
     },
     "OPTIMISTIC": {
         "label": "Lạc quan toàn phần",
@@ -83,15 +106,6 @@ SCENARIOS = {
         "desc": "Mọi yếu tố ở mức tệ nhất",
         "overrides": {k: v for k, v in WORST_EVIDENCE.items()},
     },
-}
-
-EVIDENCE_KEY_MAP = {
-    "macro": ("macro_state", "macro"),
-    "transmission": ("transmission_phase", "transmission"),
-    "sector": ("sector_phase", "sector"),
-    "health": ("health_archetype", "health"),
-    "valuation": ("valuation_zone", "valuation"),
-    "behavior": ("behavior_position", "behavior"),
 }
 
 
@@ -124,51 +138,66 @@ class LeveragePoint:
 
 
 class CounterfactualEngine:
-    """P5: What-if simulation over the Bayesian inference network."""
+    """P5 v2: What-if simulation aligned with Governor v2 (7-node Bayesian network)."""
 
     def __init__(self):
         self.gov = BayesianGovernor()
 
-    def _get_baseline_evidence(self, symbol: str) -> dict:
-        """Extract current evidence vector from Governor for a symbol."""
-        m = self.gov._macro
-        t = self.gov._transmission
-        s = self.gov._sector
-        sector_phase = s.get("top_phase", "NEUTRAL")
-        health = self.gov.perception.load_health(symbol)
-        val = self.gov.valuation.score_valuation(symbol)
-        beh = self.gov.behavior.score_behavior(symbol)
-        return {
-            "macro_state": m["state"],
-            "transmission_phase": t["phase"],
-            "sector_phase": sector_phase,
-            "health_archetype": health["archetype"],
-            "valuation_zone": val.get("overall_zone", "FAIR"),
-            "behavior_position": beh.get("position", "UNKNOWN"),
-            "macro_entropy": m["entropy"],
-            "transmission_credit": t["credit"],
-        }
+    def _get_baseline_params(self, symbol: str) -> Tuple[dict, BayesianMandate]:
+        """Run Governor v2 assess() and extract full parameter set.
 
-    def _compute_cf(self, evidence: dict, overrides: dict) -> Tuple[float, str, float, list]:
-        """Recompute P(Gain), action, alloc under overridden evidence."""
-        cf = dict(evidence)
+        Returns:
+            (params_dict, mandate) where params_dict contains all 11
+            parameters needed by compute_gain_probability().
+        """
+        mandate = self.gov.assess(symbol)
+        params = {
+            "macro_state": mandate.macro_state,
+            "transmission_phase": mandate.transmission_phase,
+            "sector_phase": mandate.sector_phase,
+            "health_archetype": mandate.health_archetype,
+            "valuation_zone": mandate.valuation_zone,
+            "behavior_position": mandate.behavior_position,
+            "capital_allocation": mandate.capital_allocation_archetype,
+            "macro_entropy": self.gov._macro.get("entropy", 1.5),
+            "transmission_credit": self.gov._transmission.get("credit", 50.0),
+            "archetype_prior_key": mandate.archetype_prior,
+            "lr_macro_override": mandate.lr_macro_dynamic,
+        }
+        return params, mandate
+
+    def _compute_cf(self, baseline_params: dict, overrides: dict) -> Tuple[float, str, float, list]:
+        """Recompute P(Gain), action, alloc under overridden evidence.
+
+        Uses ALL 11 parameters of compute_gain_probability() — exactly
+        matching Governor v2's Bayesian network.
+        """
+        params = dict(baseline_params)
         for key, val in overrides.items():
-            col, _ = EVIDENCE_KEY_MAP.get(key, (key, key))
-            cf[col] = val
+            param_key = EVIDENCE_PARAM_MAP.get(key)
+            if param_key:
+                params[param_key] = val
+                # When overriding macro_state, reset lr_macro_override
+                # so the new macro state uses its default LR.
+                if key == "macro":
+                    params["lr_macro_override"] = None
 
         p_gain, _, calib_penalty = compute_gain_probability(
-            macro_state=cf["macro_state"],
-            transmission_phase=cf["transmission_phase"],
-            sector_phase=cf["sector_phase"],
-            health_archetype=cf["health_archetype"],
-            valuation_zone=cf["valuation_zone"],
-            behavior_position=cf["behavior_position"],
-            macro_entropy=cf["macro_entropy"],
-            transmission_credit=cf["transmission_credit"],
+            macro_state=params["macro_state"],
+            transmission_phase=params["transmission_phase"],
+            sector_phase=params["sector_phase"],
+            health_archetype=params["health_archetype"],
+            valuation_zone=params["valuation_zone"],
+            behavior_position=params["behavior_position"],
+            capital_allocation=params.get("capital_allocation", "TRANSITIONAL"),
+            macro_entropy=params.get("macro_entropy", 0.0),
+            transmission_credit=params.get("transmission_credit", 50.0),
+            archetype_prior_key=params.get("archetype_prior_key", "UNKNOWN"),
+            lr_macro_override=params.get("lr_macro_override"),
         )
         eu_list = compute_expected_utilities(p_gain)
         action, best_eu = pick_best_action(eu_list)
-        alloc = kelly_allocation(p_gain, calib_penalty, cf["macro_entropy"])
+        alloc = kelly_allocation(p_gain, calib_penalty, params.get("macro_entropy", 0.0))
         if action in ("VETO", "AVOID"):
             alloc = 0.0
         elif action == "REDUCE":
@@ -176,15 +205,18 @@ class CounterfactualEngine:
         return p_gain, action, alloc, eu_list
 
     def analyze_one(self, symbol: str) -> Tuple[dict, List[CounterfactualResult], List[LeveragePoint]]:
-        """Return (baseline_evidence, cf_results, leverage_points) for one symbol."""
-        evidence = self._get_baseline_evidence(symbol)
+        """Return (baseline_params, cf_results, leverage_points) for one symbol.
 
-        # Baseline
-        p_base, act_base, alloc_base, eu_base = self._compute_cf(evidence, {})
+        Baseline P(Gain) sourced directly from Governor v2 assess().
+        """
+        params, mandate = self._get_baseline_params(symbol)
+        p_base = mandate.p_gain
+        act_base = mandate.action
+        alloc_base = mandate.allocation_pct
 
         cf_results = []
         for key, sc in SCENARIOS.items():
-            p_cf, act_cf, alloc_cf, eu_cf = self._compute_cf(evidence, sc["overrides"])
+            p_cf, act_cf, alloc_cf, eu_cf = self._compute_cf(params, sc["overrides"])
             cf_results.append(CounterfactualResult(
                 symbol=symbol,
                 scenario=key,
@@ -204,10 +236,9 @@ class CounterfactualEngine:
         leverage = []
         for key, best_val in BEST_EVIDENCE.items():
             ov = {key: best_val}
-            p_best, _, _, _ = self._compute_cf(evidence, ov)
+            p_best, _, _, _ = self._compute_cf(params, ov)
 
-            col, _ = EVIDENCE_KEY_MAP.get(key, (key, key))
-            baseline_val = evidence.get(col, "?")
+            baseline_val = params.get(EVIDENCE_PARAM_MAP.get(key), "?")
             leverage.append(LeveragePoint(
                 symbol=symbol,
                 node=key,
@@ -218,13 +249,13 @@ class CounterfactualEngine:
             ))
         leverage.sort(key=lambda x: abs(x.delta), reverse=True)
 
-        return evidence, cf_results, leverage
+        return params, cf_results, leverage
 
     def analyze(self, symbols: List[str]) -> dict:
         results = {}
         for sym in symbols:
-            ev, cf, lev = self.analyze_one(sym)
-            results[sym] = {"evidence": ev, "counterfactuals": cf, "leverage": lev}
+            params, cf, lev = self.analyze_one(sym)
+            results[sym] = {"params": params, "counterfactuals": cf, "leverage": lev}
         return {
             "date": str(date.today()),
             "symbols": len(symbols),
@@ -241,23 +272,26 @@ class CounterfactualEngine:
 
 def print_counterfactual_report(analysis: dict):
     print(f"\n  {'='*80}")
-    print(f"  P5 COUNTERFACTUAL REASONING — '{analysis['date']}'")
+    print(f"  P5 COUNTERFACTUAL REASONING v2 — '{analysis['date']}'")
     print(f"  {'='*80}")
 
     for sym, info in sorted(analysis["results"].items()):
-        ev = info["evidence"]
+        params = info["params"]
         print(f"\n  {'─'*80}")
         print(f"  📍 {sym}")
         print(f"  {'─'*80}")
 
-        # Baseline
+        # Baseline (v2 fields)
         cf0 = info["counterfactuals"][0]
         print(f"  Baseline:        P(Gain)={cf0.baseline_p_gain:.1%}  "
               f"Action={cf0.baseline_action}  Alloc={cf0.baseline_alloc:+.1f}%")
-        print(f"  Macro:           {ev['macro_state']} | Transmission: {ev['transmission_phase']} | "
-              f"Sector: {ev['sector_phase']}")
-        print(f"  Health:          {ev['health_archetype']} | "
-              f"Valuation: {ev['valuation_zone']} | Behavior: {ev['behavior_position']}")
+        print(f"  Macro:           {params['macro_state']} | Transmission: {params['transmission_phase']} | "
+              f"Sector: {params['sector_phase']}")
+        print(f"  Health:          {params['health_archetype']} | "
+              f"Valuation: {params['valuation_zone']} | Behavior: {params['behavior_position']}")
+        print(f"  Cap.Alloc:       {params['capital_allocation']} | "
+              f"Prior: {params['archetype_prior_key']} | "
+              f"Macro LR: {params.get('lr_macro_override', 0):.3f}")
 
         # Counterfactual scenarios
         print(f"\n  {'▶ KỊCH BẢN GIẢ ĐỊNH (COUNTERFACTUAL)':─<64}")
@@ -268,7 +302,7 @@ def print_counterfactual_report(analysis: dict):
             print(f"  {cf.scenario_label:<26} {cf.cf_p_gain:>7.1%} {delta_s:>7} "
                   f"{cf.cf_action:<12} {cf.cf_alloc:>+6.1f}%")
 
-        # Leverage ranking
+        # Leverage ranking (v2: includes capital_allocation)
         print(f"\n  {'▶ ĐÒN BẨY (LEVERAGE — flip từng nút lên best)':─<64}")
         print(f"  {'Nút':<16} {'Hiện tại':<18} {'→ Best':<18} {'P(Best)':>8} {'Δ':>7}")
         print(f"  {'─'*64}")
@@ -279,9 +313,8 @@ def print_counterfactual_report(analysis: dict):
 
     # Summary: which scenario liberates most capital
     print(f"\n  {'='*80}")
-    print(f"  TỔNG HỢP ĐÒN BẨY VĨ MÔ")
+    print(f"  TỔNG HỢP ĐÒN BẨY")
     print(f"  {'='*80}")
-    # Aggregate delta per scenario across symbols
     scenario_deltas: Dict[str, List[float]] = {}
     for info in analysis["results"].values():
         for cf in info["counterfactuals"]:
