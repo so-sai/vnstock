@@ -739,7 +739,10 @@ class BayesianGovernor:
         dynamic_weights = None
         try:
             from calibration.evidence_engine import get_dynamic_evidence_weights
-            dw = get_dynamic_evidence_weights()
+            _ms = self._macro.get("state", "STABLE")
+            _sp = sector_phase
+            _en = float(self._macro.get("entropy", 0.0))
+            dw = get_dynamic_evidence_weights(_ms, _sp, _en)
             if dw:
                 dynamic_weights = dw
         except Exception:

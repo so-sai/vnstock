@@ -1737,12 +1737,42 @@ def cmd_evidence(args):
     ee = EvidenceEngine()
     ee.init_schema()
 
+    # Load macro context for Applicability Engine
+    import json
+    from pathlib import Path
+    _MACRO_DIR = Path(__file__).resolve().parent / "backend" / "data" / "macro"
+
+    def _get_ctx():
+        ms, sp, en = "STABLE", "NEUTRAL", 0.0
+        try:
+            p = _MACRO_DIR / "macro_state_history.json"
+            if p.exists():
+                hist = json.loads(p.read_text(encoding="utf-8"))
+                if hist:
+                    latest = hist[-1]
+                    ms = latest.get("macro_state", "STABLE")
+                    en = float(latest.get("entropy", 0.0))
+        except Exception:
+            pass
+        try:
+            p = _MACRO_DIR / "sector_rotation_latest.json"
+            if p.exists():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                sp = data.get("top_phase", "NEUTRAL")
+        except Exception:
+            pass
+        return ms, sp, en
+
     if args.action == "list":
+        ms, sp, en = _get_ctx()
+        # Compute weights first (writes A_i to DB via ApplicabilityEngine)
+        weights = get_dynamic_evidence_weights(ms, sp, en)
+        # Then read fresh nodes with updated applicability
         nodes = ee.get_all_nodes()
-        weights = get_dynamic_evidence_weights()
         print_evidence_report(nodes, weights, _VERBOSE_LANG)
     elif args.action == "weights":
-        w = get_dynamic_evidence_weights()
+        ms, sp, en = _get_ctx()
+        w = get_dynamic_evidence_weights(ms, sp, en)
         name = _ll("Dynamic Weights")
         print(f"\n  {name} (LAW-004):")
         for k, v in sorted(w.items()):
@@ -1763,6 +1793,21 @@ def cmd_evidence(args):
         tip_text = _ll("Tip")
         tip_body = _ll("Use calibrate resolve, then evidence update for real outcomes")
         print(f"\n  {tip_text}: {tip_body}.")
+    elif args.action == "applicability":
+        sub = getattr(args, "sub", "status")
+        ms, sp, en = _get_ctx() if sub != "heatmap" else ("STABLE", "NEUTRAL", 0.0)
+        from calibration.applicability_engine import (
+            print_applicability_report,
+            print_heatmap,
+            compute_applicability,
+        )
+
+        if sub == "heatmap":
+            print_heatmap(_VERBOSE_LANG)
+        else:
+            app = compute_applicability(ms, sp, en)
+            print_applicability_report(app, ms, sp, en, _VERBOSE_LANG)
+
     elif args.action == "simulate":
         """Dry-run: assign random outcomes to pending predictions, observe weight differentiation."""
         n_pending = getattr(args, "n_pending", 60)
@@ -1785,7 +1830,8 @@ def cmd_evidence(args):
 
         # Snapshot before
         nodes_before = ee.get_all_nodes()
-        w_before = get_dynamic_evidence_weights()
+        ms, sp, en = _get_ctx()
+        w_before = get_dynamic_evidence_weights(ms, sp, en)
 
         # Generate per-node synthetic outcomes with different biases
         from calibration.evidence_engine import EVIDENCE_NODE_IDS as _NODES
@@ -1804,7 +1850,8 @@ def cmd_evidence(args):
 
         # Snapshot after
         nodes_after = ee.get_all_nodes()
-        w_after = get_dynamic_evidence_weights()
+        ms, sp, en = _get_ctx()
+        w_after = get_dynamic_evidence_weights(ms, sp, en)
 
         sim_label = _ll("SIMULATION DRY-RUN")
         print(f"\n  {'='*90}")
@@ -3091,6 +3138,12 @@ def build_parser():
     p_ev_reset.set_defaults(func=cmd_evidence)
     p_ev_drift = p_ev_sub.add_parser("drift", help="Xem các node có drift cao")
     p_ev_drift.set_defaults(func=cmd_evidence)
+    p_ev_app = p_ev_sub.add_parser("applicability", help="Sprint 2: A_i = f(macro, sector, entropy)")
+    p_ev_app_sub = p_ev_app.add_subparsers(dest="sub", required=True)
+    p_ev_app_st = p_ev_app_sub.add_parser("status", help="Xem A_i hiện tại theo context")
+    p_ev_app_st.set_defaults(func=cmd_evidence)
+    p_ev_app_hm = p_ev_app_sub.add_parser("heatmap", help="Xem ma trận A_i cho tất cả macro states")
+    p_ev_app_hm.set_defaults(func=cmd_evidence)
     p_ev_sim = p_ev_sub.add_parser("simulate", help="Dry-run: gán outcome ngẫu nhiên để test tốc độ phân hóa trọng số")
     p_ev_sim.add_argument("--n-pending", type=int, default=60, help="Số dự báo giả lập (mặc định 60)")
     p_ev_sim.add_argument("--bias-macro", type=float, default=0.55, help="Tỷ lệ gain macro (mặc định 0.55)")

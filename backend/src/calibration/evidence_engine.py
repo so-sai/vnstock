@@ -168,8 +168,16 @@ class EvidenceEngine:
 
     # ── Dynamic Weights ────────────────────────────────────────────
 
-    def get_dynamic_weights(self) -> Dict[str, float]:
+    def get_dynamic_weights(
+        self,
+        macro_state: Optional[str] = None,
+        sector_phase: Optional[str] = None,
+        entropy: float = 0.0,
+    ) -> Dict[str, float]:
         """Compute normalized dynamic weights for all evidence nodes.
+
+        Sprint 2: accepts optional macro/sector/entropy context for
+        Applicability Engine (A_i = f(macro, sector, entropy)).
 
         Formula:
           θ_i = R_i × A_i × exp(-DRIFT_LAMBDA × D_i)
@@ -177,9 +185,26 @@ class EvidenceEngine:
 
         Where:
           R_i = reliability = alpha/(alpha+beta)
-          A_i = applicability (1.0 in Sprint 1, tuned in Sprint 2)
+          A_i = applicability (Sprint 1: 1.0; Sprint 2: from ApplicabilityEngine)
           D_i = drift_score ∈ [0,1]
         """
+        # Sprint 2: compute A_i from context if provided
+        if macro_state is not None and sector_phase is not None:
+            try:
+                from calibration.applicability_engine import compute_applicability
+                app_map = compute_applicability(macro_state, sector_phase, entropy)
+                # Write to DB so it persists for caching
+                now = datetime.now().isoformat()
+                conn_w = self._get_conn()
+                for nid, ai in app_map.items():
+                    conn_w.execute(
+                        "UPDATE evidence_registry SET applicability=?, last_updated=? WHERE node_id=?",
+                        (ai, now, nid),
+                    )
+                conn_w.commit()
+            except Exception:
+                pass
+
         conn = self._get_conn()
         rows = conn.execute(
             "SELECT node_id, reliability, drift_score, applicability FROM evidence_registry"
@@ -273,12 +298,19 @@ class EvidenceEngine:
 # MODULE-LEVEL HELPERS (no instance needed)
 # ====================================================================
 
-def get_dynamic_evidence_weights() -> Dict[str, float]:
-    """Quick-shot: returns dynamic weights dict, fallback to uniform if no data."""
+def get_dynamic_evidence_weights(
+    macro_state: Optional[str] = None,
+    sector_phase: Optional[str] = None,
+    entropy: float = 0.0,
+) -> Dict[str, float]:
+    """Quick-shot: returns dynamic weights dict, fallback to uniform if no data.
+
+    Sprint 2: accepts macro/sector/entropy context for Applicability Engine.
+    """
     try:
         ee = EvidenceEngine()
         ee.init_schema()
-        w = ee.get_dynamic_weights()
+        w = ee.get_dynamic_weights(macro_state, sector_phase, entropy)
         if w:
             return w
     except Exception:
@@ -295,14 +327,25 @@ def print_evidence_report(nodes: List[Dict], weights: Dict[str, float], lang_mod
         def localize_label(l, m="full"): return l
     _ = lambda x: localize_label(x, lang_mode)
 
-    print(f"\n  {'='*80}")
-    print(f"  {_('EVIDENCE REGISTRY')} — {_('Dynamic Weighting')} (LAW-004)")
-    print(f"  {'='*80}")
+    # Check if applicability varies from default
+    has_applicability = any(
+        abs(n.get("applicability", 1.0) - 1.0) > 0.01 for n in nodes
+    )
+
+    print(f"\n  {'='*95}")
+    if has_applicability:
+        print(f"  {_('EVIDENCE REGISTRY')} — {_('Dynamic Weighting')} (LAW-004) | {_('A_i ACTIVE')}")
+    else:
+        print(f"  {_('EVIDENCE REGISTRY')} — {_('Dynamic Weighting')} (LAW-004)")
+    print(f"  {'='*95}")
 
     # Table header
-    hdr = f"  {_('Node'):<20} {_('Reliability'):>12} {_('Drift'):>8} {_('Brier'):>8} {'N':>4} {_('Weight'):>8} {_('Status'):>10}"
+    hdr = f"  {_('Node'):<20} {_('Reliability'):>12} {_('Drift'):>8} {_('Brier'):>8} {'N':>4}"
+    if has_applicability:
+        hdr += f" {_('A_i'):>6}"
+    hdr += f" {_('Weight'):>8} {_('Status'):>10}"
     print(hdr)
-    print(f"  {'─'*75}")
+    print(f"  {'─'*90}")
 
     for node in nodes:
         nid = node["node_id"]
@@ -311,6 +354,7 @@ def print_evidence_report(nodes: List[Dict], weights: Dict[str, float], lang_mod
         avg_b = node.get("avg_brier", None)
         n_upd = node["n_updates"]
         w = weights.get(nid, 0)
+        ai = node.get("applicability", 1.0)
 
         # Status label from drift_score
         if drift < 0.30:
@@ -321,11 +365,20 @@ def print_evidence_report(nodes: List[Dict], weights: Dict[str, float], lang_mod
             status = "🔴 " + _("DEGRADED")
 
         brier_str = f"{avg_b:.4f}" if avg_b is not None else _("N/A")
-        print(f"  {nid:<20} {rel:>11.4f} {drift:>7.3f} {brier_str:>8} {n_upd:>4} {w:>7.4f} {status:>10}")
+        line = f"  {nid:<20} {rel:>11.4f} {drift:>7.3f} {brier_str:>8} {n_upd:>4}"
+        if has_applicability:
+            line += f" {ai:>5.3f}"
+        line += f" {w:>7.4f} {status:>10}"
+        print(line)
 
     # Summary
     print(f"\n  {_('Formula')}: θ_i = R_i × A_i × exp(-{DRIFT_LAMBDA} × D_i)")
     print(f"  {_('Forgetting')}: decay={FORGETTING_DECAY} (half-life ~138 phiên)")
+    if has_applicability:
+        max_ai = max(nodes, key=lambda n: n.get("applicability", 0))
+        min_ai = min(nodes, key=lambda n: n.get("applicability", 0))
+        print(f"  {_('A_i ACTIVE')} — max: {max_ai['node_id']} ({max_ai.get('applicability', 0):.3f}), "
+              f"min: {min_ai['node_id']} ({min_ai.get('applicability', 0):.3f})")
     if weights:
         dominant = max(weights, key=weights.get)
         print(f"  {_('Dominant node')}: {dominant} ({weights[dominant]:.3f})")

@@ -716,6 +716,16 @@ CLI_LABEL_MAP: dict[str, str] = {
     "predictions": "dự báo",
     "Actual gains": "Kết quả thực tế",
     "Note": "Ghi chú",
+    "APPLICABILITY ENGINE": "BỘ TÍNH PHÙ HỢP",
+    "APPLICABILITY HEATMAP": "BẢN ĐỒ NHIỆT PHÙ HỢP",
+    "Sprint 2": "Chặng 2",
+    "Sector Phase": "Pha Ngành",
+    "Entropy": "Entropy",
+    "A_i": "A_i",
+    "A_i ACTIVE": "A_I ĐANG KÍCH HOẠT",
+    "Macro State × Evidence Node": "Trạng thái VM × Nút Bằng chứng",
+    "Legend": "Chú thích",
+    "Entropy dampener": "Bộ giảm Entropy",
 
 }
 

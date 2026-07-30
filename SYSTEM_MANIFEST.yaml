@@ -502,6 +502,14 @@ entrypoints:
     description: "LAW-004 Evidence Engine — view high-drift (>0.30) nodes"
     cli: "python ptck.py evidence drift"
     category: calibration
+  evidence_applicability:
+    description: "Sprint 2 Applicability Engine — A_i = f(macro, sector, entropy)"
+    cli: "python ptck.py evidence applicability status"
+    category: calibration
+  evidence_applicability_heatmap:
+    description: "Sprint 2 — full macro × node applicability matrix"
+    cli: "python ptck.py evidence applicability heatmap"
+    category: calibration
 
   # ── Giai đoạn 1: Business Ontology Layer ────────────────
   business_archetype:
