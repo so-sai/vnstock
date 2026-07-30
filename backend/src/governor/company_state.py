@@ -43,22 +43,42 @@ MACRO_DIR = DATA_DIR / "macro"
 # 1. BAYESIAN INFERENCE — Weight of Evidence
 # =========================================================================
 
-# Prior: long-run fraction of up-days on VNINDEX ~53%
+# ── Prior ──────────────────────────────────────────────────────
+# Long-run fraction of up-days on VNINDEX ~53%
 PRIOR_PROB_GAIN = 0.53
 PRIOR_ODDS = PRIOR_PROB_GAIN / (1.0 - PRIOR_PROB_GAIN)
 
-# Evidence weights (relative predictive power, sum = 1.0)
+# Archetype-aware priors (Giai đoạn 1 + Giai đoạn 4 insights)
+# COMPOUNDERs have structural ROIC > WACC → higher baseline odds
+# CYCLICAL_HEAVY and REAL_ESTATE have earnings risk → lower baseline
+PRIOR_BY_ARCHETYPE = {
+    "COMPOUNDER": 0.58,
+    "FRANCHISE_BANK": 0.55,
+    "STEADY_EARNER": 0.54,
+    "REGULATED_UTILITY": 0.52,
+    "RETAIL_PLATFORM": 0.50,
+    "ASSET_BANK": 0.48,
+    "EXPORT_MANUFACTURER": 0.47,
+    "CYCLICAL_HEAVY": 0.45,
+    "REAL_ESTATE_DEVELOPER": 0.42,
+    "UNKNOWN": 0.53,
+}
+
+# ── Evidence weights v2 (7 nodes, sum = 1.0) ──────────────────
+# Capital Allocation (Giai đoạn 4) added at 0.15, shifted from macro/transmission/sector/health
 EVIDENCE_WEIGHTS = {
-    "macro": 0.30,
-    "transmission": 0.20,
-    "sector": 0.15,
-    "health": 0.15,
+    "macro": 0.25,
+    "transmission": 0.15,
+    "sector": 0.12,
+    "health": 0.13,
+    "capital_allocation": 0.15,  # NEW: management capital allocation quality
     "valuation": 0.10,
     "behavior": 0.10,
 }
 
-# Likelihood ratios for each evidence level
+# ── Likelihood Ratios ─────────────────────────────────────────
 # LR > 1 → gain more likely; LR < 1 → gain less likely
+
 LR_MACRO = {
     "CREDIT_STRESS": 0.25,
     "AI_BOOM": 2.50,
@@ -113,6 +133,16 @@ LR_BEHAVIOR = {
     "ABOVE_VA": 0.50,
 }
 
+# ── Capital Allocation LR (Giai đoạn 4) ───────────────────────
+LR_CAPITAL_ALLOCATION = {
+    "VALUE_CREATOR": 1.60,
+    "EFFICIENT_ALLOCATOR": 1.30,
+    "CAPITAL_HOARDER": 0.85,
+    "LEVERAGED_OPTIMIZER": 0.70,
+    "TRANSITIONAL": 0.95,
+    "VALUE_DESTROYER": 0.20,
+}
+
 
 def _lookup_lr(table: dict, key: str, default: float = 1.0) -> float:
     """Safe LR lookup with logging-unfriendly fallback."""
@@ -126,27 +156,42 @@ def compute_gain_probability(
     health_archetype: str,
     valuation_zone: str,
     behavior_position: str,
+    capital_allocation: str = "TRANSITIONAL",
     macro_entropy: float = 0.0,
     transmission_credit: float = 50.0,
+    archetype_prior_key: str = "UNKNOWN",
+    lr_macro_override: Optional[float] = None,
 ) -> Tuple[float, float, float]:
-    """Bayesian Weight-of-Evidence → P(Gain | Evidence).
+    """Bayesian Weight-of-Evidence v2 → P(Gain | Evidence).
+
+    So với v1:
+      - Thêm capital_allocation node (Giai đoạn 4)
+      - Archetype-aware prior (Giai đoạn 1 + 4)
+      - dynamic LR macro override (Giai đoạn 2)
 
     Returns:
       (posterior_prob, log_posterior_odds, calibration_penalty)
     """
-    lr_macro = _lookup_lr(LR_MACRO, macro_state)
+    # Archetype-aware prior
+    prior_prob = PRIOR_BY_ARCHETYPE.get(archetype_prior_key, PRIOR_PROB_GAIN)
+    prior_odds = prior_prob / (1.0 - prior_prob)
+
+    # Dynamic LR override from Factor Exposure Matrix (Giai đoạn 2)
+    lr_macro = lr_macro_override if lr_macro_override is not None else _lookup_lr(LR_MACRO, macro_state)
     lr_trans = _lookup_lr(LR_TRANSMISSION, transmission_phase)
     lr_sector = _lookup_lr(LR_SECTOR, sector_phase)
     lr_health = _lookup_lr(LR_HEALTH, health_archetype)
     lr_val = _lookup_lr(LR_VALUATION, valuation_zone)
     lr_beh = _lookup_lr(LR_BEHAVIOR, behavior_position)
+    lr_cap = _lookup_lr(LR_CAPITAL_ALLOCATION, capital_allocation)
 
-    log_prior = math.log(PRIOR_ODDS)
+    log_prior = math.log(prior_odds)
     log_lr = (
         EVIDENCE_WEIGHTS["macro"] * math.log(max(lr_macro, 0.01))
         + EVIDENCE_WEIGHTS["transmission"] * math.log(max(lr_trans, 0.01))
         + EVIDENCE_WEIGHTS["sector"] * math.log(max(lr_sector, 0.01))
         + EVIDENCE_WEIGHTS["health"] * math.log(max(lr_health, 0.01))
+        + EVIDENCE_WEIGHTS["capital_allocation"] * math.log(max(lr_cap, 0.01))
         + EVIDENCE_WEIGHTS["valuation"] * math.log(max(lr_val, 0.01))
         + EVIDENCE_WEIGHTS["behavior"] * math.log(max(lr_beh, 0.01))
     )
@@ -155,8 +200,6 @@ def compute_gain_probability(
     posterior_prob = 1.0 / (1.0 + math.exp(-log_posterior_odds))
 
     # Calibration penalty based on macro entropy + transmission credit
-    # High entropy → uncertain macro → reduce confidence
-    # Low credit → frozen lending → reduce confidence
     entropy_penalty = max(0.0, min(1.0, macro_entropy / 3.0))
     credit_penalty = max(0.0, min(1.0, (50.0 - transmission_credit) / 50.0))
     calibration_penalty = 0.5 * entropy_penalty + 0.5 * credit_penalty
@@ -518,7 +561,7 @@ class PerceptionLoader:
 
 @dataclass
 class BayesianMandate:
-    """Output of the P3 Bayesian Governor for one symbol."""
+    """Output of the P3 Bayesian Governor v2 for one symbol."""
     symbol: str
     action: str
     action_vn: str
@@ -533,7 +576,14 @@ class BayesianMandate:
     health_archetype: str
     valuation_zone: str
     behavior_position: str
-    eu_ranking: List[Tuple[str, float]]
+
+    # v2 fields
+    capital_allocation_archetype: str = ""
+    capital_allocation_score: float = 0.0
+    archetype_prior: str = "UNKNOWN"
+    lr_macro_dynamic: float = 1.0
+    contextual_health_score: float = 0.5
+    eu_ranking: List[Tuple[str, float]] = field(default_factory=list)
 
 
 ACTION_VN = {
@@ -548,30 +598,112 @@ ACTION_VN = {
 
 
 class BayesianGovernor:
-    """P3 Governor: Bayesian Expected Utility replacing IF/THEN matrix."""
+    """P3 Governor v2: Bayesian Expected Utility + Giai đoạn 1-4 integration.
+
+    So với v1:
+      - Archetype-aware prior (Giai đoạn 1)
+      - Dynamic LR macro from Factor Exposure Matrix (Giai đoạn 2)
+      - Contextual Health score (Giai đoạn 3)
+      - Capital Allocation evidence node (Giai đoạn 4)
+    """
 
     def __init__(self):
         self.perception = PerceptionLoader()
         self.valuation = L3ValuationLoader()
         self.behavior = L4BehaviorLoader()
 
+        # Giai đoạn 2: Factor Exposure
+        self._factor_engine = None
+
+        # Giai đoạn 3: Contextual Health
+        self._context_engine = None
+
+        # Giai đoạn 4: Capital Allocation
+        self._capital_engine = None
+
         # Load market-level context once
         self._macro = self.perception.load_macro_state()
         self._transmission = self.perception.load_transmission()
         self._sector = self.perception.load_sector()
 
+    def _get_factor_engine(self):
+        if self._factor_engine is None:
+            from src.business.factor_exposure import FactorExposureEngine, compute_lr_adjustment
+            self._factor_engine = FactorExposureEngine()
+            self._compute_lr_adjust = compute_lr_adjustment
+        return self._factor_engine
+
+    def _get_context_engine(self):
+        if self._context_engine is None:
+            from src.financial.company_health import ContextualHealthEngine
+            self._context_engine = ContextualHealthEngine()
+        return self._context_engine
+
+    def _get_capital_engine(self):
+        if self._capital_engine is None:
+            from src.business.capital_allocation import CapitalAllocationEngine
+            self._capital_engine = CapitalAllocationEngine()
+        return self._capital_engine
+
+    def _get_archetype_prior(self, symbol: str) -> str:
+        """Map symbol to archetype prior key via Giai đoạn 1 classification."""
+        try:
+            from src.business.archetype import ArchetypeEngine
+            arch = ArchetypeEngine().classify(symbol)
+            return arch.archetype if arch else "UNKNOWN"
+        except Exception:
+            return "UNKNOWN"
+
     def assess(self, symbol: str) -> BayesianMandate:
-        """Compute Bayesian mandate for a single symbol."""
+        """Compute Bayesian mandate v2 for a single symbol."""
         # Per-symbol evidence
         health = self.perception.load_health(symbol)
         val = self.valuation.score_valuation(symbol)
         beh = self.behavior.score_behavior(symbol)
 
-        # Derive sector phase from rotation chain for this symbol
-        # Use top_phase as market-level sector context
+        # ── Giai đoạn 1: Archetype-aware prior ──────────────
+        arch_prior_key = self._get_archetype_prior(symbol)
+
+        # ── Giai đoạn 2: Dynamic LR from Factor Exposure ────
+        lr_macro_dynamic = 1.0
+        try:
+            factor_eng = self._get_factor_engine()
+            matrix = factor_eng.compute(symbol)
+            lr_mult = self._compute_lr_adjust(
+                matrix, self._macro["state"], self._transmission["phase"]
+            )
+            # Scale base LR by per-symbol multiplier
+            lr_macro_dynamic = _lookup_lr(LR_MACRO, self._macro["state"]) * lr_mult
+            lr_macro_dynamic = max(0.05, min(5.0, lr_macro_dynamic))
+        except Exception:
+            pass
+
+        # ── Giai đoạn 3: Contextual Health ──────────────────
+        contextual_health_score = 0.5
+        try:
+            ctx_eng = self._get_context_engine()
+            ctx = ctx_eng.assess(symbol)
+            if ctx:
+                contextual_health_score = ctx.overall_score
+        except Exception:
+            pass
+
+        # ── Giai đoạn 4: Capital Allocation ─────────────────
+        capital_arch = "TRANSITIONAL"
+        capital_score = 0.0
+        try:
+            cap_eng = self._get_capital_engine()
+            cap = cap_eng.assess(symbol)
+            if cap:
+                capital_arch = cap.archetype
+                capital_score = cap.quality_score
+        except Exception:
+            pass
+
+        # Derive sector phase
         sector_phase = self._sector.get("top_phase", "NEUTRAL")
 
-        # Bayesian inference
+        # Bayesian inference v2
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
             transmission_phase=self._transmission["phase"],
@@ -579,8 +711,11 @@ class BayesianGovernor:
             health_archetype=health["archetype"],
             valuation_zone=val.get("overall_zone", "FAIR"),
             behavior_position=beh.get("position", "IN_VA"),
+            capital_allocation=capital_arch,
             macro_entropy=self._macro["entropy"],
             transmission_credit=self._transmission["credit"],
+            archetype_prior_key=arch_prior_key,
+            lr_macro_override=lr_macro_dynamic,
         )
 
         # Expected utility
@@ -591,16 +726,14 @@ class BayesianGovernor:
         allocation = kelly_allocation(
             p_gain, calib_penalty, self._macro["entropy"]
         )
-        # Negative allocation for defensive actions
         if best_action in ("VETO", "AVOID"):
             allocation = 0.0
         elif best_action == "REDUCE":
             allocation = -min(allocation, 10.0)
 
-        # Conviction = Bayesian probability adjusted by calibration
         conviction = p_gain * (1.0 - calib_penalty)
 
-        # P4: log prediction to calibration.db
+        # P4 logging
         try:
             _ensure_calib()
             from calibration.prediction_log import insert_prediction
@@ -636,6 +769,11 @@ class BayesianGovernor:
             health_archetype=health["archetype"],
             valuation_zone=val.get("overall_zone", "FAIR"),
             behavior_position=beh.get("position", "UNKNOWN"),
+            capital_allocation_archetype=capital_arch,
+            capital_allocation_score=capital_score,
+            archetype_prior=arch_prior_key,
+            lr_macro_dynamic=round(lr_macro_dynamic, 3),
+            contextual_health_score=round(contextual_health_score, 3),
             eu_ranking=eu_list,
         )
 
@@ -688,9 +826,9 @@ ARROW_MAP = {
 
 
 def print_report(analysis: Dict):
-    print(f"\n  {'='*80}")
-    print(f"  P3 GOVERNOR — BAYESIAN EXPECTED UTILITY — {analysis['date']}")
-    print(f"  {'='*80}")
+    print(f"\n  {'='*88}")
+    print(f"  P3 GOVERNOR v2 — BAYESIAN EXPECTED UTILITY — {analysis['date']}")
+    print(f"  {'='*88}")
 
     # Market context
     m = analysis["macro_state"]
@@ -699,21 +837,21 @@ def print_report(analysis: Dict):
     print(f"  🌐 Macro:       {m['state']} (P={m['posterior']:.0%}, H={m['entropy']:.2f})")
     print(f"  🔄 Transmission: {t['phase']} (L={t['liquidity']:.0f} C={t['credit']:.0f} K={t['confidence']:.0f})")
     print(f"  🏭 Sector:      Top={s.get('top_sector','?')} | healthy={s.get('n_healthy',0)}/19 | phase={s.get('top_phase','?')}")
-    print(f"  {'='*80}")
+    print(f"  {'='*88}")
 
     # Table
-    print(f"  {'Mã':<6} {'Hành động':<14} {'EU':>6} {'P(Gain)':>8} {'Alloc%':>7} {'Tin cậy':>8} {'Macro':<16} {'Health':<22}")
-    print(f"  {'-'*80}")
+    print(f"  {'Mã':<6} {'Hành động':<14} {'EU':>6} {'P(Gain)':>8} {'Alloc%':>7} {'Tin cậy':>8} {'Prior':<8} {'Cap.Alloc':<14} {'Macro LR':>8}")
+    print(f"  {'-'*88}")
 
     for sym, r in sorted(analysis["results"].items()):
         arrow = ARROW_MAP.get(r.action, "?")
         print(f"  {arrow} {sym:<5} {r.action_vn:<14} {r.expected_utility:>+6.3f} {r.p_gain:>7.1%} "
               f"{r.allocation_pct:>+6.1f}% {r.conviction:>7.1%} "
-              f"{r.macro_state:<16} {r.health_archetype:<22}")
+              f"{r.archetype_prior:<8} {r.capital_allocation_archetype:<14} {r.lr_macro_dynamic:>7.3f}")
 
-    print(f"\n  {'='*80}")
+    print(f"\n  {'='*88}")
     print(f"  PHÂN PHỐI QUYẾT ĐỊNH")
-    print(f"  {'='*80}")
+    print(f"  {'='*88}")
     counts: Dict[str, int] = {}
     for r in analysis["results"].values():
         counts[r.action] = counts.get(r.action, 0) + 1
@@ -722,24 +860,29 @@ def print_report(analysis: Dict):
             arrow = ARROW_MAP.get(action, "?")
             print(f"  {arrow} {ACTION_VN.get(action, action):<14}: {counts[action]} mã")
 
-    print(f"\n  {'='*80}")
-    print(f"  CHI TIẾT TỪNG MÃ")
-    print(f"  {'='*80}")
+    print(f"\n  {'='*88}")
+    print(f"  CHI TIẾT TỪNG MÃ — v2 (Giai đoạn 1→4 tích hợp)")
+    print(f"  {'='*88}")
 
     for sym, r in sorted(analysis["results"].items()):
         arrow = ARROW_MAP.get(r.action, "?")
-        print(f"\n  {'─'*60}")
+        print(f"\n  {'─'*65}")
         print(f"  {arrow} {sym} | {r.action_vn} | EU={r.expected_utility:+.4f}")
-        print(f"  {'─'*60}")
+        print(f"  {'─'*65}")
         print(f"  P(Gain|Evidence) = {r.p_gain:.1%}  |  Calib Penalty = {r.calibration_penalty:.2f}")
         print(f"  Allocation       = {r.allocation_pct:+.1f}%  |  Conviction    = {r.conviction:.1%}")
+        print(f"  v2 Inputs:")
+        print(f"    GĐ1 Prior:       {r.archetype_prior}")
+        print(f"    GĐ2 Macro LR:    {r.lr_macro_dynamic:.3f} (dynamic per symbol)")
+        print(f"    GĐ3 Ctx Health:  {r.contextual_health_score:.3f}")
+        print(f"    GĐ4 Cap.Alloc:   {r.capital_allocation_archetype} ({r.capital_allocation_score:+.2f})")
         print(f"  Evidence Inputs:")
-        print(f"    P0 MacroState:  {r.macro_state}")
-        print(f"    P1 Transmission:{r.transmission_phase}")
-        print(f"    P1 SectorPhase: {r.sector_phase}")
-        print(f"    P2 Health:      {r.health_archetype}")
-        print(f"    L3 Valuation:   {r.valuation_zone}")
-        print(f"    L4 Behavior:    {r.behavior_position}")
+        print(f"    P0 MacroState:   {r.macro_state}")
+        print(f"    P1 Transmission: {r.transmission_phase}")
+        print(f"    P1 SectorPhase:  {r.sector_phase}")
+        print(f"    P2 Health:       {r.health_archetype}")
+        print(f"    L3 Valuation:    {r.valuation_zone}")
+        print(f"    L4 Behavior:     {r.behavior_position}")
         print(f"  EU Ranking:")
         for action, eu in r.eu_ranking:
             marker = "←" if action == r.action else ""
