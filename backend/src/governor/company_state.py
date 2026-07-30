@@ -907,39 +907,49 @@ ARROW_MAP = {
 
 
 def print_report(analysis: Dict):
+    try:
+        from src.core.canonical_output_adapter import localize_label
+        def _(x):
+            vi = localize_label(x, "full")
+            # WHY: "Tiếng Việt (English)" format — VI first, EN in parentheses.
+            #      annotated mode returns "EN (VI)" which is backwards for our users.
+            return f"{vi} ({x})" if vi != x else x
+    except Exception:
+        def _(x): return x
+
     print(f"\n  {'='*88}")
-    print(f"  P3 GOVERNOR v2 — BAYESIAN EXPECTED UTILITY — {analysis['date']}")
+    print(f"  {_('P3 GOVERNOR v2')} — {_('BAYESIAN EXPECTED UTILITY')} — {analysis['date']}")
     print(f"  {'='*88}")
 
     # Market context
     m = analysis["macro_state"]
     t = analysis["transmission"]
     s = analysis["sector"]
-    print(f"  🌐 Macro:       {m['state']} (P={m['posterior']:.0%}, H={m['entropy']:.2f})")
-    print(f"  🔄 Transmission: {t['phase']} (L={t['liquidity']:.0f} C={t['credit']:.0f} K={t['confidence']:.0f})")
-    print(f"  🏭 Sector:      Top={s.get('top_sector','?')} | healthy={s.get('n_healthy',0)}/19 | phase={s.get('top_phase','?')}")
+    print(f"  🌐 {_('Macro')}:       {m['state']} (P={m['posterior']:.0%}, H={m['entropy']:.2f})")
+    print(f"  🔄 {_('Transmission')}: {t['phase']} (L={t['liquidity']:.0f} C={t['credit']:.0f} K={t['confidence']:.0f})")
+    print(f"  🏭 {_('Sector')}:      Top={s.get('top_sector','?')} | {_('Healthy')}={s.get('n_healthy',0)}/19 | phase={s.get('top_phase','?')}")
 
     # Circuit breaker status
     first_r = list(analysis["results"].values())[0]
     cb_active = first_r.circuit_breaker_level > 0
     if cb_active:
-        print(f"  ⛔ CIRCUIT BREAKER: {first_r.circuit_breaker_label} "
+        print(f"  ⛔ {_('CIRCUIT BREAKER')}: {first_r.circuit_breaker_label} "
               f"— {first_r.circuit_breaker_trigger}")
     
     print(f"  {'='*88}")
     
     # Table
-    print(f"  {'Mã':<6} {'Hành động':<14} {'EU':>6} {'P(Gain)':>8} {'Alloc%':>7} {'Tin cậy':>8} {'Prior':<8} {'Cap.Alloc':<14} {'Macro LR':>8}")
-    print(f"  {'-'*88}")
+    print(f"  {'Mã (Symbol)':<14} {'Hành động (Action)':<18} {_('EU'):>6} {_('P(Gain)'):>10} {_('Alloc%'):>9} {_('Conviction'):>10} {'Prior':<8} {_('Cap.Alloc'):<16} {_('Macro LR'):>8}")
+    print(f"  {'─'*105}")
 
     for sym, r in sorted(analysis["results"].items()):
         arrow = ARROW_MAP.get(r.action, "?")
-        print(f"  {arrow} {sym:<5} {r.action_vn:<14} {r.expected_utility:>+6.3f} {r.p_gain:>7.1%} "
-              f"{r.allocation_pct:>+6.1f}% {r.conviction:>7.1%} "
-              f"{r.archetype_prior:<8} {r.capital_allocation_archetype:<14} {r.lr_macro_dynamic:>7.3f}")
+        print(f"  {arrow} {sym:<5} {r.action_vn:<18} {r.expected_utility:>+6.3f} {r.p_gain:>8.1%} "
+              f"{r.allocation_pct:>+7.1f}% {r.conviction:>8.1%} "
+              f"{r.archetype_prior:<8} {r.capital_allocation_archetype:<16} {r.lr_macro_dynamic:>7.3f}")
 
     print(f"\n  {'='*88}")
-    print(f"  PHÂN PHỐI QUYẾT ĐỊNH")
+    print(f"  {_('DECISION DISTRIBUTION')}")
     print(f"  {'='*88}")
     counts: Dict[str, int] = {}
     for r in analysis["results"].values():
@@ -947,35 +957,35 @@ def print_report(analysis: Dict):
     for action in ["OPEN", "SCALE_IN", "HOLD", "WAIT", "REDUCE", "AVOID", "VETO"]:
         if action in counts:
             arrow = ARROW_MAP.get(action, "?")
-            print(f"  {arrow} {ACTION_VN.get(action, action):<14}: {counts[action]} mã")
+            print(f"  {arrow} {_(action):<18}: {counts[action]} {_('Symbol')}")
 
     print(f"\n  {'='*88}")
-    print(f"  CHI TIẾT TỪNG MÃ — v2 (Giai đoạn 1→4 tích hợp)")
+    print(f"  {_('PER-SYMBOL DETAIL')} — v2 ({_('Macro')}→{_('Health')}→{_('Behavior')})")
     print(f"  {'='*88}")
 
     for sym, r in sorted(analysis["results"].items()):
         arrow = ARROW_MAP.get(r.action, "?")
-        print(f"\n  {'─'*65}")
-        print(f"  {arrow} {sym} | {r.action_vn} | EU={r.expected_utility:+.4f}")
-        print(f"  {'─'*65}")
-        print(f"  P(Gain|Evidence) = {r.p_gain:.1%}  |  Calib Penalty = {r.calibration_penalty:.2f}")
-        print(f"  Allocation       = {r.allocation_pct:+.1f}%  |  Conviction    = {r.conviction:.1%}")
-        print(f"  v2 Inputs:")
+        print(f"\n  {'─'*80}")
+        print(f"  {arrow} {sym} | {r.action_vn} | {_('EU')}={r.expected_utility:+.4f}")
+        print(f"  {'─'*80}")
+        print(f"  {_('P(Gain|Evidence)')} = {r.p_gain:.1%}  |  {_('Calib Penalty')} = {r.calibration_penalty:.2f}")
+        print(f"  {_('Allocation')}       = {r.allocation_pct:+.1f}%  |  {_('Conviction')}    = {r.conviction:.1%}")
+        print(f"  {_('v2 Inputs')}:")
         print(f"    GĐ1 Prior:       {r.archetype_prior}")
-        print(f"    GĐ2 Macro LR:    {r.lr_macro_dynamic:.3f} (dynamic per symbol)")
+        print(f"    GĐ2 {_('Macro LR')}:    {r.lr_macro_dynamic:.3f}")
         print(f"    GĐ3 Ctx Health:  {r.contextual_health_score:.3f}")
-        print(f"    GĐ4 Cap.Alloc:   {r.capital_allocation_archetype} ({r.capital_allocation_score:+.2f})")
-        print(f"  Evidence Inputs:")
-        print(f"    P0 MacroState:   {r.macro_state}")
-        print(f"    P1 Transmission: {r.transmission_phase}")
-        print(f"    P1 SectorPhase:  {r.sector_phase}")
-        print(f"    P2 Health:       {r.health_archetype}")
-        print(f"    L3 Valuation:    {r.valuation_zone}")
-        print(f"    L4 Behavior:     {r.behavior_position}")
-        print(f"  EU Ranking:")
+        print(f"    GĐ4 {_('Cap.Alloc')}:   {r.capital_allocation_archetype} ({r.capital_allocation_score:+.2f})")
+        print(f"  {_('Evidence Inputs')}:")
+        print(f"    {_('P0 MacroState')}:   {r.macro_state}")
+        print(f"    {_('P1 Transmission')}: {r.transmission_phase}")
+        print(f"    {_('P1 SectorPhase')}:  {r.sector_phase}")
+        print(f"    {_('P2 Health')}:       {r.health_archetype}")
+        print(f"    {_('L3 Valuation')}:    {r.valuation_zone}")
+        print(f"    {_('L4 Behavior')}:     {r.behavior_position}")
+        print(f"  {_('EU Ranking')}:")
         for action, eu in r.eu_ranking:
             marker = "←" if action == r.action else ""
-            print(f"    {action:12s}: {eu:+.4f} {marker}")
+            print(f"    {_(action):12s}: {eu:+.4f} {marker}")
 
 
 def main():
