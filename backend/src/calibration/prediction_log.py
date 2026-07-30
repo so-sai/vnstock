@@ -122,6 +122,45 @@ def init_schema():
     conn.close()
 
 
+def init_model_registry_schema():
+    """Initialize model_registry table for Sprint 4 Competing Hypotheses Engine."""
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS model_registry (
+            model_id        TEXT PRIMARY KEY,
+            hypothesis      TEXT NOT NULL,
+            hypothesis_en   TEXT DEFAULT '',
+            prior           REAL DEFAULT 0.333,
+            posterior       REAL DEFAULT 0.333,
+            state           TEXT DEFAULT 'ACTIVE',
+            regime_fit      TEXT DEFAULT '{}',
+            n_trades        INTEGER DEFAULT 0,
+            n_wins          INTEGER DEFAULT 0,
+            sharpe          REAL DEFAULT 0.0,
+            max_drawdown    REAL DEFAULT 0.0,
+            brier_accum     REAL DEFAULT 0.0,
+            log_loss_accum  REAL DEFAULT 0.0,
+            counter_signals INTEGER DEFAULT 0,
+            last_active     TEXT,
+            retirement_reason TEXT DEFAULT '',
+            created_at      TEXT,
+            updated_at      TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS model_registry_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_id        TEXT NOT NULL,
+            state           TEXT NOT NULL,
+            posterior       REAL NOT NULL,
+            reason          TEXT DEFAULT '',
+            changed_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
 def insert_prediction(
     date_str: str,
     symbol: str,

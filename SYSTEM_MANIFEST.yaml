@@ -621,6 +621,40 @@ entrypoints:
     cli: "python ptck.py erl-scan [--top N] [--vn30] [--date YYYY-MM-DD]"
     category: risk
 
+  # ── Sprint 4: ModelRegistry ─────────────────────────────
+  model_registry_status:
+    description: "Sprint 4 ModelRegistry — xem trạng thái 3 mô hình cạnh tranh + BMA weights"
+    cli: "python ptck.py model-registry status"
+    category: calibration
+  model_registry_select:
+    description: "Sprint 4 — chọn mô hình tốt nhất cho bối cảnh hiện tại"
+    cli: "python ptck.py model-registry select"
+    category: calibration
+  model_registry_activate:
+    description: "Sprint 4 — kích hoạt mô hình (ACTIVE)"
+    cli: "python ptck.py model-registry activate M1_MACRO [--reason ...]"
+    category: calibration
+  model_registry_suspend:
+    description: "Sprint 4 — tạm ngưng mô hình (DORMANT)"
+    cli: "python ptck.py model-registry suspend M1_MACRO [--reason ...]"
+    category: calibration
+  model_registry_retire:
+    description: "Sprint 4 — đào thải mô hình (RETIRED)"
+    cli: "python ptck.py model-registry retire M1_MACRO [--reason ...]"
+    category: calibration
+  model_registry_revive:
+    description: "Sprint 4 — phục hồi mô hình (RETIRED→ACTIVE)"
+    cli: "python ptck.py model-registry revive M1_MACRO [--reason ...]"
+    category: calibration
+  model_registry_history:
+    description: "Sprint 4 — xem lịch sử chuyển trạng thái mô hình"
+    cli: "python ptck.py model-registry history M1_MACRO"
+    category: calibration
+  model_registry_bma:
+    description: "Sprint 4 — xem BMA weights cho bối cảnh hiện tại"
+    cli: "python ptck.py model-registry bma"
+    category: calibration
+
   # ── init-agent ────────────────────────────────────────
   init_agent:
     description: "Initialize IDE agent config files (.clinerules + .cursorrules) from bundled AGENTS.md"

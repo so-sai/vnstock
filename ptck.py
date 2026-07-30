@@ -1728,6 +1728,82 @@ def cmd_drift(args):
         print(f"    có thể tính Model Evidence và Retirement Score một cách có ý nghĩa.")
 
 
+def cmd_model_registry(args):
+    """Sprint 4: ModelRegistry — 3 Competing Hypotheses (Bayesian Model Averaging)."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from calibration.model_registry import ModelRegistry, print_registry_report, print_selection_report
+    from calibration.prediction_log import init_model_registry_schema
+
+    init_model_registry_schema()
+    registry = ModelRegistry()
+    action = args.action
+
+    # Load macro context
+    macro_state = "STABLE"
+    archetype = None
+    try:
+        import json
+        from pathlib import Path
+        _p = Path(__file__).resolve().parent / "backend" / "data" / "macro"
+        p_ms = _p / "macro_state_history.json"
+        if p_ms.exists():
+            hist = json.loads(p_ms.read_text(encoding="utf-8"))
+            if hist:
+                macro_state = hist[-1].get("macro_state", "STABLE")
+    except Exception:
+        pass
+
+    if action == "status":
+        print_registry_report(registry, macro_state, archetype, _VERBOSE_LANG)
+    elif action == "select":
+        print_selection_report(registry, macro_state, archetype, _VERBOSE_LANG)
+    elif action == "activate":
+        mid = args.model_id
+        registry.activate(mid, args.reason or "")
+        m = registry.get_model(mid)
+        print(f"  ✅ {_ll('Activated')}: {mid} ({m['state']})")
+        print_registry_report(registry, macro_state, archetype, _VERBOSE_LANG)
+    elif action == "suspend":
+        mid = args.model_id
+        registry.suspend(mid, args.reason or "")
+        m = registry.get_model(mid)
+        print(f"  🟡 {_ll('Suspended')}: {mid} ({m['state']})")
+        print_registry_report(registry, macro_state, archetype, _VERBOSE_LANG)
+    elif action == "retire":
+        mid = args.model_id
+        registry.retire(mid, args.reason or "")
+        m = registry.get_model(mid)
+        print(f"  🔴 {_ll('Retired')}: {mid} ({m['state']})")
+        print_registry_report(registry, macro_state, archetype, _VERBOSE_LANG)
+    elif action == "revive":
+        mid = args.model_id
+        registry.revive(mid, args.reason or "")
+        m = registry.get_model(mid)
+        print(f"  ✅ {_ll('Revived')}: {mid} ({m['state']})")
+        print_registry_report(registry, macro_state, archetype, _VERBOSE_LANG)
+    elif action == "history":
+        mid = args.model_id
+        hist = registry.get_history(mid)
+        if hist:
+            print(f"\n  {_ll('HISTORY')} — {mid}:")
+            print(f"  {'Thời gian':<22} {'State':<12} {'Posterior':>10} {'Reason'}")
+            print(f"  {'─'*60}")
+            for h in hist:
+                print(f"  {h.get('changed_at',''):<22} {h['state']:<12} {h['posterior']:>9.3f} {h.get('reason','')}")
+        else:
+            print(f"  {_ll('No history yet')} — {mid}")
+    elif action == "bma":
+        bma_w = registry.bma_posterior(macro_state, archetype)
+        print(f"\n  {_ll('BMA Weights')} — {macro_state}:")
+        for mid, w in sorted(bma_w.items(), key=lambda x: x[1], reverse=True):
+            fit = registry.regime_fit_score(mid, macro_state, archetype)
+            bar = "█" * int(w * 40) + "░" * (40 - int(w * 40))
+            print(f"    {mid:<16} {w:>6.1%} {bar}  ({_ll('fit')}={fit:.2f})")
+        best = registry.select_best(macro_state, archetype)
+        print(f"\n  {_ll('Primary model')}: {best['model_id']} ({_ll('fit')}={best['regime_fit_score']:.2f})")
+
+
 def cmd_evidence(args):
     """LAW-004 Evidence Engine — Dynamic weighting from Beta posteriors."""
     if sys.platform == "win32":
@@ -3185,6 +3261,36 @@ def build_parser():
     p_ev_sim.add_argument("--bias-behavior", type=float, default=0.45, help="Tỷ lệ gain behavior (mặc định 0.45)")
     p_ev_sim.add_argument("--seed", type=int, default=None, help="Random seed để tái lập")
     p_ev_sim.set_defaults(func=cmd_evidence)
+
+    # model-registry (Sprint 4: Competing Hypotheses Engine)
+    p_mr = sub.add_parser("model-registry", parents=[lang_parent],
+                          help="Sprint 4: ModelRegistry — 3 Competing Hypotheses + Bayesian Model Averaging")
+    p_mr_sub = p_mr.add_subparsers(dest="action", required=True)
+    p_mr_status = p_mr_sub.add_parser("status", help="Xem trạng thái 3 mô hình cạnh tranh + BMA weights")
+    p_mr_status.set_defaults(func=cmd_model_registry)
+    p_mr_select = p_mr_sub.add_parser("select", help="Chọn mô hình tốt nhất cho bối cảnh hiện tại")
+    p_mr_select.set_defaults(func=cmd_model_registry)
+    p_mr_act = p_mr_sub.add_parser("activate", help="Kích hoạt mô hình (chuyển về ACTIVE)")
+    p_mr_act.add_argument("model_id", type=str, help="Mã mô hình (M1_MACRO, M2_FUNDAMENTAL, M3_BEHAVIORAL)")
+    p_mr_act.add_argument("--reason", type=str, default="", help="Lý do")
+    p_mr_act.set_defaults(func=cmd_model_registry)
+    p_mr_sus = p_mr_sub.add_parser("suspend", help="Tạm ngưng mô hình (chuyển về DORMANT)")
+    p_mr_sus.add_argument("model_id", type=str, help="Mã mô hình")
+    p_mr_sus.add_argument("--reason", type=str, default="", help="Lý do")
+    p_mr_sus.set_defaults(func=cmd_model_registry)
+    p_mr_ret = p_mr_sub.add_parser("retire", help="Đào thải mô hình (chuyển về RETIRED)")
+    p_mr_ret.add_argument("model_id", type=str, help="Mã mô hình")
+    p_mr_ret.add_argument("--reason", type=str, default="", help="Lý do")
+    p_mr_ret.set_defaults(func=cmd_model_registry)
+    p_mr_rev = p_mr_sub.add_parser("revive", help="Phục hồi mô hình (RETIRED→ACTIVE, reset posterior=0.333)")
+    p_mr_rev.add_argument("model_id", type=str, help="Mã mô hình")
+    p_mr_rev.add_argument("--reason", type=str, default="", help="Lý do")
+    p_mr_rev.set_defaults(func=cmd_model_registry)
+    p_mr_hist = p_mr_sub.add_parser("history", help="Xem lịch sử chuyển trạng thái của mô hình")
+    p_mr_hist.add_argument("model_id", type=str, help="Mã mô hình")
+    p_mr_hist.set_defaults(func=cmd_model_registry)
+    p_mr_bma = p_mr_sub.add_parser("bma", help="Xem BMA weights cho bối cảnh hiện tại")
+    p_mr_bma.set_defaults(func=cmd_model_registry)
 
     # causal (Sprint 3: CausalEdge)
     p_cau = sub.add_parser("causal", parents=[lang_parent],
