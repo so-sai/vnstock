@@ -1544,6 +1544,190 @@ def cmd_calibrate(args):
                        f"{(entry.get('trigger_reason') or '')[:28]:<30}")
 
 
+def cmd_drift(args):
+    """Drift & Validation Layer — Self-assessment của toàn bộ hệ thống PTCK."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from datetime import datetime
+
+    sub = args.drift_action
+
+    if sub == "all":
+        print(f"\n  {'='*70}")
+        print(f"  DRIFT & VALIDATION — TOÀN CẢNH {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        print(f"  {'='*70}")
+
+        # ── 1. Calibration Trend (Concept Drift proxy) ──
+        print(f"\n  {'─'*70}")
+        print(f"  📊 CONCEPT DRIFT (Calibration Trend)")
+        print(f"  {'─'*70}")
+        try:
+            from calibration.calibrator import calibration_trend_report
+            report = calibration_trend_report(days=args.days)
+            if report.get("status") == "OK":
+                tr = report.get("trend", {})
+                lat = report.get("latest", {})
+                print(f"    Snapshots:        {report['n_snapshots']}")
+                if lat:
+                    print(f"    Latest Log-Loss:  {lat.get('mean_log_loss', 'N/A'):.4f}" if lat.get('mean_log_loss') else f"    Latest Log-Loss:  N/A")
+                    print(f"    Latest Acc:       {lat.get('accuracy', 'N/A'):.2%}" if lat.get('accuracy') else f"    Latest Acc:       N/A")
+                if tr:
+                    flag = "🔴 DEGRADING" if tr.get('degradation_detected') else "🟢 STABLE"
+                    print(f"    Degradation:      {flag}")
+                    print(f"    ΔLL (recent-old): {tr.get('recent_avg_log_loss', 0):.4f} — {tr.get('older_avg_log_loss', 0):.4f}")
+            else:
+                print(f"    Chưa có dữ liệu calibration (chờ resolve predictions đầu tiên)")
+        except Exception as e:
+            print(f"    ⚠️ Lỗi: {e}")
+
+        # ── 2. Prediction Log Stats ──
+        print(f"\n  {'─'*70}")
+        print(f"  📋 PREDICTION LOG")
+        print(f"  {'─'*70}")
+        try:
+            from calibration.prediction_log import get_unresolved_predictions, get_outcomes_for_calibration
+            unresolved = get_unresolved_predictions()
+            resolved = get_outcomes_for_calibration(args.days)
+            print(f"    Unresolved:    {len(unresolved)}")
+            print(f"    Resolved:      {len(resolved)} (window={args.days}d)")
+            if resolved:
+                losses = [r["log_loss"] for r in resolved if r.get("log_loss") is not None]
+                if losses:
+                    print(f"    Mean Log-Loss: {sum(losses)/len(losses):.4f}")
+        except Exception as e:
+            print(f"    ⚠️ Lỗi: {e}")
+
+        # ── 3. Circuit Breaker ──
+        print(f"\n  {'─'*70}")
+        print(f"  ⛔ CIRCUIT BREAKER")
+        print(f"  {'─'*70}")
+        try:
+            from calibration.prediction_log import get_circuit_breaker_state
+            cb = get_circuit_breaker_state()
+            level = cb.get("level", 0)
+            active = cb.get("active", 0)
+            label = cb.get("label", "BÃŒNH_THÆ¯á»œNG")
+            print(f"    Level:   {level} ({'⛔ ' if active else '🟢 '}{label})")
+            if cb.get("mean_log_loss"):
+                print(f"    Log-Loss: {cb['mean_log_loss']:.4f}")
+            if cb.get("trigger_reason") and cb["trigger_reason"] != "BÃŒNH_THÆ¯á»œNG":
+                print(f"    LÃ½ do:   {cb['trigger_reason']}")
+        except Exception as e:
+            print(f"    ⚠ Lỗi: {e}")
+
+        # ── 4. Generalization Gap (QuantStats) ──
+        print(f"\n  {'─'*70}")
+        print(f"  📈 GENERALIZATION GAP (QuantStats)")
+        print(f"  {'─'*70}")
+        try:
+            from src.core.quantstats_bridge import QuantStatsBridge
+            qs = QuantStatsBridge()
+            qs_report = qs.run_all()
+            cal = qs_report.get("calibration", {})
+            print(f"    Live Sharpe:       {cal.get('sharpe_live_smoothed', 'N/A')}")
+            print(f"    Sharpe vs Random:  {cal.get('sharpe_vs_random', 'N/A')}")
+            print(f"    Calib Penalty:     {cal.get('calibration_penalty', 'N/A')}")
+            rand = qs_report.get("random_baseline", {})
+            print(f"    Random Sharpe P95: {rand.get('random_sharpe_p95', 'N/A')}")
+            print(f"    Random Sharpe P50: {rand.get('random_sharpe_p50', 'N/A')}")
+        except Exception as e:
+            print(f"    ⚠ Chưa có dữ liệu giao dịch thực tế ({e})")
+
+        # ── 5. Driver Drift (Telemetry) ──
+        print(f"\n  {'─'*70}")
+        print(f"  🧠 DRIVER REPUTATION DRIFT")
+        print(f"  {'─'*70}")
+        print(f"    ⏳ Cần tích hợp telemetry storage API.")
+
+        # ── 6. Module Evidence (stub) ──
+        print(f"\n  {'─'*70}")
+        print(f"  🔬 MODEL EVIDENCE & RETIREMENT")
+        print(f"  {'─'*70}")
+        print(f"    ⏳ Cần thêm dữ liệu lịch sử outcomes để tính P(data|model).")
+        print(f"    ⏳ Cần thêm model registry để theo dõi retirement.")
+
+        print(f"\n  {'='*70}")
+        print(f"  KẾT LUẬN")
+        print(f"  {'='*70}")
+        try:
+            has_concept_drift = tr.get("degradation_detected", False) if tr else False
+            cb_active = level > 0
+            gen_gap_high = cal.get("sharpe_vs_random", 2.0) if cal else 1.0
+            risks = []
+            if has_concept_drift:
+                risks.append("CONCEPT_DRIFT (Log-Loss đang tăng)")
+            if cb_active:
+                risks.append(f"CIRCUIT_BREAKER (Level {level})")
+            if gen_gap_high < 1.0:
+                risks.append(f"GENERALIZATION_GAP (Sharpe thấp hơn random P95)")
+            if risks:
+                print(f"    ⚠ Rủi ro: {', '.join(risks)}")
+            else:
+                print(f"    🟢 Hệ thống ổn định, không phát hiện drift bất thường.")
+        except Exception:
+            print(f"    🟢 Chưa đủ dữ liệu để đánh giá (cần thêm predictions resolved).")
+
+    elif sub == "concept":
+        from calibration.calibrator import calibration_trend_report, print_trend_report
+        report = calibration_trend_report(days=args.days)
+        print_trend_report(report, lang_mode=_VERBOSE_LANG)
+
+    elif sub == "generalization":
+        print(f"\n  {'='*60}")
+        print(f"  GENERALIZATION GAP — Live vs Expected")
+        print(f"  {'='*60}")
+        try:
+            from src.core.quantstats_bridge import QuantStatsBridge
+            qs = QuantStatsBridge()
+            qs_report = qs.run_all()
+            cal = qs_report.get("calibration", {})
+            live = qs_report.get("live", {})
+            rand = qs_report.get("random_baseline", {})
+            print(f"  {'Live Sharpe':20s}: {cal.get('sharpe_live_smoothed', 'N/A')}")
+            print(f"  {'Random Sharpe P95':20s}: {rand.get('random_sharpe_p95', 'N/A')}")
+            print(f"  {'Sharpe vs Random':20s}: {cal.get('sharpe_vs_random', 'N/A')}")
+            gap = float(cal.get('sharpe_vs_random', 1) or 1) - 1.0
+            print(f"  {'Generalization Gap':20s}: {gap:+.2f}")
+            print(f"  {'Win Rate':20s}: {live.get('win_rate', 'N/A')}")
+            print(f"  {'Max Drawdown':20s}: {live.get('max_drawdown', 'N/A')}")
+            print(f"  {'DOC Index':20s}: {cal.get('doc_index', 'N/A')}")
+            if gap < 0:
+                print(f"\n  ⚠ GENERALIZATION GAP ÂM — Live Sharpe < Random P95")
+            else:
+                print(f"\n  🟢 Live Sharpe vượt random baseline")
+        except Exception as e:
+            print(f"  ⚠ Chưa có dữ liệu: {e}")
+
+    elif sub == "surprise":
+        print(f"\n  {'='*60}")
+        print(f"  SURPRISE ENGINE")
+        print(f"  {'='*60}")
+        print(f"    ⏳ Module chưa implement — cần causal graph + observation history.")
+        print(f"    Mục tiêu: phát hiện các cặp (driver, outcome) có P(outcome|driver)")
+        print(f"    thấp bất thường so với historical joint distribution.")
+        print(f"\n  {'='*60}")
+        print(f"  KẾT LUẬN")
+        print(f"  {'='*60}")
+        print(f"    Không có dữ liệu đủ để chạy Surprise Engine.")
+        print(f"    Cần thu thập thêm: macro_state + outcome pairs.")
+
+    elif sub == "model":
+        print(f"\n  {'='*60}")
+        print(f"  MODEL EVIDENCE & RETIREMENT REGISTRY")
+        print(f"  {'='*60}")
+        print(f"    ⏳ Chưa có Model Registry.")
+        print(f"    ⏳ Cần thêm: model_version, train_window, live_metrics,")
+        print(f"       P(data|model), retirement_score.")
+        print(f"\n    Mô hình hiện tại hoạt động:")
+        print(f"    - Bayesian Governor v2 (duy nhất)")
+        print(f"    - Chưa có competing hypotheses (Layer 4)")
+        print(f"\n  {'='*60}")
+        print(f"  KẾT LUẬN")
+        print(f"  {'='*60}")
+        print(f"    Cần thêm model registry + hypothesis competition trước khi")
+        print(f"    có thể tính Model Evidence và Retirement Score một cách có ý nghĩa.")
+
+
 def cmd_counterfactual(args):
     """P5 Counterfactual Reasoning — 'What if?' simulation over evidence nodes."""
     if sys.platform == "win32":
@@ -2715,6 +2899,23 @@ def build_parser():
     p_gov.add_argument("--output", choices=["report", "json"], default="report",
                        help="Định dạng đầu ra (report hoặc json)")
     p_gov.set_defaults(func=cmd_governor)
+
+    # drift (Drift & Validation Layer)
+    p_drift = sub.add_parser("drift", parents=[lang_parent],
+                             help="Drift & Validation Layer — tự đánh giá độ tin cậy hệ thống")
+    p_drift_sub = p_drift.add_subparsers(dest="drift_action", required=True)
+    p_drift_all = p_drift_sub.add_parser("all", help="Toàn cảnh drift (concept + generalization + CB)")
+    p_drift_all.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
+    p_drift_all.set_defaults(func=cmd_drift)
+    p_drift_concept = p_drift_sub.add_parser("concept", help="Concept Drift — Log-Loss trend")
+    p_drift_concept.add_argument("--days", type=int, default=90)
+    p_drift_concept.set_defaults(func=cmd_drift)
+    p_drift_gen = p_drift_sub.add_parser("generalization", help="Generalization Gap — live vs random")
+    p_drift_gen.set_defaults(func=cmd_drift)
+    p_drift_surprise = p_drift_sub.add_parser("surprise", help="Surprise Engine — phát hiện bất thường")
+    p_drift_surprise.set_defaults(func=cmd_drift)
+    p_drift_model = p_drift_sub.add_parser("model", help="Model Evidence & Retirement")
+    p_drift_model.set_defaults(func=cmd_drift)
 
     # calibrate (P4 Meta-Cognition)
     p_cal = sub.add_parser("calibrate", parents=[lang_parent],

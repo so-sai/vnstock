@@ -547,6 +547,28 @@ entrypoints:
     cli: "python ptck.py phan-bo-von [--symbols FPT VCB ...]"
     category: business
 
+  # ── Drift & Validation Layer ─────────────────────────
+  drift:
+    description: "Drift & Validation Layer — tự đánh giá độ tin cậy toàn bộ hệ thống"
+    cli: "python ptck.py drift {all|concept|generalization|surprise|model}"
+    category: validation
+    subcommands:
+      drift_all:
+        description: "Toàn cảnh drift: concept + generalization + CB + driver"
+        cli: "python ptck.py drift all [--days 90]"
+      drift_concept:
+        description: "Concept Drift — calibration trend (Log-Loss degradation)"
+        cli: "python ptck.py drift concept [--days 90]"
+      drift_generalization:
+        description: "Generalization Gap — live Sharpe vs random baseline"
+        cli: "python ptck.py drift generalization"
+      drift_surprise:
+        description: "Surprise Engine — phát hiện cặp (driver, outcome) bất thường"
+        cli: "python ptck.py drift surprise"
+      drift_model:
+        description: "Model Evidence & Retirement — đánh giá tuổi thọ mô hình"
+        cli: "python ptck.py drift model"
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"
