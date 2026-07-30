@@ -501,6 +501,38 @@ def check_circuit_breaker_auto(days: int = 90, ll_threshold: float = 0.05) -> di
     }
 
 
+def init_macro_sensory_log():
+    """Initialize macro_sensory_log table for WorldSensor (P0.5) snapshots.
+    
+    WHY separate table from macro_history (screener_cache.db)?
+    macro_history stores individual variable rows (1 row per variable per date),
+    optimized for time-series queries. macro_sensory_log stores the full 10-field
+    WorldSensor snapshot as a single JSON row per date, optimized for audit trail
+    and Governor consumption. Both are written in sync during daily-update Step 1a.
+    """
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS macro_sensory_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            date            TEXT NOT NULL UNIQUE,
+            fed_target_rate REAL DEFAULT 0.0,
+            fomc_dissent    INTEGER DEFAULT 0,
+            qt_balance_tr   REAL DEFAULT 0.0,
+            reserves_tr     REAL DEFAULT 0.0,
+            us10y_yield     REAL DEFAULT 0.0,
+            usd_index       REAL DEFAULT 0.0,
+            brent_oil       REAL DEFAULT 0.0,
+            implied_hike_prob REAL DEFAULT 0.0,
+            next_meeting    TEXT DEFAULT '',
+            fed_uncertainty REAL DEFAULT 0.0,
+            source          TEXT DEFAULT 'world_sensor',
+            created_at      TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
 def get_circuit_breaker_log(days: int = 90) -> List[Dict]:
     """Return circuit breaker history."""
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")

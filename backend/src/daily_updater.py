@@ -344,9 +344,10 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
         _progress_bar(batch_num, total_batches, success, failed, skipped, start_time)
         armor.throttling(is_error=False)
 
-        # WHY: Jitter delay 1.2-2.5s giữa các batch tránh bị API (TCBS/SSI/VND) chặn IP
-        #      do rate limit. 42 mã/s không giãn cách → HTTP 429 / ban IP thực tế.
-        time.sleep(random.uniform(1.2, 2.5))
+        # WHY: Jitter delay 0.8-1.8s giữa các batch tránh bị API (TCBS/SSI/VND) chặn IP
+        #      do rate limit. 0.8s floor vẫn an toàn, 1.8s ceiling giới hạn tổng thời gian
+        #      ~28s cho 31 batches (so với ~58s ở bản 1.2-2.5s cũ).
+        time.sleep(random.uniform(0.8, 1.8))
 
     elapsed = time.time() - start_time
     sys.stdout.write(
@@ -880,6 +881,73 @@ def run_daily_update(target_date=None, manifest_path=None):
         # Step 1: Macro Data (yield curve, DXY, gold, TIP, etc.)
         report["macro_rows"] = update_macro_data()
         report["real_yield_rows"] = seed_real_yield()
+
+        # Step 1a: World Layer (P0.5) — Fed Policy State
+        # WHY wiring WorldSensor here: Fed data changes slowly (FOMC every 6 weeks,
+        # balance sheet weekly). Polling once per EOD run via WorldSensor is sufficient.
+        # The 10 fields feed both macro_history (for time-series queries) and
+        # macro_sensory_log (for full-snapshot audit trail in calibration.db).
+        try:
+            from src.sensors.world_sensor import WorldSensor
+            ws = WorldSensor(use_cache=False)
+            world_state = ws.fetch(force_refresh=True)
+            report["world_sensor"] = world_state.get("fed_target_rate", 0.0)
+
+            # Write to macro_history (screener_cache.db) — same pattern as yfinance tickers
+            world_vars = {
+                "FED_TARGET_RATE": world_state.get("fed_target_rate"),
+                "FOMC_DISSENT": float(world_state.get("fomc_dissent", 0)),
+                "QT_BALANCE_TR": world_state.get("qt_balance_tr"),
+                "RESERVES_TR": world_state.get("reserves_tr"),
+                "US10Y_YIELD": world_state.get("us10y_yield"),
+                "USD_INDEX": world_state.get("usd_index"),
+                "BRENT_OIL": world_state.get("brent_oil"),
+                "FED_UNCERTAINTY": world_state.get("fed_uncertainty"),
+                "IMPLIED_HIKE_PROB": world_state.get("implied_hike_prob"),
+            }
+            today_str = target_date
+            world_records = [
+                {"variable": k, "date": today_str, "value": round(v, 6) if v is not None else 0.0}
+                for k, v in world_vars.items()
+            ]
+            world_df = pd.DataFrame(world_records)
+            with get_connection() as conn:
+                save_data_upsert("macro_history", world_df, conn)
+
+            # Write to macro_sensory_log (calibration.db) — full snapshot
+            from src.calibration.prediction_log import (
+                init_macro_sensory_log, get_conn as get_calib_conn,
+            )
+            calib_conn = get_calib_conn()
+            init_macro_sensory_log()
+            calib_conn.execute(
+                """INSERT OR REPLACE INTO macro_sensory_log
+                   (date, fed_target_rate, fomc_dissent, qt_balance_tr, reserves_tr,
+                    us10y_yield, usd_index, brent_oil, implied_hike_prob,
+                    next_meeting, fed_uncertainty, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    today_str,
+                    world_state.get("fed_target_rate", 0.0),
+                    int(world_state.get("fomc_dissent", 0)),
+                    world_state.get("qt_balance_tr", 0.0),
+                    world_state.get("reserves_tr", 0.0),
+                    world_state.get("us10y_yield", 0.0),
+                    world_state.get("usd_index", 0.0),
+                    world_state.get("brent_oil", 0.0),
+                    world_state.get("implied_hike_prob", 0.0),
+                    world_state.get("next_meeting", ""),
+                    world_state.get("fed_uncertainty", 0.0),
+                    "world_sensor",
+                ),
+            )
+            calib_conn.commit()
+            calib_conn.close()
+            logger.info("🌍 WorldSensor seeded: %d vars into macro_history, 1 snapshot into macro_sensory_log",
+                        len(world_vars))
+        except Exception as e:
+            logger.warning(f"⚠️ WorldSensor seed failed: {e}")
+            report["world_sensor"] = None
 
         # Step 1b: Domestic macro (VGB10Y, INTERBANK_ON)
         try:
