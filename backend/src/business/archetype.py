@@ -315,8 +315,9 @@ _reg(BusinessArchetype(
 # 2. CLASSIFIER
 # ═══════════════════════════════════════════════════════════════
 
-# Baseline mapping for 10 target symbols (human-validated)
+# Baseline mapping for 10 Core + 10 Satellite symbols (human-validated)
 BASELINE_MAP: Dict[str, str] = {
+    # ── Core Universe (10 mã) ──
     "FPT": "COMPOUNDER",
     "DGC": "COMPOUNDER",        # chemical compounder — cost advantage
     "HPG": "CYCLICAL_HEAVY",
@@ -327,6 +328,18 @@ BASELINE_MAP: Dict[str, str] = {
     "VHM": "REAL_ESTATE_DEVELOPER",
     "MWG": "RETAIL_PLATFORM",
     "GAS": "REGULATED_UTILITY",
+
+    # ── Satellite Universe (10 mã chờ, thêm 2026-07-30) ──
+    "TCB": "FRANCHISE_BANK",     # Techcombank — CASA ~40%, premier franchise
+    "STB": "ASSET_BANK",         # Sacombank — retail, restructuring story
+    "VIB": "ASSET_BANK",         # Vietnam International Bank — retail, auto lending
+    "REE": "COMPOUNDER",         # Refrigeration Electrical — 40+ yr moat, diversified
+    "GMD": "CYCLICAL_HEAVY",     # Gemadept — port operator, volume-cyclical
+    "VGI": "REGULATED_UTILITY",  # Viettel Global — telecom infra, state-backed
+    "SSI": "RETAIL_PLATFORM",    # SSI Securities — brokerage platform
+    "BSR": "CYCLICAL_HEAVY",     # Binh Son Refining — oil refinery, crack-spread cyclical
+    "QNS": "EXPORT_MANUFACTURER",# Quang Ngai Sugar — commodity processor
+    "TLG": "COMPOUNDER",         # Thien Long Group — stationery leader, strong brand
 }
 
 
