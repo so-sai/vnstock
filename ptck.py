@@ -1419,7 +1419,7 @@ def cmd_governor(args):
 
 
 def cmd_calibrate(args):
-    """P4 Calibration — Meta-Cognition: Log-Loss, ECE, Beta LR update."""
+    """P4 Calibration — Meta-Cognition: Log-Loss, ECE, Beta LR update + Outcome Resolution."""
     if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     from calibration.prediction_log import init_schema, get_unresolved_predictions
@@ -1488,6 +1488,19 @@ def cmd_calibrate(args):
             print(f"  {'ID':>4} {'Date':<12} {'Symbol':<6} {'P(Gain)':>8} {'Action':<10}")
             for r in unresolved[:10]:
                 print(f"  {r['id']:>4} {r['date']:<12} {r['symbol']:<6} {r['p_gain']:>8.3f} {r['action']:<10}")
+
+    elif args.action == "resolve":
+        from calibration.calibrator import resolve_pending_outcomes, print_resolve_report
+        result = resolve_pending_outcomes(
+            hold_days=args.hold_days,
+            dry_run=args.dry_run,
+        )
+        print_resolve_report(result)
+
+    elif args.action == "report":
+        from calibration.calibrator import calibration_trend_report, print_trend_report
+        report = calibration_trend_report(days=args.days)
+        print_trend_report(report)
 
 
 def cmd_counterfactual(args):
@@ -2677,6 +2690,13 @@ def build_parser():
     p_cal_st = p_cal_sub.add_parser("status", help="Trạng thái prediction log (unresolved/resolved)")
     p_cal_st.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
     p_cal_st.set_defaults(func=cmd_calibrate)
+    p_cal_resolve = p_cal_sub.add_parser("resolve", help="Resolve pending outcomes từ dữ liệu giá tương lai")
+    p_cal_resolve.add_argument("--hold-days", type=int, default=30, help="Số ngày nắm giữ để xác định outcome")
+    p_cal_resolve.add_argument("--dry-run", action="store_true", help="Chạy thử không ghi DB")
+    p_cal_resolve.set_defaults(func=cmd_calibrate)
+    p_cal_report = p_cal_sub.add_parser("report", help="Calibration trend report — Log-Loss, ECE theo thời gian")
+    p_cal_report.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
+    p_cal_report.set_defaults(func=cmd_calibrate)
 
     # counterfactual (P5 What-if Reasoning)
     p_cf = sub.add_parser("counterfactual", parents=[lang_parent],

@@ -79,6 +79,18 @@ def init_schema():
             beta            REAL NOT NULL DEFAULT 1.0,
             updated_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
+        CREATE TABLE IF NOT EXISTS calibration_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            date            TEXT    NOT NULL,
+            n_resolved      INTEGER NOT NULL DEFAULT 0,
+            n_unresolved    INTEGER NOT NULL DEFAULT 0,
+            mean_log_loss   REAL,
+            mean_brier      REAL,
+            ece             REAL,
+            mce             REAL,
+            accuracy        REAL,
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+        );
     """)
     conn.commit()
     conn.close()
@@ -171,3 +183,69 @@ def upsert_beta(evidence_key: str, alpha: float, beta: float):
     """, (evidence_key, alpha, beta))
     conn.commit()
     conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# Calibration History — time-series tracking of Log-Loss, ECE
+# ═══════════════════════════════════════════════════════════════
+
+def init_calibration_history():
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS calibration_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            date            TEXT    NOT NULL,
+            n_resolved      INTEGER NOT NULL DEFAULT 0,
+            n_unresolved    INTEGER NOT NULL DEFAULT 0,
+            mean_log_loss   REAL,
+            mean_brier      REAL,
+            ece             REAL,
+            mce             REAL,
+            accuracy        REAL,
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def insert_calibration_snapshot(
+    date_str: str,
+    n_resolved: int,
+    n_unresolved: int,
+    mean_log_loss: float = 0.0,
+    mean_brier: float = 0.0,
+    ece: float = 0.0,
+    mce: float = 0.0,
+    accuracy: float = 0.0,
+):
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO calibration_history
+            (date, n_resolved, n_unresolved, mean_log_loss, mean_brier, ece, mce, accuracy)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (date_str, n_resolved, n_unresolved, mean_log_loss, mean_brier, ece, mce, accuracy))
+    conn.commit()
+    conn.close()
+
+
+def get_calibration_history(days: int = 90) -> List[Dict]:
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM calibration_history
+        WHERE date >= ?
+        ORDER BY date DESC
+    """, (cutoff,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_latest_calibration() -> Optional[Dict]:
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT * FROM calibration_history
+        ORDER BY id DESC LIMIT 1
+    """).fetchone()
+    conn.close()
+    return dict(row) if row else None

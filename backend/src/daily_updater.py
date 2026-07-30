@@ -1127,6 +1127,20 @@ def run_daily_update(target_date=None, manifest_path=None):
             logger.warning(f"⚠️ Governor EOD update failed: {e}")
             report["governor"] = {"status": f"FAILED: {str(e)}"}
 
+        # Step 11: Outcome Resolution + Calibration Update
+        try:
+            from calibration.calibrator import resolve_pending_outcomes
+            cal_result = resolve_pending_outcomes(hold_days=30)
+            if cal_result.get("n_resolved", 0) > 0:
+                logger.info(f"  ✅ P4 Resolved: {cal_result['n_resolved']} outcomes "
+                            f"(Acc={cal_result['accuracy']:.1%}, LL={cal_result['mean_log_loss']:.4f})")
+                report["calibration_resolve"] = cal_result
+            else:
+                report["calibration_resolve"] = {"status": cal_result["status"]}
+        except Exception as e:
+            logger.warning(f"⚠️ Calibration resolve failed: {e}")
+            report["calibration_resolve"] = {"status": f"FAILED: {str(e)}"}
+
         report["status"] = "SUCCESS"
 
     except Exception as e:

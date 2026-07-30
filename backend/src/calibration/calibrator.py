@@ -1,4 +1,4 @@
-"""calibrator.py — Bayesian conjugate update of Likelihood Ratios.
+"""calibrator.py — Bayesian conjugate update of Likelihood Ratios + Outcome Resolution.
 
 Each evidence level maintains a Beta posterior:
   alpha = 1 + N_gains_when_evidence_active
@@ -10,12 +10,19 @@ The new LRs can be reloaded into P3 Governor to replace hard-coded LR_MACRO etc.
 """
 
 import math
+import sqlite3
 import sys
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from calibration.prediction_log import (get_outcomes_for_calibration,
-                                         get_beta_posteriors, upsert_beta)
+                                         get_beta_posteriors, upsert_beta,
+                                         get_unresolved_predictions,
+                                         resolve_outcome,
+                                         insert_calibration_snapshot,
+                                         init_calibration_history)
+from calibration.scoring import log_loss, brier_score, ece, mce
 
 # Prior odds from P3 Governor (must match company_state.PRIOR_ODDS)
 PRIOR_ODDS = 0.53 / (1.0 - 0.53)
@@ -29,6 +36,226 @@ EVIDENCE_COLUMNS = [
     "valuation_zone",
     "behavior_position",
 ]
+
+
+# ═══════════════════════════════════════════════════════════════
+# OUTCOME RESOLUTION — gán nhãn thực tế từ dữ liệu giá
+# ═══════════════════════════════════════════════════════════════
+
+def _get_price_db() -> sqlite3.Connection:
+    """Kết nối đến screener_cache.db để tra cứu giá."""
+    _candidate = Path(sys.executable).resolve().parent
+    if Path(sys.executable).stem.lower().startswith("python"):
+        _p = Path(__file__).resolve().parent.parent.parent.parent
+        for _par in [_p] + list(_p.parents):
+            if (_par / "AGENTS.md").exists() and (_par / "backend").is_dir():
+                _candidate = _par
+                break
+    db_path = _candidate / "backend" / "data" / "screener_cache.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def resolve_pending_outcomes(
+    lookback_days: int = 90,
+    hold_days: int = 30,
+    dry_run: bool = False,
+) -> Dict:
+    """Resolve unresolved predictions when future price data is available.
+
+    Logic:
+      1. Lấy tất cả unresolved predictions từ prediction_log
+      2. Với mỗi prediction có date + hold_days <= today:
+         - Tra cứu close price tại prediction date (entry_price)
+         - Tra cứu close price tại prediction date + hold_days (exit_price)
+         - Nếu exit_price > entry_price → outcome=1 (gain), else 0 (loss)
+         - Tính log_loss và ghi vào prediction_log
+      3. Cập nhật Beta posteriors
+      4. Ghi calibration_history snapshot
+
+    Args:
+        lookback_days: Chỉ xem xét predictions trong N ngày gần đây
+        hold_days: Số ngày nắm giữ để xác định outcome (mặc định 30 phiên)
+        dry_run: Nếu True, chỉ báo cáo mà không ghi DB
+
+    Returns:
+        Dict với thống kê số lượng resolved, accuracy, log_loss
+    """
+    today = date.today()
+    unresolved = get_unresolved_predictions()
+
+    # Lọc predictions đã đủ thời gian hold
+    eligible = []
+    for p in unresolved:
+        try:
+            pred_date = datetime.strptime(p["date"], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if (today - pred_date).days >= hold_days:
+            eligible.append(p)
+
+    if not eligible:
+        return {
+            "status": "NO_ELIGIBLE",
+            "n_unresolved": len(unresolved),
+            "n_eligible": 0,
+            "n_resolved": 0,
+        }
+
+    price_db = _get_price_db()
+    resolved_count = 0
+    gain_count = 0
+    loss_count = 0
+    ps = []
+    ys = []
+
+    for p in eligible:
+        pred_id = p["id"]
+        symbol = p["symbol"]
+        pred_date = p["date"]
+        p_gain = p["p_gain"]
+
+        try:
+            pred_dt = datetime.strptime(pred_date, "%Y-%m-%d")
+        except ValueError:
+            continue
+
+        # Entry price: close at prediction date
+        entry = price_db.execute(
+            "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?",
+            (symbol, pred_date),
+        ).fetchone()
+        if not entry:
+            continue
+        entry_price = entry["close"]
+
+        # Exit price: close at pred_date + hold_days
+        exit_dt = pred_dt + timedelta(days=hold_days)
+        exit_date = exit_dt.strftime("%Y-%m-%d")
+
+        # Find closest available trading day (look forward up to 10 days)
+        exit_price = None
+        for offset in range(15):
+            check_dt = pred_dt + timedelta(days=hold_days + offset)
+            check_date = check_dt.strftime("%Y-%m-%d")
+            row = price_db.execute(
+                "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?",
+                (symbol, check_date),
+            ).fetchone()
+            if row:
+                exit_price = row["close"]
+                exit_date = check_date
+                break
+
+        if exit_price is None or entry_price is None or entry_price == 0:
+            continue
+
+        # Outcome
+        outcome = 1.0 if exit_price > entry_price else 0.0
+        ll = log_loss(p_gain, outcome)
+
+        if not dry_run:
+            resolve_outcome(pred_id, outcome, ll)
+            ps.append(p_gain)
+            ys.append(outcome)
+
+        if outcome == 1.0:
+            gain_count += 1
+        else:
+            loss_count += 1
+        resolved_count += 1
+
+    price_db.close()
+
+    if dry_run:
+        for p in eligible[:5]:
+            print(f"  Would resolve: {p['symbol']} @ {p['date']} P(Gain)={p['p_gain']:.3f}")
+        return {
+            "status": "DRY_RUN",
+            "n_unresolved": len(unresolved),
+            "n_eligible": len(eligible),
+            "n_resolved": resolved_count,
+            "n_gain": gain_count,
+            "n_loss": loss_count,
+        }
+
+    if resolved_count == 0:
+        return {
+            "status": "NO_PRICE_DATA",
+            "n_unresolved": len(unresolved),
+            "n_eligible": len(eligible),
+            "n_resolved": 0,
+            "n_gain": 0,
+            "n_loss": 0,
+        }
+
+    # Compute calibration metrics
+    mean_ll = sum(log_loss(p, y) for p, y in zip(ps, ys)) / len(ps)
+    mean_br = sum(brier_score(p, y) for p, y in zip(ps, ys)) / len(ps)
+    ece_val = ece(ps, ys)
+    mce_val = mce(ps, ys)
+    accuracy = sum(ys) / len(ys)
+
+    # Update Beta posteriors
+    update_beta_posteriors(days=lookback_days)
+
+    # Record calibration history snapshot
+    init_calibration_history()
+    insert_calibration_snapshot(
+        date_str=str(today),
+        n_resolved=resolved_count,
+        n_unresolved=len(unresolved) - resolved_count,
+        mean_log_loss=round(mean_ll, 4),
+        mean_brier=round(mean_br, 4),
+        ece=round(ece_val, 4),
+        mce=round(mce_val, 4),
+        accuracy=round(accuracy, 4),
+    )
+
+    return {
+        "status": "OK",
+        "n_unresolved_pre": len(unresolved),
+        "n_eligible": len(eligible),
+        "n_resolved": resolved_count,
+        "n_unresolved_post": len(unresolved) - resolved_count,
+        "n_gain": gain_count,
+        "n_loss": loss_count,
+        "accuracy": round(accuracy, 4),
+        "mean_log_loss": round(mean_ll, 4),
+        "mean_brier": round(mean_br, 4),
+        "ece": round(ece_val, 4),
+        "mce": round(mce_val, 4),
+    }
+
+
+def print_resolve_report(result: Dict):
+    """In báo cáo outcome resolution ra console."""
+    status = result.get("status", "UNKNOWN")
+    print(f"\n  {'='*60}")
+    print(f"  P4 OUTCOME RESOLUTION — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  {'='*60}")
+    if status == "NO_ELIGIBLE":
+        print(f"  ⏳ Chưa có prediction nào đủ {result.get('n_unresolved', 0)} ngày hold.")
+        print(f"     Unresolved: {result['n_unresolved']} | Eligible: {result['n_eligible']}")
+        return
+    if status == "DRY_RUN":
+        print(f"  🟡 DRY RUN — không ghi DB")
+        print(f"     Unresolved: {result['n_unresolved']} | Eligible: {result['n_eligible']}")
+        print(f"     Sẽ resolve  : {result['n_resolved']}")
+        return
+    if status == "NO_PRICE_DATA":
+        print(f"  ⚠️ Không tìm thấy dữ liệu giá để resolve.")
+        return
+    print(f"  ✅ Resolved: {result['n_resolved']} predictions")
+    print(f"     Gain: {result['n_gain']} | Loss: {result['n_loss']}")
+    print(f"     Accuracy: {result['accuracy']:.2%}")
+    print(f"     Mean Log-Loss: {result['mean_log_loss']:.4f}")
+    print(f"     Mean Brier:    {result['mean_brier']:.4f}")
+    print(f"     ECE:           {result['ece']:.4f}")
+    print(f"     MCE:           {result['mce']:.4f}")
+    if result.get("n_unresolved_post", 0) > 0:
+        print(f"  ⏳ Còn {result['n_unresolved_post']} predictions chưa đủ hạn resolve.")
 
 
 def update_beta_posteriors(days_back: int = 90):
@@ -79,6 +306,77 @@ def get_calibrated_lrs() -> Dict[str, float]:
     for key, (alpha, beta) in posteriors.items():
         lrs[key] = compute_lr_from_beta(alpha, beta)
     return lrs
+
+
+def calibration_trend_report(days: int = 90) -> Dict:
+    """Return time-series trend of calibration metrics.
+
+    Phát hiện degradation: nếu mean_log_loss tăng dần qua các tuần,
+    đó là tín hiệu mô hình đang mất calibration.
+    """
+    from calibration.prediction_log import get_calibration_history
+    history = get_calibration_history(days)
+    if not history:
+        return {"status": "NO_DATA", "n_snapshots": 0}
+
+    # Tính trend: so sánh 2 nửa
+    n = len(history)
+    mid = n // 2
+    recent = history[:mid]
+    older = history[mid:]
+
+    def avg_ll(h):
+        vals = [r["mean_log_loss"] for r in h if r["mean_log_loss"] is not None]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    recent_ll = avg_ll(recent)
+    older_ll = avg_ll(older)
+    degradation = recent_ll > older_ll + 0.05  # ngưỡng 0.05
+
+    return {
+        "status": "OK",
+        "n_snapshots": n,
+        "latest": {
+            "date": history[0]["date"],
+            "mean_log_loss": history[0]["mean_log_loss"],
+            "ece": history[0]["ece"],
+            "accuracy": history[0]["accuracy"],
+            "n_resolved": history[0]["n_resolved"],
+        },
+        "trend": {
+            "recent_avg_log_loss": round(recent_ll, 4),
+            "older_avg_log_loss": round(older_ll, 4),
+            "degradation_detected": degradation,
+            "direction": "DEGRADING" if degradation else "STABLE_OR_IMPROVING",
+        },
+        "snapshots": history[:10],  # 10 gần nhất
+    }
+
+
+def print_trend_report(report: Dict):
+    """In báo cáo xu hướng calibration."""
+    print(f"\n  {'='*60}")
+    print(f"  P4 CALIBRATION TREND — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  {'='*60}")
+    if report["status"] == "NO_DATA":
+        print("  Chưa có dữ liệu calibration history.")
+        print("  Chạy 'calibrate resolve' để tạo snapshot đầu tiên.")
+        return
+    print(f"  Tổng số snapshot: {report['n_snapshots']}")
+    print(f"\n  Latest:")
+    lat = report["latest"]
+    print(f"    Date:      {lat['date']}")
+    print(f"    Resolved:  {lat['n_resolved']} predictions")
+    print(f"    Log-Loss:  {lat['mean_log_loss']:.4f}" if lat['mean_log_loss'] else "    Log-Loss:  N/A")
+    print(f"    ECE:       {lat['ece']:.4f}" if lat['ece'] else "    ECE:       N/A")
+    print(f"    Accuracy:  {lat['accuracy']:.2%}" if lat['accuracy'] else "    Accuracy:  N/A")
+    print(f"\n  Trend ({len(report.get('snapshots', []))} snapshots gần nhất):")
+    tr = report.get("trend", {})
+    if tr:
+        print(f"    Recent avg Log-Loss: {tr.get('recent_avg_log_loss', 'N/A')}")
+        print(f"    Older avg Log-Loss:  {tr.get('older_avg_log_loss', 'N/A')}")
+        flag = "🔴 DEGRADING" if tr.get('degradation_detected') else "🟢 STABLE"
+        print(f"    Xu hướng: {flag}")
 
 
 def calibration_summary(days_back: int = 90) -> dict:

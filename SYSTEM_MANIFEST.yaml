@@ -470,6 +470,14 @@ entrypoints:
     description: "P4 Calibration — prediction log status (unresolved vs resolved)"
     cli: "python ptck.py calibrate status [--days 90]"
     category: calibration
+  calibrate_resolve:
+    description: "P4 Calibration — resolve pending outcomes from future price data"
+    cli: "python ptck.py calibrate resolve [--hold-days 30] [--dry-run]"
+    category: calibration
+  calibrate_report:
+    description: "P4 Calibration — trend report (Log-Loss, ECE theo thời gian)"
+    cli: "python ptck.py calibrate report [--days 90]"
+    category: calibration
 
   # ── P5 Counterfactual Reasoning ──────────────────────────
   counterfactual:
