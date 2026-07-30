@@ -585,6 +585,11 @@ class BayesianMandate:
     contextual_health_score: float = 0.5
     eu_ranking: List[Tuple[str, float]] = field(default_factory=list)
 
+    # Circuit breaker
+    circuit_breaker_level: int = 0
+    circuit_breaker_label: str = "BÌNH_THƯỜNG"
+    circuit_breaker_trigger: str = ""
+
 
 ACTION_VN = {
     "VETO": "Cấm tuyệt đối",
@@ -626,6 +631,9 @@ class BayesianGovernor:
         self._transmission = self.perception.load_transmission()
         self._sector = self.perception.load_sector()
 
+        # Circuit breaker cache (lazy-loaded once per instance)
+        self._cb_state = None
+
     def _get_factor_engine(self):
         if self._factor_engine is None:
             from src.business.factor_exposure import FactorExposureEngine, compute_lr_adjustment
@@ -653,6 +661,22 @@ class BayesianGovernor:
             return arch.archetype if arch else "UNKNOWN"
         except Exception:
             return "UNKNOWN"
+
+    def _check_circuit_breaker(self):
+        """Check calibration degradation and cache circuit breaker state.
+
+        Chỉ check 1 lần per Governor instance (lazy-loaded). Kết quả được
+        áp dụng cho mọi symbol trong cùng batch analyze().
+        """
+        if self._cb_state is not None:
+            return self._cb_state
+        try:
+            from calibration.prediction_log import check_circuit_breaker_auto
+            self._cb_state = check_circuit_breaker_auto(days=90)
+        except Exception:
+            self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG",
+                              "active": 0, "reason": "CHECK_FAILED"}
+        return self._cb_state
 
     def assess(self, symbol: str) -> BayesianMandate:
         """Compute Bayesian mandate v2 for a single symbol."""
@@ -733,6 +757,24 @@ class BayesianGovernor:
 
         conviction = p_gain * (1.0 - calib_penalty)
 
+        # ── Circuit Breaker — override action nếu calibration degradation ──
+        cb = self._check_circuit_breaker()
+        cb_level = cb.get("level", 0)
+        cb_label = cb.get("label", "BÌNH_THƯỜNG")
+        cb_reason = cb.get("reason", "")
+        cb_active = cb.get("active", 0)
+
+        if cb_active and best_action in (
+            "OPEN", "SCALE_IN", "HOLD", "REDUCE", "WAIT", "AVOID"
+        ):
+            from calibration.prediction_log import CB_ACTION_MAP
+            overrides = CB_ACTION_MAP.get(cb_level, {})
+            if best_action in overrides:
+                new_action, capped_alloc = overrides[best_action]
+                best_action = new_action
+                if capped_alloc is not None:
+                    allocation = capped_alloc
+
         # P4 logging
         try:
             _ensure_calib()
@@ -775,6 +817,9 @@ class BayesianGovernor:
             lr_macro_dynamic=round(lr_macro_dynamic, 3),
             contextual_health_score=round(contextual_health_score, 3),
             eu_ranking=eu_list,
+            circuit_breaker_level=cb_level,
+            circuit_breaker_label=cb_label,
+            circuit_breaker_trigger=cb_reason,
         )
 
     def analyze(self, symbols: List[str]) -> Dict:
@@ -837,8 +882,16 @@ def print_report(analysis: Dict):
     print(f"  🌐 Macro:       {m['state']} (P={m['posterior']:.0%}, H={m['entropy']:.2f})")
     print(f"  🔄 Transmission: {t['phase']} (L={t['liquidity']:.0f} C={t['credit']:.0f} K={t['confidence']:.0f})")
     print(f"  🏭 Sector:      Top={s.get('top_sector','?')} | healthy={s.get('n_healthy',0)}/19 | phase={s.get('top_phase','?')}")
-    print(f"  {'='*88}")
 
+    # Circuit breaker status
+    first_r = list(analysis["results"].values())[0]
+    cb_active = first_r.circuit_breaker_level > 0
+    if cb_active:
+        print(f"  ⛔ CIRCUIT BREAKER: {first_r.circuit_breaker_label} "
+              f"— {first_r.circuit_breaker_trigger}")
+    
+    print(f"  {'='*88}")
+    
     # Table
     print(f"  {'Mã':<6} {'Hành động':<14} {'EU':>6} {'P(Gain)':>8} {'Alloc%':>7} {'Tin cậy':>8} {'Prior':<8} {'Cap.Alloc':<14} {'Macro LR':>8}")
     print(f"  {'-'*88}")

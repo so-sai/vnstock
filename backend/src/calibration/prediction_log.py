@@ -91,6 +91,20 @@ def init_schema():
             accuracy        REAL,
             created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
         );
+        CREATE TABLE IF NOT EXISTS circuit_breaker (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            date            TEXT    NOT NULL,
+            level           INTEGER NOT NULL DEFAULT 0,
+            label           TEXT    NOT NULL DEFAULT 'BÌNH_THƯỜNG',
+            trigger_reason  TEXT,
+            mean_log_loss   REAL,
+            threshold       REAL,
+            recent_avg_ll   REAL,
+            older_avg_ll    REAL,
+            active          INTEGER NOT NULL DEFAULT 0,
+            resolved_at     TEXT,
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+        );
     """)
     conn.commit()
     conn.close()
@@ -249,3 +263,195 @@ def get_latest_calibration() -> Optional[Dict]:
     """).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+# ═══════════════════════════════════════════════════════════════
+# Circuit Breaker — tự động đóng băng vị thế khi degradation
+# ═══════════════════════════════════════════════════════════════
+
+CB_LEVEL_NONE = 0       # Hoạt động bình thường
+CB_LEVEL_CAUTION = 1    # Degradation nhẹ → chặn OPEN
+CB_LEVEL_ACTIVE = 2     # Degradation mạnh → chặn OPEN/SCALE_IN, hạ HOLD
+CB_LEVEL_EMERGENCY = 3  # Log-Loss rất cao → đóng băng toàn bộ
+
+CB_LABELS = {
+    CB_LEVEL_NONE: "BÌNH_THƯỜNG",
+    CB_LEVEL_CAUTION: "CẢNH_BÁO",
+    CB_LEVEL_ACTIVE: "KÍCH_HOẠT",
+    CB_LEVEL_EMERGENCY: "KHẨN_CẤP",
+}
+
+CB_ACTION_MAP = {
+    # (current_level, original_action) → (overridden_action, capped_alloc)
+    CB_LEVEL_CAUTION: {
+        "OPEN": ("SCALE_IN", None),
+        "SCALE_IN": ("HOLD", None),
+    },
+    CB_LEVEL_ACTIVE: {
+        "OPEN": ("REDUCE", -5.0),
+        "SCALE_IN": ("REDUCE", -5.0),
+        "HOLD": ("REDUCE", -5.0),
+    },
+    CB_LEVEL_EMERGENCY: {
+        "OPEN": ("VETO", 0.0),
+        "SCALE_IN": ("VETO", 0.0),
+        "HOLD": ("VETO", 0.0),
+        "REDUCE": ("VETO", 0.0),
+        "WAIT": ("VETO", 0.0),
+        "AVOID": ("VETO", 0.0),
+    },
+}
+
+
+def init_circuit_breaker():
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS circuit_breaker (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            date            TEXT    NOT NULL,
+            level           INTEGER NOT NULL DEFAULT 0,
+            label           TEXT    NOT NULL DEFAULT 'BÌNH_THƯỜNG',
+            trigger_reason  TEXT,
+            mean_log_loss   REAL,
+            threshold       REAL,
+            recent_avg_ll   REAL,
+            older_avg_ll    REAL,
+            active          INTEGER NOT NULL DEFAULT 0,
+            resolved_at     TEXT,
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_circuit_breaker_state() -> dict:
+    """Return latest circuit breaker state. Auto-creates initial entry if empty."""
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT * FROM circuit_breaker
+        ORDER BY id DESC LIMIT 1
+    """).fetchone()
+    if row:
+        r = dict(row)
+        conn.close()
+        return r
+    # Default: inactive, level 0
+    conn.execute("""
+        INSERT INTO circuit_breaker (date, level, label, active)
+        VALUES (?, 0, 'BÌNH_THƯỜNG', 0)
+    """, (str(date.today()),))
+    conn.commit()
+    conn.close()
+    return {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0}
+
+
+def set_circuit_breaker(
+    level: int,
+    trigger_reason: str = "",
+    mean_log_loss: Optional[float] = None,
+    threshold: float = 0.05,
+    recent_avg_ll: Optional[float] = None,
+    older_avg_ll: Optional[float] = None,
+):
+    """Record new circuit breaker state. Previous active entry is auto-resolved."""
+    today = str(date.today())
+    label = CB_LABELS.get(level, "UNKNOWN")
+    active = 1 if level > 0 else 0
+
+    conn = get_conn()
+    # Resolve previous active entry
+    conn.execute("""
+        UPDATE circuit_breaker
+        SET resolved_at = datetime('now','localtime')
+        WHERE active = 1 AND resolved_at IS NULL
+    """)
+    # Insert new state
+    conn.execute("""
+        INSERT INTO circuit_breaker
+            (date, level, label, active, trigger_reason,
+             mean_log_loss, threshold, recent_avg_ll, older_avg_ll)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (today, level, label, active, trigger_reason,
+          mean_log_loss, threshold, recent_avg_ll, older_avg_ll))
+    conn.commit()
+    conn.close()
+
+
+def check_circuit_breaker_auto(days: int = 90, ll_threshold: float = 0.05) -> dict:
+    """Auto-check calibration trend and activate circuit breaker if degradation detected.
+
+    Returns:
+        dict with level, label, action_overrides applied
+    """
+    try:
+        from calibration.calibrator import calibration_trend_report
+        report = calibration_trend_report(days=days)
+    except Exception:
+        return {"level": CB_LEVEL_NONE, "label": CB_LABELS[CB_LEVEL_NONE],
+                "active": 0, "error": "calibration_trend_report failed"}
+
+    if report.get("status") != "OK":
+        return {"level": CB_LEVEL_NONE, "label": CB_LABELS[CB_LEVEL_NONE],
+                "active": 0, "reason": "NO_DATA"}
+
+    trend = report.get("trend", {})
+    if not trend:
+        return {"level": CB_LEVEL_NONE, "label": CB_LABELS[CB_LEVEL_NONE],
+                "active": 0, "reason": "NO_TREND"}
+
+    recent_ll = trend.get("recent_avg_log_loss", 0.0)
+    older_ll = trend.get("older_avg_log_loss", 0.0)
+    degradation = trend.get("degradation_detected", False)
+    diff = recent_ll - older_ll
+
+    latest = report.get("latest", {})
+    mean_ll = latest.get("mean_log_loss", 0.0) or 0.0
+
+    # Determine level
+    if mean_ll > 0.70:
+        level = CB_LEVEL_EMERGENCY
+        reason = f"Log-Loss quá cao: {mean_ll:.3f} > 0.70"
+    elif degradation and diff > 0.10:
+        level = CB_LEVEL_ACTIVE
+        reason = f"Degradation mạnh: ΔLL = {diff:.3f} > 0.10"
+    elif degradation and diff > ll_threshold:
+        level = CB_LEVEL_CAUTION
+        reason = f"Degradation nhẹ: ΔLL = {diff:.3f} > {ll_threshold}"
+    else:
+        level = CB_LEVEL_NONE
+        reason = "Bình thường"
+
+    # Persist
+    set_circuit_breaker(
+        level=level,
+        trigger_reason=reason,
+        mean_log_loss=mean_ll,
+        threshold=ll_threshold,
+        recent_avg_ll=recent_ll,
+        older_avg_ll=older_ll,
+    )
+
+    return {
+        "level": level,
+        "label": CB_LABELS.get(level, "UNKNOWN"),
+        "active": 1 if level > 0 else 0,
+        "reason": reason,
+        "recent_avg_ll": recent_ll,
+        "older_avg_ll": older_ll,
+        "diff": round(diff, 4),
+        "mean_log_loss": mean_ll,
+    }
+
+
+def get_circuit_breaker_log(days: int = 90) -> List[Dict]:
+    """Return circuit breaker history."""
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM circuit_breaker
+        WHERE date >= ?
+        ORDER BY id DESC
+    """, (cutoff,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

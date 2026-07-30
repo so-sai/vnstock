@@ -4,22 +4,22 @@
     {
       "node": "api.search",
       "status": "success",
-      "latency_ms": 0.5799999998998828
+      "latency_ms": 0.953799999479088
     },
     {
       "node": "api.recall",
       "status": "success",
-      "latency_ms": 22.94660000006843
+      "latency_ms": 33.49929999967571
     },
     {
       "node": "api.search",
       "status": "success",
-      "latency_ms": 0.2823999984684633
+      "latency_ms": 0.45540000064647757
     },
     {
       "node": "api.recall",
       "status": "success",
-      "latency_ms": 13.890500000343309
+      "latency_ms": 28.149299998403876
     }
   ],
   "signals": []

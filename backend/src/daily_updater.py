@@ -1141,6 +1141,20 @@ def run_daily_update(target_date=None, manifest_path=None):
             logger.warning(f"⚠️ Calibration resolve failed: {e}")
             report["calibration_resolve"] = {"status": f"FAILED: {str(e)}"}
 
+        # Step 11b: Circuit Breaker auto-check
+        try:
+            from calibration.prediction_log import check_circuit_breaker_auto, init_circuit_breaker
+            init_circuit_breaker()
+            cb_state = check_circuit_breaker_auto()
+            report["circuit_breaker"] = cb_state
+            if cb_state.get("active"):
+                logger.warning(f"  ⛔ CIRCUIT BREAKER KÍCH HOẠT: {cb_state['label']} — {cb_state['reason']}")
+            else:
+                logger.info(f"  ✅ Circuit Breaker: {cb_state['label']}")
+        except Exception as e:
+            logger.warning(f"⚠️ Circuit Breaker check failed: {e}")
+            report["circuit_breaker"] = {"status": f"FAILED: {str(e)}"}
+
         report["status"] = "SUCCESS"
 
     except Exception as e:

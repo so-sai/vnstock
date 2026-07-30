@@ -478,6 +478,10 @@ entrypoints:
     description: "P4 Calibration — trend report (Log-Loss, ECE theo thời gian)"
     cli: "python ptck.py calibrate report [--days 90]"
     category: calibration
+  calibrate_circuit_breaker:
+    description: "P4 Circuit Breaker — xem trạng thái đóng băng vị thế (auto-check khi degradation)"
+    cli: "python ptck.py calibrate circuit-breaker [--force-check]"
+    category: calibration
 
   # ── P5 Counterfactual Reasoning ──────────────────────────
   counterfactual:

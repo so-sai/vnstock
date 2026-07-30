@@ -1502,6 +1502,47 @@ def cmd_calibrate(args):
         report = calibration_trend_report(days=args.days)
         print_trend_report(report)
 
+    elif args.action == "circuit-breaker":
+        from datetime import date as _today
+        from calibration.prediction_log import (
+            get_circuit_breaker_state, check_circuit_breaker_auto,
+            get_circuit_breaker_log, CB_LABELS,
+        )
+        init_schema()
+        from calibration.prediction_log import init_circuit_breaker
+        init_circuit_breaker()
+
+        if args.force_check:
+            state = check_circuit_breaker_auto()
+        else:
+            state = get_circuit_breaker_state()
+
+        print(f"\n  {'='*60}")
+        print(f"  P4 CIRCUIT BREAKER — {state.get('date', str(_today.today()))}")
+        print(f"  {'='*60}")
+        level = state.get("level", 0)
+        label = state.get("label", CB_LABELS.get(level, "UNKNOWN"))
+        active = state.get("active", 0)
+        print(f"  Trạng thái: {'⛔ KÍCH HOẠT' if active else '🟢 BÌNH_THƯỜNG'} ({label})")
+        print(f"  Cấp độ:    {level}")
+        if state.get("reason"):
+            print(f"  Lý do:     {state['reason']}")
+        if state.get("mean_log_loss"):
+            print(f"  Log-Loss:  {state['mean_log_loss']:.4f}")
+        if state.get("diff"):
+            print(f"  ΔLL:       {state['diff']:+.4f}")
+
+        # Show circuit breaker log
+        log = get_circuit_breaker_log(days=30)
+        if len(log) > 1:
+            print(f"\n  Lịch sử ({len(log)} entries):")
+            print(f"  {'Ngày':<12} {'Level':>5} {'Trạng thái':<14} {'Lý do':<30}")
+            print(f"  {'-'*65}")
+            for entry in log[:10]:
+                print(f"  {entry['date']:<12} {entry['level']:>5} "
+                      f"{'⛔' if entry['active'] else '🟢'}{' ' + entry['label']:<13} "
+                      f"{entry.get('trigger_reason', '')[:28]:<30}")
+
 
 def cmd_counterfactual(args):
     """P5 Counterfactual Reasoning — 'What if?' simulation over evidence nodes."""
@@ -2697,6 +2738,9 @@ def build_parser():
     p_cal_report = p_cal_sub.add_parser("report", help="Calibration trend report — Log-Loss, ECE theo thời gian")
     p_cal_report.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
     p_cal_report.set_defaults(func=cmd_calibrate)
+    p_cal_cb = p_cal_sub.add_parser("circuit-breaker", help="Circuit Breater — xem trạng thái đóng băng vị thế")
+    p_cal_cb.add_argument("--force-check", action="store_true", help="Chạy lại auto-check thay vì xem cached")
+    p_cal_cb.set_defaults(func=cmd_calibrate)
 
     # counterfactual (P5 What-if Reasoning)
     p_cf = sub.add_parser("counterfactual", parents=[lang_parent],
