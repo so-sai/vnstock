@@ -961,98 +961,128 @@ ARROW_MAP = {
 }
 
 
+BUSINESS_STATUS_MAP = {
+    "HIGH_QUALITY_COMPOUNDER": "Tốt (High Quality Compounder)",
+    "STEADY_EARNER": "Tốt (Steady Earner)",
+    "FRANCHISE_BANK": "Tốt (Franchise Bank)",
+    "RETAIL_PLATFORM": "Trung bình (Retail Platform)",
+    "REGULATED_UTILITY": "Tốt (Regulated Utility)",
+    "ASSET_BANK": "Trung bình (Asset Bank)",
+    "EXPORT_MANUFACTURER": "Trung bình (Export Mfr)",
+    "CYCLICAL_HEAVY": "Rủi ro chu kỳ (Cyclical Heavy)",
+    "REAL_ESTATE_DEVELOPER": "Rủi ro (RE Developer)",
+    "DISTRESSED": "Yếu (Distressed)",
+    "TURNAROUND": "Phục hồi (Turnaround)",
+    "LOW_QUALITY": "Kém (Low Quality)",
+    "UNKNOWN": "Không rõ (Unknown)",
+}
+
+
 def print_report(analysis: Dict):
     try:
         from src.core.canonical_output_adapter import localize_label
         def _(x):
             vi = localize_label(x, "full")
-            # WHY: "Tiếng Việt (English)" format — VI first, EN in parentheses.
-            #      annotated mode returns "EN (VI)" which is backwards for our users.
             return f"{vi} ({x})" if vi != x else x
     except Exception:
         def _(x): return x
 
-    print(f"\n  {'='*88}")
-    print(f"  {_('P3 GOVERNOR v3')} — {_('BAYESIAN EXPECTED UTILITY')} — {analysis['date']}")
-    print(f"  {'='*88}")
-
-    # Market context
     m = analysis["macro_state"]
     t = analysis["transmission"]
     s = analysis["sector"]
-    print(f"  🌐 {_('Macro')}:       {m['state']} (P={m['posterior']:.0%}, H={m['entropy']:.2f})")
-    print(f"  🔄 {_('Transmission')}: {t['phase']} (L={t['liquidity']:.0f} C={t['credit']:.0f} K={t['confidence']:.0f})")
-    print(f"  🏭 {_('Sector')}:      Top={s.get('top_sector','?')} | {_('Healthy')}={s.get('n_healthy',0)}/19 | phase={s.get('top_phase','?')}")
-
-    # Giai đoạn 7: ModelRegistry BMA
     first_r = list(analysis["results"].values())[0]
+    results = analysis["results"]
+    n = len(results)
+
+    # ── Determine overall verdict ────────────────────────────────────
+    has_buy = any(r.action in ("OPEN", "SCALE_IN") for r in results.values())
+    all_reduce = all(r.action in ("REDUCE", "AVOID", "VETO") for r in results.values())
+    has_reduce = any(r.action == "REDUCE" for r in results.values())
+    if has_buy:
+        verdict = "CÓ CƠ HỘI MUA (SCALE_IN/OPEN)"
+        capital_verdict = f"{_('Alloc')} > 0%"
+        signal_icon = "🟢"
+    elif all_reduce:
+        verdict = "KHÔNG ĐẦU TƯ / DỪNG GIẢI NGÂN MỚI"
+        capital_verdict = f"{_('Alloc')} = 0%"
+        signal_icon = "🔴"
+    else:
+        verdict = "THẬN TRỌNG / QUAN SÁT"
+        capital_verdict = f"{_('Alloc')} = 0%"
+        signal_icon = "🟡"
+
+    has_open = any(r.action == "OPEN" for r in results.values())
+    deploy_symbols = [sym for sym, r in results.items() if r.action in ("OPEN", "SCALE_IN")]
+    deploy_count = len(deploy_symbols)
+    buy_ratio = f"{deploy_count}/{n}"
+
+    # ══════════════════════════════════════════════════════════════════
+    # TẦNG 1 — KẾT LUẬN CHÍNH (INVERTED PYRAMID TOP)
+    # ══════════════════════════════════════════════════════════════════
+    print(f"\n  {'='*90}")
+    print(f"  🎯 {_('INVESTMENT DECISION REPORT')} — PTCK GOVERNOR V3 ({_('T+30D Forward')}) — {analysis['date']}")
+    print(f"  {'='*90}")
+    print(f"  {signal_icon} {_('OVERALL VERDICT')}: {verdict} ({_('CAPITAL RATIO')}: {capital_verdict})")
+    print(f"  👉 {_('Priority Symbols')}: {', '.join(deploy_symbols) if deploy_symbols else 'KHÔNG CÓ'} ({buy_ratio} {_('qualifying symbols')})")
+    print(f"  👉 {_('Portfolio Directive')}: {'HẠ TỶ TRỌNG / THU HỒI SỨC MUA (REDUCE ALL)' if all_reduce else 'GIỮ / TÍCH LŨY CHỌN LỌC'}")
+    print(f"  {'─'*90}")
+    print(f"  💡 {_('CORE REASONS')}:")
+    macro_state_str = m.get("state", "?")
+    macro_entropy = float(m.get("entropy", 0))
+    macro_p = float(m.get("posterior", 0))
+    trans_phase = t.get("phase", "?")
     bma_dict = first_r.bma_posterior
+    dom_model = first_r.dominant_model if bma_dict else "N/A"
+    dom_pct = max(bma_dict.values()) if bma_dict else 0
+    print(f"    1. {_('Macro')} {_('tightening')} : {macro_state_str} (P={macro_p:.0%}, H={macro_entropy:.2f})")
+    print(f"    2. {_('Liquidity Trap')}: {trans_phase} ({_('P(Gain)')} T+30D {_('compressed below 45%')})")
+    print(f"    3. {_('Dominant Model')}: {dom_model} ({dom_pct:.0%} {_('BMA weight')}) -> {_('Veto micro buy signals')}")
+
+    # Circuit breaker
+    cb_active = first_r.circuit_breaker_level > 0
+    if cb_active:
+        print(f"  ⛔ {_('CIRCUIT BREAKER')}: {first_r.circuit_breaker_label} — {first_r.circuit_breaker_trigger}")
+
+    # ══════════════════════════════════════════════════════════════════
+    # TẦNG 2 — BẢNG XẾP HẠNG HÀNH ĐỘNG (MIDDLE TIER)
+    # ══════════════════════════════════════════════════════════════════
+    print(f"\n  {'='*90}")
+    print(f"  📊 {_('ACTION RANKING')} ({_('SORTED BY P(Gain) DESC')}):")
+    print(f"  {'='*90}")
+    print(f"  {'Mã':<5} {'P(Lãi T+30D)':<16} {'Hành động (Action)':<24} {'Vốn% (Alloc%)':<14} {'DN (Business)':<24}")
+    print(f"  {'─'*85}")
+
+    sorted_symbols = sorted(results.items(), key=lambda x: x[1].p_gain, reverse=True)
+    for sym, r in sorted_symbols:
+        arrow = ARROW_MAP.get(r.action, "?")
+        status = BUSINESS_STATUS_MAP.get(r.health_archetype, r.health_archetype)
+        print(f"  {arrow} {sym:<4} {r.p_gain:>7.1%}           {r.action_vn:<22} {r.allocation_pct:>+7.1f}%{'':>7s} {status:<24}")
+
+    # ══════════════════════════════════════════════════════════════════
+    # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)
+    # ══════════════════════════════════════════════════════════════════
+    print(f"\n  {'='*90}")
+    print(f"  🔍 {_('TECHNICAL AUDIT TRAIL')}:")
+    print(f"  {'='*90}")
+
+    # BMA + Model LR
     if bma_dict:
         dominant = first_r.dominant_model
         bma_str = ", ".join(f"{k}={v:.0%}" for k, v in sorted(bma_dict.items(), key=lambda x: x[1], reverse=True))
-        print(f"  🧠 {_('BMA')}:           {bma_str} | {_('Dominant')}={dominant} ({_('LR')}={first_r.model_registry_lr:.3f})")
+        print(f"  • {_('BMA Weights')}  : {bma_str} | {_('Model LR')} = {first_r.model_registry_lr:.3f}")
 
-    # Circuit breaker status
-    cb_active = first_r.circuit_breaker_level > 0
-    if cb_active:
-        print(f"  ⛔ {_('CIRCUIT BREAKER')}: {first_r.circuit_breaker_label} "
-              f"— {first_r.circuit_breaker_trigger}")
-    
-    print(f"  {'='*88}")
-    
-    # Table
-    print(f"  {'Mã (Symbol)':<14} {'Hành động (Action)':<18} {_('EU'):>6} {_('P(Gain)'):>10} {_('Alloc%'):>9} {_('Conviction'):>10} {'Prior':<8} {_('Cap.Alloc'):<9} {_('Macro LR'):>8} {_('Model LR'):>9}")
-    print(f"  {'─'*110}")
+    # Top symbol EU ranking
+    top_sym, top_r = sorted_symbols[0]
+    top_eu = top_r.eu_ranking[:4]  # top 4 actions
+    eu_str = " | ".join(f"{a}: {eu:+.3f}" for a, eu in top_eu)
+    print(f"  • {_('Top Expected Utility')} ({top_sym}) : {eu_str}")
+    print(f"  • {_('Context')}: {_('Macro')}={macro_state_str}, {_('Transmission')}={trans_phase}, "
+          f"{_('Sector')}={s.get('top_sector','?')} ({s.get('top_phase','?')}), "
+          f"{_('Healthy')}={s.get('n_healthy',0)}/19")
 
-    for sym, r in sorted(analysis["results"].items()):
-        arrow = ARROW_MAP.get(r.action, "?")
-        cap_str = r.capital_allocation_archetype[:8] if len(r.capital_allocation_archetype) <= 8 else r.capital_allocation_archetype[:5] + "."
-        print(f"  {arrow} {sym:<5} {r.action_vn:<18} {r.expected_utility:>+6.3f} {r.p_gain:>8.1%} "
-              f"{r.allocation_pct:>+7.1f}% {r.conviction:>8.1%} "
-              f"{r.archetype_prior:<8} {cap_str:<9} {r.lr_macro_dynamic:>7.3f} {r.model_registry_lr:>8.3f}")
-
-    print(f"\n  {'='*88}")
-    print(f"  {_('DECISION DISTRIBUTION')}")
-    print(f"  {'='*88}")
-    counts: Dict[str, int] = {}
-    for r in analysis["results"].values():
-        counts[r.action] = counts.get(r.action, 0) + 1
-    for action in ["OPEN", "SCALE_IN", "HOLD", "WAIT", "REDUCE", "AVOID", "VETO"]:
-        if action in counts:
-            arrow = ARROW_MAP.get(action, "?")
-            print(f"  {arrow} {_(action):<18}: {counts[action]} {_('Symbol')}")
-
-    print(f"\n  {'='*88}")
-    print(f"  {_('PER-SYMBOL DETAIL')} — v3 ({_('Macro')}→{_('Health')}→{_('Behavior')}→BMA)")
-    print(f"  {'='*88}")
-
-    for sym, r in sorted(analysis["results"].items()):
-        arrow = ARROW_MAP.get(r.action, "?")
-        print(f"\n  {'─'*80}")
-        print(f"  {arrow} {sym} | {r.action_vn} | {_('EU')}={r.expected_utility:+.4f}")
-        print(f"  {'─'*80}")
-        print(f"  {_('P(Gain|Evidence)')} = {r.p_gain:.1%}  |  {_('Calib Penalty')} = {r.calibration_penalty:.2f}")
-        print(f"  {_('Allocation')}       = {r.allocation_pct:+.1f}%  |  {_('Conviction')}    = {r.conviction:.1%}")
-        print(f"  {_('v3 Inputs')}:")
-        print(f"    GĐ1 Prior:       {r.archetype_prior}")
-        print(f"    GĐ2 {_('Macro LR')}:    {r.lr_macro_dynamic:.3f}")
-        print(f"    GĐ3 Ctx Health:  {r.contextual_health_score:.3f}")
-        print(f"    GĐ4 {_('Cap.Alloc')}:   {r.capital_allocation_archetype} ({r.capital_allocation_score:+.2f})")
-        print(f"  {_('Evidence Inputs')}:")
-        print(f"    {_('P0 MacroState')}:   {r.macro_state}")
-        print(f"    {_('P1 Transmission')}: {r.transmission_phase}")
-        print(f"    {_('P1 SectorPhase')}:  {r.sector_phase}")
-        print(f"    {_('P2 Health')}:       {r.health_archetype}")
-        print(f"    {_('L3 Valuation')}:    {r.valuation_zone}")
-        print(f"    {_('L4 Behavior')}:     {r.behavior_position}")
-        print(f"    GĐ7 {_('ModelRegistry')}: {r.dominant_model} ({_('LR')}={r.model_registry_lr:.3f})")
-        if r.bma_posterior:
-            bma_str = ", ".join(f"{k}={v:.0%}" for k, v in sorted(r.bma_posterior.items(), key=lambda x: x[1], reverse=True))
-            print(f"       BMA:       {bma_str}")
-        print(f"  {_('EU Ranking')}:")
-        for action, eu in r.eu_ranking:
-            marker = "←" if action == r.action else ""
-            print(f"    {_(action):12s}: {eu:+.4f} {marker}")
+    # Prediction count
+    print(f"  • {_('Symbols Analyzed')}: {n} {_('symbol')} | {_('Most Common Action')}: "
+          f"{max(set(r.action for r in results.values()), key=lambda a: sum(1 for r in results.values() if r.action == a))}")
 
 
 def main():

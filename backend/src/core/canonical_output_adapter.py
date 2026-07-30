@@ -662,7 +662,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Prior Archetype": "Tiên nghiệm DNA",
     "Contextual Health": "Sức khỏe theo ngữ cảnh",
     "Conviction": "Mức tin cậy",
-    "P(Gain)": "P(Sinh lời 30D) (30D Forward P(Gain))",
+    "P(Gain)": "P(Sinh lời 30D)",
     "P(Lãi)": "P(Sinh lời 30D)",
     "P(Gain|Evidence)": "P(Lãi 30D|Bằng chứng)",
     "Alloc%": "Tỷ trọng%",
@@ -891,6 +891,36 @@ CLI_LABEL_MAP: dict[str, str] = {
     "DECISION DISTRIBUTION": "Phân bổ Quyết định",
     "PER-SYMBOL DETAIL": "Chi tiết từng mã",
     "Symbol": "Mã CK",
+
+    # Tầng 1: kết luận chính
+    "INVESTMENT DECISION REPORT": "BÁO CÁO QUYẾT ĐỊNH ĐẦU TƯ",
+    "OVERALL VERDICT": "KẾT LUẬN CHÍNH",
+    "T+30D Forward": "T+30 PHIÊN",
+    "CAPITAL RATIO": "TỶ LỆ VỐN",
+    "Priority Symbols": "Mã ưu tiên giải ngân",
+    "qualifying symbols": "mã đạt chuẩn mua",
+    "Portfolio Directive": "Chỉ thị danh mục",
+    "CORE REASONS": "LÝ DO CỐT LÕI",
+    "tightening": "thắt chặt",
+    "Liquidity Trap": "Bẫy thanh khoản",
+    "compressed below 45%": "bị ép dưới 45%",
+    "Dominant Model": "Mô hình chi phối",
+    "BMA weight": "trọng số BMA",
+    "Veto micro buy signals": "Phủ quyết tín hiệu mua vi mô",
+
+    # Tầng 2: bảng hành động
+    "ACTION RANKING": "BẢNG XẾP HẠNG HÀNH ĐỘNG",
+    "SORTED BY P(Gain) DESC": "XẾP THEO P(Gain) GIẢM DẦN",
+
+    # Tầng 3: kiểm toán
+    "TECHNICAL AUDIT TRAIL": "TẦNG KIỂM TOÁN THUẬT TOÁN",
+    "BMA Weights": "Trọng số BMA",
+    "Top Expected Utility": "Kỳ vọng Hữu ích Cao nhất",
+    "Context": "Bối cảnh",
+    "Symbols Analyzed": "Mã phân tích",
+    "Most Common Action": "Hành động phổ biến",
+    "symbol": "mã CK",
+    "Alloc": "Vốn",
 }
 
 
