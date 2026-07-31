@@ -51,6 +51,51 @@ MACRO_DIR = DATA_DIR / "macro"
 PRIOR_PROB_GAIN = 0.53
 PRIOR_ODDS = PRIOR_PROB_GAIN / (1.0 - PRIOR_PROB_GAIN)
 
+
+def _symbol_sector(symbol: str) -> Optional[str]:
+    """Resolve per-symbol ICB sector (icb_name2) — NHẤT QUÁN với
+    SectorStateEngine._load_icb_mapping().
+
+    WHY: Trước đây print_report chỉ in top_sector của TOÀN THỊ TRƯỜNG
+    (rotation chain) trong Context line — khi chạy --symbols BCM lại hiện
+    "Viễn thông" (top sector market), khiến operator tưởng BCM thuộc ngành
+    Viễn thông. Hàm này trả sector THẬT của từng symbol. Fallback cuối:
+    map archetype → sector (REAL_ESTATE_DEVELOPER → "Bất động sản"),
+    KHÔNG bao giờ trả sector market chung làm sector per-symbol.
+    """
+    try:
+        conn = sqlite3.connect(str(SCREENER_DB))
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT icb_name2 FROM symbol_industry WHERE symbol = ? AND icb_name2 IS NOT NULL",
+            (symbol.upper(),),
+        )
+        row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0].strip()
+    except Exception:
+        pass
+    # Fallback: archetype → sector (chỉ cho symbol ĐÃ BIẾT trong BASELINE_MAP,
+    # không cho symbol lạ vì _classify_by_ratios mặc định trả RETAIL_PLATFORM)
+    try:
+        from src.business.archetype import ArchetypeEngine, BASELINE_MAP
+        if symbol.upper().strip() not in BASELINE_MAP:
+            return None
+        arch = ArchetypeEngine().classify(symbol.upper())
+        arch_name = getattr(arch, "archetype", str(arch))
+        if arch_name == "REAL_ESTATE_DEVELOPER":
+            return "Bất động sản"
+        if arch_name in ("FRANCHISE_BANK", "ASSET_BANK"):
+            return "Ngân hàng"
+        if arch_name == "RETAIL_PLATFORM":
+            return "Bán lẻ"
+        if arch_name == "TECHNOLOGY":
+            return "Công nghệ Thông tin"
+    except Exception:
+        pass
+    return None
+
 # Archetype-aware priors (Giai đoạn 1 + Giai đoạn 4 insights)
 # COMPOUNDERs have structural ROIC > WACC → higher baseline odds
 # CYCLICAL_HEAVY and REAL_ESTATE have earnings risk → lower baseline
@@ -1366,14 +1411,18 @@ def print_report(analysis: Dict):
                  MOS_ZONE_OVERVALUED: "🔴", MOS_ZONE_NO_DATA: "⚪"}
     MOS_ABBR = {MOS_ZONE_UNDERVALUED: "HD", MOS_ZONE_FAIR_VALUE: "HL",
                 MOS_ZONE_OVERVALUED: "QG", MOS_ZONE_NO_DATA: "??"}
-    print(f"  {'Mã':<5} {'Hành động':<18} {'Vốn%':<7} {'DN (Business)':<22} "
+    print(f"  {'Mã':<5} {'Ngành':<18} {'Hành động':<18} {'Vốn%':<7} {'DN (Business)':<22} "
           f"{'Định giá Giá trị (MoS)':<34} {'Bối cảnh Thị trường':<30}")
-    print(f"  {'─'*120}")
+    print(f"  {'─'*140}")
 
     sorted_symbols = sorted(results.items(), key=lambda x: x[1].p_gain, reverse=True)
     for sym, r in sorted_symbols:
         arrow = ARROW_MAP.get(r.action, "?")
         status = BUSINESS_STATUS_MAP.get(r.health_archetype, r.health_archetype)
+
+        # Per-symbol sector (KHÔNG phải top_sector market — tránh hiểu lầm)
+        sym_sector = _symbol_sector(sym) or "?"
+        sym_sector = sym_sector[:16]
 
         # Primary: MoS Zone
         mz = r.mos_zone
@@ -1393,7 +1442,7 @@ def print_report(analysis: Dict):
             ctx_emoji = "➡️"
         ctx_display = f"{ctx_emoji} {ctx}"
 
-        print(f"  {arrow} {sym:<4} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% "
+        print(f"  {arrow} {sym:<4} {sym_sector:<18} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% "
               f"{status:<22} {mos_label:<34} {ctx_display:<30}")
 
     # ══════════════════════════════════════════════════════════════════
@@ -1415,7 +1464,7 @@ def print_report(analysis: Dict):
     eu_str = " | ".join(f"{a}: {eu:+.3f}" for a, eu in top_eu)
     print(f"  • {_('Top Expected Utility')} ({top_sym}) : {eu_str}")
     print(f"  • {_('Context')}: {_('Macro')}={macro_state_str}, {_('Transmission')}={trans_phase}, "
-          f"{_('Sector')}={s.get('top_sector','?')} ({s.get('top_phase','?')}), "
+          f"{_('Top Sector')}={s.get('top_sector','?')} ({s.get('top_phase','?')}), "
           f"{_('Healthy')}={s.get('n_healthy',0)}/19")
 
     # Prediction count
