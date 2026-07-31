@@ -210,6 +210,26 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
 - `cmd_csi_explain` vẫn còn module wrap unconditional tại function-level (ptck.py:2938-2939) — an toàn cho CLI nhưng chưa đổi sang reconfigure (không gây pytest fail vì không module-level).
 - VNDirect/TCBS bridge: DNS vẫn UNVERIFIED từ môi trường dev (cần kiểm chứng live khi network cho phép).
 
+### Session Follow-up #4 — Jul 31 2026: REIT_COMMERCIAL Archetype (VRE — fix lệch vệt nguyên nhân)
+
+#### Work Completed
+1. **Archetype mới `REIT_COMMERCIAL`** (Công ty Cho thuê BĐS Thương mại): `archetype.py` — `recurring_ratio=0.85`, `financial_leverage=HIGH`, `macro_sensitivities=["INTEREST_RATE","CONSUMER_SPENDING","RETAIL_SALES","INFLATION"]`, `primary_driver="Occupancy → Rental Yield → Lease Revenue"`.
+2. **VRE vào BASELINE_MAP** (`archetype.py`): `"VRE": "REIT_COMMERCIAL"` — override ICB hard constraint (BASELINE_MAP check trước tại classify() line 370). Lý do: VRE ~95.5% doanh thu từ cho thuê TTTM, KHÔNG phải developer → trước đây bị gán REAL_ESTATE_DEVELOPER → chain PRESALES → VETO 0.23 sai.
+3. **Chain mới** (`economic_engine.py`): COMPONENTS `RENTAL_YIELD`, `OCCUPANCY`, `LEASE_REVENUE` (RENTAL_YIELD + OCCUPANCY `is_leading=True`) + `_reg_chain("REIT_COMMERCIAL")` chain `[OCCUPANCY, RENTAL_YIELD, LEASE_REVENUE]`, macro_links `{INTEREST_RATE: RENTAL_YIELD, CONSUMER_SPENDING: OCCUPANCY}`.
+4. **Cạnh causal mới** (`causal_edge.py`): `REIT:INTEREST→RENTAL_YIELD` (INTEREST_RATE→RENTAL_YIELD, lag 15-40D, conf 0.70, half_life 60) + `REIT:CONSUMER→OCCUPANCY` (CONSUMER_SPENDING→OCCUPANCY, lag 10-30D, conf 0.65).
+5. **CSI mapping** (`csi_explain.py`): `ARCHETYPE_TARGET_NODE["REIT_COMMERCIAL"]="RENTAL_YIELD"`, `ARCHETYPE_SOURCE_NODE["REIT_COMMERCIAL"]="INTEREST_RATE"`.
+6. **Governor config**: `factor_exposure.py` (REIT_COMMERCIAL block, INTEREST_RATE 0.50−/CONSUMER_SPENDING 0.65+/RETAIL_SALES 0.55+) + `company_state.py` (`PRIOR_BY_ARCHETYPE["REIT_COMMERCIAL"]=0.48`, `_symbol_sector` fallback → "Bất động sản", `BUSINESS_STATUS_MAP` "Trung bình (Commercial REIT)") + `fair_multiple_engine.py` (`PAYOUT_BY_ARCHETYPE["REIT_COMMERCIAL"]=0.30`) + `model_registry.py` (BMA bias M1=0.70, M2=0.75).
+7. **Test mới** `backend/tests/test_reit_commercial.py` (14 tests): VRE→REIT_COMMERCIAL (override ICB), MWG/PNJ/SSI giữ RETAIL_PLATFORM (KHÔNG contaminate — `ARCHETYPE_TARGET_NODE[RETAIL_PLATFORM]` giữ `SAME_STORE_SALES`), trace INTEREST_RATE→RENTAL_YIELD (15-40D) + CONSUMER_SPENDING→OCCUPANCY (10-30D), prior/payout/factor_exposure. **Full suite 360/360 PASS** (346 baseline + 14 mới).
+8. **Kết quả CLI** (verify):
+   - `python ptck.py csi-explain --symbols VRE` → **CSI 0.33 ↓ REDUCE** (thoát VETO), Archetype REIT_COMMERCIAL, chain `INTEREST_RATE → RENTAL_YIELD` (15-40D, conf 0.70), CSI confidence 0.681.
+   - `python ptck.py csi-explain --sector "Bất động sản"` → VRE (0.33 REDUCE) **phân kỳ hoàn toàn** khỏi 127 mã REAL_ESTATE_DEVELOPER (0.23-0.27 VETO). CSI Spread mới = **0.09** (VHM=0.23 → VRE=0.33). Path divergence: REIT_COMMERCIAL→RENTAL_YIELD vs REAL_ESTATE_DEVELOPER→PRESALES.
+9. **Lưu ý kiến trúc**: RENTAL_YIELD/OCCUPANCY là node company-metric MỚI, dùng chung registry `C` (economic_engine) + CausalGraph. KHÔNG đổi target node của RETAIL_PLATFORM (sẽ contaminate MWG/PNJ/SSI — trace_path filter theo archetype).
+
+#### Next Move
+1. Chốt công thức "Mức Điều Chỉnh Bối Cảnh (Contextual Adjustment)" numeric — attribution hiện chỉ là driver name (`policy_rate`).
+2. VNDirect/TCBS bridge verify khi DNS mở.
+3. Theo dõi: có mã TTTM/REIT khác (ngoài VRE) cần REIT_COMMERCIAL không (vd VIC/VRE/VHM sở hữu chéo — group_influence_engine vẫn map VIC/VHM/VRE chung VINGROUP_SYMBOLS ở index_reality_unifier).
+
 ### Session Follow-up #3 — Jul 31 2026: CSI Terminology Standardization (HCI → CSI) + Gitignore
 
 #### Work Completed

@@ -857,9 +857,31 @@ class CafeFCrawler:
             if r.status_code != 200:
                 logger.warning(f"CafeF Bank API: {symbol} HTTP {r.status_code}")
                 return []
+            html = r.text
+        except Exception as e:
+            logger.warning(f"CafeF Bank API: {symbol} — requests thất bại: {e}")
+            html = None
 
-            # Parse HTML table
-            soup = BeautifulSoup(r.text, "html.parser")
+        if not html:
+            # ── Tầng 2: Playwright render URL sống (khi REST bị chặn/Cloudflare) ──
+            logger.info(f"  CafeF Bank API: requests thất bại, thử Playwright render {base_url}")
+            html = self._try_cafef_pw(base_url)
+            if html:
+                logger.info(f"  CafeF Bank API: Playwright render OK ({len(html)} bytes)")
+
+        if not html:
+            return []
+
+        return self._parse_cafef_bank_api(symbol, entity_type, html)
+
+    def _parse_cafef_bank_api(self, symbol: str, entity_type: str, html: str) -> List[Dict]:
+        """Parse Bank API (BHoSoCongTy) HTML → list of quarter dicts.
+
+        Tách riêng khỏi fetch_cafef_bank_api để tái dùng giữa requests
+        (Tầng 1) và Playwright render (Tầng 2).
+        """
+        try:
+            soup = BeautifulSoup(html, "html.parser")
             table = soup.find("table")
             if not table:
                 logger.info(f"CafeF Bank API: {symbol} — no table found")
@@ -1548,11 +1570,25 @@ class CafeFCrawler:
             logger.warning("Playwright chưa cài — bỏ qua CafeF Playwright")
             return None
 
+        # Windows 11 RAM tối ưu: tắt GPU + chặn tài nguyên rác (image/css/font/media)
+        # → RAM dao động 150-220MB. Block stylesheet an toàn vì _try_cafef_pw chỉ đọc
+        # page.content() DOM (table signatures), không phụ thuộc CSS render.
+        # ⚠️ KHÔNG dùng --single-process: test thực tế trên Windows gây
+        #    TargetClosedError (Page.goto: browser closed) — Chromium unstable.
+        WINDOWS_LAUNCH_FLAGS = [
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-accelerated-2d-canvas",
+            "--no-first-run",
+            "--disable-blink-features=AutomationControlled",
+        ]
+        BLOCKED_RESOURCE_TYPES = {"image", "stylesheet", "font", "media"}
+
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(
                     headless=True, channel="chrome",
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+                    args=WINDOWS_LAUNCH_FLAGS,
                 )
                 ctx = browser.new_context(
                     viewport={"width": 1920, "height": 1080},
@@ -1567,6 +1603,18 @@ class CafeFCrawler:
                     """Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"""
                 )
                 page = ctx.new_page()
+
+                # BLOCK RESOURCE: chặn ảnh/css/font/media tiết kiệm RAM (chỉ giữ
+                # document + script + xhr/fetch để crawl bảng tài chính).
+                def _route(route):
+                    rtype = route.request.resource_type
+                    if rtype in BLOCKED_RESOURCE_TYPES:
+                        route.abort()
+                    else:
+                        route.continue_()
+
+                page.route("**/*", _route)
+
                 resp = page.goto(url, timeout=30000, wait_until="networkidle")
                 page.wait_for_timeout(5000)
 
