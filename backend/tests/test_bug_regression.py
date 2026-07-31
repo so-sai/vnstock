@@ -737,10 +737,11 @@ class TestHistoricalDataOverwrite:
     def test_backfill_engine_signature(self):
         """Backfill engine phải tồn tại và có tham số cần thiết."""
         try:
-            from src.engine.backfill_engine import backfill_symbol
+            from src.engine.backfill_engine import backfill
             import inspect
-            sig = inspect.signature(backfill_symbol)
-            assert "symbol" in sig.parameters
+            sig = inspect.signature(backfill)
+            assert "symbols" in sig.parameters
+            assert "dry_run" in sig.parameters
         except ImportError as e:
             pytest.skip(f"Không import được backfill_engine: {e}")
 

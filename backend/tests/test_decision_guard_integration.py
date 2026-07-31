@@ -42,9 +42,13 @@ def reset_governors():
 
 
 SNAPSHOT_DATE = "2026-07-22"
+# NOTE (data drift): screener_cache.db hiện fresh (2026-07-31) nên các test
+# phụ thuộc trạng thái stale của macro_history dùng fixture DB riêng (tạo trong
+# test) để deterministic. EXPECTED_CONFIDENCE = 0.229 tương ứng mô hình 7 yếu tố
+# + phạt cấu trúc phi tuyến (x0.70 khi VỠ CẤU TRÚC + so_tru<=1).
 EXPECTED_FRESH_RATIO = 0.17  # 17%
 EXPECTED_TERMINAL_RATIO = 0.54  # 54%
-EXPECTED_CONFIDENCE = 0.158  # 15.8%
+EXPECTED_CONFIDENCE = 0.229  # 22.9%
 
 
 class TestDecisionGuardIntegration:
@@ -65,11 +69,34 @@ class TestDecisionGuardIntegration:
 
     # ── StaleTracker Tests ──
 
-    def test_stale_tracker_veto_active(self):
-        """StaleTracker phat hien fresh_ratio=17% < 50% → veto=True."""
-        from src.config import DATA_DIR
+    def _make_stale_macro_db(self, tmp_path):
+        """Tao fixture DB co macro_history toan EVICT (stale) → veto deterministic.
+
+        Data drift guard: screener_cache.db hien fresh (2026-07-31), nen cac test
+        phu thuoc trang thai stale dung DB rieng de khong phu thuoc vao ngay chay.
+        """
+        import sqlite3
+        from src.engine.macro_stale_tracker import MACRO_BASE_WEIGHTS
+        db = str(tmp_path / "stale_macro.db")
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS macro_history "
+            "(date TEXT, variable TEXT, value REAL)"
+        )
+        old_date = "2020-01-01"  # EVICT (~90d+) cho moi bien
+        for var in MACRO_BASE_WEIGHTS:
+            conn.execute(
+                "INSERT INTO macro_history (date, variable, value) VALUES (?,?,?)",
+                (old_date, var, 0.0),
+            )
+        conn.commit()
+        conn.close()
+        return db
+
+    def test_stale_tracker_veto_active(self, tmp_path):
+        """StaleTracker phat hien fresh_ratio thap → veto=True."""
         tracker = StaleTracker.get_instance()
-        state = tracker.update(db_path=str(DATA_DIR / "screener_cache.db"))
+        state = tracker.update(db_path=self._make_stale_macro_db(tmp_path))
         assert state["veto"] is True, "Veto phai duoc kich hoat"
         assert state["fresh_ratio"] <= EXPECTED_FRESH_RATIO + 0.05, (
             f"fresh_ratio={state['fresh_ratio']:.2%} vuot nguong"
@@ -124,8 +151,26 @@ class TestDecisionGuardIntegration:
 
     # ── Full Pipeline Integration Test ──
 
-    def test_full_pipeline_blocks_trading_on_macro_veto(self):
+    def test_full_pipeline_blocks_trading_on_macro_veto(self, monkeypatch):
         """Full pipeline: macro veto + structural vet → DUNG NGOAI."""
+        # Data drift guard: fake StaleTracker.update → stale state deterministic.
+        # screener_cache.db hien fresh (2026-07-31), nen mock de luon kich hoat
+        # nhanh veto cua macro_stale khi chay full pipeline.
+        stale_state = {
+            "today": SNAPSHOT_DATE,
+            "variables": {},
+            "fresh_ratio": EXPECTED_FRESH_RATIO,
+            "terminal_ratio": EXPECTED_TERMINAL_RATIO,
+            "veto": True,
+            "weights": {},
+            "tiers": {},
+        }
+        from src.engine import macro_stale_tracker as mst
+        monkeypatch.setattr(
+            mst.StaleTracker, "update",
+            lambda self, db_path=None, today=None: stale_state,
+        )
+
         snap = self._get_snapshot()
         confidence = self._get_confidence()
 
