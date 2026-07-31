@@ -208,7 +208,11 @@ backend/data/anomaly_report.json
 backend/data/cao_readiness_report.json
 backend/data/decision_history.json
 backend/data/market_state.json
+backend/data/market_rs.json
 backend/data/unit_normalization_report.json
+
+# Runtime-captured fixtures (regenerated daily by PTCK_SBV_FIXTURE scheduler)
+tests/fixtures/sbv/live.html
 
 # Scratch scripts
 scratch/

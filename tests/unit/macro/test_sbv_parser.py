@@ -122,7 +122,10 @@ class TestHybridParser:
 
     def test_parse_with_live_html(self):
         """Live HTML fixture (2025) phải được parse bằng ít nhất một layer."""
-        result = _parse_sbv_html(_load("live.html"))
+        fixture = FIXTURES / "live.html"
+        if not fixture.exists():
+            pytest.skip("live.html fixture chưa được capture (chạy sbv-update --save-fixture)")
+        result = _parse_sbv_html(fixture.read_text(encoding="utf-8"))
         assert isinstance(result, dict)
 
     def test_hybrid_fallback_on_broken_dom(self):

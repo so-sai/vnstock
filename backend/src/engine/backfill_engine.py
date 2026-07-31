@@ -93,16 +93,29 @@ def _lay_ngay_hien_tai(symbol: str) -> str:
 
 
 def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
-    """Gọi API Quote.history() để lấy dữ liệu lịch sử."""
-    q = Quote(symbol=symbol, source='kbs')
-    df = q.history(start=start, end=end, pause=0)
+    """Gọi API Quote.history() để lấy dữ liệu lịch sử.
+
+    Nguồn: thử VCI trước (ALIVE), fallback KBS (DEAD_404 — giữ để tương thích).
+    """
+    df = pd.DataFrame()
+    for source in ('vci', 'kbs'):
+        try:
+            q = Quote(symbol=symbol, source=source)
+            df = q.history(start=start, end=end, pause=0)
+            if df is not None and not df.empty:
+                df = df.copy()
+                df['source'] = source
+                break
+            df = pd.DataFrame()
+        except Exception:
+            df = pd.DataFrame()
+            continue
     if df is None or df.empty:
         return pd.DataFrame()
-    df = df.copy()
     if 'adj_close' not in df.columns and 'close' in df.columns:
         df['adj_close'] = df['close']
     # Chuẩn hóa tên cột
-        rename_map = {}
+    rename_map = {}
     for col in df.columns:
         if col == 'time':
             rename_map['time'] = 'date'
@@ -125,7 +138,6 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
     if 'volume' not in df.columns:
         df['volume'] = 0
     df['symbol'] = symbol
-    df['source'] = 'kbs'
     # Chuẩn hóa ngày
     df['date'] = pd.to_datetime(df['date'], format='mixed').dt.strftime('%Y-%m-%d')
     cols = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
