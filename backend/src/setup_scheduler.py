@@ -72,6 +72,13 @@ TASKS = [
         "schedule": "/SC DAILY /ST 23:00",
         "run_level": "HIGHEST",
     },
+    {
+        "name": "PTCK_SBV_FIXTURE",
+        "description": "Chụp fixture HTML thô sbv.gov.vn hàng ngày — Self-healing Parser (08:00)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" sbv-update --save-fixture',
+        "schedule": "/SC DAILY /ST 08:00",
+        "run_level": "HIGHEST",
+    },
 ]
 
 def setup_tasks():
@@ -112,6 +119,7 @@ def setup_tasks():
     print('   schtasks /Delete /TN "PTCK_WEEKLY_MAINTENANCE" /F')
     print('   schtasks /Delete /TN "PTCK_WEEKLY_MACRO" /F')
     print('   schtasks /Delete /TN "PTCK_DAILY_BACKUP" /F')
+    print('   schtasks /Delete /TN "PTCK_SBV_FIXTURE" /F')
     print("=" * 60)
 
 def remove_tasks():
