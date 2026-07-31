@@ -58,7 +58,8 @@ MODEL_DEFINITIONS = {
             "AI_BOOM": 0.50, "PRE_CREDIT_EXPANSION": 0.75,
         },
         "archetype_bias": {"COMPOUNDER": 0.50, "CYCLICAL_HEAVY": 0.85, "FRANCHISE_BANK": 0.90,
-                           "REAL_ESTATE_DEVELOPER": 0.75, "EXPORT_MANUFACTURER": 0.70},
+                           "REAL_ESTATE_DEVELOPER": 0.75, "EXPORT_MANUFACTURER": 0.70,
+                           "REIT_COMMERCIAL": 0.70},
     },
     "M2_FUNDAMENTAL": {
         "hypothesis": "Bottom-Up Quality & Capital — doanh nghiệp tốt tự vượt qua chu kỳ vĩ mô",
@@ -71,7 +72,8 @@ MODEL_DEFINITIONS = {
             "AI_BOOM": 0.75, "PRE_CREDIT_EXPANSION": 0.55,
         },
         "archetype_bias": {"COMPOUNDER": 0.90, "CYCLICAL_HEAVY": 0.40, "FRANCHISE_BANK": 0.70,
-                           "RETAIL_PLATFORM": 0.80, "REGULATED_UTILITY": 0.60},
+                           "RETAIL_PLATFORM": 0.80, "REGULATED_UTILITY": 0.60,
+                           "REIT_COMMERCIAL": 0.75},
     },
     "M3_BEHAVIORAL": {
         "hypothesis": "Microstructure & Flow — dòng tiền và hành vi nhà đầu tư quyết định giá ngắn hạn",

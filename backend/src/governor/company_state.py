@@ -87,6 +87,8 @@ def _symbol_sector(symbol: str) -> Optional[str]:
         arch_name = getattr(arch, "archetype", str(arch))
         if arch_name == "REAL_ESTATE_DEVELOPER":
             return "Bất động sản"
+        if arch_name == "REIT_COMMERCIAL":
+            return "Bất động sản"
         if arch_name in ("FRANCHISE_BANK", "ASSET_BANK"):
             return "Ngân hàng"
         if arch_name == "RETAIL_PLATFORM":
@@ -106,6 +108,7 @@ PRIOR_BY_ARCHETYPE = {
     "STEADY_EARNER": 0.54,
     "REGULATED_UTILITY": 0.52,
     "RETAIL_PLATFORM": 0.50,
+    "REIT_COMMERCIAL": 0.48,
     "ASSET_BANK": 0.48,
     "EXPORT_MANUFACTURER": 0.47,
     "CYCLICAL_HEAVY": 0.45,
@@ -1307,6 +1310,7 @@ BUSINESS_STATUS_MAP = {
     "STEADY_EARNER": "Tốt (Steady Earner)",
     "FRANCHISE_BANK": "Tốt (Franchise Bank)",
     "RETAIL_PLATFORM": "Trung bình (Retail Platform)",
+    "REIT_COMMERCIAL": "Trung bình (Commercial REIT)",
     "REGULATED_UTILITY": "Tốt (Regulated Utility)",
     "ASSET_BANK": "Trung bình (Asset Bank)",
     "EXPORT_MANUFACTURER": "Trung bình (Export Mfr)",

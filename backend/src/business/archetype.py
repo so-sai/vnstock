@@ -262,6 +262,30 @@ _reg(BusinessArchetype(
     primary_driver="Store Density → Same-Store-Sales → Margin",
 ))
 
+# Commercial Real Estate / REIT: mall & office leasing, occupancy-led revenue
+_reg(BusinessArchetype(
+    archetype="REIT_COMMERCIAL",
+    label="Công ty Cho thuê BĐS Thương mại",
+    description="Sở hữu & cho thuê TTTM, văn phòng; doanh thu cho thuê định kỳ, phụ thuộc tỷ lệ lấp đầy & suất cho thuê",
+    revenue_model=RevenueModel.RECURRING,
+    operating_leverage=OperatingLeverage.MEDIUM,
+    financial_leverage=OperatingLeverage.HIGH,
+    capex_intensity="HIGH",
+    cyclicality=Cyclicality.MEDIUM,
+    pricing_power=PricingPower.MEDIUM,
+    switching_cost="MEDIUM",
+    network_effect="MEDIUM",
+    regulation="MEDIUM",
+    commodity_dependency="NONE",
+    recurring_ratio=0.85,
+    reinvestment_profile="HIGH",
+    typical_roic_range=(0.08, 0.18),
+    typical_pe_range=(8, 18),
+    typical_dividend_yield="2-5%",
+    macro_sensitivities=["INTEREST_RATE", "CONSUMER_SPENDING", "RETAIL_SALES", "INFLATION"],
+    primary_driver="Occupancy → Rental Yield → Lease Revenue",
+))
+
 # Regulated Utility: monopoly/license, regulated tariff, stable cashflow
 _reg(BusinessArchetype(
     archetype="REGULATED_UTILITY",
@@ -327,6 +351,7 @@ BASELINE_MAP: Dict[str, str] = {
     "HDB": "ASSET_BANK",
     "VHM": "REAL_ESTATE_DEVELOPER",
     "BCM": "REAL_ESTATE_DEVELOPER",  # Becamex IDC — KCN/industrial park developer
+    "VRE": "REIT_COMMERCIAL",  # Vincom Retail — ~95.5% revenue từ cho thuê TTTM, KHÔNG phải developer (override ICB BĐS)
     "MWG": "RETAIL_PLATFORM",
     "GAS": "REGULATED_UTILITY",
 

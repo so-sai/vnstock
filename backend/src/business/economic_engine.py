@@ -116,6 +116,16 @@ C = {
     "INVENTORY_TURN": EngineComponent("INVENTORY_TURN", "Inventory Turnover",
                                        "Vòng quay hàng tồn kho"),
 
+    # REIT / Commercial RE chain
+    "OCCUPANCY": EngineComponent("OCCUPANCY", "Occupancy Rate",
+                                  "Tỷ lệ lấp đầy TTTM/văn phòng (leading)",
+                                  unit="%", is_leading=True),
+    "RENTAL_YIELD": EngineComponent("RENTAL_YIELD", "Rental Yield",
+                                     "Suất sinh lời cho thuê trên m² (leading)",
+                                     unit="%", is_leading=True),
+    "LEASE_REVENUE": EngineComponent("LEASE_REVENUE", "Lease Revenue",
+                                      "Doanh thu cho thuê định kỳ"),
+
     # UTILITY chain
     "GAS_VOLUME": EngineComponent("GAS_VOLUME", "Gas Volume Sold",
                                    "Sản lượng khí tiêu thụ", is_leading=True),
@@ -193,6 +203,13 @@ _reg_chain("RETAIL_PLATFORM", "Nền tảng Bán lẻ", [
     "CONSUMER_SPENDING": "SSS",
     "RETAIL_SALES": "SSS",
     "INFLATION": "RETAIL_MARGIN",
+})
+
+_reg_chain("REIT_COMMERCIAL", "Công ty Cho thuê BĐS Thương mại", [
+    "OCCUPANCY", "RENTAL_YIELD", "LEASE_REVENUE",
+], "Occupancy → Rental Yield → Lease Revenue", {
+    "INTEREST_RATE": "RENTAL_YIELD",
+    "CONSUMER_SPENDING": "OCCUPANCY",
 })
 
 _reg_chain("REGULATED_UTILITY", "Công ty Hạ tầng Dịch vụ", [

@@ -341,6 +341,23 @@ def build_edge_registry() -> Dict[str, CausalEdge]:
          desc="Inflation squeeze → 3-12 weeks → retail margin compression")
 
     # ═══════════════════════════════════════════════════════════════════
+    # REIT_COMMERCIAL (VRE — TTTM/mall & office leasing operator)
+    # ═══════════════════════════════════════════════════════════════════
+    # Primary: INTEREST_RATE → Rental Yield (cap-rate discount pressure),
+    #          CONSUMER_SPENDING → Occupancy → Footfall → Lease Revenue.
+    # Sensitivity: INTEREST_RATE, CONSUMER_SPENDING, RETAIL_SALES, INFLATION
+
+    _add("REIT:INTEREST→RENTAL_YIELD", "INTEREST_RATE", "RENTAL_YIELD",
+         "MACRO→COMPANY", lag_min=15, lag_max=40, confidence=0.70, half_life=60,
+         attenuation=0.15, arch="REIT_COMMERCIAL", factor="INTEREST_RATE",
+         desc="Rate change → 2-6 weeks → cap-rate/discount pressure → mall rental yield")
+
+    _add("REIT:CONSUMER→OCCUPANCY", "CONSUMER_SPENDING", "OCCUPANCY",
+         "MACRO→COMPANY", lag_min=10, lag_max=30, confidence=0.65, half_life=45,
+         attenuation=0.15, arch="REIT_COMMERCIAL", factor="CONSUMER_SPENDING",
+         desc="Consumer spending → 1-6 weeks → footfall → mall occupancy")
+
+    # ═══════════════════════════════════════════════════════════════════
     # REGULATED_UTILITY (GAS, POW, BWE)
     # ═══════════════════════════════════════════════════════════════════
     # Primary: OIL_PRICE → BRENT_LINK → GAS_VOLUME → EBITDA

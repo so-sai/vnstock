@@ -227,6 +227,16 @@ ARCHETYPE_EXPOSURE_BASE: Dict[str, Dict[str, Tuple[float, int, float, float]]] =
         "USD_VND": (0.20, -1, 0.4, 0.5),
         "INFLATION": (0.40, -1, 0.5, 0.4),
     },
+    "REIT_COMMERCIAL": {
+        "INTEREST_RATE": (0.50, -1, 0.7, 0.2),
+        "LIQUIDITY": (0.30, 1, 0.5, 0.4),
+        "CREDIT_GROWTH": (0.35, 1, 0.5, 0.4),
+        "CONSUMER_SPENDING": (0.65, 1, 0.7, 0.2),
+        "RETAIL_SALES": (0.55, 1, 0.7, 0.2),
+        "GDP_GROWTH": (0.50, 1, 0.6, 0.3),
+        "INFLATION": (0.40, -1, 0.5, 0.4),
+        "USD_VND": (0.20, -1, 0.4, 0.5),
+    },
     "REGULATED_UTILITY": {
         "INTEREST_RATE": (0.40, -1, 0.6, 0.3),
         "LIQUIDITY": (0.20, 1, 0.5, 0.4),
