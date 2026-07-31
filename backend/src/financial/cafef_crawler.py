@@ -332,6 +332,19 @@ URL_MAP = {
         "notes": "TCBS FinAPI — type=BALANCE_SHEET|INCOME_STATEMENT|CASH_FLOW&size=20&isAll=true. "
                  "Dữ liệu chuẩn hóa, đủ CFO + nợ chi tiết. Cần kiểm chứng lại khi network cho phép.",
     },
+    "VIETSTOCK_FININFO": {
+        "url": "https://finance.vietstock.vn/{symbol}/tai-chinh.htm",
+        "method": "POST /data/financeinfo",
+        "type": "JSON (Playwright + fetch)",
+        "data": ["BCTC Tóm tắt free 4 quý (KQKD 5 + CDKT 6 + CSTC 6 dòng)"],
+        "status": "ALIVE",  # ✅ verified 2026-07-31
+        "lib": "Playwright sync_api channel='chrome' (fetch_vietstock_api)",
+        "notes": "Nguồn thứ 4 (kiểm tra chéo). BCTC CHI TIẾT 37 dòng → PAYWALL "
+                 "(RequestUpgradeAccount_Permission, cần VietstockPro). Free chỉ tóm tắt: "
+                 "REVENUE/GROSS_PROFIT/EBIT/NET_INCOME + CURRENT_ASSETS/TOTAL_ASSETS/"
+                 "TOTAL_LIABILITIES/CURRENT_LIAB/TOTAL_EQUITY + EPS/BVPS. "
+                 "Playwright phải dùng channel='chrome' (bundled chromium-1200 mismatch pw 1.61.0).",
+    },
 }
 
 # ── QUICK REFERENCE: API DISCOVERY CHEATSHEET ────────────────────
@@ -1445,6 +1458,36 @@ class CafeFCrawler:
             result.append(period_data)
         return result
 
+    # ── Tầng 1e: Vietstock Finance summary bridge (cross-check) ──
+    def fetch_vietstock_api(self, symbol: str) -> List[Dict]:
+        """Dùng Vietstock Finance free summary (Playwright Windows Native).
+
+        Bản đồ URL: URL_MAP["VIETSTOCK_FININFO"] (ALIVE — verified 2026-07-31).
+
+        WHY: Nguồn dữ liệu độc lập thứ 4 (sau VNDirect/TCBS/CafeF). Dùng cho
+        kiểm tra chéo (cross-check) khi VNDirect/TCBS chưa verify DNS.
+
+        ⚠️ FREE TIER GIỚI HẠN: chỉ 4 quý gần nhất, BCTC Tóm tắt — KHÔNG có
+        CFO/CAPEX/nợ vay chi tiết. BCTC chi tiết 37 dòng → PAYWALL (VietstockPro).
+
+        Returns:
+            List[Dict]: các period có metric summary, rỗng nếu thất bại.
+        """
+        try:
+            from src.financial.vietstock_crawler import VietstockCrawler
+        except ImportError:
+            try:
+                from financial.vietstock_crawler import VietstockCrawler
+            except ImportError:
+                logger.warning("Không import được VietstockCrawler — bỏ qua")
+                return []
+
+        entity_type = self.db.get_entity_type(symbol) or "STANDARD"
+        crawler = VietstockCrawler(entity_type=entity_type)
+        periods = crawler.fetch_summary(symbol)
+        logger.info(f"Vietstock Fininfo: {symbol} — {len(periods)} periods parsed")
+        return periods
+
     # ── Tầng 1c: NoteIndicator (backup limited) ───────────────
     def fetch_note_indicator(self, symbol: str) -> List[Dict]:
         """Dùng NoteIndicator API làm backup (limited).
@@ -1686,7 +1729,10 @@ class CafeFCrawler:
                 logger.info(f"  CafeF Bank API không có dữ liệu cho {symbol}, fallback NoteIndicator")
                 all_periods = self.fetch_note_indicator(symbol)
             if not all_periods:
-                logger.info(f"  NoteIndicator không có dữ liệu cho {symbol}, fallback synthetic")
+                logger.info(f"  NoteIndicator không có dữ liệu cho {symbol}, fallback Vietstock Fininfo")
+                all_periods = self.fetch_vietstock_api(symbol)
+            if not all_periods:
+                logger.info(f"  Vietstock Fininfo không có dữ liệu cho {symbol}, fallback synthetic")
                 use_synthetic = True
         elif source == "cafef":
             # ── CafeF Bank API (nguồn chính mới) ────────────
@@ -1707,10 +1753,19 @@ class CafeFCrawler:
                 logger.info(f"  TCBS FinAPI không có dữ liệu cho {symbol}, fallback CafeF Bank API")
                 all_periods = self.fetch_cafef_bank_api(symbol)
             if not all_periods:
-                logger.info(f"  CafeF Bank API cũng không có, dùng synthetic")
+                logger.info(f"  CafeF Bank API không có dữ liệu cho {symbol}, fallback Vietstock Fininfo")
+                all_periods = self.fetch_vietstock_api(symbol)
+            if not all_periods:
+                logger.info(f"  Vietstock Fininfo cũng không có, dùng synthetic")
                 use_synthetic = True
         elif source == "synthetic":
             use_synthetic = True
+        elif source == "vietstock":
+            # ── Vietstock Finance summary (free 4 quý — kiểm tra chéo) ──
+            all_periods = self.fetch_vietstock_api(symbol)
+            if not all_periods:
+                logger.info(f"  Vietstock Fininfo không có dữ liệu cho {symbol}, fallback synthetic")
+                use_synthetic = True
         else:
             # ── CafeF cũ (legacy, thường 404) ───────────────
             test_data = self.fetch_quarter(symbol, 2026, 2)
@@ -1781,6 +1836,73 @@ class CafeFCrawler:
             overall["symbols"] += 1
             overall["total_facts"] += r["total_metrics"]
         return overall
+
+    # ── Cross-check đa nguồn ─────────────────────────────────
+    @staticmethod
+    def cross_check(reference: List[Dict], candidate: List[Dict],
+                    tolerance_pct: float = 20.0) -> Dict:
+        """So sánh 2 nguồn dữ liệu trên cùng metric (kiểm tra chéo).
+
+        Dùng cho Vietstock summary (reference/candidate) với nguồn khác
+        (CafeF/VNDirect/TCBS) — phát hiện lệch dữ liệu theo period+metric.
+
+        Args:
+            reference: list period dict (dạng _fiscal_year/_fiscal_quarter + metrics).
+            candidate: list period dict cùng cấu trúc.
+            tolerance_pct: sai lệch % tối đa được chấp nhận.
+
+        Returns:
+            Dict: {"checked": n_period_metric, "matched": n_ok,
+                   "mismatched": n_lệch, "details": [...]}
+        """
+        ref_index = {}
+        for p in reference:
+            key = (p.get("_fiscal_year"), p.get("_fiscal_quarter"))
+            if key[0] and key[1]:
+                ref_index[key] = p
+        cand_index = {}
+        for p in candidate:
+            key = (p.get("_fiscal_year"), p.get("_fiscal_quarter"))
+            if key[0] and key[1]:
+                cand_index[key] = p
+
+        common_metrics = (
+            "REVENUE", "GROSS_PROFIT", "EBIT", "NET_INCOME",
+            "TOTAL_ASSETS", "CURRENT_ASSETS", "TOTAL_LIABILITIES",
+            "CURRENT_LIAB", "TOTAL_EQUITY", "EPS", "BOOK_VALUE_PS",
+        )
+        details = []
+        checked = 0
+        matched = 0
+        mismatched = 0
+        for key, ref_p in ref_index.items():
+            cand_p = cand_index.get(key)
+            if not cand_p:
+                continue
+            for metric in common_metrics:
+                rv = ref_p.get(metric)
+                cv = cand_p.get(metric)
+                if rv is None or cv is None or rv == 0:
+                    continue
+                checked += 1
+                diff_pct = abs(rv - cv) / abs(rv) * 100.0
+                if diff_pct <= tolerance_pct:
+                    matched += 1
+                else:
+                    mismatched += 1
+                    details.append({
+                        "period": f"{key[0]}Q{key[1]}",
+                        "metric": metric,
+                        "reference": rv,
+                        "candidate": cv,
+                        "diff_pct": round(diff_pct, 2),
+                    })
+        return {
+            "checked": checked,
+            "matched": matched,
+            "mismatched": mismatched,
+            "details": details,
+        }
 
 
 if __name__ == "__main__":

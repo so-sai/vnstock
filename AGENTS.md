@@ -230,6 +230,25 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
 2. VNDirect/TCBS bridge verify khi DNS mở.
 3. Theo dõi: có mã TTTM/REIT khác (ngoài VRE) cần REIT_COMMERCIAL không (vd VIC/VRE/VHM sở hữu chéo — group_influence_engine vẫn map VIC/VHM/VRE chung VINGROUP_SYMBOLS ở index_reality_unifier).
 
+### Session Follow-up #5 — Jul 31 2026: Vietstock Finance Crawler (Nguồn Thứ 4 — Cross-check)
+
+#### Work Completed
+1. **Probe network sâu** (môi trường dev 2026-07-31): VNDirect (`fininfo-api.vndirect.com.vn`) + TCBS (`finapi.tcbs.com.vn`) → **DNS UNVERIFIED** (domain không resolve — cần kiểm chứng khi network mở). SSI iBoard → chỉ có `stock-info`/`group` (KHÔNG có financial API). **Vietstock Finance** (`finance.vietstock.vn`) → **ALIVE** — trở thành nguồn dữ liệu tài chính thứ 4.
+2. **Phát hiện paywall Vietstock**: BCTC CHI TIẾT 37 dòng (`CDKT_GetListReportData`/`KQKD_GetListReportData`/`LCTT_GetListReportData`/`CSTC_GetListTerms`) → `{"error":{"ErrorCode":"RequestUpgradeAccount_Permission","ErrorMessage":"Yêu cầu nâng cấp tài khoản","IsLimitData":false}}` (cần **VietstockPro**). Free tier CHỈ có BCTC Tóm tắt.
+3. **Endpoint free**: `POST https://finance.vietstock.vn/data/financeinfo` (`Code=SYM&Page=1&PageSize=4&ReportTermType=2&ReportType=BCTQ&Unit=1` + `__RequestVerificationToken`) → JSON `[periods, {sections}, audited, united]`. Free: 4 quý gần nhất, KQKD 5 dòng + CDKT 6 dòng + CSTC 6 dòng (có giá trị THẬT, khác CafeF BHoSoCongTy 17 rows).
+4. **Playwright bắt buộc `channel="chrome"`**: bundled chromium-1200 mismatch playwright 1.61.0 (expect channel 1228) → launch fail. Dùng sync_api (repo convention) + `page.evaluate(fetch)` giữ session cookie + CSRF token từ `input[name=__RequestVerificationToken]`.
+5. **Module mới** `backend/src/financial/vietstock_crawler.py`: class `VietstockCrawler` — `fetch_summary(symbol)` (Playwright Windows Native) + pure parser `parse_financeinfo_payload(payload, entity_type)` (deterministic, test-friendly) + `to_db_periods()`. Metric map: `Doanh thu thuần→REVENUE, LN thuần từ HĐKD→EBIT, LNST thu nhập DN→NET_INCOME, Tài sản ngắn hạn→CURRENT_ASSETS, Tổng tài sản→TOTAL_ASSETS, Nợ phải trả→TOTAL_LIABILITIES, Nợ ngắn hạn→CURRENT_LIAB, Vốn chủ sở hữu→TOTAL_EQUITY, EPS 4 quý→EPS, BVPS cơ bản→BOOK_VALUE_PS`. Free KHÔNG có CFO/CAPEX/nợ vay (paywall).
+6. **Tích hợp `cafef_crawler.py`**: URL_MAP entry `VIETSTOCK_FININFO` (ALIVE) + method `fetch_vietstock_api(symbol)` (bridge → VietstockCrawler) + fallback chain `vci`/`api`: ... → CafeF Bank API → **Vietstock → synthetic**. Source mới `vietstock` (4 quý summary). Static method `cross_check(reference, candidate, tolerance_pct=20)` so sánh period+metric (REVENUE/GROSS_PROFIT/EBIT/NET_INCOME/TOTAL_ASSETS/CURRENT_ASSETS/TOTAL_LIABILITIES/CURRENT_LIAB/TOTAL_EQUITY/EPS/BVPS), trả `checked/matched/mismatched/details`.
+7. **CLI**: `python ptck.py cafef-crawl --symbols BCM --type STANDARD --source vietstock` → **4 periods, 44 facts, [SUCCESS]** (2026Q1/2025Q4/Q3/Q2, 11 facts mỗi quý). SYSTEM_MANIFEST.yaml cập nhật `--source vci|api|vietstock|cafef|synthetic`.
+8. **Tests mới** `backend/tests/test_vietstock_crawler.py` (**22 tests**): metric map, parse 4 periods + Row→Value mapping (Value1↔Row=1 mới nhất, Value4↔Row=4 cũ nhất), skip None/unknown/missing quarter, JSON roundtrip, to_db_periods không mutate, cross_check (matched khi cùng nguồn, mismatched khi lệch 1 quý, ignore None), URL_MAP entry. **Full suite 382/382 PASS** (360 baseline + 22 mới).
+9. **Data drift phát hiện**: cross_check BCM giữa DB (CafeF BHoSoCongTy) và Vietstock → **DB label lệch 1 quý** (DB "2025Q2"=0.83 tỷ VND thực chất là Q3/2025 theo PeriodBegin/PeriodEnd của Vietstock). Tool cross_check bắt được 10 mismatches khi so khớp label → cần rà soát nguồn CafeF Bank API label.
+
+#### Next Move
+1. Rà soát lệch 1 quý của CafeF Bank API (BHoSoCongTy) label BCM vs Vietstock `PeriodBegin/PeriodEnd`.
+2. VNDirect/TCBS bridge verify khi DNS mở — nếu ALIVE thì thêm CFO/nợ vay/chi phí lãi vay vào BCM (thoát NO DATA).
+3. Cân nhắc: thêm `health-engine compute` + `health-v2` sau khi cross-check dữ liệu BCM đã chuẩn.
+
+
 ### Session Follow-up #3 — Jul 31 2026: CSI Terminology Standardization (HCI → CSI) + Gitignore
 
 #### Work Completed

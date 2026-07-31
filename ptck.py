@@ -3738,6 +3738,9 @@ def cmd_cafef_crawl(args):
     if delay > 0:
         print(f"  Delay: {delay}s giữa các request")
     print("=" * 60)
+    if source == "vietstock":
+        print("  ⚠️  Vietstock free tier chỉ 4 quý BCTC Tóm tắt (kiểm tra chéo)")
+        print("  ⚠️  BCTC chi tiết 37 dòng cần VietstockPro (paywall)")
     overall = crawler.crawl_multi(targets, source=source)
     print(f"  ✅ Done: {overall['symbols']} symbols, {overall['total_facts']} facts")
     print("=" * 60)
@@ -4537,9 +4540,10 @@ def build_parser():
                       help="Danh sách mã cổ phiếu (mặc định: FPT ACB HDB MBB VCB)")
     p_cc.add_argument("--type", choices=["STANDARD", "BANK"], default=None,
                       help="Loại thực thể (STANDARD hoặc BANK, mặc định auto)")
-    p_cc.add_argument("--source", choices=["vci", "cafef", "api", "synthetic"], default="vci",
-                      help="Nguồn dữ liệu: vci (VCI GraphQL + VNDirect/TCBS/CafeF fallback), "
-                           "api (REST JSON bridges: VNDirect/TCBS → CafeF), "
+    p_cc.add_argument("--source", choices=["vci", "cafef", "api", "vietstock", "synthetic"], default="vci",
+                      help="Nguồn dữ liệu: vci (VCI GraphQL + VNDirect/TCBS/CafeF/Vietstock fallback), "
+                           "api (REST JSON bridges: VNDirect/TCBS → CafeF → Vietstock), "
+                           "vietstock (Vietstock Finance free summary 4 quý — kiểm tra chéo), "
                            "cafef (requests+Playwright, thường 404), "
                            "synthetic (nội suy, không cần API)")
     p_cc.add_argument("--playwright", action="store_true",
