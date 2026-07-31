@@ -248,6 +248,30 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
 2. VNDirect/TCBS bridge verify khi DNS mở — nếu ALIVE thì thêm CFO/nợ vay/chi phí lãi vay vào BCM (thoát NO DATA).
 3. Cân nhắc: thêm `health-engine compute` + `health-v2` sau khi cross-check dữ liệu BCM đã chuẩn.
 
+### Session Follow-up #6 — Jul 31 2026: Vietstock BCTT Tab 46 Norms (Mỏ Vàng Free)
+
+#### Work Completed
+1. **Hypothesis refutation**: Tài liệu claim `/data/finance` POST `view=companyinfo` trả 37 chỉ tiêu free — **SAI**. Live probe: chỉ trả 64 bytes meta (`{"PeriodName":"","StockCode":"BCM","BusinessTypeID":1,"CatID":1}`). Dữ liệu thật nằm ở BCTT tab endpoints.
+2. **Phát hiện BCTT tab free**: 3 endpoints hoàn toàn miễn phí (200 OK, không paywall):
+   - `POST /data/GetListReportNorm_BCTT_ByStockCode` → **46 norms** (KQKD 15 + CDKT 20 + CSTC 11)
+   - `POST /data/BCTT_GetListReportData` → **38 periods** (2013Q2→2026Q2), cần params: `StockCode, UnitedId=-1, AuditedStatusId=-1, Unit=1000000000, IsNamDuongLich=false, PeriodType=QUY, SortTimeType=Time_ASC`
+   - `POST /data/GetReportDataDetailValue_BCTT_ByReportDataIds` → **9 periods** (capped), 46 norms × 9 values
+3. **Metric mở rộng**: BCTT có 16 STANDARD_METRICS mới so với financeinfo:
+   - **CASH_EQUIV** (3003), **RECEIVABLES** (3005), **INVENTORY** (3006), **LONG_TERM_DEBT** (3017), **COGS** (2207) — critical cho BCM health engine
+   - P/E (55), P/B (57), ROEA (45), ROAA (47), CURRENT_RATIO (4), INTEREST_COVERAGE (5), DEBT_TO_ASSET (8), DEBT_TO_EQUITY (11)
+   - 30 norms không map STANDARD_METRICS (FINANCIAL_REVENUE, FINANCIAL_COST, SELLING_EXPENSE, ADMIN_EXPENSE, etc.)
+4. **Merge strategy**: `fetch_summary()` merge financeinfo (4q, 17 rows) + BCTT (9q, 46 norms). BCTT overrides financeinfo cho cùng period. Tổng: 9 periods × 16 metrics.
+5. **Playwright cap**: `GetReportDataDetailValue_BCTT_ByReportDataIds` capped at 9 periods dù gửi 20 IDs. Fine — 9 > 4 của financeinfo.
+6. **Tests mới** `backend/tests/test_vietstock_crawler.py` (**46 tests total**): +24 BCTT tests — metric map (CASH_EQUIV, RECEIVABLES, INVENTORY, LONG_TERM_DEBT, COGS), parse 9 periods + Value1..Value9 mapping, skips non-standard metrics, merge BCTT/financeinfo, roundtrip JSON. **Full suite 406/406 PASS** (382 baseline + 24 mới).
+7. **URL_MAP**: `VIETSTOCK_FININFO` cập nhật mô tả BCTT endpoints + 46 norms.
+8. **SYSTEM_MANIFEST.yaml**: cafef-crawl description cập nhật BCTT 9q/46 norms.
+
+#### Next Move
+1. Chạy `cafef-crawl --symbols BCM --source vietstock` → verify 9 periods + 16 metrics written to DB.
+2. Sau đó chạy `health-engine compute BCM` + `health-v2 BCM` — kiểm tra CASH/DEBT/CURRENT_RATIO có thoát NO DATA không.
+3. VNDirect/TCBS bridge verify khi DNS mở — nếu ALIVE thì thêm CFO/CAPEX (BCTT không có CF).
+
+
 
 ### Session Follow-up #3 — Jul 31 2026: CSI Terminology Standardization (HCI → CSI) + Gitignore
 
