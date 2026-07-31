@@ -124,6 +124,7 @@ class HealthLatentState:
     archetype_confidence: float
     data_periods: int
     latest_period: str
+    no_data_organs: list[str] = None
 
 
 class CompanyHealthV2:
@@ -143,6 +144,27 @@ class CompanyHealthV2:
 
     # ── Public API ───────────────────────────────────────────────
 
+    @staticmethod
+    def _detect_no_data(ratios: dict, entity: str) -> list[str]:
+        """Organ nào thiếu toàn bộ ratio nền tảng → NO_DATA (không phải YẾU).
+
+        WHY: CaféF Bank API không trả CF statement cho doanh nghiệp thường
+        (chỉ 17 rows tóm tắt) → BCM không bao giờ có CFO_TO_NET_INCOME/
+        FCF_TO_NET_INCOME/CAPEX_TO_CFO → Cash=0.00 là THIẾU DỮ LIỆU, không
+        phải CASH FLOW YẾU. Đánh dấu NO_DATA để không kết luận DISTRESSED
+        dựa trên số 0 giả tạo.
+        """
+        missing = []
+        cash_ratios = ["CFO_TO_NET_INCOME", "FCF_TO_NET_INCOME", "CAPEX_TO_CFO"]
+        if entity == "BANK":
+            cash_ratios = ["CFO_TO_NET_PROFIT"]
+        if not any(ratios.get(r) for r in cash_ratios):
+            missing.append("cash")
+        bal_ratios = ["DEBT_TO_EQUITY", "DEBT_TO_ASSETS", "INTEREST_COVERAGE", "NPL_RATIO"]
+        if not any(ratios.get(r) for r in bal_ratios):
+            missing.append("balance_sheet")
+        return missing
+
     def analyze(self, symbol: str) -> Optional[HealthLatentState]:
         """Compute 5-organ health state for a single symbol."""
         conn = sqlite3.connect(self._db)
@@ -160,6 +182,7 @@ class CompanyHealthV2:
         entity_type = self._get_entity_type(conn, symbol)
 
         # 4. Compute organ scores
+        no_data_organs = self._detect_no_data(ratios, entity_type)
         profitability = self._score_profitability(ratios, entity_type)
         cash = self._score_cash(ratios, entity_type)
         balance_sheet = self._score_balance_sheet(ratios, entity_type, facts)
@@ -177,7 +200,7 @@ class CompanyHealthV2:
         )
 
         # 5. Classify archetype
-        archetype, confidence = self._classify_archetype(organs)
+        archetype, confidence = self._classify_archetype(organs, no_data_organs)
 
         # 6. Get metadata
         periods = conn.execute(
@@ -200,6 +223,7 @@ class CompanyHealthV2:
             archetype_confidence=round(confidence, 4),
             data_periods=periods,
             latest_period=latest or "",
+            no_data_organs=no_data_organs,
         )
 
     def analyze_many(self, symbols: list[str]) -> dict[str, Optional[HealthLatentState]]:
@@ -513,8 +537,14 @@ class CompanyHealthV2:
     # ── Archetype Classification ─────────────────────────────────
 
     @staticmethod
-    def _classify_archetype(organs: OrganScores) -> tuple[str, float]:
-        """Map 5-organ vector to latent archetype."""
+    def _classify_archetype(organs: OrganScores, no_data: list[str] = None) -> tuple[str, float]:
+        """Map 5-organ vector to latent archetype.
+
+        no_data: danh sách organ THIẾU dữ liệu (score 0.0 giả tạo). Các organ
+        này bị LOẠI khỏi điều kiện DISTRESSED — không được dùng số 0 giả để
+        kết luận "suy yếu" khi thực tế chỉ là không có dữ liệu.
+        """
+        no_data = no_data or []
         p, c, b, e, m = organs.profitability, organs.cash, organs.balance_sheet, organs.efficiency, organs.moat
 
         candidates = []
@@ -548,11 +578,20 @@ class CompanyHealthV2:
             confidence = np.mean([p, 1 - m]) * 0.6
             candidates.append(("CYCLICAL", confidence))
 
-        # DISTRESSED: all weak
-        if (p <= ARCHETYPES["DISTRESSED"]["profitability_max"] or
-                c <= ARCHETYPES["DISTRESSED"]["cash_max"] or
-                b <= ARCHETYPES["DISTRESSED"]["balance_sheet_max"]):
-            confidence = 1.0 - np.mean([p, c, b])
+        # DISTRESSED: all weak (bỏ qua organ NO_DATA)
+        distressed_weak = []
+        distressed_score = []
+        if "profitability" not in no_data:
+            distressed_weak.append(p <= ARCHETYPES["DISTRESSED"]["profitability_max"])
+            distressed_score.append(p)
+        if "cash" not in no_data:
+            distressed_weak.append(c <= ARCHETYPES["DISTRESSED"]["cash_max"])
+            distressed_score.append(c)
+        if "balance_sheet" not in no_data:
+            distressed_weak.append(b <= ARCHETYPES["DISTRESSED"]["balance_sheet_max"])
+            distressed_score.append(b)
+        if distressed_weak and any(distressed_weak):
+            confidence = 1.0 - np.mean(distressed_score)
             candidates.append(("DISTRESSED", confidence))
 
         # COMMODITY: no moat, profitability tied to cycle
@@ -595,8 +634,10 @@ def print_health_report(states: dict[str, Optional[HealthLatentState]]) -> None:
             print(f"  {sym:<8} {'⚠ NO DATA':<50}")
             continue
         o = state.organs
-        print(f"  {sym:<8} {state.entity_type:<10} {o.profitability:>6.2f} {o.cash:>6.2f} "
-              f"{o.balance_sheet:>6.2f} {o.efficiency:>6.2f} {o.moat:>6.2f} "
+        cash_str = " NO DATA" if "cash" in (state.no_data_organs or []) else f"{o.cash:>6.2f}"
+        bal_str = " NO DATA" if "balance_sheet" in (state.no_data_organs or []) else f"{o.balance_sheet:>6.2f}"
+        print(f"  {sym:<8} {state.entity_type:<10} {o.profitability:>6.2f} {cash_str} {bal_str} "
+              f"{o.efficiency:>6.2f} {o.moat:>6.2f} "
               f"{state.archetype_label:<35}")
 
     print(f"  {'='*70}\n")
@@ -611,9 +652,15 @@ def print_health_report(states: dict[str, Optional[HealthLatentState]]) -> None:
         print(f"  │  Vector:    [{o.profitability:.3f} {o.cash:.3f} {o.balance_sheet:.3f} {o.efficiency:.3f} {o.moat:.3f}]")
         print(f"  │  Data:      {state.data_periods} periods, latest {state.latest_period}")
         print(f"  │")
-        for name, val in [("Profitability ", o.profitability), ("Cash         ", o.cash),
-                          ("Balance Sheet", o.balance_sheet), ("Efficiency   ", o.efficiency),
-                          ("Moat         ", o.moat)]:
+        no_data = state.no_data_organs or []
+        for name, key, val in [("Profitability ", "profitability", o.profitability),
+                               ("Cash         ", "cash", o.cash),
+                               ("Balance Sheet", "balance_sheet", o.balance_sheet),
+                               ("Efficiency   ", "efficiency", o.efficiency),
+                               ("Moat         ", "moat", o.moat)]:
+            if key in no_data:
+                print(f"  │  {name}: NO DATA")
+                continue
             bar = "▓" * int(val * 20) + "░" * (20 - int(val * 20))
             color = "🟢" if val > 0.6 else "🟡" if val > 0.3 else "🔴"
             print(f"  │  {name}: {val:5.3f} {color} |{bar}|")

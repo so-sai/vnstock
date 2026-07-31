@@ -317,6 +317,11 @@ class HealthEngine:
         assets = period_metrics.get("TOTAL_ASSETS")
         equity = period_metrics.get("TOTAL_EQUITY")
         debt = period_metrics.get("TOTAL_DEBT")
+        if debt is None:
+            # WHY: CaféF Bank API không tách nợ vay ngắn/dài hạn cho doanh nghiệp,
+            # chỉ trả "Tổng nợ" (TOTAL_LIABILITIES). Dùng tổng nợ phải trả làm
+            # proxy cho đòn bẩy khi không có TOTAL_DEBT → giải phóng DEBT_TO_EQUITY.
+            debt = period_metrics.get("TOTAL_LIABILITIES")
         interest = period_metrics.get("INTEREST_EXPENSE")
         ca = period_metrics.get("CURRENT_ASSETS")
         cl = period_metrics.get("CURRENT_LIAB")

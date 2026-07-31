@@ -908,6 +908,11 @@ class CafeFCrawler:
                     year, quarter = int(parts[0]), int(parts[1])
                 else:
                     continue
+                # Compute TOTAL_DEBT from short + long term debt
+                short_debt = data.get("SHORT_TERM_DEBT", 0) or 0
+                long_debt = data.get("LONG_TERM_DEBT", 0) or 0
+                if short_debt or long_debt:
+                    data["TOTAL_DEBT"] = short_debt + long_debt
                 period_data = {
                     "_fiscal_year": year,
                     "_fiscal_quarter": quarter,
@@ -924,7 +929,15 @@ class CafeFCrawler:
             return []
 
     def _map_cafef_metric(self, metric_name: str, entity_type: str) -> Optional[str]:
-        """Map CafeF metric name to internal metric name."""
+        """Map CafeF metric name to internal metric name.
+
+        WHY: map này phục vụ fetch_cafef_bank_api (nguồn CHÍNH đang hoạt động).
+        Trước đây THIẾU CFO/SHORT_TERM_DEBT/LONG_TERM_DEBT/INTEREST_EXPENSE
+        → BCM chỉ có 7 metrics (REVENUE, GROSS_PROFIT, PRE_TAX_INCOME,
+        NET_INCOME, TOTAL_ASSETS, TOTAL_EQUITY, CURRENT_LIAB) → health-v2
+        Cash=0.00, Bal=0.00 vì health_engine không tính được CFO_TO_NET_INCOME,
+        DEBT_TO_EQUITY, INTEREST_COVERAGE. Phải thêm đủ CF + Nợ vay.
+        """
         # Standard mapping
         standard_map = {
             "Tổng doanh thu": "REVENUE",
@@ -938,13 +951,33 @@ class CafeFCrawler:
             "Tổng nguồn vốn": "TOTAL_LIABILITIES_PLUS_EQUITY",
             "Vốn chủ sở hữu": "TOTAL_EQUITY",
             "Nợ phải trả": "TOTAL_LIABILITIES",
+            "Tổng nợ": "TOTAL_LIABILITIES",
             "Tiền và tương đương tiền": "CASH_EQUIV",
             "Tài sản ngắn hạn": "CURRENT_ASSETS",
+            "Tổng tài sản lưu động ngắn hạn": "CURRENT_ASSETS",
             "Nợ ngắn hạn": "CURRENT_LIAB",
             "Lãi trước thuế": "PRE_TAX_INCOME",
             "Lợi nhuận thuần": "NET_INCOME",
             "EBITDA": "EBITDA",
             "EBIT": "EBIT",
+            # ── CF statement (dòng tiền) ─────────────────────────
+            "Lưu chuyển tiền thuần từ hoạt động kinh doanh": "CFO",
+            "Lưu chuyển tiền thuần từ hoạt động sản xuất kinh doanh": "CFO",
+            "Tiền thuần từ hoạt động kinh doanh": "CFO",
+            "Tiền chi để mua sắm, xây dựng tscđ": "CAPEX",
+            "Tiền chi để mua sắm, xây dựng tài sản cố định": "CAPEX",
+            # ── Balance sheet — Nợ vay ────────────────────────────
+            "Vay và nợ thuê tài chính ngắn hạn": "SHORT_TERM_DEBT",
+            "Nợ vay ngắn hạn": "SHORT_TERM_DEBT",
+            "Vay và nợ thuê tài chính dài hạn": "LONG_TERM_DEBT",
+            "Nợ vay dài hạn": "LONG_TERM_DEBT",
+            # ── Income statement — Chi phí lãi vay ───────────────
+            "Chi phí lãi vay": "INTEREST_EXPENSE",
+            "Chi phí lãi": "INTEREST_EXPENSE",
+            # ── Bổ sung phổ biến ─────────────────────────────────
+            "Hàng tồn kho": "INVENTORY",
+            "Các khoản phải thu ngắn hạn": "RECEIVABLES",
+            "Các khoản phải thu": "RECEIVABLES",
         }
 
         # Bank mapping
@@ -962,13 +995,27 @@ class CafeFCrawler:
             "Dự phòng rủi ro": "PROVISION_EXPENSE",
             "Thu nhập ngoài lãi": "NON_INTEREST_INCOME",
             "Thu nhập phí": "FEE_INCOME",
+            # ── CF statement (dòng tiền) ─────────────────────────
+            "Lưu chuyển tiền thuần từ hoạt động kinh doanh": "CFO",
+            "Lưu chuyển tiền thuần từ hoạt động sản xuất kinh doanh": "CFO",
+            "Tiền thuần từ hoạt động kinh doanh": "CFO",
+            # ── Balance sheet — Nợ vay ────────────────────────────
+            "Vay và nợ thuê tài chính ngắn hạn": "SHORT_TERM_DEBT",
+            "Nợ vay ngắn hạn": "SHORT_TERM_DEBT",
+            "Vay và nợ thuê tài chính dài hạn": "LONG_TERM_DEBT",
+            "Nợ vay dài hạn": "LONG_TERM_DEBT",
+            # ── Income statement — Chi phí lãi vay ───────────────
+            "Chi phí lãi vay": "INTEREST_EXPENSE",
+            "Chi phí lãi": "INTEREST_EXPENSE",
         }
 
         mapping = bank_map if entity_type == "BANK" else standard_map
 
-        for key, value in mapping.items():
+        # WHY: ưu tiên match chuỗi DÀI trước — "Lưu chuyển tiền thuần từ hoạt động
+        # kinh doanh" chứa "hoạt động kinh doanh", không được nhầm với dòng khác.
+        for key in sorted(mapping, key=len, reverse=True):
             if key.lower() in metric_name.lower():
-                return value
+                return mapping[key]
 
         return None
 
