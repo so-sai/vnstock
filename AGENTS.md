@@ -186,6 +186,37 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
 
 ## Session: Phase 4 Perception→Understanding (P0→P3) + P4 Calibration + P5 Counterfactual — Jul 30 2026
 
+### Session Follow-up — Jul 31 2026: BCM Health Fix + Stdout Wrap Cleanup + BHO Sector
+
+#### Work Completed
+1. **Sector mapping fix**: `company_state.py` — "Bho"→"Bất động sản", "Bat dong san"→"Bất động sản". BCM không còn là "Basic Materials".
+2. **CaféF parser mở rộng** (`cafef_crawler.py`): map thêm CFO, CAPEX, SHORT_TERM_DEBT, LONG_TERM_DEBT, INTEREST_EXPENSE, CASH_EQUIV, INVENTORY, RECEIVABLES + "Tổng tài sản lưu động ngắn hạn"→CURRENT_ASSETS + "Tổng nợ"→TOTAL_LIABILITIES (2 cột mới phát hiện từ BHoSoCongTy 17 rows tổng hợp, Type 1-4 giống nhau). Sort keys dài trước. `TOTAL_DEBT = short+long` khi có.
+3. **DEBT fallback**: `company_health_engine.py` — `debt = TOTAL_LIABILITIES` khi TOTAL_DEBT không có (proxy đòn bẩy). BCM Bal thoát 0.0 → 0.644.
+4. **NO_DATA protocol** (user quyết định giữ 0.00 = NO DATA, không bịa số): `company_health_v2.py` — `HealthLatentState.no_data_organs`, `_detect_no_data()`, `_classify_archetype` bỏ qua organ NO_DATA khi xét DISTRESSED, CLI hiển thị "Cash: NO DATA" thay 0.00 🔴. BCM → **STEADY_EARNER** (P=35%), vector [0.630, 0.000(NO DATA), 0.644, 0.640, 0.658].
+5. **Stdout wrap cleanup toàn repo** (task 4): thay module-level `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)` unconditional bằng block an toàn: `reconfigure(encoding='utf-8')` nếu đã là TextIOWrapper, chỉ tạo wrapper mới khi có buffer. Áp dụng 36 files trong `backend/src/` + `tests/test_decision_guard_integration.py` + `root/ptck.py:23-40`. Root cause: wrapper cũ bị GC → buffer đóng → `ValueError: I/O operation on closed file` khi pytest capture teardown.
+6. **Kết quả test**:
+   - `pytest tests/test_bug_regression.py -q` → 98 passed, 1 skipped (skip pre-existing: `cannot import name 'backfill_symbol'` tại dòng 745).
+   - Full suite `pytest tests/ -q` → **322 passed, 3 failed, 1 skipped** (lỗi capture hết hoàn toàn). 3 failures là logic pre-existing trong `test_decision_guard_integration.py`: `test_stale_tracker_veto_active`, `test_full_pipeline_blocks_trading_on_macro_veto`, `test_confidence_score_matches_expected` (diem_tin_cay=0.229 vs EXPECTED 0.158) — xác nhận KHÔNG phải do thay đổi task (diff confidence_layer.py chỉ là wrap+BOM).
+7. **Tests mới**: `test_health_v2_no_data.py` (7 tests) + `test_cafef_crawler_parser.py` (11 tests, thêm CURRENT_ASSETS/TOTAL_LIABILITIES) + `test_governor_sector.py` → 24 passed.
+8. **ptck.py chưa commit**: thay đổi tại line 22-40 (Windows encoding fix block). File có mojibake nhưng đã patch bằng Python script (tool edit fail do ký tự lạ).
+
+#### Active / Blocked
+- **3 failures logic pre-existing** trong `test_decision_guard_integration.py` — chưa xử lý. EXPECTED_CONFIDENCE=0.158 nhưng thực tế 0.229 (data drift). Cần quyết định: sửa expected hay điều tra confidence_layer.
+- **1 skip pre-existing**: `backfill_symbol` import fail tại `tests/test_bug_regression.py:745`.
+
+#### Next Move
+1. Quyết định xử lý 3 failures pre-existing: sửa test expected (nếu data drift) hoặc fix logic.
+2. Commit theo 3 nhóm riêng: (a) sector fix + governor tests, (b) cafef parser + health fallback + NO_DATA + tests, (c) stdout wrap cleanup 38 files.
+
+#### Relevant Files
+- `backend/src/governor/company_state.py` — sector mapping fix
+- `backend/src/financial/cafef_crawler.py` — parser mở rộng
+- `backend/src/financial/company_health_engine.py` — DEBT fallback
+- `backend/src/financial/company_health_v2.py` — NO_DATA protocol
+- `backend/tests/test_health_v2_no_data.py`, `backend/tests/test_cafef_crawler_parser.py`, `backend/tests/test_governor_sector.py`
+- `root/ptck.py` — Windows encoding fix block (patched)
+- `backend/tests/test_decision_guard_integration.py` — wrap fixed, 3 logic failures pending
+
 ### Status: ✅ P0+P1+P2 VERIFIED | ✅ P3 BAYESIAN GOVERNOR LIVE | ✅ P4 CALIBRATION WIRED | ✅ P5 COUNTERFACTUAL ONLINE
 
 ### Work Completed
