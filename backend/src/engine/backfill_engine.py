@@ -66,6 +66,9 @@ THROTTLE_MIN = 0.8
 THROTTLE_MAX = 1.5
 COOLDOWN_LOI = 30.0
 TOI_DA_THU_LAI = 3
+# Deadline cứng mỗi source trong _fetch_lich_su (giây). VCI GraphQL mặc định
+# timeout=30s/request → tuần tự 751 mã sẽ treo vô hạn khi bị rate-limit.
+VCI_TIMEOUT = 12.0
 
 
 def _lay_danh_sach_can_backfill() -> list:
@@ -96,20 +99,36 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
     """Gọi API Quote.history() để lấy dữ liệu lịch sử.
 
     Nguồn: thử VCI trước (ALIVE), fallback KBS (DEAD_404 — giữ để tương thích).
+    Bọc theo deadline: VCI GraphQL có timeout mặc định 30s/request và dễ bị
+    rate-limit (Read timed out) → treo batch nếu chạy tuần tự. Mỗi source
+    chạy trong thread riêng, chờ tối đa VCI_TIMEOUT giây rồi bỏ qua.
     """
+    import threading
+
     df = pd.DataFrame()
     for source in ('vci', 'kbs'):
-        try:
-            q = Quote(symbol=symbol, source=source)
-            df = q.history(start=start, end=end, pause=0)
-            if df is not None and not df.empty:
-                df = df.copy()
-                df['source'] = source
-                break
-            df = pd.DataFrame()
-        except Exception:
+        box = {}
+        def _run():
+            try:
+                q = Quote(symbol=symbol, source=source)
+                box["df"] = q.history(start=start, end=end, pause=0)
+            except Exception as e:
+                box["err"] = e
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        t.join(VCI_TIMEOUT)
+        if t.is_alive():
+            logger.warning(f"_fetch_lich_su: {symbol} {source} TIMEOUT >{VCI_TIMEOUT}s — bỏ qua")
+            continue
+        if "err" in box:
             df = pd.DataFrame()
             continue
+        df = box.get("df")
+        if df is not None and not df.empty:
+            df = df.copy()
+            df['source'] = source
+            break
+        df = pd.DataFrame()
     if df is None or df.empty:
         return pd.DataFrame()
     if 'adj_close' not in df.columns and 'close' in df.columns:
