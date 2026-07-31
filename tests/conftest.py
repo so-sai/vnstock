@@ -50,7 +50,9 @@ import requests
 # ── Ensure project modules (src.*) are importable ───────────────────────────
 _CONFTEST = Path(__file__).resolve().parent
 _PROJECT = _CONFTEST.parent
-for _p in (_PROJECT, _PROJECT / "backend"):
+_backend = _PROJECT / "backend"
+_src = _backend / "src"
+for _p in (_PROJECT, _backend, _src):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 

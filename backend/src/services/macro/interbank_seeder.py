@@ -25,6 +25,8 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from src.utils.raise_parser_alert import raise_parser_alert
+
 import pandas as pd
 
 from src.database.db_core import get_connection, save_data_upsert
@@ -97,8 +99,21 @@ JS_RENDERING_SIGNATURES = ["shadow-root", "<script", "render(", "createElement",
 
 
 def _has_sbv_table_signature(html: str) -> bool:
-    """Kiểm tra HTML có chứa bảng lãi suất SBV không."""
-    return any(term in html for term in SBV_TABLE_SIGNATURES)
+    """Kiểm tra HTML có chứa dữ liệu lãi suất SBV không.
+
+    Tầng 1: tìm trực tiếp các thuật ngữ trong SBV_TABLE_SIGNATURES
+    (chữ Khmer + HTML table truyền thống).
+    Tầng 2: regex tìm cặp term – số trong thẻ <div>/<span> (DOM hiện đại).
+    """
+    if any(term in html for term in SBV_TABLE_SIGNATURES):
+        return True
+
+    div_signal = re.search(
+        r'<(?:div|span)[^>]*>.*?(Qua\s*đêm|1\s*Tuần|2\s*Tuần|1\s*Tháng|3\s*Tháng|6\s*Tháng|9\s*Tháng)',
+        html,
+        re.IGNORECASE | re.DOTALL | re.UNICODE,
+    )
+    return div_signal is not None
 
 
 def _has_cloudflare_signature(html: str) -> bool:
@@ -168,19 +183,53 @@ def _is_sbv_alert_active() -> bool:
     return True
 
 
-def _parse_sbv_html(html_text: str) -> dict[str, float | None]:
-    """Pure function: parse SBV interbank rates from raw HTML.
+TERM_RE_PATTERN = re.compile(
+    r'('
+    + '|'.join(re.escape(k) for k in TERM_MAP)
+    + r')\s*[^<>]{0,60}?'
+    r'(\d+[\s,]*\d*\.?\d+)',
+    re.IGNORECASE | re.UNICODE,
+)
 
-    Trích xuất bảng thứ 2 trong HTML, đọc cột Kỳ hạn + Lãi suất.
-    Có thể test với fixture HTML mà không cần Playwright.
+CELL_RE_PATTERN = re.compile(
+    r'<t[hd][^>]*>\s*([^<]+?)\s*</t[hd]>.*?<t[hd][^>]*>\s*([^<]+?)\s*</t[hd]>',
+    re.IGNORECASE | re.DOTALL | re.UNICODE,
+)
+
+
+@raise_parser_alert(
+    source="SBV",
+    message="SBV HTML structure changed — OMO/Tín phiếu parser unavailable.",
+    recovery="ptck.py sbv-update",
+    fail_safe={},
+)
+def _parse_sbv_html(html_text: str) -> dict[str, float | None]:
+    """Hybrid parser: Layer 1 DOM tables + Layer 2 context regex fallback.
+
+    Layer 1 (DOM): extract <table> rows via lxml XPath (original approach).
+    Layer 2 (Regex): scan raw HTML for Vietnamese term + rate pairs using
+    TERM_RE_PATTERN (handles div/span/Jinja/JS-rendered layouts).
 
     Args:
         html_text: Full HTML content of the SBV page.
 
     Returns:
         dict mapping short codes (ON, 1W, 2W, ...) to float rates or None.
-        Empty dict if parsing fails.
+        Empty dict on total failure (decorator returns {fail_safe} and alerts).
     """
+    result = _parse_sbv_dom(html_text)
+    if result and _validate_structural_integrity(result):
+        return result
+
+    result = _parse_sbv_regex(html_text)
+    if result:
+        return result
+
+    return {}
+
+
+def _parse_sbv_dom(html_text: str) -> dict[str, float | None]:
+    """Layer 1: lxml DOM table extraction (original approach)."""
     try:
         from lxml import html as lx
         tree = lx.fromstring(html_text)
@@ -192,17 +241,42 @@ def _parse_sbv_html(html_text: str) -> dict[str, float | None]:
             return {}
 
     tables = tree.xpath("//table")
-    if len(tables) < 2:
+    if len(tables) < 1:
         return {}
 
     result: dict[str, float | None] = {}
-    for row in tables[1].xpath(".//tr"):
+    target = tables[1] if len(tables) > 1 else tables[0]
+
+    for row in target.xpath(".//tr"):
         cells = row.xpath(".//td")
         if len(cells) >= 2:
             term = (cells[0].text_content() or "").strip()
             rate_str = (cells[1].text_content() or "").strip()
             if term in TERM_MAP:
                 result[TERM_MAP[term]] = _normalize(rate_str)
+        if len(cells) == 1 and len(row.xpath(".//th")) >= 1:
+            term = (row.xpath(".//th")[0].text_content() or "").strip()
+            if term in TERM_MAP:
+                result[TERM_MAP[term]] = None
+
+    return result
+
+
+def _parse_sbv_regex(html_text: str) -> dict[str, float | None]:
+    """Layer 2: context regex extraction — matches Vietnamese terms + rates
+    from any DOM structure (table, div, span, script)."""
+    result: dict[str, float | None] = {}
+    for m in TERM_RE_PATTERN.finditer(html_text):
+        term_raw = m.group(1).strip()
+        rate_raw = m.group(2).strip()
+        if term_raw in TERM_MAP:
+            result[TERM_MAP[term_raw]] = _normalize(rate_raw)
+
+    for m in CELL_RE_PATTERN.finditer(html_text):
+        term_raw = m.group(1).strip()
+        rate_raw = m.group(2).strip()
+        if term_raw in TERM_MAP:
+            result[TERM_MAP[term_raw]] = _normalize(rate_raw)
 
     return result
 

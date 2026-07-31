@@ -16,7 +16,10 @@ import pytest
 
 
 def _src(path: str) -> str:
-    with open(path, encoding="utf-8-sig") as f:
+    from pathlib import Path
+    backend_dir = Path(__file__).resolve().parent.parent
+    full_path = backend_dir / "src" / path
+    with open(full_path, encoding="utf-8-sig") as f:
         return f.read()
 
 
@@ -52,12 +55,12 @@ class TestSymbolSectorBCM:
 class TestReportDisplay:
     def test_context_line_labels_top_sector(self):
         """Context line phải ghi 'Top Sector' — phân biệt sector market vs per-symbol."""
-        src = _src("src/governor/company_state.py")
+        src = _src("governor/company_state.py")
         assert "{_('Top Sector')}" in src, "Context line chưa đổi label thành 'Top Sector'."
 
     def test_ranking_table_has_sector_column(self):
         """Ranking table phải có cột 'Ngành' per-symbol."""
-        src = _src("src/governor/company_state.py")
+        src = _src("governor/company_state.py")
         assert "{'Ngành':<18}" in src, "Ranking table thiếu cột Ngành per-symbol."
         assert "sym_sector = _symbol_sector(sym) or \"?\"" in src, (
             "Ranking table không dùng _symbol_sector per-symbol."

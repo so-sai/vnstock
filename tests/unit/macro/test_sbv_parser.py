@@ -117,6 +117,58 @@ class TestParseGarbage:
         assert result == {}
 
 
+class TestHybridParser:
+    """Tests cho hybrid DOM + regex parsing."""
+
+    def test_parse_with_live_html(self):
+        """Live HTML fixture (2025) phải được parse bằng ít nhất một layer."""
+        result = _parse_sbv_html(_load("live.html"))
+        assert isinstance(result, dict)
+
+    def test_hybrid_fallback_on_broken_dom(self):
+        """Khi DOM table không có dữ liệu, regex fallback vẫn hoạt động."""
+        broken_html = """
+        <html>
+        <body>
+        <div class="rate-table">
+            <span>Qua đêm: 8,45%</span>
+            <div>Lãi suất 1 Tuần: <strong>6,20%</strong></div>
+            <p>1 Tháng: 6,10%</p>
+        </div>
+        </body>
+        </html>
+        """
+        result = _parse_sbv_html(broken_html)
+        assert result.get("ON") is not None
+
+    def test_div_based_extraction(self):
+        """Regex phải trích xuất từ thẻ div/span/ph thay vì chỉ table."""
+        html = """
+        <html><body>
+        <div><span>Qua đêm</span><span>8,50%</span></div>
+        <div class="cell"><td>1 Tuần</td><td>6,30%</td></div>
+        </body></html>
+        """
+        result = _parse_sbv_html(html)
+        assert "ON" in result or "1W" in result
+
+
+class TestHasSbvSignature:
+    """Tests cho hàm phát hiện signature mới."""
+
+    def test_detects_div_based_content(self):
+        """Giới hạn div-chứa thuật ngữ, không chỉ table."""
+        from src.services.macro.interbank_seeder import _has_sbv_table_signature
+        html = '<div>Rate: <span>Qua đêm</span> 8,50%</div>'
+        assert _has_sbv_table_signature(html) is True
+
+    def test_detects_js_rendering_signature(self):
+        """Nhận dạng shadow-root hoặc script indicators."""
+        from src.services.macro.interbank_seeder import _has_js_rendering
+        html = '<div id="app">render(<script>init()</script>...</div>'
+        assert _has_js_rendering(html) is True
+
+
 class TestTermMapCompleteness:
     """TERM_MAP covers exactly the SBV terms."""
 

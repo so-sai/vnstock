@@ -920,6 +920,22 @@ def cmd_sbv_update(args):
     print(f"  PTCK — {_ll('SBV UPDATE')} (5-step recovery)")
     print("=" * 60)
 
+    # ── Early exit: --save-fixture only (grab raw HTML for debugging) ──
+    if getattr(args, 'sbv_save_fixture', False):
+        print("\n  [SAVE] Chỉ lưu fixture HTML từ sbv.gov.vn...")
+        from src.services.macro.interbank_seeder import _try_sbv
+        save_dir = root / "tests" / "fixtures" / "sbv"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        result = _try_sbv(force=True)
+        raw_html = result.get("raw_html", "")
+        if raw_html:
+            fixture_path = save_dir / "live.html"
+            fixture_path.write_text(raw_html, encoding="utf-8")
+            print(f"  ✅ Đã lưu fixture: {fixture_path} ({len(raw_html)} bytes)")
+        else:
+            print(f"  ❌ Không fetch được HTML. type={result.get('type')} HTTP={result.get('http_status')}")
+        return
+
     # ── Step 0: Backup trạng thái hiện tại (alert + recall_state) ──
     print("\n  [0/5] Đang backup trạng thái hiện tại...")
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -4381,6 +4397,8 @@ def build_parser():
     p_su = sub.add_parser("sbv-update", parents=[lang_parent], help="5-step recovery: backup → fixtures → pytest → scrape → clear alert")
     p_su.add_argument("--force", action="store_true", dest="sbv_force",
                       help="Bỏ qua CRITICAL_WARNING — clear CRISIS_REAL marker thủ công")
+    p_su.add_argument("--save-fixture", action="store_true", dest="sbv_save_fixture",
+                      help="Chỉ lưu HTML thô từ sbv.gov.vn thành fixture mà không chạy scrape validation")
     p_su.set_defaults(func=cmd_sbv_update)
 
     # fetch-financials
