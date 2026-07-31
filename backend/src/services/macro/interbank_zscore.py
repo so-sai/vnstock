@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import sys
 from pathlib import Path
 
@@ -340,7 +340,14 @@ if __name__ == "__main__":
     import io
     import sys
     if sys.platform == "win32":
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass
+        elif hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     result = assess_interbank_risk()
     print("\n=== INTERBANK RISK ASSESSMENT ===")

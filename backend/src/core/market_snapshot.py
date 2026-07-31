@@ -1,4 +1,4 @@
-﻿"""
+"""
 market_snapshot.py — Ảnh chụp thị trường duy nhất
 
 Nhiệm vụ:
@@ -40,8 +40,14 @@ def _hydrate_path():
 DUONG_DAN_GOC = _hydrate_path()
 if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import src.config
 
 

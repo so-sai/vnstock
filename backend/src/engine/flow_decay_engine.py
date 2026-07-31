@@ -1,4 +1,4 @@
-﻿"""
+"""
 Flow Decay Engine (Phase 12C — Time Kernel Layer).
 Overlay kernel — applies regime-modulated exponential decay to raw time series
 BEFORE signal computation. Does NOT modify existing engines.
@@ -744,8 +744,14 @@ if __name__ == "__main__":
     import json
     # Redirect stdout for Windows cp1252 compatibility
     if sys.platform == "win32":
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass
+        elif hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     summary = get_decayed_flow_summary()
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

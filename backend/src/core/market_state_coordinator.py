@@ -1,4 +1,4 @@
-﻿"""
+"""
 market_state_coordinator.py — Central Nervous System of Sentinel OS.
 
 Architecture:
@@ -588,5 +588,12 @@ def run_coordinator() -> dict:
 if __name__ == "__main__":
     if sys.platform == "win32":
         import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass
+        elif hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     run_coordinator()

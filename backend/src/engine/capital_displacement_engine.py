@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import sys
 import warnings
 from datetime import datetime, timedelta
@@ -24,8 +24,14 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 if sys.platform == "win32":
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Risk Governor Engine — institutional-grade risk layer.
 Controls drawdown, leverage, correlation, and VaR limits.
 Feeds into exposure_engine as the outermost risk gate.
@@ -463,5 +463,12 @@ def _export_risk_json(verdict: dict):
 if __name__ == "__main__":
     if sys.platform == "win32":
         import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass
+        elif hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     evaluate_risk_governance()

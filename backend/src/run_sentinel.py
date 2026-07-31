@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import io
 import logging
 import socket
@@ -7,9 +7,14 @@ import webbrowser
 from pathlib import Path
 
 if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
-
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 def _hydrate_path():
     """Zero-Friction Sentinel v2.2: Anchor on AGENTS.md + backend is_dir"""
     if getattr(sys, 'frozen', False):

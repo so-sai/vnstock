@@ -78,8 +78,14 @@ file_handler.setFormatter(JsonFormatter())
 #   Reassign sys.stdout TRƯỚC khi tạo console_handler để handler nhận đúng
 #   stream đã wrap — KHÔNG wrap qua handler.stream (double wrapper).
 if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
-
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 

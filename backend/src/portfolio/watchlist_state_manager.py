@@ -1,4 +1,4 @@
-﻿"""
+"""
 Watchlist State Manager v2 — two separate layers:
   Layer 1: USER PINS — user's personal watchlist (persistent, manual)
   Layer 2: AI TIERS — system's dynamic recommendations (read-only, daily recompute)
@@ -205,5 +205,12 @@ def export_state(target_date: Optional[str] = None) -> dict:
 if __name__ == "__main__":
     if sys.platform == "win32":
         import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass
+        elif hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     export_state()

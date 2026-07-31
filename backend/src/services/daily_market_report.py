@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -573,6 +573,13 @@ def in_bao_cao(report):
 if __name__ == "__main__":
     if sys.platform == "win32":
         import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass
+        elif hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     bao_cao = build_daily_report()
     in_bao_cao(bao_cao)

@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -23,8 +23,14 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import pandas as pd
 
 from src.database.db_core import get_connection

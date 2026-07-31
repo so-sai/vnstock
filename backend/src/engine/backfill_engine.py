@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 
@@ -36,9 +36,14 @@ from src.engine.data_quality import danh_gia_chat_luong_du_lieu
 
 # ── Encoding ──────────────────────────────────────────────
 if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
-# ── Logging ───────────────────────────────────────────────
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 LOG_DIR = PROJECT_ROOT / "backend" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 

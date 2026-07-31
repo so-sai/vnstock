@@ -1,4 +1,4 @@
-﻿
+
 import io
 import json
 import logging
@@ -192,8 +192,14 @@ if __name__ == "__main__":
 
     # Fix Windows console encoding
     if sys.platform == "win32":
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass
+        elif hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     parser = argparse.ArgumentParser(description="PTCK Database Maintenance Tool")
     parser.add_argument("--full", action="store_true", help="Run full maintenance (VACUUM + Compact + ANALYZE)")
     parser.add_argument("--vacuum", action="store_true", help="Only run VACUUM")

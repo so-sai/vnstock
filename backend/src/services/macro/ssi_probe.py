@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 
@@ -260,7 +260,14 @@ def _run_probe(
 
 if __name__ == "__main__":
     if sys.platform == "win32":
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                try:
+                    sys.stdout.reconfigure(encoding='utf-8')
+                except Exception:
+                    pass
+        elif hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     results = probe_ssi_macro_endpoint(background=False)
     print(f"\nProbe complete: {len(results)} candidates, {sum(1 for r in results if r.get('match'))} matches")

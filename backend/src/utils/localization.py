@@ -1,4 +1,4 @@
-﻿"""localization.py — Bộ quản lý song ngữ tập trung cho CLI
+"""localization.py — Bộ quản lý song ngữ tập trung cho CLI
 
 Usage:
   from src.utils.localization import translate, localize_state, localize_phase, detect_terminal_utf8
@@ -245,8 +245,22 @@ def force_utf8_stdout():
     """Cưỡng bức stdout/stderr dùng UTF-8 trên Windows."""
     if sys.platform.startswith("win"):
         try:
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+            if isinstance(sys.stdout, io.TextIOWrapper):
+                if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+                    try:
+                        sys.stdout.reconfigure(encoding='utf-8')
+                    except Exception:
+                        pass
+            elif hasattr(sys.stdout, 'buffer'):
+                sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+            if isinstance(sys.stderr, io.TextIOWrapper):
+                if getattr(sys.stderr, 'encoding', '').lower() != 'utf-8':
+                    try:
+                        sys.stderr.reconfigure(encoding='utf-8')
+                    except Exception:
+                        pass
+            elif hasattr(sys.stderr, 'buffer'):
+                sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
         except Exception:
             pass
 

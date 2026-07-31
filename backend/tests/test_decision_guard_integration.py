@@ -16,7 +16,14 @@ for d in [p.parent, p]:
         sys.path.insert(0, str(d))
 
 if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
+            try:
+                sys.stdout.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 import pytest
 from src.engine.decision_guard import kiem_tra_an_toan, reset_trap_detector, get_trap_detector

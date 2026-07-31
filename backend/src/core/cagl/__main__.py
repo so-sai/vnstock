@@ -1,4 +1,4 @@
-﻿"""CAGL CLI — command-line route verification.
+"""CAGL CLI — command-line route verification.
 
 Usage::
 
@@ -11,7 +11,14 @@ from __future__ import annotations
 import io
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if isinstance(sys.stdout, io.TextIOWrapper):
+    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+elif hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import argparse
 import logging
 from pathlib import Path

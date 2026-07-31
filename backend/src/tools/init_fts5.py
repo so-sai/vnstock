@@ -1,4 +1,4 @@
-﻿"""init_fts5.py — Khởi tạo bảng ảo FTS5 cho Instant Search.
+"""init_fts5.py — Khởi tạo bảng ảo FTS5 cho Instant Search.
 
 Root cause đã xác minh: `symbol_fts` table không tồn tại trên DB production
 (`screener_cache.db`). Nguyên nhân: code trong `db_core.py:100-105` chỉ tạo FTS
@@ -23,9 +23,14 @@ import logging
 import sys
 from pathlib import Path
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-
-
+if isinstance(sys.stdout, io.TextIOWrapper):
+    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+elif hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 def _hydrate_path():
     if getattr(sys, "frozen", False):
         root = Path(sys.executable).resolve().parent

@@ -1,4 +1,4 @@
-﻿"""i18n_export.py — Auto-export CLI_LABEL_MAP + ABBREVIATION_GLOSSARY → JSON.
+"""i18n_export.py — Auto-export CLI_LABEL_MAP + ABBREVIATION_GLOSSARY → JSON.
 
 Đọc từ canonical_output_adapter.py, xuất 3 file JSON cho React frontend:
   - vi.json       — key: Vietnamese label
@@ -84,6 +84,13 @@ def export_i18n() -> dict:
 
 
 if __name__ == "__main__":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     result = export_i18n()
     print(f"Exported {result['vi_count']} labels + {result['abbr_count']} abbreviations -> {result['output_dir']}")

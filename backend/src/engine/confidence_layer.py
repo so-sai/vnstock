@@ -1,4 +1,4 @@
-﻿"""
+"""
 Bộ tự đánh giá độ tin cậy — quyết định có đáng tin không?
 
 Nhiệm vụ:
@@ -48,8 +48,14 @@ def _đường_dẫn_gốc():
 ĐƯỜNG_DẪN_GỐC = _đường_dẫn_gốc()
 if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import src.config
 
 # ── Ngưỡng đánh giá ─────────────────────────────────────

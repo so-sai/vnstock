@@ -1,4 +1,4 @@
-﻿"""
+"""
 Session Info API — endpoint nhẹ cho Header Frontend.
 Chỉ trả về: phiên tác chiến (target_date), thời gian cập nhật, regime status ngắn gọn.
 Không gọi engine nặng — đọc thẳng regime_history (1 query) → trả JSON tức thì.
@@ -12,9 +12,14 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-
-
+if isinstance(sys.stdout, io.TextIOWrapper):
+    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+elif hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 def _hydrate_path():
     candidate = Path(sys.executable).resolve().parent
     if Path(sys.executable).stem.lower().startswith("python"):

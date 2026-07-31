@@ -1,4 +1,4 @@
-﻿"""
+"""
 Group Influence Engine — Bộ đo ảnh hưởng nhóm trụ
 
 Tính toán ảnh hưởng của từng nhóm cổ phiếu lên VNINDEX:
@@ -33,8 +33,14 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            try:
+                sys.stdout.reconfigure(encoding='utf-8')
+            except Exception:
+                pass
+    elif hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import numpy as np
 import pandas as pd
 
