@@ -79,6 +79,27 @@ TASKS = [
         "schedule": "/SC DAILY /ST 08:00",
         "run_level": "HIGHEST",
     },
+    {
+        "name": "PTCK_VIETSTOCK_CRAWL",
+        "description": "Crawl BCTC Vietstock Finance cho nhóm cổ phiếu trọng điểm (Thứ 2-6, 08:30)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" cafef-crawl --symbols FPT ACB HDB MBB VCB HPG BCM VRE VHM MWG --source vietstock --playwright',
+        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:30",
+        "run_level": "HIGHEST",
+    },
+    {
+        "name": "PTCK_CAFEF_CRAWL",
+        "description": "Crawl BCTC 20 quý CafeF (requests + Playwright fallback) — bổ sung CFO dòng tiền (Thứ 2-6, 09:00)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" cafef-crawl --symbols FPT ACB HDB MBB VCB --source cafef --playwright --delay 1',
+        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 09:00",
+        "run_level": "HIGHEST",
+    },
+    {
+        "name": "PTCK_VGB10Y_SEED",
+        "description": "Seed VGB 10Y yield từ World Bank API (Thứ 2-6, 08:45)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" vgb10y',
+        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:45",
+        "run_level": "HIGHEST",
+    },
 ]
 
 def setup_tasks():
@@ -120,6 +141,9 @@ def setup_tasks():
     print('   schtasks /Delete /TN "PTCK_WEEKLY_MACRO" /F')
     print('   schtasks /Delete /TN "PTCK_DAILY_BACKUP" /F')
     print('   schtasks /Delete /TN "PTCK_SBV_FIXTURE" /F')
+    print('   schtasks /Delete /TN "PTCK_VIETSTOCK_CRAWL" /F')
+    print('   schtasks /Delete /TN "PTCK_CAFEF_CRAWL" /F')
+    print('   schtasks /Delete /TN "PTCK_VGB10Y_SEED" /F')
     print("=" * 60)
 
 def remove_tasks():
