@@ -3733,16 +3733,16 @@ def cmd_cafef_crawl(args):
             ("MBB", "BANK"), ("VCB", "BANK"),
         ]
     print("=" * 60)
-    print(f"  BCTC CRAWLER — {len(targets)} symbols, 20 quarters each")
-    print(f"  Nguồn: {source} | Playwright: {'bật' if use_pw else 'tắt'}")
+    print(f"  {_ll('BCTC CRAWLER')} — {_ll('Symbols')}: {len(targets)}, 20 {_ll('Quarters')} {_ll('each')}")
+    print(f"  {_ll('Source')}: {source} | {_ll('Playwright')}: {_ll('ON') if use_pw else _ll('OFF')}")
     if delay > 0:
-        print(f"  Delay: {delay}s giữa các request")
+        print(f"  {_ll('Delay')}: {delay}s {_ll('giữa các request')}")
     print("=" * 60)
     if source == "vietstock":
-        print("  ⚠️  Vietstock free tier chỉ 4 quý BCTC Tóm tắt (kiểm tra chéo)")
-        print("  ⚠️  BCTC chi tiết 37 dòng cần VietstockPro (paywall)")
+        print(f"  ⚠️  {_ll('Vietstock free tier')} ({_ll('BCTC Tóm tắt')})")
+        print(f"  ⚠️  {_ll('BCTC chi tiết')} 37 dòng {_ll('paywall')}")
     overall = crawler.crawl_multi(targets, source=source)
-    print(f"  ✅ Done: {overall['symbols']} symbols, {overall['total_facts']} facts")
+    print(f"  ✅ {_ll('Done')}: {overall['symbols']} {_ll('Symbols')}, {overall['total_facts']} {_ll('Facts')}")
     print("=" * 60)
 
 

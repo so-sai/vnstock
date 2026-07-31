@@ -937,6 +937,26 @@ CLI_LABEL_MAP: dict[str, str] = {
     "FAIR": "TRUNG BÌNH",
     "EXPENSIVE": "ĐẮT",
     "ULTRA_EXPENSIVE": "RẤT ĐẮT",
+
+    # ── Financial Crawler ──
+    "BCTC CRAWLER": "BCTC CRAWLER",
+    "BCTC Crawler": "BCTC Crawler",
+    "Symbols": "Mã chứng khoán",
+    "Quarters": "Quý",
+    "Source": "Nguồn",
+    "Delay": "Độ trễ",
+    "Done": "Hoàn tất",
+    "Facts": "dữ liệu tài chính",
+    "Playwright": "Playwright",
+    "each": "mỗi",
+    "ON": "bật",
+    "OFF": "tắt",
+    "giữa các request": "between requests",
+    "Vietstock free tier": "Vietstock gói miễn phí",
+    "BCTC Tóm tắt": "BCTC Summary",
+    "kiểm tra chéo": "cross-check",
+    "BCTC chi tiết": "BCTC Detail",
+    "paywall": "paywall",
 }
 
 
