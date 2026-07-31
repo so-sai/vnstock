@@ -231,6 +231,16 @@ URL_MAP = {
         "lib": "requests + BeautifulSoup",
         "notes": "Nguồn chính — trả về HTML table với dữ liệu BCTC.",
     },
+    "CAFEF_FULL_STATEMENT_CF": {
+        "url": "https://cafef.vn/du-lieu/bao-cao-tai-chinh/{SYM}/CashFlow/{year}/{qtr}/0/0/...chn",
+        "method": "GET",
+        "type": "HTML table (4-quarter window)",
+        "data": ["Bảng LƯU CHUYỂN TIỀN TỆ đầy đủ: CFO, CFI, CFF, CAPEX"],
+        "status": "ALIVE",  # ✅ verified 2026-08-01 — GIẢI QUYẾT lỗ hổng CFO BCM/VRE
+        "lib": "requests + BeautifulSoup (fetch_cafef_cashflow)",
+        "notes": "Mỗi trang trả cửa sổ 4 quý (td.h_t label). Fetch Q4 mỗi năm + "
+                 "Q2 năm hiện tại phủ đủ 20 quý. Giá trị VND đầy đủ (không nhân đơn vị).",
+    },
     "CAFEF_NOTE_INDI": {
         "url": "https://cafef.vn/du-lieu/Ajax/Bank/NoteIndicator.aspx",
         "method": "GET",
@@ -991,6 +1001,132 @@ class CafeFCrawler:
             logger.warning(f"CafeF Bank API: {symbol} — {e}")
             return []
 
+    def fetch_cafef_cashflow(self, symbol: str) -> List[Dict]:
+        """Dùng CafeF full-statement endpoint (/du-lieu/bao-cao-tai-chinh/...) 
+        lấy bảng LƯU CHUYỂN TIỀN TỆ (CF) cho 20 quý.
+
+        Endpoint mới (verified 2026-08-01): mỗi trang trả 1 cửa sổ 4 quý
+        với label rõ ràng (td.h_t = "Quý 3- 2025"). Chỉ cần fetch Q4 của
+        từng năm + Q2 năm hiện tại là phủ đủ 20 quý.
+
+        Trả về list of dict (mỗi dict = 1 quarter) chỉ chứa các metric CF:
+        CFO, CFI, CFF, CAPEX. Caller merge với dữ liệu BS/IS.
+        """
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "vi-VN,vi;q=0.9",
+            "Referer": f"https://cafef.vn/du-lieu/{symbol.lower()}/bao-cao-tai-chinh.chn",
+        }
+        entity_type = self.db.get_entity_type(symbol) or "STANDARD"
+
+        # Các trang cần fetch: Q4 mỗi năm 2021-2025 + Q2/2026 (dữ liệu mới nhất)
+        pages = [(y, 4) for y in range(2021, 2026)]
+        pages.append((2026, 2))
+
+        quarters = {}
+        for year, qtr in pages:
+            url = (
+                f"https://cafef.vn/du-lieu/bao-cao-tai-chinh/"
+                f"{symbol.upper()}/CashFlow/{year}/{qtr}/0/0/luu-chuyen-tien-te.chn"
+            )
+            try:
+                r = self.session.get(url, headers=headers, timeout=20)
+                if r.status_code != 200:
+                    logger.warning(f"CafeF CF: {symbol} {year}Q{qtr} HTTP {r.status_code}")
+                    continue
+                periods = self._parse_cafef_cf_page(r.text, entity_type)
+                for key, data in periods.items():
+                    if key in quarters:
+                        quarters[key].update(data)
+                    else:
+                        quarters[key] = data
+                if periods:
+                    logger.info(f"CafeF CF: {symbol} {year}Q{qtr} → {len(periods)} quý")
+            except Exception as e:
+                logger.warning(f"CafeF CF: {symbol} {year}Q{qtr} — {e}")
+
+        if not quarters:
+            return []
+
+        result = []
+        for key, data in quarters.items():
+            parts = key.rsplit("Q", 1)
+            if len(parts) != 2:
+                continue
+            result.append({
+                "_fiscal_year": int(parts[0]),
+                "_fiscal_quarter": int(parts[1]),
+                "_entity_type": entity_type,
+                **data,
+            })
+        result.sort(key=lambda d: (d["_fiscal_year"], d["_fiscal_quarter"]))
+        logger.info(f"CafeF CF: {symbol} — {len(result)} quý, metrics={sorted({k for d in result for k in d if not k.startswith('_')})}")
+        return result
+
+    def _parse_cafef_cf_page(self, html: str, entity_type: str) -> Dict[str, Dict]:
+        """Parse 1 trang CashFlow → { '2025Q3': {'CFO': val, ...}, ... }.
+
+        Cấu trúc: header row (td.h_t) chứa label 4 quý, dòng dữ liệu
+        align theo cột. Giá trị là VND đầy đủ (không nhân đơn vị).
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        period_labels = [
+            c.get_text(strip=True) for c in soup.select("td.h_t") if c.get_text(strip=True)
+        ]
+        if not period_labels:
+            return {}
+
+        # Map mỗi cột label → key "YYYYQQ"
+        col_periods = []
+        for label in period_labels:
+            ym = re.search(r"(\d{4})", label)
+            qm = re.search(r"Quý\s+(\d+)", label)
+            if ym and qm:
+                col_periods.append(f"{ym.group(1)}Q{qm.group(1)}")
+            else:
+                col_periods.append(None)
+
+        out = {}
+        CF_ONLY_METRICS = {"CFO", "CFI", "CFF", "CAPEX"}
+        for tr in soup.find_all("tr"):
+            tds = tr.find_all(["td", "th"])
+            if not tds:
+                continue
+            label = tds[0].get_text(strip=True)
+            if not label:
+                continue
+            metric = self._map_cafef_metric(label, entity_type)
+            if not metric or metric not in CF_ONLY_METRICS:
+                continue
+            for i, period in enumerate(col_periods):
+                if period is None or i + 1 >= len(tds):
+                    continue
+                raw = tds[i + 1].get_text(strip=True)
+                if not raw or raw == "-":
+                    continue
+                val = self._parse_cafef_value_full(raw)
+                if val is None:
+                    continue
+                out.setdefault(period, {})[metric] = val
+        return out
+
+    def _parse_cafef_value_full(self, raw: str) -> Optional[float]:
+        """Parse số VND đầy đủ: '-1.095.665.704.486' → float (không nhân đơn vị)."""
+        raw = raw.strip()
+        if not raw or raw == "-":
+            return None
+        negative = raw.startswith("(") and raw.endswith(")")
+        if negative:
+            raw = raw[1:-1]
+        raw = raw.replace(".", "")
+        raw = raw.replace(",", "")
+        try:
+            val = float(raw)
+            return -val if negative else val
+        except ValueError:
+            return None
+
     def _map_cafef_metric(self, metric_name: str, entity_type: str) -> Optional[str]:
         """Map CafeF metric name to internal metric name.
 
@@ -1027,6 +1163,8 @@ class CafeFCrawler:
             "Lưu chuyển tiền thuần từ hoạt động kinh doanh": "CFO",
             "Lưu chuyển tiền thuần từ hoạt động sản xuất kinh doanh": "CFO",
             "Tiền thuần từ hoạt động kinh doanh": "CFO",
+            "Lưu chuyển tiền thuần từ hoạt động đầu tư": "CFI",
+            "Lưu chuyển tiền thuần từ hoạt động tài chính": "CFF",
             "Tiền chi để mua sắm, xây dựng tscđ": "CAPEX",
             "Tiền chi để mua sắm, xây dựng tài sản cố định": "CAPEX",
             # ── Balance sheet — Nợ vay ────────────────────────────
@@ -1062,6 +1200,8 @@ class CafeFCrawler:
             "Lưu chuyển tiền thuần từ hoạt động kinh doanh": "CFO",
             "Lưu chuyển tiền thuần từ hoạt động sản xuất kinh doanh": "CFO",
             "Tiền thuần từ hoạt động kinh doanh": "CFO",
+            "Lưu chuyển tiền thuần từ hoạt động đầu tư": "CFI",
+            "Lưu chuyển tiền thuần từ hoạt động tài chính": "CFF",
             # ── Balance sheet — Nợ vay ────────────────────────────
             "Vay và nợ thuê tài chính ngắn hạn": "SHORT_TERM_DEBT",
             "Nợ vay ngắn hạn": "SHORT_TERM_DEBT",
@@ -1788,6 +1928,51 @@ class CafeFCrawler:
             if not all_periods:
                 logger.info("  NoteIndicator cũng không có, dùng synthetic")
                 use_synthetic = True
+
+        # ── Merge CafeF CashFlow (CFO/CFI/CFF/CAPEX) vào các period ──
+        # WHY: nguồn BS/IS (Bank API/VCI/Vietstock) KHÔNG có bảng lưu chuyển
+        # tiền tệ → BCM/VRE thiếu CFO. Endpoint /du-lieu/bao-cao-tai-chinh/
+        # CashFlow (verified 2026-08-01) trả đủ CF cho 20 quý. Merge theo
+        # (year, quarter), chỉ ghi đè khi metric CF chưa có.
+        if all_periods:
+            cf_periods = self.fetch_cafef_cashflow(symbol)
+            if cf_periods:
+                cf_by_key = {
+                    f"{p['_fiscal_year']}Q{p['_fiscal_quarter']}": p
+                    for p in cf_periods
+                }
+                existing_keys = {
+                    f"{p.get('_fiscal_year')}Q{p.get('_fiscal_quarter')}"
+                    for p in all_periods
+                }
+                merged = 0
+                # Tạo thêm period CF-only cho các quý nguồn BS/IS không có.
+                # WHY: chỉ lấy metric CF thuần (CFO/CFI/CFF/CAPEX) — các dòng
+                # RECEIVABLES/INVENTORY trong bảng CF là SỐ BIẾN ĐỘNG (delta)
+                # không phải số dư BCTC, viết vào sẽ làm hỏng balance sheet.
+                CF_ONLY_METRICS = {"CFO", "CFI", "CFF", "CAPEX"}
+                for period_data in all_periods:
+                    key = f"{period_data.get('_fiscal_year')}Q{period_data.get('_fiscal_quarter')}"
+                    cf = cf_by_key.get(key)
+                    if not cf:
+                        continue
+                    for k in CF_ONLY_METRICS:
+                        v = cf.get(k)
+                        if v is not None and period_data.get(k) is None:
+                            period_data[k] = v
+                            merged += 1
+                # Tạo thêm period CF-only cho các quý nguồn BS/IS không có
+                for key, cf in cf_by_key.items():
+                    if key not in existing_keys:
+                        all_periods.append({
+                            "_fiscal_year": cf["_fiscal_year"],
+                            "_fiscal_quarter": cf["_fiscal_quarter"],
+                            "_entity_type": actual_type,
+                            **{k: v for k, v in cf.items()
+                               if not k.startswith("_") and k in CF_ONLY_METRICS},
+                        })
+                        merged += 1
+                logger.info(f"  CafeF CF merge: {symbol} — {merged} facts bổ sung")
 
         if use_synthetic:
             all_periods = self._generate_synthetic_base(symbol, actual_type)
