@@ -405,6 +405,25 @@ class ArchetypeEngine:
         except Exception:
             return False
 
+    def _icb_sector(self, symbol: str) -> Optional[str]:
+        """Resolve ICB sector (icb_name2) từ screener_cache.db — nguồn sự thật
+        thứ 2, NHẤT QUÁN với _is_bank_symbol và _symbol_sector().
+        """
+        try:
+            conn = sqlite3.connect(str(DATA_DIR / "screener_cache.db"))
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT icb_name2 FROM symbol_industry
+                    WHERE symbol = ? LIMIT 1
+                """, (symbol,))
+                row = cur.fetchone()
+                return str(row[0]).strip() if row and row[0] else None
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
     def _classify_by_ratios(self, symbol: str) -> BusinessArchetype:
         """Fallback classifier — đọc financial_facts.db, suy luận archetype."""
         conn = self._get_conn()
@@ -417,6 +436,14 @@ class ArchetypeEngine:
         """, (symbol,))
         row = cur.fetchone()
         entity_type = str(row[0]).strip().upper() if row else "STANDARD"
+
+        # Hard Constraint 2: thuộc ICB sector "Bất động sản" → REAL_ESTATE_DEVELOPER.
+        # WHY: KCN (SIP, IDC, KBC) chưa có health_ratios rows → ratios rỗng →
+        # rơi vào nhánh STANDARD → gán RETAIL_PLATFORM sai (chain SAME_STORE_SALES
+        # thay vì PRESALES). ICB mapping là nguồn sự thật, vì sector BĐS đồng
+        # nghĩa với mô hình phát triển dự án (PRESALES), bất kể ratio cụ thể.
+        if self._icb_sector(symbol) == "Bất động sản":
+            return ARCHETYPE_REGISTRY["REAL_ESTATE_DEVELOPER"]
 
         if self._is_bank_symbol(symbol, entity_type):
             # Hard Constraint: thuộc ngành Ngân hàng → bắt buộc archetype ngân hàng.

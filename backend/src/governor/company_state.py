@@ -76,8 +76,9 @@ def _symbol_sector(symbol: str) -> Optional[str]:
             return row[0].strip()
     except Exception:
         pass
-    # Fallback: archetype → sector (chỉ cho symbol ĐÃ BIẾT trong BASELINE_MAP,
-    # không cho symbol lạ vì _classify_by_ratios mặc định trả RETAIL_PLATFORM)
+    # Fallback: archetype → sector (chỉ cho symbol ĐÃ BIẾT trong BASELINE_MAP.
+    # _classify_by_ratios nay đã ICB-aware (BĐS → REAL_ESTATE_DEVELOPER),
+    # nhưng các archetype khác vẫn có thể đoán sai sector cho symbol lạ.)
     try:
         from src.business.archetype import ArchetypeEngine, BASELINE_MAP
         if symbol.upper().strip() not in BASELINE_MAP:

@@ -206,22 +206,36 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
 10. **hci-explain BCM sau sector Real Estate**: chain chuẩn — CREDIT_STRESS → LIQUIDITY_TRAP → Ngành Bất động sản (EARLY, score 2.2) → PRESALES → BCM HCI 0.24 ✖ VETO. Archetype REAL_ESTATE_DEVELOPER (STEADY_EARNER), Chain conf 0.68.
 
 #### Active / Blocked
-- Không còn failures — test suite GREEN 326/326 → **340/340** (sau khi thêm 14 tests bridge VNDirect/TCBS).
+- Không còn failures — test suite GREEN **346/346** (340 baseline + 6 tests mới `test_archetype_icb_sector.py`).
 - `cmd_hci_explain` vẫn còn module wrap unconditional tại function-level (ptck.py:2938-2939) — an toàn cho CLI nhưng chưa đổi sang reconfigure (không gây pytest fail vì không module-level).
+- VNDirect/TCBS bridge: DNS vẫn UNVERIFIED từ môi trường dev (cần kiểm chứng live khi network cho phép).
+
+### Session Follow-up #2 — Jul 31 2026: Cross-Sector Analysis + Archetype ICB Sector Fix
+
+#### Work Completed
+1. **Cross-sector analysis (Ngân hàng vs Bất động sản)**:
+   - Ngân hàng (27 mã, Phase EARLY Score 9.6, Conf 0.711-0.726): FRANCHISE_BANK (CTG/TCB/BID 0.39, VCB 0.37, ACB 0.33) vs ASSET_BANK (0.32-0.33) — spread 0.09, attribution đồng nhất `policy_rate`.
+   - Bất động sản (128 mã, Phase EARLY Score 2.2, Conf 0.681): toàn bộ REDUCE 0.35 (RETAIL_PLATFORM) trước fix; BCM 0.24 VETO + VHM 0.23 VETO (REAL_ESTATE_DEVELOPER).
+   - **Phát hiện**: SIP/IDC/KBC (KCN điển hình) KHÔNG có health_ratios rows trong financial_facts.db → `_classify_by_ratios` rơi toàn bộ defaults → gán RETAIL_PLATFORM sai (chain SAME_STORE_SALES thay vì PRESALES).
+2. **Fix archetype ICB sector** (`archetype.py`): thêm `_icb_sector()` (đọc icb_name2 từ screener_cache.db) + hard constraint trong `_classify_by_ratios`: ICB == "Bất động sản" → REAL_ESTATE_DEVELOPER (giống `_is_bank_symbol`). BĐS sector = mô hình phát triển dự án (PRESALES) bất kể ratio.
+3. **Hệ quả sau fix**: toàn bộ 128 mã BĐS → REAL_ESTATE_DEVELOPER, VETO (0.27 median), spread thu hẹp 0.11 → 0.04 (VHM=0.23 → AAV=0.27); SIP/IDC/KBC → VETO (p_gain 0.27). Ngân hàng/COMPOUNDER/RETAIL_PLATFORM non-BĐS không đổi (MWG, FPT, SSI, VCB...).
+4. **Tests mới** `backend/tests/test_archetype_icb_sector.py` (6 tests): KCN → REAL_ESTATE_DEVELOPER, non-BĐS không đổi, bank không bị chặn, `_icb_sector()` resolve. Full suite **346/346 PASS**.
 
 #### Next Move
-1. **VNDirect/TCBS API bridge đã tích hợp** (commit): `fetch_vndirect_api()` + `fetch_tcbs_api()` + pure parsers `_parse_vndirect_json`/`_parse_tcbs_rows` (deterministic, 14 tests TDD). Fallback chain `vci`/`api`: VNDirect → TCBS → CafeF Bank API → NoteIndicator → synthetic. CLI mới: `python ptck.py cafef-crawl --symbols BCM --source api`. Status UNVERIFIED_DNS (fininfo-api.vndirect.com.vn + finapi.tcbs.com.vn chưa resolve từ môi trường dev — cần kiểm chứng live khi network cho phép).
-2. Khi DNS VNDirect/TCBS mở: chạy `python ptck.py cafef-crawl --symbols BCM --source api` → xác nhận CFO + nợ vay chi tiết vào financial_facts → chạy `health-engine compute` + `health-v2` để Cash/DEBT thoát NO DATA.
-3. Cân nhắc upstream: check xem môi trường production có DNS mở cho fininfo-api.vndirect.com.vn / finapi.tcbs.com.vn hay không.
+1. **VNDirect/TCBS API bridge** (commit `1906a11`): `fetch_vndirect_api()` + `fetch_tcbs_api()` + pure parsers. Fallback chain `vci`/`api`: VNDirect → TCBS → CafeF Bank API → NoteIndicator → synthetic. CLI: `python ptck.py cafef-crawl --symbols BCM --source api`. Status UNVERIFIED_DNS.
+2. Khi DNS mở: chạy `python ptck.py cafef-crawl --symbols BCM --source api` → CFO + nợ vay vào financial_facts → `health-engine compute` + `health-v2` để Cash/DEBT thoát NO DATA.
+3. Cân nhắc: BĐS 128 mã giờ VETO đồng loạt qua PRESALES chain — theo dõi nếu có mã nào cần ngoại lệ (ví dụ VRE là bán lẻ/REIT thuần).
 
 #### Relevant Files
 - `backend/src/governor/company_state.py` — sector mapping fix
+- `backend/src/business/archetype.py` — `_icb_sector()` + ICB hard constraint (BĐS → REAL_ESTATE_DEVELOPER)
+- `backend/tests/test_archetype_icb_sector.py` — 6 tests archetype ICB (SIP/IDC/KBC → REAL_ESTATE_DEVELOPER)
 - `backend/src/financial/cafef_crawler.py` — parser mở rộng
 - `backend/src/financial/company_health_engine.py` — DEBT fallback
 - `backend/src/financial/company_health_v2.py` — NO_DATA protocol
 - `backend/tests/test_health_v2_no_data.py`, `backend/tests/test_cafef_crawler_parser.py`, `backend/tests/test_governor_sector.py`
 - `root/ptck.py` — Windows encoding fix block (patched)
-- `backend/tests/test_decision_guard_integration.py` — wrap fixed, 3 logic failures pending
+- `backend/tests/test_decision_guard_integration.py` — wrap fixed, 3 logic failures fixed (f720e86)
 
 ### Status: ✅ P0+P1+P2 VERIFIED | ✅ P3 BAYESIAN GOVERNOR LIVE | ✅ P4 CALIBRATION WIRED | ✅ P5 COUNTERFACTUAL ONLINE
 
