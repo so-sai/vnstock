@@ -288,6 +288,27 @@ def build_edge_registry() -> Dict[str, CausalEdge]:
          desc="NPL cycle deterioration → 1-4 months → provisioning expense")
 
     # ═══════════════════════════════════════════════════════════════════
+    # ASSET_BANK (MBB, HDB, STB, VIB)
+    # ═══════════════════════════════════════════════════════════════════
+    # Primary chain: INTEREST_RATE → NIM → Fee Income → Loan Book
+    # Sensitivity: INTEREST_RATE, INTERBANK_ON, CREDIT_STRESS
+
+    _add("BANK2:INTEREST→NIM", "INTEREST_RATE", "NIM",
+         "MACRO→COMPANY", lag_min=15, lag_max=60, confidence=0.80, half_life=90,
+         attenuation=0.15, arch="ASSET_BANK", factor="INTEREST_RATE",
+         desc="Rate change → 3-12 weeks → NIM repricing (asset bank, higher beta)")
+
+    _add("BANK2:INTERBANK→FUNDING_COST", "INTERBANK_ON", "FUNDING_COST",
+         "MACRO→COMPANY", lag_min=1, lag_max=10, confidence=0.85, half_life=15,
+         attenuation=0.10, arch="ASSET_BANK", factor="INTERBANK_ON",
+         desc="Interbank rate → 1-10 days → bank funding cost (asset banks more sensitive)")
+
+    _add("BANK2:CREDIT_STRESS→NPL", "CREDIT_STRESS", "NPL_RATIO",
+         "MACRO→COMPANY", lag_min=30, lag_max=90, confidence=0.75, half_life=180,
+         attenuation=0.20, arch="ASSET_BANK", factor="CREDIT_STRESS",
+         desc="Credit stress → 1-3 months → NPL ratio deterioration (retail-heavy book)")
+
+    # ═══════════════════════════════════════════════════════════════════
     # REAL_ESTATE_DEVELOPER (VHM, KDH, NLG)
     # ═══════════════════════════════════════════════════════════════════
     # Primary chain: HOUSING_POLICY → Land Bank → Presales → Revenue

@@ -326,11 +326,14 @@ BASELINE_MAP: Dict[str, str] = {
     "MBB": "ASSET_BANK",
     "HDB": "ASSET_BANK",
     "VHM": "REAL_ESTATE_DEVELOPER",
+    "BCM": "REAL_ESTATE_DEVELOPER",  # Becamex IDC — KCN/industrial park developer
     "MWG": "RETAIL_PLATFORM",
     "GAS": "REGULATED_UTILITY",
 
     # ── Satellite Universe (10 mã chờ, thêm 2026-07-30) ──
     "TCB": "FRANCHISE_BANK",     # Techcombank — CASA ~40%, premier franchise
+    "BID": "FRANCHISE_BANK",     # BIDV — Big-4 state bank, deposit franchise + scale
+    "CTG": "FRANCHISE_BANK",     # VietinBank — Big-4 state bank, corporate franchise
     "STB": "ASSET_BANK",         # Sacombank — retail, restructuring story
     "VIB": "ASSET_BANK",         # Vietnam International Bank — retail, auto lending
     "REE": "COMPOUNDER",         # Refrigeration Electrical — 40+ yr moat, diversified
@@ -373,6 +376,35 @@ class ArchetypeEngine:
     def classify_many(self, symbols: List[str]) -> Dict[str, BusinessArchetype]:
         return {s: self.classify(s) for s in symbols}
 
+    def _is_bank_symbol(self, symbol: str, entity_type: str) -> bool:
+        """Hard Constraint: mã ngân hàng tuyệt đối không gán mô hình phi tài chính.
+
+        Kiểm tra 2 nguồn:
+          1. entity_type == "BANK" trong financial_facts.db (health_ratios)
+          2. ICB sector == "Ngân hàng" trong screener_cache.db (symbol_industry)
+
+        WHY: Nhiều ngân hàng (BID, CTG, VPB, TPB) chưa có health_ratios rows
+        → entity_type rỗng → rơi vào nhánh STANDARD → gán RETAIL_PLATFORM sai.
+        ICB mapping là nguồn sự thật thứ 2 để chặn cứng.
+        """
+        if entity_type == "BANK":
+            return True
+        try:
+            import sqlite3 as _sqlite
+            conn = _sqlite.connect(str(DATA_DIR / "screener_cache.db"))
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT icb_name2 FROM symbol_industry
+                    WHERE symbol = ? LIMIT 1
+                """, (symbol,))
+                row = cur.fetchone()
+                return bool(row and str(row[0]).strip() == "Ngân hàng")
+            finally:
+                conn.close()
+        except Exception:
+            return False
+
     def _classify_by_ratios(self, symbol: str) -> BusinessArchetype:
         """Fallback classifier — đọc financial_facts.db, suy luận archetype."""
         conn = self._get_conn()
@@ -386,8 +418,9 @@ class ArchetypeEngine:
         row = cur.fetchone()
         entity_type = str(row[0]).strip().upper() if row else "STANDARD"
 
-        if entity_type == "BANK":
-            # Phân biệt FRANCHISE vs ASSET bằng CASA ratio
+        if self._is_bank_symbol(symbol, entity_type):
+            # Hard Constraint: thuộc ngành Ngân hàng → bắt buộc archetype ngân hàng.
+            # Phân biệt FRANCHISE vs ASSET bằng CASA ratio.
             cur.execute("""
                 SELECT ratio_value FROM health_ratios
                 WHERE symbol = ? AND ratio_name = 'CASA_RATIO'

@@ -50,7 +50,7 @@ entrypoints:
 
   daily_update:
     description: "Cập nhật dữ liệu EOD (OHLCV, breadth, sector, macro)"
-    cli: "python ptck.py daily-update [--date YYYY-MM-DD]"
+    cli: "python ptck.py daily-update [--date YYYY-MM-DD] [--batch-size N] [--throttle S]"
     category: daily
 
   # ── Telemetry ────────────────────────────────────────
@@ -447,6 +447,12 @@ entrypoints:
     cli: "python ptck.py health-v2 [--symbols FPT VCB ...]"
     category: company
 
+  # ── HCI Explain (Causal DAG Trace) ──────────────────────
+  hci_explain:
+    description: "HCI Explain — Cây vết truyền dẫn (Causal DAG Trace) từ World FedState xuống điểm HCI doanh nghiệp. Tách Facts vs Surprise + Entropy/Confidence chuỗi. Hỗ trợ so sánh cùng ngành."
+    cli: "python ptck.py hci-explain --symbols VCB FPT ... [--sector Banking] [--list-sectors] [--output report|json]"
+    category: company
+
   # ── Governor P3 Bayesian Expected Utility ─────────────
   governor:
     description: "P3 Governor — Bayesian Expected Utility. Weight-of-evidence P0→P2 + Kelly sizing. Thay thế IF/THEN."
@@ -575,6 +581,12 @@ entrypoints:
   suc_khoe_doanh_nghiep:
     description: "(Giai đoạn 3) Sức khỏe doanh nghiệp theo ngữ cảnh — tiếng Việt"
     cli: "python ptck.py suc-khoe-doanh-nghiep [--symbols FPT VCB ...]"
+    category: business
+
+  # ── Giai đoạn 2: Company Health Engine ──────────────
+  health_engine:
+    description: "Giai đoạn 2 — compute health_ratios từ financial_facts. Bước bắt buộc giữa cafef-crawl (nạp facts) và health-v2 (đọc ratios). Thiếu bước này → mã mới (VD BCM) bị NO DATA."
+    cli: "python ptck.py health-engine compute --symbols BCM"
     category: business
 
   # ── Giai đoạn 4: Capital Allocation Quality ──────────

@@ -1,4 +1,4 @@
-﻿
+
 import io
 import json
 import logging
@@ -72,10 +72,16 @@ log_filename = LOG_DIR / f"daily_update_{datetime.now().strftime('%Y%m%d')}.log"
 file_handler = logging.FileHandler(log_filename, encoding="utf-8")
 file_handler.setFormatter(JsonFormatter())
 
+# WHY: Chỉ wrap stdout MỘT LẦN ở module level.
+#   pytest đã capture sys.stdout rồi; nếu wrap lại lần nữa (double wrap)
+#   khi capture teardown thì "ValueError: I/O operation on closed file".
+#   Reassign sys.stdout TRƯỚC khi tạo console_handler để handler nhận đúng
+#   stream đã wrap — KHÔNG wrap qua handler.stream (double wrapper).
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-if sys.platform == "win32":
-    console_handler.stream = io.TextIOWrapper(console_handler.stream.buffer, encoding='utf-8', line_buffering=True)
 
 logger = logging.getLogger("PTCK_UPDATER")
 logger.setLevel(logging.INFO)
@@ -252,15 +258,17 @@ def _fallback_fetch_single(symbol: str) -> pd.DataFrame:
 
 
 @retry_with_backoff("update_market_batch", max_retries=2, base_delay=10)
-def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
-    batch_size = 50
+def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batch_size: int = 50, throttle_sec: float = 1.8):
     success = 0
     failed = 0
     skipped = 0
     total_symbols = len(symbols)
     start_time = time.time()
 
-    t = Trading(source='kbs')
+    # WHY: random_agent=True xoay User-Agent mỗi request → giảm rủi ro IP ban
+    #   khi pull 1514 mã liên tục. batch_size + throttle là 2 van điều tiết:
+    #   batch nhỏ + delay ngẫu nhiên giữa các batch để không thành burst.
+    t = Trading(source='kbs', random_agent=True)
 
     total_batches = (len(symbols) + batch_size - 1) // batch_size
     _progress_bar(0, total_batches, 0, 0, 0, start_time)
@@ -344,10 +352,11 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor):
         _progress_bar(batch_num, total_batches, success, failed, skipped, start_time)
         armor.throttling(is_error=False)
 
-        # WHY: Jitter delay 0.8-1.8s giữa các batch tránh bị API (TCBS/SSI/VND) chặn IP
-        #      do rate limit. 0.8s floor vẫn an toàn, 1.8s ceiling giới hạn tổng thời gian
-        #      ~28s cho 31 batches (so với ~58s ở bản 1.2-2.5s cũ).
-        time.sleep(random.uniform(0.8, 1.8))
+        # WHY: Jitter delay giữa các batch tránh bị API (TCBS/SSI/VND) chặn IP
+        #      do rate limit. floor = 0.6*throttle_sec, ceiling = throttle_sec
+        #      (mặc định 0.8-1.8s). Scale theo throttle_sec để operator điều tiết
+        #      khi bị ban mà không cần sửa code.
+        time.sleep(random.uniform(0.6 * throttle_sec, throttle_sec))
 
     elapsed = time.time() - start_time
     sys.stdout.write(
@@ -817,7 +826,7 @@ def run_light_maintenance():
 # ============================================================
 # 8. MAIN ORCHESTRATOR
 # ============================================================
-def run_daily_update(target_date=None, manifest_path=None):
+def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50, throttle_sec: float = 1.8):
     if manifest_path:
         run_daily_update._manifest_path = manifest_path
     if target_date is None:
@@ -989,7 +998,7 @@ def run_daily_update(target_date=None, manifest_path=None):
         armor = EliteArmor()
         logger.info(f"📦 Tổng số mã cần cập nhật: {len(symbols_in_db)}")
 
-        success, failed, skipped = update_market_batch(symbols_in_db, target_date, armor)
+        success, failed, skipped = update_market_batch(symbols_in_db, target_date, armor, batch_size=batch_size, throttle_sec=throttle_sec)
         report["market_success"] = success
         report["market_failed"] = failed
         report["market_skipped"] = skipped
@@ -1011,7 +1020,9 @@ def run_daily_update(target_date=None, manifest_path=None):
             from src.financial.market_behavior_engine import MarketBehaviorEngine
             mb = MarketBehaviorEngine()
             mb.init_schema()
-            mb.scan(target_symbols)
+            # WHY: scan_multi (không phải scan) — MarketBehaviorEngine chỉ expose
+            #      scan_multi(target_symbols), scan(single) không tồn tại.
+            mb.scan_multi(target_symbols)
             logger.info(f"  ✅ L4: Volume Profile scanned ({len(target_symbols)} symbols)")
 
             # L3: Recompute valuation (latest prices from screener_cache.db)
@@ -1030,7 +1041,8 @@ def run_daily_update(target_date=None, manifest_path=None):
             logger.info(f"  ✅ Governor Matrix: {gov_result['symbols']} symbols analyzed")
 
             # Save JSON report
-            import json
+            # WHY: dùng json module-level (đã import đầu file). KHÔNG `import json` cục bộ ở đây —
+            #      từng gây UnboundLocalError ở Step 11a vì local name shadow module-level.
             gov_path = PROJECT_ROOT / "backend" / "data" / "output" / "governor_matrix_latest.json"
             gov_path.parent.mkdir(parents=True, exist_ok=True)
             gov_path.write_text(
@@ -1140,7 +1152,10 @@ def run_daily_update(target_date=None, manifest_path=None):
                     "HPG", "VHM", "DGC", "MWG", "GAS",
                 ]
                 ch_engine = CompanyHealthV2()
+                # WHY: analyze_many trả dict {symbol: HealthState} — không phải list.
+                #      Dùng .values() + lọc None (symbol có thể không có đủ dữ liệu).
                 ch_states = ch_engine.analyze_many(TARGET_SYMBOLS)
+                ch_states = [s for s in ch_states.values() if s is not None]
                 report["health_v2"] = {
                     "n_symbols": len(ch_states),
                     "high_quality_compounders": [
@@ -1215,6 +1230,46 @@ def run_daily_update(target_date=None, manifest_path=None):
         except Exception as e:
             logger.warning(f"⚠️ Calibration resolve failed: {e}")
             report["calibration_resolve"] = {"status": f"FAILED: {str(e)}"}
+
+        # Step 11a: HCI History — append per-symbol explain snapshot
+        # WHY: Governor EOD ghi hci_history.json (list). Dedupe theo (symbol,date):
+        #      chạy lại cùng ngày KHÔNG nhân bản records (từng append 40 bản cho
+        #      cùng 1 ngày qua nhiều run). record_outcome bên trên cũng dựa vào
+        #      prediction_log chứ không phải file này — file này là observability.
+        try:
+            TARGET_SYMBOLS = [
+                "FPT", "ACB", "HDB", "MBB", "VCB",
+                "HPG", "VHM", "DGC", "MWG", "GAS",
+            ]
+            from src.governor.hci_explain import HCIExplainEngine
+            hci_eng = HCIExplainEngine()
+            hci_path = PROJECT_ROOT / "backend" / "data" / "output" / "hci_history.json"
+            existing = []
+            if hci_path.exists():
+                existing = json.loads(hci_path.read_text(encoding="utf-8-sig"))
+            seen = {}
+            for r in existing:
+                key = (r.get("symbol"), r.get("date"))
+                seen[key] = r
+            for sym in TARGET_SYMBOLS:
+                try:
+                    h = hci_eng.explain(sym)
+                    key = (h.get("symbol"), h.get("date"))
+                    seen[key] = h
+                except Exception as se:
+                    logger.warning(f"⚠️ HCI explain {sym}: {se}")
+            hci_path.write_text(
+                json.dumps(list(seen.values()), indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            report["hci_history"] = {
+                "n_records": len(seen),
+                "output": str(hci_path),
+            }
+            logger.info(f"  🧠 HCI History: {len(seen)} records")
+        except Exception as e:
+            logger.warning(f"⚠️ HCI history update failed: {e}")
+            report["hci_history"] = {"status": f"FAILED: {str(e)}"}
 
         # Step 11c: ModelRegistry BMA — feed per-model resolved outcomes
         # WHY (P0): prediction_log now stores 3 rows per (date,symbol)
@@ -1295,15 +1350,15 @@ def run_daily_update(target_date=None, manifest_path=None):
 
 if __name__ == "__main__":
     import argparse
-    import io
 
-    # Fix Windows console encoding
-    if sys.platform == "win32":
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+    # WHY: KHÔNG wrap lại sys.stdout ở đây — module level (console_handler) đã
+    #      wrap 1 lần duy nhất. Re-wrap nữa = double wrap → "I/O operation on
+    #      closed file" giữa pipeline (bug từng xảy ra trong prod).
     parser = argparse.ArgumentParser(description="PTCK Daily Updater (Production-Grade)")
     parser.add_argument("--date", type=str, default=None, help="Target date (YYYY-MM-DD)")
     parser.add_argument("--manifest", type=str, default=None, help="Path to missing_manifest.json for gap filling")
+    parser.add_argument("--batch-size", type=int, default=50, help="Symbols per batch (default 50; giảm khi bị IP ban)")
+    parser.add_argument("--throttle", type=float, default=1.8, help="Delay giây giữa các batch (default 1.8; tăng khi bị IP ban)")
     args = parser.parse_args()
 
-    run_daily_update(args.date, args.manifest)
+    run_daily_update(args.date, args.manifest, batch_size=args.batch_size, throttle_sec=args.throttle)

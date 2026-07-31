@@ -198,11 +198,14 @@ def cmd_daily_update(args):
     """Cập nhật dữ liệu EOD."""
     date = getattr(args, 'date', None)
     manifest = getattr(args, 'manifest', None)
+    batch_size = getattr(args, 'batch_size', 50)
+    throttle = getattr(args, 'throttle', 1.8)
     cmd = [sys.executable, str(backend_dir / "src" / "daily_updater.py")]
     if date:
         cmd += ["--date", date]
     if manifest:
         cmd += ["--manifest", manifest]
+    cmd += ["--batch-size", str(batch_size), "--throttle", str(throttle)]
     print(f"  Chạy: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     if result.returncode != 0:
@@ -2747,6 +2750,57 @@ def cmd_contextual_health(args):
     engine.close()
 
 
+def cmd_health_engine(args):
+    """Giai đoạn 2: Company Health Engine — compute health_ratios từ financial_facts.
+
+    Đây là bước BẮT BUỘC giữa cafef-crawl/fetch-financials (nạp financial_facts)
+    và health-v2 (đọc health_ratios). Nếu thiếu bước này, mã mới (VD BCM) có
+    financial_facts nhưng health_ratios = 0 rows → health-v2 trả NO DATA.
+    """
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.financial.company_health_engine import HealthEngine
+
+    action = args.action
+    engine = HealthEngine()
+
+    if action == "init":
+        engine.init_schema()
+        print("  ✅ health_ratios schema initialized")
+
+    elif action == "compute":
+        for sym in args.symbols:
+            print(f"\n  [{sym}] Computing health ratios...")
+            result = engine.compute_health(sym)
+            if result.get("status") == "NO_DATA":
+                print(f"  ⚠️ {sym}: NO DATA (không có financial_facts — chạy cafef-crawl trước)")
+            else:
+                print(f"  ✅ {result['symbol']}: {result['periods']} periods, "
+                      f"{result['total_ratios']} ratios")
+
+    elif action == "show":
+        for sym in args.symbols:
+            h = engine.get_latest_health(sym)
+            if not h:
+                print(f"\n  {sym}: NO DATA")
+                continue
+            print(f"\n  {'='*50}")
+            print(f"  {sym} ({h['period']})")
+            print(f"  {'='*50}")
+            for cat, ratios in h["ratios"].items():
+                print(f"\n  [{cat.upper()}]")
+                for r in ratios:
+                    ico = {"GOOD": "🟢", "WARNING": "🟡", "BAD": "🔴", "NEUTRAL": "⚪"}
+                    val = r["value"]
+                    if val is not None and abs(val) < 10:
+                        vs = f"{val:.2%}"
+                    elif val is not None:
+                        vs = f"{val:.2f}x"
+                    else:
+                        vs = "N/A"
+                    print(f"    {ico.get(r['interpretation'], '⚪')} {r['ratio']:25s} = {vs:>10s}  ({r['interpretation']})")
+
+
 def cmd_watch(args):
     """Giám sát Volume Spike — phát hiện nến xác nhận để kích hoạt Scale-In."""
     if sys.platform == "win32":
@@ -2851,6 +2905,76 @@ def cmd_health_v2(args):
     engine = CompanyHealthV2()
     states = engine.analyze_many(symbols)
     print_health_report(states)
+
+
+def cmd_hci_explain(args):
+    """HCI Explain — Causal DAG Trace từ World FedState xuống điểm số doanh nghiệp.
+
+    Render 4 thành tố First-Principles:
+      1. Causal DAG Trace (cây vết truyền dẫn) với lag + confidence từng hop
+      2. Tách Facts (dữ liệu thực) vs Surprise (độ lệch kỳ vọng / latent state)
+      3. Entropy/Confidence của chuỗi truyền dẫn (1 - H/H_max)
+      4. Attribution: Policy Rate vs Hawkish Dissent
+
+    Modes:
+      --symbols VCB FPT   : per-symbol report (default)
+      --sector Banking    : sector comparison table
+      --list-sectors      : show available sector names
+    """
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.governor.hci_explain import (
+        HCIExplainEngine, print_hci_explain,
+        resolve_sector_symbols, list_sectors,
+        print_sector_hci_comparison,
+    )
+
+    # ── --list-sectors: show available sectors and exit ────────────────
+    if getattr(args, "list_sectors", False):
+        sectors = list_sectors()
+        if not sectors:
+            print("  No sector data available. Run sector rotation first.")
+            return
+        print(f"\n  Available sectors ({len(sectors)}):")
+        for s in sectors:
+            print(f"    - {s}")
+        print()
+        return
+
+    # ── --sector: sector comparison mode ───────────────────────────────
+    sector_query = getattr(args, "sector", None)
+    if sector_query:
+        symbols = resolve_sector_symbols(sector_query)
+        if not symbols:
+            print(f"  Sector '{sector_query}' not found. Use --list-sectors to see available sectors.")
+            return
+        engine = HCIExplainEngine()
+        results = []
+        for sym in symbols:
+            try:
+                result = engine.explain(sym)
+                results.append(result)
+            except Exception as e:
+                print(f"  ⚠️ {sym}: {e}")
+        if getattr(args, "output", "report") == "json":
+            import json
+            print(json.dumps(results, indent=2, ensure_ascii=False, default=str))
+        else:
+            print_sector_hci_comparison(results, sector_query)
+        return
+
+    # ── Default: per-symbol reports ────────────────────────────────────
+    engine = HCIExplainEngine()
+    results = []
+    for sym in args.symbols:
+        result = engine.explain(sym)
+        results.append(result)
+        if getattr(args, "output", "report") == "json":
+            continue
+        print_hci_explain(result, _VERBOSE_LANG)
+    if getattr(args, "output", "report") == "json":
+        import json
+        print(json.dumps(results, indent=2, ensure_ascii=False, default=str))
 
 
 def cmd_governor_report(args):
@@ -3763,6 +3887,10 @@ def build_parser():
     p_du = sub.add_parser("daily-update", parents=[lang_parent], help="Cập nhật dữ liệu EOD")
     p_du.add_argument("--date", help="Ngày (YYYY-MM-DD)")
     p_du.add_argument("--manifest", help="Path to missing_manifest.json (gap filling)")
+    p_du.add_argument("--batch-size", type=int, default=50,
+                      help="Số mã mỗi request KBS (mặc định 50, giảm xuống 20 nếu payload lớn)")
+    p_du.add_argument("--throttle", type=float, default=1.8,
+                      help="Delay giây tối đa giữa các batch (mặc định 1.8, tăng lên 3.5 khi quét toàn bộ thị trường)")
     p_du.set_defaults(func=cmd_daily_update)
 
     # gap-analyzer
@@ -4136,6 +4264,16 @@ def build_parser():
     ], help="Danh sách mã")
     p_ch_vi.set_defaults(func=cmd_contextual_health)
 
+    # ── Giai đoạn 2: Company Health Engine (compute health_ratios) ──
+    p_he = sub.add_parser("health-engine", parents=[lang_parent],
+                          help="Giai đoạn 2 — compute health_ratios từ financial_facts (bước bắt buộc trước health-v2)")
+    p_he.add_argument("action", choices=["init", "compute", "show"],
+                      help="init: tạo schema; compute: tính ratios; show: xem latest")
+    p_he.add_argument("--symbols", nargs="+", default=[
+        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
+    ], help="Danh sách mã")
+    p_he.set_defaults(func=cmd_health_engine)
+
     # ── Giai đoạn 4: Capital Allocation Quality ──────────
     p_ca = sub.add_parser("capital-allocation", parents=[lang_parent],
                           help="Giai đoạn 4 — Capital Allocation Quality (Management Value Creation)")
@@ -4316,6 +4454,19 @@ def build_parser():
         "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
     ], help="Danh sách mã")
     p_h2.set_defaults(func=cmd_health_v2)
+
+    # hci-explain (HCI Causal Trace Explainer)
+    p_hci = sub.add_parser("hci-explain", parents=[lang_parent],
+                           help="HCI Explain — Causal DAG Trace từ World FedState xuống điểm số doanh nghiệp")
+    p_hci.add_argument("--symbols", nargs="+", default=["VCB"],
+                       help="Danh sách mã cổ phiếu cần giải thích (mặc định: VCB)")
+    p_hci.add_argument("--sector", type=str, default=None,
+                       help="So sánh HCI trong cùng ngành (VD: --sector Ngân hàng)")
+    p_hci.add_argument("--list-sectors", action="store_true",
+                       help="Hiển thị danh sách ngành ICB có sẵn")
+    p_hci.add_argument("--output", choices=["report", "json"], default="report",
+                       help="Định dạng đầu ra (report hoặc json)")
+    p_hci.set_defaults(func=cmd_hci_explain)
 
     # macro-governor
     p_mg = sub.add_parser("macro", parents=[lang_parent], help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")
