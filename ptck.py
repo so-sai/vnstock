@@ -2921,8 +2921,11 @@ def cmd_health_v2(args):
     print_health_report(states)
 
 
-def cmd_hci_explain(args):
-    """HCI Explain — Causal DAG Trace từ World FedState xuống điểm số doanh nghiệp.
+def cmd_csi_explain(args):
+    """CSI Explain — Causal DAG Trace từ World FedState xuống điểm số doanh nghiệp.
+
+    CSI (Contextual Security Index / Chỉ Số An Toàn Bối Cảnh) — điểm số
+    bối cảnh của từng mã chứng khoán.
 
     Render 4 thành tố First-Principles:
       1. Causal DAG Trace (cây vết truyền dẫn) với lag + confidence từng hop
@@ -2937,10 +2940,10 @@ def cmd_hci_explain(args):
     """
     if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    from src.governor.hci_explain import (
-        HCIExplainEngine, print_hci_explain,
+    from src.governor.csi_explain import (
+        CSIExplainEngine, print_csi_explain,
         resolve_sector_symbols, list_sectors,
-        print_sector_hci_comparison,
+        print_sector_csi_comparison,
     )
 
     # ── --list-sectors: show available sectors and exit ────────────────
@@ -2962,7 +2965,7 @@ def cmd_hci_explain(args):
         if not symbols:
             print(f"  Sector '{sector_query}' not found. Use --list-sectors to see available sectors.")
             return
-        engine = HCIExplainEngine()
+        engine = CSIExplainEngine()
         results = []
         for sym in symbols:
             try:
@@ -2974,18 +2977,18 @@ def cmd_hci_explain(args):
             import json
             print(json.dumps(results, indent=2, ensure_ascii=False, default=str))
         else:
-            print_sector_hci_comparison(results, sector_query)
+            print_sector_csi_comparison(results, sector_query)
         return
 
     # ── Default: per-symbol reports ────────────────────────────────────
-    engine = HCIExplainEngine()
+    engine = CSIExplainEngine()
     results = []
     for sym in args.symbols:
         result = engine.explain(sym)
         results.append(result)
         if getattr(args, "output", "report") == "json":
             continue
-        print_hci_explain(result, _VERBOSE_LANG)
+        print_csi_explain(result, _VERBOSE_LANG)
     if getattr(args, "output", "report") == "json":
         import json
         print(json.dumps(results, indent=2, ensure_ascii=False, default=str))
@@ -4469,18 +4472,18 @@ def build_parser():
     ], help="Danh sách mã")
     p_h2.set_defaults(func=cmd_health_v2)
 
-    # hci-explain (HCI Causal Trace Explainer)
-    p_hci = sub.add_parser("hci-explain", parents=[lang_parent],
-                           help="HCI Explain — Causal DAG Trace từ World FedState xuống điểm số doanh nghiệp")
-    p_hci.add_argument("--symbols", nargs="+", default=["VCB"],
+    # csi-explain (CSI Causal Trace Explainer)
+    p_csi = sub.add_parser("csi-explain", parents=[lang_parent],
+                           help="CSI Explain — Causal DAG Trace từ World FedState xuống điểm số doanh nghiệp (Contextual Security Index)")
+    p_csi.add_argument("--symbols", nargs="+", default=["VCB"],
                        help="Danh sách mã cổ phiếu cần giải thích (mặc định: VCB)")
-    p_hci.add_argument("--sector", type=str, default=None,
-                       help="So sánh HCI trong cùng ngành (VD: --sector Ngân hàng)")
-    p_hci.add_argument("--list-sectors", action="store_true",
+    p_csi.add_argument("--sector", type=str, default=None,
+                       help="So sánh CSI trong cùng ngành (VD: --sector Ngân hàng)")
+    p_csi.add_argument("--list-sectors", action="store_true",
                        help="Hiển thị danh sách ngành ICB có sẵn")
-    p_hci.add_argument("--output", choices=["report", "json"], default="report",
+    p_csi.add_argument("--output", choices=["report", "json"], default="report",
                        help="Định dạng đầu ra (report hoặc json)")
-    p_hci.set_defaults(func=cmd_hci_explain)
+    p_csi.set_defaults(func=cmd_csi_explain)
 
     # macro-governor
     p_mg = sub.add_parser("macro", parents=[lang_parent], help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")

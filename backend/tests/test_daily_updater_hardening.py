@@ -8,7 +8,7 @@ WHY: 31/07/2026 quét full 1514 mã phát hiện 6 lớp bug mà suite cũ KHÔN
   3. `import json` cục bộ trong run_daily_update shadow module-level -> UnboundLocalError.
   4. `MarketBehaviorEngine.scan()` (API không tồn tại) -> AttributeError.
   5. `CompanyHealthV2.analyze_many()` trả dict chứ không phải list -> lỗi `.archetype`.
-  6. HCI history append không dedupe (symbol,date) -> trùng record khi chạy lại.
+  6. CSI history append không dedupe (symbol,date) -> trùng record khi chạy lại.
 
 Các test này là static-source + API contract nhẹ (chạy nhanh, không cần network),
 để maintainer bắt regression ngay mà không phải chạy full-market 4 phút.
@@ -198,15 +198,15 @@ class TestEngineApiContracts:
 
 
 # ============================================================
-# BUG 6: HCI history dedupe (symbol,date)
+# BUG 6: CSI history dedupe (symbol,date)
 # ============================================================
-class TestHciHistoryDedupe:
+class TestCsiHistoryDedupe:
     """WHY: chạy daily-update nhiều lần/ngày sẽ append trùng (symbol,date);
     90d window phình to và drift detection đọc sai baseline."""
 
     def test_step_11a_dedupes_by_symbol_date(self):
         src = _src(DAILY_UPDATER)
-        assert 'hci_path = PROJECT_ROOT / "backend" / "data" / "output" / "hci_history.json"' in src
+        assert 'csi_path = PROJECT_ROOT / "backend" / "data" / "output" / "csi_history.json"' in src
         assert "seen = {}" in src, "Mất dedupe map — re-run sẽ tạo bản ghi trùng (symbol,date)."
         assert 'key = (r.get("symbol"), r.get("date"))' in src, "Mất key dedupe (symbol,date)."
         assert "list(seen.values())" in src

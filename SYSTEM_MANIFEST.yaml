@@ -447,10 +447,10 @@ entrypoints:
     cli: "python ptck.py health-v2 [--symbols FPT VCB ...]"
     category: company
 
-  # ── HCI Explain (Causal DAG Trace) ──────────────────────
-  hci_explain:
-    description: "HCI Explain — Cây vết truyền dẫn (Causal DAG Trace) từ World FedState xuống điểm HCI doanh nghiệp. Tách Facts vs Surprise + Entropy/Confidence chuỗi. Hỗ trợ so sánh cùng ngành."
-    cli: "python ptck.py hci-explain --symbols VCB FPT ... [--sector Banking] [--list-sectors] [--output report|json]"
+  # ── CSI Explain (Causal DAG Trace) ──────────────────────
+  csi_explain:
+    description: "CSI Explain — Cây vết truyền dẫn (Causal DAG Trace) từ World FedState xuống điểm CSI doanh nghiệp (Contextual Security Index / Chỉ Số An Toàn Bối Cảnh). Tách Facts vs Surprise + Entropy/Confidence chuỗi. Hỗ trợ so sánh cùng ngành."
+    cli: "python ptck.py csi-explain --symbols VCB FPT ... [--sector Banking] [--list-sectors] [--output report|json]"
     category: company
 
   # ── Governor P3 Bayesian Expected Utility ─────────────

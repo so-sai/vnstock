@@ -1237,7 +1237,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             logger.warning(f"⚠️ Calibration resolve failed: {e}")
             report["calibration_resolve"] = {"status": f"FAILED: {str(e)}"}
 
-        # Step 11a: HCI History — append per-symbol explain snapshot
+        # Step 11a: CSI History — append per-symbol explain snapshot
         # WHY: Governor EOD ghi hci_history.json (list). Dedupe theo (symbol,date):
         #      chạy lại cùng ngày KHÔNG nhân bản records (từng append 40 bản cho
         #      cùng 1 ngày qua nhiều run). record_outcome bên trên cũng dựa vào
@@ -1247,35 +1247,35 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                 "FPT", "ACB", "HDB", "MBB", "VCB",
                 "HPG", "VHM", "DGC", "MWG", "GAS",
             ]
-            from src.governor.hci_explain import HCIExplainEngine
-            hci_eng = HCIExplainEngine()
-            hci_path = PROJECT_ROOT / "backend" / "data" / "output" / "hci_history.json"
+            from src.governor.csi_explain import CSIExplainEngine
+            csi_eng = CSIExplainEngine()
+            csi_path = PROJECT_ROOT / "backend" / "data" / "output" / "csi_history.json"
             existing = []
-            if hci_path.exists():
-                existing = json.loads(hci_path.read_text(encoding="utf-8-sig"))
+            if csi_path.exists():
+                existing = json.loads(csi_path.read_text(encoding="utf-8-sig"))
             seen = {}
             for r in existing:
                 key = (r.get("symbol"), r.get("date"))
                 seen[key] = r
             for sym in TARGET_SYMBOLS:
                 try:
-                    h = hci_eng.explain(sym)
+                    h = csi_eng.explain(sym)
                     key = (h.get("symbol"), h.get("date"))
                     seen[key] = h
                 except Exception as se:
-                    logger.warning(f"⚠️ HCI explain {sym}: {se}")
-            hci_path.write_text(
+                    logger.warning(f"⚠️ CSI explain {sym}: {se}")
+            csi_path.write_text(
                 json.dumps(list(seen.values()), indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
-            report["hci_history"] = {
+            report["csi_history"] = {
                 "n_records": len(seen),
-                "output": str(hci_path),
+                "output": str(csi_path),
             }
-            logger.info(f"  🧠 HCI History: {len(seen)} records")
+            logger.info(f"  🧠 CSI History: {len(seen)} records")
         except Exception as e:
-            logger.warning(f"⚠️ HCI history update failed: {e}")
-            report["hci_history"] = {"status": f"FAILED: {str(e)}"}
+            logger.warning(f"⚠️ CSI history update failed: {e}")
+            report["csi_history"] = {"status": f"FAILED: {str(e)}"}
 
         # Step 11c: ModelRegistry BMA — feed per-model resolved outcomes
         # WHY (P0): prediction_log now stores 3 rows per (date,symbol)

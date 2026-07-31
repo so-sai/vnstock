@@ -9,7 +9,7 @@ Evidence nodes (v3):
   P2: HealthArchetype     L3: ValuationZone        L4: BehaviorZone
   GĐ4: CapitalAllocation  GĐ7: ModelRegistry BMA
 
-Output layers (HCI Inverted Pyramid):
+Output layers (CSI Inverted Pyramid):
   Tầng 1: verdict + 3 core reasons (end-investor reads first)
   Tầng 2: action ranking table with human-readable business status
   Tầng 3: developer audit trail (BMA weights, EU ranking, context)
@@ -181,7 +181,7 @@ LR_VALUATION = {
     "ULTRA_EXPENSIVE": 0.30,
 }
 
-# ── MoS Zone taxonomy (HCI v2 — Absolute Value First) ───────────
+# ── MoS Zone taxonomy (CSI v2 — Absolute Value First) ───────────
 # WHY: MoS (Margin of Safety) from FairMultipleEngine is the PRIMARY
 #   valuation signal. Z-Score is demoted to secondary context tag.
 #   LR mapping converts MOS zone → internal LR_VALUATION key so
@@ -207,7 +207,7 @@ MOS_ZONE_THRESHOLDS = [
 
 
 def _compute_mos_zone(mos_pct: Optional[float]) -> str:
-    """Map MoS % to zone. MoS is PRIMARY valuation signal (HCI v2)."""
+    """Map MoS % to zone. MoS is PRIMARY valuation signal (CSI v2)."""
     if mos_pct is None:
         return MOS_ZONE_NO_DATA
     for zone, threshold in MOS_ZONE_THRESHOLDS:
@@ -219,7 +219,7 @@ def _compute_mos_zone(mos_pct: Optional[float]) -> str:
 def _format_market_context_tag(val: dict) -> str:
     """Format Z-Score context as secondary tag.
 
-    HCI v2: Z-Score is demoted to a Market Context Tag.
+    CSI v2: Z-Score is demoted to a Market Context Tag.
     Tag format: "{mode}: {label}"
       mode = TS / CS / Peer
       label = Premium / Discount / Fair
@@ -798,7 +798,7 @@ class BayesianMandate:
     fair_sector: str = ""
     fair_status: str = ""
 
-    # HCI v2 — MoS Zone (PRIMARY signal) + Market Context Tag (secondary)
+    # CSI v2 — MoS Zone (PRIMARY signal) + Market Context Tag (secondary)
     mos_zone: str = MOS_ZONE_NO_DATA
     market_context_tag: str = "NO_DATA"
 
@@ -961,7 +961,7 @@ class BayesianGovernor:
         except Exception:
             pass
 
-        # ── HCI v2: MoS Zone replaces Z-Score as PRIMARY valuation signal ──
+        # ── CSI v2: MoS Zone replaces Z-Score as PRIMARY valuation signal ──
         mos_zone = _compute_mos_zone(fair.get("margin_of_safety_pct"))
         market_context_tag = _format_market_context_tag(val)
         lr_val_override = None
@@ -1232,7 +1232,7 @@ class BayesianGovernor:
             fair_g=fair.get("g"),
             fair_sector=fair.get("sector", ""),
             fair_status=fair.get("status", ""),
-            # HCI v2 — MoS Zone (PRIMARY) + Market Context Tag (secondary)
+            # CSI v2 — MoS Zone (PRIMARY) + Market Context Tag (secondary)
             mos_zone=val.get("_mos_zone", MOS_ZONE_NO_DATA),
             market_context_tag=val.get("_market_context_tag", "NO_DATA"),
             behavior_position=beh.get("position", "UNKNOWN"),
@@ -1318,7 +1318,7 @@ BUSINESS_STATUS_MAP = {
     "UNKNOWN": "Không rõ (Unknown)",
 }
 
-# ── HCI v2 — MoS Zone display (PRIMARY valuation signal) ─────
+# ── CSI v2 — MoS Zone display (PRIMARY valuation signal) ─────
 # WHY: MoS (Margin of Safety) from FairMultipleEngine replaces
 #   Z-Score as the primary valuation signal in Tầng 2.
 #   Z-Score is demoted to "Market Context Tag" (secondary).
@@ -1328,7 +1328,7 @@ BUSINESS_STATUS_MAP = {
 
 
 def print_report(analysis: Dict):
-    """Inverted Pyramid 3-Tầng HCI report.
+    """Inverted Pyramid 3-Tầng CSI report.
     
     WHY: End-investor reads Tầng 1 (verdict + 3 reasons) first,
          skims Tầng 2 (ranking table), and ignores Tầng 3 (dev audit).
@@ -1407,7 +1407,7 @@ def print_report(analysis: Dict):
     print(f"  📊 {_('ACTION RANKING')} ({_('SORTED BY P(Gain) DESC')}):")
     print(f"  {'='*95}")
 
-    # HCI v2 — Absolute Value First: MoS Zone is PRIMARY
+    # CSI v2 — Absolute Value First: MoS Zone is PRIMARY
     MOS_EMOJI = {MOS_ZONE_UNDERVALUED: "🟢", MOS_ZONE_FAIR_VALUE: "🟡",
                  MOS_ZONE_OVERVALUED: "🔴", MOS_ZONE_NO_DATA: "⚪"}
     MOS_ABBR = {MOS_ZONE_UNDERVALUED: "HD", MOS_ZONE_FAIR_VALUE: "HL",

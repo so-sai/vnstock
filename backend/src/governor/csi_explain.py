@@ -1,23 +1,26 @@
-"""hci_explain.py — HCI Causal Trace Explainer (First-Principles CLI).
+"""csi_explain.py — CSI Causal Trace Explainer (First-Principles CLI).
+
+CSI (Contextual Security Index / Chỉ Số An Toàn Bối Cảnh) — point score
+per security under the current macro/transmission/sector context.
 
 WHY: The flat-table CLI output (print_report, Tầng 2) collapses the entire
 multi-layer macro transmission chain (World FedState → VN macro → sector →
-company) into a single row of numbers. An operator cannot see WHY an HCI
+company) into a single row of numbers. An operator cannot see WHY a CSI
 score dropped. This module renders the Causal DAG Trace (Cây vết truyền dẫn)
-behind a company's HCI score:
+behind a company's CSI score:
 
     [FED_TARGET_RATE=5.50] (Fact)
        │──(lag 1-30d)──> [DXY_USD=100.05]
        │──(lag 1-10d)──> [US10Y_YIELD=4.66%]
        │
        ▼
-    [INTEREST_RATE] → [NIM] → [VCB HCI: 0.41 ↓ (DISCOUNT -18%)] (Conf: 0.63)
+    [INTEREST_RATE] → [NIM] → [VCB CSI: 0.41 ↓ (DISCOUNT -18%)] (Conf: 0.63)
 
 Three First-Principles display contracts:
   1. Causal Trace Output — DAG path with per-hop lag + confidence.
   2. Facts vs Surprise — measured values (Fed rate, DXY) vs latent states
      (FED_UNCERTAINTY from hawkish dissent, macro/transmission/sector phase).
-  3. Entropy/Confidence — HCI carries chain confidence = 1 - normalized entropy.
+  3. Entropy/Confidence — CSI carries chain confidence = 1 - normalized entropy.
 """
 
 import json
@@ -86,7 +89,7 @@ ARCHETYPE_SOURCE_NODE = {
 MAX_ENTROPY = 2.322
 
 
-class HCIExplainEngine:
+class CSIExplainEngine:
     """Build the causal DAG trace + confidence for a single symbol."""
 
     def __init__(self):
@@ -298,7 +301,7 @@ class HCIExplainEngine:
     # ── Attribution: Policy Rate vs Hawkish Dissent ───────────────────
 
     def _attribution(self) -> Dict:
-        """Clarify whether HCI pressure comes from the rate LEVEL (fact)
+        """Clarify whether CSI pressure comes from the rate LEVEL (fact)
         or from hawkish DISSENT (surprise/latent state)."""
         w = self._get_world()
         fed_rate = float(w.get("fed_target_rate") or 0.0)
@@ -316,13 +319,13 @@ class HCIExplainEngine:
             )
         elif policy_rate_active:
             primary = "policy_rate"
-            message = "HCI bị kìm bởi MỨC LÃI SUẤT (Fact — policy rate còn cao)."
+            message = "CSI bị kìm bởi MỨC LÃI SUẤT (Fact — policy rate còn cao)."
         elif dissent_active:
             primary = "dissent"
-            message = "HCI bị kìm bởi BẤT ĐỒNG DIỀU HÀNH (Surprise — hawkish dissent)."
+            message = "CSI bị kìm bởi BẤT ĐỒNG DIỀU HÀNH (Surprise — hawkish dissent)."
         else:
             primary = "none"
-            message = "Chuỗi World không tạo áp lực rõ ràng lên HCI."
+            message = "Chuỗi World không tạo áp lực rõ ràng lên CSI."
 
         return {
             "primary": primary,
@@ -337,7 +340,7 @@ class HCIExplainEngine:
     # ── Main explain ──────────────────────────────────────────────────
 
     def explain(self, symbol: str) -> Dict:
-        """Assemble the full HCI explanation for one symbol."""
+        """Assemble the full CSI explanation for one symbol."""
         perception = self._get_perception()
 
         # P0 / P1 / P2 states (single source of truth — loaded once).
@@ -349,20 +352,20 @@ class HCIExplainEngine:
         # Business archetype drives the causal trace (has CausalGraph edges).
         business_arch = self._business_archetype(symbol)
 
-        # P3 governor — HCI score + MoS + action.
+        # P3 governor — CSI score + MoS + action.
         try:
             from src.governor.company_state import BayesianGovernor
             gov = BayesianGovernor()
             mandate = gov.assess(symbol)
             gov.close()
-            hci = {
+            csi = {
                 "p_gain": mandate.p_gain,
                 "action": mandate.action,
                 "mos": mandate.margin_of_safety,
                 "market_context": mandate.market_context_tag,
             }
         except Exception:
-            hci = {"p_gain": 0.5, "action": "N/A", "mos": None, "market_context": "N/A"}
+            csi = {"p_gain": 0.5, "action": "N/A", "mos": None, "market_context": "N/A"}
 
         # Sector leg.
         sector_name = self._symbol_sector(symbol)
@@ -384,7 +387,7 @@ class HCIExplainEngine:
         edge_chain_conf = (
             hop_confidences[-1] if hop_confidences else chain_conf
         )
-        hci_confidence = round(0.7 * chain_conf + 0.3 * edge_chain_conf, 3)
+        csi_confidence = round(0.7 * chain_conf + 0.3 * edge_chain_conf, 3)
 
         return {
             "symbol": symbol,
@@ -397,13 +400,13 @@ class HCIExplainEngine:
             "archetype": business_arch,
             "health_archetype": health_arch,
             "trace": trace,
-            "hci": hci,
+            "csi": csi,
             "entropy": {
                 "macro_entropy": round(macro_entropy, 4),
                 "max_entropy": MAX_ENTROPY,
                 "chain_confidence": chain_conf,
                 "edge_chain_confidence": round(edge_chain_conf, 3),
-                "hci_confidence": hci_confidence,
+                "csi_confidence": csi_confidence,
             },
             "attribution": self._attribution(),
         }
@@ -421,10 +424,10 @@ def _fmt_mos(mos: Optional[float]) -> str:
     return f"MoS: {mos:+.1f}% ({zone})"
 
 
-def print_hci_explain(result: Dict, lang_mode: str = "full") -> None:
-    """Render the HCI causal trace as an ASCII DAG."""
+def print_csi_explain(result: Dict, lang_mode: str = "full") -> None:
+    """Render the CSI causal trace as an ASCII DAG."""
     sym = result["symbol"]
-    hci = result["hci"]
+    csi = result["csi"]
     trace = result["trace"]
     ent = result["entropy"]
     attr = result["attribution"]
@@ -441,20 +444,20 @@ def print_hci_explain(result: Dict, lang_mode: str = "full") -> None:
         "HOLD": "•",
         "SCALE_IN": "↑",
         "OPEN": "↑↑",
-    }.get(hci.get("action"), "→")
+    }.get(csi.get("action"), "→")
 
     print(f"\n  {'═'*100}")
-    print(f"  🔎 HCI EXPLAIN — {sym} | {result['date']} | "
+    print(f"  🔎 CSI EXPLAIN — {sym} | {result['date']} | "
           f"Archetype: {result['archetype']}"
           + (f" (Health: {result['health_archetype']})" if result.get("health_archetype") else ""))
     print(f"  {'═'*100}")
 
-    # ── Header: HCI score + confidence ────────────────────────────────
-    print(f"\n  🎯 {sym} HCI: {hci.get('p_gain', 0.0):.2f} {arrow} "
-          f"({_fmt_mos(hci.get('mos'))})")
-    print(f"     {_('Action')}: {hci.get('action')} | "
-          f"{_('Market context')}: {hci.get('market_context')}")
-    print(f"     {_('Chain Confidence')}: {ent['hci_confidence']:.2f} "
+    # ── Header: CSI score + confidence ────────────────────────────────
+    print(f"\n  🎯 {sym} CSI: {csi.get('p_gain', 0.0):.2f} {arrow} "
+          f"({_fmt_mos(csi.get('mos'))})")
+    print(f"     {_('Action')}: {csi.get('action')} | "
+          f"{_('Market context')}: {csi.get('market_context')}")
+    print(f"     {_('Chain Confidence')}: {ent['csi_confidence']:.2f} "
           f"(1 - H={ent['macro_entropy']:.2f}/{ent['max_entropy']:.2f})")
 
     # ── Layer 1: World FedState (Facts + Surprise) ────────────────────
@@ -515,7 +518,7 @@ def print_hci_explain(result: Dict, lang_mode: str = "full") -> None:
     else:
         print(f"          └──> [{_('Company metric')}: N/A] (archetype không có causal edge)")
 
-    print(f"                    └──> [🎯 {sym} HCI: {hci.get('p_gain', 0.0):.2f} {arrow}]")
+    print(f"                    └──> [🎯 {sym} CSI: {csi.get('p_gain', 0.0):.2f} {arrow}]")
 
     # ── Layer 3: Facts vs Surprise ────────────────────────────────────
     print(f"\n  📊 FACTS vs SURPRISE (Dữ liệu thực vs Độ lệch kỳ vọng)")
@@ -523,7 +526,7 @@ def print_hci_explain(result: Dict, lang_mode: str = "full") -> None:
     print(f"    {attr['message']}")
     if attr["primary"] == "policy_rate":
         print(f"    → Nguồn chính: POLICY RATE (Fact) — mức lãi suất "
-              f"{attr['fed_rate']:.2f}% kìm HCI.")
+              f"{attr['fed_rate']:.2f}% kìm CSI.")
     elif attr["primary"] == "dissent":
         print(f"    → Nguồn chính: HAWKISH DISSENT (Surprise) — "
               f"{attr['dissent']} phiếu bất đồng, uncertainty={attr['uncertainty']:.2f}.")
@@ -536,7 +539,7 @@ def print_hci_explain(result: Dict, lang_mode: str = "full") -> None:
     print(f"    Macro entropy H = {ent['macro_entropy']:.2f} (max {ent['max_entropy']:.2f})")
     print(f"    Chain confidence = 1 - H/H_max = {ent['chain_confidence']:.3f}")
     print(f"    Edge confidence  = {ent['edge_chain_confidence']:.3f}")
-    print(f"    HCI confidence   = 0.7·chain + 0.3·edge = {ent['hci_confidence']:.3f}")
+    print(f"    CSI confidence   = 0.7·chain + 0.3·edge = {ent['csi_confidence']:.3f}")
 
     # ── Layer 5: Company health evidence ──────────────────────────────
     print(f"\n  🏥 COMPANY EVIDENCE (P2)")
@@ -569,11 +572,11 @@ def _(
     return _localize(label)
 
 
-def print_sector_hci_comparison(results: List[Dict], sector_name: str) -> None:
-    """Render a side-by-side comparison of HCI traces within the same sector.
+def print_sector_csi_comparison(results: List[Dict], sector_name: str) -> None:
+    """Render a side-by-side comparison of CSI traces within the same sector.
 
     WHY: Operators need to see how the same macro/transmission/sector context
-    produces different HCI scores across companies sharing the same archetype.
+    produces different CSI scores across companies sharing the same archetype.
     This reveals company-specific alpha vs systemic macro drag.
     """
     if not results:
@@ -589,7 +592,7 @@ def print_sector_hci_comparison(results: List[Dict], sector_name: str) -> None:
     )
 
     print(f"\n  {'═'*100}")
-    print(f"  🏭 SECTOR HCI COMPARISON — {sector_name}")
+    print(f"  🏭 SECTOR CSI COMPARISON — {sector_name}")
     print(f"     Phase: {sector_phase} | Score: {sector_score:.1f} | "
           f"Date: {results[0]['date']}")
     print(f"  {'═'*100}")
@@ -608,30 +611,30 @@ def print_sector_hci_comparison(results: List[Dict], sector_name: str) -> None:
     )
     print(f"    Fed Rate: {fed_rate:.2f}% | "
           f"Entropy: {r0['entropy']['macro_entropy']:.2f} | "
-          f"Confidence: {r0['entropy']['hci_confidence']:.3f}")
+          f"Confidence: {r0['entropy']['csi_confidence']:.3f}")
 
     # ── Per-symbol comparison table ────────────────────────────────────
     print(f"\n  📊 PER-SYMBOL BREAKDOWN")
     print(f"  {'─'*100}")
-    header = f"    {'Symbol':<8} {'HCI':>5} {'Action':<10} {'Archetype':<20} {'MoS':>8} {'Conf':>6} {'Attribution':<12}"
+    header = f"    {'Symbol':<8} {'CSI':>5} {'Action':<10} {'Archetype':<20} {'MoS':>8} {'Conf':>6} {'Attribution':<12}"
     print(header)
     print(f"    {'─'*92}")
 
-    for r in sorted(results, key=lambda x: x["hci"].get("p_gain", 0), reverse=True):
+    for r in sorted(results, key=lambda x: x["csi"].get("p_gain", 0), reverse=True):
         sym = r["symbol"]
-        hci_val = r["hci"].get("p_gain", 0.0)
-        action = r["hci"].get("action", "N/A")
+        csi_val = r["csi"].get("p_gain", 0.0)
+        action = r["csi"].get("action", "N/A")
         arch = r["archetype"]
-        mos = r["hci"].get("mos")
+        mos = r["csi"].get("mos")
         mos_str = f"{mos:+.1f}%" if mos is not None else "N/A"
-        conf = r["entropy"]["hci_confidence"]
+        conf = r["entropy"]["csi_confidence"]
         attrib = r["attribution"]["primary"]
 
         arrow = {"REDUCE": "↓", "AVOID": "↓↓", "VETO": "✖",
                  "WAIT": "→", "HOLD": "•", "SCALE_IN": "↑", "OPEN": "↑↑"
                  }.get(action, "→")
 
-        print(f"    {sym:<8} {hci_val:.2f}{arrow:>1} {action:<10} {arch:<20} "
+        print(f"    {sym:<8} {csi_val:.2f}{arrow:>1} {action:<10} {arch:<20} "
               f"{mos_str:>8} {conf:>6.3f} {attrib:<12}")
 
     # ── Causal path divergence (which hops differ) ─────────────────────
@@ -667,13 +670,13 @@ def print_sector_hci_comparison(results: List[Dict], sector_name: str) -> None:
     # ── Key insight ────────────────────────────────────────────────────
     print(f"\n  💡 INSIGHT")
     print(f"  {'─'*100}")
-    hci_vals = [r["hci"].get("p_gain", 0) for r in results]
-    if hci_vals:
-        spread = max(hci_vals) - min(hci_vals)
-        best = max(results, key=lambda x: x["hci"].get("p_gain", 0))
-        worst = min(results, key=lambda x: x["hci"].get("p_gain", 0))
-        print(f"    HCI spread within sector: {spread:.2f} "
-              f"({worst['symbol']}={min(hci_vals):.2f} → {best['symbol']}={max(hci_vals):.2f})")
+    csi_vals = [r["csi"].get("p_gain", 0) for r in results]
+    if csi_vals:
+        spread = max(csi_vals) - min(csi_vals)
+        best = max(results, key=lambda x: x["csi"].get("p_gain", 0))
+        worst = min(results, key=lambda x: x["csi"].get("p_gain", 0))
+        print(f"    CSI Spread (Biên Phân Hóa Bối Cảnh): {spread:.2f} "
+              f"({worst['symbol']}={min(csi_vals):.2f} → {best['symbol']}={max(csi_vals):.2f})")
         print(f"    All {len(results)} symbols share macro drag: {attr['primary']} "
               f"(Fed {fed_rate:.2f}%)")
         print(f"    Differentiation comes from company-specific health/archetype, "
@@ -718,16 +721,16 @@ def list_sectors() -> List[str]:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="HCI Causal Trace Explainer")
+    parser = argparse.ArgumentParser(description="CSI Causal Trace Explainer")
     parser.add_argument("--symbol", type=str, required=True, help="Mã cổ phiếu")
     args = parser.parse_args()
 
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8")
 
-    engine = HCIExplainEngine()
+    engine = CSIExplainEngine()
     result = engine.explain(args.symbol)
-    print_hci_explain(result, "full")
+    print_csi_explain(result, "full")
 
 
 if __name__ == "__main__":

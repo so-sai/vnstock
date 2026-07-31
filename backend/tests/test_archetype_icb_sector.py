@@ -5,8 +5,8 @@ WHY (bug từng xảy ra):
   - SIP, IDC, KBC (KCN điển hình) chưa có health_ratios rows trong
     financial_facts.db → _classify_by_ratios rơi vào toàn bộ defaults
     (rev=0.5, de=0.5, cfo=0.5) → cfo_val > 0.4 → gán RETAIL_PLATFORM sai.
-  - Hệ quả: hci-explain dùng chain SAME_STORE_SALES (5-30D) thay vì PRESALES
-    (30-120D) → HCI 0.35 REDUCE thay vì VETO như BCM.
+  - Hệ quả: csi-explain dùng chain SAME_STORE_SALES (5-30D) thay vì PRESALES
+    (30-120D) → CSI 0.35 REDUCE thay vì VETO như BCM.
   - Fix: hard constraint đọc ICB sector (icb_name2 == "Bất động sản") từ
     screener_cache.db → REAL_ESTATE_DEVELOPER, giống _is_bank_symbol.
 
