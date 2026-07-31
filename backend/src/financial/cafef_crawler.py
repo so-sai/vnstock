@@ -334,16 +334,24 @@ URL_MAP = {
     },
     "VIETSTOCK_FININFO": {
         "url": "https://finance.vietstock.vn/{symbol}/tai-chinh.htm",
-        "method": "POST /data/financeinfo",
+        "method": "POST /data/financeinfo + BCTT_*",
         "type": "JSON (Playwright + fetch)",
-        "data": ["BCTC Tóm tắt free 4 quý (KQKD 5 + CDKT 6 + CSTC 6 dòng)"],
+        "data": [
+            "financeinfo BCTQ: 4 quý, 17 rows (KQKD 5 + CDKT 6 + CSTC 6)",
+            "BCTT tab: 9 quý, 46 norms (CASH_EQUIV, RECEIVABLES, INVENTORY, LONG_TERM_DEBT, COGS...)",
+        ],
         "status": "ALIVE",  # ✅ verified 2026-07-31
         "lib": "Playwright sync_api channel='chrome' (fetch_vietstock_api)",
-        "notes": "Nguồn thứ 4 (kiểm tra chéo). BCTC CHI TIẾT 37 dòng → PAYWALL "
-                 "(RequestUpgradeAccount_Permission, cần VietstockPro). Free chỉ tóm tắt: "
-                 "REVENUE/GROSS_PROFIT/EBIT/NET_INCOME + CURRENT_ASSETS/TOTAL_ASSETS/"
-                 "TOTAL_LIABILITIES/CURRENT_LIAB/TOTAL_EQUITY + EPS/BVPS. "
-                 "Playwright phải dùng channel='chrome' (bundled chromium-1200 mismatch pw 1.61.0).",
+        "notes": "Nguồn thứ 4 (kiểm tra chéo). Merge financeinfo + BCTT. "
+                 "BCTC CHI TIẾT (CDKT/KQKD/LCTT_GetListReportData) → PAYWALL "
+                 "(RequestUpgradeAccount_Permission, cần VietstockPro). "
+                 "BCTT tab free: GetListReportNorm_BCTT_ByStockCode (46 norms) + "
+                 "BCTT_GetListReportData (38 periods) + "
+                 "GetReportDataDetailValue_BCTT_ByReportDataIds (9 periods, capped). "
+                 "BCTT metrics: REVENUE/COGS/GROSS_PROFIT/EBIT/NET_INCOME/EPS + "
+                 "CASH_EQUIV/RECEIVABLES/INVENTORY + CURRENT_ASSETS/TOTAL_ASSETS/"
+                 "TOTAL_LIABILITIES/CURRENT_LIAB/LONG_TERM_DEBT/TOTAL_EQUITY + "
+                 "BOOK_VALUE_PS. Playwright phải dùng channel='chrome'.",
     },
 }
 

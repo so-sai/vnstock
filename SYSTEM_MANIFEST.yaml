@@ -693,7 +693,7 @@ entrypoints:
 
   # ── cafef-crawl ────────────────────────────────────────
   cafef_crawl:
-    description: "Crawl BCTC 20 quarters — nạp vào financial_facts.db. source=api dùng REST JSON bridges (VNDirect Fininfo → TCBS FinAPI → CafeF Bank API → Vietstock summary). source=vietstock = Vietstock Finance free summary 4 quý (kiểm tra chéo, BCTC chi tiết paywall)"
+    description: "Crawl BCTC 20 quarters — nạp vào financial_facts.db. source=api dùng REST JSON bridges (VNDirect Fininfo → TCBS FinAPI → CafeF Bank API → Vietstock summary). source=vietstock = Vietstock Finance free: financeinfo 4 quý (17 rows) + BCTT 9 quý (46 norms: CASH_EQUIV, RECEIVABLES, INVENTORY, LONG_TERM_DEBT, COGS...), merge tự động"
     cli: "python ptck.py cafef-crawl [--symbols FPT ACB ...] [--type STANDARD|BANK] [--source vci|api|vietstock|cafef|synthetic] [--playwright] [--delay SECONDS]"
     category: data
 

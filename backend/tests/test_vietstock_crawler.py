@@ -243,3 +243,336 @@ class TestUrlMap:
         from src.financial.cafef_crawler import URL_MAP
         assert "VIETSTOCK_FININFO" in URL_MAP
         assert URL_MAP["VIETSTOCK_FININFO"]["status"] == "ALIVE"
+
+
+# ── BCTT Fixtures ──────────────────────────────────────────────────────
+def _bctt_periods_desc():
+    """9 periods newest first (2026Q2 → 2024Q2), matching live probe."""
+    term_map = {2: 'Q1', 3: 'Q2', 4: 'Q3', 5: 'Q4'}
+    return [
+        {"ReportDataID": 293359, "YearPeriod": 2026, "ReportTermID": 3,
+         "PeriodBegin": "202604", "PeriodEnd": "202606", "RowNumber": 38,
+         "UnitedName": "Hợp nhất"},
+        {"ReportDataID": 289473, "YearPeriod": 2026, "ReportTermID": 2,
+         "PeriodBegin": "202601", "PeriodEnd": "202603", "RowNumber": 37,
+         "UnitedName": "Hợp nhất"},
+        {"ReportDataID": 283569, "YearPeriod": 2025, "ReportTermID": 5,
+         "PeriodBegin": "202510", "PeriodEnd": "202512", "RowNumber": 36,
+         "UnitedName": "Hợp nhất"},
+        {"ReportDataID": 279313, "YearPeriod": 2025, "ReportTermID": 4,
+         "PeriodBegin": "202507", "PeriodEnd": "202509", "RowNumber": 35,
+         "UnitedName": "Hợp nhất"},
+        {"ReportDataID": 273315, "YearPeriod": 2025, "ReportTermID": 3,
+         "PeriodBegin": "202504", "PeriodEnd": "202506", "RowNumber": 34,
+         "UnitedName": "Hợp nhất"},
+        {"ReportDataID": 268535, "YearPeriod": 2025, "ReportTermID": 2,
+         "PeriodBegin": "202501", "PeriodEnd": "202503", "RowNumber": 33,
+         "UnitedName": "Hợp nhất"},
+        {"ReportDataID": 262654, "YearPeriod": 2024, "ReportTermID": 5,
+         "PeriodBegin": "202410", "PeriodEnd": "202412", "RowNumber": 32,
+         "UnitedName": "Hợp nhất"},
+        {"ReportDataID": 258367, "YearPeriod": 2024, "ReportTermID": 4,
+         "PeriodBegin": "202407", "PeriodEnd": "202409", "RowNumber": 31,
+         "UnitedName": "Hợp nhất"},
+        {"ReportDataID": 252306, "YearPeriod": 2024, "ReportTermID": 3,
+         "PeriodBegin": "202404", "PeriodEnd": "202406", "RowNumber": 30,
+         "UnitedName": "Hợp nhất"},
+    ]
+
+
+def _bctt_norm_rows():
+    """46 norms with sampled values (newest first = Value1)."""
+    return [
+        # KQ
+        {"ReportNormId": 2216, "ReportTypeCode": "KQ",
+         "Value1": 1104.96, "Value2": 1376.45, "Value3": 828.38,
+         "Value4": 2520.70, "Value5": 1104.96, "Value6": 1376.45,
+         "Value7": 828.38, "Value8": 2520.70, "Value9": 1104.96},
+        {"ReportNormId": 2207, "ReportTypeCode": "KQ",
+         "Value1": 343.0, "Value2": 1632.0, "Value3": 613.0,
+         "Value4": 712.0, "Value5": 343.0, "Value6": 1632.0,
+         "Value7": 613.0, "Value8": 712.0, "Value9": 343.0},
+        {"ReportNormId": 2217, "ReportTypeCode": "KQ",
+         "Value1": 682.65, "Value2": 1040.04, "Value3": 509.91,
+         "Value4": 1808.98, "Value5": 682.65, "Value6": 1040.04,
+         "Value7": 509.91, "Value8": 1808.98, "Value9": 682.65},
+        {"ReportNormId": 2208, "ReportTypeCode": "KQ",
+         "Value1": 298.10, "Value2": 1291.52, "Value3": 407.91,
+         "Value4": 1703.09, "Value5": 298.10, "Value6": 1291.52,
+         "Value7": 407.91, "Value8": 1703.09, "Value9": 298.10},
+        {"ReportNormId": 2212, "ReportTypeCode": "KQ",
+         "Value1": 288.43, "Value2": 1247.08, "Value3": 422.39,
+         "Value4": 1467.71, "Value5": 288.43, "Value6": 1247.08,
+         "Value7": 422.39, "Value8": 1467.71, "Value9": 288.43},
+        {"ReportNormId": 2215, "ReportTypeCode": "KQ",
+         "Value1": 3285.0, "Value2": 3361.0, "Value3": 3488.0,
+         "Value4": 3419.0, "Value5": 3285.0, "Value6": 3361.0,
+         "Value7": 3488.0, "Value8": 3419.0, "Value9": 3285.0},
+        # CD
+        {"ReportNormId": 3000, "ReportTypeCode": "CD",
+         "Value1": 31731.74, "Value2": 31384.55, "Value3": 31593.94,
+         "Value4": 31456.65, "Value5": 31731.74, "Value6": 31384.55,
+         "Value7": 31593.94, "Value8": 31456.65, "Value9": 31731.74},
+        {"ReportNormId": 3003, "ReportTypeCode": "CD",
+         "Value1": 15000.0, "Value2": 14500.0, "Value3": 13800.0,
+         "Value4": 12500.0, "Value5": 15000.0, "Value6": 14500.0,
+         "Value7": 13800.0, "Value8": 12500.0, "Value9": 15000.0},
+        {"ReportNormId": 3005, "ReportTypeCode": "CD",
+         "Value1": 8500.0, "Value2": 9200.0, "Value3": 7800.0,
+         "Value4": 6500.0, "Value5": 8500.0, "Value6": 9200.0,
+         "Value7": 7800.0, "Value8": 6500.0, "Value9": 8500.0},
+        {"ReportNormId": 3006, "ReportTypeCode": "CD",
+         "Value1": 5200.0, "Value2": 5800.0, "Value3": 4900.0,
+         "Value4": 4200.0, "Value5": 5200.0, "Value6": 5800.0,
+         "Value7": 4900.0, "Value8": 4200.0, "Value9": 5200.0},
+        {"ReportNormId": 2996, "ReportTypeCode": "CD",
+         "Value1": 61310.09, "Value2": 60908.21, "Value3": 58182.02,
+         "Value4": 57290.94, "Value5": 61310.09, "Value6": 60908.21,
+         "Value7": 58182.02, "Value8": 57290.94, "Value9": 61310.09},
+        {"ReportNormId": 2997, "ReportTypeCode": "CD",
+         "Value1": 38832.22, "Value2": 37590.84, "Value3": 36094.28,
+         "Value4": 35878.35, "Value5": 38832.22, "Value6": 37590.84,
+         "Value7": 36094.28, "Value8": 35878.35, "Value9": 38832.22},
+        {"ReportNormId": 3014, "ReportTypeCode": "CD",
+         "Value1": 19756.63, "Value2": 21678.29, "Value3": 20052.00,
+         "Value4": 22469.54, "Value5": 19756.63, "Value6": 21678.29,
+         "Value7": 20052.00, "Value8": 22469.54, "Value9": 19756.63},
+        {"ReportNormId": 3017, "ReportTypeCode": "CD",
+         "Value1": 8500.0, "Value2": 8200.0, "Value3": 7800.0,
+         "Value4": 7500.0, "Value5": 8500.0, "Value6": 8200.0,
+         "Value7": 7800.0, "Value8": 7500.0, "Value9": 8500.0},
+        {"ReportNormId": 2998, "ReportTypeCode": "CD",
+         "Value1": 22477.88, "Value2": 23317.36, "Value3": 22087.74,
+         "Value4": 21412.59, "Value5": 22477.88, "Value6": 23317.36,
+         "Value7": 22087.74, "Value8": 21412.59, "Value9": 22477.88},
+        # CSTC
+        {"ReportNormId": 54, "ReportTypeCode": "CSTC",
+         "Value1": 21718.0, "Value2": 22529.0, "Value3": 21341.0,
+         "Value4": 20688.0, "Value5": 21718.0, "Value6": 22529.0,
+         "Value7": 21341.0, "Value8": 20688.0, "Value9": 21718.0},
+    ]
+
+
+class TestBCTTMetricMap:
+    """Test BCTT_METRIC_MAP and BCTT_STANDARD_METRICS constants."""
+
+    def test_bctt_has_cash_equiv(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 3003 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[3003] == "CASH_EQUIV"
+
+    def test_bctt_has_receivables(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 3005 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[3005] == "RECEIVABLES"
+
+    def test_bctt_has_inventory(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 3006 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[3006] == "INVENTORY"
+
+    def test_bctt_has_long_term_debt(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 3017 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[3017] == "LONG_TERM_DEBT"
+
+    def test_bctt_has_cogs(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 2207 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[2207] == "COGS"
+
+    def test_bctt_has_revenue_and_ebit(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 2216 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[2216] == "REVENUE"
+        assert 2208 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[2208] == "EBIT"
+
+    def test_bctt_has_net_income(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 2212 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[2212] == "NET_INCOME"
+
+    def test_bctt_has_eps_and_book_value(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 2215 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[2215] == "EPS"
+        assert 54 in BCTT_STANDARD_METRICS
+        assert BCTT_STANDARD_METRICS[54] == "BOOK_VALUE_PS"
+
+    def test_bctt_has_balance_sheet(self):
+        from src.financial.vietstock_crawler import BCTT_STANDARD_METRICS
+        assert 3000 in BCTT_STANDARD_METRICS  # CURRENT_ASSETS
+        assert 2996 in BCTT_STANDARD_METRICS  # TOTAL_ASSETS
+        assert 2997 in BCTT_STANDARD_METRICS  # TOTAL_LIABILITIES
+        assert 3014 in BCTT_STANDARD_METRICS  # CURRENT_LIAB
+        assert 2998 in BCTT_STANDARD_METRICS  # TOTAL_EQUITY
+
+
+class TestParseBCTTDetailedPayload:
+    """Test BCTT detail payload parser — deterministic, testable."""
+
+    def test_parses_9_periods(self):
+        periods = _bctt_periods_desc()
+        norm_rows = _bctt_norm_rows()
+        result = VietstockCrawler.parse_bctt_detail_payload(norm_rows, periods)
+        assert len(result) == 9
+
+    def test_period_order_newest_first(self):
+        periods = _bctt_periods_desc()
+        norm_rows = _bctt_norm_rows()
+        result = VietstockCrawler.parse_bctt_detail_payload(norm_rows, periods)
+        assert result[0]["_fiscal_year"] == 2026
+        assert result[0]["_fiscal_quarter"] == 2
+        assert result[-1]["_fiscal_year"] == 2024
+        assert result[-1]["_fiscal_quarter"] == 2
+
+    def test_value1_maps_to_newest_period(self):
+        """Value1 ↔ period_desc[0] (newest 2026Q2)."""
+        periods = _bctt_periods_desc()
+        norm_rows = _bctt_norm_rows()
+        result = VietstockCrawler.parse_bctt_detail_payload(norm_rows, periods)
+        newest = result[0]
+        assert newest["REVENUE"] == 1104.96
+        assert newest["CASH_EQUIV"] == 15000.0
+        assert newest["RECEIVABLES"] == 8500.0
+        assert newest["INVENTORY"] == 5200.0
+        assert newest["LONG_TERM_DEBT"] == 8500.0
+
+    def test_value9_maps_to_oldest_period(self):
+        """Value9 ↔ period_desc[8] (oldest 2024Q2)."""
+        periods = _bctt_periods_desc()
+        norm_rows = _bctt_norm_rows()
+        result = VietstockCrawler.parse_bctt_detail_payload(norm_rows, periods)
+        oldest = result[-1]
+        assert oldest["REVENUE"] == 1104.96  # same as Value9 in fixture
+        assert oldest["CASH_EQUIV"] == 15000.0
+        assert oldest["RECEIVABLES"] == 8500.0
+
+    def test_reports_16_standard_metrics_per_period(self):
+        """Each period should have 16 STANDARD_METRICS mapped from BCTT norms."""
+        periods = _bctt_periods_desc()
+        norm_rows = _bctt_norm_rows()
+        result = VietstockCrawler.parse_bctt_detail_payload(norm_rows, periods)
+        for p in result:
+            metrics = {k: v for k, v in p.items() if not k.startswith("_")}
+            assert len(metrics) == 16
+
+    def test_entity_type_set(self):
+        periods = _bctt_periods_desc()
+        norm_rows = _bctt_norm_rows()
+        result = VietstockCrawler.parse_bctt_detail_payload(
+            norm_rows, periods, entity_type="STANDARD")
+        assert all(p["_entity_type"] == "STANDARD" for p in result)
+
+    def test_skips_non_standard_metrics(self):
+        """Non-STANDARD_METRICS (FINANCIAL_REVENUE, etc.) should not appear."""
+        periods = _bctt_periods_desc()
+        norm_rows = _bctt_norm_rows()
+        result = VietstockCrawler.parse_bctt_detail_payload(norm_rows, periods)
+        for p in result:
+            assert "FINANCIAL_REVENUE" not in p
+            assert "FINANCIAL_COST" not in p
+            assert "SELLING_EXPENSE" not in p
+            assert "ADMIN_EXPENSE" not in p
+            assert "OTHER_INCOME" not in p
+            assert "JOINT_VENTURE_INCOME" not in p
+            assert "PRE_TAX_INCOME" not in p
+            assert "NET_INCOME_PARENT" not in p
+            assert "SHORT_TERM_INVEST" not in p
+            assert "SHORT_TERM_ASSET_OTHER" not in p
+            assert "LONG_TERM_ASSET" not in p
+            assert "FIXED_ASSET" not in p
+            assert "INVESTMENT_REAL_ESTATE" not in p
+            assert "PAID_IN_CAPITAL" not in p
+            assert "SHARE_PREMIUM" not in p
+            assert "UNALLOCATED_EARNINGS" not in p
+            assert "MINORITY_INTEREST" not in p
+            assert "TOTAL_SOURCE" not in p
+            assert "PE_RATIO" not in p
+            assert "PB_RATIO" not in p
+            assert "GROSS_MARGIN" not in p
+            assert "NET_MARGIN" not in p
+            assert "ROEA" not in p
+            assert "ROAA" not in p
+            assert "CURRENT_RATIO" not in p
+            assert "INTEREST_COVERAGE" not in p
+            assert "DEBT_TO_ASSET" not in p
+            assert "DEBT_TO_EQUITY" not in p
+
+    def test_empty_norm_rows_returns_empty(self):
+        periods = _bctt_periods_desc()
+        assert VietstockCrawler.parse_bctt_detail_payload([], periods) == []
+
+    def test_empty_periods_returns_empty(self):
+        norm_rows = _bctt_norm_rows()
+        assert VietstockCrawler.parse_bctt_detail_payload(norm_rows, []) == []
+
+    def test_empty_both_returns_empty(self):
+        assert VietstockCrawler.parse_bctt_detail_payload([], []) == []
+
+    def test_invalid_period_term_skipped(self):
+        """Periods with invalid ReportTermID should be skipped."""
+        bad_periods = [
+            {"ReportDataID": 1, "YearPeriod": 2026, "ReportTermID": 99,
+             "PeriodBegin": "202601", "PeriodEnd": "202603", "RowNumber": 1},
+        ]
+        norm_rows = _bctt_norm_rows()
+        result = VietstockCrawler.parse_bctt_detail_payload(norm_rows, bad_periods)
+        assert len(result) == 0
+
+    def test_roundtrip_through_json(self):
+        periods = _bctt_periods_desc()
+        norm_rows = _bctt_norm_rows()
+        raw = json.dumps(norm_rows)
+        parsed_norms = json.loads(raw)
+        result = VietstockCrawler.parse_bctt_detail_payload(parsed_norms, periods)
+        assert len(result) == 9
+        assert result[0]["TOTAL_ASSETS"] == 61310.09
+
+
+class TestMergePeriods:
+    """Test _merge_periods — BCTT overrides financeinfo for same period."""
+
+    def test_bctt_overrides_financeinfo(self):
+        finf = VietstockCrawler.parse_financeinfo_payload(_real_payload())
+        bctt_periods = _bctt_periods_desc()
+        bctt_norm_rows = _bctt_norm_rows()
+        bctt = VietstockCrawler.parse_bctt_detail_payload(bctt_norm_rows, bctt_periods)
+        # Overlap: 2025Q1, 2025Q2 exist in both
+        merged = VietstockCrawler._merge_periods(finf, bctt)
+        # Should have 9 periods (BCTT dominates)
+        assert len(merged) == 9
+        # 2025Q2 should have BCTT metrics (CASH_EQUIV, etc.)
+        q2_2025 = [p for p in merged if p["_fiscal_year"] == 2025 and p["_fiscal_quarter"] == 2]
+        assert len(q2_2025) == 1
+        assert "CASH_EQUIV" in q2_2025[0]
+        assert "RECEIVABLES" in q2_2025[0]
+        assert "INVENTORY" in q2_2025[0]
+        assert "LONG_TERM_DEBT" in q2_2025[0]
+        assert "COGS" in q2_2025[0]
+
+    def test_financeinfo_only_periods_kept(self):
+        """Periods only in financeinfo (not in BCTT) should still appear."""
+        finf = VietstockCrawler.parse_financeinfo_payload(_real_payload())
+        # BCTT only has 2024Q2-2026Q2, financeinfo has 2025Q1-2026Q1
+        # Overlap: 2025Q1, 2026Q1
+        bctt_periods = _bctt_periods_desc()
+        bctt_norm_rows = _bctt_norm_rows()
+        bctt = VietstockCrawler.parse_bctt_detail_payload(bctt_norm_rows, bctt_periods)
+        merged = VietstockCrawler._merge_periods(finf, bctt)
+        # Should have 9 periods total (BCTT has 9, financeinfo has 4, overlap 2)
+        # BCTT covers 2024Q2-2026Q2 = 9 periods
+        # financeinfo has 2025Q1-2026Q1 = 4 periods (all within BCTT range)
+        assert len(merged) == 9
+
+    def test_merged_sorted_by_year_quarter(self):
+        finf = VietstockCrawler.parse_financeinfo_payload(_real_payload())
+        bctt_periods = _bctt_periods_desc()
+        bctt_norm_rows = _bctt_norm_rows()
+        bctt = VietstockCrawler.parse_bctt_detail_payload(bctt_norm_rows, bctt_periods)
+        merged = VietstockCrawler._merge_periods(finf, bctt)
+        for i in range(len(merged) - 1):
+            a, b = merged[i], merged[i + 1]
+            assert (a["_fiscal_year"], a["_fiscal_quarter"]) <= \
+                   (b["_fiscal_year"], b["_fiscal_quarter"])
