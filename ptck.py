@@ -4534,8 +4534,9 @@ def build_parser():
                       help="Danh sách mã cổ phiếu (mặc định: FPT ACB HDB MBB VCB)")
     p_cc.add_argument("--type", choices=["STANDARD", "BANK"], default=None,
                       help="Loại thực thể (STANDARD hoặc BANK, mặc định auto)")
-    p_cc.add_argument("--source", choices=["vci", "cafef", "synthetic"], default="vci",
-                      help="Nguồn dữ liệu: vci (VCI GraphQL, khuyên dùng), "
+    p_cc.add_argument("--source", choices=["vci", "cafef", "api", "synthetic"], default="vci",
+                      help="Nguồn dữ liệu: vci (VCI GraphQL + VNDirect/TCBS/CafeF fallback), "
+                           "api (REST JSON bridges: VNDirect/TCBS → CafeF), "
                            "cafef (requests+Playwright, thường 404), "
                            "synthetic (nội suy, không cần API)")
     p_cc.add_argument("--playwright", action="store_true",

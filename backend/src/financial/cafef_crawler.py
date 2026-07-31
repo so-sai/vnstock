@@ -312,6 +312,26 @@ URL_MAP = {
         "lib": "requests",
         "notes": "Returns 404 error — dead endpoint.",
     },
+    "VNDIRECT_FININFO": {
+        "url": "https://fininfo-api.vndirect.com.vn/v4/financial_statements",
+        "method": "GET",
+        "type": "REST JSON",
+        "data": ["BCTC 4 bảng JSON (CFO, nợ vay ngắn/dài hạn, chi phí lãi vay)"],
+        "status": "UNVERIFIED_DNS",  # ⚠️ DNS fail từ môi trường dev 2026-07-31
+        "lib": "requests (fetch_vndirect_api)",
+        "notes": "VNDirect Fininfo API — q=reportType:QUARTER~symbol:{sym}~modelType:1. "
+                 "Mô hình: BCTC full 4 bảng, JSON chuẩn. Cần kiểm chứng lại khi network cho phép.",
+    },
+    "TCBS_FINAPI": {
+        "url": "https://finapi.tcbs.com.vn/v1/stock/{symbol}/financial-statement",
+        "method": "GET",
+        "type": "REST JSON",
+        "data": ["BCTC JSON (8 quý gần nhất, 4 bảng)"],
+        "status": "UNVERIFIED_DNS",  # ⚠️ DNS fail từ môi trường dev 2026-07-31
+        "lib": "requests (fetch_tcbs_api)",
+        "notes": "TCBS FinAPI — type=BALANCE_SHEET|INCOME_STATEMENT|CASH_FLOW&size=20&isAll=true. "
+                 "Dữ liệu chuẩn hóa, đủ CFO + nợ chi tiết. Cần kiểm chứng lại khi network cho phép.",
+    },
 }
 
 # ── QUICK REFERENCE: API DISCOVERY CHEATSHEET ────────────────────
@@ -1132,6 +1152,277 @@ class CafeFCrawler:
             result.append(period_data)
         return result
 
+    # ── Tầng 1c: VNDirect Fininfo API bridge ─────────────────
+    def fetch_vndirect_api(self, symbol: str) -> List[Dict]:
+        """Dùng VNDirect Fininfo API (JSON, BCTC đầy đủ 4 bảng).
+
+        Bản đồ URL: URL_MAP["VNDIRECT_FININFO"] (UNVERIFIED_DNS — cần kiểm chứng
+        lại khi network cho phép). Endpoint:
+          https://fininfo-api.vndirect.com.vn/v4/financial_statements
+          ?q=reportType:QUARTER~symbol:{SYM}~modelType:1&size=20
+
+        WHY: CafeF Bank API (BHoSoCongTy) chỉ trả BCTC Tóm tắt 17 rows → BCM
+        thiếu CFO / Nợ vay dài hạn / Chi phí lãi vay → Cash/DEBT=NO DATA.
+        VNDirect trả JSON đủ 4 bảng (BS/IS/CF/ratios) → parse được CFO, CAPEX,
+        SHORT_TERM_DEBT, LONG_TERM_DEBT, INTEREST_EXPENSE.
+        """
+        entity_type = self.db.get_entity_type(symbol) or "STANDARD"
+        base_url = "https://fininfo-api.vndirect.com.vn/v4/financial_statements"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "vi-VN,vi;q=0.9",
+        }
+        params = {
+            "q": f"reportType:QUARTER~symbol:{symbol.upper()}~modelType:1",
+            "size": "20",
+        }
+        try:
+            r = self.session.get(base_url, headers=headers, params=params, timeout=15)
+            if r.status_code != 200:
+                logger.warning(f"VNDirect Fininfo: {symbol} HTTP {r.status_code}")
+                return []
+            payload = r.json()
+        except Exception as e:
+            logger.warning(f"VNDirect Fininfo: {symbol} — {e}")
+            return []
+
+        periods = self._parse_vndirect_json(payload, entity_type)
+        logger.info(f"VNDirect Fininfo: {symbol} — {len(periods)} periods parsed")
+        return periods
+
+    @staticmethod
+    def _parse_vndirect_json(payload, entity_type: str = "STANDARD") -> List[Dict]:
+        """Pure parser cho VNDirect Fininfo JSON — deterministic, testable.
+
+        VNDirect trả list of rows; mỗi row chứa các cột camelCase như:
+          - reportDate / reportYear / reportQuarter (period label)
+          - cashFlowFromOperatingActivities  → CFO
+          - shortTermBorrowings / longTermBorrowings → nợ vay
+          - interestExpense / interestCost → chi phí lãi vay
+          - cashAndCashEquivalents → CASH_EQUIV
+          - inventory / receivables / totalCurrentAssets / totalLiabilities
+        """
+        if isinstance(payload, dict):
+            rows = payload.get("data", payload.get("items", payload.get("result", [])))
+        else:
+            rows = payload or []
+        if not isinstance(rows, list):
+            return []
+
+        # Ánh xạ cột VNDirect (nhiều alias) → PTCK metric
+        col_map = {
+            "cashFlowFromOperatingActivities": "CFO",
+            "cashFlowFromOperating": "CFO",
+            "cashAndCashEquivalents": "CASH_EQUIV",
+            "cashEquivalents": "CASH_EQUIV",
+            "shortTermBorrowings": "SHORT_TERM_DEBT",
+            "shortTermBorrowing": "SHORT_TERM_DEBT",
+            "longTermBorrowings": "LONG_TERM_DEBT",
+            "longTermBorrowing": "LONG_TERM_DEBT",
+            "interestExpense": "INTEREST_EXPENSE",
+            "interestCost": "INTEREST_EXPENSE",
+            "inventory": "INVENTORY",
+            "accountReceivables": "RECEIVABLES",
+            "receivables": "RECEIVABLES",
+            "totalCurrentAssets": "CURRENT_ASSETS",
+            "currentAssets": "CURRENT_ASSETS",
+            "totalCurrentLiabilities": "CURRENT_LIAB",
+            "currentLiabilities": "CURRENT_LIAB",
+            "totalLiabilities": "TOTAL_LIABILITIES",
+            "totalAssets": "TOTAL_ASSETS",
+            "totalEquity": "TOTAL_EQUITY",
+            "equity": "TOTAL_EQUITY",
+            "revenue": "REVENUE",
+            "totalRevenue": "REVENUE",
+            "grossProfit": "GROSS_PROFIT",
+            "netProfit": "NET_INCOME",
+            "netIncome": "NET_INCOME",
+            "capitalExpenditure": "CAPEX",
+            "capex": "CAPEX",
+        }
+        result = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            data = {}
+            for col, metric in col_map.items():
+                if col in row and row[col] is not None:
+                    try:
+                        val = float(row[col])
+                        if val != 0:
+                            data[metric] = val
+                    except (TypeError, ValueError):
+                        pass
+            if not data:
+                continue
+
+            # Period label: reportDate "2025-06-30" → 2025Q2
+            year, quarter = None, None
+            rd = row.get("reportDate") or row.get("fiscalDate") or ""
+            if isinstance(rd, str) and re.match(r"\d{4}-\d{2}-\d{2}", rd):
+                year = int(rd[:4])
+                quarter = (int(rd[5:7]) - 1) // 3 + 1
+            if year is None:
+                year = row.get("reportYear") or row.get("year")
+            if quarter is None:
+                quarter = row.get("reportQuarter") or row.get("quarter")
+            if not year or not quarter:
+                continue
+
+            short_debt = data.get("SHORT_TERM_DEBT", 0) or 0
+            long_debt = data.get("LONG_TERM_DEBT", 0) or 0
+            if short_debt or long_debt:
+                data["TOTAL_DEBT"] = short_debt + long_debt
+
+            period_data = {
+                "_fiscal_year": int(year),
+                "_fiscal_quarter": int(quarter),
+                "_entity_type": entity_type,
+            }
+            period_data.update(data)
+            result.append(period_data)
+        return result
+
+    # ── Tầng 1d: TCBS FinAPI bridge ──────────────────────────
+    def fetch_tcbs_api(self, symbol: str) -> List[Dict]:
+        """Dùng TCBS FinAPI (JSON, BCTC 8 quý gần nhất, 4 bảng).
+
+        Bản đồ URL: URL_MAP["TCBS_FINAPI"] (UNVERIFIED_DNS — cần kiểm chứng lại
+        khi network cho phép). Endpoint:
+          https://finapi.tcbs.com.vn/v1/stock/{SYM}/financial-statement
+          ?type=BALANCE_SHEET|INCOME_STATEMENT|CASH_FLOW&size=20&isAll=true
+
+        WHY: TCBS trả dữ liệu chuẩn hóa dạng JSON với CFO, nợ vay ngắn/dài hạn,
+        chi phí lãi vay — nguồn thay thế chất lượng cao cho CafeF khi network cho phép.
+        """
+        entity_type = self.db.get_entity_type(symbol) or "STANDARD"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "vi-VN,vi;q=0.9",
+        }
+        sections = {
+            "BALANCE_SHEET": "BS",
+            "INCOME_STATEMENT": "IS",
+            "CASH_FLOW": "CF",
+        }
+        merged_by_period: Dict[str, Dict] = {}
+        for tcbs_type, tag in sections.items():
+            url = f"https://finapi.tcbs.com.vn/v1/stock/{symbol.upper()}/financial-statement"
+            params = {"type": tcbs_type, "size": "20", "isAll": "true"}
+            try:
+                r = self.session.get(url, headers=headers, params=params, timeout=15)
+                if r.status_code != 200:
+                    logger.warning(f"TCBS FinAPI {tcbs_type}: {symbol} HTTP {r.status_code}")
+                    continue
+                payload = r.json()
+            except Exception as e:
+                logger.warning(f"TCBS FinAPI {tcbs_type}: {symbol} — {e}")
+                continue
+
+            for row in self._parse_tcbs_rows(payload, tag):
+                key = f"{row['_fiscal_year']}Q{row['_fiscal_quarter']}"
+                merged_by_period.setdefault(key, {}).update(row)
+
+        if not merged_by_period:
+            logger.warning(f"TCBS FinAPI: {symbol} — không có dữ liệu")
+            return []
+
+        result = []
+        for key, data in merged_by_period.items():
+            year, quarter = key.rsplit("Q", 1)
+            short_debt = data.get("SHORT_TERM_DEBT", 0) or 0
+            long_debt = data.get("LONG_TERM_DEBT", 0) or 0
+            if short_debt or long_debt:
+                data["TOTAL_DEBT"] = short_debt + long_debt
+            period_data = {
+                "_fiscal_year": int(year),
+                "_fiscal_quarter": int(quarter),
+                "_entity_type": entity_type,
+            }
+            period_data.update(data)
+            result.append(period_data)
+        logger.info(f"TCBS FinAPI: {symbol} — {len(result)} periods")
+        return result
+
+    @staticmethod
+    def _parse_tcbs_rows(payload, tag: str = "BS") -> List[Dict]:
+        """Pure parser cho TCBS FinAPI payload — deterministic, testable.
+
+        TCBS trả {"data": [...]} — mỗi row chứa quarter/year + các cột camelCase.
+        Tag phân biệt bảng: BS / IS / CF.
+        """
+        if isinstance(payload, dict):
+            rows = payload.get("data", payload.get("items", []))
+        else:
+            rows = payload or []
+        if not isinstance(rows, list):
+            return []
+
+        col_map = {
+            "BS": {
+                "cashAndCashEquivalents": "CASH_EQUIV",
+                "cash": "CASH_EQUIV",
+                "shortTermBorrowings": "SHORT_TERM_DEBT",
+                "longTermBorrowings": "LONG_TERM_DEBT",
+                "inventory": "INVENTORY",
+                "receivables": "RECEIVABLES",
+                "totalCurrentAssets": "CURRENT_ASSETS",
+                "currentAssets": "CURRENT_ASSETS",
+                "totalCurrentLiabilities": "CURRENT_LIAB",
+                "currentLiabilities": "CURRENT_LIAB",
+                "totalLiabilities": "TOTAL_LIABILITIES",
+                "totalAssets": "TOTAL_ASSETS",
+                "shareHolderEquity": "TOTAL_EQUITY",
+                "totalEquity": "TOTAL_EQUITY",
+            },
+            "IS": {
+                "revenue": "REVENUE",
+                "totalRevenue": "REVENUE",
+                "grossProfit": "GROSS_PROFIT",
+                "profitAfterTax": "NET_INCOME",
+                "netProfit": "NET_INCOME",
+                "interestExpense": "INTEREST_EXPENSE",
+                "interestCost": "INTEREST_EXPENSE",
+            },
+            "CF": {
+                "cashFlowFromOperatingActivities": "CFO",
+                "cashFlowFromOperation": "CFO",
+                "cashFlowFromInvestingActivities": "CFI",
+                "cashFlowFromFinancingActivities": "CFF",
+                "capitalExpenditure": "CAPEX",
+                "capex": "CAPEX",
+            },
+        }
+        mapping = col_map.get(tag, col_map["BS"])
+        result = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            data = {}
+            for col, metric in mapping.items():
+                if col in row and row[col] is not None:
+                    try:
+                        val = float(row[col])
+                        if val != 0:
+                            data[metric] = val
+                    except (TypeError, ValueError):
+                        pass
+            if not data:
+                continue
+            year = row.get("year") or row.get("reportYear")
+            quarter = row.get("quarter") or row.get("reportQuarter")
+            if not year or not quarter:
+                continue
+            period_data = {
+                "_fiscal_year": int(year),
+                "_fiscal_quarter": int(quarter),
+            }
+            period_data.update(data)
+            result.append(period_data)
+        return result
+
     # ── Tầng 1c: NoteIndicator (backup limited) ───────────────
     def fetch_note_indicator(self, symbol: str) -> List[Dict]:
         """Dùng NoteIndicator API làm backup (limited).
@@ -1335,7 +1626,13 @@ class CafeFCrawler:
             # ── VCI bridge (khuyên dùng) ─────────────────────
             all_periods = self.fetch_vci_bridge(symbol)
             if not all_periods:
-                logger.info(f"  VCI bridge không có dữ liệu cho {symbol}, fallback CafeF Bank API")
+                logger.info(f"  VCI bridge không có dữ liệu cho {symbol}, fallback VNDirect Fininfo")
+                all_periods = self.fetch_vndirect_api(symbol)
+            if not all_periods:
+                logger.info(f"  VNDirect Fininfo không có dữ liệu cho {symbol}, fallback TCBS FinAPI")
+                all_periods = self.fetch_tcbs_api(symbol)
+            if not all_periods:
+                logger.info(f"  TCBS FinAPI không có dữ liệu cho {symbol}, fallback CafeF Bank API")
                 all_periods = self.fetch_cafef_bank_api(symbol)
             if not all_periods:
                 logger.info(f"  CafeF Bank API không có dữ liệu cho {symbol}, fallback NoteIndicator")
@@ -1351,6 +1648,18 @@ class CafeFCrawler:
                 all_periods = self.fetch_note_indicator(symbol)
             if not all_periods:
                 logger.info(f"  NoteIndicator cũng không có, dùng synthetic")
+                use_synthetic = True
+        elif source == "api":
+            # ── REST JSON bridges (VNDirect/TCBS — ưu tiên CFO + nợ chi tiết) ──
+            all_periods = self.fetch_vndirect_api(symbol)
+            if not all_periods:
+                logger.info(f"  VNDirect Fininfo không có dữ liệu cho {symbol}, fallback TCBS FinAPI")
+                all_periods = self.fetch_tcbs_api(symbol)
+            if not all_periods:
+                logger.info(f"  TCBS FinAPI không có dữ liệu cho {symbol}, fallback CafeF Bank API")
+                all_periods = self.fetch_cafef_bank_api(symbol)
+            if not all_periods:
+                logger.info(f"  CafeF Bank API cũng không có, dùng synthetic")
                 use_synthetic = True
         elif source == "synthetic":
             use_synthetic = True

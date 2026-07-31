@@ -206,12 +206,13 @@ Sau 6 tháng nếu mỗi Agent đều tự viết script tạm:
 10. **hci-explain BCM sau sector Real Estate**: chain chuẩn — CREDIT_STRESS → LIQUIDITY_TRAP → Ngành Bất động sản (EARLY, score 2.2) → PRESALES → BCM HCI 0.24 ✖ VETO. Archetype REAL_ESTATE_DEVELOPER (STEADY_EARNER), Chain conf 0.68.
 
 #### Active / Blocked
-- Không còn failures — test suite GREEN 326/326.
+- Không còn failures — test suite GREEN 326/326 → **340/340** (sau khi thêm 14 tests bridge VNDirect/TCBS).
 - `cmd_hci_explain` vẫn còn module wrap unconditional tại function-level (ptck.py:2938-2939) — an toàn cho CLI nhưng chưa đổi sang reconfigure (không gây pytest fail vì không module-level).
 
 #### Next Move
-1. Tích hợp VNDirect/TCBS API bridge vào `cafef_crawler.py` cho CFO + nợ chi tiết BCM (multi-source fallback: TCBS/VNDirect JSON → CafeF Bank API → Playwright).
-2. Kiểm tra lại health-engine compute BCM sau khi có dữ liệu CFO/nợ từ bridge mới.
+1. **VNDirect/TCBS API bridge đã tích hợp** (commit): `fetch_vndirect_api()` + `fetch_tcbs_api()` + pure parsers `_parse_vndirect_json`/`_parse_tcbs_rows` (deterministic, 14 tests TDD). Fallback chain `vci`/`api`: VNDirect → TCBS → CafeF Bank API → NoteIndicator → synthetic. CLI mới: `python ptck.py cafef-crawl --symbols BCM --source api`. Status UNVERIFIED_DNS (fininfo-api.vndirect.com.vn + finapi.tcbs.com.vn chưa resolve từ môi trường dev — cần kiểm chứng live khi network cho phép).
+2. Khi DNS VNDirect/TCBS mở: chạy `python ptck.py cafef-crawl --symbols BCM --source api` → xác nhận CFO + nợ vay chi tiết vào financial_facts → chạy `health-engine compute` + `health-v2` để Cash/DEBT thoát NO DATA.
+3. Cân nhắc upstream: check xem môi trường production có DNS mở cho fininfo-api.vndirect.com.vn / finapi.tcbs.com.vn hay không.
 
 #### Relevant Files
 - `backend/src/governor/company_state.py` — sector mapping fix
