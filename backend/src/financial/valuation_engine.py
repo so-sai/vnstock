@@ -5,6 +5,12 @@ Tính Z-score và Percentile định giá (P/E, P/B, EV/EBITDA, P/S)
 từ dữ liệu giá thực tế (screener_cache.db) + dữ liệu tài chính (financial_facts.db).
 """
 
+# WHY: Module này trả lời "đắt hay rẻ so với lịch sử của CHÍNH cổ phiếu đó" — không dùng
+# ngưỡng tuyệt đối (vd P/E<10 là rẻ) vì mỗi cổ phiếu có biên lợi nhuận và vòng đời khác
+# nhau. Dùng z-score (lệch bao nhiêu sigma so với mean lịch sử) để đo độ hiếm của mức giá,
+# và percentile (thứ hạng) làm thước đo bổ sung chống outlier. Cả 2 bám vào chuỗi thời
+# gian nội tại của symbol nên so sánh được giữa các ngành không đồng nhất.
+
 import sqlite3
 import json
 import sys
@@ -35,7 +41,14 @@ QUARTER_END_MAP = {
     3: (9, 30),  # Q3 ends Sep 30
     4: (12, 31), # Q4 ends Dec 31
 }
+# WHY: Map kỳ tài chính (2026Q1) → ngày cuối quý để lấy giá đóng cửa "sát" thời điểm báo
+# cáo tài chính: valuation ratio phải dùng giá tại ngày số liệu công bố, không phải giá
+# hiện tại, nếu không z-score sẽ bị méo do chênh lệch thời gian giữa báo cáo và giá.
 
+# WHY: Metadata từng ratio gồm ngưỡng z-score (ultra_cheap/cheap/expensive/ultra_expensive).
+# Ngưỡng ±2σ cho "quá rẻ/quá đắt" (cơ hội/risk lớn), ±1σ cho mức lệch đáng chú ý — chọn
+# dựa trên quy tắc 68-95-99 của phân phối chuẩn để vùng FAIR (±1σ) bao ~68% quan sát lịch
+# sử, tránh gắn nhãn cực đoan cho biến động thông thường.
 VALUATION_RATIOS = {
     "PE": {
         "name": "P/E",
@@ -144,6 +157,9 @@ class ValuationEngine:
         cur = conn.cursor()
         target = datetime.strptime(target_date, "%Y-%m-%d")
         # Search backward up to 30 days
+        # WHY: Tìm ngược tối đa 30 ngày vì ngày cuối quý có thể rơi vào cuối tuần/lễ (TT chứng
+        # khoán VN nghỉ, không có dữ liệu); lấy phiên giao dịch gần nhất về trước để giá phản
+        # ánh đúng thời điểm báo cáo. Fallback tới giá mới nhất khi chuỗi quá ngắn.
         for days_back in range(31):
             d = (target - timedelta(days=days_back)).strftime("%Y-%m-%d")
             cur.execute(
@@ -208,6 +224,9 @@ class ValuationEngine:
         quarters = 4
 
         # PE
+        # WHY: dữ liệu là theo quý nên nhân 4 để annualize thành TTM EPS — so sánh P/E cùng
+        # thang "1 năm" giữa các kỳ; chỉ tính khi EPS>0 vì EPS âm làm P/E vô nghĩa (giá trị
+        # âm không thể hiện "rẻ" hay "đắt").
         if eps and eps > 0:
             ttm_eps = eps * (quarters / 1)  # quarterly → annualized
             result["PE"] = price / ttm_eps
@@ -223,6 +242,9 @@ class ValuationEngine:
                 result["PS"] = price / rev_ps
 
         # EV/EBITDA
+        # WHY: EV = Market Cap + Tổng nợ − Tiền: giá trị "mua lại toàn bộ doanh nghiệp đã
+        # trừ tiền mặt" — chuẩn hoá P/E bị bóp méo bởi cấu trúc vốn (nợ cao làm EPS thấp
+        # → P/E cao giả tạo), nên EV/EBITDA so sánh được giữa các công ty vay nợ khác nhau.
         if mc and ebitda and ebitda > 0:
             ev = mc
             if debt:
@@ -238,6 +260,9 @@ class ValuationEngine:
         n = len(values)
         if n < 2:
             return 0.0, 0.0, n
+        # WHY: dùng phương sai mẫu (chia n−1) thay vì tổng thể: chuỗi ratios chỉ là MẪU của
+        # toàn bộ phân phối giá trị của cổ phiếu, n−1 cho ước lượng std không thiên lệch —
+        # z-score tính từ std này đáng tin hơn khi số kỳ còn ít (4–12 quý).
         mean = sum(values) / n
         variance = sum((v - mean) ** 2 for v in values) / (n - 1)
         std = variance ** 0.5
@@ -246,6 +271,9 @@ class ValuationEngine:
     def _percentile(self, values: List[float], current: float) -> float:
         if not values:
             return 50.0
+        # WHY: percentile dạng "đếm ≤ hiện tại / tổng" (inclusive rank): đơn giản, median-robust,
+        # không cần giả định phân phối chuẩn — bổ sung cho z-score vì ratio định giá thường
+        # lệch phải (outlier P/E rất lớn) làm mean/std bị kéo lệch.
         sorted_vals = sorted(values)
         count_below = sum(1 for v in sorted_vals if v <= current)
         return (count_below / len(sorted_vals)) * 100.0
@@ -289,6 +317,9 @@ class ValuationEngine:
 
         for rname in ratio_names:
             # Collect all values across periods
+            # WHY: z-score tính theo CHUỖI LỊCH SỬ nội tại của chính symbol (mean/std của mọi
+            # kỳ) thay vì ngưỡng tĩnh — mục tiêu là phát hiện "symbol đang rẻ hơn bình thường
+            # của chính nó", phù hợp cả với cổ phiếu tăng trưởng cao vốn có P/E luôn lớn.
             period_values = []
             for period in sorted(all_period_ratios.keys()):
                 v = all_period_ratios[period].get(rname)

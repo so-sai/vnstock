@@ -12,6 +12,10 @@ Usage:
     chain = engine.get_propagation_chain("FPT")
     # → [AI_CAPEX → IT_Outsource_Demand → Backlog → Revenue → Margin → EPS → ROIC]
 """
+# WHY: Tách lớp "cơ chế sinh lợi" (Economic Engine) khỏi lớp "đo lường" (financial ratios)
+# vì cùng một chỉ số tài chính có ý nghĩa hoàn toàn khác nhau giữa các archetype — NIM tốt
+# cho ngân hàng nhưng vô nghĩa cho thép. Module này gắn macro driver vào từng mắt xích nhân
+# quả của mỗi archetype để có thể trace "tại sao chỉ số này thay đổi" thay vì chỉ "chỉ số là gì".
 
 import sys
 from dataclasses import dataclass, field
@@ -27,7 +31,12 @@ from src.business.archetype import ArchetypeEngine, BusinessArchetype, ARCHETYPE
 
 @dataclass
 class EngineComponent:
-    """Một mắt xích trong chuỗi nhân quả của doanh nghiệp."""
+    """Một mắt xích trong chuỗi nhân quả của doanh nghiệp.
+
+    WHY: is_leading phân biệt chỉ báo dẫn (backlog, presales, SSS) với chỉ báo trễ
+    (revenue, margin) — dẫn dắt biến động xảy ra TRƯỚC khi ảnh hưởng lên EPS, giúp tầng
+    dự báo dùng chúng làm sớm thay vì chỉ xác nhận sau khi xu hướng đã xảy ra.
+    """
     name: str
     label: str
     description: str
@@ -49,6 +58,9 @@ class PropagationChain:
 
 # Reusable components
 C = {
+    # WHY: Registry dùng dict keyed by tên chuẩn (UPPER_SNAKE) để mọi chain tham chiếu
+    # component tái sử dụng — tránh trùng lặp định nghĩa giữa các archetype và đảm bảo
+    # một component chỉ có một nguồn sự thật cho label/description.
     # COMPOUNDER chain
     "IT_BACKLOG": EngineComponent("IT_BACKLOG", "IT Outsourcing Backlog",
                                    "Hợp đồng CNTT chưa thực hiện (leading indicator)"),
@@ -143,6 +155,8 @@ C = {
 PROPAGATION_CHAINS: Dict[str, PropagationChain] = {}
 
 def _reg_chain(a: str, label: str, chain: List[str], primary: str, macro_links: Dict[str, str]):
+    # WHY: Helper đăng ký chain bằng danh sách tên thay vì object — vừa ngắn gọn khi khai
+    # báo 8 archetype, vừa tự bỏ qua component chưa có trong registry thay vì crash lúc import.
     PROPAGATION_CHAINS[a] = PropagationChain(
         archetype=a,
         label=label,
@@ -151,6 +165,10 @@ def _reg_chain(a: str, label: str, chain: List[str], primary: str, macro_links: 
         macro_links=macro_links,
     )
 
+# WHY: Mỗi archetype chọn macro_links theo kênh truyền dẫn thực tế — ví dụ COMPOUNDER
+# nhận AI_CAPEX/GOV_IT_BUDGET trực tiếp vào backlog vì ngành IT Việt Nam phụ thuộc
+# ngân sách CNTT toàn cầu, không phải lãi suất; việc chọn đúng driver quyết định chất
+# lượng trace chứ không phải số lượng link.
 _reg_chain("COMPOUNDER", "Công ty Tăng trưởng Chất lượng Cao", [
     "IT_BACKLOG", "IT_HEADCOUNT", "IT_REVENUE", "IT_MARGIN", "DOMESTIC_IT", "EDUCATION_REV",
 ], "IT Outsourcing Backlog", {
@@ -236,7 +254,12 @@ _reg_chain("EXPORT_MANUFACTURER", "Sản xuất Xuất khẩu", [
 # ═══════════════════════════════════════════════════════════════
 
 class EconomicEngine:
-    """Tra cứu chuỗi nhân quả cho từng doanh nghiệp dựa trên archetype."""
+    """Tra cứu chuỗi nhân quả cho từng doanh nghiệp dựa trên archetype.
+
+    WHY: Engine lưu ArchetypeEngine làm thành phần nội bộ (composition) để một lần khởi
+    tạo là có thể classify nhiều symbol — mỗi lần classify lại tạo ArchetypeEngine mới sẽ
+    tốn I/O và phá vỡ cache của archetype detector.
+    """
 
     def __init__(self):
         self._arch_engine = ArchetypeEngine()
@@ -258,6 +281,9 @@ class EconomicEngine:
         if not direct_link:
             return [f"Không có link trực tiếp: {macro_driver}"]
 
+        # WHY: Cắt từ component trúng driver trở về cuối chain — tất cả các mắt xích sau
+        # đó đều chịu ảnh hưởng dây chuyền, nên trả cả phần đuôi thay vì chỉ 1 mắt xích
+        # sẽ cho người dùng thấy đường đi đầy đủ đến kết quả tài chính cuối.
         # Tìm vị trí của component trong chain → return từ đó đến cuối
         names = [c.name for c in chain.chain]
         if direct_link in names:

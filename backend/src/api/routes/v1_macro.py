@@ -3,6 +3,10 @@
 Cung cấp macro status dưới định dạng HCI (Human-Computer Interface)
 với localization song ngữ EN/VI cho mọi tín hiệu.
 """
+# WHY: Đây là endpoint v1 riêng (song song với macro.py không version) vì phục vụ nhóm
+# client mới cần định dạng HCI chuẩn hóa (metric array + to_hci) và localization song ngữ
+# ngay tại API. Tách route giúp v1 tiến hóa schema độc lập không phá vỡ client cũ đang
+# đọc JSON flat từ macro.py.
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +41,9 @@ router = APIRouter()
 
 
 def _score_to_signal(score: float) -> str:
+    # WHY: Bản đồ score→signal dùng thang 0-100 đơn giản (≥70 TRENDING, ≥40 RANGING,
+    # còn lại CRISIS) để khớp ngưỡng status mà regime_engine dùng (0.65/0.35) — cùng một
+    # ngôn ngữ trạng thái giữa lớp tính toán và lớp hiển thị, tránh lệch nhận định.
     if score is None:
         return "UNKNOWN"
     if score >= 70:
@@ -58,6 +65,9 @@ async def get_macro_status_v1(target_date: Optional[str] = Query(None, descripti
 
         data = _get_macro_status(target_date=target_date)
     except RuntimeError as e:
+        # WHY: RuntimeError đặc tả "dữ liệu chưa sẵn sàng" nên map 503 Service Unavailable
+        # để client biết đây là tạm thời (retry), còn lỗi khác là 500 — phân biệt giúp
+        # monitoring không gắn cờ nhầm một nguồn dữ liệu nghỉ lễ thành sự cố hệ thống.
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Macro engine error: {str(e)}")
@@ -74,6 +84,9 @@ async def get_macro_status_v1(target_date: Optional[str] = Query(None, descripti
     ]
 
     for sensor_id, sensor_val in sensors.items():
+        # WHY: Sensor value có 2 định dạng lịch sử — tuple (value, is_stale) hoặc raw value.
+        # Ưu tiên tuple để lấy phần tử đầu là value thực, còn raw value phục vụ schema cũ;
+        # chấp nhận cả hai để v1 không phụ thuộc service trả về đúng một kiểu.
         if isinstance(sensor_val, (list, tuple)) and len(sensor_val) > 1:
             value = sensor_val[0]
         else:

@@ -5,6 +5,12 @@ Xác định vùng giá tích lũy (HVN), Point of Control,
 và lực cầu chủ động tại vùng hỗ trợ.
 """
 
+# WHY: Module này dựng "bối cảnh giao dịch" theo khối lượng thay vì theo giá đơn thuần.
+# Volume Profile (POC/VAH/VAL/HVN) được chọn thay cho hỗ trợ/kháng cự giá thường thấy vì
+# nó phản ánh nơi giao dịch thực sự (dòng tiền lớn để lại dấu vết khối lượng), ít bị
+# nhiễu bởi spike giá riêng lẻ. Active Demand scan dùng volume surge + vị trí đóng nến để
+# nhận diện lực cầu chủ động sớm tại vùng tích lũy — tín hiệu trước khi giá breakout.
+
 import sqlite3
 import json
 import sys
@@ -129,6 +135,10 @@ class MarketBehaviorEngine:
 
         profile_data = data[-window:]
         atr = self.compute_atr(profile_data)
+        # WHY: bin_size lấy theo ATR rồi làm tròn về hàng trăm, floor 100: bin tự co/giãn theo
+        # mức độ biến động của từng cổ phiếu (cổ phiếu dao động mạnh cần bin rộng hơn để
+        # tránh phân mảnh vùng giá thành quá nhiều bin rỗng), đồng thời chặn dưới 100 để
+        # cổ phiếu giá thấp không tạo bin quá mịn gây nhiễu.
         bin_size = max(round(atr / 10, -2), 100) if atr > 0 else 500
 
         volume_bins = defaultdict(float)
@@ -144,6 +154,10 @@ class MarketBehaviorEngine:
                 bin_key = round(lo / bin_size) * bin_size
                 volume_bins[bin_key] += vol
             else:
+                # WHY: Phân bổ khối lượng theo tỉ lệ (vol_per_unit × overlap) thay vì đổ toàn
+                # bộ vào bin giá đóng cửa: một nến trải dài qua nhiều bin thì lượng giao dịch
+                # ước lượng phân bổ đều theo độ dài giá quét qua — phản ánh chính xác hơn
+                # "giá nào thực sự được khớp nhiều" so với gán cứng theo 1 mức giá.
                 vol_per_unit = vol / span
                 b_lo = math.floor(lo / bin_size) * bin_size
                 b_hi = math.ceil(hi / bin_size) * bin_size
@@ -166,6 +180,10 @@ class MarketBehaviorEngine:
         total_vp_vol = sum(v for _, v in sorted_bins)
 
         # Value Area: 70% of total volume centered on POC
+        # WHY: 70% là convention chuẩn của Market Profile (chuẩn giá trị vùng giao dịch cân
+        # bằng): xấp xỉ 68% của phân phối chuẩn. Mở rộng lần lượt về 2 phía từ POC theo bin
+        # nào có khối lượng lớn hơn để VA bám sát đám đông giao dịch thực, không phình theo
+        # chiều dài giá.
         target_va = total_vp_vol * 0.70
         va_vol = volume_bins[poc]
         vah = poc
@@ -193,6 +211,9 @@ class MarketBehaviorEngine:
                 break
 
         # High Volume Nodes (HVN): bins with volume > 2x average
+        # WHY: Ngưỡng 2× khối lượng trung bình/bin để lọc ra các mức giá "nghẽn" thật sự
+        # (được giao dịch vượt trội), loại bỏ nhiễu bin ngẫu nhiên — 2x là điểm cắt đủ cao
+        # để chỉ giữ node có ý nghĩa nhưng vẫn bắt được vùng tích lũy rõ rệt.
         avg_bin_vol = total_vp_vol / len(volume_bins)
         hvns = [{"price": p, "volume": v}
                 for p, v in sorted_bins if v > avg_bin_vol * 2]
@@ -202,6 +223,9 @@ class MarketBehaviorEngine:
         volumes = [d["volume"] for d in profile_data]
         vol_ma20 = sum(volumes[-20:]) / min(20, len(volumes)) if len(volumes) >= 20 else sum(volumes) / len(volumes)
         current_vol = latest["volume"]
+        # WHY: volume_ratio = khối lượng hôm nay / MA20 khối lượng để chuẩn hoá "sôi động bất
+        # thường" theo baseline riêng từng cổ phiếu (cổ phiếu thanh khoản cao có volume tuyệt
+        # đối lớn hơn nhưng ratio mới so sánh được chéo giữa các mã).
         vol_ratio = current_vol / vol_ma20 if vol_ma20 > 0 else 0
 
         def ma(prices, n):
@@ -249,6 +273,9 @@ class MarketBehaviorEngine:
         vol_ma20 = vp["volume_ma20"]
 
         signals = []
+        # WHY: dùng set + sorted để loại trùng mức giá (VAL có thể trùng HVN/POC) và luôn có
+        # danh sách hỗ trợ tăng dần; so sánh khoảng cách tương đối (dist/price) chứ không
+        # tuyệt đối để mức hỗ trợ 3% nghĩa tương đương nhau giữa cổ phiếu giá 10k và 200k.
         support_levels = sorted(set([val, poc] + [h["price"] for h in vp.get("hvns", [])]))
 
         window_data = data[-lookback:]
@@ -274,9 +301,16 @@ class MarketBehaviorEngine:
             # 2. Volume > 1.5x MA20
             # 3. Close in upper 60% of range
             # 4. Positive price change
+            # WHY: 4 điều kiện phối hợp để loại bỏ false-positive: giá sát hỗ trợ (3%) đảm bảo
+            # đúng vùng nghẽn; volume ≥1.5x MA20 chứng minh dòng tiền đổ vào (không phải thin
+            # volume); đóng nến ≥60% biên độ = người mua áp đảo trong phiên; close > open xác
+            # nhận áp lực mua ròng thay vì bẫy hồi giá.
             if (min_dist <= 0.03 and vol_ratio >= 1.5
                     and close_position >= 0.6
                     and price > d.get("open", price)):
+                # WHY: strength = tổng có trọng số các yếu tố độc lập (volume 0.4, close
+                # position 0.3, độ sát hỗ trợ 0.3) — volume là tín hiệu mạnh nhất nên nặng
+                # nhất; cộng dồn để có thang so sánh giữa các tín hiệu khác ngày/mã.
                 strength = vol_ratio * 0.4 + close_position * 0.3 + (1 - min_dist) * 0.3
                 signals.append({
                     "symbol": symbol.upper(),

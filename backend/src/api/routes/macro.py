@@ -1,4 +1,8 @@
-﻿import sys
+﻿# WHY: Route macro.py là entrypoint không-version phục vụ client cũ — trả JSON flat đã
+# localize (qua localize_output) thay vì metric array như v1_macro.py. Đây là tầng "không
+# có logic" chỉ chuyển dữ liệu từ macro_service lên HTTP: tách route khỏi service để lớp
+# tính toán macro có thể test/backtest độc lập mà không cần chạy web server.
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -37,10 +41,15 @@ async def get_macro_data(target_date: Optional[str] = Query(None, description="Y
     """
     try:
         data = get_macro_status(target_date=target_date)
+        # WHY: stale_warning được gắn thủ công từ macro_stale vì nó là cờ runtime (độ cũ
+        # dữ liệu), không nằm trong schema MacroStatus — client cần biết ngay hôm nay macro
+        # có đáng tin không trước khi dùng regime score.
         result = MacroStatus(**data).model_dump(by_alias=True)
         result["stale_warning"] = data.get("macro_stale", False)
         return localize_output(result)
     except RuntimeError as e:
+        # WHY: 503 cho RuntimeError (nguồn dữ liệu chưa có, nghỉ lễ) để client retry sau;
+        # 500 chỉ cho lỗi thật sự — tránh alert giả khi dữ liệu macro tạm thời vắng.
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Macro engine error: {str(e)}")
@@ -48,7 +57,11 @@ async def get_macro_data(target_date: Optional[str] = Query(None, description="Y
 
 @router.get("/history")
 async def get_macro_history(limit: int = Query(90, ge=1, le=365)):
-    """Lấy lịch sử Regime Score để vẽ biểu đồ Timeline."""
+    """Lấy lịch sử Regime Score để vẽ biểu đồ Timeline.
+
+    WHY: limit mặc định 90 ngày đủ cho biểu đồ 1 quý mà không nặng payload, giới hạn
+    1-365 đảm bảo client không kéo toàn bộ lịch sử gây quá tải query DB.
+    """
     try:
         return localize_output(get_regime_history(limit=limit))
     except Exception as e:
@@ -73,6 +86,8 @@ async def get_sensor_status(sensor_id: str):
             )
         
         sensor_val = sensors[sensor_id]
+        # WHY: Sensor lưu theo 2 dạng tuỳ nguồn — tuple (value, is_stale) hoặc raw value.
+        # Unpack an toàn cả hai để endpoint không crash khi service đổi định dạng nội bộ.
         # Safe tuple unpacking: handle both (value, is_stale) tuple and raw value
         if isinstance(sensor_val, tuple) and len(sensor_val) == 2:
             value, is_stale = sensor_val

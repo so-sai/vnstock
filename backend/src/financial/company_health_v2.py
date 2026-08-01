@@ -15,6 +15,15 @@ Output: 5D vector [0,1] per organ + human-readable Latent Archetype.
 Governor only sees the vector; the archetype is for human reporting.
 """
 
+# WHY (thiết kế tổng thể):
+# WHY: 22+ ratio thô → nén thành 5 "organ" [0,1] (Profitability/Cash/Balance
+#   Sheet/Efficiency/Moat): Governor chỉ cần vector 5D để ra quyết định, không
+#   bị nhiễu bởi từng ratio; archetype chỉ phục vụ báo cáo con người.
+# WHY: Score dùng z-score/trend/stability THAY VÌ ngưỡng tuyệt đối vì ngành
+#   khác nhau có biên lợi nhuận/thặng dư khác nhau — so với lịch sử chính DN.
+# WHY: Phân loại archetype bằng luật min/max xác định (không ML) để kết quả
+#   tái lập được và giải thích được.
+
 import json
 import logging
 import math
@@ -55,6 +64,9 @@ FINANCIAL_DB = str(PROJECT_ROOT / "backend" / "data" / "financial_facts.db")
 
 # ── Archetype definitions ───────────────────────────────────────
 
+# WHY: ngưỡng min/max viết tay theo kinh nghiệm (deterministic, không ML):
+# HIGH_QUALITY_COMPOUNDER yêu cầu CẢ 5 organ mạnh, DISTRESSED chỉ cần phần lớn
+# yếu; bộ min/max khác nhau tạo ra 6 archetype phân biệt được.
 ARCHETYPES = {
     "HIGH_QUALITY_COMPOUNDER": {
         "label": "Công ty Tăng trưởng Chất lượng Cao",
@@ -286,6 +298,10 @@ class CompanyHealthV2:
     def _trend(series: list, n: int = 8) -> float:
         """Compute linear trend slope over last n periods.
 
+        WHY: slope chuẩn hóa bằng max(|y|) và clip [-1,1] để dùng chung cho
+        mọi metric dù đơn vị khác nhau (tỷ lệ 0.x hay tỷ số 5.0) — xu hướng
+        tương đối theo độ lớn hiện tại, scale-invariant.
+
         Normalized: positive = improving, negative = declining.
         Returns: slope in [-1, 1]
         """
@@ -300,7 +316,11 @@ class CompanyHealthV2:
 
     @staticmethod
     def _stability(series: list, n: int = 8) -> float:
-        """Compute stability as inverse of CV (coefficient of variation)."""
+        """Compute stability as inverse of CV (coefficient of variation).
+
+        WHY: CV = std/mean đã chuẩn hóa theo độ lớn → 1-CV ≈ 1 khi dao động
+        nhỏ (ổn định), 0 khi biến động mạnh. Không cần ngưỡng tùy từng ngành.
+        """
         vals = CompanyHealthV2._recent_values(series, n)
         if len(vals) < 3:
             return 0.0
@@ -318,7 +338,12 @@ class CompanyHealthV2:
 
     @staticmethod
     def _z_score(val: float, series: list) -> float:
-        """Compute z-score of current value vs historical."""
+        """Compute z-score of current value vs historical.
+
+        WHY: dùng cửa sổ 20 kỳ và z-score thay vì giá trị tuyệt đối — biên
+        lợi nhuận 5% với DN này là tốt nhưng 20% với DN khác; z-score đo vị trí
+        tương đối so với chính lịch sử DN (loại bias cross-section).
+        """
         vals = CompanyHealthV2._recent_values(series, 20)
         if len(vals) < 3:
             return 0.0
@@ -416,6 +441,8 @@ class CompanyHealthV2:
             trend = self._trend(debt_eq, 8)
             # D/E < 1 = good, > 3 = bad (except for banks)
             if entity == "BANK":
+                # WHY: ngân hàng có cấu trúc vốn khác — D/E ~8-15 là bình thường
+                # (huy động tiền gửi), nên trừ 2 rồi chia 15 thay vì /3.
                 level = float(np.clip(1.0 - (d - 2) / 15.0, 0, 1))  # banks have high D/E
             else:
                 level = float(np.clip(1.0 - d / 3.0, 0, 1))
@@ -474,6 +501,8 @@ class CompanyHealthV2:
         """Compute ROIC from financial facts over time.
 
         ROIC = NOPAT / Invested Capital
+        WHY: NOPAT = EBIT * 0.8 dùng thuế suất ~20% của VN làm proxy; trừ Cash
+        khỏi Invested Capital vì tiền mặt nhàn rỗi không tạo ra lợi nhuận HĐ.
         NOPAT = EBIT * 0.8 (VN corporate tax ~20%)
         Invested Capital = Total Equity + Total Debt - Cash
         """
@@ -600,6 +629,9 @@ class CompanyHealthV2:
             confidence = (1.0 - m) * 0.5
             candidates.append(("COMMODITY", confidence))
 
+        # WHY: hệ số nhân confidence (0.7/0.6/0.5) hạ điểm các archetype chỉ
+        # khớp 1-2 điều kiện; nếu không khớp archetype nào → mặc định
+        # STEADY_EARNER với confidence thấp 0.35 thay vì trả lỗi.
         if not candidates:
             return "STEADY_EARNER", 0.35
 

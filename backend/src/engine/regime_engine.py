@@ -25,9 +25,19 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import get_connection
 
+# WHY: Regime Engine tách riêng (không nhúng vào Decision Guard) vì nó tính một chỉ số
+# thị trường tổng thể (Regime Score) dùng chung cho nhiều tầng — decision guard, macro
+# governor, UI/API — mỗi lần chạy độc lập theo ngày (point-in-time) để phục vụ replay
+# lịch sử. Nhúng vào guard sẽ làm guard phụ thuộc thứ tự khởi tạo và không thể backtest
+# được regime ở từng mốc thời gian trong quá khứ.
+
 
 def _calc_adx_dmi(df, period=14):
-    """Calculates ADX, +DI, -DI for DMI-based trend analysis."""
+    """Calculates ADX, +DI, -DI for DMI-based trend analysis.
+
+    WHY: period=14 theo chuẩn Wilder/ADX kinh điển — window đủ ngắn để bắt đảo chiều
+    nhanh nhưng đủ dài để lọc nhiễu giá ngẫu nhiên hàng ngày trên thị trường VN.
+    """
     df = df.copy()
     plus_dm = df['high'].diff()
     minus_dm = -df['low'].diff()
@@ -65,6 +75,10 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     Includes [LOCK 2] ATR Shock Filter.
     Supports Point-in-time accuracy via target_date.
     lang_mode: 'compact' (EN), 'annotated' (EN+VI), 'full' (VI only), 'auto'
+
+    WHY: Trọng số 0.5/0.3/0.2 phản ánh thực tế TTCK VN — Breadth (tỷ lệ cổ phiếu trên MA20)
+    là tín hiệu mạnh nhất vì bắt được cả nội lực thị trường chứ không chỉ index, Trend của
+    VNINDEX đứng thứ hai, Volatility chỉ là lớp lọc rủi ro nên trọng số thấp nhất.
     """
     label_replay = _ll("REGIME ENGINE", lang_mode)
     label_sub = _ll("HISTORICAL REPLAY" if target_date else "LIVE ANALYSIS", lang_mode)
@@ -75,6 +89,9 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     # 1. B-Score (Breadth): 50% Weight
     with get_connection() as conn:
         if target_date:
+            # WHY: Window 60 ngày trước target đủ cho rolling MA20 + filter thanh khoản 20
+            # phiên mà không kéo dữ liệu quá xa làm nặng query; chỉ lấy tới ngày target để
+            # đảm bảo point-in-time — không rò rỉ dữ liệu tương lai khi backtest.
             # Point-in-time window: 60 days before target_date to ensure MA20 calculation
             df_all = pd.read_sql(f"SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date <= '{target_date}' AND date >= date('{target_date}', '-60 days') AND symbol != 'VNINDEX'", conn)
         else:
@@ -96,6 +113,8 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         print(f"  [REGIME] BREADTH_SUSPENDED: no data for {current_date.date()} — breadth deferred")
         breadth_pct = None
     else:
+        # WHY: Filter thanh khoản ≥ 50k cổ/phiên loại các mã trôi nổi ít giao dịch — chúng
+        # làm nhiễu breadth vì giá dễ bị đẩy qua MA20 mà không phản ánh sức mạnh thật.
         liquid_df = latest_df[latest_df['avg_vol_20d'] >= 50000]
         breadth_pct = (len(liquid_df[liquid_df['close'] > liquid_df['ma20']]) / len(liquid_df) * 100) if not liquid_df.empty else 0
 
@@ -156,6 +175,9 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     df_idx['adx'], df_idx['plus_di'], df_idx['minus_di'] = _calc_adx_dmi(df_idx)
     latest_idx = df_idx.iloc[-1]
 
+    # WHY: 3 timeframe 40/30/30 — MA20 bắt xu hướng ngắn hạn (trọng số cao vì quyết định
+    # timing), MA50 trung hạn, MA200 đại diện xu hướng dài hạn. Cộng dồn vị thế thay vì
+    # một MA duy nhất để phân biệt "tăng ngắn hạn trong downtrend" với uptrend thật sự.
     # Multi-timeframe position matrix: 40% short(MA20) + 30% medium(MA50) + 30% secular(MA200)
     t_short = 1.0 if latest_idx['close'] > latest_idx['ma20'] else 0.0
     t_medium = 1.0 if latest_idx['close'] > latest_idx['ma50'] else 0.0
@@ -167,6 +189,9 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     #   Band > 2.0 eliminates whipsaw false signals when vectors entangle in low liquidity
     minus_di_val = float(latest_idx['minus_di']) if not np.isnan(latest_idx['minus_di']) else 0.0
     plus_di_val = float(latest_idx['plus_di']) if not np.isnan(latest_idx['plus_di']) else 0.0
+    # WHY: Hysteresis band >2.0 đảm bảo lệch DMI đủ lớn mới kích hoạt penalty — lọc whipsaw
+    # khi hai vector DMI quấn nhau trong vùng thanh khoản thấp; ADX<20 xác nhận thị trường
+    # không có động lượng thật. Cắt 50% T-score để kéo regime về CORRECTING thay vì RANGING.
     dmi_penalty = bool(latest_idx['adx'] < 20 and (minus_di_val - plus_di_val) > 2.0)
     t_score = t_base * 0.5 if dmi_penalty else t_base
 
@@ -186,12 +211,17 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     atr_today = tr.iloc[-1]
     atr_avg = atr_20.iloc[-1]
 
+    # WHY: dùng hàm liên tục thay vì 3 nấc rời rạc để loại bỏ cú nhảy vực ở biên 1.5x ATR —
+    # regime score sẽ trượt mượt theo biến động thay vì "nhảy số" giữa 2 phiên kề nhau.
     # Volatility Score: continuous inverse of ATR ratio excess
     # v_score = 1.0 - clamp(atr_ratio - 1.0, 0.0, 0.8)  ->  range [0.2, 1.0]
     # Replaces discrete 3-step to eliminate cliff-edge jumps at 1.5x ATR boundary
     atr_ratio = (atr_today / atr_avg) if atr_avg and atr_avg > 0 else 1.0
     v_score = max(0.2, min(1.0, 1.0 - max(0.0, min(0.8, atr_ratio - 1.0))))
 
+    # WHY: Khi breadth bị treo (thiếu dữ liệu), fallback về 2-factor 0.6T+0.4V thay vì
+    # trả UNKNOWN — trend và volatility vẫn đủ để phân biệt CRISIS vs TRENDING, chỉ mất
+    # độ nhạy của breadth chứ không gãy cả pipeline.
     # 4. Final Aggregation — Raw Score (BREADTH_SUSPENDED → 2-factor fallback)
     if b_score is None:
         regime_score_raw = (0.6 * t_score) + (0.4 * v_score)
@@ -199,6 +229,9 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     else:
         regime_score_raw = (0.5 * b_score) + (0.3 * t_score) + (0.2 * v_score)
 
+    # WHY: [LOCK 2] áp shock lên raw score TRƯỚC EMA — nếu áp sau smoothing, cú nhảy biến
+    # động sẽ bị làm nhẵn đi và không bao giờ đến được tầng quyết định. Ngưỡng 1.5x ATR bắt
+    # đúng các phiên giảm sàn/lan toả hoảng loạn; hệ số 0.7 hạ điểm để EMA thấy tín hiệu.
     # [LOCK 2] ATR Shock: applied to raw score before smoothing so the EMA sees the shock signal
     if atr_today > 1.5 * atr_avg:
         flag = ">>" if sys.platform == "win32" else "\u26a0\ufe0f"
@@ -208,6 +241,9 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         print(f"{flag} {label_shock} ({label_today} {atr_today:.2f} {label_avg} {atr_avg:.2f}).")
         regime_score_raw *= 0.7
 
+    # WHY: alpha thích nghi theo biến động — thị trường lặng sóng (atr_ratio≈1) thì làm
+    # nhẵn mạnh (alpha 0.1) để bỏ nhiễu, thị trường sốc thì pass-through gần như nguyên vẹn.
+    # Đây là EMA thời gian KHÔNG đều (irregular) vì ngày nghỉ lễ làm khoảng cách phiên lệch nhau.
     # 5. Irregular Time-Series EMA Smoothing
     # Base alpha from ATR volatility: clamp(0.2 * atr_ratio, 0.1, 1.0)
     #   -> low volatility  : alpha near 0.1 (heavy smoothing)
@@ -230,6 +266,10 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     prev_smoothed = df_prev['regime_score'].iloc[0] if not df_prev.empty else regime_score_raw
     prev_date_str = df_prev['date'].iloc[0] if not df_prev.empty else None
 
+    # WHY: alpha_decay = 1 - exp(-λ·dt) phạt khoảng trống thời gian — nếu cron chết 14 ngày,
+    # giá trị prev cũ trở nên vô nghĩa nên hệ thống tự quên (75% weight cho raw mới); còn khi
+    # chạy hàng ngày (dt=1) decay chỉ ~0.095 nên ATR-based alpha giữ vai trò smoothing chính.
+    # λ = 0.1 cho half-life ~7 phiên — cân bằng giữa bám sát thực tế và chống nhiễu.
     # Time-decay factor: alpha_decay = 1 - exp(-lambda * dt)
     #   lambda = 0.1 (half-life ~7 trading days)
     #   When cron dies for 14 days: alpha_decay = 1 - exp(-1.4) ≈ 0.75
@@ -278,6 +318,8 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             "roc_10d_z": round(roc_10d_z, 2),
         }
 
+        # WHY: Chỉ phạt khi roc_5d âm (giảm giá nhanh) — bắt trước khả năng kéo dài của cú
+        # sụt; bị clamp 0-0.20 để một phiên rơi -20% không tự nó đưa score về 0 một cách phi lý.
         # Velocity penalty: gamma * clamp(|roc_5d| * 0.01, 0, 0.20) when roc_5d negative
         #   e.g. -3.7% drop → penalty = 1.0 * 0.037 = 0.037
         #   Absolute bounding: final_raw_score = max(0.0, min(1.0, base_score - penalty))
@@ -288,9 +330,15 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     except Exception:
         pass
 
+    # WHY: Ngưỡng 0.65/0.35 đối xứng quanh 0.5 tạo vùng RANGING rộng (0.35-0.65) — chỉ
+    # phân loại TRENDING/CRISIS khi tín hiệu đủ mạnh, tránh gọi mỗi nhiễu nhỏ là đảo chiều.
     # Status classification applied to the ADJUSTED smoothed score
     status = "TRENDING" if regime_score > 0.65 else "RANGING" if regime_score >= 0.35 else "CRISIS"
 
+    # WHY: RPA cộng dồn các tín hiệu rủi ro độc lập (breadth crash, ADX surge, Asia
+    # rotation, DXY stress) — mỗi tín hiệu 1 điểm, đạt ≥2 mới override CRISIS_WARNING.
+    # Yêu cầu nhiều nguồn xác nhận nhau giúp tránh false positive từ một kênh đơn lẻ;
+    # gold premium tách riêng làm cờ Black Swan không tính vào RPA vì nó hiếm và cực đoan.
     # [RAD v3] Regime Acceleration Detector — Dynamic Scoring via RPA
     # Risk Points Accumulation (RPA): each signal contributes 1 point.
     # Threshold ≥ 2 → override CRISIS_WARNING. Gold is separate Black Swan flag.
@@ -476,6 +524,10 @@ def backfill_regime_history(target_date=None, batch_size=30):
     seeds are available for each computation.
 
     Returns: (processed, inserted) count tuple.
+
+    WHY: batch_size=30 giới hạn lượng ngày xử lý mỗi lần chạy để tránh lấn át I/O khi hệ
+    thống đang chạy cron daily; xử lý ngược thời gian vì EMA cần seed từ ngày gần nhất
+    trước khi tính các ngày cũ hơn.
     """
     from src.database.db_core import save_data_upsert
     import time

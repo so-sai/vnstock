@@ -5,6 +5,16 @@ Tầng 2 của Kiến trúc 4 Lớp Bất biến.
 phát hiện xu hướng suy giảm, lưu vào health_ratios table.
 """
 
+# WHY (thiết kế tổng thể):
+# WHY: Registry RATIO_META là nguồn DUY NHẤT cho formula/threshold/entity_type →
+#   mọi consumer (compute/interpret/UI/health-v2) đọc chung, tránh duplicate
+#   công thức và threshold lệch nhau.
+# WHY: Tách entity_type STANDARD/BANK: ngân hàng có cấu trúc BCTC riêng
+#   (NIM/LDR/NPL/CASA thay cho Inventory/Gross Margin) → dùng chung threshold
+#   sẽ cho kết luận sai.
+# WHY: Ghi kết quả vào bảng health_ratios riêng (không đụng financial_facts):
+#   ratio là dữ liệu DERIVED tái tính được, giữ tầng 1 thuần raw facts.
+
 import sqlite3
 import json
 import sys
@@ -31,6 +41,9 @@ from src.financial.financial_facts import FinancialFactsDB, FINANCIAL_DB_PATH
 # RATIO REGISTRY
 # =========================================================================
 
+# WHY: "inverted": True cho ratio mà THẤP hơn là TỐT hơn (CAPEX_TO_CFO,
+# DEBT_TO_EQUITY, NPL_RATIO...) — _interpret() đảo chiều so sánh, giữ threshold
+# GOOD < WARNING < BAD theo thứ tự tăng dần cho cả 2 loại.
 RATIO_META = {
     # --- Cash Flow Quality ---
     "CFO_TO_NET_INCOME": {
@@ -273,6 +286,9 @@ class HealthEngine:
         print(f"  Schema OK: health_ratios table")
 
     def _safe_div(self, a, b):
+        # WHY: trả None (không raise) khi chia 0/thiếu dữ liệu → ratio đó bị
+        # loại khỏi kết quả (filter None cuối hàm), tránh ratio vô nghĩa
+        # như INF hay số bịa từ mẫu số = 0.
         if b is None or b == 0:
             return None
         try:
@@ -286,6 +302,9 @@ class HealthEngine:
             return "NEUTRAL"
         th = meta["thresholds"]
         inverted = meta.get("inverted", False)
+        # WHY: ratio inverted dùng <= (thấp hơn ngưỡng = tốt hơn); ratio
+        # thường dùng >=. GOOD là mức kỳ vọng, WARNING là ranh giới cần theo
+        # dõi, ngoài BAD là đỏ.
         if inverted:
             if value <= th["GOOD"]:
                 return "GOOD"
@@ -383,6 +402,8 @@ class HealthEngine:
 
     def compute_period_ratios(self, symbol: str, period: str,
                                period_metrics: dict, entity_type: str) -> Dict:
+        # WHY: chọn bộ công thức theo entity_type — ngân hàng không có
+        # Inventory/Gross Profit, thay bằng NIM/LDR/NPL/CASA; STANDARD ngược lại.
         if entity_type == "BANK":
             ratios = self.compute_bank_ratios(period_metrics)
         else:
@@ -408,6 +429,8 @@ class HealthEngine:
         results = []
         warnings = []
 
+        # WHY: duyệt kỳ MỚI NHẤT trước — log dễ đọc, và các consumer
+        # (get_latest_health) lấy MAX(period) không phụ thuộc thứ tự này.
         for period in sorted(facts.keys(), reverse=True):
             pm = facts[period]
             fy = pm.get("_fiscal_year", int(period[:4]))
@@ -419,6 +442,8 @@ class HealthEngine:
             for rname, rinfo in computed.items():
                 meta = RATIO_META.get(rname, {})
                 metadata = {"thresholds": meta.get("thresholds", {})}
+                # WHY: INSERT OR REPLACE + UNIQUE(symbol, period, ratio_name)
+                # → compute lại idempotent, không đúp dòng khi chạy nhiều lần.
                 conn.execute("""
                     INSERT OR REPLACE INTO health_ratios
                         (symbol, period, fiscal_year, fiscal_quarter,

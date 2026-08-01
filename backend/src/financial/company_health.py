@@ -22,6 +22,12 @@ Usage:
     print(result.overall_score, result.flags)
 """
 
+# WHY: Module này thay thế ngưỡng tài chính TĨNH bằng ngưỡng ĐỘNG theo DNA archetype.
+# Một bộ ngưỡng cố định không phân biệt được "xấu vì cấu trúc vốn" với "bình thường
+# theo mô hình kinh doanh": D/E=1.5x với FPT (low-leverage) là BAD nhưng với HPG
+# (high-leverage cyclical) là GOOD. Điều chỉnh ngưỡng theo archetype giúp điểm health
+# phản ánh đúng bản chất từng ngành thay vì so sánh chung giữa các mô hình khác nhau.
+
 import json
 import sqlite3
 import sys
@@ -55,6 +61,9 @@ class Threshold:
     def evaluate(self, value: float) -> str:
         if value is None:
             return "NEUTRAL"
+        # WHY: inverted=True dùng cho chỉ số "thấp hơn thì tốt hơn" (D/E, CAPEX/CFO,...).
+        # Đảo hướng so sánh để cùng cấu trúc (good → warning → bad) áp dụng cho cả 2 chiều,
+        # tránh viết riêng 2 bộ logic đánh giá.
         if self.inverted:
             if value <= self.good: return "GOOD"
             elif value <= self.warning: return "WARNING"
@@ -70,6 +79,9 @@ class Threshold:
         """Convert value to [0, 1] score using linear interpolation."""
         if value is None:
             return 0.5
+        # WHY: Nội suy tuyến tính giữa good↔bad để chuẩn hoá mọi chỉ số về cùng thang [0,1],
+        # cho phép tính overall_score là trung bình cộng giữa các metric có đơn vị khác nhau
+        # mà không bị lệch trọng số do đơn vị. missing value → 0.5 (NEUTRAL, không phạt).
         if self.inverted:
             if value <= self.good: return 1.0
             elif value >= self.bad: return 0.0
@@ -83,6 +95,9 @@ class Threshold:
 
 
 # Base thresholds (neutral archetype)
+# WHY: Đây là các giá trị NỀN cho archetype "trung tính" (multiplier=1, offset=0), được
+# hiệu chỉnh tương đối (nhân/cộng) trong ADJUSTMENT_MATRIX. Chọn kiểu relative thay vì
+# hardcode từng ngưỡng theo từng archetype để giữ 1 nguồn chân lý duy nhất, dễ thêm DN mới.
 BASE_THRESHOLDS: Dict[str, Threshold] = {
     "DEBT_TO_EQUITY":       Threshold(0.50, 1.50, 3.00, inverted=True),
     "DEBT_TO_ASSETS":       Threshold(0.30, 0.50, 0.70, inverted=True),
@@ -113,6 +128,10 @@ class AdjRule:
     offset: float = 0.0
 
 # Mỗi metric có một dict: attribute_value → AdjRule
+# WHY: Chọn dict keyed by attribute value (enum/string) thay vì if/else dài để lookup theo
+# từng DNA attribute là O(1) và quy tắc của mỗi metric gom về 1 chỗ, dễ đọc/dễ thêm rule.
+# multiplier dùng để scale ngưỡng theo cường độ (margin, leverage...), offset để dịch
+# ngưỡng tuyệt đối cho khác biệt cấu trúc báo cáo (vd accrual-heavy của ngân hàng).
 ADJUSTMENT_MATRIX = {
 
     "DEBT_TO_EQUITY": {
@@ -305,6 +324,10 @@ class ContextualHealthEngine:
             return None
 
         overall_score = overall / n_scored
+        # WHY: Ngưỡng 0.70/0.45/0.25 chọn theo phân phối thực tế của overall score trung bình
+        # các metric (mỗi score trong [0,1]): 0.70≈tốt đồng đều, 0.45≈trung bình ngành,
+        # dưới 0.25≈suy yếu nghiêm trọng. Nhãn HEALTHY/MODERATE/WEAK/CRITICAL để báo cáo
+        # trực quan, giữ thứ tự tương ứng với mức rủi ro tăng dần.
         if overall_score >= 0.70:
             overall_label = "HEALTHY"
         elif overall_score >= 0.45:
@@ -337,6 +360,9 @@ class ContextualHealthEngine:
         mult = 1.0
         offset = 0.0
 
+        # WHY: Nhân các multiplier với nhau (chứ không cộng) vì mỗi rule scale theo cấp số
+        # nhân của "mức độ chịu đựng" (2 rule cùng multiplier 1.5 → 2.25x, đúng bản chất
+        # rủi ro chồng nhau); offset thì cộng dồn vì là dịch chuyển tuyệt đối trên cùng thang.
         for attr_val, rule in rules.items():
             matched = False
             # Match enum values

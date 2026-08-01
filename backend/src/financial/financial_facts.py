@@ -4,6 +4,12 @@ Kiến trúc 4 Lớp Bất biến — PTCK_VN Phase 2
 Entity types: STANDARD (FPT) vs BANK (ACB, HDB, MBB)
 """
 
+# WHY: Module này là "tầng hầm dữ liệu" của toàn hệ thống — nơi duy nhất đọc/ghi báo cáo
+# tài chính thô. Tách schema KÉP STANDARD vs BANK vì ngân hàng có bộ chỉ tiêu khác hẳn
+# (NII, CUSTOMER_LOANS/DEPOSITS, NPL, CAR...) mà nếu ép vào khuôn công nghiệp sẽ mất đi
+# chỉ số đặc thù. DataIntegrityValidator đặt ngay trước khi ghi để chặn dữ liệu sai đơn vị
+# (nghìn/triệu/tỷ) ngay từ nguồn — sai scale là lỗi âm thầm phá vỡ mọi phân tích phía sau.
+
 import sqlite3
 import sys
 import os
@@ -29,6 +35,10 @@ sys.path.insert(0, str(BACKEND_DIR / "libs" / "vnstock"))
 FINANCIAL_DB_PATH = DATA_DIR / "financial_facts.db"
 
 # Metric registry: (metric, description, entity_type, statement_type)
+# WHY: Registry dạng dict (metric → (mô tả, statement_type)) vừa là từ điển tra cứu O(1),
+# vừa là nguồn chân lý duy nhất cho label tiếng Việt và phân loại IS/BS/CF — statement_type
+# cần thiết để validator biết chỉ tiêu nào thuộc Bảng CĐKT (phục vụ kiểm tra cân đối
+# Assets = Liabilities + Equity).
 STANDARD_METRICS = {
     # Income Statement
     "REVENUE":         ("Doanh thu thuần", "IS"),
@@ -104,6 +114,9 @@ BANK_METRICS = {
 }
 
 # Vnstock metric mapping: vnstock column name → our metric name
+# WHY: Map chuẩn hoá cột nguồn → metric nội bộ để dữ liệu từ nhiều nguồn (vnstock VCI/KBS/
+# TCBS, CafeF) có tên cột khác nhau vẫn hội tụ về 1 canonical metric duy nhất trong DB.
+# Chọn dict để 1 key map 1:1, dễ kiểm tra "cột nào bị bỏ sót" và dễ mở rộng thêm nguồn.
 VNSTOCK_METRIC_MAP_STANDARD = {
     "doanh_thu_thuan": "REVENUE",
     "grossProfit": "GROSS_PROFIT",
@@ -170,6 +183,9 @@ VNSTOCK_METRIC_MAP_BANK = {
 }
 
 # Entity type registry
+# WHY: Registry tĩnh đóng vai trò FALLBACK khi chưa có dòng trong bảng entity_registry —
+# tránh gọi nguồn ngoài (vnstock) để suy luận entity type mỗi lần seed, đảm bảo quyết định
+# STANDARD/BANK nhất quán cho cùng một symbol ở mọi module phía sau.
 ENTITY_TYPES = {
     "FPT": "STANDARD",
     "ACB": "BANK",
@@ -234,7 +250,10 @@ class DataIntegrityValidator:
             return value, "OK"
 
         # Phát hiện scale: nếu value quá nhỏ cho 1 công ty, scale lên
-        # Balance sheet items thường ở đơn vị tỷ (1e9) hoặc VND
+        # WHY: Các nguồn khác nhau trả về nghìn/triệu/tỷ/VND lẫn lộn. Nhóm scale-free (EPS,
+        # BVPS, tỉ lệ %) giữ nguyên vì là per-share/ratio, bản chất không phụ thuộc đơn vị.
+        # Items bảng CĐKT mà < 1.000 VND thì thử nhân 1.000/1e6/1e9 và chọn mức lọt vào
+        # khoảng hợp lý (xác nhận bằng _in_plausible_range) thay vì đoán mò một mức.
         raw = value
 
         # Kiểm tra: value < 1,000 VND mà là item lớn → scale *1000 (triệu→VND)
@@ -252,6 +271,10 @@ class DataIntegrityValidator:
     def _in_plausible_range(value: float, metric: str, symbol: str) -> bool:
         """Kiểm tra giá trị có trong khoảng hợp lý không."""
         # Tùy theo metric
+        # WHY: Range kiểm tra theo từng metric (min/max bằng tiền VND) giúp tự động phát hiện
+        # lỗi scale — VD REVENUE một công ty niêm yết VN phải trong [1 tỷ, 500 nghìn tỷ].
+        # CF métric để None vì dòng tiền hợp pháp có thể âm; income items kiểm tra theo
+        # abs(value) để bỏ qua dấu (lợi nhuận âm vẫn hợp lệ về độ lớn).
         ranges = {
             "REVENUE":        (1_000_000_000, 500_000_000_000_000),     # 1 tỷ → 500 nghìn tỷ
             "NET_INCOME":     (0, 100_000_000_000_000),                  # 0 → 100 nghìn tỷ
@@ -304,6 +327,10 @@ class DataIntegrityValidator:
 
         error_pct = abs(liabilities_check - total_assets) / abs(total_assets) * 100
 
+        # WHY: Dung sai 0.1% chọn vì sai lệch làm tròn/số liệu phiên bản khác nhau giữa các
+        # báo cáo thường <0.1%; vượt ngưỡng này gần như chắc chắn dữ liệu ghép nhầm bảng
+        # (BS của kỳ khác, thiếu nợ, nhầm đơn vị) → đánh dấu DATA_CORRUPTED để không phá
+        # các tính toán dựa trên cân đối kế toán ở các tầng trên.
         if error_pct <= 0.1:
             return {"valid": True, "error_pct": round(error_pct, 4), "pass": True,
                     "reason": "OK", "action": "WRITE"}
@@ -353,6 +380,9 @@ class FinancialFactsDB:
     def connect(self) -> sqlite3.Connection:
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_path)
+            # WHY: WAL (Write-Ahead Logging) cho phép 1 writer + nhiều reader song song —
+            # module này vừa được CLI seed ghi vừa được các engine khác đọc, tránh lock DB
+            # chặn toàn hệ thống; foreign_keys=ON đảm bảo ràng buộc tham chiếu được kiểm tra.
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA foreign_keys=ON")
         return self.conn
@@ -482,6 +512,9 @@ class FinancialFactsDB:
         # Parse period from period_metrics dict
         fiscal_year = period_metrics.get("_fiscal_year")
         fiscal_quarter = period_metrics.get("_fiscal_quarter")
+        # WHY: Fallback 2026Q2 cho dict thiếu meta _fiscal_year/_fiscal_quarter (vd dữ liệu
+        # sample/seed tay) để batch vẫn ghi được kỳ hợp lệ thay vì lỗi — parse period từ
+        # meta trước, ưu tiên dữ liệu gốc hơn hardcode.
         if fiscal_year is None or fiscal_quarter is None:
             fiscal_year = 2026
             fiscal_quarter = 2
@@ -550,6 +583,10 @@ class FinancialFactsDB:
                 # Total Liabilities ≈ TOTAL_DEBT + CURRENT_LIAB (simplified)
                 # Actually TOTAL_DEBT = SHORT_TERM_DEBT + LONG_TERM_DEBT
                 # For simplicity: Liabilities = TOTAL_ASSETS - EQUITY
+                # WHY: Nhiều nguồn không cung cấp TOTAL_LIABILITIES riêng nên suy ra nợ phải
+                # trả gián tiếp từ đẳng thức kế toán (Liab = Assets − Equity) rồi kiểm tra
+                # ngược lại — đây là cách tái dựng giả định đơn giản nhất, chỉ chạy cho
+                # STANDARD vì bảng cân đối ngân hàng phức tạp hơn (nợ/tài sản ngoài bảng).
                 total_assets = bs_facts["TOTAL_ASSETS"]
                 implied_liabilities = total_assets - total_equity
 
@@ -615,6 +652,9 @@ class FinancialFactsDB:
         rows = cursor.fetchall()
 
         # Pivot by period
+        # WHY: Pivot từ dạng dài (1 dòng/metric) sang dict {period → {metric: value}} để các
+        # engine tầng trên tra cứu tổ hợp metric của cùng 1 kỳ trong O(1), không phải lọc lại
+        # từng hàng — đúng nhu cầu tính ratio liên chỉ số (VD PE = price / EPS cùng kỳ).
         result = {}
         for row in rows:
             period = row[1]

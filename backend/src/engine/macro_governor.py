@@ -11,6 +11,10 @@ Usage:
   from src.engine.macro_governor import MacroGovernor
   state = MacroGovernor().assess()
 """
+# WHY: Tách Macro Governor thành module riêng (Tier 1) thay vì nhúng vào Decision Guard
+# vì nó đánh giá rủi ro toàn thị trường độc lập với từng cổ phiếu — một lần chạy cho mọi
+# symbol. Gatekeeper chỉ cho phép Tier 2 (micro executor) hoạt động khi confidence >= 50,
+# tránh việc micro layer chạy đơn lẻ trong điều kiện vĩ mô bất ổn.
 import json
 import logging
 import sys
@@ -47,9 +51,15 @@ DATA_DIR = src.config.DATA_DIR
 logger = logging.getLogger("PTCK_SYSTEM")
 
 # --- Constants ---------------------------------------------------------------
+# WHY: MACRO_LOOKBACK = 120 ngày (~2 quý giao dịch) đủ để bắt chu kỳ tín hiệu vĩ mô
+# mà không nhiễu quá nhiều; FX_LOOKBACK = 30 ngày cho FXRP là cửa sổ ngắn — premium
+# chỉ phản ánh rủi ro tỷ giá tức thời, không phải xu hướng dài hạn.
 MACRO_LOOKBACK = 120  # Ngày cho phân tích macro
 FX_LOOKBACK = 30     # Ngày cho FX risk premium
 
+# WHY: DXY có trọng số cao nhất (0.30) vì sức mạnh USD là kênh truyền dẫn chính đến
+# dòng vốn ngoại và tỷ giá tại thị trường mới nổi; thứ tự trọng số khớp độ trễ và
+# mức độ ảnh hưởng thực tế của từng cảm biến lên TTCK VN (DXY > USDVND > Foreign > OMO > Gold).
 # Trọng số cảm biến
 W_DXY = 0.30
 W_USDVND = 0.25
@@ -57,6 +67,9 @@ W_FOREIGN = 0.20
 W_OMO = 0.15
 W_GOLD = 0.10
 
+# WHY: Ngưỡng stress/crisis được neo vào các mức lịch sử từng gây áp lực bán ròng
+# trên VN (DXY 106-108, USDVND 25500-25800, Interbank ON 8-12%). Khoảng giữa stress
+# và crisis dùng nội suy tuyến tính để chuyển đổi mượt (0.5 → 1.0) thay vì bước nhảy cứng.
 # Ngưỡng rủi ro
 DXY_STRESS = 106.0
 DXY_CRISIS = 108.0
@@ -64,6 +77,8 @@ USDVND_STRESS = 25500.0
 USDVND_CRISIS = 25800.0
 INTERBANK_ON_STRESS = 8.0
 INTERBANK_ON_CRISIS = 12.0
+# WHY: CONFIDENCE_MIN = 50% là điểm đánh đổi — dưới mức này cho rằng rủi ro vĩ mô
+# đủ lớn để micro executor tính toán từng cổ phiếu trở nên vô nghĩa, nên khóa HDR ở 1.0.
 CONFIDENCE_MIN = 50.0  # % — ngưỡng tối thiểu cho phép micro executor
 
 
@@ -105,6 +120,8 @@ class MacroGovernor:
                 conn, params=[variable, start]
             )
         if not df.empty:
+            # WHY: Nguồn dữ liệu có thể ghi nhiều dòng cho cùng một ngày (cập nhật lại giá trị),
+            # de-dup giữ dòng gần nhất để tránh làm lệch momentum và các phép nội suy phía sau.
             # De-duplicate: giữ unique(date) gần nhất
             df["date"] = pd.to_datetime(df["date"], format='mixed').dt.strftime("%Y-%m-%d")
             df = df.drop_duplicates(subset="date", keep="last").sort_values("date")
@@ -128,6 +145,8 @@ class MacroGovernor:
     def _score_dxy(self) -> Tuple[float, Dict]:
         """Điểm rủi ro DXY [0, 1]."""
         df = self._fetch_macro_series("DXY")
+        # WHY: Thiếu dữ liệu trả về 0.3 (không phải 0.0) — mặc định thận trọng nhẹ để
+        # hệ thống không chuyển hẳn về ACCUMULATION khi cảm biến chết.
         if df.empty or len(df) < 5:
             return 0.3, {"status": "INSUFFICIENT_DATA", "latest": None}
 
@@ -139,6 +158,8 @@ class MacroGovernor:
         else:
             score = 0.0
 
+        # WHY: Momentum boost (+0.15 khi DXY tăng >2% trong 10 phiên) để bắt tín hiệu
+        # sớm trước khi chạm ngưỡng tuyệt đối — DXY leo nhanh thường đi trước cú bán tháo.
         # Momentum: DXY đang tăng nhanh?
         if len(df) >= 10:
             momentum = (df["value"].iloc[-1] - df["value"].iloc[-10]) / df["value"].iloc[-10]
@@ -161,6 +182,8 @@ class MacroGovernor:
         else:
             score = 0.0
 
+        # WHY: USDVND nhạy hơn DXY nên ngưỡng momentum thấp hơn (1% vs 2%) nhưng mức
+        # cộng lớn hơn (+0.20) — tỷ giá mất giá nhanh gây áp lực rút vốn ngoại trực tiếp.
         if len(df) >= 10:
             momentum = (df["value"].iloc[-1] - df["value"].iloc[-10]) / df["value"].iloc[-10]
             if momentum > 0.01:
@@ -173,6 +196,8 @@ class MacroGovernor:
         cum_10d = self._fetch_foreign_flow_accum(days=10)
         cum_3d = self._fetch_foreign_flow_accum(days=3)
 
+        # WHY: Ngưỡng -500/-1000/-2000 tỷ VND dựa trên quy mô dòng vốn ngoại thực tế
+        # của TTCK VN — bán ròng 2000 tỷ/10 phiên là mức đã từng kéo VNINDEX điều chỉnh sâu.
         if cum_10d > -500:
             score = 0.0
         elif cum_10d > -1000:
@@ -182,6 +207,8 @@ class MacroGovernor:
         else:
             score = 1.0
 
+        # WHY: Dấu hiệu tăng tốc bán — nếu 3 phiên gần nhất đóng góp >40% tổng 10 phiên
+        # nghĩa là dòng ngoại đang tháo chạy nhanh, cộng thêm 0.15 để phản ứng sớm.
         # Acceleration: 3d sell intensifying
         if cum_3d < cum_10d * 0.4:
             score = min(score + 0.15, 1.0)
@@ -203,15 +230,21 @@ class MacroGovernor:
                 s_on = 0.5 + 0.5 * (latest - INTERBANK_ON_STRESS) / (INTERBANK_ON_CRISIS - INTERBANK_ON_STRESS)
             else:
                 s_on = 0.0
+            # WHY: OMO là cơ quan điều tiết nên cần cả mức (threshold) lẫn xu hướng —
+            # lãi suất liên ngân hàng leo >5%/5 phiên cho thấy thanh khoản hệ thống co lại.
             if len(df_on) >= 5:
                 trend = (df_on["value"].iloc[-1] - df_on["value"].iloc[-5]) / max(df_on["value"].iloc[-5], 1e-6)
                 if trend > 0.05:
                     s_on = min(s_on + 0.10, 1.0)
+            # WHY: Trọng số 0.6/0.4 cho Interbank ON vs VGB10Y vì lãi suất ngắn hạn phản ánh
+            # áp lực thanh khoản tức thời, mạnh hơn lợi suất dài hạn vốn đã bao gồm kỳ vọng.
             score += 0.6 * s_on
             details["interbank_on"] = round(latest, 2)
 
         if not df_yield.empty:
             latest_y = float(df_yield["value"].iloc[-1])
+            # WHY: VGB10Y trên 4.5% là tín hiệu chính phủ phải trả lãi cao (phát hành nhiều
+            # hoặc lo ngại lạm phát); trên 5.5% được coi là bất thường so với mặt bằng lịch sử.
             if latest_y > 5.5:
                 s_y = 1.0
             elif latest_y > 4.5:
@@ -230,6 +263,9 @@ class MacroGovernor:
         score = 0.0
         details = {}
 
+        # WHY: Gold tăng >5%/10 phiên trong khi real yield giảm = dòng vốn đang trú ẩn
+        # khỏi thị trường rủi ro (capital flight proxy) — mỗi tín hiệu đóng góp 0.5
+        # vì chúng thường đồng xảy ra trong cùng một sự kiện macro.
         if not df_gold.empty and len(df_gold) >= 10:
             gold_pct = (df_gold["value"].iloc[-1] - df_gold["value"].iloc[-10]) / max(df_gold["value"].iloc[-10], 1e-6)
             details["gold_10d_chg_pct"] = round(gold_pct * 100, 2)
@@ -259,6 +295,8 @@ class MacroGovernor:
         if df_usdvnd.empty or len(df_usdvnd) < 10:
             return 0.0, {"status": "INSUFFICIENT_DATA"}
 
+        # WHY: Dùng mean 90 ngày làm proxy PPP (Purchasing Power Parity) — so tỷ giá hiện tại
+        # với đường trung bình 3 tháng để đo độ lệch khỏi vùng cân bằng dài hạn.
         # USDVND deviation from 90-day mean (PPP proxy)
         ppp_90d = float(df_usdvnd["value"].mean())
         usdvnd_latest = float(df_usdvnd["value"].iloc[-1])
@@ -267,6 +305,9 @@ class MacroGovernor:
         if df_dxy.empty or len(df_dxy) < 5:
             dxy_component = 0.0
         else:
+            # WHY: Tỷ số momentum/volatility (giống Sharpe ngắn hạn) chuẩn hóa cường độ
+            # tăng DXY theo độ bất ổn — tăng mạnh mà biến động thấp là tín hiệu có ý nghĩa,
+            # tăng do nhiễu (vol cao) sẽ bị triệt tiêu.
             # DXY momentum / volatility
             returns = df_dxy["value"].pct_change().dropna().values[-FX_LOOKBACK:]
             dxy_mom = float(np.mean(returns)) if len(returns) > 0 else 0.0
@@ -274,6 +315,8 @@ class MacroGovernor:
             dxy_component = abs(dxy_mom) / max(dxy_vol, 0.001)
 
         fxrp_raw = max(deviation, 0) * dxy_component
+        # WHY: Clamp 0-50% vì FXRP chỉ là bội số điều chỉnh — giới hạn chặn trường hợp
+        # lệch PPP cực lớn nhân momentum cực lớn làm macro_risk phi tuyến mất kiểm soát.
         fxrp = float(np.clip(fxrp_raw, 0.0, 0.50))  # Clamp 0-50%
 
         details.update({
@@ -309,6 +352,10 @@ class MacroGovernor:
         adj_macro_risk = macro_risk * (1.0 + fxrp)
         adj_macro_risk = np.clip(adj_macro_risk, 0.0, 1.0)
 
+        # WHY: 4 trạng thái với ngưỡng 0.70/0.50/0.30 ánh xạ mức độ thị trường:
+        # >0.70 khớp cú bán tháo dây chuyền lịch sử, 0.50-0.70 sóng nhiễu, 0.30-0.50 tích lũy,
+        # <0.30 là môi trường thuận lợi để tăng tỷ trọng. Ngưỡng cách nhau đủ rộng để
+        # tránh chập chờn giữa các trạng thái khi risk dao động quanh biên.
         # State classification
         if adj_macro_risk > 0.70:
             state = "LIQUIDATION_CASCADE"
@@ -319,6 +366,8 @@ class MacroGovernor:
         else:
             state = "ACCUMULATION"
 
+        # WHY: confidence = nghịch đảo tuyến tính của risk (100 - risk%) để duy trì mối
+        # quan hệ đơn điệu rõ ràng cho tầng điều khiển — không dùng phi tuyến vì khó debug.
         # Governor confidence (0-100%)
         confidence = max(100.0 - adj_macro_risk * 100.0, 0.0)
 

@@ -206,6 +206,15 @@ nạp trực tiếp vào financial_facts.db qua FinancialFactsDB + DataIntegrity
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
+# WHY (kiến trúc crawl):
+# WHY: Xây dựng theo THÁP fallback 4 tầng (requests → Playwright → REST JSON
+#   API → synthetic): endpoint nào cũng có thể chết bất kỳ lúc nào (404/DNS
+#   thay đổi) → không có nguồn "duy nhất", cascade đảm bảo luôn nạp được dữ liệu.
+# WHY: URL_MAP là bảng duy nhất ghi trạng thái ALIVE/DEAD của từng endpoint →
+#   khỏi đoán lại nguồn nào còn sống mỗi lần crawl.
+# WHY: Synthetic (nội suy) là phương án CUỐI CÙNG — đánh dấu rõ để không nhầm
+#   dữ liệu giả với dữ liệu thật.
+
 import sys
 import time
 import logging
@@ -513,6 +522,8 @@ class CafeFCrawler:
 
     def _parse_cafef_value(self, raw: str) -> Optional[float]:
         """Parse CafeF number: '1.234.567.890' or '(1.234)' (negative) → float."""
+        # WHY: CafeF hiển thị đơn vị TRIỆU VND và số âm đặt trong ngoặc
+        # "(1.234)" → *1_000_000 để quy về VND; dấu '.' là phân tách nghìn.
         raw = raw.strip()
         if not raw or raw == "-":
             return None
@@ -644,7 +655,12 @@ class CafeFCrawler:
 
     @staticmethod
     def _generate_synthetic_base(symbol: str, entity_type: str) -> List[Dict]:
-        """Generate 20 quarters of synthetic financial data with realistic trends."""
+        """Generate 20 quarters of synthetic financial data with realistic trends.
+
+        WHY: nội suy tuyến tính 2022→2026 + biến động mùa vụ ±5-6% để dữ liệu
+        KHÔNG tuyến tính phẳng — health engine cần trend/stability có ý nghĩa.
+        Chỉ là phương án cuối cùng khi mọi nguồn thật đều chết.
+        """
         base_data = {
             "FPT": {
                 "type": "STANDARD",
@@ -930,6 +946,9 @@ class CafeFCrawler:
             header_labels = [h.get_text(strip=True) for h in headers_row if h.get_text(strip=True)]
 
             # Extract metric rows (starting from row 2)
+            # WHY: gom theo key "YYYYQ" rồi mới chuyển sang list — các metric của
+            # cùng 1 quý nằm rải ở nhiều dòng, dict key period cho phép update
+            # từng metric mà không cần index mảng.
             # Group by quarter
             quarters_data = {}
             for row in rows[2:]:  # Skip header rows
@@ -1008,6 +1027,8 @@ class CafeFCrawler:
         Endpoint mới (verified 2026-08-01): mỗi trang trả 1 cửa sổ 4 quý
         với label rõ ràng (td.h_t = "Quý 3- 2025"). Chỉ cần fetch Q4 của
         từng năm + Q2 năm hiện tại là phủ đủ 20 quý.
+        WHY: cửa sổ 4 quý dịch 1 quý/trang → fetch Q4 mỗi năm trùng lặp 3 quý
+        kề trước, phủ toàn bộ chuỗi chỉ với ~6 request thay vì 20.
 
         Trả về list of dict (mỗi dict = 1 quarter) chỉ chứa các metric CF:
         CFO, CFI, CFF, CAPEX. Caller merge với dữ liệu BS/IS.
@@ -1113,6 +1134,8 @@ class CafeFCrawler:
 
     def _parse_cafef_value_full(self, raw: str) -> Optional[float]:
         """Parse số VND đầy đủ: '-1.095.665.704.486' → float (không nhân đơn vị)."""
+        # WHY: endpoint CashFlow trả giá trị VND ĐẦY ĐỦ (không theo donvi=1000)
+        # → KHÔNG nhân 1_000_000 như _parse_cafef_value, tránh inflate 1000x.
         raw = raw.strip()
         if not raw or raw == "-":
             return None
@@ -1806,6 +1829,8 @@ class CafeFCrawler:
 
                 page.route("**/*", _route)
 
+                # WHY: networkidle + chờ thêm 5s để JS render xong bảng tài
+                # chính (CafeF load data qua AJAX sau DOMContentLoaded).
                 resp = page.goto(url, timeout=30000, wait_until="networkidle")
                 page.wait_for_timeout(5000)
 
@@ -1845,6 +1870,8 @@ class CafeFCrawler:
         if entity_type:
             self.db.register_entity(symbol, entity_type)
 
+        # WHY: entity_type quyết định map metric (STANDARD vs BANK) — auto-detect
+        # qua danh sách cứng khi registry chưa có để tránh parse sai bảng BCTC.
         # Bank symbols list — auto-detect nếu entity_type chưa có
         BANK_SYMBOLS = {"ACB", "HDB", "MBB", "VCB", "VPB", "TPB", "SHB", "OCB", "BIDV", "AGRIBANK", "EXIMBANK",
                         "VIETINBANK", "SAIGONBANK", "NVB", "PVCOMBANK", "HBANK", "UOB", "LVB", "NAB", "SEABANK",
@@ -1861,6 +1888,9 @@ class CafeFCrawler:
         all_periods = None
         use_synthetic = False
 
+        # WHY: cascade nguồn xếp theo chất lượng — VCI (BCTC full 4 bảng) →
+        # VNDirect/TCBS (JSON chuẩn, đủ CFO) → CafeF Bank API (17 rows) →
+        # NoteIndicator (nợ) → Vietstock (cross-check) → synthetic (cuối).
         if source == "vci":
             # ── VCI bridge (khuyên dùng) ─────────────────────
             all_periods = self.fetch_vci_bridge(symbol)
@@ -2059,6 +2089,9 @@ class CafeFCrawler:
             if key[0] and key[1]:
                 cand_index[key] = p
 
+        # WHY: chỉ so sánh các metric mà mọi nguồn đều trả đáng tin cậy (bỏ
+        # CFO/CAPEX vì nguồn free thường thiếu); tolerance 20% dung sai khác
+        # biệt đơn vị/làm tròn giữa các nguồn.
         common_metrics = (
             "REVENUE", "GROSS_PROFIT", "EBIT", "NET_INCOME",
             "TOTAL_ASSETS", "CURRENT_ASSETS", "TOTAL_LIABILITIES",

@@ -59,6 +59,9 @@ VIETSTOCK_BASE_URL = "https://finance.vietstock.vn"
 VIETSTOCK_REPORT_URL = "{base}/{sym}/tai-chinh.htm"
 VIETSTOCK_FININFO_URL = "{base}/data/financeinfo"
 
+# WHY: financeinfo chỉ trả 17 rows với label TIẾNG VIỆT ("Doanh thu thuần"...) →
+# map theo tên chuỗi; còn BCTT tab trả theo ReportNormId SỐ → tách riêng
+# BCTT_METRIC_MAP. Chia 2 map để mỗi nguồn match đúng cấu trúc payload.
 VIETSTOCK_METRIC_MAP = {
     # Income Statement
     "Doanh thu thuần": "REVENUE",
@@ -131,6 +134,9 @@ BCTT_METRIC_MAP = {
 }
 
 # Subset of BCTT norms that map to STANDARD_METRICS (for quick lookup)
+# WHY: chỉ giữ các norm khớp STANDARD_METRICS khi parse (tránh đẩy metric
+# non-standard như FINANCIAL_REVENUE vào period); lookup O(1) trong vòng lặp
+# 46 norms × 9 periods thay vì duyệt lại dict lớn mỗi lần.
 BCTT_STANDARD_METRICS = {
     2216: "REVENUE",
     2207: "COGS",
@@ -150,6 +156,10 @@ BCTT_STANDARD_METRICS = {
     54: "BOOK_VALUE_PS",
 }
 
+# WHY: chặn resource ảnh/css/font/media để giảm RAM + tăng tốc render (chỉ cần
+# DOM + XHR/fetch lấy token và gọi API); flag AutomationControlled + UA Chrome
+# 126 + locale vi-VN để né anti-bot. channel="chrome" bắt buộc vì bundled
+# Chromium của playwright lệch version (xem DISCOVERY ở đầu file).
 WINDOWS_LAUNCH_FLAGS = [
     "--disable-gpu",
     "--no-sandbox",
@@ -165,6 +175,9 @@ DEFAULT_USER_AGENT = (
 )
 
 # BCTT endpoint params (must be exact for free access)
+# WHY: Unit=1000000000 (đơn vị tỷ VND), IsNamDuongLich=false (năm tài chính),
+# SortTimeType=Time_ASC để nhận đủ 38 periods miễn phí — đổi param sẽ trả
+# payload khác hoặc bị free tier chặn.
 BCTT_REPORT_DATA_PARAMS = {
     "StockCode": "{symbol}",
     "UnitedId": "-1",
@@ -198,6 +211,10 @@ class VietstockCrawler:
     def fetch_summary(self, symbol: str, max_quarters: int = 4,
                       timeout_ms: int = 60000) -> List[Dict]:
         """Render trang tài chính Vietstock, merge financeinfo + BCTT.
+
+        WHY: BCTT phủ financeinfo vì có 9 quý + 46 norms (chi tiết hơn), còn
+        financeinfo chỉ 4 quý + 17 rows — gộp theo (year, quarter) để lợi dụng
+        cả độ phủ lẫn độ chi tiết của 2 nguồn free.
 
         Priority: BCTT (9 quý, 46 norms) > financeinfo (4 quý, 17 rows).
         BCTT data overrides financeinfo cho cùng period.
@@ -403,6 +420,8 @@ class VietstockCrawler:
     @staticmethod
     def _merge_periods(financeinfo_periods, bctt_periods):
         """Merge financeinfo + BCTT. BCTT overrides financeinfo cho cùng period."""
+        # WHY: dict key (year, quarter) để gộp — bản ghi sau (BCTT) ghi đè bản
+        # trước (financeinfo) đúng ngữ nghĩa "ưu tiên", rồi sort lại thời gian.
         merged = {}
         for p in financeinfo_periods:
             key = (p["_fiscal_year"], p["_fiscal_quarter"])
@@ -443,6 +462,8 @@ class VietstockCrawler:
             return []
 
         # Index period theo Row
+        # WHY: index theo Row vì Value{i} của metric ứng với period có Row == i
+        # (Row=1 mới nhất) — không giả định thứ tự mảng trả về từ server.
         period_by_row: Dict[int, Dict] = {}
         for p in periods:
             if not isinstance(p, dict):
@@ -529,6 +550,8 @@ class VietstockCrawler:
                 continue
             year = p.get("YearPeriod")
             # ReportTermID: 2=Q1, 3=Q2, 4=Q3, 5=Q4
+            # WHY: Vietstock đánh ReportTermID lệch 1 so với quý (2=Q1...5=Q4),
+            # trừ 1 để ra số quý chuẩn; bỏ period thiếu term → tránh dict rác.
             tid = p.get("ReportTermID")
             q = None
             if isinstance(tid, int) and 2 <= tid <= 5:
