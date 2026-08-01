@@ -31,6 +31,7 @@ from src.sensors.sensor_validation import (
     compute_profile,
     detect_signal_events,
     format_profile,
+    ingest_from_macro_history,
     label_outcomes,
     list_sensors,
     load_records,
@@ -267,7 +268,127 @@ class TestLabelOutcomes:
 
 
 # ===================================================================
-# 5. CLI wiring (smoke)
+# 5. ingest_from_macro_history
+# ===================================================================
+
+class TestIngest:
+    def _seed_macro(self, variable, points):
+        """Bom dữ liệu macro_history cho một biến test."""
+        from src.database.db_core import get_connection
+        with get_connection() as conn:
+            conn.execute("DELETE FROM macro_history WHERE variable=?", (variable,))
+            for d, v in points:
+                conn.execute(
+                    "INSERT OR REPLACE INTO macro_history (variable, date, value) "
+                    "VALUES (?,?,?)", (variable, d, v),
+                )
+            conn.commit()
+
+    def _seed_regime(self, crisis_dates):
+        """Bom regime_history với status CRISIS cho các ngày cho trước."""
+        from src.database.db_core import get_connection
+        with get_connection() as conn:
+            conn.execute(
+                "DELETE FROM regime_history WHERE status IN ('CRISIS','CRISIS_WARNING') "
+                "AND date LIKE '2999-%'"
+            )
+            for d in crisis_dates:
+                conn.execute(
+                    "INSERT OR REPLACE INTO regime_history (date, status) VALUES (?,?)",
+                    (d, "CRISIS"),
+                )
+            conn.commit()
+
+    def _cleanup(self):
+        from src.database.db_core import get_connection
+        with get_connection() as conn:
+            conn.execute("DELETE FROM sensor_validation WHERE sensor=?", (TEST_SENSOR,))
+            conn.execute("DELETE FROM macro_history WHERE variable=?", (TEST_SENSOR,))
+            conn.execute(
+                "DELETE FROM regime_history WHERE status='CRISIS' "
+                "AND date LIKE '2999-%'"
+            )
+            conn.commit()
+
+    def test_ingest_pipeline_and_profile(self, monkeypatch):
+        # KOSPI-like DROP_5D: giá giảm >5% trong 5 phiên tại nhiều mốc
+        var = TEST_SENSOR
+        import src.sensors.sensor_validation as sv
+        monkeypatch.setitem(
+            sv.SENSOR_SIGNAL_DEFS, TEST_SENSOR,
+            {"type": "DROP_5D", "threshold_pct": 0.05},
+        )
+        self._seed_macro(var, [
+            ("2999-01-01", 3000.0),
+            ("2999-01-02", 3010.0),
+            ("2999-01-03", 2990.0),
+            ("2999-01-04", 2950.0),
+            ("2999-01-05", 2900.0),   # -3.3% so 5 phiên trước? index 5/0
+            ("2999-01-06", 2850.0),   # (2850-3000)/3000 = -5% → signal
+            ("2999-01-07", 2800.0),
+            ("2999-01-08", 2790.0),
+            ("2999-01-09", 2780.0),   # (2780-2990)/2990 = -7% → signal
+        ])
+        # Crisis ngay sau tín hiệu đầu (1 phiên) → lead=1; không crisis sau tín hiệu 2
+        self._seed_regime([
+            "2999-01-07",   # crisis 1 phiên sau signal #1 (01-06)
+        ])
+        try:
+            n = ingest_from_macro_history(
+                sensor=TEST_SENSOR, variable=var, horizon_days=20,
+                require_full_horizon=False,
+            )
+            # 4 tín hiệu DROP_5D: 01-06, 01-07, 01-08, 01-09
+            # crisis 01-07 → signal 01-06 (lead=1), 01-07 (lead=0) flag=1;
+            # 01-08/01-09 có crisis 01-07 ở TRƯỚC → flag=0
+            assert n == 4
+            prof = compute_profile(TEST_SENSOR, horizon_days=20)
+            assert prof.n == 4
+            assert prof.n_crisis == 2
+            assert prof.p_crisis == pytest.approx(0.5)
+        finally:
+            self._cleanup()
+
+    def test_ingest_requires_full_horizon_drops_recent(self, monkeypatch):
+        # Tín hiệu cuối gần max_date của crisis → require_full_horizon loại bỏ
+        var = TEST_SENSOR
+        import src.sensors.sensor_validation as sv
+        monkeypatch.setitem(
+            sv.SENSOR_SIGNAL_DEFS, TEST_SENSOR,
+            {"type": "DROP_5D", "threshold_pct": 0.05},
+        )
+        self._seed_macro(var, [
+            ("2999-02-01", 3000.0),
+            ("2999-02-02", 3010.0),
+            ("2999-02-03", 2990.0),
+            ("2999-02-04", 2950.0),
+            ("2999-02-05", 2900.0),
+            ("2999-02-06", 2850.0),   # -5% → signal
+        ])
+        # max_known = 2999-02-08; signal 02-06 + 20 phiên > 02-08 → drop
+        self._seed_regime(["2999-02-07"])
+        try:
+            n = ingest_from_macro_history(
+                sensor=TEST_SENSOR, variable=var, horizon_days=20,
+                require_full_horizon=True,
+            )
+            assert n == 0, "Tín hiệu chưa đóng cửa sổ phải bị loại (chống bias)"
+
+            # Không full-horizon → vẫn record được
+            n2 = ingest_from_macro_history(
+                sensor=TEST_SENSOR, variable=var, horizon_days=20,
+                require_full_horizon=False,
+            )
+            assert n2 == 1
+        finally:
+            self._cleanup()
+
+    def test_ingest_unknown_sensor_returns_zero(self):
+        assert ingest_from_macro_history(sensor="NOT_REAL", horizon_days=20) == 0
+
+
+# ===================================================================
+# 6. CLI wiring (smoke)
 # ===================================================================
 
 class TestCliWiring:

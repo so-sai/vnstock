@@ -3090,6 +3090,19 @@ def cmd_sensor_profile(args):
     sensor = getattr(args, "sensor", None)
     signal_type = getattr(args, "signal_type", None)
     horizon = getattr(args, "horizon", None)
+    build = getattr(args, "build", False)
+
+    if build:
+        from src.sensors.sensor_validation import ingest_from_macro_history
+        sensors_to_build = [sensor] if sensor else ["DXY", "KOSPI"]
+        total = 0
+        for s in sensors_to_build:
+            n = ingest_from_macro_history(s, horizon_days=horizon or 20)
+            total += n
+            print(f"  [{s}] đã ghi nhận {n} quan sát đóng cửa sổ")
+        print(f"  Tổng: {total} quan sát")
+        if not sensor:
+            return
 
     if sensor:
         prof = compute_profile(sensor, signal_type=signal_type,
@@ -4651,6 +4664,8 @@ def build_parser():
                       help="Lọc theo loại tín hiệu (STRESS_LEVEL/CRISIS_LEVEL/DROP_5D)")
     p_sp.add_argument("--horizon", type=int, default=None,
                       help="Cửa sổ kiểm định crisis (phiên, mặc định 20)")
+    p_sp.add_argument("--build", action="store_true",
+                      help="Xây hồ sơ từ macro_history + regime_history thật (DXY/KOSPI) trước khi hiển thị")
     p_sp.set_defaults(func=cmd_sensor_profile)
 
     # macro-governor

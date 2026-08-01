@@ -401,6 +401,98 @@ def label_outcomes(
     return out
 
 
+# ── Ingest from real macro_history + regime_history ───────────────────
+
+def _load_macro_series(variable: str) -> List[tuple]:
+    """Đọc chuỗi (date, value) của một biến từ macro_history, de-dup.
+
+    WHY: macro_history có thể chứa nhiều dòng cùng ngày (cập nhật lại giá trị).
+    Giữ dòng gần nhất, sắp xếp tăng dần — giống _fetch_macro_series của
+    MacroGovernor để một nguồn chân lý về cách đọc dữ liệu.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT date, value FROM macro_history WHERE variable = ? "
+            "ORDER BY date",
+            (variable,),
+        ).fetchall()
+    dedup: Dict[str, float] = {}
+    for r in rows:
+        dedup[r["date"]] = r["value"]  # dòng sau ghi đè dòng trước → keep last
+    items = [(d, float(v)) for d, v in sorted(dedup.items()) if v is not None]
+    return items
+
+
+def _load_crisis_dates() -> List[str]:
+    """Lấy ngày VN được đánh dấu CRISIS/CRISIS_WARNING từ regime_history."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT date FROM regime_history "
+            "WHERE status IN ('CRISIS', 'CRISIS_WARNING') ORDER BY date"
+        ).fetchall()
+    return [r["date"] for r in rows]
+
+
+def ingest_from_macro_history(
+    sensor: str,
+    variable: Optional[str] = None,
+    horizon_days: int = DEFAULT_HORIZON_DAYS,
+    require_full_horizon: bool = True,
+) -> int:
+    """Xây hồ sơ cảm biến từ dữ liệu macro_history + regime_history thật.
+
+    Pipeline: load series → detect_signal_events → label_outcomes → record.
+
+    WHY require_full_horizon: tín hiệu xuất hiện gần ngày hiện tại chưa có
+    đủ horizon_days để biết có crisis hay không. Nếu vẫn record sẽ bị đếm nhầm
+    thành false alarm (thiếu dữ liệu ≠ không có crisis) — lookahead bias ngược.
+    Chỉ record tín hiệu đã đóng cửa sổ: signal_date + horizon <= max(crisis date
+    cuối cùng trong dữ liệu).
+
+    Args:
+        sensor: tên cảm biến (KOSPI/SOX/DXY/KRW) — phải có trong SENSOR_SIGNAL_DEFS
+        variable: tên biến trong macro_history; mặc định = sensor
+        horizon_days: cửa sổ kiểm định
+        require_full_horizon: bỏ qua tín hiệu chưa đóng cửa sổ (chống bias)
+
+    Returns:
+        Số quan sát đã record.
+    """
+    var = variable or sensor
+    items = _load_macro_series(var)
+    if len(items) < 6:
+        return 0
+    dates = [d for d, _ in items]
+    values = [v for _, v in items]
+    events = detect_signal_events(sensor, dates, values, horizon_days)
+    if not events:
+        return 0
+
+    crisis_dates = _load_crisis_dates()
+    if not crisis_dates:
+        return 0
+    labeled = label_outcomes(events, crisis_dates)
+
+    # Lọc tín hiệu đã đóng cửa sổ
+    max_known = crisis_dates[-1]
+    from datetime import datetime, timedelta
+    closed: List[SensorSignal] = []
+    for ev in labeled:
+        if not require_full_horizon:
+            closed.append(ev)
+            continue
+        try:
+            sdt = datetime.strptime(ev.signal_date, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if (sdt + timedelta(days=ev.horizon_days)).date().isoformat() <= max_known:
+            closed.append(ev)
+
+    for ev in closed:
+        record_signal(ev)
+    return len(closed)
+
+
 # ── Reporting ─────────────────────────────────────────────────────────
 
 def format_profile(profile: SensorProfile, lang_mode: str = "annotated") -> str:
@@ -429,9 +521,11 @@ def format_profile(profile: SensorProfile, lang_mode: str = "annotated") -> str:
 
     lines.append("  -- Theo signal_type --")
     for t, st in profile.by_type.items():
+        lead_txt = (f"{st['lead_days_median']:.1f}" if st["lead_days_median"] is not None
+                    else "N/A")
         lines.append(
             f"    {t:<14s} n={st['n']:<4d} P(C|S)={st['p_crisis']:.1%} "
-            f"lead={st['lead_days_median'] or 'N/A'}"
+            f"lead={lead_txt}"
         )
     lines.append("=" * 62)
     return "\n".join(lines)
