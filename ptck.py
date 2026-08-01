@@ -2659,6 +2659,34 @@ def cmd_counterfactual(args):
     print_counterfactual_report(analysis, lang_mode=_VERBOSE_LANG)
 
 
+def cmd_system_audit(args):
+    """System Auditor (CRO Layer) — hợp nhất drift + calibration + model/causal health."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from calibration.system_auditor import (
+        SystemAuditor, load_history, print_audit_history, print_audit_report,
+    )
+
+    sub = args.audit_action
+
+    if sub == "run":
+        auditor = SystemAuditor()
+        report = auditor.run(days=args.days, persist=args.persist)
+        if args.json:
+            import json as _json
+            print(_json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        else:
+            print_audit_report(report, lang_mode=_VERBOSE_LANG)
+    elif sub == "history":
+        history = load_history(limit=args.limit)
+        if args.json:
+            import json as _json
+            print(_json.dumps(history, ensure_ascii=False, indent=2, default=str))
+        else:
+            print_audit_history(history, lang_mode=_VERBOSE_LANG)
+
+
+
 def cmd_archetype(args):
     """Giai đoạn 1: Business Archetype — DNA classification."""
     if sys.platform == "win32":
@@ -4374,6 +4402,21 @@ def build_parser():
     p_cau_edges.set_defaults(func=cmd_causal)
     p_cau_persist = p_cau_sub.add_parser("persist", help="Ghi edges vào calibration.db")
     p_cau_persist.set_defaults(func=cmd_causal)
+
+    # system-audit (System Auditor — CRO Layer)
+    p_audit = sub.add_parser("system-audit", parents=[lang_parent],
+                             help="System Auditor — hợp nhất drift + calibration + model/causal health")
+    p_audit_sub = p_audit.add_subparsers(dest="audit_action", required=True)
+    p_audit_run = p_audit_sub.add_parser("run", help="Chạy audit toàn hệ thống")
+    p_audit_run.add_argument("--days", type=int, default=90, help="Cửa sổ nhìn lại (ngày)")
+    p_audit_run.add_argument("--persist", action="store_true",
+                             help="Lưu snapshot vào system_audit_history")
+    p_audit_run.add_argument("--json", action="store_true", help="Xuất JSON")
+    p_audit_run.set_defaults(func=cmd_system_audit)
+    p_audit_hist = p_audit_sub.add_parser("history", help="Xem lịch sử các snapshot audit")
+    p_audit_hist.add_argument("--limit", type=int, default=20)
+    p_audit_hist.add_argument("--json", action="store_true", help="Xuất JSON")
+    p_audit_hist.set_defaults(func=cmd_system_audit)
 
     # ── Giai đoạn 1: Business Ontology Layer ──────────────
     p_arch = sub.add_parser("archetype", parents=[lang_parent],
