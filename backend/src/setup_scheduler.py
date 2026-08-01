@@ -41,7 +41,7 @@ DB_GUARDIAN = BACKEND_DIR / "src" / "database" / "database_guardian.py"
 TASKS = [
     {
         "name": "PTCK_DAILY_UPDATE",
-        "description": "Cập nhật dữ liệu EOD hàng ngày (Thứ 2-6, 15:30)",
+        "description": "Cập nhật dữ liệu EOD hàng ngày (Thứ 2-6, 15:30) — chạy trước PTCK_CLOSE_CYCLE 15 phút",
         "action": f'"{PYTHON_EXE}" "{DAILY_UPDATER}"',
         "frequency": "WEEKLY",
         "schedule": "/D MON,TUE,WED,THU,FRI /ST 15:30",
@@ -49,7 +49,7 @@ TASKS = [
     },
     {
         "name": "PTCK_FLOW_MAP_REPORT",
-        "description": "EOD Pipeline tự phục hồi + lũy đẳng (Thứ 2-6, 16:00)",
+        "description": "EOD Pipeline tự phục hồi + lũy đẳng (Thứ 2-6, 16:00 — chạy sau PTCK_CLOSE_CYCLE 15 phút)",
         "action": f'cmd.exe /c ""{PYTHON_EXE}" "{PTCK_CLI}" eod-run && "{PYTHON_EXE}" "{PTCK_CLI}" flow-map"',
         "frequency": "WEEKLY",
         "schedule": "/D MON,TUE,WED,THU,FRI /ST 16:00",
@@ -81,10 +81,10 @@ TASKS = [
     },
     {
         "name": "PTCK_SBV_FIXTURE",
-        "description": "Chụp fixture HTML thô sbv.gov.vn hàng ngày — Self-healing Parser (08:00)",
+        "description": "Chụp fixture HTML thô sbv.gov.vn hàng ngày — Self-healing Parser (07:45)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" sbv-update --save-fixture',
         "frequency": "DAILY",
-        "schedule": "/ST 08:00",
+        "schedule": "/ST 07:45",
         "run_level": "HIGHEST",
     },
     {
@@ -113,7 +113,7 @@ TASKS = [
     },
     {
         "name": "PTCK_MORNING_CYCLE",
-        "description": "Daily Cycle — morning: SBV/Sensors → MacroState → Governor → System Audit (Thứ 2-6, 08:00)",
+        "description": "Daily Cycle — morning: SBV/Sensors → MacroState → Governor → System Audit (Thứ 2-6, 08:00 — SBV Fixture chạy trước 15 phút ở 07:45)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" morning --persist',
         "frequency": "WEEKLY",
         "schedule": "/D MON,TUE,WED,THU,FRI /ST 08:00",
@@ -121,10 +121,18 @@ TASKS = [
     },
     {
         "name": "PTCK_CLOSE_CYCLE",
-        "description": "Daily Cycle — close: EOD → Breadth → Sector → Governor → System Audit (Thứ 2-6, 15:30)",
+        "description": "Daily Cycle — close: EOD → Breadth → Sector → Governor → System Audit (Thứ 2-6, 15:45)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" close --persist',
         "frequency": "WEEKLY",
-        "schedule": "/D MON,TUE,WED,THU,FRI /ST 15:30",
+        "schedule": "/D MON,TUE,WED,THU,FRI /ST 15:45",
+        "run_level": "HIGHEST",
+    },
+    {
+        "name": "PTCK_BACKFILL_NOW",
+        "description": "On-demand backfill: thu thập dữ liệu bù lịch sử 100% mật độ 30 quý (2019Q1–2026Q2)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" backfill-history --full --quarters 30',
+        "frequency": "ONCE",
+        "schedule": "",
         "run_level": "HIGHEST",
     },
     {
