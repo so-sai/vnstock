@@ -201,16 +201,39 @@ def _status_from_score(score: float) -> str:
     return "CRITICAL"
 
 
+def get_data_density_results(symbols: List[str]) -> Dict:
+    """Đọc mật độ dữ liệu BCTC 30 quý gần nhất cho danh mục cổ phiếu."""
+    try:
+        from src.audit.data_integrity_auditor import DataIntegrityAuditor
+        auditor = DataIntegrityAuditor()
+        return auditor.audit_many(symbols)
+    except Exception:
+        return {}
+
+
 def collect_data_health(days: int = 90) -> Dict:
     rows = get_system_health_rows()
     stats = get_prediction_stats(days)
 
-    if not rows and stats.get("resolved", 0) == 0 and stats.get("unresolved", 0) == 0:
-        return {"key": "data", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
-
     findings = []
     penalty = 0.0
+
+    # Deep Data Density Scan (2019Q1 - 2026Q2)
+    target_syms = ["FPT", "VCB", "ACB", "VPB", "HPG", "VHM", "DGC", "GAS", "MWG", "IJC", "BCM"]
+    density_results = get_data_density_results(target_syms)
+    if density_results:
+        gap_syms = [sym for sym, r in density_results.items() if getattr(r, "status", "") in ("GAP_FOUND", "SEVERE_GAP")]
+        if gap_syms:
+            severe_syms = [sym for sym, r in density_results.items() if getattr(r, "status", "") == "SEVERE_GAP"]
+            findings.append({
+                "severity": "HIGH" if severe_syms else "MEDIUM",
+                "message": f"phát hiện lỗ hổng mật độ dữ liệu (Data Density Gap): {', '.join(gap_syms)} thiếu chuỗi BCTC quý",
+            })
+            penalty += 0.20 if severe_syms else 0.10
+
+    if not rows and stats.get("resolved", 0) == 0 and stats.get("unresolved", 0) == 0 and not findings:
+        return {"key": "data", "score": None, "status": "NO_DATA",
+                "findings": [], "metrics": {}}
 
     if rows:
         bad = [r for r in rows if str(r.get("status", "")).upper() not in ("HEALTHY", "OK", "")]

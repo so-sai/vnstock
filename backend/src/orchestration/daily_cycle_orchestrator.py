@@ -245,9 +245,10 @@ def _run_market_data(ctx):
 
 
 def _run_financial_crawl(ctx):
-    from src.financial.cafef_crawler import CafeFCrawler
-    crawler = CafeFCrawler()
-    return crawler.crawl_multi([(s, "") for s in TARGET_SYMBOLS])
+    from src.audit.data_integrity_auditor import DataIntegrityAuditor
+    auditor = DataIntegrityAuditor()
+    results = auditor.audit_and_heal(TARGET_SYMBOLS, auto_backfill=True)
+    return {"density_audited": len(results), "healed": [s for s, r in results.items() if r.healed]}
 
 
 def _run_health_v2(ctx):

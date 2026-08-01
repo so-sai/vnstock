@@ -144,6 +144,8 @@ def test_collect_data_health_healthy(monkeypatch):
                                  {"component": "cafef", "status": "HEALTHY"}])
     monkeypatch.setattr(system_auditor, "get_prediction_stats",
                         lambda days=90: {"unresolved": 3, "resolved": 97})
+    monkeypatch.setattr(system_auditor, "get_data_density_results",
+                        lambda syms: {})
 
     out = system_auditor.collect_data_health(days=90)
     assert out["status"] == "OK"
@@ -170,6 +172,7 @@ def test_collect_data_health_no_data(monkeypatch):
     monkeypatch.setattr(system_auditor, "get_system_health_rows", lambda: [])
     monkeypatch.setattr(system_auditor, "get_prediction_stats",
                         lambda days=90: {"unresolved": 0, "resolved": 0})
+    monkeypatch.setattr(system_auditor, "get_data_density_results", lambda syms: {})
     out = system_auditor.collect_data_health(days=90)
     assert out["status"] == "NO_DATA"
     assert out["score"] is None
