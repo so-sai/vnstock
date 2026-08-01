@@ -15,6 +15,7 @@ import ReplayTimelinePage from './pages/ReplayTimelinePage'
 import ActionableIntelligencePage from './pages/ActionableIntelligencePage'
 import WeeklyCognitiveReport from './pages/WeeklyCognitiveReport'
 import PaperTradingPage from './pages/PaperTradingPage'
+import EpistemicDashboard from './pages/EpistemicDashboard'
 
 // ==============================================================================
 // WHY: The Tauri sidecar spawns uv_backend.exe serve asynchronously. The Rust
@@ -126,6 +127,7 @@ function App() {
               <Route path="trung-tam-hanh-dong" element={<ActionableIntelligencePage />} />
               <Route path="bao-cao-tuan" element={<WeeklyCognitiveReport />} />
               <Route path="paper-trading" element={<PaperTradingPage />} />
+              <Route path="epistemic" element={<EpistemicDashboard />} />
             </Route>
           </Routes>
         </BackendGate>

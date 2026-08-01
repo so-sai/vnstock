@@ -14,6 +14,7 @@ import {
   Zap,
   ClipboardList,
   FlaskConical,
+  BrainCircuit,
 } from 'lucide-react';
 import { useUIStore } from '../stores/uiStore';
 import { clsx, type ClassValue } from 'clsx';
@@ -35,6 +36,7 @@ const navItems = [
   { to: '/trung-tam-hanh-dong', label: 'Trung tâm Hành động', icon: Zap },
   { to: '/bao-cao-tuan', label: 'Báo cáo Tuần', icon: ClipboardList },
   { to: '/paper-trading', label: 'Mô phỏng Giao dịch', icon: FlaskConical },
+  { to: '/epistemic', label: 'Điều hành Vốn', icon: BrainCircuit },
 ] as const;
 
 const Sidebar: React.FC = () => {
