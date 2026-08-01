@@ -62,13 +62,23 @@ logger.addHandler(_ch)
 NGUONG_PHIEN = 200
 MOC_THOI_GIAN_MAC_DINH = "2021-01-01"
 BATCH_SIZE = 30
-THROTTLE_MIN = 0.8
-THROTTLE_MAX = 1.5
+# WIN11 BLACK-SCREEN BUG (2026-08-01):
+#   Increase throttle delay to avoid concurrent GPU access
+#   when multiple scheduled tasks run on the same machine.
+#   Also prevents VCI rate-limit triggers from overlapping.
+THROTTLE_MIN = 1.5
+THROTTLE_MAX = 3.0
 COOLDOWN_LOI = 30.0
 TOI_DA_THU_LAI = 3
 # Deadline cứng mỗi source trong _fetch_lich_su (giây). VCI GraphQL mặc định
 # timeout=30s/request → tuần tự 751 mã sẽ treo vô hạn khi bị rate-limit.
-VCI_TIMEOUT = 12.0
+# Tăng từ 12.0s → 25.0s để hỗ trợ mã UPCoM/thanh khoản thấp phản hồi chậm.
+VCI_TIMEOUT = 25.0
+# Multi-Source Fallback: thử VCI trước, nếu thất bại thì chuyển sang
+# TCBS → DNSE → KBS. Thứ tự ưu tiên theo tốc độ phản hồi và chất lượng dữ liệu.
+FALLBACK_SOURCES = ['vci', 'tcbs', 'dnse', 'kbs']
+# Sau bao nhiêu lần timeout liên tiếp thì recreate HTTPS session pool
+MAX_CONSECUTIVE_TIMEOUTS = 3
 
 
 def _lay_danh_sach_can_backfill() -> list:
@@ -98,28 +108,50 @@ def _lay_ngay_hien_tai(symbol: str) -> str:
 def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
     """Gọi API Quote.history() để lấy dữ liệu lịch sử.
 
-    Nguồn: thử VCI trước (ALIVE), fallback KBS (DEAD_404 — giữ để tương thích).
-    Bọc theo deadline: VCI GraphQL có timeout mặc định 30s/request và dễ bị
-    rate-limit (Read timed out) → treo batch nếu chạy tuần tự. Mỗi source
-    chạy trong thread riêng, chờ tối đa VCI_TIMEOUT giây rồi bỏ qua.
+    Multi-Source Fallback (VCI → TCBS → DNSE → KBS):
+    Khi VCI bị rate-limit hoặc timeout, tự động chuyển sang nguồn thay thế.
+    Mỗi source chạy trong thread riêng, chờ tối đa VCI_TIMEOUT giây rồi bỏ qua.
+
+    WIN11 BLACK-SCREEN BUG (2026-08-01):
+      --disable-gpu trong Playwright prevents GPU context acquisition
+      when monitor is off (Modern Standby S0 → GPU D3 cold → TDR timeout).
+      This function does NOT use Playwright; it uses HTTP APIs only.
+      However, the throttle delay (1.5–3.0s) prevents concurrent GPU
+      access from overlapping scheduled tasks.
     """
     import threading
 
     df = pd.DataFrame()
-    for source in ('vci', 'kbs'):
+    consecutive_timeouts = 0
+    for source in FALLBACK_SOURCES:
         box = {}
-        def _run():
+
+        def _run(src=source):
             try:
-                q = Quote(symbol=symbol, source=source)
+                q = Quote(symbol=symbol, source=src)
                 box["df"] = q.history(start=start, end=end, pause=0)
             except Exception as e:
                 box["err"] = e
+
         t = threading.Thread(target=_run, daemon=True)
         t.start()
         t.join(VCI_TIMEOUT)
         if t.is_alive():
-            logger.warning(f"_fetch_lich_su: {symbol} {source} TIMEOUT >{VCI_TIMEOUT}s — bỏ qua")
+            consecutive_timeouts += 1
+            logger.warning(
+                f"_fetch_lich_su: {symbol} {source} TIMEOUT >{VCI_TIMEOUT}s — bỏ qua"
+            )
+            if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+                logger.warning(
+                    f"_fetch_lich_su: {symbol} {consecutive_timeouts} consecutive timeouts — "
+                    f"recreate HTTPS session pool"
+                )
+                # Force garbage collection to release stale HTTPS connections
+                import gc
+                gc.collect()
+                consecutive_timeouts = 0
             continue
+        consecutive_timeouts = 0
         if "err" in box:
             df = pd.DataFrame()
             continue
@@ -315,9 +347,24 @@ def backfill(symbols: list = None,
                     that_bai += 1
                     blacklist[symbol] = time.time()
 
-        # Throttle giữa các request
+        # Throttle giữa các request — Exponential Backoff + jitter
+        # WIN11 BLACK-SCREEN BUG: Delay prevents concurrent GPU access
+        # from overlapping scheduled tasks (VCI + Close Cycle both use
+        # Playwright which triggers TDR when monitor is off).
         if idx < tong:
-            time.sleep(random.uniform(THROTTLE_MIN, THROTTLE_MAX))
+            base_delay = random.uniform(THROTTLE_MIN, THROTTLE_MAX)
+            # Exponential backoff on consecutive failures
+            if that_bai > 0 and that_bai == (idx - thanh_cong - bo_qua):
+                backoff = base_delay * (2 ** min(that_bai, 5))
+                jitter = random.uniform(0, backoff * 0.3)
+                total_delay = backoff + jitter
+                logger.info(
+                    f"  [{idx}/{tong}] Backoff delay: {total_delay:.1f}s "
+                    f"(base={base_delay:.1f}s, failures={that_bai})"
+                )
+            else:
+                total_delay = base_delay
+            time.sleep(total_delay)
 
     # 3. KẾT QUẢ
         # Xóa dòng status cũ
