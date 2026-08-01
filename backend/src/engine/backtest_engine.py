@@ -215,11 +215,13 @@ class BacktestAlpha:
 
         # Đồng bộ hóa định dạng ngày & Xử lý trùng lặp (tránh lỗi Pivot)
         df_macro['date'] = pd.to_datetime(df_macro['date'], errors='coerce')
+        df_macro = df_macro.dropna(subset=['date'])
         df_macro = df_macro.drop_duplicates(subset=['date', 'variable'], keep='last')
+        df_macro['value'] = pd.to_numeric(df_macro['value'], errors='coerce')
         pivot_macro = df_macro.pivot_table(index='date', columns='variable', values='value', aggfunc='max').ffill()
 
         # Tính MA20 cho Macro (Cầu dao vĩ mô)
-        macro_ma20 = pivot_macro.rolling(20).mean()
+        macro_ma20 = pivot_macro.apply(pd.to_numeric, errors='coerce').rolling(20).mean()
 
         # Tính Ma trận các thành phần RS (V1.0.1: Adaptive Core)
         print("🏗️  Step 2.4: Computing RS Components Matrix...")
