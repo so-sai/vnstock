@@ -105,8 +105,15 @@ def _lay_ngay_hien_tai(symbol: str) -> str:
         return row[0] if row and row[0] else None
 
 
-def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
+def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
     """Gọi API Quote.history() để lấy dữ liệu lịch sử.
+
+    Returns:
+        (df, source_info) where source_info = {
+            'source': the source that succeeded, or None,
+            'vci_timeout': True if VCI timed out (rate-limit indicator),
+            'vci_empty': True if VCI returned empty data (not-found indicator),
+        }
 
     Multi-Source Fallback (VCI → TCBS → DNSE → KBS):
     Khi VCI bị rate-limit hoặc timeout, tự động chuyển sang nguồn thay thế.
@@ -122,6 +129,7 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
     import threading
 
     df = pd.DataFrame()
+    source_info = {'source': None, 'vci_timeout': False, 'vci_empty': False}
     consecutive_timeouts = 0
     for source in FALLBACK_SOURCES:
         box = {}
@@ -138,6 +146,8 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
         t.join(VCI_TIMEOUT)
         if t.is_alive():
             consecutive_timeouts += 1
+            if source == 'vci':
+                source_info['vci_timeout'] = True
             logger.warning(
                 f"_fetch_lich_su: {symbol} {source} TIMEOUT >{VCI_TIMEOUT}s — bỏ qua"
             )
@@ -146,7 +156,6 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
                     f"_fetch_lich_su: {symbol} {consecutive_timeouts} consecutive timeouts — "
                     f"recreate HTTPS session pool"
                 )
-                # Force garbage collection to release stale HTTPS connections
                 import gc
                 gc.collect()
                 consecutive_timeouts = 0
@@ -159,10 +168,13 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
         if df is not None and not df.empty:
             df = df.copy()
             df['source'] = source
+            source_info['source'] = source
             break
+        if source == 'vci':
+            source_info['vci_empty'] = True
         df = pd.DataFrame()
     if df is None or df.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(), source_info
     if 'adj_close' not in df.columns and 'close' in df.columns:
         df['adj_close'] = df['close']
     # Chuẩn hóa tên cột
@@ -193,7 +205,7 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> pd.DataFrame:
     df['date'] = pd.to_datetime(df['date'], format='mixed').dt.strftime('%Y-%m-%d')
     cols = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
     df = df[[c for c in cols if c in df.columns]]
-    return df
+    return df, source_info
 
 
 def _kiem_tra_symbol_co_san(symbol: str) -> bool:
@@ -280,6 +292,8 @@ def backfill(symbols: list = None,
     tong_dong_moi = 0
     blacklist = {}
     source_counter = {s: 0 for s in FALLBACK_SOURCES}
+    vci_rate_limit_count = 0
+    vci_not_found_count = 0
     bat_dau = time.time()
 
     for idx, symbol in enumerate(symbols, 1):
@@ -294,7 +308,12 @@ def backfill(symbols: list = None,
 
         for lan_thu in range(TOI_DA_THU_LAI):
             try:
-                df = _fetch_lich_su(symbol, start, end)
+                df, src_info = _fetch_lich_su(symbol, start, end)
+
+                if src_info['vci_timeout']:
+                    vci_rate_limit_count += 1
+                if src_info['vci_empty']:
+                    vci_not_found_count += 1
 
                 if df.empty:
                     if verbose:
@@ -330,13 +349,13 @@ def backfill(symbols: list = None,
                     if verbose:
                         print(f"\r  [{idx}/{tong}] {symbol}: ✅ Đã đầy đủ (giữ nguyên {dong_truoc} dòng)")
                     thanh_cong += 1
-                    src = df['source'].iloc[0] if 'source' in df.columns else 'unknown'
+                    src = src_info.get('source', 'unknown')
                     source_counter[src] = source_counter.get(src, 0) + 1
                     break
 
                 tong_dong_moi += dong_moi
                 thanh_cong += 1
-                src = df['source'].iloc[0] if 'source' in df.columns else 'unknown'
+                src = src_info.get('source', 'unknown')
                 source_counter[src] = source_counter.get(src, 0) + 1
                 if verbose:
                     print(f"\r  [{idx}/{tong}] {symbol}: ✅ +{dong_moi} dòng ({dong_truoc}→{dong_sau}) [src={src}]")
@@ -396,13 +415,25 @@ def backfill(symbols: list = None,
             pct = (count / total_success * 100) if total_success > 0 else 0
             bar = "█" * int(pct / 2) + "░" * (50 - int(pct / 2))
             print(f"     {src:<6s} [{count:>3}] {pct:5.1f}% |{bar}|")
-        # Recommend reordering if TCBS/DNSE handled >30% of load
-        fallback_pct = sum(source_counter.get(s, 0) for s in ['tcbs', 'dnse', 'kbs'])
-        if fallback_pct > total_success * 0.3:
+
+        # WIN11 BLACK-SCREEN BUG: Distinguish VCI rate-limit from VCI not-found.
+        # Rate-limit = VCI timed out (server throttling us) → need higher timeout or fallback.
+        # Not-found = VCI returned empty data (stock simply not on VCI) → expected for UPCoM.
+        vci_total = source_counter.get('vci', 0)
+        vci_rate_pct = (vci_rate_limit_count / total_success * 100) if total_success > 0 else 0
+        vci_nf_pct = (vci_not_found_count / total_success * 100) if total_success > 0 else 0
+
+        if vci_rate_pct > 0:
             logger.warning(
-                f"⚠ VCI handled only {source_counter.get('vci', 0)}/{total_success} "
-                f"({source_counter.get('vci', 0)/total_success*100:.0f}%). "
-                f"Consider increasing VCI_TIMEOUT or checking rate-limit status."
+                f"⚠ VCI rate-limit detected: {vci_rate_limit_count}/{total_success} "
+                f"({vci_rate_pct:.0f}%) requests timed out. "
+                f"Consider increasing VCI_TIMEOUT (current={VCI_TIMEOUT}s) "
+                f"or reordering fallback priority."
+            )
+        if vci_nf_pct > 0 and vci_rate_pct == 0:
+            logger.info(
+                f"ℹ VCI not-found: {vci_not_found_count}/{total_success} "
+                f"({vci_nf_pct:.0f}%) stocks have no VCI data (expected for UPCoM/low-liquidity)."
             )
     print()
 
