@@ -2686,6 +2686,32 @@ def cmd_system_audit(args):
             print_audit_history(history, lang_mode=_VERBOSE_LANG)
 
 
+def cmd_daily_cycle(args):
+    """Ưu tiên 3 — Orchestration: morning / close / earnings (ExecutionGraph)."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from orchestration.daily_cycle_orchestrator import (
+        DailyCycleOrchestrator, print_cycle_report,
+    )
+    from calibration.system_auditor import print_audit_report
+
+    orch = DailyCycleOrchestrator()
+    report = orch.run(
+        args.cycle_scenario,
+        skip_fresh=not args.force,
+        audit_days=args.days,
+        persist_audit=args.persist,
+        persist_log=True,
+    )
+    print_cycle_report(report)
+
+    hr = report.get("health_report")
+    if args.json:
+        import json as _json
+        print(_json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    elif hr:
+        print_audit_report(hr, lang_mode=_VERBOSE_LANG)
+
 
 def cmd_archetype(args):
     """Giai đoạn 1: Business Archetype — DNA classification."""
@@ -4417,6 +4443,37 @@ def build_parser():
     p_audit_hist.add_argument("--limit", type=int, default=20)
     p_audit_hist.add_argument("--json", action="store_true", help="Xuất JSON")
     p_audit_hist.set_defaults(func=cmd_system_audit)
+
+    # ── Ưu tiên 3: Daily Cycle Orchestration (ExecutionGraph) ──
+    p_cycle = sub.add_parser("morning", parents=[lang_parent],
+                             help="Sáng: SBV → Sensors → MacroState → Governor → System Audit")
+    p_cycle.add_argument("--days", type=int, default=90, help="Cửa sổ audit (ngày)")
+    p_cycle.add_argument("--persist", action="store_true",
+                         help="Lưu snapshot audit vào system_audit_history")
+    p_cycle.add_argument("--force", action="store_true",
+                         help="Bỏ qua stale_window — chạy lại mọi node")
+    p_cycle.add_argument("--json", action="store_true", help="Xuất JSON")
+    p_cycle.set_defaults(func=cmd_daily_cycle, cycle_scenario="morning")
+
+    p_close = sub.add_parser("close", parents=[lang_parent],
+                             help="Đóng: EOD → Breadth → Sector → Governor → System Audit")
+    p_close.add_argument("--days", type=int, default=90, help="Cửa sổ audit (ngày)")
+    p_close.add_argument("--persist", action="store_true",
+                         help="Lưu snapshot audit vào system_audit_history")
+    p_close.add_argument("--force", action="store_true",
+                         help="Bỏ qua stale_window — chạy lại mọi node")
+    p_close.add_argument("--json", action="store_true", help="Xuất JSON")
+    p_close.set_defaults(func=cmd_daily_cycle, cycle_scenario="close")
+
+    p_earn = sub.add_parser("earnings", parents=[lang_parent],
+                            help="Báo cáo: Crawl → Health v2 → Valuation → Governor → System Audit")
+    p_earn.add_argument("--days", type=int, default=90, help="Cửa sổ audit (ngày)")
+    p_earn.add_argument("--persist", action="store_true",
+                         help="Lưu snapshot audit vào system_audit_history")
+    p_earn.add_argument("--force", action="store_true",
+                         help="Bỏ qua stale_window — chạy lại mọi node")
+    p_earn.add_argument("--json", action="store_true", help="Xuất JSON")
+    p_earn.set_defaults(func=cmd_daily_cycle, cycle_scenario="earnings")
 
     # ── Giai đoạn 1: Business Ontology Layer ──────────────
     p_arch = sub.add_parser("archetype", parents=[lang_parent],
