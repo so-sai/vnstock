@@ -1,6 +1,8 @@
 
 import io
 import os
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,66 +43,113 @@ TASKS = [
         "name": "PTCK_DAILY_UPDATE",
         "description": "Cập nhật dữ liệu EOD hàng ngày (Thứ 2-6, 15:30)",
         "action": f'"{PYTHON_EXE}" "{DAILY_UPDATER}"',
-        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:30",
+        "frequency": "WEEKLY",
+        "schedule": "/D MON,TUE,WED,THU,FRI /ST 15:30",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_FLOW_MAP_REPORT",
         "description": "EOD Pipeline tự phục hồi + lũy đẳng (Thứ 2-6, 16:00)",
         "action": f'cmd.exe /c ""{PYTHON_EXE}" "{PTCK_CLI}" eod-run && "{PYTHON_EXE}" "{PTCK_CLI}" flow-map"',
-        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 16:00",
+        "frequency": "WEEKLY",
+        "schedule": "/D MON,TUE,WED,THU,FRI /ST 16:00",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_WEEKLY_MAINTENANCE",
         "description": "Bảo trì DB hàng tuần (Chủ nhật, 02:00)",
         "action": f'"{PYTHON_EXE}" "{DB_MAINTENANCE}" --full',
-        "schedule": "/SC WEEKLY /D SUN /ST 02:00",
+        "frequency": "WEEKLY",
+        "schedule": "/D SUN /ST 02:00",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_WEEKLY_MACRO",
         "description": "Cập nhật dữ liệu Vĩ mô hàng tuần (Chủ nhật, 03:00)",
         "action": f'"{PYTHON_EXE}" "{PROJECT_ROOT / "backend" / "screener.py"}" --mode macro',
-        "schedule": "/SC WEEKLY /D SUN /ST 03:00",
+        "frequency": "WEEKLY",
+        "schedule": "/D SUN /ST 03:00",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_DAILY_BACKUP",
         "description": "Database Guardian — Integrity Check + Online Backup mỗi tối (23:00)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" db backup',
-        "schedule": "/SC DAILY /ST 23:00",
+        "frequency": "DAILY",
+        "schedule": "/ST 23:00",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_SBV_FIXTURE",
         "description": "Chụp fixture HTML thô sbv.gov.vn hàng ngày — Self-healing Parser (08:00)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" sbv-update --save-fixture',
-        "schedule": "/SC DAILY /ST 08:00",
+        "frequency": "DAILY",
+        "schedule": "/ST 08:00",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_VIETSTOCK_CRAWL",
         "description": "Crawl BCTC Vietstock Finance cho nhóm cổ phiếu trọng điểm (Thứ 2-6, 08:30)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" cafef-crawl --symbols FPT ACB HDB MBB VCB HPG BCM VRE VHM MWG --source vietstock --playwright',
-        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:30",
+        "frequency": "WEEKLY",
+        "schedule": "/D MON,TUE,WED,THU,FRI /ST 08:30",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_CAFEF_CRAWL",
         "description": "Crawl BCTC 20 quý CafeF (requests + Playwright fallback) — bổ sung CFO dòng tiền (Thứ 2-6, 09:00)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" cafef-crawl --symbols FPT ACB HDB MBB VCB --source cafef --playwright --delay 1',
-        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 09:00",
+        "frequency": "WEEKLY",
+        "schedule": "/D MON,TUE,WED,THU,FRI /ST 09:00",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_VGB10Y_SEED",
         "description": "Seed VGB 10Y yield từ World Bank API (Thứ 2-6, 08:45)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" vgb10y',
-        "schedule": "/SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:45",
+        "frequency": "WEEKLY",
+        "schedule": "/D MON,TUE,WED,THU,FRI /ST 08:45",
+        "run_level": "HIGHEST",
+    },
+    {
+        "name": "PTCK_MORNING_CYCLE",
+        "description": "Daily Cycle — morning: SBV/Sensors → MacroState → Governor → System Audit (Thứ 2-6, 08:00)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" morning --persist',
+        "frequency": "WEEKLY",
+        "schedule": "/D MON,TUE,WED,THU,FRI /ST 08:00",
+        "run_level": "HIGHEST",
+    },
+    {
+        "name": "PTCK_CLOSE_CYCLE",
+        "description": "Daily Cycle — close: EOD → Breadth → Sector → Governor → System Audit (Thứ 2-6, 15:30)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" close --persist',
+        "frequency": "WEEKLY",
+        "schedule": "/D MON,TUE,WED,THU,FRI /ST 15:30",
+        "run_level": "HIGHEST",
+    },
+    {
+        "name": "PTCK_EARNINGS_CYCLE",
+        "description": "Daily Cycle — earnings: Crawl → Health v2 → Valuation → Governor → System Audit (Thứ 2, 08:20 — stale_window 7d tự skip nếu chưa tới mùa)",
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" earnings --persist',
+        "frequency": "WEEKLY",
+        "schedule": "/D MON /ST 08:20",
         "run_level": "HIGHEST",
     },
 ]
+
+def _build_args(task: dict) -> list:
+    """Mảng tham số chuẩn cho subprocess.run — KHÔNG có /SC trùng lặp.
+
+    LƯU Ý: /COMMENT bị schtasks.exe trên hệ thống này từ chối
+    ("Invalid argument/option"), nên không dùng — task name đã mô tả đủ.
+    """
+    args = ["schtasks", "/Create", "/TN", task["name"],
+            "/TR", task["action"],
+            "/SC", task["frequency"]]
+    if task.get("schedule"):
+        args += shlex.split(task["schedule"])
+    args += ["/RL", task["run_level"], "/F"]
+    return args
 
 def setup_tasks():
     print("\n" + "=" * 60)
@@ -111,39 +160,27 @@ def setup_tasks():
     print()
 
     for task in TASKS:
-        cmd = (
-            f'schtasks /Create /TN "{task["name"]}" '
-            f'/TR "{task["action"]}" '
-            f'/SC WEEKLY '
-            f'{task["schedule"]} '
-            f'/RL {task["run_level"]} '
-            f'/F '
-            f'/COMMENT "{task["description"]}"'
-        )
+        cmd_args = _build_args(task)
         print(f"⚡ Tạo task: {task['name']}")
         print(f"   📝 Mô tả: {task['description']}")
         print(f"   🔧 Lệnh: {task['action']}")
-        print(f"   ⏰ Lịch: {task['schedule']}")
+        print(f"   ⏰ Lịch: /SC {task['frequency']} {task['schedule']}")
 
-        result = os.system(cmd)
-        if result == 0:
+        result = subprocess.run(
+            cmd_args, capture_output=True, text=True,
+            encoding="utf-8", errors="replace")
+        if result.returncode == 0:
             print("   ✅ THÀNH CÔNG\n")
         else:
-            print("   ❌ LỖI (cần chạy PowerShell với quyền Admin)\n")
+            err = (result.stderr or result.stdout or "").strip()
+            print(f"   ❌ LỖI: {err}\n")
 
     print("=" * 60)
     print("📋 Xem danh sách tasks:")
     print('   schtasks /Query /FO LIST | findstr "PTCK"')
     print("\n🗑️ Xóa tất cả tasks:")
-    print('   schtasks /Delete /TN "PTCK_DAILY_UPDATE" /F')
-    print('   schtasks /Delete /TN "PTCK_FLOW_MAP_REPORT" /F')
-    print('   schtasks /Delete /TN "PTCK_WEEKLY_MAINTENANCE" /F')
-    print('   schtasks /Delete /TN "PTCK_WEEKLY_MACRO" /F')
-    print('   schtasks /Delete /TN "PTCK_DAILY_BACKUP" /F')
-    print('   schtasks /Delete /TN "PTCK_SBV_FIXTURE" /F')
-    print('   schtasks /Delete /TN "PTCK_VIETSTOCK_CRAWL" /F')
-    print('   schtasks /Delete /TN "PTCK_CAFEF_CRAWL" /F')
-    print('   schtasks /Delete /TN "PTCK_VGB10Y_SEED" /F')
+    for task in TASKS:
+        print(f'   schtasks /Delete /TN "{task["name"]}" /F')
     print("=" * 60)
 
 def remove_tasks():
