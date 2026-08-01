@@ -263,6 +263,12 @@ def _run_valuation(ctx):
     return engine.compare_valuations(TARGET_SYMBOLS)
 
 
+def _run_vn20_builder(ctx):
+    """Tier 4: Build PTCK_VN20 dynamic index via 4-tier pipeline."""
+    from src.ptck_vn20_builder import build_vn20
+    return build_vn20(dry_run=False)
+
+
 def _run_governor(ctx):
     from src.governor.company_state import BayesianGovernor
     engine = BayesianGovernor()
@@ -311,18 +317,21 @@ SCENARIOS: Dict[str, List[NodeSpec]] = {
         NodeSpec("system_audit", deps=["governor"], stale_window=None,
                  desc="System Health Report (CRO)", fn=None),
     ],
-    "earnings": [
-        NodeSpec("financial_crawl", deps=[], stale_window=7,
-                 desc="Financial crawl (BCTT)", fn=_run_financial_crawl),
-        NodeSpec("health_v2", deps=["financial_crawl"], stale_window=1,
-                 desc="Company Health Engine v2", fn=_run_health_v2),
-        NodeSpec("valuation", deps=["health_v2"], stale_window=7,
-                 desc="Valuation Engine", fn=_run_valuation),
-        NodeSpec("governor", deps=["valuation"], stale_window=1,
-                 desc="Bayesian Governor", fn=_run_governor),
-        NodeSpec("system_audit", deps=["governor"], stale_window=None,
-                 desc="System Health Report (CRO)", fn=None),
-    ],
+"earnings": [
+         NodeSpec("financial_crawl", deps=[], stale_window=7,
+                  desc="Financial crawl (BCTT)", fn=_run_financial_crawl),
+         NodeSpec("health_v2", deps=["financial_crawl"], stale_window=1,
+                  desc="Company Health Engine v2", fn=_run_health_v2),
+         NodeSpec("valuation", deps=["health_v2"], stale_window=7,
+                  desc="Valuation Engine", fn=_run_valuation),
+         NodeSpec("vn20_builder", deps=["valuation"], stale_window=7,
+                  desc="PTCK_VN20 Dynamic Index Builder (LAW-008 Cluster Compression)",
+                  fn=_run_vn20_builder),
+         NodeSpec("governor", deps=["valuation"], stale_window=1,
+                  desc="Bayesian Governor", fn=_run_governor),
+         NodeSpec("system_audit", deps=["governor"], stale_window=None,
+                  desc="System Health Report (CRO)", fn=None),
+     ],
 }
 
 

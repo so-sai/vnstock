@@ -116,14 +116,36 @@ async def get_data_density_audit(
                 "status": r.status,
                 "healed": r.healed,
             }
-            for r in audit_results.values()
-        ]
+for r in audit_results.values()
+         ]
 
         return localize_output({
             "status": "success",
             "count": len(data),
             "generated_at": datetime.now().isoformat(),
             "data": data,
+        })
+    except Exception as e:
+        return localize_output({
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat(),
+        })
+
+
+@router.get("/vn20", summary="PTCK_VN20 Dynamic Index (Top 20 Stocks)")
+async def get_vn20_index():
+    """Return the dynamically built PTCK_VN20 index with sector distribution."""
+    from src.ptck_vn20_builder import get_vn20_api_data
+    try:
+        data = get_vn20_api_data()
+        return localize_output({
+            "status": "success",
+            "index": data.get("index", "PTCK_VN20"),
+            "count": data.get("count", 0),
+            "built_at": data.get("built_at", ""),
+            "symbols": data.get("symbols", []),
+            "timestamp": datetime.now().isoformat(),
         })
     except Exception as e:
         return localize_output({
