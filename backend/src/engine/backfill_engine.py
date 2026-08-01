@@ -80,6 +80,31 @@ FALLBACK_SOURCES = ['vci', 'tcbs', 'dnse', 'kbs']
 # Sau bao nhiêu lần timeout liên tiếp thì recreate HTTPS session pool
 MAX_CONSECUTIVE_TIMEOUTS = 3
 
+# HOSE / VN30 blue-chip symbols expected to have data on VCI.
+# Nếu VCI trả về rỗng cho các mã này → nghi ngờ Silent Throttling
+# (HTTP 200 + mảng rỗng thay vì lỗi thật).
+HOSE_BLUECHIPS = {
+    'VCB', 'TCB', 'CTG', 'MBB', 'STB', 'VPB', 'HDB', 'SHB', 'NVB',
+    'VIB', 'ABB', 'OJB', 'BID', 'CTG', 'TCB', 'VPB', 'MBB', 'STB',
+    'HPG', 'BVH', 'PNJ', 'MWG', 'FPT', 'VIC', 'VHM', 'NVL', 'MSN',
+    'SAB', 'VNM', 'KDH', 'ROX', 'DIG', 'GAS', 'PLX', 'BCM', 'VPB',
+    'TCB', 'ACB', 'TCB', 'VCB', 'MBB', 'STB', 'HDB', 'VPB', 'SHB',
+    'CTG', 'TCB', 'VIB', 'ABB', 'OJB', 'NVB', 'BID', 'CTG',
+}
+# Tập hợp rút gọn các mã HOSE/VN30 phổ biến nhất để check nhanh.
+HOSE_BLUECHIPS = frozenset({
+    'VCB', 'TCB', 'CTG', 'MBB', 'STB', 'VPB', 'HDB', 'SHB', 'NVB',
+    'VIB', 'BID', 'HPG', 'BVH', 'PNJ', 'MWG', 'FPT', 'VIC', 'VHM',
+    'NVL', 'MSN', 'SAB', 'VNM', 'KDH', 'ROX', 'DIG', 'GAS', 'PLX', 'BCM',
+})
+# Tăng từ 12.0s → 25.0s để hỗ trợ mã UPCoM/thanh khoản thấp phản hồi chậm.
+VCI_TIMEOUT = 25.0
+# Multi-Source Fallback: thử VCI trước, nếu thất bại thì chuyển sang
+# TCBS → DNSE → KBS. Thứ tự ưu tiên theo tốc độ phản hồi và chất lượng dữ liệu.
+FALLBACK_SOURCES = ['vci', 'tcbs', 'dnse', 'kbs']
+# Sau bao nhiêu lần timeout liên tiếp thì recreate HTTPS session pool
+MAX_CONSECUTIVE_TIMEOUTS = 3
+
 
 def _lay_danh_sach_can_backfill() -> list:
     """Trả về danh sách symbol có số phiên < ngưỡng, cần backfill."""
@@ -113,6 +138,8 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
             'source': the source that succeeded, or None,
             'vci_timeout': True if VCI timed out (rate-limit indicator),
             'vci_empty': True if VCI returned empty data (not-found indicator),
+            'vci_silent_throttle': True if VCI returned empty data
+                for a blue-chip stock (HOSE/VN30) — likely silent throttling.
         }
 
     Multi-Source Fallback (VCI → TCBS → DNSE → KBS):
@@ -172,6 +199,8 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
             break
         if source == 'vci':
             source_info['vci_empty'] = True
+            if symbol.upper() in HOSE_BLUECHIPS:
+                source_info['vci_silent_throttle'] = True
         df = pd.DataFrame()
     if df is None or df.empty:
         return pd.DataFrame(), source_info
@@ -294,6 +323,7 @@ def backfill(symbols: list = None,
     source_counter = {s: 0 for s in FALLBACK_SOURCES}
     vci_rate_limit_count = 0
     vci_not_found_count = 0
+    vci_silent_throttle_count = 0
     bat_dau = time.time()
 
     for idx, symbol in enumerate(symbols, 1):
@@ -312,7 +342,9 @@ def backfill(symbols: list = None,
 
                 if src_info['vci_timeout']:
                     vci_rate_limit_count += 1
-                if src_info['vci_empty']:
+                if src_info['vci_silent_throttle']:
+                    vci_silent_throttle_count += 1
+                elif src_info['vci_empty']:
                     vci_not_found_count += 1
 
                 if df.empty:
@@ -419,9 +451,11 @@ def backfill(symbols: list = None,
         # WIN11 BLACK-SCREEN BUG: Distinguish VCI rate-limit from VCI not-found.
         # Rate-limit = VCI timed out (server throttling us) → need higher timeout or fallback.
         # Not-found = VCI returned empty data (stock simply not on VCI) → expected for UPCoM.
+        # Silent Throttle = VCI returned empty data for HOSE/VN30 blue-chip → likely rate-limit masked as 200 OK.
         vci_total = source_counter.get('vci', 0)
         vci_rate_pct = (vci_rate_limit_count / total_success * 100) if total_success > 0 else 0
         vci_nf_pct = (vci_not_found_count / total_success * 100) if total_success > 0 else 0
+        vci_st_pct = (vci_silent_throttle_count / total_success * 100) if total_success > 0 else 0
 
         if vci_rate_pct > 0:
             logger.warning(
@@ -430,7 +464,14 @@ def backfill(symbols: list = None,
                 f"Consider increasing VCI_TIMEOUT (current={VCI_TIMEOUT}s) "
                 f"or reordering fallback priority."
             )
-        if vci_nf_pct > 0 and vci_rate_pct == 0:
+        if vci_st_pct > 0:
+            logger.warning(
+                f"⚠ VCI SILENT THROTTLE detected: {vci_silent_throttle_count}/{total_success} "
+                f"({vci_st_pct:.0f}%) blue-chip stocks returned empty data from VCI "
+                f"(HTTP 200 + empty array = likely rate-limit). "
+                f"These stocks need fallback to TCBS/DNSE immediately."
+            )
+        if vci_nf_pct > 0 and vci_rate_pct == 0 and vci_st_pct == 0:
             logger.info(
                 f"ℹ VCI not-found: {vci_not_found_count}/{total_success} "
                 f"({vci_nf_pct:.0f}%) stocks have no VCI data (expected for UPCoM/low-liquidity)."
