@@ -49,6 +49,8 @@ def test_projector_subscores_and_bounds():
     assert res.delta_pct == -1.6
     assert 0.0 <= res.coverage <= 1.0
     assert 0.0 <= res.coherence <= 1.0
+    assert res.governor_mandate == "NEUTRAL_DEFENSIVE"
+    assert "Macro: CREDIT_STRESS" in res.why_drivers
 
 
 def test_hard_veto_caps_score_under_30():

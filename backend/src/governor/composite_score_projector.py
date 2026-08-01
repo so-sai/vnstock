@@ -65,6 +65,8 @@ class CompositeScoreResult:
     allocation_pct: float       # Target Capital Allocation % [0%, 100%]
     delta_pct: float            # Position Delta Adjustment %
     display_flag: str           # 🚀 FULL_MARGIN / 🟢 OK / ⚠️ MACRO_STRESS / ⛔ CRISIS_VETO / ⛔ OVERPRICED_VETO
+    governor_mandate: str       # CAPITAL_PRESERVATION / NEUTRAL_DEFENSIVE / NORMAL_OPERATION / AGGRESSIVE_DEPLOYMENT
+    why_drivers: str            # Key XAI primary drivers explaining decision
     veto_flag: str              # NONE / OVERPRICED_VETO / CRISIS_VETO / MACRO_STRESS / DISTRESSED_VETO
     action: str                 # VETO / AVOID / REDUCE / WAIT / HOLD / SCALE_IN / OPEN
     recommendation: str         # MUA_TOI_DA_DON_BAY / MUA_TIC_LUY / CAN_BANG / GIAM_TY_TRONG / CAM_MUA
@@ -145,25 +147,35 @@ class CompositeScoreProjector:
         final_score = round(min(raw_score, cap), 1)
         buy_gap = round(max(0.0, self.policy.buy_threshold - final_score), 1)
 
-        # Single Display Flag Hierarchy & Recommendation mapping
+        # Single Display Flag Hierarchy & Recommendation mapping & Mandate
         if final_score >= self.policy.full_margin_threshold and veto_flag == "NONE":
             display_flag = "🚀 FULL_MARGIN"
+            governor_mandate = "AGGRESSIVE_DEPLOYMENT"
             recommendation = "MUA_TOI_DA_DON_BAY (Full Margin / Aggressive)"
         elif final_score >= self.policy.buy_threshold and veto_flag == "NONE":
             display_flag = "🟢 OK"
+            governor_mandate = "NORMAL_OPERATION"
             recommendation = "MUA_TIC_LUY (Scale In / Open)"
         elif final_score >= 50.0 and veto_flag == "NONE":
             display_flag = "🟢 OK"
+            governor_mandate = "NEUTRAL_DEFENSIVE"
             recommendation = "CAN_BANG (Hold)"
         elif veto_flag != "NONE":
             display_flag = veto_flag
             if final_score >= 35.0:
+                governor_mandate = "NEUTRAL_DEFENSIVE"
                 recommendation = "GIAM_TY_TRONG (Reduce / Wait)"
             else:
+                governor_mandate = "CAPITAL_PRESERVATION"
                 recommendation = "CAM_MUA (Veto / Avoid)"
         else:
             display_flag = "🟢 OK"
+            governor_mandate = "CAPITAL_PRESERVATION"
             recommendation = "CAM_MUA (Veto / Avoid)"
+
+        # XAI Why Engine Primary Drivers
+        mos_str = f"MoS: {mos:+.1f}%" if mos is not None else "MoS: N/A"
+        why_drivers = f"Macro: {macro_state} | {mos_str} | P(Gain): {p_gain:.2f}"
 
         return CompositeScoreResult(
             symbol=symbol,
@@ -178,6 +190,8 @@ class CompositeScoreProjector:
             allocation_pct=round(target_alloc, 1),
             delta_pct=round(delta_pct, 1),
             display_flag=display_flag,
+            governor_mandate=governor_mandate,
+            why_drivers=why_drivers,
             veto_flag=veto_flag,
             action=action,
             recommendation=recommendation,
