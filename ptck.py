@@ -3012,6 +3012,85 @@ def cmd_csi_explain(args):
         print(json.dumps(results, indent=2, ensure_ascii=False, default=str))
 
 
+def cmd_csi_scan(args):
+    """Quét điểm an toàn CSI toàn thị trường qua màng lọc thanh khoản.
+
+    WHY: explain() mất 0.5-1.2s/mã. Chạy cả 1,460 mã tuần tự → 15-30 phút,
+    gãy CLI. cmd_csi_scan lọc Vol20D >= min_vol (~350-450 mã) trước, chạy
+    batch <2 phút, ghi csi_matrix.json cho Governor EOD.
+    """
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    import json as _json
+    from src.governor.csi_explain import scan_all, _liquid_symbols
+
+    min_vol = float(getattr(args, "min_vol", 100_000) or 100_000)
+    explicit = getattr(args, "symbols", None)
+
+    if explicit:
+        symbols = explicit
+    else:
+        symbols = _liquid_symbols(min_vol)
+
+    if not symbols:
+        print(f"  {_ll('Không có mã nào')} đạt Vol20D >= {min_vol:,.0f}.")
+        return
+
+    print("=" * 62)
+    print(f"  {_ll('CSI SCAN')} — {_ll('Contextual Security Index')}")
+    print(f"  {_ll('Ngày')}: {__import__('datetime').date.today()}  "
+          f"| {_ll('mã')}: {len(symbols)}  | {_ll('ngưỡng Vol20D')}: {min_vol:,.0f}")
+    print("=" * 62)
+
+    rows = scan_all(symbols=symbols, min_vol=min_vol, progress_cb=lambda i, t, s: (
+        print(f"  [{i:>4}/{t}] {s:<8s} ...", flush=True) if i % 25 == 0 or i == t else None
+    ))
+
+    # ── Lưu csi_matrix.json ──
+    out_dir = src_config_output_dir()
+    out_path = out_dir / "csi_matrix.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        _json.dumps(rows, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+
+    # ── Tổng kết phân bổ hành động ──
+    from collections import Counter
+    by_action = Counter((r.get("action") or "N/A") for r in rows)
+    scored = [r for r in rows if r.get("csi_p_gain") is not None]
+    avg_csi = sum(r["csi_p_gain"] for r in scored) / len(scored) if scored else 0.0
+
+    print("\n" + "=" * 62)
+    print(f"  {_ll('PHÂN BỔ TÍN HIỆU')} — {len(scored)}/{len(rows)} mã có CSI")
+    print("=" * 62)
+    for action, cnt in sorted(by_action.items(), key=lambda x: -x[1]):
+        pct = 100.0 * cnt / len(rows) if rows else 0.0
+        print(f"  {_ll(str(action)):<12s} {cnt:>5d}  ({pct:>5.1f}%)")
+    print(f"  {_ll('CSI trung bình')}: {avg_csi:.3f}")
+    print(f"\n  {_ll('Đã lưu')}: {out_path}")
+    print("=" * 62)
+
+
+def src_config_output_dir():
+    """Trả về thư mục data/output nơi Governor EOD ghi file.
+
+    WHY: daily_updater.py ghi csi_history.json vào
+    PROJECT_ROOT/backend/data/output — csi_matrix.json phải cùng chỗ để
+    Governor EOD đọc được. Không dùng PROJECT_ROOT/data/output.
+    """
+    import os
+    try:
+        import src.config as _cfg
+        root = getattr(_cfg, "PROJECT_ROOT", Path.cwd())
+        backend = root / "backend"
+        if not backend.is_dir():
+            backend = root
+        return backend / "data" / "output"
+    except Exception:
+        return Path.cwd() / "backend" / "data" / "output"
+
+
 def cmd_governor_report(args):
     """Báo cáo phân rã đóng góp 3 mô hình vào DecisionGuard."""
     if sys.platform == "win32":
@@ -4338,7 +4417,7 @@ def build_parser():
 
     # governor-report (Contribution Breakdown)
     p_govr = sub.add_parser("governor-report", parents=[lang_parent],
-                            help="Phân rã đóng góp 3 mô hình vào DecisionGuard")
+                            help="Phân rã đóng góp 3 mô hình (Vĩ mô 20%%, Định lượng 30%%, Trạng thái/Regime 50%%) vào DecisionGuard")
     p_govr.set_defaults(func=cmd_governor_report)
 
     # erl-scan (Entity Resilience Layer + Whitelist)
@@ -4507,6 +4586,15 @@ def build_parser():
     p_csi.add_argument("--output", choices=["report", "json"], default="report",
                        help="Định dạng đầu ra (report hoặc json)")
     p_csi.set_defaults(func=cmd_csi_explain)
+
+    # csi-scan (CSI batch matrix với màng lọc thanh khoản)
+    p_csis = sub.add_parser("csi-scan", parents=[lang_parent],
+                            help="Quét điểm an toàn CSI toàn thị trường qua màng lọc Vol20D (mặc định 100k), ghi csi_matrix.json")
+    p_csis.add_argument("--symbols", nargs="+", default=None,
+                        help="Danh sách mã cụ thể (bỏ qua màng lọc thanh khoản)")
+    p_csis.add_argument("--min-vol", type=float, default=100_000, dest="min_vol",
+                        help="Ngưỡng Vol20D cổ phiếu/phiên (mặc định 100000)")
+    p_csis.set_defaults(func=cmd_csi_scan)
 
     # macro-governor
     p_mg = sub.add_parser("macro", parents=[lang_parent], help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")

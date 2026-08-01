@@ -199,9 +199,13 @@ debug_*.py
 # .kit Memory Store
 .kit/brain.db-*
 .kit/brain.db.bak
+.kit/*.log
+.kit/*.db-wal
+.kit/*.db-shm
 
 # Generated output data
 backend/data/output/
+backend/data/reports/
 backend/data/psr/
 backend/data/state/
 backend/data/anomaly_report.json
@@ -210,6 +214,7 @@ backend/data/decision_history.json
 backend/data/market_state.json
 backend/data/market_rs.json
 backend/data/unit_normalization_report.json
+backend/data/*.json
 
 # Runtime-captured fixtures (regenerated daily by PTCK_SBV_FIXTURE scheduler)
 tests/fixtures/sbv/live.html

@@ -415,6 +415,113 @@ class CSIExplainEngine:
 
 
 # ════════════════════════════════════════════════════════════════════
+# BATCH SCAN — CSI Matrix (quét toàn bộ mã qua màng lọc thanh khoản)
+# ════════════════════════════════════════════════════════════════════
+# WHY: explain() mất 0.5-1.2s/mã, chạy tuần tự toàn bộ 1,460 mã → 15-30
+#   phút, gây nghẽn CLI. scan_all() chủ động lọc Vol20D >= min_vol
+#   (~350-450 mã thanh khoản) trước khi chạy, giảm xuống <2 phút và
+#   xuất csi_matrix.json cho Governor EOD. Lọc thanh khoản là bộ lọc
+#   đầu vào (tính khả thi giao dịch), KHÔNG phải điểm đánh giá an toàn —
+#   an toàn do chính p_gain/action của BayesianGovernor quyết định.
+
+def scan_all(
+    symbols: Optional[List[str]] = None,
+    min_vol: float = 100_000,
+    progress_cb=None,
+) -> List[Dict]:
+    """Quét CSI cho tập mã (mặc định: mọi mã đạt Vol20D >= min_vol).
+
+    Args:
+        symbols: danh sách mã bắt buộc; None → tự lọc thanh khoản từ DB.
+        min_vol: ngưỡng khối lượng TB 20 phiên (cổ phiếu/phiên).
+        progress_cb: callback(i, total, symbol) để in tiến độ.
+
+    Returns:
+        list[dict] — mỗi phần tử là kết quả explain() rút gọn:
+        {symbol, date, csi_p_gain, action, mos, market_context, archetype, csi_confidence}
+    """
+    if symbols is None:
+        symbols = _liquid_symbols(min_vol)
+        if not symbols:
+            return []
+
+    engine = CSIExplainEngine()
+    rows: List[Dict] = []
+    total = len(symbols)
+    for i, sym in enumerate(symbols, 1):
+        try:
+            r = engine.explain(sym)
+            csi = r.get("csi", {})
+            ent = r.get("entropy", {})
+            rows.append({
+                "symbol": sym,
+                "date": r.get("date", str(date.today())),
+                "csi_p_gain": csi.get("p_gain"),
+                "action": csi.get("action"),
+                "mos": csi.get("mos"),
+                "market_context": csi.get("market_context"),
+                "archetype": r.get("archetype"),
+                "csi_confidence": ent.get("csi_confidence"),
+            })
+        except Exception:
+            # Mã thiếu dữ liệu Governor → bỏ qua, không làm hỏng batch.
+            rows.append({
+                "symbol": sym,
+                "date": str(date.today()),
+                "csi_p_gain": None,
+                "action": "N/A",
+                "mos": None,
+                "market_context": "N/A",
+                "archetype": "UNKNOWN",
+                "csi_confidence": None,
+            })
+        if progress_cb:
+            progress_cb(i, total, sym)
+
+    return rows
+
+
+def _liquid_symbols(min_vol: float = 100_000) -> List[str]:
+    """Trả về danh sách mã có avg_vol_20d >= min_vol ở phiên mới nhất.
+
+    Dùng screener_cache.db daily_ohlcv, tính avg_vol_20d bằng pandas
+    (giống breadth_engine.py) để tái sử dụng cùng nguồn dữ liệu.
+    """
+    try:
+        import sqlite3
+        import pandas as pd
+        from src.database.db_core import get_connection
+        with get_connection() as conn:
+            # WHY: tính cutoff date trong Python vì mỗi date có ~1500 rows
+            # (1/symbol) — OFFSET 25 trong SQL vẫn rơi vào cùng ngày max.
+            dates = [r[0] for r in conn.execute(
+                "SELECT DISTINCT date FROM daily_ohlcv ORDER BY date DESC LIMIT 30"
+            ).fetchall()]
+        if not dates:
+            return []
+        cutoff = dates[-1] if len(dates) >= 26 else dates[-1]
+        with get_connection() as conn:
+            df = pd.read_sql(
+                "SELECT symbol, date, volume FROM daily_ohlcv WHERE date >= ?",
+                conn, params=(cutoff,),
+            )
+        if df.empty:
+            return []
+        df = df.copy()
+        df['date'] = pd.to_datetime(df['date'], format='mixed')
+        df = df.sort_values(['symbol', 'date'])
+        g = df.groupby('symbol')
+        df.loc[:, 'avg_vol_20d'] = g['volume'].transform(
+            lambda x: x.rolling(20, min_periods=5).mean()
+        )
+        latest = df[df['date'] == df['date'].max()].copy()
+        liquid = latest[latest['avg_vol_20d'] >= min_vol]
+        return sorted(liquid['symbol'].unique().tolist())
+    except Exception:
+        return []
+
+
+# ════════════════════════════════════════════════════════════════════
 # RENDERING — Causal DAG Trace (Cây vết truyền dẫn)
 # ════════════════════════════════════════════════════════════════════
 

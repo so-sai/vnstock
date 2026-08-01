@@ -315,7 +315,14 @@ def _build_contribution(
     breadth_trap_state: dict | None,
     breadth_momentum: float | None,
 ) -> dict:
-    """Phân rã đóng góp 3 mô hình vào position_level.
+    """Phân rã đóng góp 3 mô hình quản trị rủi ro vào DecisionGuard:
+    1. macro  (20%): Mô hình Vĩ mô (FedState, Credit Stress, Liquidity Trap)
+    2. quant  (30%): Mô hình Định lượng (Confidence, Macro Entropy)
+    3. regime (50%): Mô hình Trạng thái Thị trường (Ranging, ATR Shock, Breadth)
+
+    LƯU Ý KĨ THUẬT: 'regime' ở đây là Trạng thái Thị trường (Market Regime),
+    KHÔNG PHẢI thuật toán Hồi quy (Regression). Hồi quy Beta/Entropy nằm ở
+    fair_multiple_engine.py và market_macro_coordinator.py.
 
     Returns:
         {

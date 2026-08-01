@@ -67,10 +67,25 @@ def run_breadth_analysis(target_date: Optional[str] = None):
     df.loc[:, 'high_10'] = g['high'].transform(lambda x: x.shift(1).rolling(10).max())
     df.loc[:, 'is_nh10'] = (df['close'] > df['high_10']) & (df['high_10'].notna())
 
-    # 3. Lấy dữ liệu phiên mới nhất
+    # 3. Lấy dữ liệu phiên mới nhất — fallback last_trading_day cho ngày nghỉ/cuối tuần.
+    # WHY: khi ref_date rơi vào ngày lễ/T7/CN, daily_ohlcv không có phiên đó → latest_df rỗng
+    #   → total_active=0 → cảnh báo rác "Volume > 50,000 = 0". Rollback về phiên có dữ liệu
+    #   gần nhất để giữ MARKET PULSE sạch dữ liệu (lỗi hiển thị, KHÔNG ảnh hưởng Governor).
     latest_date = pd.to_datetime(ref_date)
     all_dates = sorted(df['date'].unique())
-    prev_dates = [d for d in all_dates if d <= latest_date][-3:] if len([d for d in all_dates if d <= latest_date]) >= 3 else all_dates[-3:]
+    valid_dates = [d for d in all_dates if d <= latest_date]
+    if not valid_dates:
+        print("⚠️ Không có dữ liệu trước ngày tham chiếu — cần backfill lịch sử.")
+        return None
+
+    ref_rows = df[df['date'] == latest_date]
+    if ref_rows.empty or ref_rows['volume'].sum() == 0:
+        fallback_date = valid_dates[-1]
+        print(f"ℹ️ Ngày {latest_date.strftime('%Y-%m-%d')} không có giao dịch "
+              f"(nghỉ lễ/cuối tuần) — fallback về phiên gần nhất: {fallback_date.strftime('%Y-%m-%d')}")
+        latest_date = fallback_date
+
+    prev_dates = valid_dates[-3:] if len(valid_dates) >= 3 else valid_dates[-3:]
 
     latest_df = df[df['date'] == latest_date].copy()
 
