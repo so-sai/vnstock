@@ -325,6 +325,20 @@ def optimize_sqlite_engine():
             )
         """)
 
+        # 10b. TẠO BẢNG SENSOR VALIDATION (Upstream Evidence — P(Crisis|Signal))
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sensor_validation (
+                sensor        TEXT NOT NULL,
+                signal_date   TEXT NOT NULL,
+                signal_type   TEXT NOT NULL,
+                signal_value  REAL,
+                crisis_flag   INTEGER NOT NULL DEFAULT 0,
+                lead_days     INTEGER,
+                horizon_days  INTEGER NOT NULL DEFAULT 20,
+                PRIMARY KEY (sensor, signal_date, signal_type)
+            )
+        """)
+
         # 11. TẠO BẢNG IPO CALENDAR CHO HUD / STATIC SEED
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ipo_calendar (

@@ -3072,6 +3072,52 @@ def cmd_csi_scan(args):
     print("=" * 62)
 
 
+def cmd_sensor_profile(args):
+    """Hồ sơ xác suất cảm biến thế giới — P(Crisis|Signal) + lead time.
+
+    WHY: KOSPI/SOX/DXY/KRW là Upstream Evidence, KHÔNG phải luật giao dịch.
+    Lệnh này hiển thị hồ sơ thống kê đã ghi trong sensor_validation để vận
+    hành viên biết cảm biến nào đáng tin (false_alarm thấp) trước khi Governor
+    dùng nó làm bằng chứng phụ trợ.
+    """
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    from src.sensors.sensor_validation import (
+        compute_profile, format_profile, list_sensors, ensure_schema,
+    )
+
+    ensure_schema()
+    sensor = getattr(args, "sensor", None)
+    signal_type = getattr(args, "signal_type", None)
+    horizon = getattr(args, "horizon", None)
+
+    if sensor:
+        prof = compute_profile(sensor, signal_type=signal_type,
+                               horizon_days=horizon)
+        print(format_profile(prof, lang_mode=_VERBOSE_LANG))
+        return
+
+    sensors = list_sensors()
+    if not sensors:
+        print(f"  {_ll('Chưa có hồ sơ cảm biến nào')} trong sensor_validation.")
+        print("  Chạy: ptck.py sensor-profile --sensor KOSPI")
+        return
+
+    print("=" * 62)
+    print(f"  SENSOR VALIDATION — {_ll('cảm biến đã ghi nhận')}: {len(sensors)}")
+    print("=" * 62)
+    for s in sensors:
+        prof = compute_profile(s, horizon_days=horizon)
+        line = (
+            f"  {s:<8s} n={prof.n:<4d} P(C|S)={prof.p_crisis:.1%} "
+            f"FA={prof.false_alarm_rate:.1%}"
+        )
+        if prof.lead_days_median is not None:
+            line += f"  lead={prof.lead_days_median:.1f}p"
+        print(line)
+    print("=" * 62)
+
+
 def src_config_output_dir():
     """Trả về thư mục data/output nơi Governor EOD ghi file.
 
@@ -4595,6 +4641,17 @@ def build_parser():
     p_csis.add_argument("--min-vol", type=float, default=100_000, dest="min_vol",
                         help="Ngưỡng Vol20D cổ phiếu/phiên (mặc định 100000)")
     p_csis.set_defaults(func=cmd_csi_scan)
+
+    # sensor-profile (Sensor Validation Layer — P(Crisis|Signal) + lead time)
+    p_sp = sub.add_parser("sensor-profile", parents=[lang_parent],
+                          help="Hồ sơ xác suất cảm biến thế giới (KOSPI/SOX/DXY/KRW): P(Crisis|Signal), false alarm, lead time")
+    p_sp.add_argument("--sensor", default=None,
+                      help="Tên cảm biến (KOSPI/SOX/DXY/KRW). Bỏ trống = liệt kê tất cả")
+    p_sp.add_argument("--signal-type", dest="signal_type", default=None,
+                      help="Lọc theo loại tín hiệu (STRESS_LEVEL/CRISIS_LEVEL/DROP_5D)")
+    p_sp.add_argument("--horizon", type=int, default=None,
+                      help="Cửa sổ kiểm định crisis (phiên, mặc định 20)")
+    p_sp.set_defaults(func=cmd_sensor_profile)
 
     # macro-governor
     p_mg = sub.add_parser("macro", parents=[lang_parent], help="Macro Governor Gatekeeper — Two-Tier Architecture (Tier 1)")
