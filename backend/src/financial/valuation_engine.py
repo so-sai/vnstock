@@ -235,6 +235,14 @@ class ValuationEngine:
         if bvps and bvps > 0:
             result["PB"] = price / bvps
 
+        # ROE (annualized for quarterly period)
+        # WHY: FairMultipleEngine (Gordon Growth Model) cần chỉ số ROE để tính Fair P/B
+        # và Margin of Safety (MoS). Lưu trữ ROE vào valuation_scores cho mọi doanh nghiệp.
+        ni = period_metrics.get("NET_INCOME") or period_metrics.get("NET_PROFIT")
+        eq = period_metrics.get("TOTAL_EQUITY")
+        if ni and eq and eq > 0:
+            result["ROE"] = (ni * 4) / eq
+
         # PS (use revenue for standard, NII for bank as proxy)
         if revenue and shares:
             rev_ps = revenue / shares
@@ -310,7 +318,7 @@ class ValuationEngine:
             return {"status": "NO_PRICE", "symbol": symbol}
 
         # For each ratio type, compute stats + z-scores + percentiles
-        ratio_names = ["PE", "PB", "PS", "EV_EBITDA"]
+        ratio_names = ["PE", "PB", "PS", "EV_EBITDA", "ROE"]
         conn = self.connect()
         results = []
         latest_price = None
@@ -362,6 +370,9 @@ class ValuationEngine:
 
         conn.commit()
         conn.close()
+
+        if not results:
+            return {"status": "NO_VALUATION_RESULTS", "symbol": symbol.upper()}
 
         # Summary: latest period zones
         latest_period = sorted(results, key=lambda r: r["period"])[-1]["period"]

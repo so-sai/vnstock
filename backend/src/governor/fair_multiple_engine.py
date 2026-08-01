@@ -243,19 +243,14 @@ def compute_fair_multiple(
     ke = rf + beta * erp
 
     # Sustainable growth rate
-    g = roe * retention
-
-    # Gordon Growth: Fair PB = (ROE - g) / (Ke - g)
-    # Constraint: Ke > g and ROE > g (otherwise divergence)
-    if ke <= g:
-        result["status"] = f"DIVERGENCE_Ke≤g ke={ke:.4f} g={g:.4f}"
-        return result
-    if roe <= g:
-        # g exceeds ROE → unsustainable; cap g at ROE * 0.95
+    g_raw = roe * retention
+    # WHY: Trong mô hình Gordon Growth (P/B = (ROE-g)/(Ke-g)), tốc độ tăng trưởng dài hạn g
+    # không thể vượt quá Chi phí vốn Ke trong dài hạn (t->inf). Với siêu cổ phiếu ROE cao (24%+),
+    # g_raw có thể vượt Ke làm mẫu số (Ke - g) <= 0 gây phân kỳ. Chuẩn hoá tài chính: khống chế
+    # g dài hạn <= Ke - 0.015 (hoặc tối đa 8% ngang tăng trưởng GDP danh nghĩa) để tính Fair Multiple.
+    g = min(g_raw, ke - 0.015, 0.08)
+    if g >= roe:
         g = roe * 0.95
-        if ke <= g:
-            result["status"] = f"DIVERGENCE_Ke≤g_after_cap ke={ke:.4f} g={g:.4f}"
-            return result
 
     fair_pb = (roe - g) / (ke - g)
 

@@ -953,6 +953,18 @@ class BayesianGovernor:
             roe_val = raw.get("ROE")
             pe_val = raw.get("PE")
             pb_val = raw.get("PB")
+            if roe_val is None:
+                try:
+                    from src.financial.company_health_v2 import CompanyHealthV2
+                    ch = CompanyHealthV2()
+                    ratios = ch._load_ratios(self.valuation.conn, symbol)
+                    roe_series = ratios.get("ROE")
+                    if roe_series:
+                        last_roe = roe_series[-1][1]
+                        if last_roe is not None:
+                            roe_val = last_roe * 4.0 if last_roe < 0.25 else last_roe
+                except Exception:
+                    pass
             if roe_val is not None and pe_val is not None and pb_val is not None:
                 fair = self._get_fair_engine()(
                     symbol=symbol,
