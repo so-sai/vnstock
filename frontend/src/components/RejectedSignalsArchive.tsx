@@ -13,7 +13,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useDictionary } from '../lib/dictionary';
-import { AbbrTooltip, ConfidenceBadge, DecisionCard, MetricRow } from './ui-components';
+import { AbbrTooltip, DecisionCard } from './ui-components';
 import { useRejectedStore } from '../stores/dashboardStore';
 
 interface RejectedSignal {

@@ -4,7 +4,7 @@ import {
 } from '@tremor/react';
 import {
   Play, Pause, SkipForward, AlertTriangle, RefreshCw, TrendingDown, TrendingUp,
-  Clock, BarChart3, Activity, Shield,
+  Clock, Activity, Shield,
 } from 'lucide-react';
 import { useI18n } from '../lib/i18n';
 
@@ -99,7 +99,6 @@ const PaperTradingPage: React.FC = () => {
     book_thinning_pct: 0,
     remaining_bid_depth: 0,
   });
-  const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [slices, setSlices] = useState(5);
   const [depth, setDepth] = useState(5000);
@@ -129,8 +128,6 @@ const PaperTradingPage: React.FC = () => {
       });
     } catch {
       // silent
-    } finally {
-      setLoading(false);
     }
   }, []);
 

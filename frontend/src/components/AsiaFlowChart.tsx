@@ -3,8 +3,8 @@ import { createChart, ColorType, type IChartApi } from 'lightweight-charts';
 import type { CandlestickSeriesPartialOptions, HistogramSeriesPartialOptions } from 'lightweight-charts';
 import type { BarData } from 'lightweight-charts';
 import { api } from '../lib/api';
-import { lttbTyped, downsample4Point } from '../utils/lttb';
-import { encodeBars, decodeAll, decodeBars, countInRange, dateStrToTime, STRIDE } from '../utils/bars-store';
+import { downsample4Point } from '../utils/lttb';
+import { encodeBars, decodeBars, countInRange, dateStrToTime, STRIDE } from '../utils/bars-store';
 
 interface Candle {
   date: string;
@@ -113,7 +113,7 @@ const AsiaFlowChart: React.FC = () => {
         volumeSeriesRef.current = volumeSeries;
 
         // ── Zoom listener: downsample khi visible bars vượt ngưỡng ──
-        const rangeSub = chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+        chart.timeScale().subscribeVisibleTimeRangeChange(() => {
           if (isUpdatingRef.current) return;
 
           const range = chart.timeScale().getVisibleRange();

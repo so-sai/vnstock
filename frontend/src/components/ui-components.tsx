@@ -11,7 +11,7 @@
  * All components use useDictionary() for auto-sync labels.
  */
 import { useState, useRef, useEffect, type ReactNode } from 'react';
-import { useDictionary, type AbbreviationEntry } from '../lib/dictionary';
+import { useDictionary } from '../lib/dictionary';
 
 // ── AbbrTooltip ────────────────────────────────────────────────────
 
