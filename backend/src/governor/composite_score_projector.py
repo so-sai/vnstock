@@ -40,6 +40,7 @@ class CompositeScoreResult:
     market_score: float         # 0.0 - 50.0 pt
     raw_score: float            # 0.0 - 100.0 pt (Linear sum)
     final_score: float          # 0.0 - 100.0 pt (After non-linear veto mapping)
+    buy_gap: float              # Points needed to reach 70.0 BUY threshold (0.0 = in buy zone)
     veto_flag: str              # NONE / OVERPRICED_VETO / CRISIS_VETO / MACRO_STRESS / DISTRESSED_VETO
     action: str                 # VETO / AVOID / REDUCE / WAIT / HOLD / SCALE_IN / OPEN
     recommendation: str         # MUA_TIC_LUY / CAN_BANG / GIAM_TY_TRONG / CAM_MUA
@@ -106,6 +107,7 @@ class CompositeScoreProjector:
             cap = 58.0
 
         final_score = round(min(raw_score, cap), 1)
+        buy_gap = round(max(0.0, 70.0 - final_score), 1)
 
         # Recommendation mapping
         if final_score >= 70.0 and veto_flag == "NONE":
@@ -124,6 +126,7 @@ class CompositeScoreProjector:
             market_score=round(market_score, 1),
             raw_score=round(raw_score, 1),
             final_score=final_score,
+            buy_gap=buy_gap,
             veto_flag=veto_flag,
             action=action,
             recommendation=recommendation,
@@ -139,12 +142,12 @@ def print_composite_dashboard(results: List[CompositeScoreResult]):
     """Print clean 0–100 Composite Score Dashboard for CLI with ANSI semantic colors."""
     from src.utils.cli_theme import c_red, c_green, c_yellow, c_cyan, c_dim
 
-    print("\n  " + "=" * 90)
+    print("\n  " + "=" * 105)
     print(f"  🎯 {c_cyan('PTCK COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')}")
-    print("  " + "=" * 90)
+    print("  " + "=" * 105)
     print(f"  {'Mã':<6} {'Macro(20)':>9} {'Internal(30)':>12} {'Market(50)':>11} "
-          f"{'SCORE TOTAL':>13}   {'VETO FLAG':<16} {'KHUYẾN NGHỊ'}")
-    print("  " + "─" * 90)
+          f"{'SCORE TOTAL':>13}   {'GAP MUA (>=70)':>14}   {'VETO FLAG':<16} {'KHUYẾN NGHỊ'}")
+    print("  " + "─" * 105)
     for r in results:
         if r.veto_flag in ("CRISIS_VETO", "OVERPRICED_VETO", "DISTRESSED_VETO", "HARD_VETO"):
             flag_str = c_red(f"⛔ {r.veto_flag}")
@@ -156,19 +159,22 @@ def print_composite_dashboard(results: List[CompositeScoreResult]):
         if r.final_score >= 70.0 and r.veto_flag == "NONE":
             score_str = c_green(f"{r.final_score:>5.1f}")
             rec_str = c_green(r.recommendation)
+            gap_str = c_green("  IN BUY ZONE")
         elif r.final_score >= 50.0 and r.veto_flag == "NONE":
             score_str = c_yellow(f"{r.final_score:>5.1f}")
             rec_str = c_yellow(r.recommendation)
+            gap_str = c_yellow(f"    +{r.buy_gap:>4.1f} pt")
         elif r.final_score >= 35.0:
             score_str = c_yellow(f"{r.final_score:>5.1f}")
             rec_str = c_yellow(r.recommendation)
+            gap_str = c_yellow(f"    +{r.buy_gap:>4.1f} pt")
         else:
             score_str = c_red(f"{r.final_score:>5.1f}")
             rec_str = c_red(r.recommendation)
+            gap_str = c_red(f"    +{r.buy_gap:>4.1f} pt")
 
         sym_str = c_cyan(r.symbol) if r.final_score >= 50.0 else r.symbol
 
         print(f"  {sym_str:<6} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
-              f"  {score_str} / 100    {flag_str:<16} {rec_str}")
-    print("  " + "=" * 90 + "\n")
-    print("  " + "=" * 90 + "\n")
+              f"  {score_str} / 100  {gap_str:<14}    {flag_str:<16} {rec_str}")
+    print("  " + "=" * 105 + "\n")

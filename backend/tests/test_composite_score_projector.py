@@ -135,3 +135,4 @@ def test_batch_project_sorts_descending():
     assert batch[0].symbol == "DGC"
     assert batch[1].symbol == "BCM"
     assert batch[0].final_score > batch[1].final_score
+    assert batch[0].buy_gap == round(70.0 - batch[0].final_score, 1)
