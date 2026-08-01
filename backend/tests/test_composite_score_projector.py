@@ -111,7 +111,7 @@ def test_execution_policy_decoupling():
     assert r1.buy_gap > r2.buy_gap
 
 
-def test_full_margin_trigger_and_margin_status():
+def test_full_margin_trigger_and_display_flag():
     from governor.composite_score_projector import CompositeScoreProjector
     from governor.company_state import BayesianMandate
 
@@ -129,5 +129,5 @@ def test_full_margin_trigger_and_margin_status():
     res = projector.project(mandate_simulated)
 
     assert res.final_score >= 85.0
-    assert "FULL MARGIN" in res.margin_status
+    assert "FULL_MARGIN" in res.display_flag
     assert "MUA_TOI_DA_DON_BAY" in res.recommendation

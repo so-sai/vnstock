@@ -12,6 +12,8 @@ WHY:
        - Tách biệt Target Capital Allocation % (0-100%) và Delta Position Adjustment.
        - Tách bạch Policy Layer (Conservative / Balanced / Aggressive).
        - Hiển thị Coverage (Bao phủ LAW-004) & Coherence (Đồng thuận LAW-006) trực quan trên CLI Dashboard.
+       - Tối ưu hóa đơn cờ trạng thái (Consolidated Veto / Status Flag): Tự động ghi đè 🚀 FULL_MARGIN
+         khi Score >= 85.0 pt và sạch cờ Veto.
 """
 
 import sys
@@ -62,7 +64,7 @@ class CompositeScoreResult:
     buy_gap: float              # Points needed to reach Buy Threshold (0.0 = in buy zone)
     allocation_pct: float       # Target Capital Allocation % [0%, 100%]
     delta_pct: float            # Position Delta Adjustment %
-    margin_status: str          # 🚀 FULL MARGIN / 💵 MAX CASH / 🔒 NO MARGIN
+    display_flag: str           # 🚀 FULL_MARGIN / 🟢 OK / ⚠️ MACRO_STRESS / ⛔ CRISIS_VETO / ⛔ OVERPRICED_VETO
     veto_flag: str              # NONE / OVERPRICED_VETO / CRISIS_VETO / MACRO_STRESS / DISTRESSED_VETO
     action: str                 # VETO / AVOID / REDUCE / WAIT / HOLD / SCALE_IN / OPEN
     recommendation: str         # MUA_TOI_DA_DON_BAY / MUA_TIC_LUY / CAN_BANG / GIAM_TY_TRONG / CAM_MUA
@@ -143,21 +145,24 @@ class CompositeScoreProjector:
         final_score = round(min(raw_score, cap), 1)
         buy_gap = round(max(0.0, self.policy.buy_threshold - final_score), 1)
 
-        # Margin status & Recommendation mapping
+        # Single Display Flag Hierarchy & Recommendation mapping
         if final_score >= self.policy.full_margin_threshold and veto_flag == "NONE":
-            margin_status = "🚀 FULL MARGIN"
+            display_flag = "🚀 FULL_MARGIN"
             recommendation = "MUA_TOI_DA_DON_BAY (Full Margin / Aggressive)"
         elif final_score >= self.policy.buy_threshold and veto_flag == "NONE":
-            margin_status = "💵 MAX CASH"
+            display_flag = "🟢 OK"
             recommendation = "MUA_TIC_LUY (Scale In / Open)"
         elif final_score >= 50.0 and veto_flag == "NONE":
-            margin_status = "🔒 NO MARGIN"
+            display_flag = "🟢 OK"
             recommendation = "CAN_BANG (Hold)"
-        elif final_score >= 35.0:
-            margin_status = "🔒 NO MARGIN"
-            recommendation = "GIAM_TY_TRONG (Reduce / Wait)"
+        elif veto_flag != "NONE":
+            display_flag = veto_flag
+            if final_score >= 35.0:
+                recommendation = "GIAM_TY_TRONG (Reduce / Wait)"
+            else:
+                recommendation = "CAM_MUA (Veto / Avoid)"
         else:
-            margin_status = "🔒 NO MARGIN"
+            display_flag = "🟢 OK"
             recommendation = "CAM_MUA (Veto / Avoid)"
 
         return CompositeScoreResult(
@@ -172,7 +177,7 @@ class CompositeScoreProjector:
             buy_gap=buy_gap,
             allocation_pct=round(target_alloc, 1),
             delta_pct=round(delta_pct, 1),
-            margin_status=margin_status,
+            display_flag=display_flag,
             veto_flag=veto_flag,
             action=action,
             recommendation=recommendation,
@@ -188,17 +193,19 @@ def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: 
     """Print clean 0–100 Composite Score Dashboard for CLI in Parallel Bilingual (Việt - Anh) format."""
     from src.utils.cli_theme import c_red, c_green, c_yellow, c_cyan, c_dim
 
-    print("\n  " + "=" * 162)
+    print("\n  " + "=" * 145)
     print(f"  🎯 {c_cyan('PTCK EPISTEMIC COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')} | POLICY: {c_yellow(policy_name)}")
-    print("  " + "=" * 162)
+    print("  " + "=" * 145)
     print(f"  {'Symbol (Mã)':<10} {'Macro(20)':>9} {'Internal(30)':>12} {'Market(50)':>11} "
-          f"{'Score (100)':>13}   {'Coverage':>9} {'Coherence':>10}   {'Target Alloc':>12}   {'Margin Status':<16}   {'Action Delta':>13}   {'Buy Gap (70+)':>13}   {'Veto Flag':<16} {'Recommendation (Khuyến nghị)'}")
-    print("  " + "─" * 162)
+          f"{'Score (100)':>13}   {'Coverage':>9} {'Coherence':>10}   {'Target Alloc':>12}   {'Action Delta':>13}   {'Buy Gap (70+)':>13}   {'Veto / Status Flag':<18} {'Recommendation (Khuyến nghị)'}")
+    print("  " + "─" * 145)
     for r in results:
-        if r.veto_flag in ("CRISIS_VETO", "OVERPRICED_VETO", "DISTRESSED_VETO", "HARD_VETO"):
-            flag_str = c_red(f"⛔ {r.veto_flag}")
-        elif r.veto_flag in ("MACRO_STRESS", "SOFT_VETO"):
-            flag_str = c_yellow(f"⚠️ {r.veto_flag}")
+        if "FULL_MARGIN" in r.display_flag:
+            flag_str = c_cyan("🚀 FULL_MARGIN")
+        elif r.display_flag in ("CRISIS_VETO", "OVERPRICED_VETO", "DISTRESSED_VETO", "HARD_VETO"):
+            flag_str = c_red(f"⛔ {r.display_flag}")
+        elif r.display_flag in ("MACRO_STRESS", "SOFT_VETO"):
+            flag_str = c_yellow(f"⚠️ {r.display_flag}")
         else:
             flag_str = c_green("🟢 OK")
 
@@ -209,14 +216,6 @@ def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: 
             delta_str = c_green(f"  Buy  {r.delta_pct:>+5.1f}%")
         else:
             delta_str = c_dim("  Hold   0.0%")
-
-        # Format Margin Status
-        if "FULL MARGIN" in r.margin_status:
-            margin_str = c_green(r.margin_status)
-        elif "MAX CASH" in r.margin_status:
-            margin_str = c_yellow(r.margin_status)
-        else:
-            margin_str = c_dim(r.margin_status)
 
         if r.final_score >= 70.0 and r.veto_flag == "NONE":
             score_str = c_green(f"{r.final_score:>5.1f}")
@@ -244,5 +243,5 @@ def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: 
         coh_str = c_dim(f"{r.coherence:.0%}")
 
         print(f"  {sym_str:<10} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
-              f"  {score_str} / 100   {cov_str:>8} {coh_str:>10}   {alloc_str:>12}   {margin_str:<16}   {delta_str:>13}   {gap_str:<13}    {flag_str:<16} {rec_str}")
-    print("  " + "=" * 162 + "\n")
+              f"  {score_str} / 100   {cov_str:>8} {coh_str:>10}   {alloc_str:>12}   {delta_str:>13}   {gap_str:<13}    {flag_str:<18} {rec_str}")
+    print("  " + "=" * 145 + "\n")
