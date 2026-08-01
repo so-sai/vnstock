@@ -204,7 +204,9 @@ def kiem_tra_an_toan(
         gov = RecoveryGovernor.get_instance()
         # Ghi nhận trạng thái veto (sẽ được xác định sau)
         # fresh_ratio từ stale_state, so_tru từ c, breadth_momentum từ regime
-        if stale_state and so_tru > 0:
+        # WHY: không gating bởi so_tru > 0 — khi so_tru=0 (cấu trúc vỡ) chính là
+        # lúc governor phải phản ánh CASH_ONLY; update() xử lý so_tru=0 an toàn.
+        if stale_state:
             regime_details = (anh_chup or {}).get("_regime_details", {})
             breadth_momentum = regime_details.get("breadth_momentum", 0)
             gov.record_veto(bi_chặn or macro_veto)
