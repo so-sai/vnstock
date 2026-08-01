@@ -176,15 +176,15 @@ class CompositeScoreProjector:
 
 
 def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: str = "BALANCED"):
-    """Print clean 0–100 Composite Score Dashboard for CLI in Bilingual (Việt - Anh) format."""
+    """Print clean 0–100 Composite Score Dashboard for CLI in Parallel Bilingual (Việt - Anh) format."""
     from src.utils.cli_theme import c_red, c_green, c_yellow, c_cyan, c_dim
 
-    print("\n  " + "=" * 128)
-    print(f"  🎯 {c_cyan('PTCK COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')} | POLICY: {c_yellow(policy_name)}")
-    print("  " + "=" * 128)
-    print(f"  {'Mã (Symbol)':<8} {'Macro(20)':>9} {'Internal(30)':>12} {'Market(50)':>11} "
-          f"{'SCORE TOTAL':>13}   {'COVERAGE':>9} {'COHERENCE':>10}   {'VỐN %':>8}   {'GAP MUA':>10}   {'VETO FLAG':<16} {'KHUYẾN NGHỊ'}")
-    print("  " + "─" * 128)
+    print("\n  " + "=" * 145)
+    print(f"  🎯 {c_cyan('PTCK EPISTEMIC COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')} | POLICY: {c_yellow(policy_name)}")
+    print("  " + "=" * 145)
+    print(f"  {'Symbol (Mã)':<10} {'Macro(20)':>9} {'Internal(30)':>12} {'Market(50)':>11} "
+          f"{'Score (100)':>13}   {'Coverage':>9} {'Coherence':>10}   {'Target Alloc':>12}   {'Action Delta':>13}   {'Buy Gap (70+)':>13}   {'Veto Flag':<16} {'Recommendation (Khuyến nghị)'}")
+    print("  " + "─" * 145)
     for r in results:
         if r.veto_flag in ("CRISIS_VETO", "OVERPRICED_VETO", "DISTRESSED_VETO", "HARD_VETO"):
             flag_str = c_red(f"⛔ {r.veto_flag}")
@@ -192,6 +192,14 @@ def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: 
             flag_str = c_yellow(f"⚠️ {r.veto_flag}")
         else:
             flag_str = c_green("🟢 OK")
+
+        # Format Action Delta (Hành động)
+        if r.delta_pct < 0.0:
+            delta_str = c_yellow(f"Reduce {r.delta_pct:>+5.1f}%")
+        elif r.delta_pct > 0.0:
+            delta_str = c_green(f"  Buy  {r.delta_pct:>+5.1f}%")
+        else:
+            delta_str = c_dim("  Hold   0.0%")
 
         if r.final_score >= 70.0 and r.veto_flag == "NONE":
             score_str = c_green(f"{r.final_score:>5.1f}")
@@ -218,6 +226,6 @@ def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: 
         cov_str = c_dim(f"{r.coverage:.0%}")
         coh_str = c_dim(f"{r.coherence:.0%}")
 
-        print(f"  {sym_str:<8} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
-              f"  {score_str} / 100   {cov_str:>8} {coh_str:>9}   {alloc_str:>8}  {gap_str:<10}    {flag_str:<16} {rec_str}")
-    print("  " + "=" * 128 + "\n")
+        print(f"  {sym_str:<10} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
+              f"  {score_str} / 100   {cov_str:>8} {coh_str:>10}   {alloc_str:>12}   {delta_str:>13}   {gap_str:<13}    {flag_str:<16} {rec_str}")
+    print("  " + "=" * 145 + "\n")
