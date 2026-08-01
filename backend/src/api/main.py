@@ -91,6 +91,7 @@ from src.api.routes import (
     telemetry,
     v1_absorption,
     v1_belief,
+    v1_epistemic,
     v1_i18n,
     v1_macro,
     v1_screener,
@@ -137,6 +138,7 @@ app.include_router(ipo_signal_api.router, prefix="/api", tags=["IPO Signal"])
 app.include_router(flow.router, prefix="/api/v1/flow", tags=["Phase 12B - Asia Flow Map"])
 app.include_router(watchlist.router, prefix="/api/watchlist", tags=["Watchlist"])
 app.include_router(market_state.router, prefix="/api/v1/market-state", tags=["Phase 13 - Market State Coordinator"])
+app.include_router(v1_epistemic.router, prefix="/api/v1/epistemic", tags=["Phase 15 - Epistemic Engine & Composite Dashboard"])
 app.include_router(gold.router, prefix="/api/v1/gold", tags=["Gold Macro - Phase 14"])
 app.include_router(silver.router, prefix="/api/v1/silver", tags=["Silver - Phase 1A"])
 app.include_router(holdings.router, prefix="/api/v1/holdings", tags=["HoldingsView - Phase 15"])
