@@ -25,7 +25,7 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -223,7 +223,7 @@ class PaperTradingEngine:
         return np.random.default_rng(seed)
 
     # ------------------------------------------------------------- price lookup
-    def _get_ohlcv(self, symbol: str, date: str) -> Optional[Dict]:
+    def _get_ohlcv(self, symbol: str, date: str) -> Dict | None:
         with get_connection() as conn:
             row = conn.execute(
                 "SELECT open, high, low, close, volume FROM daily_ohlcv "
@@ -236,7 +236,7 @@ class PaperTradingEngine:
                 "close": row[3], "volume": row[4]}
 
     def _get_next_trading_ohlcv(self, symbol: str, decision_date: str
-                                ) -> Tuple[Optional[str], Optional[Dict]]:
+                                ) -> Tuple[str | None, Dict | None]:
         """OHLCV của phiên giao dịch KẾ TIẾP sau decision_date (T+1)."""
         with get_connection() as conn:
             row = conn.execute(
@@ -266,7 +266,7 @@ class PaperTradingEngine:
     # --------------------------------------------------------- core simulation
     def simulate_fill(self, symbol: str, side: str, quantity: int,
                       decision_date: str, signal_source: str = "SEL",
-                      hdr: Optional[float] = None, w1: Optional[float] = None,
+                      hdr: float | None = None, w1: float | None = None,
                       macro_state: str = "UNKNOWN") -> Dict:
         """Giả lập vòng đời một lệnh: decision(T) → order → fill(T+1).
 
@@ -371,7 +371,7 @@ class PaperTradingEngine:
         return result
 
     def _check_rejection(self, symbol, side, quantity, decision_date,
-                         decision_price, fill_bar, rng) -> Optional[str]:
+                         decision_price, fill_bar, rng) -> str | None:
         """Mô phỏng cơ chế từ chối lệnh của API Vietcap."""
         # (a) Price band: nếu open T+1 vượt biên ±7% so với close T → limit up/down,
         #     lệnh thị trường có thể không khớp.
@@ -424,8 +424,8 @@ class PaperTradingEngine:
     def _enqueue_catchup_order(self, symbol: str, side: str, target_qty: int,
                                 target_price: float, decision_date: str,
                                 signal_source: str = "SEL_MACRO",
-                                hdr: Optional[float] = None,
-                                w1: Optional[float] = None,
+                                hdr: float | None = None,
+                                w1: float | None = None,
                                 macro_state: str = "UNKNOWN", conn=None) -> Dict:
         """Nạp một lệnh bù vào hàng đợi bền vững (KHÔNG khớp, KHÔNG khóa tiền).
 
@@ -599,7 +599,7 @@ class PaperTradingEngine:
         }
         self.record_trade(fill, conn=conn)
 
-    def summarize_daily(self, date: str, w1: Optional[float] = None,
+    def summarize_daily(self, date: str, w1: float | None = None,
                         macro_state: str = "UNKNOWN", conn=None) -> Dict:
         """Tổng hợp hiệu suất phiên → paper_performance_daily.
 
@@ -662,7 +662,7 @@ class PaperTradingEngine:
 
     # --------------------------------------------------------- signal → orders
     def generate_orders_from_signals(self, decision_date: str,
-                                     watchlist: Optional[List[str]] = None,
+                                     watchlist: List[str] | None = None,
                                      capital: float = 1_000_000_000.0,
                                      mtm_only: bool = False,
                                      catchup_enqueue: bool = False,
@@ -905,7 +905,7 @@ class PaperTradingEngine:
 
     # ----------------------------------------------------------------- static
     @staticmethod
-    def run_daily(decision_date: Optional[str] = None,
+    def run_daily(decision_date: str | None = None,
                   offline: bool = True,
                   mtm_only: bool = False,
                   catchup_enqueue: bool = False,

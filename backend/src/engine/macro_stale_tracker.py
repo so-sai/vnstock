@@ -1,4 +1,4 @@
-"""
+﻿"""
 macro_stale_tracker.py — Layer 1: Phát hiện & Theo dõi dữ liệu vĩ mô cũ
 
 Kiến trúc:
@@ -21,7 +21,6 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +74,9 @@ class StaleTracker:
         weights = state["weights"]  # per-variable final weights
     """
 
-    _instance: Optional["StaleTracker"] = None
+    _instance: "StaleTracker" | None = None
 
-    def __init__(self, db_path: Optional[str] = None, state_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None, state_path: str | None = None):
         self.db_path = db_path or ""
         self.state_path = state_path or ""
 
@@ -85,7 +84,7 @@ class StaleTracker:
         self._warmup: dict[str, int] = {}
 
     @classmethod
-    def get_instance(cls, db_path: Optional[str] = None, state_path: Optional[str] = None) -> "StaleTracker":
+    def get_instance(cls, db_path: str | None = None, state_path: str | None = None) -> "StaleTracker":
         if cls._instance is None:
             cls._instance = cls(db_path=db_path or "", state_path=state_path or "")
         if db_path:
@@ -100,7 +99,7 @@ class StaleTracker:
 
     # ── Public API ──
 
-    def update(self, db_path: Optional[str] = None, today: Optional[str] = None) -> dict:
+    def update(self, db_path: str | None = None, today: str | None = None) -> dict:
         """Query macro_history, compute t_i, tiers, weights, warm-up.
 
         Returns dict với:

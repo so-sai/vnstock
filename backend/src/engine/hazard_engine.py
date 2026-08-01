@@ -16,7 +16,6 @@ Pipeline:
   SurvivalProb -> TransitionKernel -> RegimeSampler -> SRV
 """
 
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -156,7 +155,7 @@ class HazardModel:
     The intercept controls the baseline hazard rate.
     """
 
-    def __init__(self, weights: Optional[dict[str, float]] = None):
+    def __init__(self, weights: dict[str, float] | None = None):
         self.w = dict(DEFAULT_HAZARD_WEIGHTS)
         if weights:
             self.w.update(weights)
@@ -193,7 +192,7 @@ class TransitionKernel:
     hazard increases.
     """
 
-    def __init__(self, base_kernel: Optional[dict[str, dict[str, float]]] = None):
+    def __init__(self, base_kernel: dict[str, dict[str, float]] | None = None):
         self.base = base_kernel or BASE_TRANSITION_KERNEL
 
     def adjust(self, current_state: str, hazard_rate: float) -> dict[str, float]:
@@ -255,9 +254,9 @@ class HazardTransitionEngine:
 
     def __init__(
         self,
-        weights: Optional[dict[str, float]] = None,
-        base_kernel: Optional[dict[str, dict[str, float]]] = None,
-        seed: Optional[int] = None,
+        weights: dict[str, float] | None = None,
+        base_kernel: dict[str, dict[str, float]] | None = None,
+        seed: int | None = None,
         initial_state: str = "RANGING",
     ):
         if seed is not None:
@@ -273,10 +272,10 @@ class HazardTransitionEngine:
     def evaluate(
         self,
         day_df: pd.DataFrame,
-        breadth_score: Optional[float] = None,
-        flow_score: Optional[float] = None,
-        recovery_score: Optional[float] = None,
-        driver_state: Optional[dict] = None,
+        breadth_score: float | None = None,
+        flow_score: float | None = None,
+        recovery_score: float | None = None,
+        driver_state: dict | None = None,
     ) -> dict:
         features = self.feature_builder.build(day_df, self.age)
         h = self.hazard_model.hazard(features)
@@ -330,8 +329,8 @@ class HazardTransitionEngine:
 def run_hazard_sequence(
     dates: list[str],
     cache: dict[str, pd.DataFrame],
-    weights: Optional[dict[str, float]] = None,
-    seed: Optional[int] = None,
+    weights: dict[str, float] | None = None,
+    seed: int | None = None,
     verbose: bool = False,
 ) -> list[dict]:
     """

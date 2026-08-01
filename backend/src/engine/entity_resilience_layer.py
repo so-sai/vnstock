@@ -1,4 +1,4 @@
-"""
+﻿"""
 entity_resilience_layer.py — Entity Resilience Layer (ERL) Framework
 
 Asynchronous Multi-rate Observation Engine:
@@ -18,7 +18,6 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -100,7 +99,7 @@ class EntityResilienceLayer:
 
     # ── Public API ──
 
-    def scan_all(self, target_date: str, db_path: Optional[str] = None) -> list[dict]:
+    def scan_all(self, target_date: str, db_path: str | None = None) -> list[dict]:
         """Scan toan bo 1514+ ma, tra ve danh sach co P(S_Entity) thap nhat."""
         if db_path:
             self.db_path = db_path
@@ -122,7 +121,7 @@ class EntityResilienceLayer:
         results.sort(key=lambda x: x["P"])
         return results
 
-    def scan_vn30(self, target_date: str, db_path: Optional[str] = None) -> list[dict]:
+    def scan_vn30(self, target_date: str, db_path: str | None = None) -> list[dict]:
         """Scan VN30 stocks (mac dinh 30 ma lon nhat)."""
         if db_path:
             self.db_path = db_path

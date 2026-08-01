@@ -21,7 +21,7 @@ import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 
 def _hydrate_path():
@@ -135,8 +135,8 @@ def _ensure_ledger_schema():
 
 
 def _record_ledger(as_of_date: str, portfolio_id: str, status: str,
-                   attempts: int = 0, last_error: Optional[str] = None,
-                   catchup_of: Optional[str] = None):
+                   attempts: int = 0, last_error: str | None = None,
+                   catchup_of: str | None = None):
     """Ghi/cập nhật trạng thái một phiên EOD vào sổ cái (idempotent UPSERT)."""
     _ensure_ledger_schema()
     now = datetime.now().isoformat()
@@ -299,7 +299,7 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
     return report
 
 
-def run_eod_pipeline(as_of_date: Optional[str] = None,
+def run_eod_pipeline(as_of_date: str | None = None,
                       portfolio_id: str = DEFAULT_PORTFOLIO_ID,
                       max_retries: int = MAX_RETRIES,
                       retry_sleep: int = RETRY_SLEEP_SECONDS,

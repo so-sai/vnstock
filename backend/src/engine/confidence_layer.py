@@ -1,4 +1,4 @@
-"""
+﻿"""
 Bộ tự đánh giá độ tin cậy — quyết định có đáng tin không?
 
 Nhiệm vụ:
@@ -23,7 +23,6 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +75,7 @@ TRỌNG_SỐ = {
 }
 
 
-def _đọc_json(tên_file: str) -> Optional[dict]:
+def _đọc_json(tên_file: str) -> dict | None:
     đường_dẫn = [
         Path(src.config.DATA_DIR) / "output" / tên_file,
         Path(src.config.DATA_DIR) / tên_file,
@@ -106,7 +105,7 @@ def _mức_ra_chữ(mức: str) -> str:
 # ── 6 yếu tố đánh giá ────────────────────────────────────
 
 def _1_thị_trường_rõ_ràng(trạng_thái: str, điểm_số: float,
-                            adx: Optional[float], rad_có_kích_hoạt: bool) -> dict:
+                            adx: float | None, rad_có_kích_hoạt: bool) -> dict:
     điểm = 0.50
     lý_do = []
 
@@ -139,7 +138,7 @@ def _1_thị_trường_rõ_ràng(trạng_thái: str, điểm_số: float,
 
 
 def _2_cấu_trúc_lành_mạnh(trạng_thái_cấu_trúc: str, số_trụ: int,
-                            entropy: Optional[float]) -> dict:
+                            entropy: float | None) -> dict:
     điểm = 0.50
     lý_do = []
 
@@ -171,7 +170,7 @@ def _2_cấu_trúc_lành_mạnh(trạng_thái_cấu_trúc: str, số_trụ: int,
 
 
 def _3_tín_hiệu_đồng_thuận(trạng_thái_thị_trường: str, trạng_thái_cấu_trúc: str,
-                             mức_cảnh_báo: str, entropy: Optional[float]) -> dict:
+                             mức_cảnh_báo: str, entropy: float | None) -> dict:
     điểm = 0.50
     lý_do = []
 
@@ -198,7 +197,7 @@ def _3_tín_hiệu_đồng_thuận(trạng_thái_thị_trường: str, trạng_t
     return {"điểm": round(điểm, 3), "lý_do": lý_do}
 
 
-def _4_biến_động_ổn_định(tỷ_lệ_atr: Optional[float], điểm_v: Optional[float]) -> dict:
+def _4_biến_động_ổn_định(tỷ_lệ_atr: float | None, điểm_v: float | None) -> dict:
     điểm = 0.50
     lý_do = []
 
@@ -253,9 +252,9 @@ def _5_tín_hiệu_đáng_tin(trạng_thái: str) -> dict:
 
 
 def _6_chất_lượng_chỉ_số(
-    breadth: Optional[float],
-    dominant_contribution_pct: Optional[float],
-    top_contribution_pts: Optional[float],
+    breadth: float | None,
+    dominant_contribution_pct: float | None,
+    top_contribution_pts: float | None,
 ) -> dict:
     """Độ đại diện của VNINDEX cho toàn thị trường.
 
@@ -356,11 +355,11 @@ def _7_chất_lượng_vĩ_mô(db_path: str = "") -> dict:
 # ── Hàm chính ────────────────────────────────────────────
 
 def đánh_giá_độ_tin_cậy(
-    anh_chup: Optional[dict] = None,
-    dữ_liệu_thị_trường: Optional[dict] = None,
-    dữ_liệu_cấu_trúc: Optional[dict] = None,
-    cảnh_báo_sớm: Optional[dict] = None,
-    target_date: Optional[str] = None,
+    anh_chup: dict | None = None,
+    dữ_liệu_thị_trường: dict | None = None,
+    dữ_liệu_cấu_trúc: dict | None = None,
+    cảnh_báo_sớm: dict | None = None,
+    target_date: str | None = None,
     lang_mode: str = "compact",
 ) -> dict:
     """Tự đánh giá độ tin cậy của quyết định hiện tại.

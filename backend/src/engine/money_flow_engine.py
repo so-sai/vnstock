@@ -21,7 +21,7 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import pandas as pd
 
@@ -48,7 +48,7 @@ class MoneyFlowEngine:
         self.source: str = source
         self.show_log: bool = show_log
 
-    def get_foreign_snapshot(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_foreign_snapshot(self, symbol: str) -> Dict[str, Any] | None:
         if symbol in self._session_cache:
             cache_entry = self._session_cache[symbol]
             if cache_entry.get('date') == datetime.now().strftime('%Y-%m-%d'):

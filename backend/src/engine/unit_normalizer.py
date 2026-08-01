@@ -20,7 +20,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 import pandas as pd
 
@@ -37,7 +37,7 @@ class UnitNormalizer:
     def __init__(self, show_log: bool = False) -> None:
         self.show_log: bool = show_log
 
-    def update_macro_data(self, variable_name: str, value: float, date: Optional[str] = None) -> None:
+    def update_macro_data(self, variable_name: str, value: float, date: str | None = None) -> None:
         if date is None: date = datetime.now().strftime('%Y-%m-%d')
         df: pd.DataFrame = pd.DataFrame([{'variable': variable_name, 'date': date, 'value': float(value)}])
         with get_connection() as conn:

@@ -8,12 +8,11 @@ So sánh trạng thái cấu trúc giữa T-1 và T-0 để xác định:
   - DA_LANH: đã lành hoàn toàn (→ĐỒNG_THUẬN)
   - TAI_PHAT_BENH: hồi phục thất bại (lành→VỠ lại)
 """
-from typing import Optional
 
 from src.database.db_core import get_connection
 
 
-def _truoc_do(current_date: str) -> Optional[str]:
+def _truoc_do(current_date: str) -> str | None:
     """Truy vấn DB lấy ngày giao dịch liền trước (bỏ T7/CN/lễ)."""
     try:
         with get_connection() as conn:

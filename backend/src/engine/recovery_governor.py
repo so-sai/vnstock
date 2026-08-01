@@ -1,4 +1,4 @@
-"""
+﻿"""
 recovery_governor.py — Dual CUSUM Structure Recovery Velocity Governor.
 
 Kiến trúc:
@@ -18,7 +18,6 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ def _resolve_data_dir() -> Path:
         return Path(".")
 
 
-def load_erl_whitelist(data_dir: Optional[Path] = None) -> list[dict]:
+def load_erl_whitelist(data_dir: Path | None = None) -> list[dict]:
     """Đọc erl_whitelist.json — danh sách 30 cổ phiếu kháng cự tốt nhất."""
     if data_dir is None:
         data_dir = _resolve_data_dir()
@@ -81,7 +80,7 @@ class RecoveryGovernor:
         # decision["S_minus"] = 0.0
     """
 
-    _instance: Optional["RecoveryGovernor"] = None
+    _instance: "RecoveryGovernor" | None = None
 
     def __init__(
         self,
@@ -102,9 +101,9 @@ class RecoveryGovernor:
         self.S_minus: float = 0.0
 
         # Previous values for delta computation
-        self._prev_fresh: Optional[float] = None
-        self._prev_sotru: Optional[int] = None
-        self._prev_breadth_mom: Optional[float] = None
+        self._prev_fresh: float | None = None
+        self._prev_sotru: int | None = None
+        self._prev_breadth_mom: float | None = None
 
         # Warm-up counter (ngày liên tục không bị veto)
         self.warmup_days: int = 0
@@ -133,7 +132,7 @@ class RecoveryGovernor:
         fresh_ratio: float,
         so_tru: int,
         breadth_momentum: float,
-        today: Optional[str] = None,
+        today: str | None = None,
     ) -> dict:
         """Tính toán vị thế dựa trên dS/dt và Dual CUSUM.
 

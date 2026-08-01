@@ -1,4 +1,4 @@
-"""
+﻿"""
 Capital Flow Forecasting Engine (Phase 13 — Predictive Layer).
 Transforms descriptive flow data into forward-looking flow projections.
 
@@ -48,7 +48,6 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -91,7 +90,7 @@ class SectorForecast:
     confidence: str
 
 
-def _fetch_ohlcv_history(lookback_days: int = 60, target_date: Optional[str] = None) -> pd.DataFrame:
+def _fetch_ohlcv_history(lookback_days: int = 60, target_date: str | None = None) -> pd.DataFrame:
     with get_connection() as conn:
         if target_date:
             df = pd.read_sql(
@@ -110,7 +109,7 @@ def _fetch_ohlcv_history(lookback_days: int = 60, target_date: Optional[str] = N
     return df
 
 
-def _fetch_regime_history(lookback_days: int = 120, target_date: Optional[str] = None) -> pd.DataFrame:
+def _fetch_regime_history(lookback_days: int = 120, target_date: str | None = None) -> pd.DataFrame:
     with get_connection() as conn:
         date_filter = f"WHERE date <= '{target_date}'" if target_date else ""
         df = pd.read_sql(
@@ -198,7 +197,7 @@ def _compute_sector_flow_vector(df: pd.DataFrame, target_date: str) -> FlowVecto
     )
 
 
-def _get_historical_flow_vectors(lookback_days: int = 60, target_date: Optional[str] = None) -> list:
+def _get_historical_flow_vectors(lookback_days: int = 60, target_date: str | None = None) -> list:
     df = _fetch_ohlcv_history(lookback_days, target_date=target_date)
     if df.empty:
         return []
@@ -372,7 +371,7 @@ def _estimate_persistence(shares_history: list, sector: str) -> float:
     return round(max(-1.0, min(1.0, autocorr if not np.isnan(autocorr) else 0.5)), 3)
 
 
-def generate_flow_forecast(target_date: Optional[str] = None,
+def generate_flow_forecast(target_date: str | None = None,
                            lookback_days: int = 60) -> dict:
     today = target_date or datetime.now().strftime('%Y-%m-%d')
     logger.info("=" * 70)
@@ -542,7 +541,7 @@ def _store_forecast(result: dict):
         logger.warning(f"Store forecast error: {e}")
 
 
-def run_forecast(target_date: Optional[str] = None) -> dict:
+def run_forecast(target_date: str | None = None) -> dict:
     result = generate_flow_forecast(target_date)
     out_path = Path(str(PROJECT_ROOT)) / "backend" / "data" / "output" / "flow_forecast.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)

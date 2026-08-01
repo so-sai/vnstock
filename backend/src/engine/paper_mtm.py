@@ -30,7 +30,7 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -232,7 +232,7 @@ class PaperMtM:
         return d.strftime("%Y-%m-%d")
 
     # ------------------------------------------------------------ price lookup
-    def _get_close(self, symbol: str, date: str) -> Optional[float]:
+    def _get_close(self, symbol: str, date: str) -> float | None:
         with get_connection() as conn:
             row = conn.execute(
                 "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<=? "

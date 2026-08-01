@@ -1,7 +1,6 @@
 ﻿import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
@@ -29,7 +28,7 @@ import src.config
 from src.database.db_core import get_connection
 
 
-def run_breadth_analysis(target_date: Optional[str] = None):
+def run_breadth_analysis(target_date: str | None = None):
     if target_date:
         ref_date = target_date
     else:

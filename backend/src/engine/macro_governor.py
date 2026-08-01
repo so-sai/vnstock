@@ -16,7 +16,7 @@ import logging
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -90,7 +90,7 @@ class MacroGovernor:
         self.fxrp: float = 0.0
         self.state: str = "UNKNOWN"
         self.confidence: float = 0.0
-        self.hdr_override: Optional[float] = None
+        self.hdr_override: float | None = None
 
     # --- Data Fetching -------------------------------------------------------
 

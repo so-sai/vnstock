@@ -18,7 +18,6 @@ UI layer (cognitive_drift_layer.py / cognitive_schema.py) maps to Vietnamese.
 narrative_truth_gap is in Vietnamese because it is UI-facing.
 """
 
-from typing import Optional
 
 # ── Vietnamese risk/safety keywords from central schema ────────
 from backend.src.core.cognitive_schema import DRIVER_VI_LOWER, RISK_KEYWORDS, SAFETY_KEYWORDS
@@ -35,7 +34,7 @@ def _narrative_risk_tone(narrative: dict) -> float:
     return safety_count / total
 
 
-def _detect_flow_rotation(driver_state: dict) -> Optional[str]:
+def _detect_flow_rotation(driver_state: dict) -> str | None:
     """Detect if money is rotating between drivers.
 
     Returns a rotation pattern string or None.
@@ -109,7 +108,7 @@ def _risk_tone_mismatch(
 
 def assess_drift(
     snapshot: dict,
-    prev_ets: Optional[float] = None,
+    prev_ets: float | None = None,
 ) -> dict:
     """Evaluate cognitive drift for a single snapshot.
 

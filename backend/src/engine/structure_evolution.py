@@ -18,7 +18,7 @@ import sys
 import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -95,8 +95,8 @@ class SpaceNormalizationLayer:
 
     def __init__(self):
         self.robust_scaler = None
-        self.whiten_matrix: Optional[np.ndarray] = None
-        self.feature_means: Optional[np.ndarray] = None
+        self.whiten_matrix: np.ndarray | None = None
+        self.feature_means: np.ndarray | None = None
         self._is_fitted = False
 
     def fit(self, X: np.ndarray):
@@ -325,7 +325,7 @@ class DynamicThresholding:
         self._update_thresholds()
         self._save_history()
 
-    def compute_hdr_limit(self, w1: float) -> Optional[float]:
+    def compute_hdr_limit(self, w1: float) -> float | None:
         """Exponential HDR mapping: HDR = exp(-gamma * max(0, W1 - theta_stable))."""
         if w1 < self.theta_stable:
             return None  # No constraint
@@ -476,7 +476,7 @@ class SurvivalGovernor:
 
     def __init__(self):
         self.survival_data: List[np.ndarray] = []
-        self.survival_start: Optional[str] = None
+        self.survival_start: str | None = None
 
     def enter(self, w1: float, params: Dict) -> Dict:
         """Kích hoạt Survival Mode."""
@@ -496,7 +496,7 @@ class SurvivalGovernor:
         """Ghi nhận từng tick trong giai đoạn survival."""
         self.survival_data.append(state_vector.copy())
 
-    def get_Q_new(self) -> Optional[np.ndarray]:
+    def get_Q_new(self) -> np.ndarray | None:
         """Trả về Q_new nếu đã thu thập đủ N phiên."""
         if len(self.survival_data) >= MIN_SAMPLES_FOR_REGIME:
             return np.array(self.survival_data[-MIN_SAMPLES_FOR_REGIME:])
@@ -521,7 +521,7 @@ class StructureEvolutionLayer:
         "foreign_flow_10d",
     ]
 
-    def __init__(self, as_of: Optional[str] = None, offline: bool = True):
+    def __init__(self, as_of: str | None = None, offline: bool = True):
         """Khởi tạo SEL.
 
         Args:
@@ -548,12 +548,12 @@ class StructureEvolutionLayer:
         self.current_w1: float = 0.0
         self.best_match: str = "unknown"
         self.state: str = "NORMAL"
-        self.hdr_limit: Optional[float] = None
+        self.hdr_limit: float | None = None
         self.is_survival: bool = False
         self.survival_params: Dict = {}
         self.stationarity_check: Dict = {}
 
-    def _resolve_as_of(self, as_of: Optional[str]) -> str:
+    def _resolve_as_of(self, as_of: str | None) -> str:
         """Xác định mốc T. Nếu None → ngày macro_history mới nhất trong DB cục bộ.
 
         KHÔNG bao giờ gọi API — chỉ đọc SQLite (giao thức offline).
@@ -604,7 +604,7 @@ class StructureEvolutionLayer:
 
     # --- State Vector Construction ---
 
-    def _build_state_vector(self) -> Tuple[Optional[np.ndarray], Dict]:
+    def _build_state_vector(self) -> Tuple[np.ndarray | None, Dict]:
         """Xây dựng vector trạng thái 7-chiều từ macro_history.
 
         Returns: (vector, details) hoặc (None, {}) nếu thiếu dữ liệu.
@@ -674,7 +674,7 @@ class StructureEvolutionLayer:
             return (vals[0] - vals[-1]) / max(vals[-1], 1e-6)
         return 0.0
 
-    def _fetch_engine_metric(self, column: str, table: str) -> Optional[float]:
+    def _fetch_engine_metric(self, column: str, table: str) -> float | None:
         with get_connection() as conn:
             try:
                 row = conn.execute(
@@ -689,7 +689,7 @@ class StructureEvolutionLayer:
             except Exception:
                 return None
 
-    def _build_historical_sample(self) -> Optional[np.ndarray]:
+    def _build_historical_sample(self) -> np.ndarray | None:
         """Xây mẫu lịch sử để fit normalizer — MÀNG LỌC ANTI-LOOKAHEAD.
 
         NGUYÊN TẮC BẤT KHẢ XÂM PHẠM:
@@ -835,7 +835,7 @@ class StructureEvolutionLayer:
         self.survival.survival_data = []
 
     @staticmethod
-    def assess_global(as_of: Optional[str] = None, offline: bool = True) -> Dict:
+    def assess_global(as_of: str | None = None, offline: bool = True) -> Dict:
         """Static wrapper.
 
         Args:

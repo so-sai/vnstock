@@ -20,7 +20,7 @@ import logging
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -163,26 +163,26 @@ class PerSymbolAbsorption:
         self.foreign: pd.DataFrame = pd.DataFrame()
 
         # Matrix
-        self.matrix_raw: Optional[np.ndarray] = None
-        self.matrix_norm: Optional[np.ndarray] = None
+        self.matrix_raw: np.ndarray | None = None
+        self.matrix_norm: np.ndarray | None = None
 
         # PCA
-        self.eigenvalues: Optional[np.ndarray] = None
-        self.sdi: Optional[float] = None
+        self.eigenvalues: np.ndarray | None = None
+        self.sdi: float | None = None
         self.sdi_hist: List[float] = []
 
         # Raw metrics (latest row)
-        self.pc: Optional[float] = None        # price_change
-        self.slip: Optional[float] = None       # slippage
-        self.f_net: Optional[float] = None      # foreign net value (billion VND)
-        self.dom_ratio: Optional[float] = None   # domestic absorption ratio
-        self.vpoc_dist: Optional[float] = None   # VPOC distance
+        self.pc: float | None = None        # price_change
+        self.slip: float | None = None       # slippage
+        self.f_net: float | None = None      # foreign net value (billion VND)
+        self.dom_ratio: float | None = None   # domestic absorption ratio
+        self.vpoc_dist: float | None = None   # VPOC distance
 
         # VQA
-        self.vqa: Optional[Dict] = None
+        self.vqa: Dict | None = None
 
         # Macro Governor
-        self.macro_state: Optional[Dict] = None
+        self.macro_state: Dict | None = None
 
         # State machine
         self.phase: str = "UNKNOWN"
@@ -479,7 +479,7 @@ class PerSymbolAbsorption:
 
     # --- Main Pipeline -------------------------------------------------------
 
-    def analyze(self, target_date: Optional[str] = None, macro_state: Optional[Dict] = None) -> Dict:
+    def analyze(self, target_date: str | None = None, macro_state: Dict | None = None) -> Dict:
         """Pipeline chính: fetch -> build -> PCA -> VQA -> phase -> hdr.
 
         Two-Tier Architecture:
@@ -586,7 +586,7 @@ class PerSymbolAbsorption:
             "governor_confidence": self.macro_state.get("confidence", 0.0) if self.macro_state else 0.0,
         }
 
-    def _build_result(self, target_date: Optional[str] = None) -> Dict:
+    def _build_result(self, target_date: str | None = None) -> Dict:
         eigenvalues_list = [round(float(v), 4) for v in self.eigenvalues] if self.eigenvalues is not None else None
         tc = self._compute_transition_confidence() if self.phase == "ABSORPTION_ACTIVE" else {"confidence": 0.0, "signal": "N/A"}
         dist_warn = bool(self.vqa and VolumeQualityAnalyzer.is_distribution_warning(self.vqa["classification"]))

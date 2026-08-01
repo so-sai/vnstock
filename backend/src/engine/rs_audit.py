@@ -1,4 +1,4 @@
-"""
+﻿"""
 RS Audit — Bộ phân tích nguồn gốc sức mạnh Top RS
 
 PHÁC THẢO KIẾN TRÚC MODULE 4 TRỤ
@@ -46,7 +46,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 def _hydrate_path():
@@ -178,7 +178,7 @@ def _compute_sector_breadth(icb_map: dict) -> Dict[str, float]:
     return results
 
 
-def _is_in_group(symbol: str, group_data: dict) -> Optional[str]:
+def _is_in_group(symbol: str, group_data: dict) -> str | None:
     for g in group_data.get("group_contributions", []):
         if symbol in g.get("symbols", []):
             return f"{g['label_vi']} ({g['total_market_cap_pct']:.1f}%)"
@@ -233,7 +233,7 @@ def _diem_xac_nhan(tru_gia: float, tru_thanh_khoan: float, tru_nganh: float) -> 
 
 
 def _phan_loai(tru_gia: float, tru_thanh_khoan: float, tru_nganh: float,
-               diem: float, group_tag: Optional[str], is_large_cap: bool) -> str:
+               diem: float, group_tag: str | None, is_large_cap: bool) -> str:
     """Phân loại nguồn gốc sức mạnh."""
     if tru_thanh_khoan < 0.2:
         return "CHƯA ĐỦ DỮ LIỆU"

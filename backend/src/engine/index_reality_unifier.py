@@ -1,7 +1,6 @@
-import json
+﻿import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
@@ -40,7 +39,7 @@ from src.database.db_core import get_connection
 VINGROUP_SYMBOLS = {"VIC", "VHM", "VRE"}
 
 
-def _doc(ten_file: str) -> Optional[dict]:
+def _doc(ten_file: str) -> dict | None:
     paths = [
         Path(src.config.DATA_DIR) / "output" / ten_file,
         Path(src.config.DATA_DIR) / ten_file,
@@ -162,7 +161,7 @@ def _tinh_vingroup_contribution(target_date: str) -> dict:
     }
 
 
-def phan_tich_chi_so(target_date: Optional[str] = None) -> dict:
+def phan_tich_chi_so(target_date: str | None = None) -> dict:
     if target_date is None:
         from datetime import datetime
         target_date = datetime.now().strftime("%Y-%m-%d")

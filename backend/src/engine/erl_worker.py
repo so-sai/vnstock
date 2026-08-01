@@ -1,4 +1,4 @@
-"""
+﻿"""
 erl_worker.py — One-shot ERL Scan Worker for Tauri Desktop Sidecar.
 
 Kiến trúc 3 lớp chống ban IP:
@@ -17,7 +17,6 @@ import sqlite3
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, date
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +128,7 @@ def _compute_dynamic_gate(data_dir: Path) -> tuple[float, float]:
     return (max(gate, CRISIS_HARD_LIQUIDITY_GATE_FLOOR), round(total_value, 0))
 
 
-def latest_closed_session(now: Optional[datetime] = None) -> date:
+def latest_closed_session(now: datetime | None = None) -> date:
     """Xác định phiên đã đóng cửa gần nhất.
 
     - Trước 15:05  → lấy ngày GD trước đó (hôm nay chưa đóng)
@@ -349,9 +348,9 @@ def build_whitelist(
 
 
 def scan(
-    data_dir: Optional[str] = None,
-    target_date: Optional[str] = None,
-    output: Optional[str] = None,
+    data_dir: str | None = None,
+    target_date: str | None = None,
+    output: str | None = None,
 ) -> ERLWhitelist:
     """Main entry: one-shot ERL scan pipeline.
 
@@ -388,7 +387,7 @@ def scan(
     return whitelist
 
 
-def needs_catchup(data_dir: Optional[Path] = None) -> bool:
+def needs_catchup(data_dir: Path | None = None) -> bool:
     """Kiểm tra xem có cần catch-up scan không.
 
     So sánh last_scan với phiên đã đóng cửa gần nhất:
@@ -415,7 +414,7 @@ def needs_catchup(data_dir: Optional[Path] = None) -> bool:
         return True
 
 
-def get_whitelist(data_dir: Optional[Path] = None) -> dict:
+def get_whitelist(data_dir: Path | None = None) -> dict:
     """Đọc erl_whitelist.json hiện tại."""
     if data_dir is None:
         data_dir = _find_data_dir()

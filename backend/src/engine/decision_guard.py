@@ -27,14 +27,13 @@ Quy tắc:
       Tích hợp qua breadth_trap_state trong output.
 """
 import logging
-from typing import Optional
 
 from src.engine.breadth_trap_detector import BreadthTrapDetector
 
 logger = logging.getLogger(__name__)
 
 # Singleton detector — duy trì CUSUM state xuyên suốt vòng đời
-_breadth_trap_detector: Optional[BreadthTrapDetector] = None
+_breadth_trap_detector: BreadthTrapDetector | None = None
 
 
 def get_trap_detector() -> BreadthTrapDetector:
@@ -71,8 +70,8 @@ def kiem_tra_an_toan(
     quyet_dinh_de_xuat: str,
     ly_do_de_xuat: list,
     do_tin_cay: dict,
-    anh_chup: Optional[dict] = None,
-    du_lieu_lien_ngan_hang: Optional[dict] = None,
+    anh_chup: dict | None = None,
+    du_lieu_lien_ngan_hang: dict | None = None,
 ) -> dict:
     """Kiểm tra an toàn trước khi cho phép quyết định đi vào thực tế.
 

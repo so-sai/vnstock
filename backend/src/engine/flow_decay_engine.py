@@ -1,4 +1,4 @@
-"""
+﻿"""
 Flow Decay Engine (Phase 12C — Time Kernel Layer).
 Overlay kernel — applies regime-modulated exponential decay to raw time series
 BEFORE signal computation. Does NOT modify existing engines.
@@ -42,7 +42,6 @@ PROJECT_ROOT = _hydrate_path()
 import io
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -124,7 +123,7 @@ class FlowDecayKernel:
     """
 
     def __init__(self, half_life: float, channel: str = "liquidity",
-                 regime: Optional[str] = None):
+                 regime: str | None = None):
         self.base_tau = half_life / np.log(2)
         self.channel = channel
         self.regime = regime or DEFAULT_REGIME
@@ -225,7 +224,7 @@ def _resolve_current_regime() -> str:
 
 
 def build_liquidity_decay(symbol: str, lookback: int = 60,
-                          regime: Optional[str] = None) -> dict:
+                          regime: str | None = None) -> dict:
     """
     Build a decay-augmented volume profile for a single symbol.
     Returns both classic engine fields AND decay awareness metrics.
@@ -305,7 +304,7 @@ def build_liquidity_decay(symbol: str, lookback: int = 60,
 
 
 def build_sector_decay(sector: str, lookback: int = 60,
-                       regime: Optional[str] = None) -> dict:
+                       regime: str | None = None) -> dict:
     """
     Build a decay-augmented sector RS profile.
     Momentum computed from decay-weighted daily returns instead of SMA crossover.
@@ -376,7 +375,7 @@ def build_sector_decay(sector: str, lookback: int = 60,
 
 
 def build_foreign_decay(symbol: str, half_life_days: float = 10.0,
-                        regime: Optional[str] = None) -> dict:
+                        regime: str | None = None) -> dict:
     """
     Build decay-augmented foreign accumulation.
     Replaces the flat 10-day sum with a decay-weighted accumulation.
@@ -415,7 +414,7 @@ def build_foreign_decay(symbol: str, half_life_days: float = 10.0,
 # Aggregation wrappers (mirror engine interfaces but with decay)
 # ---------------------------------------------------------------------------
 
-def get_decayed_liquidity_health(regime: Optional[str] = None) -> dict:
+def get_decayed_liquidity_health(regime: str | None = None) -> dict:
     """Market-level liquidity health from decay-weighted volume."""
     effective_regime = regime or _resolve_current_regime()
     with get_connection() as conn:
@@ -456,7 +455,7 @@ def get_decayed_liquidity_health(regime: Optional[str] = None) -> dict:
     }
 
 
-def get_decayed_rotation_beta(regime: Optional[str] = None) -> dict:
+def get_decayed_rotation_beta(regime: str | None = None) -> dict:
     """Sector rotation regime from decay-weighted momentum across sectors."""
     results = []
     from src.engine.sector_rotation_graph import SECTOR_ORDER
@@ -507,7 +506,7 @@ def get_decayed_rotation_beta(regime: Optional[str] = None) -> dict:
 
 
 def get_decayed_foreign_summary(top_n: int = 10,
-                                regime: Optional[str] = None) -> dict:
+                                regime: str | None = None) -> dict:
     """
     Aggregate foreign flow summary using decay-weighted accumulation
     instead of flat 10-day sum.
@@ -546,7 +545,7 @@ def get_decayed_foreign_summary(top_n: int = 10,
 # Banner synthesis with uncertainty
 # ---------------------------------------------------------------------------
 
-def synthesize_decayed_banner(regime: Optional[str] = None) -> dict:
+def synthesize_decayed_banner(regime: str | None = None) -> dict:
     """
     Generate a probabilistic flow banner using decay-weighted signals.
     Includes persistence tags and confidence bands instead of deterministic narrative.
@@ -718,7 +717,7 @@ def _confidence_band(persistence: float, instability: float,
 # Entry point for flow.py middleware integration
 # ---------------------------------------------------------------------------
 
-def get_decayed_flow_summary(regime: Optional[str] = None) -> dict:
+def get_decayed_flow_summary(regime: str | None = None) -> dict:
     """
     Full decay-augmented flow summary.
     This is the main middleware entry point for flow.py.

@@ -1,7 +1,6 @@
-import sys
+﻿import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
@@ -95,7 +94,7 @@ def _get_tru_stats(target_date: str, industry: str) -> dict:
     }
 
 
-def kiem_tra_phan_phoi(target_date: Optional[str] = None) -> dict:
+def kiem_tra_phan_phoi(target_date: str | None = None) -> dict:
     """Phát hiện phân phối lớn đột ngột qua volume spike + price action.
     
     Nguyên tắc:

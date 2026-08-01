@@ -1,4 +1,4 @@
-"""
+﻿"""
 orchestrator.py — Bộ quyết định cuối cùng
 
 Thứ tự ưu tiên (CAO → THẤP):
@@ -18,7 +18,6 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ import src.config
 QUYET_DINH = ["THAM GIA FULL", "THAM GIA", "THAM GIA DO", "QUAN SAT", "GIAM RUI RO", "DUNG NGOAI"]
 
 
-def quyet_dinh_cuoi(target_date: Optional[str] = None, lang_mode: str = "compact") -> dict:
+def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") -> dict:
     """Trả về quyết định cuối cùng dựa trên 3 lớp phân tích.
 
     Luồng:

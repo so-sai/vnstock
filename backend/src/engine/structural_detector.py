@@ -1,4 +1,4 @@
-"""
+﻿"""
 structural_detector.py — Bộ phát hiện lệch cấu trúc thị trường
 
 Đo 3 trụ:
@@ -12,7 +12,6 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
@@ -167,7 +166,7 @@ def _get_industry_map() -> dict:
         return {}
 
 
-def _tru_lan_toa(health: Optional[float], lcr: Optional[float]) -> dict:
+def _tru_lan_toa(health: float | None, lcr: float | None) -> dict:
     """Trụ 1: Dòng tiền có lan rộng không?"""
     nguyen_nhan = []
     ok = False
@@ -217,7 +216,7 @@ def _tru_dong_thuan_nganh(sectors: list) -> dict:
     return {"ok": ok, "nguyen_nhan": "; ".join(nguyen_nhan)}
 
 
-def _tru_index_vs_noi_bo(bdi_pct: Optional[float], bdi_signal: Optional[str]) -> dict:
+def _tru_index_vs_noi_bo(bdi_pct: float | None, bdi_signal: str | None) -> dict:
     """Trụ 3: Chỉ số có phản ánh đúng thị trường không?"""
     nguyen_nhan = []
     ok = False
@@ -237,7 +236,7 @@ def _tru_index_vs_noi_bo(bdi_pct: Optional[float], bdi_signal: Optional[str]) ->
     return {"ok": ok, "bdi": bdi_pct, "bdi_signal": bdi_signal, "nguyen_nhan": "; ".join(nguyen_nhan)}
 
 
-def _tinh_entropy(health: Optional[float], lcr: Optional[float]) -> Optional[float]:
+def _tinh_entropy(health: float | None, lcr: float | None) -> float | None:
     """Tính entropy từ breadth và LCR."""
     try:
         from src.engine.driver_normalizer import driver_state_from_engine_outputs
@@ -255,7 +254,7 @@ def _tinh_entropy(health: Optional[float], lcr: Optional[float]) -> Optional[flo
     return None
 
 
-def _tao_nguyen_nhan(trang_thai: str, tru_1: dict, tru_2: dict, tru_3: dict, entropy: Optional[float]) -> list:
+def _tao_nguyen_nhan(trang_thai: str, tru_1: dict, tru_2: dict, tru_3: dict, entropy: float | None) -> list:
     nguyen_nhan = []
     for t in [tru_1, tru_2, tru_3]:
         nn = t.get("nguyen_nhan", "")
@@ -268,7 +267,7 @@ def _tao_nguyen_nhan(trang_thai: str, tru_1: dict, tru_2: dict, tru_3: dict, ent
     return nguyen_nhan
 
 
-def detect_cau_truc(target_date: Optional[str] = None) -> dict:
+def detect_cau_truc(target_date: str | None = None) -> dict:
     """Phát hiện lệch cấu trúc thị trường dựa trên 3 trụ."""
     if target_date is None:
         target_date = datetime.now().strftime("%Y-%m-%d")

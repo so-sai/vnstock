@@ -22,7 +22,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 
 def _hydrate_path():
@@ -330,7 +330,7 @@ class AlphaAttributionReport:
             "config_results": self.config_results,
         }
 
-    def to_json(self, path: Optional[Path] = None) -> str:
+    def to_json(self, path: Path | None = None) -> str:
         """Serialize to JSON string, optionally writing to file."""
         data = self.to_dict()
         text = json.dumps(data, indent=2, ensure_ascii=False)

@@ -1,4 +1,4 @@
-"""
+﻿"""
 RSI Regime Engine (Phase 14 — Momentum Habitat Layer).
 Detects RSI range behavior over time — not point values.
 
@@ -20,7 +20,6 @@ import sys
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 warnings.filterwarnings('ignore')
 
@@ -146,8 +145,8 @@ def _classify_habitat(rsi_low: float, rsi_high: float, rsi_current: float,
 
 
 def analyze_rsi_regime(symbol: str, lookback_days: int = LOOKBACK_DAYS,
-                       target_date: Optional[str] = None,
-                       preloaded_df: Optional[pd.DataFrame] = None) -> dict:
+                       target_date: str | None = None,
+                       preloaded_df: pd.DataFrame | None = None) -> dict:
     if preloaded_df is not None:
         sym_df = preloaded_df[preloaded_df['symbol'] == symbol].copy()
         if target_date:
@@ -252,8 +251,8 @@ def analyze_rsi_regime(symbol: str, lookback_days: int = LOOKBACK_DAYS,
 
 
 def _compute_weekly_rsi(symbol: str, lookback_days: int = 180,
-                        target_date: Optional[str] = None,
-                        preloaded_df: Optional[pd.DataFrame] = None) -> dict:
+                        target_date: str | None = None,
+                        preloaded_df: pd.DataFrame | None = None) -> dict:
     if preloaded_df is not None:
         sym_df = preloaded_df[preloaded_df['symbol'] == symbol].copy()
         if target_date:
@@ -335,8 +334,8 @@ def _check_timeframe_alignment(daily_habitat: str, weekly: dict) -> dict:
     return {'aligned': True, 'description': 'KHÔNG XUNG ĐỘT', 'signal': 'NEUTRAL'}
 
 
-def scan_market_rsi_regime(symbols: list = None, target_date: Optional[str] = None,
-                           preloaded_df: Optional[pd.DataFrame] = None) -> list:
+def scan_market_rsi_regime(symbols: list = None, target_date: str | None = None,
+                           preloaded_df: pd.DataFrame | None = None) -> list:
     if symbols is None:
         symbols = CORE_SYMBOLS
     results = []
@@ -351,8 +350,8 @@ def scan_market_rsi_regime(symbols: list = None, target_date: Optional[str] = No
     return results
 
 
-def generate_market_rsi_report(target_date: Optional[str] = None,
-                                preloaded_df: Optional[pd.DataFrame] = None) -> dict:
+def generate_market_rsi_report(target_date: str | None = None,
+                                preloaded_df: pd.DataFrame | None = None) -> dict:
     today = target_date or datetime.now().strftime('%Y-%m-%d')
     print(f"\n{'='*70}")
     print("  RSI REGIME ENGINE — MARKET SCAN")
@@ -484,7 +483,7 @@ def _export_report(report: dict):
     print(f"\nSaved to: {out_path}")
 
 
-def run_analysis(target_symbol: Optional[str] = None) -> dict:
+def run_analysis(target_symbol: str | None = None) -> dict:
     if target_symbol:
         result = analyze_rsi_regime(target_symbol)
         print(f"\n{'='*70}")

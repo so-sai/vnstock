@@ -12,7 +12,6 @@ This is the "truth meter" for the cognitive plane:
   1.0 = explain perfectly matches a fully-dominant driver
 """
 
-from typing import Optional
 
 # ── Vietnamese keyword → driver key mapping ──────────────────────
 # Must match DRIVER_VI in explain_layer.py to ensure bidirectional consistency
@@ -54,7 +53,7 @@ def reconstruct_driver_weights(driver_state: dict) -> dict[str, float]:
     return dict(driver_state.get("distribution", {}))
 
 
-def extract_explained_driver(narrative: dict) -> Optional[str]:
+def extract_explained_driver(narrative: dict) -> str | None:
     """Parse the Vietnamese narrative to determine which driver is described as dominant.
 
     Scans the narrative fields for Vietnamese driver keywords.
@@ -78,7 +77,7 @@ def extract_explained_driver(narrative: dict) -> Optional[str]:
 
 
 def alignment_score(
-    explained_driver: Optional[str],
+    explained_driver: str | None,
     true_weights: dict[str, float],
 ) -> float:
     """Explain Truth Score (ETS).

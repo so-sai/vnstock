@@ -16,7 +16,6 @@ No state, no memory, no prediction — pure function over engine outputs.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -45,12 +44,12 @@ class DriverState:
 
 
 def compute_driver_scores(
-    breadth_health: Optional[float] = None,
-    flow_bias: Optional[float] = None,
-    lcr_pct: Optional[float] = None,
-    v_score: Optional[float] = None,
-    t_score: Optional[float] = None,
-    macro_signal: Optional[float] = None,
+    breadth_health: float | None = None,
+    flow_bias: float | None = None,
+    lcr_pct: float | None = None,
+    v_score: float | None = None,
+    t_score: float | None = None,
+    macro_signal: float | None = None,
 ) -> dict[str, float]:
     """Map raw engine outputs to normalized driver scores [0,1].
 
@@ -126,12 +125,12 @@ def normalize_drivers(scores: dict[str, float]) -> DriverState:
 
 
 def driver_state_from_engine_outputs(
-    breadth_health: Optional[float] = None,
-    flow_bias: Optional[float] = None,
-    lcr_pct: Optional[float] = None,
-    v_score: Optional[float] = None,
-    t_score: Optional[float] = None,
-    macro_signal: Optional[float] = None,
+    breadth_health: float | None = None,
+    flow_bias: float | None = None,
+    lcr_pct: float | None = None,
+    v_score: float | None = None,
+    t_score: float | None = None,
+    macro_signal: float | None = None,
 ) -> DriverState:
     """One-shot: engine outputs → DriverState.
 

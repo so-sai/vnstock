@@ -1,4 +1,4 @@
-"""
+﻿"""
 breadth_trap_detector.py — CUSUM-based Breadth Trap Detector.
 
 Phát hiện Breadth Trap và thời điểm suy yếu.
@@ -7,7 +7,6 @@ CUSUM trên Δdivergence (tốc độ thay đổi) thay vì divergence tuyệt �
 giúp phát hiện sớm khi divergence bắt đầu hội tụ dù cấu trúc chưa hồi phục.
 """
 
-from typing import Optional
 
 
 class BreadthTrapDetector:
@@ -30,7 +29,7 @@ class BreadthTrapDetector:
         self.k: float = 0.0
         self.h: float = 0.0
         self.steps: int = 0
-        self._prev_divergence: Optional[float] = None
+        self._prev_divergence: float | None = None
         self._weakening_count: int = 0
 
     def structural_health(self, so_tru: int) -> float:
