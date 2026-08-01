@@ -109,3 +109,25 @@ def test_execution_policy_decoupling():
     assert r1.buy_gap == round(75.0 - r1.final_score, 1)
     assert r2.buy_gap == round(65.0 - r2.final_score, 1)
     assert r1.buy_gap > r2.buy_gap
+
+
+def test_full_margin_trigger_and_margin_status():
+    from governor.composite_score_projector import CompositeScoreProjector
+    from governor.company_state import BayesianMandate
+
+    mandate_simulated = BayesianMandate(
+        symbol="GAS", action="SCALE_IN", action_vn="Mua tích lũy",
+        expected_utility=0.85, p_gain=0.88, calibration_penalty=0.0,
+        allocation_pct=30.0, conviction=0.90, macro_state="RECOVERY",
+        transmission_phase="EXPANSION", sector_phase="EARLY",
+        health_archetype="COMPOUNDER", valuation_zone="CHEAP",
+        valuation_zone_peer="CHEAP", valuation_zone_ts="CHEAP",
+        behavior_position="BULLISH", margin_of_safety=65.7, contextual_health_score=0.92
+    )
+
+    projector = CompositeScoreProjector()
+    res = projector.project(mandate_simulated)
+
+    assert res.final_score >= 85.0
+    assert "FULL MARGIN" in res.margin_status
+    assert "MUA_TOI_DA_DON_BAY" in res.recommendation
