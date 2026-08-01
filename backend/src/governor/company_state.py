@@ -1463,6 +1463,17 @@ def print_report(analysis: Dict):
               f"{status:<22} {mos_label:<34} {ctx_display:<30}")
 
     # ══════════════════════════════════════════════════════════════════
+    # TẦNG 2.5 — BẢNG ĐIỂM TỔNG HỢP COMPOSITE SCORE (0 – 100 SCALE)
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        from src.governor.composite_score_projector import CompositeScoreProjector, print_composite_dashboard
+        projector = CompositeScoreProjector()
+        comp_results = projector.project_batch(list(results.values()))
+        print_composite_dashboard(comp_results)
+    except Exception:
+        pass
+
+    # ══════════════════════════════════════════════════════════════════
     # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)
     # ══════════════════════════════════════════════════════════════════
     print(f"\n  {'='*90}")
