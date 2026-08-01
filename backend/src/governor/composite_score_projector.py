@@ -136,15 +136,37 @@ class CompositeScoreProjector:
 
 
 def print_composite_dashboard(results: List[CompositeScoreResult]):
-    """Print clean 0–100 Composite Score Dashboard for CLI."""
+    """Print clean 0–100 Composite Score Dashboard for CLI with ANSI semantic colors."""
+    from src.utils.cli_theme import c_red, c_green, c_yellow, c_cyan, c_dim
+
     print("\n  " + "=" * 90)
-    print("  🎯 PTCK COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)")
+    print(f"  🎯 {c_cyan('PTCK COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')}")
     print("  " + "=" * 90)
     print(f"  {'Mã':<6} {'Macro(20)':>9} {'Internal(30)':>12} {'Market(50)':>11} "
           f"{'SCORE TOTAL':>13}   {'VETO FLAG':<16} {'KHUYẾN NGHỊ'}")
     print("  " + "─" * 90)
     for r in results:
-        flag_str = f"⛔ {r.veto_flag}" if r.veto_flag != "NONE" else "🟢 OK"
-        print(f"  {r.symbol:<6} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
-              f"  {r.final_score:>5.1f} / 100    {flag_str:<16} {r.recommendation}")
+        if r.veto_flag != "NONE":
+            flag_str = c_red(f"⛔ {r.veto_flag}")
+        else:
+            flag_str = c_green("🟢 OK")
+
+        if r.final_score >= 70.0 and r.veto_flag == "NONE":
+            score_str = c_green(f"{r.final_score:>5.1f}")
+            rec_str = c_green(r.recommendation)
+        elif r.final_score >= 50.0 and r.veto_flag == "NONE":
+            score_str = c_yellow(f"{r.final_score:>5.1f}")
+            rec_str = c_yellow(r.recommendation)
+        elif r.final_score >= 35.0:
+            score_str = c_yellow(f"{r.final_score:>5.1f}")
+            rec_str = c_yellow(r.recommendation)
+        else:
+            score_str = c_red(f"{r.final_score:>5.1f}")
+            rec_str = c_red(r.recommendation)
+
+        sym_str = c_cyan(r.symbol) if r.final_score >= 50.0 else r.symbol
+
+        print(f"  {sym_str:<6} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
+              f"  {score_str} / 100    {flag_str:<16} {rec_str}")
+    print("  " + "=" * 90 + "\n")
     print("  " + "=" * 90 + "\n")
