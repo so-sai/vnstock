@@ -1784,18 +1784,28 @@ class CafeFCrawler:
             logger.warning("Playwright chưa cài — bỏ qua CafeF Playwright")
             return None
 
-        # Windows 11 RAM tối ưu: tắt GPU + chặn tài nguyên rác (image/css/font/media)
-        # → RAM dao động 150-220MB. Block stylesheet an toàn vì _try_cafef_pw chỉ đọc
-        # page.content() DOM (table signatures), không phụ thuộc CSS render.
-        # ⚠️ KHÔNG dùng --single-process: test thực tế trên Windows gây
-        #    TargetClosedError (Page.goto: browser closed) — Chromium unstable.
-        WINDOWS_LAUNCH_FLAGS = [
-            "--disable-gpu",
-            "--no-sandbox",
-            "--disable-accelerated-2d-canvas",
-            "--no-first-run",
-            "--disable-blink-features=AutomationControlled",
-        ]
+# Windows 11 RAM tối ưu: tắt GPU + chặn tài nguyên rác (image/css/font/media)
+         # → RAM dao động 150-220MB. Block stylesheet an toàn vì _try_cafef_pw chỉ đọc
+         # page.content() DOM (table signatures), không phụ thuộc CSS render.
+         # ⚠️ KHÔNG dùng --single-process: test thực tế trên Windows gây
+         #    TargetClosedError (Page.goto: browser closed) — Chromium unstable.
+         #
+         # WIN11 BLACK-SCREEN BUG (2026-08-01):
+         #   --disable-gpu is MANDATORY on Windows 11 for headless Playwright.
+         #   Without it, Chromium attempts GPU hardware acceleration even in
+         #   headless mode. When the monitor is off (Modern Standby S0), GPU
+         #   is in D3 cold. Chromium tries to acquire a GPU render context →
+         #   DWM handshake fails → TDR timeout → driver reset gets stuck →
+         #   BLACK SCREEN permanently.
+         #   --disable-gpu forces software rendering, bypassing the GPU entirely.
+         #   This is why ALL scheduled Playwright tasks MUST include this flag.
+         WINDOWS_LAUNCH_FLAGS = [
+             "--disable-gpu",
+             "--no-sandbox",
+             "--disable-accelerated-2d-canvas",
+             "--no-first-run",
+             "--disable-blink-features=AutomationControlled",
+         ]
         BLOCKED_RESOURCE_TYPES = {"image", "stylesheet", "font", "media"}
 
         try:

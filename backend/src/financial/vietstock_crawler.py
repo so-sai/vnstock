@@ -160,6 +160,15 @@ BCTT_STANDARD_METRICS = {
 # DOM + XHR/fetch lấy token và gọi API); flag AutomationControlled + UA Chrome
 # 126 + locale vi-VN để né anti-bot. channel="chrome" bắt buộc vì bundled
 # Chromium của playwright lệch version (xem DISCOVERY ở đầu file).
+#
+# WIN11 BLACK-SCREEN BUG (2026-08-01):
+#   --disable-gpu is MANDATORY on Windows 11 for headless Playwright.
+#   Without it, Chromium attempts GPU hardware acceleration even in headless
+#   mode. When the monitor is off (Modern Standby S0), GPU is in D3 cold.
+#   Chromium tries to acquire a GPU render context → DWM handshake fails →
+#   TDR timeout → driver reset gets stuck → BLACK SCREEN permanently.
+#   --disable-gpu forces software rendering, bypassing the GPU entirely.
+#   This is why ALL scheduled Playwright tasks MUST include this flag.
 WINDOWS_LAUNCH_FLAGS = [
     "--disable-gpu",
     "--no-sandbox",
