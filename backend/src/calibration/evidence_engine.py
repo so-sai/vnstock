@@ -130,6 +130,26 @@ class EvidenceEngine:
         Returns dict with updated fields.
         """
         conn = self._get_conn()
+        try:
+            return self._apply_outcome(node_id, p_gain, y_true, conn=conn)
+        finally:
+            conn.commit()
+
+    def _apply_outcome(
+        self,
+        node_id: str,
+        p_gain: float,
+        y_true: float,
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> Dict[str, float]:
+        """Apply one outcome using a caller-provided connection (batch-safe).
+
+        WHY refactor (Bước 2 — Outcome Feed): `batch_update_from_resolved`
+        feeds hàng nghìn outcomes/lần. Mở 1 connection duy nhất rồi gọi
+        `_apply_outcome` cho từng node tránh N× connection overhead.
+        `record_outcome` giữ nguyên API cũ, chỉ thêm bước commit.
+        """
+        conn = conn or self._get_conn()
         row = conn.execute(
             "SELECT alpha, beta, brier_accum, n_updates FROM evidence_registry WHERE node_id=?",
             (node_id,),
@@ -168,7 +188,6 @@ class EvidenceEngine:
             "n_updates=?, reliability=?, drift_score=?, last_updated=? WHERE node_id=?",
             (alpha, beta, brier_accum, n_updates, reliability, drift_score, now, node_id),
         )
-        conn.commit()
 
         return {
             "node_id": node_id,
@@ -247,13 +266,64 @@ class EvidenceEngine:
         ).fetchone()
         return row["reliability"] if row else 0.5
 
-    # ── Batch update from resolved predictions (Sprint 2) ──
-    # TODO: compute node-level effective probability from LR contribution
-    # before updating each node. Currently prediction_log stores only
-    # the composite P(Gain), not per-node probabilities.
-    #
-    # def batch_update_from_resolved(self, days_back: int = 90) -> Dict[str, int]:
-    #     ...
+    # ── Batch update from resolved predictions (Bước 2 — Outcome Feed) ──
+    # WHY (P0): prediction_log stores per-model p_gain for M1/M2/M3 rows
+    #   (company_state.py model_weights_map). Khi Step 11 resolve outcome,
+    #   ta map mỗi model → các evidence node mà model đó phụ thuộc, rồi
+    #   feed (p_gain, y_true) vào từng node → kích hoạt θ = R·A·e^(−λD).
+
+    MODEL_NODE_MAP = {
+        "M1_MACRO": ["macro", "transmission", "sector"],
+        "M2_FUNDAMENTAL": ["health", "capital_allocation", "valuation"],
+        "M3_BEHAVIORAL": ["behavior"],
+    }
+
+    def batch_update_from_resolved(self, days_back: int = 90) -> Dict[str, int]:
+        """Feed resolved outcomes from prediction_log into evidence nodes.
+
+        Với mỗi model (M1/M2/M3), lấy các predictions đã resolve, rồi
+        `_apply_outcome` cho từng node thuộc map. Dùng chung 1 connection
+        (batch-safe), commit 1 lần ở cuối.
+
+        Returns:
+            Dict {node_id: số lần update} — node chưa được feed sẽ không có key.
+        """
+        try:
+            from calibration.prediction_log import get_resolved_by_model
+        except Exception:
+            from calibration.prediction_log import get_outcomes_for_calibration as _fallback
+            # fallback: dùng resolved outcomes tổng, lọc theo model_id
+            rows_all = _fallback(days_back=days_back)
+            by_model: Dict[str, list] = {}
+            for r in rows_all:
+                mid = r.get("model_id")
+                if mid:
+                    by_model.setdefault(mid, []).append(r)
+
+            def _get_resolved(mid, days):
+                return by_model.get(mid, [])
+
+            get_resolved_by_model = _get_resolved
+
+        conn = self._get_conn()
+        counts: Dict[str, int] = {}
+        try:
+            for mid, nodes in self.MODEL_NODE_MAP.items():
+                resolved = get_resolved_by_model(mid, days=days_back)
+                for r in resolved:
+                    p_gain = r.get("p_gain", 0.5)
+                    y_true = 1.0 if r.get("outcome", 0) >= 0.5 else 0.0
+                    for nid in nodes:
+                        try:
+                            self._apply_outcome(nid, p_gain, y_true, conn=conn)
+                        except ValueError:
+                            continue
+                        counts[nid] = counts.get(nid, 0) + 1
+            conn.commit()
+        finally:
+            if self._conn is None:
+                conn.close()
+        return counts
 
     # ── Reset ──────────────────────────────────────────────────────
 

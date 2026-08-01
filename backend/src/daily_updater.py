@@ -1277,45 +1277,87 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             logger.warning(f"⚠️ CSI history update failed: {e}")
             report["csi_history"] = {"status": f"FAILED: {str(e)}"}
 
-        # Step 11c: ModelRegistry BMA — feed per-model resolved outcomes
-        # WHY (P0): prediction_log now stores 3 rows per (date,symbol)
-        #   with model_id = M1_MACRO/M2_FUNDAMENTAL/M3_BEHAVIORAL.
-        #   Each model's resolved outcomes feed independently into
-        #   ModelRegistry.record_outcome(), eliminating Brier Score blur.
-        #   Models that consistently underperform → posterior decays →
-        #   state transitions to DORMANT/RETIRED → BMA contract.
+        # Step 11c: ModelRegistry BMA — feed per-model RESOLVED outcomes
+        # WHY (Bước 2 — Outcome Feed): bản cũ dùng get_unresolved_by_model()
+        #   (predictions CHƯA resolve) + accuracy proxy = 1 - avg Brier vs 0.5
+        #   baseline, feed y_true=1.0 — đó là dữ liệu giả lập, không phải
+        #   outcome thực. Bây giờ feed từng resolved outcome (outcome=1/0)
+        #   với p_gain thực của model → posterior phản ánh hiệu năng thật.
         try:
-            mr_n_resolved = cal_result.get("n_resolved", 0)
-            mr_n_eligible = cal_result.get("n_eligible", 0)
-            if mr_n_resolved > 0 and mr_n_eligible > 0:
-                from calibration.model_registry import ModelRegistry
-                from calibration.prediction_log import get_unresolved_by_model
-                mr = ModelRegistry()
-                fed_count = 0
-                for mid in ("M1_MACRO", "M2_FUNDAMENTAL", "M3_BEHAVIORAL"):
-                    unresolved = get_unresolved_by_model(mid, days=90)
-                    if not unresolved:
-                        continue
-                    # Compute per-model accuracy from its own unresolved batch
-                    n_eligible = len(unresolved)
-                    # Accuracy proxy using Brier (lower = better) then convert
-                    total_brier = 0.0
-                    for row in unresolved:
-                        p = row.get("p_gain", 0.5)
-                        total_brier += (p - 0.5) ** 2  # baseline expectation
-                    avg_brier = total_brier / max(n_eligible, 1)
-                    # Convert Brier to accuracy: acc = 1 - avg_brier
-                    model_acc = max(0.01, min(0.99, 1.0 - avg_brier))
-                    mr.record_outcome(mid, p_gain=model_acc, y_true=1.0)
-                    fed_count += 1
-                report["model_registry"] = {
-                    "n_resolved_fed": mr_n_resolved,
-                    "per_model_fed": fed_count,
-                    "bma_updated": True,
-                }
+            from calibration.model_registry import ModelRegistry
+            from calibration.prediction_log import get_resolved_by_model
+            mr = ModelRegistry()
+            fed_count = 0
+            per_model = {}
+            for mid in ("M1_MACRO", "M2_FUNDAMENTAL", "M3_BEHAVIORAL"):
+                resolved = get_resolved_by_model(mid, days=90)
+                n = len(resolved)
+                if not n:
+                    continue
+                # Cap để tránh hàng nghìn record_outcome/renormalize trong 1 lần
+                batch = resolved[:200]
+                for row in batch:
+                    p = row.get("p_gain", 0.5)
+                    y = 1.0 if row.get("outcome", 0) >= 0.5 else 0.0
+                    mr.record_outcome(mid, p_gain=p, y_true=y)
+                fed_count += 1
+                wins = sum(1 for r in batch if r.get("outcome", 0) >= 0.5)
+                per_model[mid] = {"n_resolved": n, "fed": len(batch),
+                                  "accuracy": round(wins / len(batch), 4)}
+            report["model_registry"] = {
+                "n_resolved_fed": cal_result.get("n_resolved", 0),
+                "per_model_fed": fed_count,
+                "per_model": per_model,
+                "bma_updated": fed_count > 0,
+            }
         except Exception as e:
             logger.warning(f"⚠️ ModelRegistry feed failed: {e}")
             report["model_registry"] = {"status": f"FAILED: {str(e)}"}
+
+        # Step 11d: EvidenceEngine — feed resolved outcomes vào evidence nodes
+        # WHY (Bước 2 — Outcome Feed): batch_update_from_resolved() kích hoạt
+        #   công thức trọng số động θ = R·A·e^(−λD). Nếu thiếu bước này,
+        #   evidence_registry đứng yên ở prior, dynamic weights không bao giờ
+        #   phân hóa nodes theo hiệu năng thực.
+        try:
+            from calibration.evidence_engine import EvidenceEngine
+            ev_feed = EvidenceEngine().batch_update_from_resolved(days_back=90)
+            report["evidence_feed"] = {
+                "nodes_updated": {k: v for k, v in ev_feed.items() if v},
+                "total_updates": sum(ev_feed.values()),
+            }
+            if sum(ev_feed.values()) > 0:
+                logger.info(f"  🧮 Evidence feed: {sum(ev_feed.values())} updates")
+        except Exception as e:
+            logger.warning(f"⚠️ Evidence feed failed: {e}")
+            report["evidence_feed"] = {"status": f"FAILED: {str(e)}"}
+
+        # Step 11e: CausalEdge — time-decay + auto-retirement
+        # WHY (Bước 2): gap analysis chỉ ra causal_edge thiếu Time-decay và
+        #   Auto-retirement. Mỗi ngày suy hao confidence theo half-life; edge
+        #   dưới CONFIDENCE_FLOOR bị loại khỏi graph (giảm nhiễu auditor).
+        try:
+            from calibration.causal_edge import CausalGraph
+            cg = CausalGraph()
+            cg.load_from_db()
+            decayed = cg.apply_time_decay()
+            retired = cg.retire_degraded()
+            if retired:
+                # Xóa vĩnh viễn khỏi SQLite — nếu không, load_from_db sẽ
+                # nạp lại edge retired ở lần chạy sau (no-op retirement).
+                cg.remove_from_db(retired)
+            if decayed or retired:
+                cg.persist()
+            report["causal_feed"] = {
+                "decayed": decayed,
+                "retired": retired,
+                "n_edges": len(cg.edges),
+            }
+            if decayed or retired:
+                logger.info(f"  🕸️ Causal decay={decayed} retired={len(retired)}")
+        except Exception as e:
+            logger.warning(f"⚠️ Causal feed failed: {e}")
+            report["causal_feed"] = {"status": f"FAILED: {str(e)}"}
 
         # Step 11b: Circuit Breaker auto-check
         try:

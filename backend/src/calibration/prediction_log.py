@@ -227,6 +227,26 @@ def get_unresolved_by_model(model_id: str, days: int = 365) -> List[Dict]:
     return [dict(r) for r in rows]
 
 
+def get_resolved_by_model(model_id: str, days: int = 365) -> List[Dict]:
+    """Return RESOLVED predictions (outcome NOT NULL) for a BMA model.
+
+    WHY (Bước 2 — Outcome Feed): Step 11c cũ feed ModelRegistry bằng
+    `get_unresolved_by_model()` + accuracy proxy (1 - avg Brier vs 0.5 baseline)
+    — đó là dữ liệu giả lập, không phải outcome thực. Hàm này trả đúng
+    các prediction đã resolve (outcome = 1/0) để feed reliability thật vào
+    EvidenceEngine/ModelRegistry.
+    """
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM prediction_log
+        WHERE model_id = ? AND outcome IS NOT NULL AND date >= ?
+        ORDER BY date ASC, symbol ASC
+    """, (model_id, cutoff)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def get_unresolved_predictions() -> List[Dict]:
     """Return all predictions with NULL outcome."""
     conn = get_conn()

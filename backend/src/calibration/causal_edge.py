@@ -78,6 +78,12 @@ def _now() -> str:
     return datetime.now().isoformat()
 
 
+# Floor dưới cùng của confidence cạnh nhân quả. Edge dưới ngưỡng này sẽ
+# bị auto-retirement (retire_degraded) — không giữ "zombie edge" làm nhiễu
+# propagation/audit.
+CONFIDENCE_FLOOR = 0.05
+
+
 def build_edge_registry() -> Dict[str, CausalEdge]:
     """Build the full CausalEdge registry.
 
@@ -590,6 +596,72 @@ class CausalGraph:
             e.confidence = max(0.05, e.confidence - 0.05)
             e.updated_at = _now()
 
+    # ── Time decay + auto-retirement (Bước 2) ──────────────────────────
+
+    def apply_time_decay(self, now=None) -> int:
+        """Suy hao confidence theo half-life khi edge không được tái xác nhận.
+
+        Công thức: conf' = conf × 0.5^(elapsed_days / half_life)
+          - elapsed = (now - updated_at).days — edge mới (elapsed≈0) giữ nguyên
+          - updated_at là thời điểm gần nhất edge được cập nhật/xác nhận
+          - Floor: không xuống dưới CONFIDENCE_FLOOR (retire sẽ xử lý tiếp)
+
+        Returns: số edge bị suy hao.
+        """
+        from datetime import datetime
+        base = now or datetime.now()
+        changed = 0
+        for e in self.edges.values():
+            try:
+                updated = datetime.fromisoformat(e.updated_at or e.created_at)
+            except Exception:
+                continue
+            elapsed_days = max(0.0, (base - updated).total_seconds() / 86400.0)
+            if elapsed_days <= 0.0 or e.half_life <= 0.0:
+                continue
+            factor = 0.5 ** (elapsed_days / e.half_life)
+            new_conf = e.confidence * factor
+            if new_conf < e.confidence - 1e-9:
+                e.confidence = max(CONFIDENCE_FLOOR, new_conf)
+                changed += 1
+        return changed
+
+    def retire_degraded(self, min_confidence: float = CONFIDENCE_FLOOR) -> List[str]:
+        """Loại bỏ các edge có confidence dưới ngưỡng (auto-retirement).
+
+        WHY (Bước 2): gap analysis chỉ ra causal_edge thiếu Auto-retirement.
+        Edge suy yếu dưới floor sẽ gây nhiễu propagation và báo cáo auditor —
+        loại khỏi graph (edge_registry trong memory), snapshot vẫn được
+        `persist()` ghi lại nếu cần truy vết.
+
+        Returns: list edge_id đã bị loại bỏ.
+        """
+        retired = [eid for eid, e in self.edges.items()
+                   if e.confidence < min_confidence]
+        for eid in retired:
+            del self.edges[eid]
+        if retired:
+            self._rebuild_index()
+        return retired
+
+    def remove_from_db(self, edge_ids: List[str]) -> None:
+        """Xóa vĩnh viễn các edge khỏi SQLite.
+
+        WHY (Bước 2): `retire_degraded()` chỉ loại khỏi memory. Nếu không xóa
+        row, `load_from_db()` sẽ nạp lại các edge retired vào lần chạy sau —
+        auto-retirement trở thành no-op. `persist()` dùng INSERT OR REPLACE
+        nên không xóa row dư; cần DELETE tường minh.
+        """
+        if not edge_ids:
+            return
+        import sqlite3
+        self.init_schema()
+        conn = sqlite3.connect(str(self._db_path()))
+        for eid in edge_ids:
+            conn.execute("DELETE FROM causal_edges WHERE edge_id=?", (eid,))
+        conn.commit()
+        conn.close()
+
     # ── Graph stats ───────────────────────────────────────────────────
 
     def stats(self) -> Dict:
@@ -666,6 +738,7 @@ class CausalGraph:
         import sqlite3
         self.init_schema()
         conn = sqlite3.connect(str(self._db_path()))
+        conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM causal_edges").fetchall()
         conn.close()
         if not rows:
