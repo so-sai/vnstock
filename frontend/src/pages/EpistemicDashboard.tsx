@@ -55,9 +55,35 @@ interface CompositeResponse {
   data: EpistemicRow[];
 }
 
+interface DensityRow {
+  symbol: string;
+  required_quarters: number;
+  available_quarters: number;
+  density_pct: number;
+  missing_quarters: string[];
+  status: string;
+  healed: boolean;
+}
+
+interface DensityResponse {
+  status: string;
+  count: number;
+  generated_at: string;
+  data: DensityRow[];
+}
+
 const fetchComposite = async (symbols: string[]): Promise<CompositeResponse> => {
   const qs = symbols.map((s) => `symbols=${encodeURIComponent(s)}`).join('&');
   const res = await fetch(`${API_BASE}/v1/epistemic/composite?${qs}`);
+  if (!res.ok) throw new Error(`API lỗi: HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.status !== 'success') throw new Error(json.message || 'API trả status không success');
+  return json;
+};
+
+const fetchDataDensity = async (symbols: string[]): Promise<DensityResponse> => {
+  const qs = symbols.map((s) => `symbols=${encodeURIComponent(s)}`).join('&');
+  const res = await fetch(`${API_BASE}/v1/epistemic/data-density?${qs}`);
   if (!res.ok) throw new Error(`API lỗi: HTTP ${res.status}`);
   const json = await res.json();
   if (json.status !== 'success') throw new Error(json.message || 'API trả status không success');
@@ -101,6 +127,23 @@ export default function EpistemicDashboard() {
     refetchInterval: 30_000,
     staleTime: 10_000,
   });
+
+  const { data: densityData } = useQuery<DensityResponse>({
+    queryKey: ['epistemicDensity'],
+    queryFn: () => fetchDataDensity(DEFAULT_TARGETS),
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+  });
+
+  const densitySummary = useMemo(() => {
+    if (!densityData?.data || densityData.data.length === 0) return null;
+    const n = densityData.data.length;
+    const severe = densityData.data.filter((r) => r.status === 'SEVERE_GAP').length;
+    const gap = densityData.data.filter((r) => r.status === 'GAP_FOUND').length;
+    const healed = densityData.data.filter((r) => r.healed).length;
+    const avgDensity = densityData.data.reduce((s, r) => s + r.density_pct, 0) / n;
+    return { n, severe, gap, healed, avgDensity };
+  }, [densityData]);
 
   const rows = useMemo(() => {
     if (!data?.data) return [];
@@ -209,6 +252,42 @@ export default function EpistemicDashboard() {
               <TrendingDown className="w-4 h-4 text-rose-600" />
             </div>
             <h3 className="text-2xl font-mono font-extrabold text-rose-700 mt-2">{kpi.vetoed}</h3>
+          </div>
+        </div>
+      )}
+
+      {/* DATA DENSITY ROW */}
+      {densitySummary && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+          <div className="bg-white/60 backdrop-blur-md p-4 rounded-lg border border-japandi-warm-sand">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold tracking-widest text-japandi-muted-clay uppercase">Mật độ BCTC TB</span>
+              <Database className="w-4 h-4 text-japandi-moss" />
+            </div>
+            <h3 className={cn('text-2xl font-mono font-extrabold mt-2', densitySummary.avgDensity >= 80 ? 'text-emerald-700' : densitySummary.avgDensity >= 60 ? 'text-amber-600' : 'text-rose-700')}>
+              {densitySummary.avgDensity.toFixed(1)}%
+            </h3>
+          </div>
+          <div className="bg-white/60 backdrop-blur-md p-4 rounded-lg border border-japandi-warm-sand">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold tracking-widest text-japandi-muted-clay uppercase">SEVERE_GAP</span>
+              <AlertTriangle className="w-4 h-4 text-rose-600" />
+            </div>
+            <h3 className="text-2xl font-mono font-extrabold text-rose-700 mt-2">{densitySummary.severe}</h3>
+          </div>
+          <div className="bg-white/60 backdrop-blur-md p-4 rounded-lg border border-japandi-warm-sand">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold tracking-widest text-japandi-muted-clay uppercase">GAP_FOUND</span>
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+            </div>
+            <h3 className="text-2xl font-mono font-extrabold text-amber-700 mt-2">{densitySummary.gap}</h3>
+          </div>
+          <div className="bg-white/60 backdrop-blur-md p-4 rounded-lg border border-japandi-warm-sand">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold tracking-widest text-japandi-muted-clay uppercase">Đã tự vá (Healed)</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            </div>
+            <h3 className="text-2xl font-mono font-extrabold text-emerald-700 mt-2">{densitySummary.healed}</h3>
           </div>
         </div>
       )}
