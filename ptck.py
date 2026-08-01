@@ -173,7 +173,9 @@ def cmd_report(args):
     elif args.subcommand == "daily":
         from src.services.daily_market_report import build_daily_report, in_bao_cao
         bao_cao = build_daily_report()
-        in_bao_cao(bao_cao)
+        # Mặc định song ngữ Việt-Anh; --verbose-lang để ép chế độ khác.
+        lang_mode = getattr(args, "verbose_lang", None) or "annotated"
+        in_bao_cao(bao_cao, lang_mode=lang_mode)
     elif args.subcommand == "monthly":
         month = getattr(args, 'month', None)
         lang = getattr(args, 'lang', 'vi')
@@ -3889,13 +3891,13 @@ def build_parser():
     lang_parent = argparse.ArgumentParser(add_help=False)
     lang_parent.add_argument(
         '--verbose-lang', choices=['compact', 'annotated', 'full', 'auto'],
-        default='full', dest='verbose_lang',
+        default=argparse.SUPPRESS, dest='verbose_lang',
         help='Chế độ hiển thị ngôn ngữ CLI (compact/annotated/full/auto)',
     )
     # Also accept --verbose-lang before subcommand
     parser.add_argument(
         '--verbose-lang', choices=['compact', 'annotated', 'full', 'auto'],
-        default='full', dest='verbose_lang',
+        default=argparse.SUPPRESS, dest='verbose_lang',
         help=argparse.SUPPRESS,
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -4599,7 +4601,9 @@ def main():
 
     parser = build_parser()
     args = parser.parse_args()
-    _VERBOSE_LANG = args.verbose_lang
+    # Mặc định 'full' (Tiếng Việt) cho mọi lệnh, trừ report daily
+    # (riêng lệnh đó default sang chế độ song ngữ Việt-Anh).
+    _VERBOSE_LANG = getattr(args, "verbose_lang", None) or "full"
     # Re-hydrate: config.py may push vnstock_path to sys.path[0],
     # breaking core/ resolution. Ensure PROJECT_ROOT stays at [0].
     sp = str(PROJECT_ROOT)

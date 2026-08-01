@@ -148,6 +148,97 @@ def _xep_loai_rui_ro(health_score, atr_ratio, risk_appetite, flow_status):
     return "thấp"
 
 
+# ============================================================
+# BILINGUAL VI→EN — bảng dịch cho renderer báo cáo hằng ngày
+# WHY "VI (EN)": end-user đọc Việt trước, EN tham khảo cho dev/log.
+# ============================================================
+_BI = {
+    # Section titles
+    "TỔNG QUAN THỊ TRƯỜNG": "MARKET OVERVIEW",
+    "DÒNG TIỀN ĐANG ĐI ĐÂU": "WHERE IS THE MONEY FLOWING",
+    "MỨC ĐỘ RỦI RO THỊ TRƯỜNG": "MARKET RISK LEVEL",
+    "TÍN HIỆU ĐẶC BIỆT": "SPECIAL SIGNALS",
+    "KẾT LUẬN HÀNH VI": "ACTION CONCLUSION",
+    "CẢNH BÁO SỚM CHUYỂN PHA": "EARLY PHASE-SHIFT WARNING",
+    "XÁC NHẬN CHUYỂN PHA THẬT": "PHASE-SHIFT CONFIRMATION",
+    "HÔM NAY": "TODAY",
+    "PHÂN LOẠI DANH MỤC CỔ PHIẾU": "PORTFOLIO CLASSIFICATION",
+    # Field labels
+    "Xu hướng chung": "Overall trend",
+    "Mức độ rõ xu hướng": "Trend clarity",
+    "Tâm lý thị trường": "Market sentiment",
+    "Điểm regime": "Regime score",
+    "Nhóm mạnh nhất": "Strongest groups",
+    "Nhóm yếu nhất": "Weakest groups",
+    "Tập trung vài nhóm": "Concentrated",
+    "Trạng thái": "Status",
+    "Độ rộng thị trường": "Market breadth",
+    "Dòng tiền lan tỏa": "Flow breadth",
+    "Biến động giá": "Price volatility",
+    "Sức khỏe độ rộng": "Breadth health",
+    "Xếp loại": "Risk rating",
+    "Hành vi khuyến nghị": "Recommended action",
+    "Cảnh báo": "Warning",
+    "Mức độ": "Level",
+    "Kết luận": "Conclusion",
+    "Số nhóm xác nhận": "Groups confirmed",
+    "Ngành": "Sectors",
+    # Value words
+    "tăng": "rising",
+    "tăng mạnh": "strongly rising",
+    "giảm": "falling",
+    "đi ngang": "sideways",
+    "mạnh": "strong",
+    "vừa": "moderate",
+    "yếu": "weak",
+    "tích cực": "positive",
+    "thận trọng": "cautious",
+    "trung tính": "neutral",
+    "tốt": "good",
+    "trung bình": "average",
+    "xấu": "poor",
+    "cao": "high",
+    "thấp": "low",
+    "rộng": "broad",
+    "hẹp": "narrow",
+    "Có": "Yes",
+    "Không": "No",
+    "không rõ": "unknown",
+    # Behavior / conclusions
+    "Có thể tham gia": "Can participate",
+    "Quan sát": "Watch",
+    "Thận trọng": "Caution",
+    "Nên đứng ngoài": "Stay out",
+    "Bình thường": "Normal",
+    "Nhiễu": "Noise",
+    "An toàn": "Safe",
+}
+
+
+def _resolve_lang_mode(lang_mode: str) -> str:
+    """Resolve 'auto' → annotated/compact dựa trên terminal width."""
+    if lang_mode == "auto":
+        try:
+            from src.core.canonical_output_adapter import _detect_lang_mode
+            return _detect_lang_mode("auto")
+        except Exception:
+            return "annotated"
+    return lang_mode
+
+
+def _bi(vi: str, lang_mode: str = "annotated") -> str:
+    """Localize 1 label/value: full=VI, compact=EN, annotated/auto="VI (EN)"."""
+    mode = _resolve_lang_mode(lang_mode)
+    en = _BI.get(vi)
+    if not en or en == vi:
+        return vi
+    if mode == "compact":
+        return en
+    if mode == "full":
+        return vi
+    return f"{vi} ({en})"
+
+
 def _ket_luan_hanh_vi(regime_status, xep_loai, health_score, risk_appetite):
     tamly = str(risk_appetite).upper() if risk_appetite else ""
     if "CRISIS" in str(regime_status).upper():
@@ -432,7 +523,12 @@ def build_daily_report():
     return result
 
 
-def in_bao_cao(report):
+def in_bao_cao(report, lang_mode: str = "annotated"):
+    """In báo cáo hằng ngày ra console.
+
+    lang_mode: 'full'=Tiếng Việt, 'compact'=English, 'annotated'/'auto'
+    = song ngữ Việt-Anh "VI (EN)" (mặc định).
+    """
     gach = "=" * 60
 
     print()
@@ -443,46 +539,46 @@ def in_bao_cao(report):
 
     # 1. TỔNG QUAN
     tq = report["tong_quan"]
-    print("\n  1. TỔNG QUAN THỊ TRƯỜNG")
+    print(f"\n  1. {_bi('TỔNG QUAN THỊ TRƯỜNG', lang_mode)}")
     print("  --")
-    print(f"  Xu hướng chung:      {tq['xu_huong_chung']}")
-    print(f"  Mức độ rõ xu hướng:  {tq['muc_do_ro_xu_huong']}")
-    print(f"  Tâm lý thị trường:   {tq['tam_ly_thi_truong']}")
+    print(f"  {_bi('Xu hướng chung', lang_mode):{24}s} {_bi(tq['xu_huong_chung'], lang_mode)}")
+    print(f"  {_bi('Mức độ rõ xu hướng', lang_mode):{24}s} {_bi(tq['muc_do_ro_xu_huong'], lang_mode)}")
+    print(f"  {_bi('Tâm lý thị trường', lang_mode):{24}s} {_bi(tq['tam_ly_thi_truong'], lang_mode)}")
     if tq.get("diem_regime") is not None:
-        print(f"  Điểm regime:         {tq['diem_regime']}")
+        print(f"  {_bi('Điểm regime', lang_mode):{24}s} {tq['diem_regime']}")
     if tq.get("adx") is not None:
         print(f"  ADX:                  {tq['adx']}")
     print(f"  → {tq['ket_luan']}")
 
     # 2. DÒNG TIỀN
     dt = report["dong_tien"]
-    print("\n  2. DÒNG TIỀN ĐANG ĐI ĐÂU")
+    print(f"\n  2. {_bi('DÒNG TIỀN ĐANG ĐI ĐÂU', lang_mode)}")
     print("  --")
     if dt["nhom_manh_nhat"]:
-        print(f"  Nhóm mạnh nhất:      {', '.join(dt['nhom_manh_nhat'])}")
+        print(f"  {_bi('Nhóm mạnh nhất', lang_mode):{24}s} {', '.join(dt['nhom_manh_nhat'])}")
     else:
-        print("  Nhóm mạnh nhất:      không rõ")
+        print(f"  {_bi('Nhóm mạnh nhất', lang_mode):{24}s} {_bi('không rõ', lang_mode)}")
     if dt["nhom_yeu_nhat"]:
-        print(f"  Nhóm yếu nhất:       {', '.join(dt['nhom_yeu_nhat'])}")
-    print(f"  Tập trung vài nhóm:  {dt['tap_trung_vai_nhom']}")
-    print(f"  Trạng thái:          {dt['trang_thai_dong_tien']}")
+        print(f"  {_bi('Nhóm yếu nhất', lang_mode):{24}s} {', '.join(dt['nhom_yeu_nhat'])}")
+    print(f"  {_bi('Tập trung vài nhóm', lang_mode):{24}s} {_bi(dt['tap_trung_vai_nhom'], lang_mode)}")
+    print(f"  {_bi('Trạng thái', lang_mode):{24}s} {dt['trang_thai_dong_tien']}")
     print(f"  → {dt['ket_luan']}")
 
     # 3. RỦI RO
     rr = report["rui_ro"]
-    print("\n  3. MỨC ĐỘ RỦI RO THỊ TRƯỜNG")
+    print(f"\n  3. {_bi('MỨC ĐỘ RỦI RO THỊ TRƯỜNG', lang_mode)}")
     print("  --")
-    print(f"  Độ rộng thị trường:  {rr['do_rong_thi_truong']}")
-    print(f"  Dòng tiền lan tỏa:   {rr['dong_tien_lan_toa']}")
-    print(f"  Biến động giá:       {rr['bien_dong_gia']}")
+    print(f"  {_bi('Độ rộng thị trường', lang_mode):{24}s} {_bi(rr['do_rong_thi_truong'], lang_mode)}")
+    print(f"  {_bi('Dòng tiền lan tỏa', lang_mode):{24}s} {_bi(rr['dong_tien_lan_toa'], lang_mode)}")
+    print(f"  {_bi('Biến động giá', lang_mode):{24}s} {_bi(rr['bien_dong_gia'], lang_mode)}")
     if rr.get("diem_suc_khoe_do_rong") is not None:
-        print(f"  Sức khỏe độ rộng:    {rr['diem_suc_khoe_do_rong']}")
-    print(f"  Xếp loại:            {rr['xep_loai']}")
+        print(f"  {_bi('Sức khỏe độ rộng', lang_mode):{24}s} {rr['diem_suc_khoe_do_rong']}")
+    print(f"  {_bi('Xếp loại', lang_mode):{24}s} {_bi(rr['xep_loai'], lang_mode)}")
     print(f"  → {rr['ket_luan']}")
 
     # 4. TÍN HIỆU ĐẶC BIỆT
     tin_hieu = report["tin_hieu_dac_biet"]
-    print("\n  4. TÍN HIỆU ĐẶC BIỆT")
+    print(f"\n  4. {_bi('TÍN HIỆU ĐẶC BIỆT', lang_mode)}")
     print("  --")
     if tin_hieu:
         for th in tin_hieu:
@@ -495,10 +591,10 @@ def in_bao_cao(report):
                 ky_hieu = "•"
             print(f"  {ky_hieu} {th['noi_dung']}")
     else:
-        print("  Không có tín hiệu đặc biệt nào.")
+        print(f"  {_bi('Không có tín hiệu đặc biệt nào.', lang_mode)}")
 
     # 5. KẾT LUẬN HÀNH VI
-    print("\n  5. KẾT LUẬN HÀNH VI")
+    print(f"\n  5. {_bi('KẾT LUẬN HÀNH VI', lang_mode)}")
     print("  --")
     hanh_vi = report["ket_luan_hanh_vi"]
     ky_hieu_map = {
@@ -508,27 +604,27 @@ def in_bao_cao(report):
         "Nên đứng ngoài": "🔴",
     }
     kh = ky_hieu_map.get(hanh_vi, "•")
-    print(f"  {kh} Hành vi khuyến nghị: {hanh_vi}")
+    print(f"  {kh} {_bi('Hành vi khuyến nghị', lang_mode)}: {_bi(hanh_vi, lang_mode)}")
 
     # 6. CẢNH BÁO SỚM
     cb = report.get("canh_bao_som", {})
-    print("\n  6. CẢNH BÁO SỚM CHUYỂN PHA")
+    print(f"\n  6. {_bi('CẢNH BÁO SỚM CHUYỂN PHA', lang_mode)}")
     print("  --")
     cap_do = cb.get("cap_do_tieng_viet", "Bình thường")
     ky_hieu_cb = cb.get("cap_do_ky_hieu", "🟡")
-    print(f"  {ky_hieu_cb} Cảnh báo: {cap_do}")
+    print(f"  {ky_hieu_cb} {_bi('Cảnh báo', lang_mode)}: {_bi(cap_do, lang_mode)}")
     cac_canh_bao = cb.get("canh_bao", [])
     if cac_canh_bao:
         for c in cac_canh_bao:
             print(f"  ▸ {c}")
-    print(f"  → Mức độ: {cap_do}")
+    print(f"  → {_bi('Mức độ', lang_mode)}: {_bi(cap_do, lang_mode)}")
 
     # 7. XÁC NHẬN CHUYỂN PHA
     xn = report.get("xac_nhan_chuyen_pha", {})
-    print("\n  7. XÁC NHẬN CHUYỂN PHA THẬT")
+    print(f"\n  7. {_bi('XÁC NHẬN CHUYỂN PHA THẬT', lang_mode)}")
     print("  --")
-    print(f"  {xn.get('ky_hieu', '🔍')} Kết luận: {xn.get('ten', 'Nhiễu')}")
-    print(f"  Số nhóm xác nhận: {xn.get('so_nhom_dat', 0)}/3")
+    print(f"  {xn.get('ky_hieu', '🔍')} {_bi('Kết luận', lang_mode)}: {_bi(xn.get('ten', 'Nhiễu'), lang_mode)}")
+    print(f"  {_bi('Số nhóm xác nhận', lang_mode)}: {xn.get('so_nhom_dat', 0)}/3")
     chi_tiet = xn.get("chi_tiet", {})
     for ten_nhom, tt in chi_tiet.items():
         dat = "✔" if tt.get("dat") else "✘"
@@ -536,7 +632,7 @@ def in_bao_cao(report):
         ten_hien = {"gia_va_xu_huong": "Giá và xu hướng",
                      "dong_tien": "Dòng tiền",
                      "hanh_vi_phong_thu": "Hành vi phòng thủ"}.get(ten_nhom, ten_nhom)
-        print(f"  {dat} {ten_hien} (điểm: {diem})")
+        print(f"  {dat} {_bi(ten_hien, lang_mode)} (điểm: {diem})")
         for ld in tt.get("ly_do", [])[:2]:
             print(f"    ▸ {ld}")
     print(f"  → {xn.get('mo_ta', '')}")
@@ -544,14 +640,14 @@ def in_bao_cao(report):
     # 8. QUYẾT ĐỊNH CUỐI CÙNG
     qd = report.get("quyet_dinh_cuoi_cung", {})
     print(f"\n{gach}")
-    print(f"  {qd.get('ky_hieu', '🟢')}  HÔM NAY: {qd.get('ten', 'An toàn')}")
+    print(f"  {qd.get('ky_hieu', '🟢')}  {_bi('HÔM NAY', lang_mode)}: {_bi(qd.get('ten', 'An toàn'), lang_mode)}")
     print(f"  {qd.get('mo_ta', '')}")
     print(gach)
 
     # 9. PHÂN LOẠI DANH MỤC
     pl = report.get("phan_loai_danh_muc", [])
     if pl:
-        print("\n  9. PHÂN LOẠI DANH MỤC CỔ PHIẾU")
+        print(f"\n  9. {_bi('PHÂN LOẠI DANH MỤC CỔ PHIẾU', lang_mode)}")
         print("  --")
         nhom_theo_ma = {}
         for item in pl:
@@ -565,8 +661,8 @@ def in_bao_cao(report):
                 ten = ds[0].get("hanh_dong", "")
                 symbols = [x["symbol"] for x in ds]
                 sectors = ", ".join(sorted(set(x["sector_vn"] for x in ds)))
-                print(f"  {kh} {ten}: {', '.join(symbols)}")
-                print(f"     Ngành: {sectors}")
+                print(f"  {kh} {_bi(ten, lang_mode)}: {', '.join(symbols)}")
+                print(f"     {_bi('Ngành', lang_mode)}: {sectors}")
         print(f"\n{gach}")
 
 
