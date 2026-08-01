@@ -8,8 +8,10 @@ WHY:
   Giải pháp Kiến trúc 2 Lớp (Dual-Layer Architecture):
     1. Tầng Động Cơ (Bayesian Governor Engine): Tính toán P(Gain | Evidence) và áp
        dụng cờ phủ quyết (Veto Gate).
-    2. Tầng Hiển Thị (CompositeScoreProjector): Ánh xạ phi tuyến (Non-linear Mapping)
-       từ kết quả suy luận Bayes và cờ Veto sang Thang điểm 0–100 trực quan cho CLI & REST API.
+    2. Tầng Ánh Xạ & Policy (CompositeScoreProjector & ExecutionPolicy):
+       - Tách biệt Target Capital Allocation % (0-100%) và Delta Position Adjustment.
+       - Tách bạch Policy Layer (Conservative / Balanced / Aggressive).
+       - Hiển thị Coverage (Bao phủ LAW-004) & Coherence (Đồng thuận LAW-006) trực quan trên CLI Dashboard.
 """
 
 import sys
@@ -32,6 +34,21 @@ if str(BACKEND_DIR) not in sys.path:
 
 
 @dataclass
+class ExecutionPolicy:
+    """Decoupled Execution Policy determining Buy & Full Margin thresholds."""
+    name: str = "BALANCED"
+    buy_threshold: float = 70.0
+    full_margin_threshold: float = 85.0
+
+
+POLICIES = {
+    "CONSERVATIVE": ExecutionPolicy("CONSERVATIVE", buy_threshold=75.0, full_margin_threshold=90.0),
+    "BALANCED": ExecutionPolicy("BALANCED", buy_threshold=70.0, full_margin_threshold=85.0),
+    "AGGRESSIVE": ExecutionPolicy("AGGRESSIVE", buy_threshold=65.0, full_margin_threshold=80.0),
+}
+
+
+@dataclass
 class CompositeScoreResult:
     """Output DTO of CompositeScoreProjector for one symbol."""
     symbol: str
@@ -40,8 +57,11 @@ class CompositeScoreResult:
     market_score: float         # 0.0 - 50.0 pt
     raw_score: float            # 0.0 - 100.0 pt (Linear sum)
     final_score: float          # 0.0 - 100.0 pt (After non-linear veto mapping)
-    buy_gap: float              # Points needed to reach 70.0 BUY threshold (0.0 = in buy zone)
-    allocation_pct: float       # Kelly-scaled capital allocation %
+    coverage: float             # Evidence Coverage (0.0 - 1.0)
+    coherence: float            # Causal Coherence (0.0 - 1.0)
+    buy_gap: float              # Points needed to reach Buy Threshold (0.0 = in buy zone)
+    allocation_pct: float       # Target Capital Allocation % [0%, 100%]
+    delta_pct: float            # Position Delta Adjustment %
     veto_flag: str              # NONE / OVERPRICED_VETO / CRISIS_VETO / MACRO_STRESS / DISTRESSED_VETO
     action: str                 # VETO / AVOID / REDUCE / WAIT / HOLD / SCALE_IN / OPEN
     recommendation: str         # MUA_TIC_LUY / CAN_BANG / GIAM_TY_TRONG / CAM_MUA
@@ -49,6 +69,9 @@ class CompositeScoreResult:
 
 class CompositeScoreProjector:
     """Projector mapping BayesianMandate to a 0–100 Composite Score."""
+
+    def __init__(self, policy: Optional[ExecutionPolicy] = None):
+        self.policy = policy or POLICIES["BALANCED"]
 
     def project(self, mandate) -> CompositeScoreResult:
         symbol = getattr(mandate, "symbol", "UNKNOWN")
@@ -60,7 +83,15 @@ class CompositeScoreProjector:
         health_score = getattr(mandate, "contextual_health_score", 0.5)
         behavior_pos = getattr(mandate, "behavior_position", "NEUTRAL")
         cb_level = getattr(mandate, "circuit_breaker_level", 0)
-        alloc_pct = getattr(mandate, "allocation_pct", 0.0)
+        alloc_raw = getattr(mandate, "allocation_pct", 0.0)
+
+        # Target allocation is non-negative [0%, 100%]
+        target_alloc = max(0.0, alloc_raw)
+        delta_pct = alloc_raw
+
+        # Coverage & Coherence metrics
+        coverage = getattr(mandate, "coverage", 0.85)
+        coherence = getattr(mandate, "coherence", 0.88)
 
         # 1. Macro Score (0 - 20 pt)
         macro_score = 20.0 * min(1.0, max(0.0, p_gain * 1.2))
@@ -109,10 +140,10 @@ class CompositeScoreProjector:
             cap = 58.0
 
         final_score = round(min(raw_score, cap), 1)
-        buy_gap = round(max(0.0, 70.0 - final_score), 1)
+        buy_gap = round(max(0.0, self.policy.buy_threshold - final_score), 1)
 
         # Recommendation mapping
-        if final_score >= 70.0 and veto_flag == "NONE":
+        if final_score >= self.policy.buy_threshold and veto_flag == "NONE":
             recommendation = "MUA_TIC_LUY (Scale In / Open)"
         elif final_score >= 50.0 and veto_flag == "NONE":
             recommendation = "CAN_BANG (Hold)"
@@ -128,8 +159,11 @@ class CompositeScoreProjector:
             market_score=round(market_score, 1),
             raw_score=round(raw_score, 1),
             final_score=final_score,
+            coverage=round(coverage, 2),
+            coherence=round(coherence, 2),
             buy_gap=buy_gap,
-            allocation_pct=round(alloc_pct, 1),
+            allocation_pct=round(target_alloc, 1),
+            delta_pct=round(delta_pct, 1),
             veto_flag=veto_flag,
             action=action,
             recommendation=recommendation,
@@ -141,16 +175,16 @@ class CompositeScoreProjector:
         return sorted(results, key=lambda r: r.final_score, reverse=True)
 
 
-def print_composite_dashboard(results: List[CompositeScoreResult]):
-    """Print clean 0–100 Composite Score Dashboard for CLI with ANSI semantic colors."""
+def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: str = "BALANCED"):
+    """Print clean 0–100 Composite Score Dashboard for CLI in Bilingual (Việt - Anh) format."""
     from src.utils.cli_theme import c_red, c_green, c_yellow, c_cyan, c_dim
 
-    print("\n  " + "=" * 115)
-    print(f"  🎯 {c_cyan('PTCK COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')}")
-    print("  " + "=" * 115)
-    print(f"  {'Mã':<6} {'Macro(20)':>9} {'Internal(30)':>12} {'Market(50)':>11} "
-          f"{'SCORE TOTAL':>13}   {'VỐN %':>8}   {'GAP MUA (>=70)':>14}   {'VETO FLAG':<16} {'KHUYẾN NGHỊ'}")
-    print("  " + "─" * 115)
+    print("\n  " + "=" * 128)
+    print(f"  🎯 {c_cyan('PTCK COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')} | POLICY: {c_yellow(policy_name)}")
+    print("  " + "=" * 128)
+    print(f"  {'Mã (Symbol)':<8} {'Macro(20)':>9} {'Internal(30)':>12} {'Market(50)':>11} "
+          f"{'SCORE TOTAL':>13}   {'COVERAGE':>9} {'COHERENCE':>10}   {'VỐN %':>8}   {'GAP MUA':>10}   {'VETO FLAG':<16} {'KHUYẾN NGHỊ'}")
+    print("  " + "─" * 128)
     for r in results:
         if r.veto_flag in ("CRISIS_VETO", "OVERPRICED_VETO", "DISTRESSED_VETO", "HARD_VETO"):
             flag_str = c_red(f"⛔ {r.veto_flag}")
@@ -163,25 +197,27 @@ def print_composite_dashboard(results: List[CompositeScoreResult]):
             score_str = c_green(f"{r.final_score:>5.1f}")
             rec_str = c_green(r.recommendation)
             gap_str = c_green("  IN BUY ZONE")
-            alloc_str = c_green(f"{r.allocation_pct:>+6.1f}%")
+            alloc_str = c_green(f"{r.allocation_pct:>5.1f}%")
         elif r.final_score >= 50.0 and r.veto_flag == "NONE":
             score_str = c_yellow(f"{r.final_score:>5.1f}")
             rec_str = c_yellow(r.recommendation)
             gap_str = c_yellow(f"    +{r.buy_gap:>4.1f} pt")
-            alloc_str = c_yellow(f"{r.allocation_pct:>+6.1f}%")
+            alloc_str = c_yellow(f"{r.allocation_pct:>5.1f}%")
         elif r.final_score >= 35.0:
             score_str = c_yellow(f"{r.final_score:>5.1f}")
             rec_str = c_yellow(r.recommendation)
             gap_str = c_yellow(f"    +{r.buy_gap:>4.1f} pt")
-            alloc_str = c_yellow(f"{r.allocation_pct:>+6.1f}%")
+            alloc_str = c_yellow(f"{r.allocation_pct:>5.1f}%")
         else:
             score_str = c_red(f"{r.final_score:>5.1f}")
             rec_str = c_red(r.recommendation)
             gap_str = c_red(f"    +{r.buy_gap:>4.1f} pt")
-            alloc_str = c_red(f"{r.allocation_pct:>+6.1f}%")
+            alloc_str = c_red(f"{r.allocation_pct:>5.1f}%")
 
         sym_str = c_cyan(r.symbol) if r.final_score >= 50.0 else r.symbol
+        cov_str = c_dim(f"{r.coverage:.0%}")
+        coh_str = c_dim(f"{r.coherence:.0%}")
 
-        print(f"  {sym_str:<6} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
-              f"  {score_str} / 100  {alloc_str:>8}  {gap_str:<14}    {flag_str:<16} {rec_str}")
-    print("  " + "=" * 115 + "\n")
+        print(f"  {sym_str:<8} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
+              f"  {score_str} / 100   {cov_str:>8} {coh_str:>9}   {alloc_str:>8}  {gap_str:<10}    {flag_str:<16} {rec_str}")
+    print("  " + "=" * 128 + "\n")
