@@ -146,8 +146,10 @@ def print_composite_dashboard(results: List[CompositeScoreResult]):
           f"{'SCORE TOTAL':>13}   {'VETO FLAG':<16} {'KHUYẾN NGHỊ'}")
     print("  " + "─" * 90)
     for r in results:
-        if r.veto_flag != "NONE":
+        if r.veto_flag in ("CRISIS_VETO", "OVERPRICED_VETO", "DISTRESSED_VETO", "HARD_VETO"):
             flag_str = c_red(f"⛔ {r.veto_flag}")
+        elif r.veto_flag in ("MACRO_STRESS", "SOFT_VETO"):
+            flag_str = c_yellow(f"⚠️ {r.veto_flag}")
         else:
             flag_str = c_green("🟢 OK")
 
