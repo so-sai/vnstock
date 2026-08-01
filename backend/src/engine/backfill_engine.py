@@ -279,6 +279,7 @@ def backfill(symbols: list = None,
     bo_qua = 0
     tong_dong_moi = 0
     blacklist = {}
+    source_counter = {s: 0 for s in FALLBACK_SOURCES}
     bat_dau = time.time()
 
     for idx, symbol in enumerate(symbols, 1):
@@ -329,12 +330,16 @@ def backfill(symbols: list = None,
                     if verbose:
                         print(f"\r  [{idx}/{tong}] {symbol}: ✅ Đã đầy đủ (giữ nguyên {dong_truoc} dòng)")
                     thanh_cong += 1
+                    src = df['source'].iloc[0] if 'source' in df.columns else 'unknown'
+                    source_counter[src] = source_counter.get(src, 0) + 1
                     break
 
                 tong_dong_moi += dong_moi
                 thanh_cong += 1
+                src = df['source'].iloc[0] if 'source' in df.columns else 'unknown'
+                source_counter[src] = source_counter.get(src, 0) + 1
                 if verbose:
-                    print(f"\r  [{idx}/{tong}] {symbol}: ✅ +{dong_moi} dòng ({dong_truoc}→{dong_sau})")
+                    print(f"\r  [{idx}/{tong}] {symbol}: ✅ +{dong_moi} dòng ({dong_truoc}→{dong_sau}) [src={src}]")
                 break
 
             except Exception as e:
@@ -381,6 +386,24 @@ def backfill(symbols: list = None,
     print(f"  ⏱  Thời gian:  {thoi_gian:.1f}s ({thoi_gian/60:.1f} phút)")
     if blacklist:
         print(f"  🚫 Blacklist:  {len(blacklist)} mã bị tạm khóa")
+
+    # Source distribution audit
+    total_success = sum(source_counter.values())
+    if total_success > 0:
+        print(f"  📊 Phân bổ nguồn dữ liệu (Thành công: {total_success}):")
+        for src in FALLBACK_SOURCES:
+            count = source_counter.get(src, 0)
+            pct = (count / total_success * 100) if total_success > 0 else 0
+            bar = "█" * int(pct / 2) + "░" * (50 - int(pct / 2))
+            print(f"     {src:<6s} [{count:>3}] {pct:5.1f}% |{bar}|")
+        # Recommend reordering if TCBS/DNSE handled >30% of load
+        fallback_pct = sum(source_counter.get(s, 0) for s in ['tcbs', 'dnse', 'kbs'])
+        if fallback_pct > total_success * 0.3:
+            logger.warning(
+                f"⚠ VCI handled only {source_counter.get('vci', 0)}/{total_success} "
+                f"({source_counter.get('vci', 0)/total_success*100:.0f}%). "
+                f"Consider increasing VCI_TIMEOUT or checking rate-limit status."
+            )
     print()
 
     # Cập nhật báo cáo chất lượng dữ liệu
