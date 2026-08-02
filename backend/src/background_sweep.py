@@ -21,9 +21,8 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-from vnstock import Listing, Quote
-
 from src.database.db_core import get_connection
+from src.providers.vnstock_provider import VnstockProvider
 
 
 def run_background_sweep():
@@ -32,9 +31,8 @@ def run_background_sweep():
     print(">>> " * 10)
 
     # 1. Xác định tập mã còn thiếu
-    l = Listing()
-    all_symbols_df = l.all_symbols()
-    all_symbols = set(all_symbols_df['symbol'].tolist())
+    listing = VnstockProvider()
+    all_symbols = set(listing.symbols() or [])
 
     with get_connection() as conn:
         ohlcv_symbols = set([r[0] for r in conn.execute('SELECT DISTINCT symbol FROM daily_ohlcv').fetchall()])
@@ -63,8 +61,8 @@ def run_background_sweep():
                 if symbol in ['VNINDEX', 'VN30', 'HNXINDEX', 'UPINDEX']: continue
 
                 print(f"📡 Fetching {symbol}...", end=' ', flush=True)
-                q = Quote(symbol=symbol, source='kbs')
-                df_hist = q.history(length='135', interval='1D') # Get 135 to ensure 125 (6M) after drops
+                provider = VnstockProvider(source='kbs')
+                df_hist = provider.history(symbol, length='135', interval='1D')  # 135 → 125 (6M) after drops
 
                 if df_hist is not None and not df_hist.empty:
                     df_hist = df_hist.rename(columns={'time': 'date'})

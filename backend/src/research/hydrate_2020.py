@@ -12,17 +12,16 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-from vnstock import Quote
-
 from src.database.db_core import get_connection, save_data_upsert
+from src.providers.vnstock_provider import VnstockProvider
 
 
 def hydrate_2020_data():
     """Fetches VNINDEX 2019-2020 for the COVID Stress Test."""
     print("📡 Hydrating VNINDEX 2019-2020 history...")
     try:
-        q = Quote(symbol='VNINDEX', source='kbs')
-        df = q.history(start='2019-01-01', end='2020-06-30')
+        q = VnstockProvider(source='kbs')
+        df = q.history('VNINDEX', start='2019-01-01', end='2020-06-30')
         if df is not None and not df.empty:
             df = df.rename(columns={'time': 'date'})
             df['symbol'] = 'VNINDEX'

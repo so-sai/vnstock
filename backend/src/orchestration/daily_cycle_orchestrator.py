@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+
 # ── Sentinel v2.2 (AGENTS.md Anchor) ─────────────────────────────────
 def _hydrate_path():
     if getattr(sys, "frozen", False):

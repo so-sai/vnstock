@@ -41,6 +41,7 @@ import numpy as np
 import src.config
 from src.core.presentation.vi_localizer import SECTOR_LABELS
 from src.database.db_core import get_connection, safe_json_dump
+from src.providers.vnstock_provider import VnstockProvider
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,6 @@ SECTOR_MAP = {
 
 def _fetch_batch(symbols, interval_days=5):
     import requests
-    from vnstock import Quote
     end = datetime.now().strftime('%Y-%m-%d')
     start = (datetime.now() - timedelta(days=interval_days)).strftime('%Y-%m-%d')
     results = {}
@@ -97,10 +97,10 @@ def _fetch_batch(symbols, interval_days=5):
         sources = [('vci', 'VCI'), ('kbs', 'KBS')]
         for source, label in sources:
             try:
-                q = Quote(symbol=sym, source=source)
+                q = VnstockProvider(source=source)
                 # Hard timeout: tránh treo vô hạn khi offline / mạng yếu.
                 # (vnstock mặc định timeout=None → chờ mãi → EOD hang >120s).
-                df = q.history(start=start, end=end, timeout=5)
+                df = q.history(sym, start=start, end=end, timeout=5)
                 if df is not None and len(df) > 0:
                     results[sym] = df
                     if label == 'KBS':
@@ -214,9 +214,8 @@ def scan_liquidity_concentration(target_date=None, offline: bool = False):
 
     # 4. VNINDEX CONTEXT
     try:
-        from vnstock import Quote
-        vni_q = Quote(symbol='VNINDEX', source='vci')
-        vni_df = vni_q.history(start=(datetime.now()-timedelta(days=60)).strftime('%Y-%m-%d'), end=today)
+        vni_q = VnstockProvider(source='vci')
+        vni_df = vni_q.history('VNINDEX', start=(datetime.now()-timedelta(days=60)).strftime('%Y-%m-%d'), end=today)
         vni_info = {}
         if vni_df is not None and len(vni_df) > 0:
             last = vni_df.iloc[-1]

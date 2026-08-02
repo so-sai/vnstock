@@ -29,7 +29,6 @@ import time
 from datetime import datetime
 
 import pandas as pd
-from vnstock import Quote
 
 from src.database.db_core import get_connection, save_data_upsert
 from src.engine.data_quality import danh_gia_chat_luong_du_lieu
@@ -163,8 +162,10 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
 
         def _run(src=source):
             try:
-                q = Quote(symbol=symbol, source=src)
-                box["df"] = q.history(start=start, end=end, pause=0)
+                # Data goes through the provider abstraction, not vnstock directly.
+                from src.providers.vnstock_provider import VnstockProvider
+                provider = VnstockProvider(source=src)
+                box["df"] = provider.history(symbol, start=start, end=end, pause=0)
             except Exception as e:
                 box["err"] = e
 

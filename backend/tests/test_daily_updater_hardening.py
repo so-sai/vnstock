@@ -31,6 +31,7 @@ import pytest
 from conftest import PROJECT_ROOT
 
 DAILY_UPDATER = PROJECT_ROOT / "backend" / "src" / "daily_updater.py"
+VNSTOCK_PROVIDER = PROJECT_ROOT / "backend" / "src" / "providers" / "vnstock_provider.py"
 PTCK = PROJECT_ROOT / "ptck.py"
 MANIFEST = PROJECT_ROOT / "SYSTEM_MANIFEST.yaml"
 
@@ -48,10 +49,18 @@ class TestIpBanProtection:
     """Chống ban IP khi quét full-market 1514 mã."""
 
     def test_trading_uses_random_agent(self):
-        """KBS rate-limiter fingerprint theo UA cố định; random_agent=True bắt buộc."""
-        src = _src(DAILY_UPDATER)
-        assert "Trading(source='kbs', random_agent=True)" in src, (
-            "Mất random_agent=True — KBS sẽ fingerprint UA cố định và ban IP khi quét full-market."
+        """KBS rate-limiter fingerprint theo UA cố định; random_agent=True bắt buộc.
+
+        Trading được đóng gói trong VnstockProvider.price_board() (providers/);
+        daily_updater gọi qua provider, không import vnstock trực tiếp.
+        """
+        provider_src = _src(VNSTOCK_PROVIDER)
+        assert "random_agent" in provider_src, (
+            "Mất random_agent — KBS sẽ fingerprint UA cố định và ban IP khi quét full-market."
+        )
+        updater_src = _src(DAILY_UPDATER)
+        assert "price_board(active_batch)" in updater_src, (
+            "daily_updater phải gọi price_board qua provider."
         )
 
     def test_update_market_batch_accepts_batch_size_and_throttle(self):

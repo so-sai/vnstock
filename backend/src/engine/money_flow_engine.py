@@ -26,13 +26,7 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from src.database.db_core import get_connection, save_data_upsert
-
-# Ensure libs/vnstock is in sys.path
-if str(PROJECT_ROOT / "libs" / "vnstock") not in sys.path:
-    sys.path.append(str(PROJECT_ROOT / "libs" / "vnstock"))
-
-from vnstock import Company
-
+from src.providers.vnstock_provider import VnstockProvider
 from src.utils.defense import CircuitBreaker
 
 
@@ -62,8 +56,8 @@ class MoneyFlowEngine:
             return None
 
         try:
-            cp = Company(source=self.source, symbol=symbol, show_log=self.show_log)
-            stats = cp.trading_stats()
+            cp = VnstockProvider(source=self.source)
+            stats = cp.trading_stats(symbol, show_log=self.show_log)
             if stats is None or stats.empty: return None
             f_vol_val = stats.iloc[0].get('foreign_volume', 0)
             f_vol: int = int(f_vol_val)

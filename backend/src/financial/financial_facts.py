@@ -29,7 +29,6 @@ PROJECT_ROOT = _candidate
 BACKEND_DIR = PROJECT_ROOT / "backend"
 DATA_DIR = BACKEND_DIR / "data"
 sys.path.insert(0, str(BACKEND_DIR))
-sys.path.insert(0, str(BACKEND_DIR / "libs" / "vnstock"))
 
 # === Constants ===
 FINANCIAL_DB_PATH = DATA_DIR / "financial_facts.db"
@@ -702,24 +701,21 @@ class VnstockCrawler:
                 return None
 
     def fetch_financials_vnstock(self, symbol: str) -> List[Dict]:
-        """Lấy financial statements từ vnstock VCI source."""
+        """Lấy financial statements qua ProviderManager (fallback vnstock → cache)."""
         try:
-            sys.path.insert(0, str(BACKEND_DIR / "libs" / "vnstock"))
-            from vnstock import Finance
-        except ImportError:
-            return []
-
-        try:
-            fin = Finance(source="VCI", symbol=symbol,
-                          period="quarter", get_all=True, show_log=False)
+            from src.providers import get_provider_manager
+            mgr = get_provider_manager()
         except Exception as e:
-            print(f"  [Vnstock] INIT error: {e}")
+            print(f"  [ProviderManager] init error: {e}")
             return []
 
         statements = {}
-        statements["IS"] = self._safe_get(fin.income_statement, "Income stmt")
-        statements["BS"] = self._safe_get(fin.balance_sheet, "Balance sheet")
-        statements["CF"] = self._safe_get(fin.cash_flow, "Cash flow")
+        statements["IS"] = self._safe_get(
+            lambda: mgr.income_statement(symbol), "Income stmt")
+        statements["BS"] = self._safe_get(
+            lambda: mgr.balance_sheet(symbol), "Balance sheet")
+        statements["CF"] = self._safe_get(
+            lambda: mgr.cashflow(symbol), "Cash flow")
 
         return self._parse_statements(symbol, statements)
 

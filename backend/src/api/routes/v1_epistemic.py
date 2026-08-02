@@ -6,12 +6,16 @@ WHY:
     2. Deep Data Density Audit Report (Mật độ BCTC 30 quý 2019Q1-2026Q2) & Missing Quarters.
 """
 
+import asyncio
+import json
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -45,7 +49,7 @@ async def get_composite_dashboard(
     syms = symbols if symbols else DEFAULT_TARGETS
     try:
         from src.governor.company_state import BayesianGovernor
-        from src.governor.composite_score_projector import CompositeScoreProjector, POLICIES
+        from src.governor.composite_score_projector import POLICIES, CompositeScoreProjector
 
         policy_obj = POLICIES.get(policy.upper(), POLICIES["BALANCED"])
         projector = CompositeScoreProjector(policy=policy_obj)
@@ -135,16 +139,23 @@ for r in audit_results.values()
 
 @router.get("/vn20", summary="PTCK_VN20 Dynamic Index (Top 20 Stocks)")
 async def get_vn20_index():
-    """Return the dynamically built PTCK_VN20 index with sector distribution."""
+    """Return the dynamically built PTCK_VN20 index with sector distribution,
+    silent throttle status, and multi-source fallback pipeline info."""
     from src.ptck_vn20_builder import get_vn20_api_data
     try:
         data = get_vn20_api_data()
         return localize_output({
             "status": "success",
             "index": data.get("index", "PTCK_VN20"),
+            "policy": "PTCK_VN20_DYNAMIC",
             "count": data.get("count", 0),
             "built_at": data.get("built_at", ""),
-            "symbols": data.get("symbols", []),
+            "generated_at": data.get("built_at", ""),
+            "data_density_avg": data.get("data_density_avg", 0),
+            "fallback_active_source": data.get("fallback_active_source", "VCI"),
+            "silent_throttle_status": data.get("silent_throttle_status", {}),
+            "sector_distribution": data.get("sector_distribution", {}),
+            "index_constituents": data.get("index_constituents", []),
             "timestamp": datetime.now().isoformat(),
         })
     except Exception as e:
@@ -153,3 +164,36 @@ async def get_vn20_index():
             "message": str(e),
             "timestamp": datetime.now().isoformat(),
         })
+
+
+@router.get("/vn20/stream")
+async def stream_vn20_status(request: Request):
+    """SSE stream for PTCK_VN20 real-time telemetry (throttle status, live crawler events)."""
+    from src.ptck_vn20_builder import get_current_throttle_status
+
+    async def event_generator():
+        last_payload_hash: str = ""
+        while True:
+            if await request.is_disconnected():
+                break
+
+            throttle = get_current_throttle_status()
+            payload = json.dumps(throttle, ensure_ascii=False)
+
+            # Only emit when state changes (avoid redundant pushes)
+            payload_hash = str(hash(payload))
+            if payload_hash != last_payload_hash:
+                last_payload_hash = payload_hash
+                yield f"event: throttle_update\ndata: {payload}\n\n"
+
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

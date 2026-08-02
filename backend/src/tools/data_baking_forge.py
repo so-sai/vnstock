@@ -25,18 +25,15 @@ def _hydrate_path():
     backend_dir = root_path / "backend"
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
-    libs_dir = root_path / "backend" / "libs" / "vnstock"
-    if libs_dir.is_dir() and str(libs_dir) not in sys.path:
-        sys.path.append(str(libs_dir))
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
 
 
 import pandas as pd
-from vnstock import Quote
 
 from src.database.db_core import get_connection, save_data_upsert
+from src.providers.vnstock_provider import VnstockProvider
 
 logger = logging.getLogger("data_baking_forge")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -51,8 +48,8 @@ END_DATE = "2025-12-02"
 def bake_ticker(symbol: str) -> int:
     logger.info(f"-> Baking {symbol} from {START_DATE} to {END_DATE}...")
     try:
-        q = Quote(symbol=symbol, source='kbs')
-        df = q.history(start=START_DATE, end=END_DATE, interval='1D')
+        q = VnstockProvider(source='kbs')
+        df = q.history(symbol, start=START_DATE, end=END_DATE, interval='1D')
         if df is None or df.empty:
             logger.warning(f"   {symbol}: No data returned from API.")
             return 0

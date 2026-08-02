@@ -33,16 +33,15 @@ PROJECT_ROOT = _hydrate_path()
 backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
-from src.database.db_core import get_connection, optimize_sqlite_engine, save_data_upsert, safe_json_dump
+from src.database.data_freshness import ensure_table as ensure_freshness_table
+from src.database.data_freshness import upsert_freshness
 from src.database.data_quality_failover import FailoverMultiSourceAdapter
-from src.database.data_freshness import ensure_table as ensure_freshness_table, upsert_freshness
-from src.data.cache_warming import warm_single
+from src.database.db_core import get_connection, optimize_sqlite_engine, safe_json_dump, save_data_upsert
 
 # Canonical Asset Registry
 _LIBS = PROJECT_ROOT / "backend" / "libs"
 if str(_LIBS) not in sys.path:
     sys.path.insert(0, str(_LIBS))
-from vnstock import Quote, Trading
 from canonical import CanonicalAssetRegistry, Normalizer
 from canonical.validator import ValidationError as CanonicalValidationError
 
@@ -195,8 +194,9 @@ def _sanitize_vnindex_data(df):
 def update_vnindex(target_date: str):
     logger.info(f"📊 Cập nhật VNINDEX cho ngày {target_date}...")
     try:
-        q_idx = Quote(symbol='VNINDEX', source='kbs')
-        df_idx = q_idx.history(start=target_date, end=target_date)
+        from src.providers.vnstock_provider import VnstockProvider
+        provider = VnstockProvider(source="kbs")
+        df_idx = provider.history("VNINDEX", start=target_date, end=target_date)
         if df_idx is not None and not df_idx.empty:
             if 'adj_close' not in df_idx.columns:
                 df_idx['adj_close'] = df_idx['close']
@@ -274,7 +274,9 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
     # WHY: random_agent=True xoay User-Agent mỗi request → giảm rủi ro IP ban
     #   khi pull 1514 mã liên tục. batch_size + throttle là 2 van điều tiết:
     #   batch nhỏ + delay ngẫu nhiên giữa các batch để không thành burst.
-    t = Trading(source='kbs', random_agent=True)
+    from src.providers.vnstock_provider import VnstockProvider
+    _provider = VnstockProvider(source='kbs')
+    t = _provider
 
     total_batches = (len(symbols) + batch_size - 1) // batch_size
     _progress_bar(0, total_batches, 0, 0, 0, start_time)
@@ -750,9 +752,10 @@ def run_post_update_engines():
 
     # Regime persistence: ghi regime_history cho hôm nay (cập nhật EMA seed)
     try:
-        from src.engine.regime_engine import detect_regime
-        from src.database.db_core import save_data_upsert
         import pandas as pd
+
+        from src.database.db_core import save_data_upsert
+        from src.engine.regime_engine import detect_regime
         verdict = detect_regime(lang_mode="compact")
         if verdict and verdict.get('regime_score'):
             details = verdict.get('details', {})
@@ -931,7 +934,10 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
 
             # Write to macro_sensory_log (calibration.db) — full snapshot
             from src.calibration.prediction_log import (
-                init_macro_sensory_log, get_conn as get_calib_conn,
+                get_conn as get_calib_conn,
+            )
+            from src.calibration.prediction_log import (
+                init_macro_sensory_log,
             )
             calib_conn = get_calib_conn()
             init_macro_sensory_log()
@@ -1040,7 +1046,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             logger.info(f"  ✅ L3: Valuation recomputed ({len(target_symbols)} symbols)")
 
             # Governor report
-            from src.governor.company_state import GovernorEngine, print_report
+            from src.governor.company_state import GovernorEngine
             ge = GovernorEngine()
             gov_result = ge.analyze(target_symbols)
             ge.close()
@@ -1098,7 +1104,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
 
             # Step 6: MacroStateClassifier — Phase 4 P0 bridge
             try:
-                from src.core.macro.macro_state_classifier import MacroStateClassifier, print_state_report
+                from src.core.macro.macro_state_classifier import MacroStateClassifier
                 ms_clf = MacroStateClassifier()
                 ms_state = ms_clf.classify()
                 report["macro_state"] = {
