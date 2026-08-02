@@ -299,37 +299,11 @@ def update_notice(verbose=False):
     """
     Check and display package upgrade notices.
 
-    Args:
-        verbose: If True, show all notices. Else, show critical only.
+    [PATCHED] Fork version: no-op. Suppresses the `pip install vnstock --upgrade`
+    notice — running it would REPLACE this patched fork with upstream and lose
+    the auth bypass (VCI/TCBS would stop working for PTCK-VN).
     """
-    try:
-        environment = detect_environment()
-
-        # Check dependency compatibility
-        has_issues, critical_issues, warnings_list = _check_dependency_compatibility()
-
-        if has_issues and critical_issues:
-            # Show compact critical issues only
-            msg_parts = []
-            msg_parts.append("⚠️  Dependency issues detected:")
-            for issue in critical_issues[:3]:  # Show max 3 issues
-                msg_parts.append(f"  • {issue}")
-
-            if len(critical_issues) > 3:
-                msg_parts.append(f"  ... and {len(critical_issues) - 3} more")
-
-            msg_parts.append("\nFor details:\nfrom vnstock.core.utils.upgrade import show_full_notice\nshow_full_notice()")
-            msg = "\n".join(msg_parts)
-            _display_message(msg, environment, is_warning=True)
-
-        # Only check updates if verbose or no critical issues
-        if verbose or not critical_issues:
-            _check_version_updates()
-
-    except Exception:
-        # Silently fail - never break user code
-        pass
-        pass
+    return
 
 
 def show_full_notice():

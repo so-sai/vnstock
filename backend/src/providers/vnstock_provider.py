@@ -1,34 +1,16 @@
 """vnstock_provider.py — VnstockProvider adapter.
 
-Wraps the vendored `vnstock` library behind the FinancialProvider
-contract. The Core Engine never imports `vnstock` directly anymore —
-it talks to this adapter (or whatever ProviderManager resolves).
-
-Keeping the sys.path shim (libs/vnstock) intact here is a TEMPORARY
-transitional measure; once `vnstock` is packaged via pyproject.toml /
-`pip install -e`, this adapter drops the shim and imports normally.
+Wraps `vnstock` (installed as editable local package from
+`backend/libs/vnstock`) behind the FinancialProvider contract. The Core
+Engine never imports `vnstock` directly anymore — it talks to this adapter
+(or whatever ProviderManager resolves).
 """
 
-import sys
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
 from src.providers.base import FinancialProvider
-
-
-def _ensure_libs_importable() -> None:
-    """Temporary shim: make vendored vnstock importable via sys.path.
-
-    Removed once vnstock is an editable local package (pyproject.toml).
-    """
-    root = Path(__file__).resolve().parents[3]  # PTCK_VNSTOCK/
-    libs_vnstock = root / "backend" / "libs" / "vnstock"
-    libs_root = root / "backend" / "libs"
-    for p in (str(libs_vnstock), str(libs_root)):
-        if p not in sys.path:
-            sys.path.insert(0, p)
 
 
 class VnstockProvider(FinancialProvider):
@@ -42,7 +24,6 @@ class VnstockProvider(FinancialProvider):
         finance_kwargs: Optional[Dict[str, Any]] = None,
         quote_kwargs: Optional[Dict[str, Any]] = None,
     ) -> None:
-        _ensure_libs_importable()
         self.source = source
         self._finance_kwargs = finance_kwargs or {}
         self._quote_kwargs = quote_kwargs or {}
