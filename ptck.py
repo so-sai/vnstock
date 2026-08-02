@@ -3923,6 +3923,48 @@ def cmd_fetch_macro(args):
     print("=" * 60)
 
 
+# ── hooks-install ───────────────────────────────────────────
+def cmd_hooks_install(args):
+    """Cài đặt Git pre-commit hook (ruff check trên staged backend files)."""
+    hooks_dir = PROJECT_ROOT / ".git" / "hooks"
+    if not hooks_dir.is_dir():
+        print(f"  ❌ Không tìm thấy {hooks_dir} — đây không phải git repo?")
+        return
+
+    hook_script = backend_dir / "scripts" / "pre_commit_hook.py"
+    if not hook_script.is_file():
+        print(f"  ❌ Thiếu hook script: {hook_script}")
+        return
+
+    hook_path = hooks_dir / "pre-commit"
+    body = (
+        "#!/bin/sh\n"
+        "# Installed by `ptck.py hooks-install`.\n"
+        "# 1) Sentinel check (giữ nguyên hành vi hook cũ)\n"
+        "python backend/src/utils/sentinel_check.py\n"
+        "if [ $? -ne 0 ]; then\n"
+        '  echo "\\u274c COMMIT BLOCKED: Sentinel V2.1 check failed."\n'
+        "  exit 1\n"
+        "fi\n"
+        "# 2) Ruff lint trên staged backend files (delegate version-controlled script)\n"
+        f'python "{hook_script.as_posix()}"\n'
+        "status=$?\n"
+        "if [ $status -ne 0 ]; then\n"
+        '  echo "\\u274c COMMIT BLOCKED by pre-commit hook (ruff)."\n'
+        "  exit $status\n"
+        "fi\n"
+    )
+    existing = hook_path.read_text(encoding="utf-8") if hook_path.exists() else ""
+    hook_path.write_text(body, encoding="utf-8")
+
+    print("  ✅ Đã cài đặt .git/hooks/pre-commit:")
+    print(f"     → {hook_path}")
+    print("  Hook: sentinel (giữ nguyên) + ruff trên staged backend/*.py")
+    print("  Delegate: " + hook_script.as_posix())
+    if existing and "pre_commit_hook.py" not in existing:
+        print("  ℹ️  Hook cũ chỉ chạy sentinel — đã bổ sung ruff.")
+
+
 # ── cafef-crawl ──────────────────────────────────────────────
 def cmd_cafef_crawl(args):
     """Crawl BCTC 20 quarters cho danh sách mã."""
@@ -4831,6 +4873,11 @@ def build_parser():
     p_cc.add_argument("--delay", type=float, default=0,
                       help="Độ trễ (giây) giữa các request, tránh IP ban (mặc định: 0)")
     p_cc.set_defaults(func=cmd_cafef_crawl)
+
+    # hooks-install
+    p_hi = sub.add_parser("hooks-install", parents=[lang_parent],
+                          help="Cài đặt Git pre-commit hook (ruff check trên staged backend files)")
+    p_hi.set_defaults(func=cmd_hooks_install)
 
     # vgb10y
     p_vgb = sub.add_parser("vgb10y", parents=[lang_parent],
