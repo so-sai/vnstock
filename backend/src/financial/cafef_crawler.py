@@ -215,13 +215,13 @@ nạp trực tiếp vào financial_facts.db qua FinancialFactsDB + DataIntegrity
 # WHY: Synthetic (nội suy) là phương án CUỐI CÙNG — đánh dấu rõ để không nhầm
 #   dữ liệu giả với dữ liệu thật.
 
-import sys
-import time
 import logging
 import re
+import sys
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from bs4 import BeautifulSoup
@@ -582,7 +582,9 @@ class CafeFCrawler:
 
             # ── Tầng 2: Playwright (fallback khi requests 404, hoặc force) ──
             if not html_raw:
-                logger.info(f"  CafeF: {'force Playwright' if self.use_playwright else 'requests thất bại, thử Playwright'} cho {url}")
+                reason = ('force Playwright' if self.use_playwright
+                          else 'requests thất bại, thử Playwright')
+                logger.info(f"  CafeF: {reason} cho {url}")
                 html_raw = self._try_cafef_pw(url)
 
             if not html_raw:
@@ -628,7 +630,6 @@ class CafeFCrawler:
 
     def fetch_quarter(self, symbol: str, year: int, quarter: int) -> Dict:
         """Fetch all 3 statements for one quarter."""
-        period = f"{year}Q{quarter}"
         entity_type = self.db.get_entity_type(symbol)
 
         data = {
@@ -636,7 +637,6 @@ class CafeFCrawler:
             "_fiscal_quarter": quarter,
         }
 
-        st_names = {1: "BS", 2: "IS", 3: "CF"}
         for st_code in (1, 2, 3):
             st_data = self.fetch_statement(symbol, st_code, year, quarter)
             data.update(st_data)
@@ -1021,7 +1021,7 @@ class CafeFCrawler:
             return []
 
     def fetch_cafef_cashflow(self, symbol: str) -> List[Dict]:
-        """Dùng CafeF full-statement endpoint (/du-lieu/bao-cao-tai-chinh/...) 
+        """Dùng CafeF full-statement endpoint (/du-lieu/bao-cao-tai-chinh/...)
         lấy bảng LƯU CHUYỂN TIỀN TỆ (CF) cho 20 quý.
 
         Endpoint mới (verified 2026-08-01): mỗi trang trả 1 cửa sổ 4 quý
@@ -1082,7 +1082,8 @@ class CafeFCrawler:
                 **data,
             })
         result.sort(key=lambda d: (d["_fiscal_year"], d["_fiscal_quarter"]))
-        logger.info(f"CafeF CF: {symbol} — {len(result)} quý, metrics={sorted({k for d in result for k in d if not k.startswith('_')})}")
+        cf_metrics = sorted({k for d in result for k in d if not k.startswith('_')})
+        logger.info(f"CafeF CF: {symbol} — {len(result)} quý, metrics={cf_metrics}")
         return result
 
     def _parse_cafef_cf_page(self, html: str, entity_type: str) -> Dict[str, Dict]:
@@ -1232,7 +1233,6 @@ class CafeFCrawler:
             "Nợ vay dài hạn": "LONG_TERM_DEBT",
             # ── Income statement — Chi phí lãi vay ───────────────
             "Chi phí lãi vay": "INTEREST_EXPENSE",
-            "Chi phí lãi": "INTEREST_EXPENSE",
         }
 
         mapping = bank_map if entity_type == "BANK" else standard_map
@@ -1861,7 +1861,7 @@ class CafeFCrawler:
                 logger.info(f"  CafeF Bank API không có dữ liệu cho {symbol}, fallback NoteIndicator")
                 all_periods = self.fetch_note_indicator(symbol)
             if not all_periods:
-                logger.info(f"  NoteIndicator cũng không có, dùng synthetic")
+                logger.info("  NoteIndicator cũng không có, dùng synthetic")
                 use_synthetic = True
         elif source == "api":
             # ── REST JSON bridges (VNDirect/TCBS — ưu tiên CFO + nợ chi tiết) ──
@@ -1876,7 +1876,7 @@ class CafeFCrawler:
                 logger.info(f"  CafeF Bank API không có dữ liệu cho {symbol}, fallback Vietstock Fininfo")
                 all_periods = self.fetch_vietstock_api(symbol)
             if not all_periods:
-                logger.info(f"  Vietstock Fininfo cũng không có, dùng synthetic")
+                logger.info("  Vietstock Fininfo cũng không có, dùng synthetic")
                 use_synthetic = True
         elif source == "synthetic":
             use_synthetic = True

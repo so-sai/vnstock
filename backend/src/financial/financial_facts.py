@@ -576,7 +576,6 @@ class FinancialFactsDB:
         # Store balance sheet items for integrity check
         bs_facts = {}
 
-        results = []
         total_written = 0
         warnings = []
         integrity_pass = True
@@ -799,13 +798,13 @@ class VnstockCrawler:
             try:
                 if df.empty:
                     continue
-            except:
+            except Exception:
                 continue
 
             try:
                 df.columns = [str(c).lower().replace(" ", "_").replace("-", "_").strip()
                              for c in df.columns]
-            except:
+            except Exception:
                 continue
 
             # vnstock 4.0.5 trả WIDE format: item_id rows + period columns.
@@ -843,9 +842,12 @@ class VnstockCrawler:
 
             year_col, quarter_col, period_col = None, None, None
             for c in df.columns:
-                if c in ("year", "nam"): year_col = c
-                if c in ("quarter", "quy"): quarter_col = c
-                if c in ("period", "ky", "report_date", "ngay"): period_col = c
+                if c in ("year", "nam"):
+                    year_col = c
+                if c in ("quarter", "quy"):
+                    quarter_col = c
+                if c in ("period", "ky", "report_date", "ngay"):
+                    period_col = c
 
             try:
                 for _, row in df.iterrows():
@@ -896,12 +898,10 @@ class VnstockCrawler:
         """Fallback: scrape financial data from CafeF.vn."""
 
         import requests
-        from bs4 import BeautifulSoup
 
         entity_type = self.db.get_entity_type(symbol)
         print(f"  [CafeF] Scraping {symbol} ({entity_type})...")
 
-        periods_data = {}
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
@@ -912,7 +912,6 @@ class VnstockCrawler:
             url = f"https://s.cafef.vn/soc/bao-cao-tai-chinh-{symbol.lower()}/incstament.chn"
             resp = requests.get(url, headers=headers, timeout=15)
             if resp.status_code == 200:
-                soup = BeautifulSoup(resp.content, "lxml")
                 # parse table...
                 print(f"    CafeF response: {len(resp.content)} bytes")
         except Exception as e:
