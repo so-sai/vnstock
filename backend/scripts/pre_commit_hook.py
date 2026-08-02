@@ -10,10 +10,12 @@ Behavior
    lives in `backend/pyproject.toml`; root files (ptck.py, scripts/) have no
    ruff config and pre-existing violations, so linting them here would
    produce false positives and block unrelated commits.
-3. Auto-fix safe violations (unused imports F401, unused variables F841)
-   via `ruff check --fix`, then re-stage the touched files so the commit
-   actually contains the fixes.
-4. Run a full `ruff check` on the staged subset. Remaining violations
+3. Phase 1 — normalize the staged subset:
+   a. `ruff format` (PEP8/Black-style auto-format)
+   b. `ruff check --fix` for safe lint fixes (unused imports F401, unused
+      variables F841 where a safe fix exists)
+   Touched files are re-staged so the commit actually contains the fixes.
+4. Phase 2 — full `ruff check` on the staged subset. Remaining violations
    (unsafe/unfixable) block the commit.
 
 Exit codes: 0 = ok, 1 = ruff violations or config error, 2 = no ruff found.
@@ -47,8 +49,7 @@ def _git(args: list[str]) -> list[str]:
 def _staged_backend_files() -> list[str]:
     """Staged .py files that live under backend/ (config-covered)."""
     staged = _git(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
-    return [f.replace("\\", "/") for f in staged
-            if f.startswith("backend/") and f.endswith(".py")]
+    return [f.replace("\\", "/") for f in staged if f.startswith("backend/") and f.endswith(".py")]
 
 
 def _find_ruff() -> str | None:
@@ -61,11 +62,27 @@ def _find_ruff() -> str | None:
     for cand in candidates:
         if cand.is_file():
             return str(cand)
-    which = subprocess.run(["where", "ruff"], capture_output=True, text=True) \
-        if sys.platform == "win32" else subprocess.run(
-            ["sh", "-lc", "command -v ruff"], capture_output=True, text=True)
+    which = (
+        subprocess.run(["where", "ruff"], capture_output=True, text=True)
+        if sys.platform == "win32"
+        else subprocess.run(["sh", "-lc", "command -v ruff"], capture_output=True, text=True)
+    )
     first = (which.stdout or "").strip().splitlines()
     return first[0] if first else None
+
+
+def _re_stage_touched(files: list[str]) -> int:
+    """Re-stage any of `files` ruff modified. Returns count re-staged.
+
+    Only files that were in the original staged set may be touched — never
+    re-stage unrelated unstaged work the developer left behind.
+    """
+    modified = _git(["diff", "--name-only", "--diff-filter=ACMR"])
+    touched = [f for f in files if f in modified]
+    if touched:
+        subprocess.run(["git", "add", "--", *touched], cwd=str(REPO_ROOT), check=True)
+        print(f"[pre-commit] ruff auto-fixed + re-staged {len(touched)} file(s).")
+    return len(touched)
 
 
 def main() -> int:
@@ -79,9 +96,16 @@ def main() -> int:
         print("[pre-commit] ERROR: ruff not found. Install: pip install ruff")
         return 2
 
-    # ── Phase 1: auto-fix safe violations (F401 unused import, F841 unused var) ──
-    print(f"[pre-commit] ruff auto-fix ({','.join(AUTOFIX_SELECT)}) on "
-          f"{len(files)} staged file(s)...")
+    # ── Phase 1a: ruff format (auto-style to project PEP8 config) ──
+    print(f"[pre-commit] ruff format on {len(files)} staged file(s)...")
+    fmt = subprocess.run([ruff, "format", *files], cwd=str(REPO_ROOT))
+    if fmt.returncode != 0:
+        print("[pre-commit] ERROR: ruff format failed.")
+        return 2
+    _re_stage_touched(files)
+
+    # ── Phase 1b: auto-fix safe violations (F401 unused import, F841 unused var) ──
+    print(f"[pre-commit] ruff auto-fix ({','.join(AUTOFIX_SELECT)}) on {len(files)} staged file(s)...")
     fix_proc = subprocess.run(
         [ruff, "check", "--fix", f"--select={','.join(AUTOFIX_SELECT)}", *files],
         cwd=str(REPO_ROOT),
@@ -89,16 +113,7 @@ def main() -> int:
     if fix_proc.returncode not in (0, 1):
         print("[pre-commit] ERROR: ruff auto-fix failed unexpectedly.")
         return 2
-
-    # Re-stage files ruff actually modified so fixes land in the commit.
-    # Only files we staged (in `files`) may have been touched by the fix —
-    # never re-stage unrelated unstaged work the developer left behind.
-    modified = _git(["diff", "--name-only", "--diff-filter=ACMR"])
-    touched_backend = [f for f in files if f in modified]
-    if touched_backend:
-        subprocess.run(["git", "add", "--", *touched_backend],
-                       cwd=str(REPO_ROOT), check=True)
-        print(f"[pre-commit] ruff auto-fixed + re-staged {len(touched_backend)} file(s).")
+    _re_stage_touched(files)
 
     # ── Phase 2: blocking check on the (auto-fixed) staged subset ──
     print(f"[pre-commit] ruff check on {len(files)} staged file(s)...")
