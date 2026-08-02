@@ -1,4 +1,3 @@
-
 import io
 import json
 import logging
@@ -14,7 +13,7 @@ import pandas as pd
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -27,6 +26,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 # Ensure backend/ is in sys.path so 'src' package is importable
@@ -54,6 +54,7 @@ _NORM = Normalizer()
 LOG_DIR = PROJECT_ROOT / "backend" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+
 class JsonFormatter(logging.Formatter):
     def format(self, record):
         log_obj = {
@@ -65,6 +66,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             log_obj["exception"] = self.formatException(record.exc_info)
         return json.dumps(log_obj, ensure_ascii=False)
+
 
 log_filename = LOG_DIR / f"daily_update_{datetime.now().strftime('%Y%m%d')}.log"
 
@@ -78,13 +80,13 @@ file_handler.setFormatter(JsonFormatter())
 #   stream đã wrap — KHÔNG wrap qua handler.stream (double wrapper).
 if sys.platform == "win32":
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 
@@ -100,15 +102,42 @@ logging.raiseExceptions = False
 # 2. VIETNAMESE HOLIDAY CALENDAR (2024-2026)
 # ============================================================
 VN_HOLIDAYS = {
-    "2024-01-01", "2024-02-08", "2024-02-09", "2024-02-12", "2024-02-13",
-    "2024-02-14", "2024-02-15", "2024-02-16", "2024-04-18", "2024-04-30",
-    "2024-05-01", "2024-09-02", "2024-09-03",
-    "2025-01-01", "2025-01-27", "2025-01-28", "2025-01-29", "2025-01-30",
-    "2025-01-31", "2025-04-07", "2025-04-30", "2025-05-01", "2025-05-02",
+    "2024-01-01",
+    "2024-02-08",
+    "2024-02-09",
+    "2024-02-12",
+    "2024-02-13",
+    "2024-02-14",
+    "2024-02-15",
+    "2024-02-16",
+    "2024-04-18",
+    "2024-04-30",
+    "2024-05-01",
+    "2024-09-02",
+    "2024-09-03",
+    "2025-01-01",
+    "2025-01-27",
+    "2025-01-28",
+    "2025-01-29",
+    "2025-01-30",
+    "2025-01-31",
+    "2025-04-07",
+    "2025-04-30",
+    "2025-05-01",
+    "2025-05-02",
     "2025-09-02",
-    "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19",
-    "2026-02-20", "2026-04-27", "2026-04-30", "2026-05-01", "2026-09-02",
+    "2026-01-01",
+    "2026-02-16",
+    "2026-02-17",
+    "2026-02-18",
+    "2026-02-19",
+    "2026-02-20",
+    "2026-04-27",
+    "2026-04-30",
+    "2026-05-01",
+    "2026-09-02",
 }
+
 
 def is_trading_day(date_obj: datetime) -> bool:
     if date_obj.weekday() >= 5:
@@ -117,6 +146,7 @@ def is_trading_day(date_obj: datetime) -> bool:
     if date_str in VN_HOLIDAYS:
         return False
     return True
+
 
 # ============================================================
 # 3. RETRY WITH EXPONENTIAL BACKOFF
@@ -128,13 +158,16 @@ def retry_with_backoff(func_name, max_retries=3, base_delay=5):
                 try:
                     return fn(*args, **kwargs)
                 except Exception as e:
-                    delay = base_delay * (2 ** attempt) + random.uniform(0, 3)
-                    logger.warning(f"[{func_name}] Lỗi lần {attempt+1}/{max_retries}: {e}. Retry sau {delay:.1f}s...")
+                    delay = base_delay * (2**attempt) + random.uniform(0, 3)
+                    logger.warning(f"[{func_name}] Lỗi lần {attempt + 1}/{max_retries}: {e}. Retry sau {delay:.1f}s...")
                     time.sleep(delay)
             logger.error(f"[{func_name}] THẤT BẠI sau {max_retries} lần thử.")
             raise
+
         return wrapper
+
     return decorator
+
 
 # ============================================================
 # 4. ELITE API ARMOR (Throttling + Negative Cache)
@@ -152,7 +185,7 @@ class EliteArmor:
                     data = json.load(f)
                     now = time.time()
                     return {k: v for k, v in data.items() if now - v < 7 * 24 * 3600}
-            except:
+            except Exception:
                 return {}
         return {}
 
@@ -174,6 +207,7 @@ class EliteArmor:
         else:
             time.sleep(random.uniform(0.5, 1.2))
 
+
 # ============================================================
 # 5. CORE UPDATE TASKS
 # ============================================================
@@ -182,7 +216,7 @@ def _sanitize_vnindex_data(df):
     if df.empty:
         return df
 
-    price_cols = ['open', 'high', 'low', 'close', 'adj_close']
+    price_cols = ["open", "high", "low", "close", "adj_close"]
     for col in price_cols:
         if col in df.columns:
             # Nếu giá trị trung bình của cột < 100, tức là đang bị chia 1000
@@ -190,35 +224,37 @@ def _sanitize_vnindex_data(df):
                 df[col] = df[col] * 1000
     return df
 
+
 @retry_with_backoff("update_vnindex", max_retries=3, base_delay=5)
 def update_vnindex(target_date: str):
     logger.info(f"📊 Cập nhật VNINDEX cho ngày {target_date}...")
     try:
         from src.providers.vnstock_provider import VnstockProvider
+
         provider = VnstockProvider(source="kbs")
         df_idx = provider.history("VNINDEX", start=target_date, end=target_date)
         if df_idx is not None and not df_idx.empty:
-            if 'adj_close' not in df_idx.columns:
-                df_idx['adj_close'] = df_idx['close']
+            if "adj_close" not in df_idx.columns:
+                df_idx["adj_close"] = df_idx["close"]
             df_idx = _sanitize_vnindex_data(df_idx)
-            df_idx = df_idx.rename(columns={'time': 'date'})
-            df_idx['symbol'] = 'VNINDEX'
-            df_idx['source'] = 'kbs'
-            df_idx['date'] = pd.to_datetime(df_idx['date'], format='mixed').dt.strftime('%Y-%m-%d')
-            df_idx = df_idx[['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']]
+            df_idx = df_idx.rename(columns={"time": "date"})
+            df_idx["symbol"] = "VNINDEX"
+            df_idx["source"] = "kbs"
+            df_idx["date"] = pd.to_datetime(df_idx["date"], format="mixed").dt.strftime("%Y-%m-%d")
+            df_idx = df_idx[["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]]
 
             # Canonical validation: reject if VNINDEX close out of INDEX_LEVEL range
             for _, row in df_idx.iterrows():
                 try:
-                    _NORM.normalize('VNINDEX', row['date'], row['close'], 'kbs')
+                    _NORM.normalize("VNINDEX", row["date"], row["close"], "kbs")
                 except CanonicalValidationError as e:
                     logger.error(f"❌ VNINDEX canonical reject: {e}")
                     raise RuntimeError(f"VNINDEX validation failed: {e}")
 
             with get_connection() as conn:
-                save_data_upsert('daily_ohlcv', df_idx, conn)
+                save_data_upsert("daily_ohlcv", df_idx, conn)
             ensure_freshness_table()
-            upsert_freshness('VNINDEX', target_date, source="API", api_status="OK")
+            upsert_freshness("VNINDEX", target_date, source="API", api_status="OK")
             logger.info(f"✅ VNINDEX: {len(df_idx)} dòng đã lưu (canonical validated).")
             return len(df_idx)
         else:
@@ -227,6 +263,7 @@ def update_vnindex(target_date: str):
     except Exception as e:
         logger.error(f"❌ VNINDEX error: {e}")
         raise
+
 
 def _progress_bar(batch_num: int, total_batches: int, success: int, failed: int, skipped: int, start_time: float):
     """In thanh tiến trình động với % và ETA."""
@@ -248,14 +285,13 @@ def _fallback_fetch_single(symbol: str) -> pd.DataFrame:
     """Dùng FailoverMultiSourceAdapter để lấy dữ liệu từ nguồn dự phòng khi batch thất bại."""
     try:
         import asyncio
-        adapter = FailoverMultiSourceAdapter(
-            db_path=str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
-        )
+
+        adapter = FailoverMultiSourceAdapter(db_path=str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db"))
         df_clean, source_used, is_stale = asyncio.run(adapter.fetch_historical_ohlcv_safe(symbol))
         if df_clean is not None and not df_clean.empty:
-            df_clean['adj_close'] = df_clean['close']
-            df_clean['source'] = source_used
-            df_clean['is_stale'] = int(is_stale)
+            df_clean["adj_close"] = df_clean["close"]
+            df_clean["source"] = source_used
+            df_clean["is_stale"] = int(is_stale)
             logger.info(f"[FALLBACK] {symbol} thành công từ nguồn dự phòng: {source_used} (stale={is_stale})")
             return df_clean
     except Exception as e:
@@ -275,14 +311,15 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
     #   khi pull 1514 mã liên tục. batch_size + throttle là 2 van điều tiết:
     #   batch nhỏ + delay ngẫu nhiên giữa các batch để không thành burst.
     from src.providers.vnstock_provider import VnstockProvider
-    _provider = VnstockProvider(source='kbs')
+
+    _provider = VnstockProvider(source="kbs")
     t = _provider
 
     total_batches = (len(symbols) + batch_size - 1) // batch_size
     _progress_bar(0, total_batches, 0, 0, 0, start_time)
 
     for i in range(0, len(symbols), batch_size):
-        batch = symbols[i:i+batch_size]
+        batch = symbols[i : i + batch_size]
         batch_num = i // batch_size + 1
 
         active_batch = [s for s in batch if not armor.is_blacklisted(s)]
@@ -297,32 +334,34 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
             df_pb = t.price_board(active_batch)
             if df_pb is not None and not df_pb.empty:
                 df_save = df_pb.copy()
-                df_save['date'] = target_date
+                df_save["date"] = target_date
 
-                required_cols = ['foreign_buy_volume', 'foreign_sell_volume', 'close_price']
+                required_cols = ["foreign_buy_volume", "foreign_sell_volume", "close_price"]
                 for mc in required_cols:
                     if mc not in df_save.columns:
                         df_save[mc] = 0
 
-                df_save = df_save.rename(columns={
-                    'open_price': 'open',
-                    'high_price': 'high',
-                    'low_price': 'low',
-                    'close_price': 'close',
-                    'total_trades': 'volume',
-                    'foreign_buy_volume': 'foreign_vol'
-                })
-                df_save['adj_close'] = df_save['close']
-                df_save['source'] = 'kbs'
-                df_save['net_vol'] = df_save['foreign_vol'] - df_save['foreign_sell_volume']
-                df_save['net_value'] = (df_save['net_vol'] * df_save['close']) / 1_000_000_000
+                df_save = df_save.rename(
+                    columns={
+                        "open_price": "open",
+                        "high_price": "high",
+                        "low_price": "low",
+                        "close_price": "close",
+                        "total_trades": "volume",
+                        "foreign_buy_volume": "foreign_vol",
+                    }
+                )
+                df_save["adj_close"] = df_save["close"]
+                df_save["source"] = "kbs"
+                df_save["net_vol"] = df_save["foreign_vol"] - df_save["foreign_sell_volume"]
+                df_save["net_value"] = (df_save["net_vol"] * df_save["close"]) / 1_000_000_000
 
-                cols_ohlcv = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
-                cols_foreign = ['symbol', 'date', 'foreign_vol', 'net_vol', 'net_value']
+                cols_ohlcv = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
+                cols_foreign = ["symbol", "date", "foreign_vol", "net_vol", "net_value"]
 
                 with get_connection() as conn:
-                    save_data_upsert('daily_ohlcv', df_save[cols_ohlcv], conn)
-                    save_data_upsert('market_foreign_history', df_save[cols_foreign], conn)
+                    save_data_upsert("daily_ohlcv", df_save[cols_ohlcv], conn)
+                    save_data_upsert("market_foreign_history", df_save[cols_foreign], conn)
 
                 # Cache freshness: đánh dấu dữ liệu mới cho mỗi symbol
                 ensure_freshness_table()
@@ -338,11 +377,11 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                 try:
                     df_solo = _fallback_fetch_single(s)
                     if not df_solo.empty:
-                        cols_ohlcv = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
-                        if 'is_stale' in df_solo.columns:
-                            cols_ohlcv.append('is_stale')
+                        cols_ohlcv = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
+                        if "is_stale" in df_solo.columns:
+                            cols_ohlcv.append("is_stale")
                         with get_connection() as conn:
-                            save_data_upsert('daily_ohlcv', df_solo[cols_ohlcv], conn)
+                            save_data_upsert("daily_ohlcv", df_solo[cols_ohlcv], conn)
                         ensure_freshness_table()
                         upsert_freshness(s, target_date, source="FALLBACK", api_status="OK")
                         success += 1
@@ -367,45 +406,44 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
         time.sleep(random.uniform(0.6 * throttle_sec, throttle_sec))
 
     elapsed = time.time() - start_time
-    sys.stdout.write(
-        f"\n🏁 Hoàn tất {total_symbols} mã trong {elapsed:.0f}s | "
-        f"✅{success} ❌{failed} ⏭️{skipped}\n"
-    )
+    sys.stdout.write(f"\n🏁 Hoàn tất {total_symbols} mã trong {elapsed:.0f}s | ✅{success} ❌{failed} ⏭️{skipped}\n")
     sys.stdout.flush()
     return success, failed, skipped
+
 
 # ============================================================
 # 5B. MACRO DATA UPDATE (yfinance — US10Y, DXY, Yield Curve, Gold, etc.)
 # ============================================================
 MACRO_TICKERS = {
-    'DXY': 'DX-Y.NYB',
-    'USD_VND': 'USDVND=X',
-    'USD_CNY': 'CNY=X',
-    'USD_CNH': 'CNH=X',
-    'SH_COMP': '000001.SS',
-    'COPPER_HG': 'HG=F',
-    'US2Y': '2YY=F',
-    'US5Y': '^FVX',
-    'US10Y': '^TNX',
-    'US30Y': '^TYX',
-    'BRENT_OIL': 'BZ=F',
-    'WTI_OIL': 'CL=F',
-    'BTC': 'BTC-USD',
-    'GOLD_XAU': 'GC=F',
-    'TIP_PRICE': 'TIP',
-    'XAGUSD': 'SI=F',
+    "DXY": "DX-Y.NYB",
+    "USD_VND": "USDVND=X",
+    "USD_CNY": "CNY=X",
+    "USD_CNH": "CNH=X",
+    "SH_COMP": "000001.SS",
+    "COPPER_HG": "HG=F",
+    "US2Y": "2YY=F",
+    "US5Y": "^FVX",
+    "US10Y": "^TNX",
+    "US30Y": "^TYX",
+    "BRENT_OIL": "BZ=F",
+    "WTI_OIL": "CL=F",
+    "BTC": "BTC-USD",
+    "GOLD_XAU": "GC=F",
+    "TIP_PRICE": "TIP",
+    "XAGUSD": "SI=F",
     # Asia supply-chain canary (Layer 2 rotation reference)
-    'KOSPI': '^KS11',
-    'TAIEX': '^TWII',
-    'SHENZHEN': '399001.SZ',
+    "KOSPI": "^KS11",
+    "TAIEX": "^TWII",
+    "SHENZHEN": "399001.SZ",
     # PTD Phase Transition Detector — de-emphasized for Asia-centric ref frame
-    'SP500': '^GSPC',
-    'NASDAQ': '^IXIC',
-    'VIX': '^VIX',
-    'HANG_SENG': '^HSI',
+    "SP500": "^GSPC",
+    "NASDAQ": "^IXIC",
+    "VIX": "^VIX",
+    "HANG_SENG": "^HSI",
     # ES futures proxy for holiday gap fill (PTD Module 1)
-    'ES_FUTURES': 'ES=F',
+    "ES_FUTURES": "ES=F",
 }
+
 
 def _forward_fill_macro(variable: str, today: str, conn) -> dict:
     """Forward fill một macro variable từ giá trị cuối cùng trong DB.
@@ -439,12 +477,16 @@ def _fetch_single_yahoo(symbol: str, name: str, period: str = "5d") -> tuple:
     err = None
     try:
         df = yf.download(symbol, period=period, interval="1d", progress=False)
-        if df.empty or 'Close' not in df.columns:
+        if df.empty or "Close" not in df.columns:
             err = "empty or no Close"
         else:
             # WHY: .item() trích xuất scalar Python từ numpy 0-d array, tránh DeprecationWarning
             #      của NumPy 1.25+ khi gọi float() trực tiếp lên array (ndim>0 → lỗi future).
-            close_val = float(df['Close'].values[-1].item()) if hasattr(df['Close'].values[-1], 'item') else float(df['Close'].values[-1])
+            close_val = (
+                float(df["Close"].values[-1].item())
+                if hasattr(df["Close"].values[-1], "item")
+                else float(df["Close"].values[-1])
+            )
             if pd.isna(close_val):
                 close_val = None
                 err = "Close is NaN"
@@ -456,10 +498,10 @@ def _fetch_single_yahoo(symbol: str, name: str, period: str = "5d") -> tuple:
 
     # ── Tier 2: HTTP fallback (Yahoo Chart API trực tiếp) ──
     import requests
+
     try:
         chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
-        resp = requests.get(chart_url, timeout=10,
-            headers={"User-Agent": "Mozilla/5.0"})
+        resp = requests.get(chart_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         if resp.status_code != 200:
             return None, f"HTTP {resp.status_code}: {err}"
         data = resp.json()
@@ -481,6 +523,7 @@ def update_macro_data():
       Không ticker nào được phép chặn luồng.
     """
     import yfinance as yf
+
     logger.info(f"🌍 Cập nhật {len(MACRO_TICKERS)} cảm biến vĩ mô từ Yahoo Finance...")
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -491,13 +534,17 @@ def update_macro_data():
     try:
         batch = yf.download(list(MACRO_TICKERS.values()), period="5d", interval="1d", progress=False)
         has_close = (
-            'Close' in batch.columns.names
-            if isinstance(getattr(batch, 'columns', None), pd.MultiIndex)
-            else 'Close' in batch.columns
-        ) if batch is not None and not batch.empty else False
+            (
+                "Close" in batch.columns.names
+                if isinstance(getattr(batch, "columns", None), pd.MultiIndex)
+                else "Close" in batch.columns
+            )
+            if batch is not None and not batch.empty
+            else False
+        )
 
         if has_close:
-            close_df = batch['Close'] if isinstance(getattr(batch, 'columns', None), pd.MultiIndex) else batch
+            close_df = batch["Close"] if isinstance(getattr(batch, "columns", None), pd.MultiIndex) else batch
             inv_map = {v: k for k, v in MACRO_TICKERS.items()}
             for yahoo_sym, name in inv_map.items():
                 try:
@@ -506,7 +553,7 @@ def update_macro_data():
                         raw_values[name] = float(val)
                     else:
                         failed_names.append(name)
-                except (KeyError, IndexError):
+                except KeyError, IndexError:
                     failed_names.append(name)
         else:
             failed_names = list(MACRO_TICKERS.keys())
@@ -537,8 +584,10 @@ def update_macro_data():
     # ── Pha 2b: Ghi nhận vào StaleTracker cho warm-up tracking ──
     try:
         from src.engine.macro_stale_tracker import StaleTracker
+
         tracker = StaleTracker.get_instance()
         from src.config import DATA_DIR
+
         tracker.db_path = str(DATA_DIR / "screener_cache.db")
         for name in MACRO_TICKERS:
             success = name in raw_values and name not in stale_vars
@@ -562,7 +611,7 @@ def update_macro_data():
 
     # v1 legacy
     with get_connection() as conn:
-        save_data_upsert('macro_history', df_melted, conn)
+        save_data_upsert("macro_history", df_melted, conn)
 
     # v2 canonical
     v2_records = []
@@ -570,25 +619,31 @@ def update_macro_data():
     for _, row in df_melted.iterrows():
         try:
             rec = _NORM.normalize(
-                variable=row['variable'],
-                date=row['date'],
-                raw_value=row['value'],
-                source='yahoo',
+                variable=row["variable"],
+                date=row["date"],
+                raw_value=row["value"],
+                source="yahoo",
             )
-            v2_records.append({
-                'variable': rec.variable, 'date': rec.date,
-                'value': rec.value, 'asset_class': rec.asset_class.value,
-                'unit': rec.unit.value, 'source': rec.source.value,
-                'raw_value': rec.raw_value, 'raw_unit': rec.raw_unit,
-                'confidence': rec.confidence,
-            })
-        except (ValueError, CanonicalValidationError):
+            v2_records.append(
+                {
+                    "variable": rec.variable,
+                    "date": rec.date,
+                    "value": rec.value,
+                    "asset_class": rec.asset_class.value,
+                    "unit": rec.unit.value,
+                    "source": rec.source.value,
+                    "raw_value": rec.raw_value,
+                    "raw_unit": rec.raw_unit,
+                    "confidence": rec.confidence,
+                }
+            )
+        except ValueError, CanonicalValidationError:
             v2_rejects += 1
 
     if v2_records:
         df_v2 = pd.DataFrame(v2_records)
         with get_connection() as conn:
-            save_data_upsert('macro_history_v2', df_v2, conn)
+            save_data_upsert("macro_history_v2", df_v2, conn)
         logger.info(f"✅ Macro seeded: {len(df_melted)} rows v1, {len(v2_records)} v2, {v2_rejects} rejects")
     else:
         logger.warning(f"⚠️ Macro seed: all {v2_rejects} rows rejected by canonical validator")
@@ -596,7 +651,9 @@ def update_macro_data():
     if stale_vars:
         logger.warning(
             "⚠️ Macro stale fallback: %d/%d — %s",
-            len(stale_vars), len(MACRO_TICKERS), ", ".join(stale_vars),
+            len(stale_vars),
+            len(MACRO_TICKERS),
+            ", ".join(stale_vars),
         )
 
     return len(df_melted)
@@ -608,6 +665,7 @@ def update_macro_data():
 def seed_real_yield():
     """Fetch TIP trailing dividend yield từ yfinance, tính US_REAL_YIELD, seed vào DB."""
     import yfinance as yf
+
     logger.info("📐 Tính real yield từ TIP ETF...")
 
     try:
@@ -636,36 +694,45 @@ def seed_real_yield():
     breakeven = round(us10y - tip_yield, 3)
     today = datetime.now().strftime("%Y-%m-%d")
 
-    df_seed = pd.DataFrame([
-        {"variable": "US_REAL_YIELD", "date": today, "value": tip_yield},
-        {"variable": "BREAKEVEN_INFLATION", "date": today, "value": breakeven},
-    ])
+    df_seed = pd.DataFrame(
+        [
+            {"variable": "US_REAL_YIELD", "date": today, "value": tip_yield},
+            {"variable": "BREAKEVEN_INFLATION", "date": today, "value": breakeven},
+        ]
+    )
 
     with get_connection() as conn:
-        save_data_upsert('macro_history', df_seed, conn)
+        save_data_upsert("macro_history", df_seed, conn)
 
     # v2 canonical
     v2_records = []
     from canonical import Normalizer
     from canonical.validator import ValidationError as CanonicalValidationError
+
     norm = Normalizer()
     for _, row in df_seed.iterrows():
         try:
-            rec = norm.normalize(row['variable'], row['date'], row['value'], 'yahoo')
-            v2_records.append({
-                'variable': rec.variable, 'date': rec.date,
-                'value': rec.value, 'asset_class': rec.asset_class.value,
-                'unit': rec.unit.value, 'source': rec.source.value,
-                'raw_value': rec.raw_value, 'raw_unit': rec.raw_unit,
-                'confidence': rec.confidence,
-            })
-        except (ValueError, CanonicalValidationError):
+            rec = norm.normalize(row["variable"], row["date"], row["value"], "yahoo")
+            v2_records.append(
+                {
+                    "variable": rec.variable,
+                    "date": rec.date,
+                    "value": rec.value,
+                    "asset_class": rec.asset_class.value,
+                    "unit": rec.unit.value,
+                    "source": rec.source.value,
+                    "raw_value": rec.raw_value,
+                    "raw_unit": rec.raw_unit,
+                    "confidence": rec.confidence,
+                }
+            )
+        except ValueError, CanonicalValidationError:
             pass
 
     if v2_records:
         df_v2 = pd.DataFrame(v2_records)
         with get_connection() as conn:
-            save_data_upsert('macro_history_v2', df_v2, conn)
+            save_data_upsert("macro_history_v2", df_v2, conn)
 
     logger.info(f"✅ Real yield seeded: yield={tip_yield}%, breakeven={breakeven}%")
     return 2
@@ -682,73 +749,84 @@ def run_post_update_engines():
 
     try:
         from src.engine.breadth_engine import run_breadth_analysis
-        breadth = run_breadth_analysis()
-        results['breadth'] = 'OK'
+
+        run_breadth_analysis()
+        results["breadth"] = "OK"
         logger.info("✅ Breadth Engine: OK")
     except Exception as e:
-        results['breadth'] = f'FAIL: {e}'
+        results["breadth"] = f"FAIL: {e}"
         logger.exception("❌ Breadth Engine: %s", e)
-        record_engine_fault('breadth_engine', str(e))
+        record_engine_fault("breadth_engine", str(e))
 
     try:
         from src.engine.rs_ranker import calculate_rs_score
-        rs = calculate_rs_score()
-        results['rs_ranker'] = 'OK'
+
+        calculate_rs_score()
+        results["rs_ranker"] = "OK"
         logger.info("✅ RS Ranker: OK")
     except Exception as e:
-        results['rs_ranker'] = f'FAIL: {e}'
+        results["rs_ranker"] = f"FAIL: {e}"
         logger.exception("❌ RS Ranker: %s", e)
-        record_engine_fault('rs_ranker', str(e))
+        record_engine_fault("rs_ranker", str(e))
 
     try:
         from src.engine.screener_logic import run_screener
+
         signals = run_screener()
-        results['screener'] = 'OK'
+        results["screener"] = "OK"
         logger.info("✅ Screener: %d signals", len(signals))
     except Exception as e:
-        results['screener'] = f'FAIL: {e}'
+        results["screener"] = f"FAIL: {e}"
         logger.exception("❌ Screener: %s", e)
-        record_engine_fault('screener', str(e))
+        record_engine_fault("screener", str(e))
 
     try:
         from src.engine.capital_displacement_engine import run_scan
+
         cd = run_scan(offline=True)
-        results['capital_displacement'] = cd['classification']
-        logger.info("✅ Capital Displacement: %s (%s)", cd['classification'], cd['conviction'])
+        results["capital_displacement"] = cd["classification"]
+        logger.info("✅ Capital Displacement: %s (%s)", cd["classification"], cd["conviction"])
     except Exception as e:
-        results['capital_displacement'] = f'FAIL: {e}'
+        results["capital_displacement"] = f"FAIL: {e}"
         logger.exception("❌ Capital Displacement: %s", e)
-        record_engine_fault('capital_displacement', str(e))
+        record_engine_fault("capital_displacement", str(e))
 
     try:
         from src.engine.capital_flow_forecasting_engine import run_forecast
+
         fc = run_forecast()
-        results['flow_forecast'] = fc['regime_forecast']['projected_regime']
-        logger.info("✅ Flow Forecast: %s (conf: %s)", fc['regime_forecast']['projected_regime'], fc['regime_forecast']['confidence'])
+        results["flow_forecast"] = fc["regime_forecast"]["projected_regime"]
+        logger.info(
+            "✅ Flow Forecast: %s (conf: %s)",
+            fc["regime_forecast"]["projected_regime"],
+            fc["regime_forecast"]["confidence"],
+        )
     except Exception as e:
-        results['flow_forecast'] = f'FAIL: {e}'
+        results["flow_forecast"] = f"FAIL: {e}"
         logger.exception("❌ Flow Forecast: %s", e)
-        record_engine_fault('flow_forecast', str(e))
+        record_engine_fault("flow_forecast", str(e))
 
     try:
         from src.telemetry.evaluator import run_telemetry_evaluation
+
         telemetry_results = run_telemetry_evaluation()
-        results['telemetry_evaluated'] = len(telemetry_results)
+        results["telemetry_evaluated"] = len(telemetry_results)
         logger.info("✅ Telemetry: %d outcomes evaluated", len(telemetry_results))
     except Exception as e:
-        results['telemetry'] = f'FAIL: {e}'
+        results["telemetry"] = f"FAIL: {e}"
         logger.exception("⚠️ Telemetry: %s", e)
-        record_engine_fault('telemetry_evaluator', str(e))
+        record_engine_fault("telemetry_evaluator", str(e))
 
     try:
         from src.telemetry.prediction_registry import run_registry_update
+
         pr = run_registry_update()
-        results['prediction_registry'] = pr
-        logger.info("✅ Prediction Registry: %d logged, %d outcomes", pr['predictions_logged'], pr['outcomes_appended'])
+        results["prediction_registry"] = pr
+        logger.info("✅ Prediction Registry: %d logged, %d outcomes", pr["predictions_logged"], pr["outcomes_appended"])
     except Exception as e:
-        results['prediction_registry'] = f'FAIL: {e}'
+        results["prediction_registry"] = f"FAIL: {e}"
         logger.exception("⚠️ Prediction Registry: %s", e)
-        record_engine_fault('prediction_registry', str(e))
+        record_engine_fault("prediction_registry", str(e))
 
     # Regime persistence: ghi regime_history cho hôm nay (cập nhật EMA seed)
     try:
@@ -756,29 +834,35 @@ def run_post_update_engines():
 
         from src.database.db_core import save_data_upsert
         from src.engine.regime_engine import detect_regime
+
         verdict = detect_regime(lang_mode="compact")
-        if verdict and verdict.get('regime_score'):
-            details = verdict.get('details', {})
+        if verdict and verdict.get("regime_score"):
+            details = verdict.get("details", {})
             row = {
-                "date": verdict['date'],
-                "regime_score": verdict['regime_score'],
-                "status": verdict['status'],
-                "breadth_pct": details.get('breadth_pct'),
-                "breadth_velocity": details.get('breadth_momentum', 0.0),
-                "trend_score": details.get('t_score'),
-                "vol_score": details.get('v_score'),
-                "atr_ratio": details.get('atr_ratio'),
-                "active_model": 'NONE',
+                "date": verdict["date"],
+                "regime_score": verdict["regime_score"],
+                "status": verdict["status"],
+                "breadth_pct": details.get("breadth_pct"),
+                "breadth_velocity": details.get("breadth_momentum", 0.0),
+                "trend_score": details.get("t_score"),
+                "vol_score": details.get("v_score"),
+                "atr_ratio": details.get("atr_ratio"),
+                "active_model": "NONE",
                 "recovery_flag": 0,
             }
             with get_connection() as conn:
                 save_data_upsert("regime_history", pd.DataFrame([row]), conn)
-            logger.info("✅ Regime History: %s score=%.2f status=%s", verdict['date'], verdict['regime_score'], verdict['status'])
-        results['regime_persisted'] = True
+            logger.info(
+                "✅ Regime History: %s score=%.2f status=%s",
+                verdict["date"],
+                verdict["regime_score"],
+                verdict["status"],
+            )
+        results["regime_persisted"] = True
     except Exception as e:
         logger.exception("⚠️ Regime persistence: %s", e)
-        record_engine_fault('regime_persistence', str(e))
-        results['regime_persisted'] = False
+        record_engine_fault("regime_persistence", str(e))
+        results["regime_persisted"] = False
 
     # Per-symbol absorption tracking for watchlist + Macro Governor
     try:
@@ -786,17 +870,19 @@ def run_post_update_engines():
         from src.engine.per_symbol_absorption import PerSymbolAbsorption
 
         macro_state = MacroGovernor.assess_global()
-        results['macro_governor'] = {
+        results["macro_governor"] = {
             "state": macro_state["state"],
             "confidence": macro_state["confidence"],
             "hdr_override": macro_state["hdr_override"],
             "fx_risk_premium": macro_state["fx_risk_premium"],
         }
-        logger.info(f"✅ Macro Governor: {macro_state['state']} "
-                    f"(conf={macro_state['confidence']:.1f}%, "
-                    f"HDR_override={macro_state['hdr_override']})")
+        logger.info(
+            f"✅ Macro Governor: {macro_state['state']} "
+            f"(conf={macro_state['confidence']:.1f}%, "
+            f"HDR_override={macro_state['hdr_override']})"
+        )
 
-        watchlist = ['FPT', 'VCB', 'HPG', 'VNM', 'TCB']
+        watchlist = ["FPT", "VCB", "HPG", "VNM", "TCB"]
         abs_results = {}
         for sym in watchlist:
             detector = PerSymbolAbsorption(sym)
@@ -808,11 +894,11 @@ def run_post_update_engines():
                 "vqa_class": ar.get("vqa", {}).get("classification"),
                 "governor_lock": ar.get("governor_lock", False),
             }
-        results['per_symbol_absorption'] = abs_results
+        results["per_symbol_absorption"] = abs_results
         logger.info(f"✅ Per-symbol absorption: {abs_results}")
     except Exception as e:
         logger.exception("⚠️ Per-symbol absorption: %s", e)
-        record_engine_fault('per_symbol_absorption', str(e))
+        record_engine_fault("per_symbol_absorption", str(e))
 
     # Ghi chú: Paper Trading Engine (hạch toán kế toán) KHÔNG chạy ở đây.
     # Nó thuộc sở hữu DUY NHẤT của run_eod_pipeline (cronjob EOD 16:00), chạy
@@ -820,6 +906,7 @@ def run_post_update_engines():
     # (ACID). Chạy ở đây sẽ gây double-write + phá vỡ ROLLBACK. Xem eod_runner.
 
     return results
+
 
 # ============================================================
 # 7. DB MAINTENANCE (Lightweight after each update)
@@ -831,6 +918,32 @@ def run_light_maintenance():
         conn.execute("ANALYZE;")
         conn.commit()
     logger.info("✅ WAL checkpointed & ANALYZE done.")
+
+
+def run_forensic_cache_refresh():
+    """EOD hook: refresh the O(1) forensic score cache from BCTC facts.
+
+    Re-runs the full-screen forensic scan (Beneish/Sloan/ARI) and upserts the
+    latest period per symbol into `forensic_scores`. Governor/REST read this
+    table at O(1) request time, so this recompute must happen here (EOD), never
+    on a hot request path. Safe no-op when financial_facts.db is empty.
+    """
+    from src.financial.forensic_engine import ForensicEngine, ForensicScoreCache
+
+    try:
+        engine = ForensicEngine()
+        frame = engine.run()
+        if frame.empty:
+            logger.warning("⚠️ Forensic cache: financial_facts.db empty — bỏ qua refresh.")
+            return 0
+        cache = ForensicScoreCache()
+        written = cache.refresh(frame)
+        logger.info(f"✅ Forensic cache refreshed: {written} symbols, latest period = {frame['period'].max()}")
+        return written
+    except Exception as e:  # noqa: BLE001 - EOD hook must never break the run
+        logger.warning(f"⚠️ Forensic cache refresh failed: {e}")
+        return 0
+
 
 # ============================================================
 # 8. MAIN ORCHESTRATOR
@@ -855,6 +968,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
 
     try:
         from src.telemetry.storage import initialize_telemetry_database
+
         initialize_telemetry_database()
     except Exception as e:
         logger.warning(f"⚠️ Telemetry DB init: {e}")
@@ -870,12 +984,13 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         "market_skipped": 0,
         "engine_results": {},
         "duration_seconds": 0,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
     try:
         logger.info("🌍 Cập nhật cảm biến vĩ mô...")
         from src.utils.macro_sensors import MacroSensorEngine
+
         sensor = MacroSensorEngine(db_path=str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db"))
 
         macro_df, is_stale = sensor.fetch_world_bank_data()
@@ -887,13 +1002,13 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             with get_connection() as conn:
                 conn.execute(
                     "INSERT OR REPLACE INTO system_health (component, status, last_error) VALUES (?, ?, ?)",
-                    ('macro_sensors', 'STALE', 'API Timeout/Connection Failed')
+                    ("macro_sensors", "STALE", "API Timeout/Connection Failed"),
                 )
         else:
             with get_connection() as conn:
                 conn.execute(
                     "INSERT OR REPLACE INTO system_health (component, status, last_error) VALUES (?, ?, ?)",
-                    ('macro_sensors', 'HEALTHY', None)
+                    ("macro_sensors", "HEALTHY", None),
                 )
 
         # Step 1: Macro Data (yield curve, DXY, gold, TIP, etc.)
@@ -907,6 +1022,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         # macro_sensory_log (for full-snapshot audit trail in calibration.db).
         try:
             from src.sensors.world_sensor import WorldSensor
+
             ws = WorldSensor(use_cache=False)
             world_state = ws.fetch(force_refresh=True)
             report["world_sensor"] = world_state.get("fed_target_rate", 0.0)
@@ -939,6 +1055,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             from src.calibration.prediction_log import (
                 init_macro_sensory_log,
             )
+
             calib_conn = get_calib_conn()
             init_macro_sensory_log()
             calib_conn.execute(
@@ -964,8 +1081,9 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             )
             calib_conn.commit()
             calib_conn.close()
-            logger.info("🌍 WorldSensor seeded: %d vars into macro_history, 1 snapshot into macro_sensory_log",
-                        len(world_vars))
+            logger.info(
+                "🌍 WorldSensor seeded: %d vars into macro_history, 1 snapshot into macro_sensory_log", len(world_vars)
+            )
         except Exception as e:
             logger.warning(f"⚠️ WorldSensor seed failed: {e}")
             report["world_sensor"] = None
@@ -973,12 +1091,14 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         # Step 1b: Domestic macro (VGB10Y, INTERBANK_ON)
         try:
             from src.services.macro.vgb10y_seeder import seed_vgb10y
+
             report["vgb10y_seeded"] = seed_vgb10y()
         except Exception as e:
             logger.warning(f"VGB10Y seed failed: {e}")
             report["vgb10y_seeded"] = False
         try:
             from src.services.macro.interbank_seeder import refresh_interbank_rate
+
             report["interbank_seeded"] = refresh_interbank_rate()
         except Exception as e:
             logger.warning(f"INTERBANK seed failed: {e}")
@@ -988,11 +1108,14 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         report["vnindex_rows"] = update_vnindex(target_date)
 
         # Step 3: Market Batch Update
-        manifest_path = getattr(run_daily_update, '_manifest_path', None)
+        manifest_path = getattr(run_daily_update, "_manifest_path", None)
         with get_connection() as conn:
-            symbols_in_db = set(r[0] for r in conn.execute(
-                "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30')"
-            ).fetchall())
+            symbols_in_db = set(
+                r[0]
+                for r in conn.execute(
+                    "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30')"
+                ).fetchall()
+            )
 
         if manifest_path and os.path.exists(manifest_path):
             try:
@@ -1010,12 +1133,26 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         armor = EliteArmor()
         logger.info(f"📦 Tổng số mã cần cập nhật: {len(symbols_in_db)}")
 
-        success, failed, skipped = update_market_batch(symbols_in_db, target_date, armor, batch_size=batch_size, throttle_sec=throttle_sec)
+        success, failed, skipped = update_market_batch(
+            symbols_in_db,
+            target_date,
+            armor,
+            batch_size=batch_size,
+            throttle_sec=throttle_sec,
+        )
         report["market_success"] = success
         report["market_failed"] = failed
         report["market_skipped"] = skipped
 
         armor.save()
+
+        # Step 3b: Refresh forensic score cache (BCTC → forensic_scores O(1) table)
+        # WHY: Governor/REST đọc forensic_scores ở request time (O(1)); recompute
+        #      toàn thị trường chỉ nên xảy ra EOD — không bao giờ ở hot path.
+        report["forensic_cache"] = {
+            "status": "SUCCESS",
+            "symbols_refreshed": run_forensic_cache_refresh(),
+        }
 
         # Step 3: Post-update Engines
         report["engine_results"] = run_post_update_engines()
@@ -1030,6 +1167,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
 
             # L4: Rescan volume profile + active demand
             from src.financial.market_behavior_engine import MarketBehaviorEngine
+
             mb = MarketBehaviorEngine()
             mb.init_schema()
             # WHY: scan_multi (không phải scan) — MarketBehaviorEngine chỉ expose
@@ -1039,6 +1177,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
 
             # L3: Recompute valuation (latest prices from screener_cache.db)
             from src.financial.valuation_engine import ValuationEngine
+
             ve = ValuationEngine()
             ve.init_schema()
             for sym in target_symbols:
@@ -1047,6 +1186,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
 
             # Governor report
             from src.governor.company_state import GovernorEngine
+
             ge = GovernorEngine()
             gov_result = ge.analyze(target_symbols)
             ge.close()
@@ -1072,21 +1212,28 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             watch_symbols = ["FPT", "HPG", "MBB", "MWG", "VCB"]
             THRESHOLD = 1.5
             from src.financial.market_behavior_engine import MarketBehaviorEngine
+
             mbe = MarketBehaviorEngine()
             watch_conn = mbe.fin_conn()
             spike_alerts = {}
             for wsym in watch_symbols:
                 cur = watch_conn.cursor()
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT price_current, val, vah, volume_ratio, price_ma20
                     FROM volume_profile WHERE symbol = ?
                     ORDER BY date DESC LIMIT 1
-                """, (wsym.upper(),))
+                """,
+                    (wsym.upper(),),
+                )
                 wrow = cur.fetchone()
                 if wrow and wrow[3] >= THRESHOLD:
                     spike_alerts[wsym] = {
-                        "price": wrow[0], "val": wrow[1], "vah": wrow[2],
-                        "volume_ratio": wrow[3], "ma20": wrow[4],
+                        "price": wrow[0],
+                        "val": wrow[1],
+                        "vah": wrow[2],
+                        "volume_ratio": wrow[3],
+                        "ma20": wrow[4],
                         "date": target_date,
                     }
                     logger.info(f"  🚀 VOLUME SPIKE {wsym}: {wrow[3]:.2f}x >= {THRESHOLD}x")
@@ -1095,9 +1242,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             # Save spike alerts
             alert_path = PROJECT_ROOT / "backend" / "data" / "alerts" / "volume_spike.json"
             alert_path.parent.mkdir(parents=True, exist_ok=True)
-            alert_path.write_text(
-                json.dumps(spike_alerts, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
+            alert_path.write_text(json.dumps(spike_alerts, indent=2, ensure_ascii=False), encoding="utf-8")
             if spike_alerts:
                 logger.info(f"  📢 Volume Spike ALERT: {', '.join(spike_alerts.keys())}")
             report["volume_spike"] = spike_alerts
@@ -1105,6 +1250,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             # Step 6: MacroStateClassifier — Phase 4 P0 bridge
             try:
                 from src.core.macro.macro_state_classifier import MacroStateClassifier
+
                 ms_clf = MacroStateClassifier()
                 ms_state = ms_clf.classify()
                 report["macro_state"] = {
@@ -1125,6 +1271,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             # Step 7: Economic Transmission Engine — P1
             try:
                 from src.core.macro.economic_transmission_engine import EconomicTransmissionEngine
+
                 tr_engine = EconomicTransmissionEngine()
                 tr_state = tr_engine.compute()
                 report["transmission"] = {
@@ -1134,7 +1281,11 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                     "confidence": tr_state.confidence,
                     "composite": tr_state.transmission_score,
                 }
-                logger.info(f"  🔄 Transmission: {tr_state.transmission_phase} (L={tr_state.liquidity:.0f} C={tr_state.credit:.0f} K={tr_state.confidence:.0f})")
+                logger.info(
+                    f"  🔄 Transmission: {tr_state.transmission_phase} "
+                    f"(L={tr_state.liquidity:.0f} C={tr_state.credit:.0f} "
+                    f"K={tr_state.confidence:.0f})"
+                )
             except Exception as e:
                 logger.warning(f"⚠️ Transmission update failed: {e}")
                 report["transmission"] = {"status": f"FAILED: {str(e)}"}
@@ -1142,6 +1293,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             # Step 8: Sector State Engine — P1
             try:
                 from src.core.macro.sector_state_engine import SectorStateEngine
+
                 sc_engine = SectorStateEngine()
                 sc_report = sc_engine.analyze()
                 report["sector_rotation"] = {
@@ -1151,7 +1303,12 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                     "n_weak": sc_report.n_sectors_weak,
                     "chain": sc_report.rotation_chain[-1] if sc_report.rotation_chain else "",
                 }
-                logger.info(f"  🏭 Sector top: {sc_report.top_sector} ({sc_report.top_score:.1f}) | healthy={sc_report.n_sectors_healthy} weak={sc_report.n_sectors_weak}")
+                logger.info(
+                    f"  🏭 Sector top: {sc_report.top_sector} "
+                    f"({sc_report.top_score:.1f}) | "
+                    f"healthy={sc_report.n_sectors_healthy} "
+                    f"weak={sc_report.n_sectors_weak}"
+                )
             except Exception as e:
                 logger.warning(f"⚠️ Sector rotation update failed: {e}")
                 report["sector_rotation"] = {"status": f"FAILED: {str(e)}"}
@@ -1159,9 +1316,18 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             # Step 9: CompanyHealthV2 — Phase 4 P2 (5-organ latent state)
             try:
                 from src.financial.company_health_v2 import CompanyHealthV2
+
                 TARGET_SYMBOLS = [
-                    "FPT", "ACB", "HDB", "MBB", "VCB",
-                    "HPG", "VHM", "DGC", "MWG", "GAS",
+                    "FPT",
+                    "ACB",
+                    "HDB",
+                    "MBB",
+                    "VCB",
+                    "HPG",
+                    "VHM",
+                    "DGC",
+                    "MWG",
+                    "GAS",
                 ]
                 ch_engine = CompanyHealthV2()
                 # WHY: analyze_many trả dict {symbol: HealthState} — không phải list.
@@ -1170,18 +1336,9 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                 ch_states = [s for s in ch_states.values() if s is not None]
                 report["health_v2"] = {
                     "n_symbols": len(ch_states),
-                    "high_quality_compounders": [
-                        s.symbol for s in ch_states
-                        if s.archetype == "HIGH_QUALITY_COMPOUNDER"
-                    ],
-                    "steady_earners": [
-                        s.symbol for s in ch_states
-                        if s.archetype == "STEADY_EARNER"
-                    ],
-                    "distressed": [
-                        s.symbol for s in ch_states
-                        if s.archetype == "DISTRESSED"
-                    ],
+                    "high_quality_compounders": [s.symbol for s in ch_states if s.archetype == "HIGH_QUALITY_COMPOUNDER"],
+                    "steady_earners": [s.symbol for s in ch_states if s.archetype == "STEADY_EARNER"],
+                    "distressed": [s.symbol for s in ch_states if s.archetype == "DISTRESSED"],
                 }
                 hqc = report["health_v2"]["high_quality_compounders"]
                 logger.info(f"  🏥 HealthV2: {len(ch_states)} symbols | HQC={hqc}")
@@ -1192,9 +1349,18 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             # Step 10: P3 Governor — Bayesian Expected Utility (thay thế IF/THEN)
             try:
                 from src.governor.company_state import BayesianGovernor
+
                 TARGET_SYMBOLS = [
-                    "FPT", "ACB", "HDB", "MBB", "VCB",
-                    "HPG", "VHM", "DGC", "MWG", "GAS",
+                    "FPT",
+                    "ACB",
+                    "HDB",
+                    "MBB",
+                    "VCB",
+                    "HPG",
+                    "VHM",
+                    "DGC",
+                    "MWG",
+                    "GAS",
                 ]
                 bg = BayesianGovernor()
                 bg_analysis = bg.analyze(TARGET_SYMBOLS)
@@ -1232,10 +1398,13 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         cal_result = {"n_resolved": 0, "n_eligible": 0}
         try:
             from calibration.calibrator import resolve_pending_outcomes
+
             cal_result = resolve_pending_outcomes(hold_days=30)
             if cal_result.get("n_resolved", 0) > 0:
-                logger.info(f"  ✅ P4 Resolved: {cal_result['n_resolved']} outcomes "
-                            f"(Acc={cal_result['accuracy']:.1%}, LL={cal_result['mean_log_loss']:.4f})")
+                logger.info(
+                    f"  ✅ P4 Resolved: {cal_result['n_resolved']} outcomes "
+                    f"(Acc={cal_result['accuracy']:.1%}, LL={cal_result['mean_log_loss']:.4f})"
+                )
                 report["calibration_resolve"] = cal_result
             else:
                 report["calibration_resolve"] = {"status": cal_result["status"]}
@@ -1250,10 +1419,19 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         #      prediction_log chứ không phải file này — file này là observability.
         try:
             TARGET_SYMBOLS = [
-                "FPT", "ACB", "HDB", "MBB", "VCB",
-                "HPG", "VHM", "DGC", "MWG", "GAS",
+                "FPT",
+                "ACB",
+                "HDB",
+                "MBB",
+                "VCB",
+                "HPG",
+                "VHM",
+                "DGC",
+                "MWG",
+                "GAS",
             ]
             from src.governor.csi_explain import CSIExplainEngine
+
             csi_eng = CSIExplainEngine()
             csi_path = PROJECT_ROOT / "backend" / "data" / "output" / "csi_history.json"
             existing = []
@@ -1292,6 +1470,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         try:
             from calibration.model_registry import ModelRegistry
             from calibration.prediction_log import get_resolved_by_model
+
             mr = ModelRegistry()
             fed_count = 0
             per_model = {}
@@ -1308,8 +1487,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                     mr.record_outcome(mid, p_gain=p, y_true=y)
                 fed_count += 1
                 wins = sum(1 for r in batch if r.get("outcome", 0) >= 0.5)
-                per_model[mid] = {"n_resolved": n, "fed": len(batch),
-                                  "accuracy": round(wins / len(batch), 4)}
+                per_model[mid] = {"n_resolved": n, "fed": len(batch), "accuracy": round(wins / len(batch), 4)}
             report["model_registry"] = {
                 "n_resolved_fed": cal_result.get("n_resolved", 0),
                 "per_model_fed": fed_count,
@@ -1327,6 +1505,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         #   phân hóa nodes theo hiệu năng thực.
         try:
             from calibration.evidence_engine import EvidenceEngine
+
             ev_feed = EvidenceEngine().batch_update_from_resolved(days_back=90)
             report["evidence_feed"] = {
                 "nodes_updated": {k: v for k, v in ev_feed.items() if v},
@@ -1344,6 +1523,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         #   dưới CONFIDENCE_FLOOR bị loại khỏi graph (giảm nhiễu auditor).
         try:
             from calibration.causal_edge import CausalGraph
+
             cg = CausalGraph()
             cg.load_from_db()
             decayed = cg.apply_time_decay()
@@ -1368,6 +1548,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         # Step 11b: Circuit Breaker auto-check
         try:
             from calibration.prediction_log import check_circuit_breaker_auto, init_circuit_breaker
+
             init_circuit_breaker()
             cb_state = check_circuit_breaker_auto()
             report["circuit_breaker"] = cb_state
@@ -1402,6 +1583,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
 
     return report
 
+
 if __name__ == "__main__":
     import argparse
 
@@ -1412,7 +1594,9 @@ if __name__ == "__main__":
     parser.add_argument("--date", type=str, default=None, help="Target date (YYYY-MM-DD)")
     parser.add_argument("--manifest", type=str, default=None, help="Path to missing_manifest.json for gap filling")
     parser.add_argument("--batch-size", type=int, default=50, help="Symbols per batch (default 50; giảm khi bị IP ban)")
-    parser.add_argument("--throttle", type=float, default=1.8, help="Delay giây giữa các batch (default 1.8; tăng khi bị IP ban)")
+    parser.add_argument(
+        "--throttle", type=float, default=1.8, help="Delay giây giữa các batch (default 1.8; tăng khi bị IP ban)"
+    )
     args = parser.parse_args()
 
     run_daily_update(args.date, args.manifest, batch_size=args.batch_size, throttle_sec=args.throttle)

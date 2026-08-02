@@ -299,3 +299,25 @@ class TestProviderManagerForensicIntegration:
         manager = ProviderManager()
         manager._forensic_cache = None
         assert manager.forensic_risk("AAA") is None
+
+
+class TestEodRefreshHook:
+    def test_run_forensic_cache_refresh_populates_real_store(self):
+        from src.daily_updater import run_forensic_cache_refresh
+
+        written = run_forensic_cache_refresh()
+        if written == 0:
+            pytest.skip("financial_facts.db empty")
+        assert written >= 1
+        cache = ForensicScoreCache()
+        assert cache.get("FPT") is not None or cache.get("VCB") is not None
+
+    def test_run_forensic_cache_refresh_noop_on_empty(self, monkeypatch, tmp_path):
+        from src.daily_updater import run_forensic_cache_refresh
+
+        empty_db = str(tmp_path / "empty.db")
+        monkeypatch.setattr(
+            "src.financial.forensic_engine.FINANCIAL_DB_PATH",
+            empty_db,
+        )
+        assert run_forensic_cache_refresh() == 0
