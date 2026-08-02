@@ -20,6 +20,15 @@ class FinancialProvider(ABC):
 
     name: str = "base"
 
+    # Offline/cache tiers opt out of circuit breaking: they are the
+    # final fallback, so the breaker must never skip them.
+    circuit_breakable: bool = True
+
+    # Financial data family (e.g. "VCI", "KBS") used for canonical-key
+    # mapping during cross-validation. Defaults to the provider name;
+    # concrete network providers override it.
+    source: str = "base"
+
     # ── Identity ────────────────────────────────────────────────────────
     @abstractmethod
     def is_available(self) -> bool:

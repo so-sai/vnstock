@@ -10,12 +10,14 @@ Entity types: STANDARD (FPT) vs BANK (ACB, HDB, MBB)
 # chỉ số đặc thù. DataIntegrityValidator đặt ngay trước khi ghi để chặn dữ liệu sai đơn vị
 # (nghìn/triệu/tỷ) ngay từ nguồn — sai scale là lỗi âm thầm phá vỡ mọi phân tích phía sau.
 
+import re
 import sqlite3
 import sys
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
 
 # === Sentinel Hydrate v2.2 (AGENTS.md Anchor) ===
 _candidate = Path(sys.executable).resolve().parent
@@ -179,6 +181,58 @@ VNSTOCK_METRIC_MAP_BANK = {
     "gia_tri_so_sach": "BOOK_VALUE_PS",
     "du_phong_rui_ro": "PROVISION",
     "tai_san_co_dinh_vo_hinh": "INTANGIBLE_ASSETS",
+}
+
+# ── vnstock 4.0.5 wide-format item_id → PTCK metric ────────────────────
+# vnstock 4.0.5 trả statement dạng WIDE (item_id rows + period columns).
+# Map item_id chuẩn (VCI + KBS) sang PTCK metric names để parse đúng.
+VNSTOCK_ITEM_ID_MAP = {
+    # Income statement
+    "net_sales": "REVENUE",
+    "revenue": "REVENUE",
+    "cost_of_sales": "COGS",
+    "cost_of_goods_sold": "COGS",
+    "gross_profit": "GROSS_PROFIT",
+    "net_profit_loss_after_tax": "NET_INCOME",
+    "net_profit": "NET_INCOME",
+    "net_profit_loss": "NET_INCOME",
+    "profit_after_tax_for_shareholders_of_parent_company": "NET_INCOME",
+    "operating_profit_loss": "OPERATING_PROFIT",
+    "operating_profit": "OPERATING_PROFIT",
+    "interest_expenses": "INTEREST_EXPENSE",
+    "of_which_interest_expense": "INTEREST_EXPENSE",
+    "ebitda": "EBITDA",
+    "eps_basic_vnd": "EPS",
+    "earnings_per_share_vnd": "EPS",
+    "eps": "EPS",
+    # Balance sheet
+    "total_assets": "TOTAL_ASSETS",
+    "total_resource": "TOTAL_ASSETS",
+    "liabilities": "TOTAL_LIABILITIES",
+    "total_liabilities": "TOTAL_LIABILITIES",
+    "owners_equity": "TOTAL_EQUITY",
+    "equity": "TOTAL_EQUITY",
+    "current_assets": "CURRENT_ASSETS",
+    "current_liabilities": "CURRENT_LIAB",
+    "short_term_borrowings": "SHORT_TERM_DEBT",
+    "long_term_borrowings": "LONG_TERM_DEBT",
+    "cash_and_cash_equivalents": "CASH_EQUIV",
+    "accounts_receivable": "RECEIVABLES",
+    "trade_accounts_receivable": "RECEIVABLES",
+    "inventories_net": "INVENTORY",
+    "inventories": "INVENTORY",
+    # Cash flow
+    "net_cash_inflows_outflows_from_operating_activities": "CFO",
+    "operating_cash_flow": "CFO",
+    "net_cash_inflows_outflows_from_investing_activities": "CFI",
+    "investing_cash_flow": "CFI",
+    "net_cash_inflows_outflows_from_financing_activities": "CFF",
+    "financing_cash_flow": "CFF",
+    "purchases_of_fixed_assets_and_other_long_term_assets": "CAPEX",
+    "payment_for_fixed_assets_constructions_and_other_long_term_assets": "CAPEX",
+    "cash_and_cash_equivalents_at_the_end_of_period": "CASH_END",
+    "cash_and_cash_equivalents_at_end_of_the_period": "CASH_END",
+    "ending_cash": "CASH_END",
 }
 
 # Entity type registry
@@ -686,6 +740,20 @@ class VnstockCrawler:
         self.source = source
         self.batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+    @staticmethod
+    def _period_from_col(col: str) -> Optional[str]:
+        """Convert a period column label to 'YYYYQx'.
+
+        Handles both '2018Q1' and vnstock wide labels '2018_q1' /
+        '2025_q4_1' (KBS duplicates) by extracting year + quarter digits.
+        """
+        m = re.match(r"^(\d{4})[^0-9]*q?[^0-9]*(\d{1,2})\b", str(col).strip().lower())
+        if m:
+            q = int(m.group(2))
+            if 1 <= q <= 4:
+                return f"{int(m.group(1))}Q{q}"
+        return None
+
     def _safe_get(self, fn, name: str, retries: int = 2):
         """Gọi hàm vnstock với retry và bắt lỗi."""
         for attempt in range(retries):
@@ -700,7 +768,7 @@ class VnstockCrawler:
                 print(f"    {name} ERROR (attempt {attempt+1}): {e}")
                 return None
 
-    def fetch_financials_vnstock(self, symbol: str) -> List[Dict]:
+    def fetch_financials_vnstock(self, symbol: str, limit: Optional[int] = 30) -> List[Dict]:
         """Lấy financial statements qua ProviderManager (fallback vnstock → cache)."""
         try:
             from src.providers import get_provider_manager
@@ -711,11 +779,11 @@ class VnstockCrawler:
 
         statements = {}
         statements["IS"] = self._safe_get(
-            lambda: mgr.income_statement(symbol), "Income stmt")
+            lambda: mgr.income_statement(symbol, limit=limit), "Income stmt")
         statements["BS"] = self._safe_get(
-            lambda: mgr.balance_sheet(symbol), "Balance sheet")
+            lambda: mgr.balance_sheet(symbol, limit=limit), "Balance sheet")
         statements["CF"] = self._safe_get(
-            lambda: mgr.cashflow(symbol), "Cash flow")
+            lambda: mgr.cashflow(symbol, limit=limit), "Cash flow")
 
         return self._parse_statements(symbol, statements)
 
@@ -738,6 +806,39 @@ class VnstockCrawler:
                 df.columns = [str(c).lower().replace(" ", "_").replace("-", "_").strip()
                              for c in df.columns]
             except:
+                continue
+
+            # vnstock 4.0.5 trả WIDE format: item_id rows + period columns.
+            if "item_id" in df.columns:
+                period_cols = [c for c in df.columns
+                               if c not in ("item", "item_en", "item_id", "unit",
+                                            "levels", "row_number", "audit_status")]
+                try:
+                    for _, row in df.iterrows():
+                        item_id = str(row["item_id"]) if pd.notna(row["item_id"]) else ""
+                        mapped = VNSTOCK_ITEM_ID_MAP.get(item_id)
+                        if not mapped:
+                            continue
+                        for col in period_cols:
+                            per = self._period_from_col(col)
+                            if per is None:
+                                continue
+                            if per not in periods_data:
+                                periods_data[per] = {"_fiscal_year": int(per[:4]),
+                                                     "_fiscal_quarter": int(per[5:6])}
+                            try:
+                                v = row[col]
+                                if v is None or pd.isna(v):
+                                    continue
+                                if isinstance(v, str):
+                                    v = float(v.replace(",", "").replace(" ", ""))
+                                else:
+                                    v = float(v)
+                                periods_data[per][mapped] = v
+                            except (ValueError, TypeError):
+                                continue
+                except Exception as e:
+                    print(f"    Wide-format parse error: {e}")
                 continue
 
             year_col, quarter_col, period_col = None, None, None
@@ -793,9 +894,9 @@ class VnstockCrawler:
 
     def fetch_financials_cafef(self, symbol: str) -> List[Dict]:
         """Fallback: scrape financial data from CafeF.vn."""
+
         import requests
         from bs4 import BeautifulSoup
-        import re
 
         entity_type = self.db.get_entity_type(symbol)
         print(f"  [CafeF] Scraping {symbol} ({entity_type})...")
@@ -830,13 +931,13 @@ class VnstockCrawler:
             return result
 
         # Fallback to CafeF
-        print(f"    Vnstock failed, trying CafeF fallback...")
+        print("    Vnstock failed, trying CafeF fallback...")
         result = self.fetch_financials_cafef(symbol)
         if result:
             return result
 
         # Last resort: use sample data for demo purposes
-        print(f"    Using sample data for demo...")
+        print("    Using sample data for demo...")
         return self._get_sample_data(symbol)
 
     def _get_sample_data(self, symbol: str) -> List[Dict]:
@@ -997,7 +1098,7 @@ def main():
         print("=== Khởi tạo financial_facts.db ===")
         db.init_schema()
         print(f"  Database: {db.db_path}")
-        print(f"  Tables: financial_facts, entity_registry, ingestion_log")
+        print("  Tables: financial_facts, entity_registry, ingestion_log")
         print("  Schema: OK")
 
     elif args.action == "seed":
@@ -1010,13 +1111,13 @@ def main():
 
         crawler = VnstockCrawler(db=db, source=args.source)
         result = crawler.seed_multiple(args.symbols)
-        print(f"\n=== Kết quả ===")
+        print("\n=== Kết quả ===")
         print(f"  Symbols: {result['symbols_done']}/{result['symbols_total']}")
         print(f"  Tổng periods: {result['periods_total']}")
         print(f"  Tổng facts: {result['total_facts']}")
 
     elif args.action == "status":
-        print(f"=== Trạng thái financial_facts.db ===")
+        print("=== Trạng thái financial_facts.db ===")
         conn = sqlite3.connect(str(FINANCIAL_DB_PATH))
         cursor = conn.cursor()
 
@@ -1044,7 +1145,7 @@ def main():
         cursor.execute("""
             SELECT status, COUNT(*) FROM ingestion_log GROUP BY status
         """)
-        print(f"\n  Ingestion log:")
+        print("\n  Ingestion log:")
         for r in cursor.fetchall():
             print(f"    {r[0]}: {r[1]}")
 
@@ -1056,7 +1157,7 @@ def main():
         conn.close()
 
     elif args.action == "validate":
-        print(f"=== Validate dữ liệu ===")
+        print("=== Validate dữ liệu ===")
         conn = sqlite3.connect(str(FINANCIAL_DB_PATH))
         cursor = conn.cursor()
 

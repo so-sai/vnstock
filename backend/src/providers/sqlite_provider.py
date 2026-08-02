@@ -32,6 +32,9 @@ class SqliteCacheProvider(FinancialProvider):
 
     name = "sqlite"
 
+    # Offline tier: never circuit-broken (it is the guaranteed fallback).
+    circuit_breakable: bool = False
+
     def __init__(self, db_path: Optional[Path] = None) -> None:
         self._db_path = Path(db_path) if db_path else _resolve_db_path()
 

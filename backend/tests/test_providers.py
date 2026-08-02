@@ -1,9 +1,11 @@
 """test_providers.py - TDD for the FinancialProvider abstraction & ProviderManager."""
 
+import time
+
 import pandas as pd
 
 from src.providers.base import FinancialProvider
-from src.providers.manager import ProviderManager
+from src.providers.manager import CircuitBreaker, ProviderManager
 
 
 class DummyProvider(FinancialProvider):
@@ -125,3 +127,147 @@ def test_provider_describe_shape():
     meta = p.describe()
     assert meta["name"] == "audited"
     assert "available" in meta
+
+
+# ── Circuit Breaker ───────────────────────────────────────────────────
+
+class AlwaysFailingProvider(FinancialProvider):
+    """Deterministic provider that raises on every call."""
+
+    name = "flaky"
+
+    def __init__(self):
+        self.calls = 0
+
+    def is_available(self):
+        return True
+
+    def income_statement(self, symbol, **kwargs):
+        self.calls += 1
+        raise RuntimeError("network down")
+
+    def balance_sheet(self, symbol, **kwargs):
+        self.calls += 1
+        raise RuntimeError("network down")
+
+    def cashflow(self, symbol, **kwargs):
+        self.calls += 1
+        raise RuntimeError("network down")
+
+    def history(self, symbol, start=None, end=None, **kwargs):
+        self.calls += 1
+        raise RuntimeError("network down")
+
+
+def test_circuit_breaker_trips_after_threshold():
+    cb = CircuitBreaker(window_seconds=300, error_rate_threshold=0.5, min_samples=3, cooldown_seconds=60)
+    assert cb.state == "CLOSED"
+    for _ in range(3):
+        cb.record_failure()
+    assert cb.state == "OPEN"
+    assert cb.allow_request() is False
+
+
+def test_circuit_breaker_stays_closed_with_few_failures():
+    cb = CircuitBreaker(window_seconds=300, error_rate_threshold=0.5, min_samples=5, cooldown_seconds=60)
+    cb.record_failure()
+    cb.record_success()
+    assert cb.state == "CLOSED"
+    assert cb.allow_request() is True
+
+
+def test_circuit_breaker_open_then_half_open_probe():
+    cb = CircuitBreaker(window_seconds=300, error_rate_threshold=0.5, min_samples=3, cooldown_seconds=0)
+    for _ in range(3):
+        cb.record_failure()
+    assert cb.state == "OPEN"
+    time.sleep(0.01)
+    assert cb.allow_request() is True  # cooldown elapsed → HALF-OPEN probe
+    assert cb.state == "HALF-OPEN"
+    cb.record_success()
+    assert cb.state == "CLOSED"
+
+
+def test_circuit_breaker_half_open_failure_reopens():
+    cb = CircuitBreaker(window_seconds=300, error_rate_threshold=0.5, min_samples=3, cooldown_seconds=0)
+    for _ in range(3):
+        cb.record_failure()
+    assert cb.state == "OPEN"
+    time.sleep(0.01)
+    cb.allow_request()
+    cb.record_failure()
+    assert cb.state == "OPEN"
+
+
+def test_manager_skips_open_provider_and_uses_fallback():
+    flaky = AlwaysFailingProvider()
+    alive = DummyProvider("alive")
+    mgr = ProviderManager(
+        [flaky, alive],
+        breaker_factory=lambda: CircuitBreaker(window_seconds=300, error_rate_threshold=0.5, min_samples=3),
+    )
+
+    # Drive the breaker OPEN with three failures.
+    for _ in range(3):
+        mgr.income_statement("VCB")
+    assert mgr.breaker_states()["flaky"] == "OPEN"
+
+    # Further calls must skip flaky entirely (no new calls) → fall back to alive.
+    calls_before = flaky.calls
+    df = mgr.income_statement("VCB")
+    assert df is not None and not df.empty
+    assert flaky.calls == calls_before  # never invoked again
+    assert mgr.source_attribution().get("alive", 0) > 0
+    assert mgr.tripped_sources().get("flaky", 0) > 0
+
+
+def test_manager_sqlite_not_circuit_breakable():
+    """Offline tier must never get a breaker (it is the guaranteed fallback)."""
+    mgr = ProviderManager()
+    mgr.register(DummyProvider("network"))
+    from src.providers.sqlite_provider import SqliteCacheProvider
+
+    mgr.register(SqliteCacheProvider(db_path=None))
+    assert mgr.breaker_states() == {"network": "CLOSED"}
+    assert "sqlite" not in mgr.breaker_states()
+
+
+def test_active_source_skips_open_provider():
+    flaky = AlwaysFailingProvider()
+    alive = DummyProvider("alive")
+    mgr = ProviderManager(
+        [flaky, alive],
+        breaker_factory=lambda: CircuitBreaker(window_seconds=300, error_rate_threshold=0.5, min_samples=3),
+    )
+    for _ in range(3):
+        mgr.income_statement("VCB")
+    assert mgr.breaker_states()["flaky"] == "OPEN"
+    assert mgr.active_source() == "alive"
+
+
+def test_empty_result_counts_as_breaker_failure():
+    class EmptyProvider(FinancialProvider):
+        name = "empty"
+
+        def is_available(self):
+            return True
+
+        def income_statement(self, symbol, **kwargs):
+            return pd.DataFrame()
+
+        def balance_sheet(self, symbol, **kwargs):
+            return pd.DataFrame()
+
+        def cashflow(self, symbol, **kwargs):
+            return pd.DataFrame()
+
+        def history(self, symbol, start=None, end=None, **kwargs):
+            return pd.DataFrame()
+
+    mgr = ProviderManager(
+        [EmptyProvider()],
+        breaker_factory=lambda: CircuitBreaker(window_seconds=300, error_rate_threshold=0.5, min_samples=3),
+    )
+    for _ in range(3):
+        mgr.cashflow("FPT")
+    assert mgr.breaker_states()["empty"] == "OPEN"

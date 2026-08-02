@@ -68,19 +68,31 @@ class VnstockProvider(FinancialProvider):
     # ── Financial statements ───────────────────────────────────────────
     def income_statement(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
         try:
-            return self._finance(symbol).income_statement(**kwargs)
+            finance = self._finance(symbol)
+            limit = kwargs.pop("limit", None)
+            if limit is not None:
+                return finance._get_financial_report("income_statement", limit=limit, **kwargs)
+            return finance.income_statement(**kwargs)
         except Exception:
             return None
 
     def balance_sheet(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
         try:
-            return self._finance(symbol).balance_sheet(**kwargs)
+            finance = self._finance(symbol)
+            limit = kwargs.pop("limit", None)
+            if limit is not None:
+                return finance._get_financial_report("balance_sheet", limit=limit, **kwargs)
+            return finance.balance_sheet(**kwargs)
         except Exception:
             return None
 
     def cashflow(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
         try:
-            return self._finance(symbol).cash_flow(**kwargs)
+            finance = self._finance(symbol)
+            limit = kwargs.pop("limit", None)
+            if limit is not None:
+                return finance._get_financial_report("cash_flow", limit=limit, **kwargs)
+            return finance.cash_flow(**kwargs)
         except Exception:
             return None
 
