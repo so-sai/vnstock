@@ -27,7 +27,7 @@ is not persisted as a separate metric in the fact store.
 # kết luận vi phạm.
 
 import sqlite3
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -268,8 +268,121 @@ class ForensicEngine:
         return df[OUTPUT_COLUMNS]
 
     # ── Entry point ─────────────────────────────────────────────────────
-    def run(self) -> pd.DataFrame:
-        """Screen every symbol in the store; return the forensic frame."""
-        with sqlite3.connect(self.db_path) as conn:
+    def run(self, conn: Optional[sqlite3.Connection] = None) -> pd.DataFrame:
+        """Screen every symbol in the store; return the forensic frame.
+
+        Pass `conn` to reuse an existing connection (dependency injection —
+        required for in-memory/`:memory:` databases and E2E tests).
+        """
+        if conn is not None:
             df = self.load_facts(conn)
+            return self.compute_forensics(df)
+        with sqlite3.connect(self.db_path) as local_conn:
+            df = self.load_facts(local_conn)
         return self.compute_forensics(df)
+
+
+class ForensicScoreCache:
+    """O(1) materialized cache of forensic scores for the Provider/Governor layer.
+
+    The full-screen forensic scan is expensive (queries + vectorized math for
+    every symbol), so it must never run inside a hot request path. A background
+    job / post-backfill hook calls :meth:`refresh` to persist the LATEST period
+    per symbol into the `forensic_scores` table; the ProviderManager reads that
+    table via a PRIMARY KEY lookup — O(1), no recompute at request time.
+    """
+
+    TABLE = "forensic_scores"
+
+    _SCHEMA = """
+        CREATE TABLE IF NOT EXISTS forensic_scores (
+            symbol          TEXT PRIMARY KEY,
+            period          TEXT NOT NULL,
+            m_score         REAL,
+            m_score_flag    INTEGER NOT NULL DEFAULT 0,
+            sloan_ratio     REAL,
+            ari             REAL,
+            hard_violation  INTEGER NOT NULL DEFAULT 0,
+            risk_score      REAL NOT NULL DEFAULT 0.0,
+            computed_at     TEXT DEFAULT (datetime('now'))
+        );
+    """
+
+    def __init__(self, db_path: Optional[str] = None) -> None:
+        self.db_path = db_path or str(FINANCIAL_DB_PATH)
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def init_schema(self) -> None:
+        with self._connect() as conn:
+            conn.execute(self._SCHEMA)
+            conn.commit()
+
+    def refresh(self, frame: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> int:
+        """Upsert the latest period per symbol from a forensic frame.
+
+        Keeps the newest row (by fiscal ordinal) per symbol so the O(1) lookup
+        always returns the most recent screening. Returns rows written.
+        """
+        if frame is None or frame.empty:
+            return 0
+        latest = frame.sort_values(["symbol", "fiscal_year", "fiscal_quarter"]).groupby("symbol", as_index=False).tail(1)
+
+        def _nz(v: Any) -> Any:
+            return None if pd.isna(v) else float(v)
+
+        rows = [
+            (
+                r.symbol,
+                r.period,
+                _nz(r.M_Score),
+                int(bool(r.M_Score_Flag)),
+                _nz(r.Sloan_Ratio),
+                _nz(r.ARI),
+                int(bool(r.Hard_Violation)),
+                float(r.Risk_Score),
+            )
+            for r in latest.itertuples(index=False)
+        ]
+        owns_conn = conn is None
+        conn = conn if conn is not None else self._connect()
+        try:
+            conn.execute(self._SCHEMA)
+            conn.executemany(
+                f"INSERT OR REPLACE INTO {self.TABLE} "
+                "(symbol, period, m_score, m_score_flag, sloan_ratio, ari, "
+                " hard_violation, risk_score) VALUES (?,?,?,?,?,?,?,?)",
+                rows,
+            )
+            conn.commit()
+        finally:
+            if owns_conn:
+                conn.close()
+        return len(rows)
+
+    def get(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """O(1) PRIMARY KEY lookup — returns the latest score for one symbol."""
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    f"SELECT * FROM {self.TABLE} WHERE symbol = ?",
+                    (symbol.upper(),),
+                ).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        return {
+            "symbol": row["symbol"],
+            "period": row["period"],
+            "m_score": row["m_score"],
+            "m_score_flag": bool(row["m_score_flag"]),
+            "sloan_ratio": row["sloan_ratio"],
+            "ari": row["ari"],
+            "hard_violation": bool(row["hard_violation"]),
+            "risk_score": row["risk_score"],
+            "computed_at": row["computed_at"],
+        }

@@ -116,6 +116,7 @@ class CircuitBreaker:
         failures = sum(1 for _, ok in self._events if not ok)
         return failures / len(self._events)
 
+
 # ── Default manager (module-level singleton) ─────────────────────────
 _default_manager: Optional["ProviderManager"] = None
 _manager_lock = threading.Lock()
@@ -163,6 +164,7 @@ class ProviderManager:
         self._discrepancies: Dict[tuple, Dict[str, Any]] = {}
         self._last_primary_source: Optional[str] = None
         self._secondary_provider = self._make_secondary_provider
+        self._forensic_cache: Any = None
 
     def _make_secondary_provider(self, source: str = "KBS") -> FinancialProvider:
         """Build a cross-validation secondary provider (KBS by default)."""
@@ -179,11 +181,13 @@ class ProviderManager:
         """
         try:
             from src.providers.vnstock_provider import VnstockProvider
+
             self.register(VnstockProvider())
         except Exception as e:  # noqa: BLE001
             logger.warning("VnstockProvider unavailable: %s", e)
         try:
             from src.providers.sqlite_provider import SqliteCacheProvider
+
             self.register(SqliteCacheProvider())
         except Exception as e:  # noqa: BLE001
             logger.debug("SqliteCacheProvider unavailable: %s", e)
@@ -259,9 +263,7 @@ class ProviderManager:
                         breaker.record_failure()
                 if success:
                     with self._lock:
-                        self._source_attribution[provider.name] = (
-                            self._source_attribution.get(provider.name, 0) + 1
-                        )
+                        self._source_attribution[provider.name] = self._source_attribution.get(provider.name, 0) + 1
                         self._last_primary_source = getattr(provider, "source", provider.name)
                     return result, provider.name
             except Exception as e:  # noqa: BLE001 - provider boundary
@@ -276,18 +278,12 @@ class ProviderManager:
     def cross_validation_report(self) -> Dict[str, Dict[str, Any]]:
         """Full audit trail of every cross-validation run (symbol, method)."""
         with self._lock:
-            return {
-                f"{sym}:{m}": dict(rep)
-                for (sym, m), rep in sorted(self._cross_validation.items())
-            }
+            return {f"{sym}:{m}": dict(rep) for (sym, m), rep in sorted(self._cross_validation.items())}
 
     def discrepancies(self) -> Dict[str, Dict[str, Any]]:
         """Only the flagged FLAG_DISCREPANCY records (quarantine view)."""
         with self._lock:
-            return {
-                f"{sym}:{m}": dict(rep)
-                for (sym, m), rep in sorted(self._discrepancies.items())
-            }
+            return {f"{sym}:{m}": dict(rep) for (sym, m), rep in sorted(self._discrepancies.items())}
 
     def cross_validate(
         self,
@@ -359,6 +355,24 @@ class ProviderManager:
     def company_info(self, symbol: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
         result, _ = self._try_call("company_info", symbol, **kwargs)
         return result
+
+    # ── Forensic screening cache (O(1) read, never recomputes on request) ─
+    def forensic_risk(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Latest cached forensic score for a symbol (Beneish/Sloan/ARI).
+
+        Reads the materialized `forensic_scores` table via PRIMARY KEY lookup
+        — O(1), zero recompute at request time. The table is refreshed by a
+        post-backfill hook (:meth:`ForensicScoreCache.refresh`), never inside
+        a REST/SSE request path. Returns None when the cache is empty.
+        """
+        try:
+            if self._forensic_cache is None:
+                from src.financial.forensic_engine import ForensicScoreCache
+
+                self._forensic_cache = ForensicScoreCache()
+            return self._forensic_cache.get(symbol)
+        except Exception:  # noqa: BLE001 - provider boundary
+            return None
 
     def symbols(self, **kwargs: Any) -> Optional[List[str]]:
         result, _ = self._try_call("symbols", **kwargs)

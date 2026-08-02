@@ -18,6 +18,7 @@ from src.financial.forensic_engine import (
     BENEISH_THRESHOLD,
     OUTPUT_COLUMNS,
     ForensicEngine,
+    ForensicScoreCache,
 )
 
 
@@ -196,3 +197,105 @@ class TestRealStore:
             pytest.skip("financial_facts.db empty")
         assert {"symbol", "period", "fiscal_year", "fiscal_quarter"}.issubset(df.columns)
         assert any(c in df.columns for c in ("REVENUE", "NET_INCOME", "CFO"))
+
+
+class TestRunInjection:
+    def test_run_accepts_external_connection(self):
+        engine = ForensicEngine()
+        with sqlite3.connect(engine.db_path) as conn:
+            result = engine.run(conn=conn)
+        if result.empty:
+            pytest.skip("financial_facts.db empty")
+        assert set(OUTPUT_COLUMNS).issubset(result.columns)
+
+    def test_run_without_conn_opens_own_connection(self):
+        result = ForensicEngine().run()
+        if result.empty:
+            pytest.skip("financial_facts.db empty")
+        assert set(OUTPUT_COLUMNS).issubset(result.columns)
+
+
+class TestForensicScoreCache:
+    def _seed_facts(self, db_path: str) -> None:
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE financial_facts (symbol TEXT, period TEXT, "
+            "fiscal_year INTEGER, fiscal_quarter INTEGER, metric TEXT, value REAL)"
+        )
+        rows = [
+            ("AAA", "2024Q1", 2024, 1, "REVENUE", 1000.0),
+            ("AAA", "2024Q1", 2024, 1, "NET_INCOME", 100.0),
+            ("AAA", "2024Q1", 2024, 1, "CFO", 80.0),
+            ("AAA", "2024Q1", 2024, 1, "TOTAL_ASSETS", 5000.0),
+            ("AAA", "2024Q1", 2024, 1, "TOTAL_EQUITY", 2000.0),
+            ("AAA", "2024Q1", 2024, 1, "TOTAL_LIABILITIES", 3000.0),
+            ("AAA", "2024Q1", 2024, 1, "RECEIVABLES", 200.0),
+            ("AAA", "2024Q2", 2024, 2, "REVENUE", 1100.0),
+            ("AAA", "2024Q2", 2024, 2, "NET_INCOME", 105.0),
+            ("AAA", "2024Q2", 2024, 2, "CFO", 85.0),
+            ("AAA", "2024Q2", 2024, 2, "TOTAL_ASSETS", 5200.0),
+            ("AAA", "2024Q2", 2024, 2, "TOTAL_EQUITY", 2100.0),
+            ("AAA", "2024Q2", 2024, 2, "TOTAL_LIABILITIES", 3100.0),
+            ("AAA", "2024Q2", 2024, 2, "RECEIVABLES", 210.0),
+            ("BBB", "2024Q1", 2024, 1, "REVENUE", 500.0),
+            ("BBB", "2024Q1", 2024, 1, "NET_INCOME", 50.0),
+            ("BBB", "2024Q1", 2024, 1, "CFO", 40.0),
+            ("BBB", "2024Q1", 2024, 1, "TOTAL_ASSETS", 1000.0),
+            ("BBB", "2024Q1", 2024, 1, "TOTAL_EQUITY", 300.0),
+            ("BBB", "2024Q1", 2024, 1, "TOTAL_LIABILITIES", 700.0),
+            ("BBB", "2024Q1", 2024, 1, "RECEIVABLES", 100.0),
+        ]
+        conn.executemany("INSERT INTO financial_facts VALUES (?,?,?,?,?,?)", rows)
+        conn.commit()
+        conn.close()
+
+    def test_refresh_keeps_latest_period_per_symbol(self, tmp_path):
+        db = str(tmp_path / "facts.db")
+        self._seed_facts(db)
+        engine = ForensicEngine(db_path=db)
+        frame = engine.run()
+        cache = ForensicScoreCache(db_path=db)
+        written = cache.refresh(frame)
+        assert written == 2
+        row = cache.get("AAA")
+        assert row is not None
+        assert row["period"] == "2024Q2"
+        assert 0.0 <= row["risk_score"] <= 1.0
+        assert row["m_score_flag"] is False
+
+    def test_get_returns_none_for_unknown_symbol(self, tmp_path):
+        db = str(tmp_path / "facts.db")
+        self._seed_facts(db)
+        cache = ForensicScoreCache(db_path=db)
+        assert cache.get("__NOPE__") is None
+
+    def test_refresh_empty_frame_writes_nothing(self, tmp_path):
+        cache = ForensicScoreCache(db_path=str(tmp_path / "facts.db"))
+        assert cache.refresh(pd.DataFrame()) == 0
+        assert cache.get("AAA") is None
+
+
+class TestProviderManagerForensicIntegration:
+    def test_forensic_risk_reads_materialized_cache(self, tmp_path):
+        db = str(tmp_path / "facts.db")
+        TestForensicScoreCache._seed_facts(self, db)
+        engine = ForensicEngine(db_path=db)
+        cache = ForensicScoreCache(db_path=db)
+        cache.refresh(engine.run())
+
+        from src.providers.manager import ProviderManager
+
+        manager = ProviderManager()
+        manager._forensic_cache = cache
+        row = manager.forensic_risk("aaa")
+        assert row is not None
+        assert row["symbol"] == "AAA"
+        assert "hard_violation" in row
+        assert manager.forensic_risk("__NOPE__") is None
+
+    def test_forensic_risk_returns_none_when_cache_missing(self):
+        from src.providers.manager import ProviderManager
+
+        manager = ProviderManager()
+        manager._forensic_cache = None
+        assert manager.forensic_risk("AAA") is None
