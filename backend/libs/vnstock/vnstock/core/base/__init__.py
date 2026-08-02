@@ -1,1 +1,1 @@
-﻿"""Base module initialization."""
+"""Base module initialization."""

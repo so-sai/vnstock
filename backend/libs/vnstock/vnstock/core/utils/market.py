@@ -1,4 +1,4 @@
-﻿# @title utils/market_hours.py
+# @title utils/market_hours.py
 # Simple utility to check market trading hours and data availability
 
 import datetime
@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 def trading_hours(
-    market: str = "HOSE", custom_time: Optional[datetime.datetime] = None, enable_log: bool = False, language: str = "en"
+    market: str = "HOSE",
+    custom_time: Optional[datetime.datetime] = None,
+    enable_log: bool = False,
+    language: str = "en",
 ) -> Dict[str, Any]:
     """
     Check if current time is within trading hours with data availability context.
@@ -33,9 +36,10 @@ def trading_hours(
             - market (str): Market being checked or "general" if market is None
     """
     # Validate market parameter
-    valid_markets = ["HOSE", "HNX", "UPCOM", "Futures", None]
     if market is not None and market not in ["HOSE", "HNX", "UPCOM", "Futures"]:
-        raise ValueError(f"Unknown market: {market}. Valid markets: HOSE, HNX, UPCOM, Futures, None")
+        raise ValueError(
+            f"Unknown market: {market}. Valid markets: HOSE, HNX, UPCOM, Futures, None"
+        )
 
     # Validate language parameter
     if language not in ["en", "vi"]:
@@ -68,7 +72,12 @@ def trading_hours(
             "atc_end": "14:45",
             "trading_end": "15:00",
         },
-        "UPCOM": {"trading_start": "09:00", "lunch_start": "11:30", "lunch_end": "13:00", "trading_end": "14:30"},
+        "UPCOM": {
+            "trading_start": "09:00",
+            "lunch_start": "11:30",
+            "lunch_end": "13:00",
+            "trading_end": "14:30",
+        },
         "Futures": {
             "trading_start": "08:45",
             "ato_end": "09:00",
@@ -140,15 +149,23 @@ def trading_hours(
         market_display = market
 
     # Parse times from schedule
-    trading_start = datetime.datetime.strptime(schedule["trading_start"], "%H:%M").time()
+    trading_start = datetime.datetime.strptime(
+        schedule["trading_start"], "%H:%M"
+    ).time()
     lunch_start = datetime.datetime.strptime(schedule["lunch_start"], "%H:%M").time()
     lunch_end = datetime.datetime.strptime(schedule["lunch_end"], "%H:%M").time()
     trading_end = datetime.datetime.strptime(schedule["trading_end"], "%H:%M").time()
 
     # Define data availability windows
-    prep_window_start = (datetime.datetime.combine(datetime.date.today(), trading_start) - datetime.timedelta(hours=2)).time()
+    prep_window_start = (
+        datetime.datetime.combine(datetime.date.today(), trading_start)
+        - datetime.timedelta(hours=2)
+    ).time()
 
-    settling_window_end = (datetime.datetime.combine(datetime.date.today(), trading_end) + datetime.timedelta(hours=4)).time()
+    settling_window_end = (
+        datetime.datetime.combine(datetime.date.today(), trading_end)
+        + datetime.timedelta(hours=4)
+    ).time()
 
     # Current time as time object for comparison
     current_time = now.time()
@@ -189,7 +206,9 @@ def trading_hours(
         # Check if we're in ATO period
         if (
             "ato_end" in schedule
-            and trading_start <= current_time < datetime.datetime.strptime(schedule["ato_end"], "%H:%M").time()
+            and trading_start
+            <= current_time
+            < datetime.datetime.strptime(schedule["ato_end"], "%H:%M").time()
         ):
             trading_session = "ato"
             is_trading = True
@@ -225,7 +244,9 @@ def trading_hours(
         # Check if we're in post-close period
         elif (
             "atc_end" in schedule
-            and datetime.datetime.strptime(schedule["atc_end"], "%H:%M").time() <= current_time < trading_end
+            and datetime.datetime.strptime(schedule["atc_end"], "%H:%M").time()
+            <= current_time
+            < trading_end
         ):
             trading_session = "post_close"
             is_trading = False  # Not active trading

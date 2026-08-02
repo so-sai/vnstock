@@ -1,4 +1,4 @@
-﻿"""
+"""
 Data validation models for vnstock library.
 
 This module provides Pydantic BaseModel classes for data validation
@@ -30,7 +30,7 @@ class TickerModel(BaseModel):
     """
 
     symbol: str
-    start: str
+    start: Optional[str] = None
     end: Optional[str] = None
     interval: Optional[str] = "1D"
 

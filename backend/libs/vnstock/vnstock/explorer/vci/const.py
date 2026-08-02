@@ -1,8 +1,18 @@
-﻿# _BASE_URL = 'https://mt.vietcap.com.vn/api/'
+# _BASE_URL = 'https://mt.vietcap.com.vn/api/'
 _TRADING_URL = "https://trading.vietcap.com.vn/api/"
 _CHART_URL = "chart/OHLCChart/gap-chart"
 _INTRADAY_URL = "market-watch"
 _GRAPHQL_URL = "https://trading.vietcap.com.vn/data-mt/graphql"
+_VCIQ_URL = "https://iq.vietcap.com.vn/api/iq-insight-service"
+_VCI_EVENTS_URL = f"{_VCIQ_URL}/v1/events"
+_VCI_MARKET_INDICES_URL = f"{_VCIQ_URL}/v1/market-indices"
+_VCI_COMPANY_URL = f"{_VCIQ_URL}/v1/company"
+_IQ_FINANCE_REPORT = {
+    "balance_sheet": "BALANCE_SHEET",
+    "income_statement": "INCOME_STATEMENT",
+    "cash_flow": "CASH_FLOW",
+    "ratio": "RATIO",
+}
 
 _INTERVAL_MAP = {
     "1m": "ONE_MINUTE",
@@ -18,7 +28,14 @@ _INTERVAL_MAP = {
 # Frequency resampling map
 # Note: 'ME' (month-end) is the pandas 2.2+ format. For older pandas versions,
 # use normalize_frequency_string() from vnstock.core.utils.compat module
-_RESAMPLE_MAP = {"5m": "5min", "15m": "15min", "30m": "30min", "1H": "1H", "1W": "1W", "1M": "ME"}
+_RESAMPLE_MAP = {
+    "5m": "5min",
+    "15m": "15min",
+    "30m": "30min",
+    "1H": "1H",
+    "1W": "1W",
+    "1M": "ME",
+}
 
 _OHLC_MAP = {
     "t": "time",
@@ -39,31 +56,35 @@ _OHLC_DTYPE = {
     "volume": "int64",
 }
 
-_GROUP_CODE = [
-    "HOSE",
-    "VN30",
-    "VNMidCap",
-    "VNSmallCap",
-    "VNAllShare",
-    "VN100",
-    "ETF",
-    "HNX",
-    "HNX30",
-    "HNXCon",
-    "HNXFin",
-    "HNXLCap",
-    "HNXMSCap",
-    "HNXMan",
-    "UPCOM",
-    "FU_INDEX",
-    "FU_BOND",
-    "BOND",
-    "CW",
-]
+_GROUP_CODE_MAPPING = {
+    "HOSE": "HOSE",
+    "HNX": "HNX",
+    "UPCOM": "UPCOM",
+    "ETF": "ETF",
+    "FUTURE": "FU_INDEX",
+    "FU_INDEX": "FU_INDEX",
+    "WARRANT": "CW",
+    "CW": "CW",
+    "BOND": "BOND",
+    "FU_BOND": "FU_BOND",
+    "FUND_BOND": "FU_BOND",
+}
 
-_INTRADAY_MAP = {"truncTime": "time", "matchPrice": "price", "matchVol": "volume", "matchType": "match_type", "id": "id"}
+_INTRADAY_MAP = {
+    "truncTime": "time",
+    "matchPrice": "price",
+    "matchVol": "volume",
+    "matchType": "match_type",
+    "id": "id",
+}
 
-_INTRADAY_DTYPE = {"time": "datetime64[ns]", "price": "float64", "volume": "int64", "match_type": "str", "id": "str"}
+_INTRADAY_DTYPE = {
+    "time": "datetime64[ns]",
+    "price": "float64",
+    "volume": "int64",
+    "match_type": "str",
+    "id": "str",
+}
 
 _PRICE_DEPTH_MAP = {
     "priceStep": "price",
@@ -73,7 +94,11 @@ _PRICE_DEPTH_MAP = {
     "accumulatedUndefinedVolume": "acc_undefined_volume",
 }
 
-_FINANCIAL_REPORT_MAP = {"balance_sheet": "balancesheet", "income_statement": "incomestatement", "cash_flow": "cashflow"}
+_FINANCIAL_REPORT_MAP = {
+    "balance_sheet": "balancesheet",
+    "income_statement": "incomestatement",
+    "cash_flow": "cashflow",
+}
 
 _FINANCIAL_REPORT_PERIOD_MAP = {"year": "Y", "quarter": "Q"}
 
@@ -81,7 +106,56 @@ _UNIT_MAP = {"BILLION": "tỷ", "PERCENT": "%", "INDEX": "index", "MILLION": "tr
 
 SUPPORTED_LANGUAGES = ["vi", "en"]
 
-_INDEX_MAPPING = {"VNINDEX": "VNINDEX", "HNXINDEX": "HNXIndex", "UPCOMINDEX": "HNXUpcomIndex"}
+_VCI_INDEX_MAPPING = {
+    # Major Market Indices
+    "VNINDEX": "VNINDEX",
+    "VNI": "VNINDEX",
+    "HNX": "HNXIndex",
+    "HNXINDEX": "HNXIndex",
+    "UPCOM": "HNXUpcomIndex",
+    "UPCOMINDEX": "HNXUpcomIndex",
+    # HOSE Indices
+    "VN30": "VN30",
+    "VNMID": "VNMIDCAP",
+    "VNSML": "VNSMALLCAP",
+    "VN100": "VN100",
+    "VNALL": "VNALLSHARE",
+    "VNSI": "VNSI",
+    # Sector Indices (HOSE)
+    "VNIT": "VNIT",
+    "VNIND": "VNIND",
+    "VNCONS": "VNCONS",
+    "VNCOND": "VNCOND",
+    "VNHEAL": "VNHEAL",
+    "VNENE": "VNENE",
+    "VNUTI": "VNUTI",
+    "VNREAL": "VNREAL",
+    "VNFIN": "VNFIN",
+    "VNMAT": "VNMAT",
+    # Investment Indices (HOSE)
+    "VNDIAMOND": "VNDIAMOND",
+    "VNFINLEAD": "VNFINLEAD",
+    "VNFINSELECT": "VNFINSELECT",
+    # VNX Indices
+    "VNX50": "VNX50",
+    "VNXALL": "VNXALL",
+    # HNX Sub-Indices
+    "HNX30": "HNX30",
+    "HNXFIN": "HNX Financials Index",
+    "HNXFINANCIALS": "HNX Financials Index",
+    "HNXCON": "HNX Construction Index",
+    "HNXCONSTRUCTION": "HNX Construction Index",
+    "HNXLCAP": "HNX Large Cap Index",
+    "HNXLARGECAP": "HNX Large Cap Index",
+    "HNXMAN": "HNX Manufacturing Index",
+    "HNXMANUFACTURING": "HNX Manufacturing Index",
+    "HNXMSCAP": "HNX Mid/Small Cap Index",
+    "HNXMIDSMALLCAP": "HNX Mid/Small Cap Index",
+    # UPCOM Sub-Indices
+    "UPCOMLAR": "UPCOM Large Index",
+    "UPCOMMID": "UPCOM Medium Index",
+    "UPCOMSML": "UPCOM Small Index",
+}
 
 _PRICE_INFO_MAP = {
     "ev": "ev",  # Enterprise Value
@@ -196,4 +270,186 @@ _ICB4_COMTYPE_CODE_MAP = {
     "Đồ gia dụng lâu bền": "CT",
     "Đồ gia dụng một lần": "CT",
     "Đồ uống & giải khát": "CT",
+}
+
+# Mapping for ratio output columns: Vietnamese and English
+# Dùng cho chuẩn hóa tên cột đầu ra hàm ratio
+
+RATIO_COLUMN_MAP_EN = {
+    "report_period": "report_period",
+    "ratioTTMId": "Ratio TTM Id",
+    "ratioType": "Ratio Type",
+    "numberOfSharesMktCap": "Outstanding Shares (mil)",
+    "marketCap": "Market Cap",
+    "dividendYield": "Dividend Yield (%)",
+    "pe": "P/E",
+    "pb": "P/B",
+    "ps": "P/S",
+    "priceToCashFlow": "Price/Cash Flow",
+    "evToEbitda": "EV/EBITDA",
+    "cashRatio": "Cash Ratio",
+    "quickRatio": "Quick Ratio",
+    "currentRatio": "Current Ratio",
+    "ownersEquity": "Owners Equity",
+    "debtPerEquity": "Debt/Equity",
+    "debtToEquity": "Debt to Equity",
+    "roe": "ROE (%)",
+    "roa": "ROA (%)",
+    "daySaleOutstanding": "Days Sales Outstanding",
+    "daysInventoryOutstanding": "Days Inventory Outstanding",
+    "daysPayableOutstanding": "Days Payable Outstanding",
+    "grossMargin": "Gross Margin (%)",
+    "ebitMargin": "EBIT Margin (%)",
+    "preTaxProfitMargin": "Pre-tax Profit Margin (%)",
+    "afterTaxProfitMargin": "After-tax Profit Margin (%)",
+    "assetTurnover": "Asset Turnover",
+    "netInterestMargin": "Net Interest Margin",
+    "averageYieldOnEarningAssets": "Avg Yield on Earning Assets",
+    "averageCostOfFinancing": "Avg Cost of Financing",
+    "nonAndInterestIncome": "Non-interest Income",
+    "costToIncome": "Cost/Income Ratio",
+    "loansGrowth": "Loans Growth (%)",
+    "depositGrowth": "Deposit Growth (%)",
+    "equityToLiabilities": "Equity/Total Liabilities",
+    "equityToLoans": "Equity/Loans",
+    "totalEquityTotalAsset": "Equity/Total Assets",
+    "ldrLoanDepositRatio": "LDR (%)",
+    "npl": "NPL (%)",
+    "loansLossReservesToNPLs": "Loan Loss Reserves/NPLs",
+    "loansLossReserveToLoans": "Loan Loss Reserve/Loans",
+    "provisionToOutstandingLoans": "Provision/Outstanding Loans",
+    "ebit": "EBIT",
+    "ebitda": "EBITDA",
+    "roic": "ROIC",
+    "cashCycle": "Cash Cycle",
+    "fixedAssetTurnover": "Fixed Asset Turnover",
+    "financialLeverage": "Financial Leverage",
+    "cir": "CIR",
+    "car": "CAR",
+    "equity": "Equity",
+    "casaRatio": "CASA Ratio",
+    "current_deposits": "Current Deposits",
+    "margin_deposits": "Margin Deposits",
+    "deposits_for_special_purposes": "Deposits for Special Purposes",
+    "deposits_from_customers": "Deposits from Customers",
+    "ratioYearId": "Ratio Year Id",
+}
+
+RATIO_COLUMN_MAP_VI = {
+    "report_period": "Kỳ báo cáo",
+    "year": "Năm",
+    "quarter": "Quý",
+    "ratioTTMId": "Mã TTM",
+    "ratioType": "Loại tỷ lệ",
+    "numberOfSharesMktCap": "Số CP lưu hành (triệu)",
+    "marketCap": "Vốn hóa",
+    "dividendYield": "Tỷ suất cổ tức (%)",
+    "pe": "P/E",
+    "pb": "P/B",
+    "ps": "P/S",
+    "priceToCashFlow": "Giá/ Dòng tiền",
+    "evToEbitda": "EV/EBITDA",
+    "cashRatio": "Hệ số thanh toán tiền",
+    "quickRatio": "Hệ số thanh toán nhanh",
+    "currentRatio": "Hệ số thanh toán hiện hành",
+    "ownersEquity": "Vốn chủ sở hữu",
+    "debtPerEquity": "Nợ/Vốn chủ",
+    "debtToEquity": "Nợ trên vốn chủ",
+    "roe": "ROE (%)",
+    "roa": "ROA (%)",
+    "daySaleOutstanding": "Số ngày phải thu",
+    "daysInventoryOutstanding": "Số ngày tồn kho",
+    "daysPayableOutstanding": "Số ngày phải trả",
+    "grossMargin": "Biên LN gộp (%)",
+    "ebitMargin": "Biên EBIT (%)",
+    "preTaxProfitMargin": "Biên LN trước thuế (%)",
+    "afterTaxProfitMargin": "Biên LN sau thuế (%)",
+    "assetTurnover": "Vòng quay tài sản",
+    "netInterestMargin": "Biên lãi thuần",
+    "averageYieldOnEarningAssets": "Lãi suất bình quân tài sản sinh lãi",
+    "averageCostOfFinancing": "Chi phí vốn bình quân",
+    "nonAndInterestIncome": "Thu nhập ngoài lãi",
+    "costToIncome": "Tỷ lệ CIR",
+    "loansGrowth": "Tăng trưởng cho vay (%)",
+    "depositGrowth": "Tăng trưởng tiền gửi (%)",
+    "equityToLiabilities": "Vốn chủ/Tổng nợ",
+    "equityToLoans": "Vốn chủ/Cho vay",
+    "totalEquityTotalAsset": "Vốn chủ/Tổng tài sản",
+    "ldrLoanDepositRatio": "LDR (%)",
+    "npl": "Nợ xấu (%)",
+    "loansLossReservesToNPLs": "DP rủi ro/Nợ xấu",
+    "loansLossReserveToLoans": "DP rủi ro/Cho vay",
+    "provisionToOutstandingLoans": "Trích lập DP/Cho vay",
+    "ebit": "EBIT",
+    "ebitda": "EBITDA",
+    "roic": "ROIC",
+    "cashCycle": "Chu kỳ tiền",
+    "fixedAssetTurnover": "Vòng quay TS cố định",
+    "financialLeverage": "Đòn bẩy tài chính",
+    "cir": "CIR",
+    "car": "CAR",
+    "equity": "Vốn chủ sở hữu",
+    "casaRatio": "Tỷ lệ CASA",
+    "tien_gui_khong_ky_han": "Tiền gửi không kỳ hạn",
+    "tien_gui_ky_quy": "Tiền gửi ký quỹ",
+    "tien_gui_cho_nhung_muc_dich_rieng_biet": "Tiền gửi mục đích riêng biệt",
+    "tien_gui_cua_khach_hang": "Tiền gửi khách hàng",
+    "ratioYearId": "Mã năm tỷ lệ",
+}
+
+RATIO_COLUMN_MAP_SNAKE = {
+    "pe": "pe_ratio",
+    "pb": "pb_ratio",
+    "ps": "ps_ratio",
+    "roe": "roe",
+    "roa": "roa",
+    "grossMargin": "gross_margin",
+    "afterTaxProfitMargin": "net_margin",
+    "currentRatio": "current_ratio",
+    "quickRatio": "quick_ratio",
+    "debtToEquity": "debt_to_equity",
+    "bookValuePerShare": "book_value_per_share",
+    "earningPerShare": "earnings_per_share",
+    "dividendYield": "dividend_yield",
+    "priceToCashFlow": "price_to_cash_flow",
+    "evToEbitda": "ev_to_ebitda",
+    "cashRatio": "cash_ratio",
+    "ownersEquity": "owners_equity",
+    "daySaleOutstanding": "days_sales_outstanding",
+    "daysInventoryOutstanding": "days_inventory_outstanding",
+    "daysPayableOutstanding": "days_payable_outstanding",
+    "ebitMargin": "ebit_margin",
+    "preTaxProfitMargin": "pre_tax_profit_margin",
+    "assetTurnover": "asset_turnover",
+    "netInterestMargin": "net_interest_margin",
+    "averageYieldOnEarningAssets": "avg_yield_on_earning_assets",
+    "averageCostOfFinancing": "avg_cost_of_financing",
+    "nonAndInterestIncome": "non_interest_income",
+    "costToIncome": "cost_to_income_ratio",
+    "loansGrowth": "loans_growth",
+    "depositGrowth": "deposit_growth",
+    "equityToLiabilities": "equity_to_liabilities",
+    "equityToLoans": "equity_to_loans",
+    "totalEquityTotalAsset": "equity_to_assets",
+    "ldrLoanDepositRatio": "ldr",
+    "npl": "npl",
+    "loansLossReservesToNPLs": "loan_loss_reserves_to_npls",
+    "loansLossReserveToLoans": "loan_loss_reserve_to_loans",
+    "provisionToOutstandingLoans": "provision_to_outstanding_loans",
+    "ebit": "ebit",
+    "ebitda": "ebitda",
+    "roic": "roic",
+    "cashCycle": "cash_cycle",
+    "fixedAssetTurnover": "fixed_asset_turnover",
+    "financialLeverage": "financial_leverage",
+    "cir": "cir",
+    "car": "car",
+    "casaRatio": "casa_ratio",
+    "marketCap": "market_cap",
+    "numberOfSharesMktCap": "outstanding_shares",
+    "equity": "equity",
+    "tien_gui_khong_ky_han": "current_deposits",
+    "tien_gui_ky_quy": "margin_deposits",
+    "tien_gui_cho_nhung_muc_dich_rieng_biet": "deposits_for_special_purposes",
+    "tien_gui_cua_khach_hang": "deposits_from_customers",
 }

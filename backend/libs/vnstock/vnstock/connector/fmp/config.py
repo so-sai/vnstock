@@ -1,4 +1,4 @@
-﻿"""
+"""
 Configuration and utility functions for FMP API connector.
 
 Provides classes and functions for FMP API interaction including
@@ -85,7 +85,12 @@ class FMPConfig:
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    def get_endpoint_url(self, endpoint_name: str, symbol: Optional[str] = None, query: Optional[str] = None) -> str:
+    def get_endpoint_url(
+        self,
+        endpoint_name: str,
+        symbol: Optional[str] = None,
+        query: Optional[str] = None,
+    ) -> str:
         """
         Build complete API endpoint URL.
 
@@ -127,7 +132,9 @@ class FMPConfig:
         return url
 
 
-def make_fmp_request(url: str, timeout: int = _DEFAULT_TIMEOUT, show_log: bool = True) -> Optional[pd.DataFrame]:
+def make_fmp_request(
+    url: str, timeout: int = _DEFAULT_TIMEOUT, show_log: bool = True
+) -> Optional[pd.DataFrame]:
     """
     Execute HTTP request to FMP API and return data as DataFrame.
 
@@ -209,7 +216,9 @@ def make_fmp_request(url: str, timeout: int = _DEFAULT_TIMEOUT, show_log: bool =
         return None
 
 
-def normalize_dataframe(df: pd.DataFrame, date_columns: Optional[list] = None, show_log: bool = True) -> pd.DataFrame:
+def normalize_dataframe(
+    df: pd.DataFrame, date_columns: Optional[list] = None, show_log: bool = True
+) -> pd.DataFrame:
     """
     Normalize DataFrame: convert date and numeric columns.
 
@@ -247,7 +256,16 @@ def normalize_dataframe(df: pd.DataFrame, date_columns: Optional[list] = None, s
         df["symbol"] = df["symbol"].str.upper()
 
     # Convert numeric columns from string if needed
-    numeric_candidates = ["price", "change", "changePercentage", "volume", "marketCap", "revenue", "netIncome", "eps"]
+    numeric_candidates = [
+        "price",
+        "change",
+        "changePercentage",
+        "volume",
+        "marketCap",
+        "revenue",
+        "netIncome",
+        "eps",
+    ]
 
     for col in numeric_candidates:
         if col in df.columns and df[col].dtype == "object":

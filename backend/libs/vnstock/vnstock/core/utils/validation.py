@@ -1,4 +1,4 @@
-﻿"""
+"""
 Validation utilities for vnstock data sources.
 
 Self-contained module with no dependencies on parser.py to avoid
@@ -32,7 +32,9 @@ def validate_symbol(symbol: str, symbol_map: Optional[Dict[str, str]] = None) ->
         return symbol
 
 
-def validate_date_range(start: str, end: Optional[str] = None) -> Tuple[datetime, datetime]:
+def validate_date_range(
+    start: str, end: Optional[str] = None
+) -> Tuple[datetime, datetime]:
     """Validate date range and return datetime objects."""
     try:
         start_time = datetime.strptime(start, "%Y-%m-%d")
@@ -50,7 +52,9 @@ def validate_date_range(start: str, end: Optional[str] = None) -> Tuple[datetime
 
     except ValueError as e:
         if "does not match format" in str(e):
-            raise ValueError("Invalid date format. Please use YYYY-MM-DD format.")
+            raise ValueError(
+                "Invalid date format. Please use YYYY-MM-DD format."
+            ) from e
         raise
 
 
@@ -65,11 +69,15 @@ def validate_interval(interval: str, interval_map: Dict[str, str]) -> str:
     """Validate and map interval to data source specific value."""
     if interval not in interval_map:
         valid_options = ", ".join(interval_map.keys())
-        raise ValueError(f"Invalid interval value: {interval}. Please choose: {valid_options}")
+        raise ValueError(
+            f"Invalid interval value: {interval}. Please choose: {valid_options}"
+        )
     return interval_map[interval]
 
 
-def validate_pagination(page_size: int, page: int = 0, max_page_size: int = 100) -> Tuple[int, int]:
+def validate_pagination(
+    page_size: int, page: int = 0, max_page_size: int = 100
+) -> Tuple[int, int]:
     """Validate pagination parameters."""
     if page_size <= 0:
         raise ValueError("Page size must be greater than 0.")

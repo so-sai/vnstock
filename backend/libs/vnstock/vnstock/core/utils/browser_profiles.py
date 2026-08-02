@@ -1,4 +1,4 @@
-﻿# vnstock/core/utils/browser_profiles.py
+# vnstock/core/utils/browser_profiles.py
 
 # Note: User agent strings are constantly evolving. These are set based on the latest available
 # information as of early May 2025. They may need periodic updates to remain current.
@@ -6,7 +6,8 @@
 DESKTOP_BROWSERS = {
     "chrome": {
         "windows": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
         ),
         "macos": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "  # Using a common recent macOS version
@@ -14,7 +15,10 @@ DESKTOP_BROWSERS = {
         ),
     },
     "firefox": {
-        "windows": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0"),
+        "windows": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) "
+            "Gecko/20100101 Firefox/137.0"
+        ),
         "macos": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) "  # Using a common recent macOS version and latest Firefox
             "Gecko/20100101 Firefox/138.0"

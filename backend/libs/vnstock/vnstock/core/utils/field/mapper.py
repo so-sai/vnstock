@@ -1,4 +1,4 @@
-﻿"""
+"""
 Field mapping utilities.
 
 Provides tools for loading and managing field mappings between
@@ -69,7 +69,9 @@ class FieldMapper:
                 # Create reverse mappings
                 self._create_reverse_mappings()
 
-                logger.info(f"Loaded {len(self.mappings)} field mappings from {mapping_file}")
+                logger.info(
+                    f"Loaded {len(self.mappings)} field mappings from {mapping_file}"
+                )
             else:
                 logger.warning(f"Mapping file not found: {mapping_file}")
         except Exception as e:
@@ -133,7 +135,13 @@ class FieldMapper:
         """
         return self.normalizer.normalize_field_name(field_name, language)
 
-    def create_mapping(self, field_id: str, original_vi: str, original_en: str = "", snake_case: str = "") -> Dict:
+    def create_mapping(
+        self,
+        field_id: str,
+        original_vi: str,
+        original_en: str = "",
+        snake_case: str = "",
+    ) -> Dict:
         """
         Create a field mapping entry.
 
@@ -150,11 +158,22 @@ class FieldMapper:
             # Auto-generate snake_case from Vietnamese name
             snake_case = self.normalizer.normalize_field_name(original_vi, "vi")
 
-        mapping = {"field_id": field_id, "original_vi": original_vi, "original_en": original_en, "snake_case": snake_case}
+        mapping = {
+            "field_id": field_id,
+            "original_vi": original_vi,
+            "original_en": original_en,
+            "snake_case": snake_case,
+        }
 
         return mapping
 
-    def add_mapping(self, field_id: str, original_vi: str, original_en: str = "", snake_case: str = ""):
+    def add_mapping(
+        self,
+        field_id: str,
+        original_vi: str,
+        original_en: str = "",
+        snake_case: str = "",
+    ):
         """
         Add a field mapping.
 
@@ -290,7 +309,9 @@ class KBSFieldMapper(FieldMapper):
         """
         return self.get_field_info(field_id)
 
-    def create_kbs_mapping(self, field_id: str, item_vi: str, item_en: str = "") -> Dict:
+    def create_kbs_mapping(
+        self, field_id: str, item_vi: str, item_en: str = ""
+    ) -> Dict:
         """
         Create KBS field mapping.
 

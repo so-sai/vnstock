@@ -1,4 +1,4 @@
-﻿"""
+"""
 Custom exceptions for vnstock library.
 
 This module provides a hierarchy of exceptions with error codes

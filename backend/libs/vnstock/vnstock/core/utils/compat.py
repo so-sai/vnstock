@@ -1,4 +1,4 @@
-﻿"""
+"""
 Pandas compatibility utilities for handling differences across versions.
 
 Supports pandas 1.x through 2.2+ with graceful fallbacks for deprecated methods.
@@ -18,7 +18,9 @@ PANDAS_GE_210 = PANDAS_VERSION >= (2, 1, 0)
 PANDAS_GE_220 = PANDAS_VERSION >= (2, 2, 0)
 
 
-def apply_to_dataframe(df: pd.DataFrame, func: Callable[[Any], Any], method: str = "auto") -> pd.DataFrame:
+def apply_to_dataframe(
+    df: pd.DataFrame, func: Callable[[Any], Any], method: str = "auto"
+) -> pd.DataFrame:
     """
     Apply a function to all elements in a DataFrame with pandas version compatibility.
 
@@ -62,20 +64,29 @@ def apply_to_dataframe(df: pd.DataFrame, func: Callable[[Any], Any], method: str
             return df.applymap(func)
         else:
             # If neither is available, raise an error
-            raise AttributeError(f"DataFrame has neither 'map' nor 'applymap' methods. Pandas version: {pd.__version__}")
+            raise AttributeError(
+                f"DataFrame has neither 'map' nor 'applymap' methods. "
+                f"Pandas version: {pd.__version__}"
+            )
 
     elif method == "map":
         if hasattr(df, "map"):
             return df.map(func)
         else:
-            logger.warning(f"DataFrame.map() not available in pandas {pd.__version__}, falling back to applymap()")
+            logger.warning(
+                f"DataFrame.map() not available in pandas {pd.__version__}, "
+                "falling back to applymap()"
+            )
             return df.applymap(func)
 
     elif method == "applymap":
         if hasattr(df, "applymap"):
             return df.applymap(func)
         else:
-            logger.warning(f"DataFrame.applymap() deprecated in pandas {pd.__version__}, using map() instead")
+            logger.warning(
+                f"DataFrame.applymap() deprecated in pandas {pd.__version__}, "
+                "using map() instead"
+            )
             return df.map(func)
 
     else:
@@ -102,7 +113,9 @@ def get_pandas_info() -> dict:
 
 
 # Convenience functions for common string replacement operations
-def replace_newlines_in_dataframe(df: pd.DataFrame, replacement: str = " ") -> pd.DataFrame:
+def replace_newlines_in_dataframe(
+    df: pd.DataFrame, replacement: str = " "
+) -> pd.DataFrame:
     """
     Replace newline characters with a string in all DataFrame columns.
 
@@ -204,7 +217,9 @@ def normalize_frequency_string(freq_str: str) -> str:
     if PANDAS_GE_220:
         # Replace 'M' with 'ME' but only for month-end frequency
         # Be careful with patterns like '5min', '1H', etc.
-        if freq_str.endswith("M") and not any(freq_str.endswith(x) for x in ["min", "h"]):
+        if freq_str.endswith("M") and not any(
+            freq_str.endswith(x) for x in ["min", "h"]
+        ):
             # It's a month frequency like 'M', '1M', etc.
             if freq_str == "M":
                 return "ME"
@@ -216,7 +231,9 @@ def normalize_frequency_string(freq_str: str) -> str:
     return freq_str
 
 
-def safe_resample_dataframe(df: pd.DataFrame, freq: str, time_col: str = "time", agg_rules: dict = None) -> pd.DataFrame:
+def safe_resample_dataframe(
+    df: pd.DataFrame, freq: str, time_col: str = "time", agg_rules: dict = None
+) -> pd.DataFrame:
     """
     Safely resample a DataFrame with pandas version compatibility.
 
@@ -283,6 +300,7 @@ def safe_resample_dataframe(df: pd.DataFrame, freq: str, time_col: str = "time",
     except ValueError as e:
         # If frequency still fails, provide helpful error message
         logger.error(
-            f"Resampling failed with frequency '{normalized_freq}' (original: '{freq}') on pandas {pd.__version__}: {e}"
+            f"Resampling failed with frequency '{normalized_freq}' "
+            f"(original: '{freq}') on pandas {pd.__version__}: {e}"
         )
         raise

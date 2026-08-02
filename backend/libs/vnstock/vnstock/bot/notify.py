@@ -1,4 +1,4 @@
-﻿"""
+"""
 Multi-platform notification and messaging service for bot integration.
 
 Supports sending messages and files to:
@@ -34,6 +34,7 @@ import os
 from typing import Dict, Optional, Union
 
 import requests
+
 from vnstock.core.types import FileTypes
 from vnstock.core.utils.env import get_path_delimiter
 from vnstock.core.utils.logger import get_logger
@@ -106,7 +107,9 @@ class Messenger:
         """
         if self.platform not in self.SUPPORTED_PLATFORMS:
             platforms_str = ", ".join(self.SUPPORTED_PLATFORMS)
-            raise ValueError(f"Supported platforms: {platforms_str}. Got: {self.platform}")
+            raise ValueError(
+                f"Supported platforms: {platforms_str}. Got: {self.platform}"
+            )
 
         # Slack validation
         if self.platform == "slack":
@@ -123,7 +126,9 @@ class Messenger:
             if not self.token_key:
                 raise ValueError("Telegram requires token_key parameter")
             if not self.channel or not self.channel.startswith("-"):
-                raise ValueError("Telegram channel must start with - (e.g., -1001234567890)")
+                raise ValueError(
+                    "Telegram channel must start with - (e.g., -1001234567890)"
+                )
 
         # Discord validation
         elif self.platform == "discord":
@@ -173,9 +178,11 @@ class Messenger:
             with open(file_path, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8")
         except IOError as e:
-            raise IOError(f"Error reading file {file_path}: {e}")
+            raise IOError(f"Error reading file {file_path}: {e}")  # noqa: B904
 
-    def send_message(self, message: str, file_path: Optional[str] = None, title: Optional[str] = None) -> Dict:
+    def send_message(
+        self, message: str, file_path: Optional[str] = None, title: Optional[str] = None
+    ) -> Dict:
         """
         Send message with optional file attachment.
 
@@ -200,7 +207,9 @@ class Messenger:
                 file_size = os.path.getsize(file_path)
                 if file_size > self.MAX_FILE_SIZE:
                     raise ValueError(
-                        f"File too large. Max size: {self.MAX_FILE_SIZE / 1024 / 1024}MB, got: {file_size / 1024 / 1024:.2f}MB"
+                        f"File too large. Max size: "
+                        f"{self.MAX_FILE_SIZE / 1024 / 1024}MB, "
+                        f"got: {file_size / 1024 / 1024:.2f}MB"
                     )
 
                 # Send with file
@@ -231,9 +240,15 @@ class Messenger:
             return {"success": False, "error": str(e), "status_code": 400}
         except Exception as e:
             logger.error(f"Unexpected error in send_message: {e}")
-            return {"success": False, "error": f"Unexpected error: {str(e)}", "status_code": 500}
+            return {
+                "success": False,
+                "error": f"Unexpected error: {str(e)}",
+                "status_code": 500,
+            }
 
-    def _slack_file(self, text_comment: str, file_path: str, title: Optional[str] = None) -> Dict:
+    def _slack_file(
+        self, text_comment: str, file_path: str, title: Optional[str] = None
+    ) -> Dict:
         """
         Send file to Slack channel.
 
@@ -261,7 +276,9 @@ class Messenger:
             "title": title,
         }
 
-        response = requests.post(url, data=payload, files={"file": file_bytes}, timeout=self.TIMEOUT)
+        response = requests.post(
+            url, data=payload, files={"file": file_bytes}, timeout=self.TIMEOUT
+        )
         return response.json()
 
     def _slack_message(self, message: str) -> Dict:
@@ -274,10 +291,15 @@ class Messenger:
         Returns:
             Slack API response
         """
-        headers = {"Content-type": "application/json; charset=utf-8", "Authorization": f"Bearer {self.token_key}"}
+        headers = {
+            "Content-type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {self.token_key}",
+        }
         payload = json.dumps({"channel": self.channel, "text": message})
 
-        response = requests.post("https://slack.com/api/chat.postMessage", data=payload, headers=headers)
+        response = requests.post(
+            "https://slack.com/api/chat.postMessage", data=payload, headers=headers
+        )
         return response.json()
 
     def _telegram_photo(self, message: str, file_path: str) -> requests.Response:
@@ -296,7 +318,9 @@ class Messenger:
         """
         extension = file_path.split(".")[-1].lower()
         if extension not in ["jpg", "jpeg", "png", "webp"]:
-            raise ValueError(f"Telegram only supports JPG, JPEG, PNG, WEBP. Got: {extension}")
+            raise ValueError(
+                f"Telegram only supports JPG, JPEG, PNG, WEBP. Got: {extension}"
+            )
 
         file_name = file_path.split(get_path_delimiter())[-1]
         files = [("photo", (file_name, open(file_path, "rb"), f"image/{extension}"))]
@@ -317,7 +341,10 @@ class Messenger:
         Returns:
             Telegram API response
         """
-        url = f"https://api.telegram.org/bot{self.token_key}/sendMessage?chat_id={self.channel}&text={message}"
+        url = (
+            f"https://api.telegram.org/bot{self.token_key}/"
+            f"sendMessage?chat_id={self.channel}&text={message}"
+        )
         response = requests.post(url)
         return response.json()
 
@@ -336,9 +363,15 @@ class Messenger:
                 raise ValueError("Discord webhook_url must be a string")
 
             payload = {"content": message}
-            response = requests.post(self.webhook_url, json=payload, timeout=self.TIMEOUT)
+            response = requests.post(
+                self.webhook_url, json=payload, timeout=self.TIMEOUT
+            )
             response.raise_for_status()
-            return {"success": True, "status_code": response.status_code, "response": response.json() if response.text else {}}
+            return {
+                "success": True,
+                "status_code": response.status_code,
+                "response": response.json() if response.text else {},
+            }
         except (ValueError, requests.exceptions.RequestException) as e:
             logger.error(f"Discord message error: {e}")
             status_code = 500
@@ -347,7 +380,9 @@ class Messenger:
                     status_code = e.response.status_code
             return {"success": False, "error": str(e), "status_code": status_code}
 
-    def _discord_file(self, message: str, file_path: str, title: Optional[str] = None) -> Dict:
+    def _discord_file(
+        self, message: str, file_path: str, title: Optional[str] = None
+    ) -> Dict:
         """
         Send file to Discord channel via webhook.
 
@@ -377,7 +412,9 @@ class Messenger:
                 files = {"file": (display_name, f)}
                 data = {"content": message}
 
-                response = requests.post(self.webhook_url, data=data, files=files, timeout=self.TIMEOUT)
+                response = requests.post(
+                    self.webhook_url, data=data, files=files, timeout=self.TIMEOUT
+                )
                 response.raise_for_status()
 
                 return {
@@ -418,7 +455,9 @@ class Messenger:
         response = requests.post(url, json=payload)
         return response.json()
 
-    def _lark_file(self, message: str, file_path: str, title: Optional[str] = None) -> Dict:
+    def _lark_file(
+        self, message: str, file_path: str, title: Optional[str] = None
+    ) -> Dict:
         """
         Send file to Lark via webhook as base64 encoded data.
 
@@ -447,7 +486,9 @@ class Messenger:
             file_size = os.path.getsize(file_path)
 
             # Prepare and send payload
-            url = f"https://botbuilder.larksuite.com/api/trigger-webhook/{self.token_key}"
+            url = (
+                f"https://botbuilder.larksuite.com/api/trigger-webhook/{self.token_key}"
+            )
             payload = {
                 "message": message,
                 "file": {
@@ -469,4 +510,8 @@ class Messenger:
             return {"error": True, "message": str(e), "status_code": 400}
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
-            return {"error": True, "message": f"Unexpected error: {str(e)}", "status_code": 500}
+            return {
+                "error": True,
+                "message": f"Unexpected error: {str(e)}",
+                "status_code": 500,
+            }

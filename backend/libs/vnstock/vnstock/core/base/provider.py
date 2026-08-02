@@ -1,4 +1,4 @@
-﻿"""
+"""
 Base provider class for all data providers.
 
 This module provides the base class that all providers (both
@@ -16,7 +16,7 @@ from vnstock.core.settings import get_config
 from vnstock.core.types import DataCategory, ProviderType
 
 
-class BaseProvider(ABC):
+class BaseProvider(ABC):  # noqa: B024
     """
     Base class for all data providers.
 
@@ -86,7 +86,9 @@ class BaseProvider(ABC):
 
         # Key not found - raise error
         env_var = f"VNSTOCK_{(self._vnstock_name or '').upper()}_API_KEY"
-        raise MissingAPIKeyError(provider=self._vnstock_name or "unknown", env_var=env_var)
+        raise MissingAPIKeyError(
+            provider=self._vnstock_name or "unknown", env_var=env_var
+        )
 
     @property
     def provider_name(self) -> str:
@@ -132,7 +134,9 @@ class BaseProvider(ABC):
         return {
             "name": self.provider_name,
             "type": self.provider_type.value if self.provider_type else None,
-            "category": (self.provider_category.value if self.provider_category else None),
+            "category": (
+                self.provider_category.value if self.provider_category else None
+            ),
             "class": self.__class__.__name__,
             "symbol": self.symbol,
             "has_api_key": bool(self.api_key),
@@ -179,7 +183,7 @@ class QuoteProviderMixin:
                     details={"start": start, "end": end},
                 )
         except ValueError as e:
-            raise ConfigurationError(
+            raise ConfigurationError(  # noqa: B904
                 f"Invalid date format: {e}. Use YYYY-MM-DD",
                 config_key="date_format",
             )

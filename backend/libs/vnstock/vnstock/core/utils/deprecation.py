@@ -1,4 +1,4 @@
-﻿"""
+"""
 Deprecation utilities for vnstock.
 
 Provides decorators and utilities to mark and handle deprecated features,
@@ -92,7 +92,11 @@ def deprecated(
     def decorator(func: Callable) -> Callable:
         # Register the deprecation
         DeprecationRegistry.register(
-            name=func.__qualname__, version=version, removal_version=removal_version, alternative=alternative, reason=reason
+            name=func.__qualname__,
+            version=version,
+            removal_version=removal_version,
+            alternative=alternative,
+            reason=reason,
         )
 
         @functools.wraps(func)
@@ -113,7 +117,9 @@ def deprecated(
 
             msg += "."
 
-            warnings.warn(msg, category=VnstockDeprecationWarning, stacklevel=stacklevel + 1)
+            warnings.warn(
+                msg, category=VnstockDeprecationWarning, stacklevel=stacklevel + 1
+            )
 
             return func(*args, **kwargs)
 
@@ -205,7 +211,12 @@ def deprecate_provider(
     return decorator
 
 
-def warn_deprecated(message: str, version: Optional[str] = None, removal_version: Optional[str] = None, stacklevel: int = 2):
+def warn_deprecated(
+    message: str,
+    version: Optional[str] = None,
+    removal_version: Optional[str] = None,
+    stacklevel: int = 2,
+):
     """
     Issue a deprecation warning with custom message.
 
@@ -230,7 +241,9 @@ def warn_deprecated(message: str, version: Optional[str] = None, removal_version
             full_msg += f", will be removed in {removal_version}"
         full_msg += ")"
 
-    warnings.warn(full_msg, category=VnstockDeprecationWarning, stacklevel=stacklevel + 1)
+    warnings.warn(
+        full_msg, category=VnstockDeprecationWarning, stacklevel=stacklevel + 1
+    )
 
 
 def get_deprecation_info(name: str) -> Optional[dict]:

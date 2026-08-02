@@ -1,4 +1,4 @@
-﻿# vnstock/core/utils/parser.py
+# vnstock/core/utils/parser.py
 
 import re
 import unicodedata
@@ -39,7 +39,7 @@ def _get_ua():
     return _UA
 
 
-def get_asset_type(symbol: str) -> str:
+def get_asset_type(symbol: str) -> str:  # noqa: F811
     """
     Determine asset type based on provided security code.
     Supports both legacy code format and new KRX format.
@@ -56,13 +56,10 @@ def get_asset_type(symbol: str) -> str:
     """
     symbol = symbol.upper()
 
-    # Standard market indices and HOSE managed indices
-    market_indices = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "HNX30"}
-    # Combine with indices from constants
-    indices_info = _get_indices_info()
-    known_indices = market_indices.union(indices_info.keys())
+    # Use standardized index check from indices.py
+    from vnstock.common.indices import is_valid_index
 
-    if symbol in known_indices:
+    if is_valid_index(symbol):
         return "index"
 
     # Stock symbols (assumed to have 3 characters)
@@ -70,7 +67,9 @@ def get_asset_type(symbol: str) -> str:
         return "stock"
 
     # New KRX derivative format (e.g., 41I1F4000)
-    krx_derivative_pattern = re.compile(r"^4[12][A-Z0-9]{2}[0-9A-HJ-NP-TV-W][1-9A-C]\d{3}$")
+    krx_derivative_pattern = re.compile(
+        r"^4[12][A-Z0-9]{2}[0-9A-HJ-NP-TV-W][1-9A-C]\d{3}$"
+    )
     if krx_derivative_pattern.match(symbol):
         return "derivative"
 
@@ -190,7 +189,9 @@ def localize_timestamp(
         timestamp_series = pd.Series(timestamp)
     # Other cases - treat as non-scalar
     else:
-        timestamp_series = pd.Series(timestamp) if not isinstance(timestamp, pd.Series) else timestamp
+        timestamp_series = (
+            pd.Series(timestamp) if not isinstance(timestamp, pd.Series) else timestamp
+        )
 
     # Convert to datetime with timezone
     dt_series = pd.to_datetime(timestamp_series, unit=unit)
@@ -207,7 +208,7 @@ def localize_timestamp(
     return vietnam_series
 
 
-def get_asset_type(symbol: str) -> str:
+def get_asset_type(symbol: str) -> str:  # noqa: F811
     """
     Determine asset type based on provided security code.
     Supports both legacy code format and new KRX format.
@@ -224,13 +225,10 @@ def get_asset_type(symbol: str) -> str:
     """
     symbol = symbol.upper()
 
-    # Standard market indices and HOSE managed indices
-    market_indices = {"VNINDEX", "HNXINDEX", "UPCOMINDEX", "HNX30"}
-    # Combine with indices from constants
-    indices_info = _get_indices_info()
-    known_indices = market_indices.union(indices_info.keys())
+    # Use standardized index check from indices.py
+    from vnstock.common.indices import is_valid_index
 
-    if symbol in known_indices:
+    if is_valid_index(symbol):
         return "index"
 
     # Stock symbols (assumed to have 3 characters)
@@ -238,7 +236,9 @@ def get_asset_type(symbol: str) -> str:
         return "stock"
 
     # New KRX derivative format (e.g., 41I1F4000)
-    krx_derivative_pattern = re.compile(r"^4[12][A-Z0-9]{2}[0-9A-HJ-NP-TV-W][1-9A-C]\d{3}$")
+    krx_derivative_pattern = re.compile(
+        r"^4[12][A-Z0-9]{2}[0-9A-HJ-NP-TV-W][1-9A-C]\d{3}$"
+    )
     if krx_derivative_pattern.match(symbol):
         return "derivative"
 
@@ -279,18 +279,25 @@ def get_asset_type(symbol: str) -> str:
 def camel_to_snake(name):
     """
     Convert variable name from CamelCase to snake_case.
+    Also handles spaces and hyphens by converting them to underscores.
 
     Parameters:
-        - name (str): Variable name in CamelCase.
+        - name (str): Variable name in CamelCase, space-separated, or hyphen-separated.
 
     Returns:
         - str: Variable name in snake_case.
     """
-    str1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
-    output = re.sub("([a-z0-9])([A-Z])", r"\1_\2", str1).lower()
-    # replace . with _
-    output = output.replace(".", "_")
-    return output
+    # 1. Replace spaces, dots, and hyphens with underscores
+    name = re.sub(r"[\s\.\-]+", "_", name)
+    # 2. Add underscore between lower/number and upper (e.g., aB -> a_B, 1B -> 1_B)
+    name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    # 3. Add underscore between upper and upper-lower (e.g., ABc -> A_Bc)
+    name = re.sub(r"([A-Z])([A-Z][a-z])", r"\1_\2", name)
+    # 4. Lowercase and remove consecutive underscores
+    output = name.lower()
+    output = re.sub(r"_+", "_", output)
+    # 5. Trim leading/trailing underscores
+    return output.strip("_")
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -400,7 +407,7 @@ def remove_vietnamese_accents(text: str, use_map: bool = True) -> str:
         return "".join(c for c in nfd if unicodedata.category(c) != "Mn")
 
 
-def normalize_vietnamese_text_to_snake_case(
+def normalize_vietnamese_text_to_snake_case(  # noqa: F811
     text: str,
     keep_numbers: bool = True,
     max_length: Optional[int] = None,
@@ -718,7 +725,7 @@ def normalize_english_text_to_snake_case(
     return text
 
 
-def normalize_vietnamese_text_to_snake_case(
+def normalize_vietnamese_text_to_snake_case(  # noqa: F811
     text: str,
     keep_numbers: bool = True,
     max_length: Optional[int] = None,
@@ -992,9 +999,14 @@ def convert_time_flexible(
                 dt = datetime.fromtimestamp(epoch)
                 return dt.strftime(output_format)
             except (ValueError, OverflowError):
-                raise ValueError(f"Cannot parse epoch timestamp: {time_value}")
+                raise ValueError(  # noqa: B904
+                    f"Cannot parse epoch timestamp: {time_value}"
+                )
         else:
-            raise ValueError(f"For to_iso=True, time_value must be int, float, or epoch string, got {type(time_value)}")
+            raise ValueError(
+                f"For to_iso=True, time_value must be int, float, "
+                f"or epoch string, got {type(time_value)}"
+            )
     else:
         # Convert to epoch
         if isinstance(time_value, (int, float)):
@@ -1006,7 +1018,10 @@ def convert_time_flexible(
                     dt = datetime.strptime(time_value, time_format)
                     return str(int(dt.timestamp()))
                 except ValueError:
-                    raise ValueError(f"Invalid time_value format: {time_value} with format {time_format}")
+                    raise ValueError(  # noqa: B904
+                        f"Invalid time_value format: {time_value} "
+                        f"with format {time_format}"
+                    )
             else:
                 # Try default formats
                 for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
@@ -1021,7 +1036,9 @@ def convert_time_flexible(
                     f"'YYYY-MM-DD HH:MM:SS' format or provide time_format."
                 )
 
-        raise ValueError(f"time_value must be str, int, or float, got {type(time_value)}")
+        raise ValueError(
+            f"time_value must be str, int, or float, got {type(time_value)}"
+        )
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -1073,7 +1090,7 @@ def vn30_expand_contract(abbrev: str, today: date) -> str:
         try:
             mm = seq[n - 1]
         except IndexError:
-            raise ValueError(f"No quarterly F{n}Q from month {today.month}")
+            raise ValueError(f"No quarterly F{n}Q from month {today.month}")  # noqa: B904
 
     # Adjust year rollover
     add_years = (mm - 1) // 12
@@ -1118,7 +1135,7 @@ def vn30_abbrev_contract(full: str, today: date) -> str:
         try:
             n = seq.index(mm) + 1
         except ValueError:
-            raise ValueError(f"Cannot determine quarterly sequence for month {mm}")
+            raise ValueError(f"Cannot determine quarterly sequence for month {mm}")  # noqa: B904
         cycle = "Q"
     else:
         # Otherwise, simple “n months ahead” → M
@@ -1131,7 +1148,9 @@ def vn30_abbrev_contract(full: str, today: date) -> str:
     return f"VN30F{n}{cycle}"
 
 
-def get_derivative_maturity_date(symbol_suffix: str, reference_date: date = None) -> date:
+def get_derivative_maturity_date(
+    symbol_suffix: str, reference_date: date = None
+) -> date:
     """
     Calculate the maturity date for a derivative symbol suffix.
 
@@ -1149,7 +1168,11 @@ def get_derivative_maturity_date(symbol_suffix: str, reference_date: date = None
     maturity_year = reference_date.year
 
     # Parse explicit format FyyMM (e.g., F2506)
-    if len(symbol_suffix) == 5 and symbol_suffix.startswith("F") and symbol_suffix[1:].isdigit():
+    if (
+        len(symbol_suffix) == 5
+        and symbol_suffix.startswith("F")
+        and symbol_suffix[1:].isdigit()
+    ):
         yy = int(symbol_suffix[1:3])
         mm = int(symbol_suffix[3:5])
         maturity_year = 2000 + yy

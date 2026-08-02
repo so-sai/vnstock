@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta
+from datetime import datetime, timedelta
 
 import requests
 
@@ -10,12 +10,13 @@ logger = get_logger(__name__)
 
 def msn_apikey(headers, version="20240430", show_log=False):
     """
-    Lấy apikey của MSN để sử dụng cho các truy vấn dữ liệu
+    Get MSN apikey to use for data queries.
+    Lấy apikey của MSN để sử dụng cho các truy vấn dữ liệu.
 
-    Tham số:
-        - headers (bắt buộc): Header của request.
-        - version (tùy chọn): Phiên bản của apikey, thường là giá trị ngày tháng của hôm đó, ví dụ 20240527. Mặc định là None. Trong một số trường hợp ngoại lệ, số version hoạt động không theo quy tắc gây lỗi mới cần phải chỉ định mã version.
-        - show_log (tùy chọn): Hiển thị thông tin log giúp debug dễ dàng. Mặc định là False.
+    Args:
+        - headers (required): Header của request (Request header).
+        - version (optional): Phiên bản của apikey, thường là giá trị ngày tháng của hôm đó. Mặc định là None. (API version, usually today's date (e.g., 20240527). Default is None.)
+        - show_log (optional): Hiển thị thông tin log giúp debug dễ dàng. Mặc định là False (Show log info for debugging. Default is False).
     """
     scope = """{"audienceMode":"adult",
                         "browser":{"browserType":"chrome","version":"0","ismobile":"false"},
@@ -44,38 +45,43 @@ def msn_apikey(headers, version="20240430", show_log=False):
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response. Status: {response.status_code}, Text: {response.text[:200]}...")
-            raise ValueError(f"Invalid JSON response from MSN API: {str(e)}")
+            logger.error(
+                f"Failed to parse JSON response. Status: {response.status_code}, Text: {response.text[:200]}..."
+            )
+            raise ValueError(f"Invalid JSON response from MSN API: {str(e)}")  # noqa: B904
 
         if show_log:
             logger.info(f"Response: {data}")
 
         # Check if expected structure exists
         try:
-            apikey = data["configs"]["shared/msn-ns/HoroscopeAnswerCardWC/default"]["properties"][
-                "horoscopeAnswerServiceClientSettings"
-            ]["apikey"]
+            apikey = data["configs"]["shared/msn-ns/HoroscopeAnswerCardWC/default"][
+                "properties"
+            ]["horoscopeAnswerServiceClientSettings"]["apikey"]
         except KeyError as e:
             logger.error(f"Expected API key structure not found in response: {str(e)}")
-            logger.error(f"Available keys in response: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
-            raise ValueError(f"API key not found in MSN response structure: {str(e)}")
+            logger.error(
+                f"Available keys in response: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}"
+            )
+            raise ValueError(f"API key not found in MSN response structure: {str(e)}")  # noqa: B904
 
         return apikey
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Network error when requesting MSN API key: {str(e)}")
-        raise ConnectionError(f"Failed to connect to MSN API: {str(e)}")
+        raise ConnectionError(f"Failed to connect to MSN API: {str(e)}")  # noqa: B904
     except Exception as e:
         logger.error(f"Unexpected error in msn_apikey: {str(e)}")
         raise
 
 
 def get_asset_type(symbol_id):
-    if symbol_id in _CURRENCY_ID_MAP.values():
+    symbol_id = symbol_id.upper()
+    if symbol_id in _CURRENCY_ID_MAP.values() or symbol_id in _CURRENCY_ID_MAP.keys():
         return "currency"
-    elif symbol_id in _CRYPTO_ID_MAP.values():
+    elif symbol_id in _CRYPTO_ID_MAP.values() or symbol_id in _CRYPTO_ID_MAP.keys():
         return "crypto"
-    elif symbol_id in _GLOBAL_INDICES.values():
+    elif symbol_id in _GLOBAL_INDICES.values() or symbol_id in _GLOBAL_INDICES.keys():
         return "index"
     else:
         return "Unknown"

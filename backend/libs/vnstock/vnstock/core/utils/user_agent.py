@@ -1,6 +1,7 @@
-﻿# vnstock/vnstock/core/utils/user_agent.py
+# vnstock/vnstock/core/utils/user_agent.py
 
 import random
+import secrets
 from typing import Dict, Optional
 
 from vnstock.core.utils.browser_profiles import USER_AGENTS
@@ -19,6 +20,14 @@ DEFAULT_HEADERS = {
     "sec-ch-ua-platform": '"Windows"',
     "sec-ch-ua-mobile": "?0",
 }
+
+
+def _generate_vci_device_id() -> str:
+    """
+    Generate a random 16-character hex string to use as a VCI Device-Id.
+    This mimics a fresh browser session.
+    """
+    return secrets.token_hex(8)
 
 
 BROWSER_PROFILES = {
@@ -45,13 +54,28 @@ BROWSER_PROFILES = {
 
 # Enhanced HEADERS_MAPPING_SOURCE with support for source-specific headers
 HEADERS_MAPPING_SOURCE = {
-    "SSI": {"Referer": "https://iboard.ssi.com.vn", "Origin": "https://iboard.ssi.com.vn"},
-    "VND": {"Referer": "https://dchart.vndirect.com.vn", "Origin": "https://dchart.vndirect.com.vn"},
-    "TCBS": {"Referer": "https://tcinvest.tcbs.com.vn/", "Origin": "https://tcinvest.tcbs.com.vn/"},
-    "VCI": {"Referer": "https://trading.vietcap.com.vn/", "Origin": "https://trading.vietcap.com.vn/"},
+    "SSI": {
+        "Referer": "https://iboard.ssi.com.vn",
+        "Origin": "https://iboard.ssi.com.vn",
+    },
+    "VND": {
+        "Referer": "https://dchart.vndirect.com.vn",
+        "Origin": "https://dchart.vndirect.com.vn",
+    },
+    "TCBS": {
+        "Referer": "https://tcinvest.tcbs.com.vn/",
+        "Origin": "https://tcinvest.tcbs.com.vn/",
+    },
+    "VCI": {
+        "Referer": "https://trading.vietcap.com.vn/",
+        "Origin": "https://trading.vietcap.com.vn/",
+    },
     "MSN": {"Referer": "https://www.msn.com/", "Origin": "https://www.msn.com/"},
     "FMARKET": {"Referer": "https://fmarket.vn/", "Origin": "https://fmarket.vn/"},
-    "SJC": {"Referer": "https://sjc.com.vn/bieu-do-gia-vang", "Origin": "https://sjc.com.vn"},
+    "SJC": {
+        "Referer": "https://sjc.com.vn/bieu-do-gia-vang",
+        "Origin": "https://sjc.com.vn",
+    },
 }
 
 
@@ -68,13 +92,14 @@ AUTH_SCHEMES = {
 def get_authorization_header(token: str, scheme: str = "Bearer") -> Dict[str, str]:
     """
     Tạo Authorization header theo scheme cụ thể.
+    Create Authorization header according to specific scheme.
 
     Args:
-        token (str): Token hoặc credentials
+        token (str): Token hoặc credentials (Token or credentials)
         scheme (str): Authorization scheme (Bearer, Basic, ApiKey, Token, JWT)
 
     Returns:
-        Dict[str, str]: Dictionary chứa Authorization header
+        Dict[str, str]: Dictionary chứa Authorization header (Dictionary containing Authorization header)
 
     Examples:
         >>> get_authorization_header('my-token')
@@ -92,11 +117,11 @@ def get_authorization_header(token: str, scheme: str = "Bearer") -> Dict[str, st
 
 def merge_headers(*header_dicts: Optional[Dict[str, str]]) -> Dict[str, str]:
     """
-    Merge nhiều dictionaries của headers với thứ tự ưu tiên từ trái sang phải.
-    Headers ở các dict sau sẽ override headers ở các dict trước.
+    Merge multiple header dictionaries with left-to-right priority.
+    Headers from later dicts will override headers from earlier dicts.
 
     Args:
-        *header_dicts: Các dictionaries cần merge
+        *header_dicts: Dictionaries to merge
 
     Returns:
         Dict[str, str]: Merged headers dictionary
@@ -120,17 +145,17 @@ def merge_headers(*header_dicts: Optional[Dict[str, str]]) -> Dict[str, str]:
 
 def validate_headers(headers: Dict[str, str]) -> Dict[str, str]:
     """
-    Validate và clean headers dictionary.
+    Validate and clean headers dictionary.
 
     Args:
-        headers (Dict[str, str]): Headers cần validate
+        headers (Dict[str, str]): Headers to validate
 
     Returns:
         Dict[str, str]: Validated headers
 
     Note:
-        - Loại bỏ các giá trị None hoặc empty string
-        - Đảm bảo tất cả keys và values là strings
+        - Remove None or empty string values
+        - Ensure all keys and values are strings
     """
     validated = {}
     for key, value in headers.items():
@@ -253,5 +278,8 @@ def get_headers(
     if override_headers:
         headers.update(override_headers)
 
-    # Step 9: Validate and return
+    # Step 9: Source-specific dynamic transformations
+    pass
+
+    # Step 10: Validate and return
     return validate_headers(headers)

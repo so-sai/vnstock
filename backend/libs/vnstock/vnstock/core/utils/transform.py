@@ -1,4 +1,4 @@
-﻿"""Data transformation utilities for vnstock data sources."""
+"""Data transformation utilities for vnstock data sources."""
 
 import re
 from datetime import datetime, time, timedelta
@@ -102,7 +102,9 @@ def process_match_types(df, asset_type, source):
 
     # --- Process ATO/ATC labeling for stock assets ---
     # Only run ATO/ATC logic if match_type contains missing values
-    if asset_type == "stock" and (df["match_type"].eq(unknown_val).any() or df["match_type"].eq("").any()):
+    if asset_type == "stock" and (
+        df["match_type"].eq(unknown_val).any() or df["match_type"].eq("").any()
+    ):
         # Sort by time and add a temporary date column to group by trading day
         df = df.sort_values("time")
         df["date"] = df["time"].dt.date
@@ -115,14 +117,20 @@ def process_match_types(df, asset_type, source):
                 return day_df
 
             # Morning session: filter for transactions between 9:13 and 9:17
-            morning_df = unknown_df[(unknown_df["time"].dt.hour == 9) & (unknown_df["time"].dt.minute.between(13, 17))]
+            morning_df = unknown_df[
+                (unknown_df["time"].dt.hour == 9)
+                & (unknown_df["time"].dt.minute.between(13, 17))
+            ]
             if not morning_df.empty:
                 # Set the earliest transaction time as ATO
                 min_idx = morning_df["time"].idxmin()
                 day_df.loc[min_idx, "match_type"] = "ATO"
 
             # Afternoon session: filter for transactions between 14:43 and 14:47
-            afternoon_df = unknown_df[(unknown_df["time"].dt.hour == 14) & (unknown_df["time"].dt.minute.between(43, 47))]
+            afternoon_df = unknown_df[
+                (unknown_df["time"].dt.hour == 14)
+                & (unknown_df["time"].dt.minute.between(43, 47))
+            ]
             if not afternoon_df.empty:
                 # Set the latest transaction time as ATC
                 max_idx = afternoon_df["time"].idxmax()
@@ -132,7 +140,9 @@ def process_match_types(df, asset_type, source):
 
         # Apply the processing function to each trading day
         try:
-            df = df.groupby("date", group_keys=False).apply(process_day, include_groups=False)
+            df = df.groupby("date", group_keys=False).apply(
+                process_day, include_groups=False
+            )
         except TypeError:
             df = df.groupby("date", group_keys=False).apply(process_day)
         # Drop date column if it exists
@@ -166,14 +176,19 @@ def ohlc_to_df(
     else:
         # Other sources with dict data
         # Select and rename columns using dictionary comprehension
-        columns_of_interest = {key: column_map[key] for key in column_map.keys() if key in data}
+        columns_of_interest = {
+            key: column_map[key] for key in column_map.keys() if key in data
+        }
         df = pd.DataFrame(data)[columns_of_interest.keys()].rename(columns=column_map)
 
     # Ensure all required columns exist
     required_columns = ["time", "open", "high", "low", "close", "volume"]
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
-        msg = f"Missing required columns: {missing_columns}. Available columns: {df.columns.tolist()}"
+        msg = (
+            f"Missing required columns: {missing_columns}. "
+            f"Available columns: {df.columns.tolist()}"
+        )
         raise ValueError(msg)
 
     # Standard column order
@@ -183,7 +198,9 @@ def ohlc_to_df(
     if "time" in df.columns:
         if source == "VCI":
             # VCI uses integer timestamps
-            df["time"] = pd.to_datetime(df["time"].astype(int), unit="s").dt.tz_localize("UTC")
+            df["time"] = pd.to_datetime(
+                df["time"].astype(int), unit="s"
+            ).dt.tz_localize("UTC")
             df["time"] = df["time"].dt.tz_convert("Asia/Ho_Chi_Minh")
         else:
             # TCBS and others might use string formats
@@ -191,10 +208,14 @@ def ohlc_to_df(
 
     # Price scaling for non-index/derivative assets
     if asset_type not in ["index", "derivative"]:
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].div(1000)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].div(
+            1000
+        )
 
     # Round price columns
-    df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].round(floating)
+    df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].round(
+        floating
+    )
 
     # Resample if needed - use shared utility for consistency
     if resample_map and interval not in ["1m", "1H", "1D"]:
@@ -204,7 +225,11 @@ def ohlc_to_df(
     for col, dtype in dtype_map.items():
         if col in df.columns:
             # Only convert datetime to date for daily interval
-            if dtype == "datetime64[ns]" and hasattr(df[col], "dt") and df[col].dt.tz is not None:
+            if (
+                dtype == "datetime64[ns]"
+                and hasattr(df[col], "dt")
+                and df[col].dt.tz is not None
+            ):
                 df[col] = df[col].dt.tz_localize(None)
 
             # Only remove timezone and convert to date for "1D"
@@ -249,7 +274,9 @@ def intraday_to_df(
     # --- Select and rename columns ---
     available = [c for c in column_map if c in df.columns]
     if not available:
-        raise ValueError(f"Expected columns {list(column_map)} not found, got {df.columns.tolist()}")
+        raise ValueError(
+            f"Expected columns {list(column_map)} not found, got {df.columns.tolist()}"
+        )
     df = df[available].rename(columns={k: column_map[k] for k in available})
 
     # --- Clean and convert to numeric ---
@@ -261,7 +288,10 @@ def intraday_to_df(
             df[col] = pd.to_numeric(df[col], errors="coerce")
             n_bad = df[col].isna().sum()
             if n_bad:
-                msg = f"[Warning] {n_bad} values in '{col}' could not be parsed, converted to NaN"
+                msg = (
+                    f"[Warning] {n_bad} values in '{col}' "
+                    f"could not be parsed, converted to NaN"
+                )
                 print(msg)
 
     # --- Scale price by source ---
@@ -276,7 +306,9 @@ def intraday_to_df(
         # Check if there are decimal values
         mask = vol % 1 != 0
         if mask.any():
-            msg = f"[Info] {int(mask.sum())} volume values have decimals, will be rounded"
+            msg = (
+                f"[Info] {int(mask.sum())} volume values have decimals, will be rounded"
+            )
             print(msg)
         df["volume"] = vol.round().astype(int)
 
@@ -294,14 +326,18 @@ def intraday_to_df(
             if ":" in sample and len(sample) <= 8:
                 df["time"] = df["time"].apply(
                     lambda x: (
-                        datetime.combine(trading_date, datetime.strptime(x, "%H:%M:%S").time())
+                        datetime.combine(
+                            trading_date, datetime.strptime(x, "%H:%M:%S").time()
+                        )
                         if isinstance(x, str) and ":" in x
                         else pd.NaT
                     )
                 )
                 df["time"] = localize_timestamp(df["time"], return_string=False)
             else:
-                df["time"] = pd.to_datetime(df["time"], format="%Y-%m-%d %H:%M:%S", errors="coerce")
+                df["time"] = pd.to_datetime(
+                    df["time"], format="%Y-%m-%d %H:%M:%S", errors="coerce"
+                )
                 if df["time"].dt.tz is None:
                     df["time"] = localize_timestamp(df["time"], return_string=False)
 
@@ -345,7 +381,12 @@ def replace_in_column_names(df, old_text, new_text, regex=False):
 
 
 def flatten_hierarchical_index(
-    df, separator="_", text_replacements=None, handle_duplicates=True, drop_levels=None, keep_levels=None
+    df,
+    separator="_",
+    text_replacements=None,
+    handle_duplicates=True,
+    drop_levels=None,
+    keep_levels=None,
 ):
     """
     Flatten hierarchical (multi-level) column indexes into a single level for easier Excel export.
@@ -401,7 +442,7 @@ def flatten_hierarchical_index(
         for col in flat_cols:
             # Process each level in the column
             processed_col = []
-            for i, level in enumerate(col):
+            for _i, level in enumerate(col):
                 level_str = str(level)
                 # Apply all text replacements to this level
                 for old_text, new_text in text_replacements.items():
@@ -414,7 +455,9 @@ def flatten_hierarchical_index(
     flattened_cols = []
     for col in flat_cols:
         # Filter to only include the selected levels
-        selected_levels = [str(col[i]) for i in level_indices if i < len(col) and col[i] != ""]
+        selected_levels = [
+            str(col[i]) for i in level_indices if i < len(col) and col[i] != ""
+        ]
         # Join the levels with the separator
         flattened_cols.append(separator.join(selected_levels))
 
@@ -433,7 +476,9 @@ def flatten_hierarchical_index(
                     # Create a new column name with '_' prefix
                     new_col_name = f"_{result_df.columns[idx]}"
                     # Rename the column in-place
-                    result_df.rename(columns={result_df.columns[idx]: new_col_name}, inplace=True)
+                    result_df.rename(
+                        columns={result_df.columns[idx]: new_col_name}, inplace=True
+                    )
 
     return result_df
 
@@ -441,7 +486,9 @@ def flatten_hierarchical_index(
 # ==== Process nested JSON data to DataFrame ====
 
 
-def flatten_dict_to_df(data: Dict[str, Any], nested_key: str = "financialRatio") -> pd.DataFrame:
+def flatten_dict_to_df(
+    data: Dict[str, Any], nested_key: str = "financialRatio"
+) -> pd.DataFrame:
     """
     Flatten nested dictionary data into a pandas DataFrame.
 
@@ -559,7 +606,9 @@ def _flatten_nested(obj: Any, output: Dict[str, Any], prefix: str = "") -> None:
         output[prefix] = obj
 
 
-def clean_html_dict(data: Dict[str, Any], html_keys: Optional[List[str]] = None) -> Dict[str, Any]:
+def clean_html_dict(
+    data: Dict[str, Any], html_keys: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """
     Convert HTML to plain text in dictionary values.
 
@@ -585,7 +634,9 @@ def clean_html_dict(data: Dict[str, Any], html_keys: Optional[List[str]] = None)
 
     # Auto-detect HTML keys if not specified
     if html_keys is None:
-        html_keys = [k for k, v in data.items() if isinstance(v, str) and "<" in v and ">" in v]
+        html_keys = [
+            k for k, v in data.items() if isinstance(v, str) and "<" in v and ">" in v
+        ]
 
     # Process HTML in identified keys
     for key in html_keys:
@@ -608,7 +659,7 @@ def clean_html_dict(data: Dict[str, Any], html_keys: Optional[List[str]] = None)
                 text = text.replace("- ", "\n- ")  # Preserve list formatting
 
                 result[key] = text
-            except:
+            except Exception:
                 pass  # Keep original if processing fails
 
     return result
@@ -712,8 +763,8 @@ def drop_cols_by_pattern(df, patterns, regex=True, case_sensitive=False):
                     if re.search(pattern, col, flags):
                         cols_to_drop.append(col)
                         break
-                except re.error:
-                    raise ValueError(f"Invalid regex pattern: {pattern}")
+                except re.error as e:
+                    raise ValueError(f"Invalid regex pattern: {pattern}") from e
             else:
                 if case_sensitive:
                     if pattern in col:
@@ -729,7 +780,10 @@ def drop_cols_by_pattern(df, patterns, regex=True, case_sensitive=False):
 
 
 def resample_ohlcv(
-    df: pd.DataFrame, interval: str, freq_map: Optional[Dict[str, str]] = None, time_col: str = "time"
+    df: pd.DataFrame,
+    interval: str,
+    freq_map: Optional[Dict[str, str]] = None,
+    time_col: str = "time",
 ) -> pd.DataFrame:
     """
     Resample OHLCV data to different time frequencies.
@@ -793,7 +847,10 @@ def resample_ohlcv(
       consider using safe_resample_dataframe() from vnstock.core.utils.compat
     """
     if time_col not in df.columns:
-        raise KeyError(f"Time column '{time_col}' not found in DataFrame. Available: {list(df.columns)}")
+        raise KeyError(
+            f"Time column '{time_col}' not found in DataFrame. "
+            f"Available: {list(df.columns)}"
+        )
 
     # Default frequency mapping
     if freq_map is None:
@@ -834,7 +891,10 @@ def resample_ohlcv(
 
     # Validate that we have at least one OHLCV column
     if not agg_dict:
-        raise ValueError(f"No resampable columns found in DataFrame. Expected columns like: {list(agg_rules.keys())}")
+        raise ValueError(
+            "No resampable columns found in DataFrame. "
+            f"Expected columns like: {list(agg_rules.keys())}"
+        )
 
     # Perform resampling
     df_result = df_resample.resample(freq).agg(agg_dict)
@@ -844,6 +904,8 @@ def resample_ohlcv(
 
     # Sort by time and reset index
     if time_col in df_result.columns:
-        df_result = df_result.sort_values(time_col, ascending=True).reset_index(drop=True)
+        df_result = df_result.sort_values(time_col, ascending=True).reset_index(
+            drop=True
+        )
 
     return df_result

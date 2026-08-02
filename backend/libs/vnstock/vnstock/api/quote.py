@@ -1,4 +1,4 @@
-﻿"""
+"""
 vnstock/api/quote.py
 
 Unified Quote adapter with dynamic method detection and parameter filtering.
@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import pandas as pd
 from tenacity import retry, stop_after_attempt, wait_exponential
+from vnai import optimize_execution
 
 from vnstock.base import BaseAdapter, dynamic_method
 from vnstock.config import Config
@@ -41,7 +42,13 @@ class Quote(BaseAdapter):
         depth = q.price_depth()
     """
 
-    def __init__(self, source: str = DataSources.KBS, symbol: str = "", random_agent: bool = False, show_log: bool = False):
+    def __init__(
+        self,
+        source: str = DataSources.KBS,
+        symbol: str = "",
+        random_agent: bool = False,
+        show_log: bool = False,
+    ):
         """
         Initialize a Quote instance.
         Khởi tạo một đối tượng Quote.
@@ -52,10 +59,11 @@ class Quote(BaseAdapter):
             random_agent (bool): Use random user agent for requests. Sử dụng user agent ngẫu nhiên cho các yêu cầu.
             show_log (bool): Show log messages. Hiển thị thông báo nhật ký.
         """
-        # Ensure explorer modules are loaded (lazy load to avoid deadlock)
-        from vnstock import _ensure_explorer_modules_loaded
+        # Ensure explorer modules and vnai patches are loaded
+        from vnstock import _ensure_explorer_modules_loaded, _ensure_vnai_initialized
 
         _ensure_explorer_modules_loaded()
+        _ensure_vnai_initialized()
 
         # Store parameters for later use
         self.source = source
@@ -67,15 +75,24 @@ class Quote(BaseAdapter):
         all_sources = DataSources.all_sources()
         if source.lower() not in [s.lower() for s in all_sources]:
             sources_str = ", ".join(all_sources)
-            raise ValueError(f"Lớp Quote chỉ nhận giá trị tham số source là {sources_str}.")
+            raise ValueError(
+                f"Lớp Quote chỉ nhận giá trị tham số source là {sources_str}."
+            )
 
         # BaseAdapter will discover vnstock.explorer.<real_source>.quote
         # and pass only the kwargs its __init__ accepts (symbol, random_agent, show_log).
-        super().__init__(source=source, symbol=symbol, random_agent=random_agent, show_log=show_log)
+        super().__init__(
+            source=source, symbol=symbol, random_agent=random_agent, show_log=show_log
+        )
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def history(
@@ -126,12 +143,26 @@ class Quote(BaseAdapter):
 
         return self._delegate_to_provider(M.HISTORY, symbol, **params)
 
+    # Aliases
+    ohlcv = history
+
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
-    def intraday(self, symbol: Optional[str] = None, page_size: int = 100, page: int = 1, **kwargs: Any) -> pd.DataFrame:
+    def intraday(
+        self,
+        symbol: Optional[str] = None,
+        page_size: int = 100,
+        page: int = 1,
+        **kwargs: Any,
+    ) -> pd.DataFrame:
         """
         Load intraday trade data for the symbol.
         Tải dữ liệu giao dịch trong ngày cho mã chứng khoán.
@@ -157,9 +188,14 @@ class Quote(BaseAdapter):
 
         return self._delegate_to_provider(M.INTRADAY, symbol, **params)
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def price_depth(self, symbol: Optional[str] = None, **kwargs: Any) -> pd.DataFrame:
@@ -180,7 +216,9 @@ class Quote(BaseAdapter):
         """
         return self._delegate_to_provider(M.PRICE_DEPTH, symbol, **kwargs)
 
-    def _delegate_to_provider(self, method_name: str, symbol: Optional[str] = None, **kwargs: Any) -> Any:
+    def _delegate_to_provider(
+        self, method_name: str, symbol: Optional[str] = None, **kwargs: Any
+    ) -> Any:
         """
         Delegate method call to the provider with symbol update if needed.
         Ủy thác cuộc gọi phương thức cho nhà cung cấp với cập nhật mã chứng khoán nếu cần.
@@ -203,7 +241,22 @@ class Quote(BaseAdapter):
 
             # Get the method from the provider
             method = getattr(self.provider, method_name)
-            return method(**kwargs)
+
+            import inspect
+
+            sig = inspect.signature(method)
+            # Only pass arguments that the provider method accepts, or pass everything if it has **kwargs
+            has_varkw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+
+            if has_varkw:
+                return method(**kwargs)
+            else:
+                filtered_kwargs = {
+                    k: v for k, v in kwargs.items() if k in sig.parameters
+                }
+                return method(**filtered_kwargs)
         finally:
             if original_symbol:
                 self.symbol = original_symbol

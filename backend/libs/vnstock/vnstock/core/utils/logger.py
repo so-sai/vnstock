@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import os
 from logging.handlers import RotatingFileHandler
 
@@ -49,7 +49,9 @@ def advanced_logger(
     if handler_type == "file":
         handler = logging.FileHandler(filename)
     elif handler_type == "rotating":
-        handler = RotatingFileHandler(filename, maxBytes=max_bytes, backupCount=backup_count)
+        handler = RotatingFileHandler(
+            filename, maxBytes=max_bytes, backupCount=backup_count
+        )
     else:  # Default to stream handler
         handler = logging.StreamHandler()
 

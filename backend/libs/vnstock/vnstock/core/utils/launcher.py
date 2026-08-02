@@ -1,4 +1,4 @@
-﻿import os
+import os
 import platform
 import subprocess
 from typing import List, Optional
@@ -36,7 +36,13 @@ def execute_command(command: Optional[List[str]] = None) -> None:
         command = ["cmd.exe", "/c"] + command
 
     try:
-        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         if result.stdout:
             print("Output:\n", result.stdout)
         if result.stderr:

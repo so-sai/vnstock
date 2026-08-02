@@ -51,3 +51,39 @@ def optimize_execution(source_name="Unknown"):
         return wrapper
 
     return decorator
+
+
+def accept_license_terms():
+    """Mock: accept license terms unconditionally."""
+    return True
+
+
+def setup_agent_environment(project_root=None):
+    """Mock: no-op agent environment setup."""
+    return None
+
+
+def async_setup_agent_environment(project_root=None):
+    """Mock: no-op (sync version — upstream calls it without await)."""
+    return None
+
+
+def load_skill_catalog():
+    """Mock: empty skill catalog."""
+    return {}
+
+
+def list_cached_skills():
+    """Mock: no cached skills."""
+    return []
+
+
+def clear_skill_cache():
+    """Mock: clear skill cache no-op."""
+    return None
+
+
+def load_skill(name, component="content"):
+    """Mock: load skill returns None."""
+    return None
+

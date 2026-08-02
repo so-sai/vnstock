@@ -1,4 +1,4 @@
-﻿import json
+import json
 import logging
 import os
 import platform
@@ -19,7 +19,9 @@ def get_vnstock_directory() -> Path:
         Path: Path to .vnstock directory
     """
     try:
-        from vnstock.core.config.ggcolab import get_vnstock_directory as ggcolab_get_vnstock_dir
+        from vnstock.core.config.ggcolab import (
+            get_vnstock_directory as ggcolab_get_vnstock_dir,
+        )
 
         return ggcolab_get_vnstock_dir()
     except ImportError:
@@ -123,15 +125,13 @@ def get_hosting_service():
             hosting_service = "Google Colab"
         elif "CODESPACE_NAME" in os.environ:
             hosting_service = "Github Codespace"
-        elif "GITPOD_WORKSPACE_CLUSTER_HOST" in os.environ:
-            hosting_service = "Gitpod"
         elif "REPLIT_USER" in os.environ:
             hosting_service = "Replit"
         elif "KAGGLE_CONTAINER_NAME" in os.environ:
             hosting_service = "Kaggle"
-        elif ".hf.space" in os.environ["SPACE_HOST"]:
+        elif "SPACE_HOST" in os.environ and ".hf.space" in os.environ["SPACE_HOST"]:
             hosting_service = "Hugging Face Spaces"
-    except:
+    except Exception:
         hosting_service = "Local or Unknown"
     return hosting_service
 
@@ -144,7 +144,9 @@ def get_package_path(package="vnstock"):
     if spec and spec.origin:
         package_path = spec.origin  # Path to the package's main file
     elif spec and spec.submodule_search_locations:
-        package_path = spec.submodule_search_locations[0]  # Path to the package directory
+        package_path = spec.submodule_search_locations[
+            0
+        ]  # Path to the package directory
     else:
         package_path = None
     return package_path
@@ -158,7 +160,7 @@ def id_valid():
 
     from vnstock.core.config.const import ID_DIR
 
-    machine_id = inspector.fingerprint()
+    inspector.fingerprint()
 
     pkg_init = ID_DIR / "environment.json"
     try:
@@ -167,7 +169,7 @@ def id_valid():
         if not env["accepted_agreement"]:
             # Use vnai to accept terms
             vnai.accept_license_terms()
-    except:
+    except Exception:
         # Use vnai to accept terms
         vnai.accept_license_terms()
 
@@ -248,7 +250,12 @@ def detect_venv() -> dict:
     else:
         python_exe = sys.executable
 
-    return {"path": venv_path, "is_active": is_active, "type": venv_type, "python_exe": python_exe}
+    return {
+        "path": venv_path,
+        "is_active": is_active,
+        "type": venv_type,
+        "python_exe": python_exe,
+    }
 
 
 def get_python_executable() -> str:
@@ -290,3 +297,70 @@ def get_venv_type() -> str:
         str: 'venv', 'conda', or 'system'
     """
     return detect_venv().get("type", "system")
+
+
+def check_sponsor_package():
+    """
+    Check if the user is using the free vnstock package while having vnstock_data installed.
+    Issues a warning to suggest switching to vnstock_data for premium features.
+    Suppresses warning if called from installer or within vnstock_data.
+    """
+    import importlib.util
+    import inspect
+    import sys
+    import warnings
+
+    # Skip if vnstock is being imported directly by vnstock_data
+    # This prevents the warning from showing when vnstock_data uses vnstock internally
+    try:
+        # Skip if environment variables from installer are present (Makeself, etc.)
+        if any(
+            env in os.environ
+            for env in ["VNSTOCK_INSTALLER", "MAKESELF_XTR_DIR", "ARCHIVE_DIR"]
+        ):
+            return
+
+        for frame_info in inspect.stack():
+            # Check module name
+            module_name = frame_info.frame.f_globals.get("__name__", "")
+            if module_name and (
+                module_name.startswith("vnstock_data")
+                or module_name == "vnstock_cli"
+                or module_name == "vnstock-installer"
+            ):
+                return
+
+            # Check file path for specific installer filenames
+            file_name = frame_info.filename
+            if any(
+                marker in file_name
+                for marker in ["vnstock_data", "vnstock_cli.py", "vnstock-installer.py"]
+            ):
+                return
+    except Exception:
+        pass
+
+    # Skip if vnstock_data is already loaded in sys.modules
+    if "vnstock_data" in sys.modules:
+        return
+
+    # Check if vnstock_data is installed in the current environment
+    has_vnstock_data = importlib.util.find_spec("vnstock_data") is not None
+
+    if has_vnstock_data:
+        msg = (
+            "\n"
+            "  ╭────────────────────────────────────────────────────────────────────╮\n"
+            "  │       🚀 MÔI TRƯỜNG NÀY ĐÃ CÀI THƯ VIỆN VNSTOCK SPONSOR            │\n"
+            "  │                                                                    │\n"
+            "  │  Để mở khóa các quyền lợi trong gói tài trợ (rate limit, APIs, vv) │\n"
+            "  │  hãy thay đổi cách gọi thư viện trong code của bạn:                │\n"
+            "  │                                                                    │\n"
+            "  │  Hiện tại (Old): from vnstock import ...                           │\n"
+            "  │  Nên dùng (New): from vnstock_data import ...                      │\n"
+            "  │                                                                    │\n"
+            "  │  Ghi chú: Chỉ nhập API key trên bản free sẽ KHÔNG mở khóa được     │\n"
+            "  │  các giới hạn của hệ thống (bản free và sponsor là 2 gói riêng).   │\n"
+            "  ╰────────────────────────────────────────────────────────────────────╯\n"
+        )
+        warnings.warn(msg, UserWarning, stacklevel=2)

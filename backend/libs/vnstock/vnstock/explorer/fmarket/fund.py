@@ -1,4 +1,4 @@
-﻿# Refactor the original code from https://github.com/andrey-jef contributed to the Vnstock Legacy project.
+# Refactor the original code from https://github.com/andrey-jef contributed to the Vnstock Legacy project.
 # Reference: https://github.com/thinh-vu/vnstock/blob/legacy/vnstock/funds.py
 # Shoutout to andrey_jef for the contribution.
 
@@ -12,16 +12,25 @@ from vnai import optimize_execution
 from vnstock.core.utils import client
 from vnstock.core.utils.logger import get_logger
 from vnstock.core.utils.user_agent import get_headers
-from vnstock.explorer.fmarket.const import _BASE_URL, _FUND_LIST_COLUMNS, _FUND_LIST_MAPPING, _FUND_TYPE_MAPPING
+from vnstock.explorer.fmarket.const import (
+    _BASE_URL,
+    _FUND_LIST_COLUMNS,
+    _FUND_LIST_MAPPING,
+    _FUND_TYPE_MAPPING,
+)
 
 logger = get_logger(__name__)
 
 
-def convert_unix_to_datetime(df_to_convert: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
+def convert_unix_to_datetime(
+    df_to_convert: pd.DataFrame, columns: List[str]
+) -> pd.DataFrame:
     """Converts all the specified columns of a dataframe to date format and fill NaN for negative values."""
     df = df_to_convert.copy()
     for col in columns:
-        df[col] = pd.to_datetime(df[col], unit="ms", utc=True, errors="coerce").dt.strftime("%Y-%m-%d")
+        df[col] = pd.to_datetime(
+            df[col], unit="ms", utc=True, errors="coerce"
+        ).dt.strftime("%Y-%m-%d")
         df[col] = df[col].where(df[col].ge("1970-01-01"))
     return df
 
@@ -30,11 +39,14 @@ def convert_unix_to_datetime(df_to_convert: pd.DataFrame, columns: List[str]) ->
 class Fund:
     def __init__(self, random_agent: bool = False) -> None:
         """
+        Initialize object to access data from Fmarket.
         Khởi tạo đối tượng để truy cập dữ liệu từ Fmarket.
         """
         self.random_agent = random_agent
         self.data_source = "fmarket"
-        self.headers = get_headers(data_source=self.data_source, random_agent=random_agent)
+        self.headers = get_headers(
+            data_source=self.data_source, random_agent=random_agent
+        )
         self.base_url = _BASE_URL
         self.fund_list = self.listing()["short_name"].to_list()
         self.details = self.FundDetails(self)
@@ -42,16 +54,15 @@ class Fund:
     @optimize_execution("fmarket")
     def listing(self, fund_type: str = "") -> pd.DataFrame:
         """
+        Retrieve a list of all existing mutual funds on Fmarket via API. View directly at https://fmarket.vn
         Truy xuất danh sách tất cả các quỹ mở hiện có trên Fmarket thông qua API. Xem trực tiếp tại https://fmarket.vn
 
-        Tham số:
-        ----------
-            fund_type (str): Loại quỹ cần lọc. Mặc định là rỗng để lấy tất cả các quỹ. Các loại quỹ hợp lệ bao gồm: 'BALANCED', 'BOND', 'STOCK'
+        Args:
+            fund_type (str): Loại quỹ cần lọc. Mặc định là rỗng để lấy tất cả các quỹ. Các loại quỹ hợp lệ bao gồm: 'BALANCED', 'BOND', 'STOCK' (Type of fund to filter. Default is empty to get all funds. Valid fund types include: 'BALANCED', 'BOND', 'STOCK')
 
-        Trả về:
-        -------
-            pd.DataFrame: DataFrame chứa thông tin của tất cả các quỹ mở hiện có trên Fmarket.
-        """
+        Returns:
+            pd.DataFrame: DataFrame chứa thông tin của tất cả các quỹ mở hiện có trên Fmarket. (DataFrame containing information of all existing mutual funds on Fmarket.)
+        """  # noqa: W293
         fund_type = fund_type.upper()
         fundAssetTypes = _FUND_TYPE_MAPPING.get(fund_type, [])
 
@@ -78,17 +89,27 @@ class Fund:
         url = f"{_BASE_URL}/filter"
 
         try:
-            response_data = client.send_request(url=url, method="POST", headers=self.headers, payload=payload, show_log=False)
+            response_data = client.send_request(
+                url=url,
+                method="POST",
+                headers=self.headers,
+                payload=payload,
+                show_log=False,
+            )
 
             data = response_data
-            logger.info(f"Total number of funds currently listed on Fmarket: {data['data']['total']}")
+            logger.info(
+                f"Total number of funds currently listed on Fmarket: {data['data']['total']}"
+            )
             df = json_normalize(data, record_path=["data", "rows"])
 
             # select columns to display
             df = df[_FUND_LIST_COLUMNS]
 
             # Convert Unix timestamp to date format
-            df = convert_unix_to_datetime(df_to_convert=df, columns=["firstIssueAt", "productNavChange.updateAt"])
+            df = convert_unix_to_datetime(
+                df_to_convert=df, columns=["firstIssueAt", "productNavChange.updateAt"]
+            )
 
             # sort by '36-month NAV change'
             df = df.sort_values(by="productNavChange.navTo36Months", ascending=False)
@@ -168,8 +189,12 @@ class Fund:
                 try:
                     df = section_mapping[section](fundId=fundID)
                 except KeyError as e:
-                    logger.error(f"Error: Missing expected columns in the response data - {str(e)}")
-                    raise ValueError(f"Missing expected columns in the response data - {str(e)}")
+                    logger.error(
+                        f"Error: Missing expected columns in the response data - {str(e)}"
+                    )
+                    raise ValueError(
+                        f"Missing expected columns in the response data - {str(e)}"
+                    ) from e
                 df["short_name"] = symbol
                 return df
             else:
@@ -181,15 +206,14 @@ class Fund:
     @optimize_execution("fmarket")
     def filter(self, symbol: str = "") -> pd.DataFrame:
         """
+        Retrieve a list of funds by abbreviation (short_name) and fund id. Default is empty to list all funds.
         Truy xuất danh sách quỹ theo tên viết tắt (short_name) và mã id của quỹ. Mặc định là rỗng để liệt kê tất cả các quỹ.
 
-        Tham số:
-        ----------
-            symbol (str): Tên viết tắt của quỹ cần tìm kiếm. Mặc định là rỗng để lấy tất cả các quỹ.
+        Args:
+            symbol (str): Tên viết tắt của quỹ cần tìm kiếm. Mặc định là rỗng để lấy tất cả các quỹ. (Abbreviation of the fund to search for. Default is empty to list all funds.)
 
-        Trả về:
-        -------
-            pd.DataFrame: DataFrame chứa thông tin của quỹ cần tìm kiếm.
+        Returns:
+            pd.DataFrame: DataFrame chứa thông tin của quỹ cần tìm kiếm. (DataFrame containing information of the searched fund.)
         """
         symbol = symbol.upper()
 
@@ -201,7 +225,13 @@ class Fund:
         url = f"{_BASE_URL}/filter"
 
         try:
-            response_data = client.send_request(url=url, method="POST", headers=self.headers, payload=payload, show_log=False)
+            response_data = client.send_request(
+                url=url,
+                method="POST",
+                headers=self.headers,
+                payload=payload,
+                show_log=False,
+            )
 
             data = response_data
             df = json_normalize(data, record_path=["data", "rows"])
@@ -220,7 +250,7 @@ class Fund:
             raise
 
     @optimize_execution("fmarket")
-    def top_holding(self, fundId: int = 23) -> pd.DataFrame:
+    def top_holding(self, fundId: int = 23, symbol: str = None) -> pd.DataFrame:
         """
         Retrieve list of top 10 holdings in the specified fund. Live data is retrieved from the Fmarket API.
 
@@ -228,32 +258,48 @@ class Fund:
         ----------
             fundId : int
                 id of a fund in fmarket database
+            symbol : str, optional
+                ticker/short name of the fund. If provided, fundId will be resolved automatically.
+
         Returns
         -------
             df : pd.DataFrame
                 DataFrame of the current top 10 holdings of the selected fund.
         """
+        if symbol:
+            fundId = int(self.filter(symbol)["id"][0])
+
         # API call - Logic: there are funds which allocate to either equities or fixed income securities, or both
         url = f"{_BASE_URL}/{fundId}"
 
         try:
-            response_data = client.send_request(url=url, method="GET", headers=self.headers, show_log=False)
+            response_data = client.send_request(
+                url=url, method="GET", headers=self.headers, show_log=False
+            )
 
             data = response_data
             df = pd.DataFrame()
 
             # Flatten top holding equities
-            df_stock = json_normalize(data, record_path=["data", "productTopHoldingList"])
+            df_stock = json_normalize(
+                data, record_path=["data", "productTopHoldingList"]
+            )
             if not df_stock.empty:
                 # Convert unix timestamp into date format
-                df_stock = convert_unix_to_datetime(df_to_convert=df_stock, columns=["updateAt"])
+                df_stock = convert_unix_to_datetime(
+                    df_to_convert=df_stock, columns=["updateAt"]
+                )
                 # Merge to output
                 df = pd.concat([df, df_stock])
 
             # Flatten top holding fixed income securities
-            df_bond = json_normalize(data, record_path=["data", "productTopHoldingBondList"])
+            df_bond = json_normalize(
+                data, record_path=["data", "productTopHoldingBondList"]
+            )
             if not df_bond.empty:
-                df_bond = convert_unix_to_datetime(df_to_convert=df_bond, columns=["updateAt"])
+                df_bond = convert_unix_to_datetime(
+                    df_to_convert=df_bond, columns=["updateAt"]
+                )
                 df = pd.concat([df, df_bond])
 
             # if df is not empty, then rearrange and return df as output
@@ -281,7 +327,9 @@ class Fund:
                     "updateAt": "update_at",
                 }
                 # Only rename columns that exist in the DataFrame
-                existing_column_mapping = {k: v for k, v in column_mapping.items() if k in df.columns}
+                existing_column_mapping = {
+                    k: v for k, v in column_mapping.items() if k in df.columns
+                }
                 df.rename(columns=existing_column_mapping, inplace=True)
 
                 return df
@@ -293,26 +341,35 @@ class Fund:
             raise
 
     @optimize_execution("fmarket")
-    def industry_holding(self, fundId: int = 23) -> pd.DataFrame:
+    def industry_holding(self, fundId: int = 23, symbol: str = None) -> pd.DataFrame:
         """Retrieve list of industries and fund distribution for specific fundID. Live data is retrieved from the Fmarket API.
 
         Parameters
         ----------
             fundId : int
                 id of a fund in fmarket database
+            symbol : str, optional
+                ticker/short name of the fund. If provided, fundId will be resolved automatically.
 
         Returns
         -------
             df : pd.DataFrame
                 DataFrame of the current top industries in the selected fund.
         """
+        if symbol:
+            fundId = int(self.filter(symbol)["id"][0])
+
         url = f"{_BASE_URL}/{fundId}"
 
         try:
-            response_data = client.send_request(url=url, method="GET", headers=self.headers, show_log=False)
+            response_data = client.send_request(
+                url=url, method="GET", headers=self.headers, show_log=False
+            )
 
             data = response_data
-            df = json_normalize(data, record_path=["data", "productIndustriesHoldingList"])
+            df = json_normalize(
+                data, record_path=["data", "productIndustriesHoldingList"]
+            )
 
             # rearrange columns to display
             column_subset = [
@@ -330,7 +387,9 @@ class Fund:
             }
 
             # Only rename columns that exist in the DataFrame
-            existing_column_mapping = {k: v for k, v in column_mapping.items() if k in df.columns}
+            existing_column_mapping = {
+                k: v for k, v in column_mapping.items() if k in df.columns
+            }
             df.rename(columns=existing_column_mapping, inplace=True)
 
             return df
@@ -339,19 +398,24 @@ class Fund:
             raise
 
     @optimize_execution("fmarket")
-    def nav_report(self, fundId: int = 23) -> pd.DataFrame:
+    def nav_report(self, fundId: int = 23, symbol: str = None) -> pd.DataFrame:
         """Retrieve all available daily NAV data point of the specified fund. Live data is retrieved from the Fmarket API.
 
         Parameters
         ----------
             fundId : int
                 id of a fund in fmarket database.
+            symbol : str, optional
+                ticker/short name of the fund. If provided, fundId will be resolved automatically.
 
         Returns
         -------
             df : pd.DataFrame
                 DataFrame of all avalaible daily NAV data points of the selected fund.
         """
+        if symbol:
+            fundId = int(self.filter(symbol)["id"][0])
+
         # Set the date range to the current date
         current_date = datetime.now().strftime("%Y%m%d")
         url = f"{_BASE_URL[:-1]}/get-nav-history"
@@ -363,7 +427,13 @@ class Fund:
         }
 
         try:
-            response_data = client.send_request(url=url, method="POST", headers=self.headers, payload=payload, show_log=False)
+            response_data = client.send_request(
+                url=url,
+                method="POST",
+                headers=self.headers,
+                payload=payload,
+                show_log=False,
+            )
 
             data = response_data
             df = json_normalize(data, record_path=["data"])
@@ -382,7 +452,9 @@ class Fund:
                 }
 
                 # Only rename columns that exist in the DataFrame
-                existing_column_mapping = {k: v for k, v in column_mapping.items() if k in df.columns}
+                existing_column_mapping = {
+                    k: v for k, v in column_mapping.items() if k in df.columns
+                }
                 df.rename(columns=existing_column_mapping, inplace=True)
 
                 return df
@@ -393,23 +465,30 @@ class Fund:
             raise
 
     @optimize_execution("fmarket")
-    def asset_holding(self, fundId: int = 23) -> pd.DataFrame:
+    def asset_holding(self, fundId: int = 23, symbol: str = None) -> pd.DataFrame:
         """Retrieve list of assets holding allocation for specific fundID. Live data is retrieved from the Fmarket API.
 
         Parameters
         ----------
             fundId : int
                 id of a fund in fmarket database.
+            symbol : str, optional
+                ticker/short name of the fund. If provided, fundId will be resolved automatically.
 
         Returns
         -------
             df : pd.DataFrame
                 DataFrame of assets holding allocation of the selected fund.
         """
+        if symbol:
+            fundId = int(self.filter(symbol)["id"][0])
+
         url = f"{_BASE_URL}/{fundId}"
 
         try:
-            response_data = client.send_request(url=url, method="GET", headers=self.headers, show_log=False)
+            response_data = client.send_request(
+                url=url, method="GET", headers=self.headers, show_log=False
+            )
 
             data = response_data
             df = json_normalize(data, record_path=["data", "productAssetHoldingList"])
@@ -430,7 +509,9 @@ class Fund:
             }
 
             # Only rename columns that exist in the DataFrame
-            existing_column_mapping = {k: v for k, v in column_mapping.items() if k in df.columns}
+            existing_column_mapping = {
+                k: v for k, v in column_mapping.items() if k in df.columns
+            }
             df.rename(columns=existing_column_mapping, inplace=True)
 
             return df

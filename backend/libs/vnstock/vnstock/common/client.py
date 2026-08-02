@@ -1,11 +1,13 @@
-﻿"""
+"""
 Main entry point and orchestrator for vnstock library.
 
 This module provides the Vnstock class which acts as the primary interface
 for accessing stock, forex, crypto, index, and fund data from various sources.
 """
 
+import datetime
 import logging
+import warnings
 from typing import Optional
 
 from vnstock.common.data import (
@@ -42,7 +44,9 @@ class Vnstock:
 
     SUPPORTED_SOURCES = ["KBS", "VCI", "MSN"]
 
-    def __init__(self, symbol: Optional[str] = None, source: str = "KBS", show_log: bool = True):
+    def __init__(
+        self, symbol: Optional[str] = None, source: str = "KBS", show_log: bool = True
+    ):
         """
         Initialize Vnstock client.
 
@@ -57,12 +61,40 @@ class Vnstock:
         Raises:
             ValueError: If source is not in SUPPORTED_SOURCES.
         """
+        # Deprecation warning after 2025-08-31
+        deprecation_date = datetime.date(2025, 8, 31)
+        if datetime.date.today() > deprecation_date:
+            msg = (
+                "\n"
+                "  ╭──────────────────────────────────────────────────────────╮\n"
+                "  │  ⚠️  VNSTOCK DEPRECATION NOTICE (31/08/2025)             │\n"
+                "  │                                                          │\n"
+                "  │  Lớp Vnstock và các phương thức cũ (stock, fx, crypto,   │\n"
+                "  │  world_index, fund...) đã chính thức bị ngừng hỗ trợ.    │\n"
+                "  │                                                          │\n"
+                "  │  Để hệ thống ổn định và nhận được cập nhật mới nhất,     │\n"
+                "  │  vui lòng chuyển sang dùng bộ thư viện `vnstock.api`.    │\n"
+                "  │                                                          │\n"
+                "  │  👉 Xem hướng dẫn Migration: /vnstock-migration          │\n"
+                "  ╰──────────────────────────────────────────────────────────╯\n\n"
+                "Mẫu code chuyển đổi (Migration Example):\n"
+                "--------------------------------------\n"
+                "Cũ (Old):  stock = Vnstock().stock('ACB')\n"
+                "Mới (New): from vnstock.api.quote import Quote\n"
+                "          q = Quote(symbol='ACB', source='VCI')\n"
+            )
+            warnings.warn(msg, DeprecationWarning, stacklevel=2)
+            if show_log:
+                print(msg)
+
         self.symbol = symbol
         self.source = source.upper()
         self.show_log = show_log
 
         if self.source not in self.SUPPORTED_SOURCES:
-            raise ValueError(f"Supported sources: {', '.join(self.SUPPORTED_SOURCES)}. Got: {source}")
+            raise ValueError(
+                f"Supported sources: {', '.join(self.SUPPORTED_SOURCES)}. Got: {source}"
+            )
 
         if not show_log:
             logger.setLevel(logging.CRITICAL)
@@ -77,7 +109,9 @@ class Vnstock:
             **_CRYPTO_ID_MAP,
         }
 
-    def stock(self, symbol: Optional[str] = None, source: Optional[str] = None) -> StockComponents:
+    def stock(
+        self, symbol: Optional[str] = None, source: Optional[str] = None
+    ) -> StockComponents:
         """
         Get stock data components for a symbol.
 
@@ -106,7 +140,9 @@ class Vnstock:
 
         return StockComponents(self.symbol, source, show_log=self.show_log)
 
-    def fx(self, symbol: Optional[str] = "EURUSD", source: Optional[str] = "MSN") -> MSNComponents:
+    def fx(
+        self, symbol: Optional[str] = "EURUSD", source: Optional[str] = "MSN"
+    ) -> MSNComponents:
         """
         Get forex (currency) data.
 
@@ -131,7 +167,9 @@ class Vnstock:
 
         return MSNComponents(mapped_symbol, source)
 
-    def crypto(self, symbol: Optional[str] = "BTC", source: Optional[str] = "MSN") -> MSNComponents:
+    def crypto(
+        self, symbol: Optional[str] = "BTC", source: Optional[str] = "MSN"
+    ) -> MSNComponents:
         """
         Get cryptocurrency data.
 
@@ -156,7 +194,9 @@ class Vnstock:
 
         return MSNComponents(mapped_symbol, source)
 
-    def world_index(self, symbol: Optional[str] = "DJI", source: Optional[str] = "MSN") -> MSNComponents:
+    def world_index(
+        self, symbol: Optional[str] = "DJI", source: Optional[str] = "MSN"
+    ) -> MSNComponents:
         """
         Get world market index data.
 

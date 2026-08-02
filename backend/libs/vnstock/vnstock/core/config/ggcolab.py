@@ -1,4 +1,4 @@
-﻿"""
+"""
 Google Colab Integration Module
 
 Centralized management of all Google Colab-related logic:
@@ -60,7 +60,9 @@ def is_drive_mounted() -> bool:
     Returns:
         bool: True if Drive is mounted
     """
-    return os.path.exists(COLAB_DRIVE_MOUNT_PATH) and os.path.ismount(COLAB_DRIVE_MOUNT_PATH)
+    return os.path.exists(COLAB_DRIVE_MOUNT_PATH) and os.path.ismount(
+        COLAB_DRIVE_MOUNT_PATH
+    )
 
 
 # ============================================================================
@@ -103,9 +105,13 @@ def mount_drive(force_remount: bool = False) -> bool:
         # If mountpoint has files, try to clean up
         mount_path = Path(COLAB_DRIVE_MOUNT_PATH)
         if mount_path.exists() and any(mount_path.iterdir()):
-            logger.debug(f"Mountpoint {COLAB_DRIVE_MOUNT_PATH} has files, attempting cleanup")
+            logger.debug(
+                f"Mountpoint {COLAB_DRIVE_MOUNT_PATH} has files, attempting cleanup"
+            )
             try:
-                subprocess.run(["sudo", "rm", "-rf", COLAB_DRIVE_MOUNT_PATH], check=False)
+                subprocess.run(
+                    ["sudo", "rm", "-rf", COLAB_DRIVE_MOUNT_PATH], check=False
+                )
                 logger.debug("Cleaned up mountpoint")
             except Exception as e:
                 logger.debug(f"Cleanup attempt: {e}")
@@ -347,7 +353,7 @@ def migrate_vnstock_data_colab(new_dir: Optional[str] = None) -> bool:
 
     except (shutil.Error, OSError) as e:
         logger.error(f"Error copying data: {e}")
-        raise RuntimeError(f"Error migrating data: {e}")
+        raise RuntimeError(f"Error migrating data: {e}")  # noqa: B904
 
 
 # ============================================================================

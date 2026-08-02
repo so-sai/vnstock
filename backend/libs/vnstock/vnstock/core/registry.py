@@ -1,4 +1,4 @@
-﻿"""
+"""
 Provider Registry System for vnstock.
 
 Hệ thống đăng ký cho phép các provider (VCI, TCBS, MSN, FMP, XNO, ...)
@@ -29,7 +29,9 @@ class ProviderRegistry:
     _registry: Dict[Tuple[str, str], Type] = {}
 
     @classmethod
-    def register(cls, provider_type: str, source_name: str, provider_class: Type) -> None:
+    def register(
+        cls, provider_type: str, source_name: str, provider_class: Type
+    ) -> None:
         """
         Register a provider class.
 
@@ -48,7 +50,8 @@ class ProviderRegistry:
         key = (provider_type, source_name.lower())
         cls._registry[key] = provider_class
         logger.debug(
-            f"✓ Provider registered: {provider_type}/{source_name} -> {provider_class.__module__}.{provider_class.__name__}"
+            f"✓ Provider registered: {provider_type}/{source_name} "
+            f"-> {provider_class.__module__}.{provider_class.__name__}"
         )
 
     @classmethod
@@ -70,7 +73,10 @@ class ProviderRegistry:
 
         if key not in cls._registry:
             available = cls.list_available(provider_type)
-            raise ValueError(f"Provider '{provider_type}/{source_name}' not found. Available: {available}")
+            raise ValueError(
+                f"Provider '{provider_type}/{source_name}' not found. "
+                f"Available: {available}"
+            )
 
         return cls._registry[key]
 
@@ -85,7 +91,9 @@ class ProviderRegistry:
         Returns:
             List[str]: Danh sách source names (sắp xếp)
         """
-        names = sorted({source for ptype, source in cls._registry if ptype == provider_type})
+        names = sorted(
+            {source for ptype, source in cls._registry if ptype == provider_type}
+        )
         return names
 
     @classmethod
@@ -153,7 +161,10 @@ class ProviderRegistry:
                 info.append(f"\n[{provider_type}]")
                 for source in sources:
                     provider_class = cls.get(provider_type, source)
-                    info.append(f"  • {source:12} -> {provider_class.__module__}.{provider_class.__name__}")
+                    info.append(
+                        f"  • {source:12} -> "
+                        f"{provider_class.__module__}.{provider_class.__name__}"
+                    )
 
         info.append("\n" + "=" * 60)
         return "\n".join(info)

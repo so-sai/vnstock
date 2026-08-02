@@ -1,4 +1,4 @@
-﻿"""
+"""
 FMP Quote connector for vnstock.
 
 Handles fetching and processing stock price data from FMP API.
@@ -29,7 +29,12 @@ class Quote:
     historical EOD (End-Of-Day) prices, and intraday price movements.
     """
 
-    def __init__(self, symbol: str, api_key: Optional[str] = None, show_log: Optional[bool] = True):
+    def __init__(
+        self,
+        symbol: str,
+        api_key: Optional[str] = None,
+        show_log: Optional[bool] = True,
+    ):
         """
         Initialize Quote instance.
 
@@ -55,7 +60,9 @@ class Quote:
             Optional[pd.DataFrame]: DataFrame with real-time quote data
         """
         url = self.config.get_endpoint_url("quote_short", self.symbol)
-        df = make_fmp_request(url, timeout=self.config.timeout, show_log=self.show_log or False)
+        df = make_fmp_request(
+            url, timeout=self.config.timeout, show_log=self.show_log or False
+        )
 
         if df is not None and not df.empty:
             if "symbol" in df.columns:
@@ -77,7 +84,9 @@ class Quote:
             Optional[pd.DataFrame]: DataFrame with complete quote data
         """
         url = self.config.get_endpoint_url("quote", self.symbol)
-        df = make_fmp_request(url, timeout=self.config.timeout, show_log=self.show_log or False)
+        df = make_fmp_request(
+            url, timeout=self.config.timeout, show_log=self.show_log or False
+        )
 
         if df is not None and not df.empty:
             if "symbol" in df.columns:
@@ -88,7 +97,11 @@ class Quote:
         return df
 
     def history(
-        self, start: Optional[str] = None, end: Optional[str] = None, interval: str = "d", adj_type: str = "full"
+        self,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        interval: str = "d",
+        adj_type: str = "full",
     ) -> Optional[pd.DataFrame]:
         """
         Fetch historical End-Of-Day (EOD) price data.
@@ -134,14 +147,20 @@ class Quote:
             return None
 
         # Fetch daily data from EOD endpoint
-        url = f"{self.config.domain}/historical-price-eod/{adj_type}?symbol={self.symbol}&apikey={self.config.api_key}"
+        url = (
+            f"{self.config.domain}/historical-price-eod/"
+            f"{adj_type}?symbol={self.symbol}&apikey="
+            f"{self.config.api_key}"
+        )
 
         if start:
             url = f"{url}&from={start}"
         if end:
             url = f"{url}&to={end}"
 
-        df = make_fmp_request(url, timeout=self.config.timeout, show_log=self.show_log or False)
+        df = make_fmp_request(
+            url, timeout=self.config.timeout, show_log=self.show_log or False
+        )
 
         if df is not None and not df.empty:
             # Normalize column names to vnstock standard
@@ -160,7 +179,12 @@ class Quote:
 
         return df
 
-    def intraday(self, interval: str = "m", start: Optional[str] = None, end: Optional[str] = None) -> Optional[pd.DataFrame]:
+    def intraday(
+        self,
+        interval: str = "m",
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> Optional[pd.DataFrame]:
         """
         Fetch intraday (minute/hour level) price data.
 
@@ -221,7 +245,10 @@ class Quote:
         # Example: https://financialmodelingprep.com/stable/
         # historical-chart/1min
         interval_path = timeframe_to_fmp_endpoint[timeframe]
-        url = f"{self.config.domain}/{interval_path}?symbol={self.symbol}&apikey={self.config.api_key}"
+        url = (
+            f"{self.config.domain}/{interval_path}?"
+            f"symbol={self.symbol}&apikey={self.config.api_key}"
+        )
 
         # Add date filters if provided
         if start:
@@ -229,7 +256,9 @@ class Quote:
         if end:
             url = f"{url}&to={end}"
 
-        df = make_fmp_request(url, timeout=self.config.timeout, show_log=self.show_log or False)
+        df = make_fmp_request(
+            url, timeout=self.config.timeout, show_log=self.show_log or False
+        )
 
         if df is not None and not df.empty:
             # Normalize column names to vnstock standard

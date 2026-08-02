@@ -1,4 +1,4 @@
-﻿"""
+"""
 Constants and configuration for FMP API connector.
 
 Defines API endpoints, default settings, and data mappings for FMP
@@ -92,7 +92,12 @@ _NUMERIC_COLUMNS = [
 _SUPPORTED_INTERVALS = ["1min", "5min", "15min", "30min", "1hour", "4hour", "1day"]
 
 # Period format mapping for API requests
-_PERIOD_MAP = {"annual": "annual", "quarter": "quarter", "yearly": "annual", "quarterly": "quarter"}
+_PERIOD_MAP = {
+    "annual": "annual",
+    "quarter": "quarter",
+    "yearly": "annual",
+    "quarterly": "quarter",
+}
 
 # Stock exchange name mappings
 _EXCHANGE_MAP = {
@@ -105,7 +110,14 @@ _EXCHANGE_MAP = {
 
 # Column name mappings for OHLCV standardization
 # Maps FMP column names to vnstock standard column names
-_OHLCV_MAP = {"date": "time", "open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume"}
+_OHLCV_MAP = {
+    "date": "time",
+    "open": "open",
+    "high": "high",
+    "low": "low",
+    "close": "close",
+    "volume": "volume",
+}
 
 # Data type specifications for OHLCV DataFrame
 _OHLCV_DTYPE = {

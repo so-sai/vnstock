@@ -1,4 +1,4 @@
-﻿import json
+import json
 from typing import Optional
 
 import pandas as pd
@@ -45,7 +45,10 @@ class Trade:
                 None otherwise.
         """
         url = f"{self.BASE_URL}/user-service/api/me"
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.token}",
+        }
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             print("Get profile successfully")
@@ -120,7 +123,10 @@ class Trade:
             Optional[str]: Trading token if successful, None otherwise.
         """
         url = f"{self.BASE_URL}/order-service/trading-token"
-        headers = {"Authorization": f"Bearer {self.token}", "smart-otp" if smart_otp else "otp": otp}
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "smart-otp" if smart_otp else "otp": otp,
+        }
         response = requests.post(url, headers=headers)
         if response.status_code == 200:
             trading_token = response.json().get("tradingToken")
@@ -131,7 +137,9 @@ class Trade:
             print(f"Error authenticating: {response.text}")
             return None
 
-    def loan_packages(self, sub_account: str, asset_type: str = "stock") -> Optional[pd.DataFrame]:
+    def loan_packages(
+        self, sub_account: str, asset_type: str = "stock"
+    ) -> Optional[pd.DataFrame]:
         """
         Get the list of loan packages for a specific sub account.
 
@@ -160,7 +168,12 @@ class Trade:
             return None
 
     def trade_capacities(
-        self, symbol: str, price: float, sub_account: str, asset_type: str = "stock", loan_package_id: Optional[int] = None
+        self,
+        symbol: str,
+        price: float,
+        sub_account: str,
+        asset_type: str = "stock",
+        loan_package_id: Optional[int] = None,
     ) -> Optional[pd.DataFrame]:
         """
         Get trade capacities (buying/selling power) for a sub account.
@@ -179,18 +192,30 @@ class Trade:
         if asset_type == "stock":
             url = f"{self.BASE_URL}/order-service/accounts/"
             url += f"{sub_account}/ppse"
-            query_params = {"symbol": symbol, "price": price, "loanPackageId": loan_package_id}
+            query_params = {
+                "symbol": symbol,
+                "price": price,
+                "loanPackageId": loan_package_id,
+            }
             query_params = {k: v for k, v in query_params.items() if v is not None}
             if query_params:
-                params_str = "&".join([f"{key}={value}" for key, value in query_params.items()])
+                params_str = "&".join(
+                    [f"{key}={value}" for key, value in query_params.items()]
+                )
                 url += f"?{params_str}"
         else:
             url = f"{self.BASE_URL}/order-service/accounts/"
             url += f"{sub_account}/derivative-ppse"
-            query_params = {"symbol": symbol, "price": price, "loanPackageId": loan_package_id}
+            query_params = {
+                "symbol": symbol,
+                "price": price,
+                "loanPackageId": loan_package_id,
+            }
             query_params = {k: v for k, v in query_params.items() if v is not None}
             if query_params:
-                params_str = "&".join([f"{key}={value}" for key, value in query_params.items()])
+                params_str = "&".join(
+                    [f"{key}={value}" for key, value in query_params.items()]
+                )
                 url += f"?{params_str}"
 
         headers = {"Authorization": f"Bearer {self.token}"}
@@ -236,7 +261,10 @@ class Trade:
         else:
             url = f"{self.BASE_URL}/order-service/derivative/orders"
 
-        headers = {"Authorization": f"Bearer {self.token}", "Trading-Token": self.trading_token}
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Trading-Token": self.trading_token,
+        }
         payload = {
             "accountNo": sub_account,
             "symbol": symbol,
@@ -253,7 +281,9 @@ class Trade:
             print(f"Error: {response.text}")
             return None
 
-    def order_list(self, sub_account: str, asset_type: str = "stock") -> Optional[pd.DataFrame]:
+    def order_list(
+        self, sub_account: str, asset_type: str = "stock"
+    ) -> Optional[pd.DataFrame]:
         """
         Get the list of orders for a specific account.
 
@@ -281,7 +311,9 @@ class Trade:
             print(f"Error: {response.text}")
             return None
 
-    def order_detail(self, order_id: str, sub_account: str, asset_type: str = "stock") -> Optional[pd.DataFrame]:
+    def order_detail(
+        self, order_id: str, sub_account: str, asset_type: str = "stock"
+    ) -> Optional[pd.DataFrame]:
         """
         Get the details of a specific order for a sub account.
 
@@ -309,7 +341,9 @@ class Trade:
             print(f"Error: {response.text}")
             return None
 
-    def cancel_order(self, order_id: str, sub_account: str, asset_type: str = "stock") -> Optional[pd.DataFrame]:
+    def cancel_order(
+        self, order_id: str, sub_account: str, asset_type: str = "stock"
+    ) -> Optional[pd.DataFrame]:
         """
         Cancel an order.
 
@@ -329,7 +363,10 @@ class Trade:
             url = f"{self.BASE_URL}/order-service/derivative/orders/"
             url += f"{order_id}?accountNo={sub_account}"
 
-        headers = {"Authorization": f"Bearer {self.token}", "Trading-Token": self.trading_token}
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Trading-Token": self.trading_token,
+        }
         response = requests.delete(url, headers=headers)
         if response.status_code == 200:
             print("Order cancelled")
@@ -338,7 +375,9 @@ class Trade:
             print(f"Error: {response.text}")
             return None
 
-    def deals_list(self, sub_account: str, asset_type: str = "stock") -> Optional[pd.DataFrame]:
+    def deals_list(
+        self, sub_account: str, asset_type: str = "stock"
+    ) -> Optional[pd.DataFrame]:
         """
         Get the list of deals for a specific sub account.
 
@@ -391,7 +430,10 @@ class Trade:
                 successful, None otherwise.
         """
         url = f"{self.BASE_URL}/derivative-deal-risk/pnl-configs/{deal_id}"
-        headers = {"Authorization": f"Bearer {self.token}", "Trading-Token": self.trading_token}
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Trading-Token": self.trading_token,
+        }
         response = requests.post(url, headers=headers, json=config)
         if response.status_code == 200:
             print("Deal PnL config set successfully")
@@ -400,7 +442,9 @@ class Trade:
             print(f"Error: {response.text}")
             return None
 
-    def set_account_pnl_config(self, account_no: str, config: dict) -> Optional[pd.DataFrame]:
+    def set_account_pnl_config(
+        self, account_no: str, config: dict
+    ) -> Optional[pd.DataFrame]:
         """
         Set take profit/stop loss config for an account.
 
@@ -423,7 +467,10 @@ class Trade:
         """
         url = f"{self.BASE_URL}/derivative-deal-risk/"
         url += f"account-pnl-configs/{account_no}"
-        headers = {"Authorization": f"Bearer {self.token}", "Trading-Token": self.trading_token}
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Trading-Token": self.trading_token,
+        }
         response = requests.patch(url, headers=headers, json=config)
         if response.status_code == 200:
             print("Account PnL config set successfully")
@@ -444,7 +491,10 @@ class Trade:
                 None otherwise.
         """
         url = f"{self.BASE_URL}/derivative-core/deals/{deal_id}/close"
-        headers = {"Authorization": f"Bearer {self.token}", "Trading-Token": self.trading_token}
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Trading-Token": self.trading_token,
+        }
         response = requests.post(url, headers=headers)
         if response.status_code == 200:
             print("Deal closed successfully")
@@ -454,7 +504,13 @@ class Trade:
             return None
 
     def deposit_derivative_margin(
-        self, account_no: str, source_account_no: str, loan_package_id: int, amount: int, via: str, otp: str
+        self,
+        account_no: str,
+        source_account_no: str,
+        loan_package_id: int,
+        amount: int,
+        via: str,
+        otp: str,
     ) -> Optional[pd.DataFrame]:
         """
         Deposit margin for derivative trading.
@@ -489,7 +545,13 @@ class Trade:
             return None
 
     def withdraw_derivative_margin(
-        self, account_no: str, source_account_no: str, loan_package_id: int, amount: int, via: str, otp: str
+        self,
+        account_no: str,
+        source_account_no: str,
+        loan_package_id: int,
+        amount: int,
+        via: str,
+        otp: str,
     ) -> Optional[pd.DataFrame]:
         """
         Withdraw margin from derivative trading.
@@ -544,7 +606,10 @@ class Trade:
         """
         url = f"{self.BASE_URL}/derivative-core/cash-accounts"
         url += f"?accountNo={account_no}"
-        headers = {"Authorization": f"Bearer {self.token}", "accept": "application/json, text/plain,/"}
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "accept": "application/json, text/plain,/",
+        }
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             return json_normalize(response.json())
@@ -552,7 +617,9 @@ class Trade:
             print(f"Error: {response.text}")
             return None
 
-    def get_derivative_ppse(self, account_no: str, loan_package_id: int) -> Optional[pd.DataFrame]:
+    def get_derivative_ppse(
+        self, account_no: str, loan_package_id: int
+    ) -> Optional[pd.DataFrame]:
         """
         Get derivative buying power (PP0) information.
 
@@ -666,7 +733,13 @@ class Trade:
         """
         url = f"{self.BASE_URL}/conditional-order-api/v1/orders"
         headers = {"Authorization": f"Bearer {self.token}"}
-        params = {"accountNo": account_no, "marketId": market_id, "daily": daily, "page": page, "size": size}
+        params = {
+            "accountNo": account_no,
+            "marketId": market_id,
+            "daily": daily,
+            "page": page,
+            "size": size,
+        }
         if from_date:
             params["from"] = from_date
         if to_date:

@@ -1,10 +1,10 @@
-﻿"""Financial module for KB Securities (KBS) data source."""
+"""Financial module for KB Securities (KBS) data source."""
 
 from enum import Enum
 from typing import Dict, List, Optional, Union
 
 import pandas as pd
-from vnai import agg_execution
+from vnai import optimize_execution
 
 from vnstock.core.utils.client import ProxyConfig, send_request
 from vnstock.core.utils.field import FieldHandler
@@ -38,6 +38,7 @@ class Finance:
     def __init__(
         self,
         symbol: str,
+        period: Optional[str] = None,
         random_agent: Optional[bool] = False,
         proxy_config: Optional[ProxyConfig] = None,
         show_log: Optional[bool] = False,
@@ -50,6 +51,7 @@ class Finance:
 
         Args:
             symbol: Mã chứng khoán (VD: 'ACB', 'VNM').
+            period: Kỳ báo cáo mặc định ('year', 'quarter' hoặc None).
             random_agent: Sử dụng user agent ngẫu nhiên. Mặc định False.
             proxy_config: Cấu hình proxy. Mặc định None.
             show_log: Hiển thị log debug. Mặc định False.
@@ -63,12 +65,21 @@ class Finance:
         self.symbol = symbol.upper()
         self.asset_type = get_asset_type(self.symbol)
 
+        # Validate input for period
+        if period is not None and period not in ["year", "quarter"]:
+            raise ValueError(
+                "Kỳ báo cáo tài chính không hợp lệ. Chỉ chấp nhận 'year' hoặc 'quarter' hoặc None."
+            )
+        self.period = period
+
         # Validate if symbol is a stock
         if self.asset_type not in ["stock"]:
             raise ValueError("Mã CK không hợp lệ hoặc không phải cổ phiếu.")
 
         self.data_source = "KBS"
-        self.headers = get_headers(data_source=self.data_source, random_agent=random_agent)
+        self.headers = get_headers(
+            data_source=self.data_source, random_agent=random_agent
+        )
         self.show_log = show_log
         self.standardize_columns = standardize_columns
 
@@ -84,7 +95,9 @@ class Finance:
             if proxy_list and len(proxy_list) > 0:
                 req_mode = "proxy"
 
-            self.proxy_config = ProxyConfig(proxy_mode=p_mode, proxy_list=proxy_list, request_mode=req_mode)
+            self.proxy_config = ProxyConfig(
+                proxy_mode=p_mode, proxy_list=proxy_list, request_mode=req_mode
+            )
         else:
             self.proxy_config = proxy_config
 
@@ -103,7 +116,7 @@ class Finance:
 
         Returns:
             Dictionary chứa mapping từ cột gốc sang cột chuẩn hoá
-        """
+        """  # noqa: W293
         mappings = {
             "income_statement": _INCOME_STATEMENT_MAP,
             "balance_sheet": _BALANCE_SHEET_MAP,
@@ -112,17 +125,25 @@ class Finance:
         }
         return mappings.get(report_type, {})
 
-    def _parse_financial_response(self, response: Dict, report_key: str) -> pd.DataFrame:
+    def _parse_financial_response(
+        self,
+        response: Dict,
+        report_key: str,
+        include_metadata: bool = False,
+        unit_multiplier: float = 1.0,
+    ) -> pd.DataFrame:
         """
         Parse KBS API response and extract financial data with proper structure.
 
         Args:
             response: API response containing Audit, Unit, Head, Content
             report_key: Key in Content (e.g., 'Kết quả kinh doanh')
+            include_metadata: Whether to include Audit and Unit info as rows in DataFrame
+            unit_multiplier: Multiplier to apply to values (e.g. 1000.0)
 
         Returns:
             DataFrame with proper financial data structure
-        """
+        """  # noqa: W293
         # Extract components from response
         audit_list = response.get("Audit", [])
         unit_list = response.get("Unit", [])
@@ -138,9 +159,14 @@ class Finance:
         # Extract period information from Head
         # Head contains: YearPeriod, TermName, TermNameEN, AuditedStatus, ReportDate, etc.
         periods = []
-        period_labels = []
+        period_audit_map = {}
+        period_unit_map = {}
+
         if head_list:
-            for head in head_list:
+            # Sort head_list by ID to ensure correct period order (API returns most recent first, we want chronological or consistent)
+            # Actually ID usually reflects the order in Head
+            sorted_head_list = sorted(head_list, key=lambda x: x.get("ID", 0))
+            for head in sorted_head_list:
                 if isinstance(head, dict):
                     # Create standardized period label
                     year = head.get("YearPeriod", "")
@@ -152,21 +178,40 @@ class Finance:
                         quarter_num = term_name.replace("Quý", "").strip()
                         period_label = f"{year}-Q{quarter_num}"
                     else:
-                        # Annual report - just use year
-                        period_label = str(year)
+                        if self.period == "quarter":
+                            period_label = (
+                                f"{year}-{term_name}" if term_name else str(year)
+                            )
+                        else:
+                            period_label = str(year)
+
+                    # Ensure period labels are unique
+                    original_label = period_label
+                    suffix = 1
+                    while period_label in periods:
+                        period_label = f"{original_label}_{suffix}"
+                        suffix += 1
 
                     periods.append(period_label)
-                    period_labels.append(period_label)
 
-        # Extract audit status from Audit (maps AuditedStatusCode to Description)
-        audit_status_map = {}
+                    # Store audit/unit codes for this period
+                    period_audit_map[period_label] = head.get("AuditedStatus", "")
+                    period_unit_map[period_label] = head.get("United", "")
+
+        # Extract mappings
+        audit_desc_map = {}
         if audit_list:
             for audit in audit_list:
                 if isinstance(audit, dict):
-                    code = audit.get("AuditedStatusCode")
-                    desc = audit.get("Description")
-                    if code and desc:
-                        audit_status_map[code] = desc
+                    audit_desc_map[audit.get("AuditedStatusCode")] = audit.get(
+                        "Description"
+                    )
+
+        unit_desc_map = {}
+        if unit_list:
+            for unit in unit_list:
+                if isinstance(unit, dict):
+                    unit_desc_map[unit.get("UnitedCode")] = unit.get("UnitedName")
 
         # Build DataFrame from report data
         rows = []
@@ -178,9 +223,9 @@ class Finance:
 
             # Generate item_id using field handler
             if item_en and item_en.strip():
-                item_id = self.field_handler.normalizer.normalize_field_name(item_en, preserve_hierarchy=True)
+                item_id = self.field_handler.normalize_field_name(item_en)
             elif item and item.strip():
-                item_id = self.field_handler.normalizer.normalize_field_name(item, preserve_hierarchy=True)
+                item_id = self.field_handler.normalize_field_name(item)
             else:
                 item_id = ""
 
@@ -197,38 +242,206 @@ class Finance:
                 "item_id": item_id,
                 "unit": record.get("Unit", ""),
                 "levels": record.get("Levels", 0),
-                "row_number": record.get("ID", 0),  # Use ID as row ordering (RowNumber is always None in API)
+                "row_number": record.get(
+                    "ID", 0
+                ),  # Use ID as row ordering (RowNumber is always None in API)
             }
 
-            # Add period values (Value1, Value2, Value3, Value4)
+            # Add period values (Value1, Value2, Value3, Value4...)
+            # Note: API returns Value1, Value2... corresponding to the order in Head (ID 1, 2, 3, 4)
+            # Since we sorted head_list by ID, periods[i] matches Value{i+1}
             for i, period_label in enumerate(periods, 1):
                 value_key = f"Value{i}"
                 value = record.get(value_key)
                 # Convert to numeric if possible
                 if value is not None:
                     try:
-                        value = float(value)
+                        value = float(value) * unit_multiplier
                     except (ValueError, TypeError):
                         pass
                 row[period_label] = value
 
             rows.append(row)
 
+        # Add metadata rows if requested
+        if include_metadata:
+            # Audit Status Row
+            audit_row = {
+                "item": "Kiểm toán",
+                "item_en": "Audit Status",
+                "item_id": "audit_status",
+                "unit": "",
+                "levels": 0,
+                "row_number": -2,
+            }
+            # Unit Type Row
+            unit_row = {
+                "item": "Đơn vị",
+                "item_en": "Unit Type",
+                "item_id": "unit_type",
+                "unit": "",
+                "levels": 0,
+                "row_number": -1,
+            }
+
+            for period in periods:
+                # Resolve Audit Status
+                a_code = period_audit_map.get(period)
+                audit_row[period] = audit_desc_map.get(a_code, a_code)
+
+                # Resolve Unit Type
+                u_code = period_unit_map.get(period)
+                unit_row[period] = unit_desc_map.get(u_code, u_code)
+
+            rows.append(audit_row)
+            rows.append(unit_row)
+
         df = pd.DataFrame(rows)
 
         # Reorder columns: metadata first, then periods
         metadata_cols = ["item", "item_en", "item_id", "unit", "levels", "row_number"]
-        period_cols = periods
-        df = df[metadata_cols + period_cols]
 
-        # Add metadata
-        df.attrs["audit_status_map"] = audit_status_map
-        df.attrs["periods"] = periods
+        # Filter columns to only those that exist
+        existing_cols = [c for c in metadata_cols if c in df.columns]
+        period_cols_existing = [c for c in periods if c in df.columns]
+
+        # Filter out periods that have no data (all null)
+        valid_period_cols = []
+        for col in period_cols_existing:
+            if not df[col].isnull().all():
+                valid_period_cols.append(col)
+
+        df = df[existing_cols + valid_period_cols]
+
+        # Add metadata attributes
+        final_periods = valid_period_cols
+        df.attrs["audit_status"] = {
+            p: audit_desc_map.get(c, c)
+            for p, c in period_audit_map.items()
+            if p in final_periods
+        }
+        df.attrs["unit_type"] = {
+            p: unit_desc_map.get(c, c)
+            for p, c in period_unit_map.items()
+            if p in final_periods
+        }
+        df.attrs["periods"] = final_periods
         df.attrs["report_key"] = report_key
 
         return df
 
-    def _apply_schema_standardization(self, df: pd.DataFrame, report_type: str) -> pd.DataFrame:
+    def _fetch_series_data(
+        self,
+        report_type: str,
+        period_type: int,
+        report_key: str,
+        limit: Optional[int] = None,
+        include_metadata: bool = False,
+        show_log: Optional[bool] = False,
+    ) -> pd.DataFrame:
+        """
+        Helper to fetch data across multiple pages to satisfy the limit.
+        """
+        # Baseline limit
+        effective_limit = limit if limit is not None else 4
+
+        dfs = []
+        collected_periods = set()
+        page = 1
+
+        request_page_size = 4
+
+        while len(collected_periods) < effective_limit:
+            data = self._fetch_financial_data(
+                report_type=report_type,
+                period_type=period_type,
+                page=page,
+                page_size=request_page_size,
+                show_log=show_log,
+            )
+
+            df = self._parse_financial_response(
+                data,
+                report_key,
+                include_metadata=include_metadata,
+                unit_multiplier=1000.0,
+            )
+
+            if df.empty:
+                break
+
+            new_periods = df.attrs.get("periods", [])
+            if not new_periods:
+                break
+
+            # Filter out periods we already have
+            actual_new_periods = [p for p in new_periods if p not in collected_periods]
+            if not actual_new_periods:
+                # If we got data but no new periods, it's likely we've looped or reached end
+                break
+
+            # If some periods are repeats, we only keep the new ones in this DF
+            if len(actual_new_periods) < len(new_periods):
+                cols_to_keep = [
+                    c
+                    for c in df.columns
+                    if c not in new_periods or c in actual_new_periods
+                ]
+                df = df[cols_to_keep]
+                df.attrs["periods"] = actual_new_periods
+
+            dfs.append(df)
+            collected_periods.update(actual_new_periods)
+
+            page += 1
+            if page > 20:
+                break
+
+        if not dfs:
+            return pd.DataFrame()
+
+        # Merge DataFrames
+        final_df = dfs[0]
+
+        for i in range(1, len(dfs)):
+            next_df = dfs[i]
+            next_periods = next_df.attrs.get("periods", [])
+
+            # Merge on item_id.
+            cols_to_merge = ["item_id"] + next_periods
+
+            if "item_id" in next_df.columns:
+                # Capture current attributes
+                current_attrs = final_df.attrs
+
+                # Use outer join to keep all items, but assume item names/metadata are consistent
+                # Drop existing metadata from next_df to avoid duplicate columns (_x, _y)
+                final_df = pd.merge(
+                    final_df, next_df[cols_to_merge], on="item_id", how="outer"
+                )
+
+                # Update attributes
+                current_attrs["periods"].extend(next_periods)
+                if "audit_status" in next_df.attrs:
+                    current_attrs["audit_status"].update(next_df.attrs["audit_status"])
+                if "unit_type" in next_df.attrs:
+                    current_attrs["unit_type"].update(next_df.attrs["unit_type"])
+
+                final_df.attrs = current_attrs
+
+        # Truncate to limit if we got more than requested (capped by effective_limit)
+        all_periods = final_df.attrs.get("periods", [])
+        if len(all_periods) > effective_limit:
+            kept_periods = all_periods[:effective_limit]
+            drop_periods = [p for p in all_periods if p not in kept_periods]
+            final_df = final_df.drop(columns=drop_periods, errors="ignore")
+            final_df.attrs["periods"] = kept_periods
+
+        return final_df
+
+    def _apply_schema_standardization(
+        self, df: pd.DataFrame, report_type: str
+    ) -> pd.DataFrame:
         """
         Áp dụng chuẩn hoá schema cho DataFrame.
 
@@ -238,22 +451,29 @@ class Finance:
 
         Returns:
             DataFrame với cột chuẩn hoá
-        """
+        """  # noqa: W293
         if not self.standardize_columns or df.empty:
             return df
 
         mapping = self._get_column_mapping(report_type)
-        rename_dict = {old: new for old, new in mapping.items() if old in df.columns}
 
-        if rename_dict:
-            df = df.rename(columns=rename_dict)
-            if self.show_log:
-                logger.info(f"Applied schema standardization: {len(rename_dict)} columns renamed")
+        if "item_id" in df.columns and mapping:
+            # Replace mapped strings in item_id
+            mask = df["item_id"].isin(mapping.keys())
+            count = mask.sum()
+            if count > 0:
+                df["item_id"] = df["item_id"].replace(mapping)
+                if self.show_log:
+                    logger.info(
+                        f"Applied schema standardization: {count} items standardized"
+                    )
 
         return df
 
     def _filter_columns_by_lang(
-        self, df: pd.DataFrame, display_mode: Optional[Union[str, FieldDisplayMode]] = FieldDisplayMode.STD
+        self,
+        df: pd.DataFrame,
+        display_mode: Optional[Union[str, FieldDisplayMode]] = FieldDisplayMode.STD,
     ) -> pd.DataFrame:
         """
         Filter DataFrame columns based on field display mode.
@@ -270,7 +490,7 @@ class Finance:
 
         Returns:
             DataFrame with filtered columns
-        """
+        """  # noqa: W293
         if df.empty:
             return df
 
@@ -301,7 +521,11 @@ class Finance:
             cols_to_keep = [col for col in metadata_cols if col in ["item", "item_id"]]
 
             # Handle English preference (backward compatibility)
-            if isinstance(display_mode, str) and display_mode == "en" and "item_en" in df_filtered.columns:
+            if (
+                isinstance(display_mode, str)
+                and display_mode == "en"
+                and "item_en" in df_filtered.columns
+            ):
                 df_filtered["item"] = df_filtered["item_en"]
                 cols_to_keep = ["item", "item_id"]
 
@@ -314,7 +538,12 @@ class Finance:
         return df_filtered[cols_to_keep]
 
     def _fetch_financial_data(
-        self, report_type: str = "KQKD", period_type: int = 1, page: int = 1, show_log: Optional[bool] = False
+        self,
+        report_type: str = "KQKD",
+        period_type: int = 1,
+        page: int = 1,
+        page_size: int = 4,
+        show_log: Optional[bool] = False,
     ) -> Dict:
         """
         Lấy dữ liệu tài chính từ API SAS với các tham số chính xác.
@@ -323,12 +552,9 @@ class Finance:
             report_type: Loại báo cáo (CDKT, KQKD, LCTT, CSTC, CTKH, BCTT)
             period_type: Loại kỳ báo cáo (1=năm, 2=quý)
             page: Trang (mặc định 1)
+            page_size: Số kỳ trên mỗi trang (mặc định 4)
             show_log: Hiển thị log debug.
-
-        Returns:
-            Dictionary chứa dữ liệu tài chính đầy đủ.
         """
-        page_size: int = 8
         url = f"{_SAS_FINANCE_INFO_URL}/{self.symbol}"
 
         # Build params based on report type
@@ -351,7 +577,9 @@ class Finance:
 
         # Log request configuration using logger
         if show_log or self.show_log:
-            logger.info(f"KBS Financial API Request: {self.symbol} - {report_type} - Period: {period_type}")
+            logger.info(
+                f"KBS Financial API Request: {self.symbol} - {report_type} - Period: {period_type}"
+            )
 
         try:
             json_data = send_request(
@@ -367,7 +595,9 @@ class Finance:
 
             if show_log or self.show_log:
                 if isinstance(json_data, dict) and "data" in json_data:
-                    logger.info(f"API Response received: {len(json_data.get('data', []))} records")
+                    logger.info(
+                        f"API Response received: {len(json_data.get('data', []))} records"
+                    )
 
             return json_data
         except Exception as e:
@@ -375,10 +605,11 @@ class Finance:
                 logger.error(f"API Request Failed: {str(e)}")
             raise
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def income_statement(
         self,
-        period: str = "year",
+        period: Optional[str] = None,
+        include_metadata: bool = False,
         display_mode: Optional[Union[str, FieldDisplayMode]] = FieldDisplayMode.STD,
         show_log: Optional[bool] = False,
     ) -> pd.DataFrame:
@@ -387,6 +618,7 @@ class Finance:
 
         Args:
             period: Loại kỳ báo cáo ('year' hoặc 'quarter'). Mặc định 'year'.
+            include_metadata: Bao gồm thông tin audit và unit trong rows. Mặc định False.
             display_mode: Chế độ hiển thị trường dữ liệu. Mặc định FieldDisplayMode.STD.
                 - FieldDisplayMode.STD: Chỉ giữ cột 'item' và 'item_id' (đã chuẩn hóa)
                 - FieldDisplayMode.ALL: Giữ tất cả cột item (item, item_en, item_id)
@@ -397,31 +629,26 @@ class Finance:
 
         Returns:
             DataFrame chứa báo cáo kết quả kinh doanh.
-
-        Examples:
-            >>> finance = Finance('ACB')
-            >>> df = finance.income_statement(period='year', display_mode=FieldDisplayMode.STD)
-            >>> # Returns DataFrame with columns: item, item_id, unit, periods...
-            >>> df_all = finance.income_statement(period='year', display_mode=FieldDisplayMode.ALL)
-            >>> # Returns DataFrame with all item columns
-            >>> # Backward compatibility:
-            >>> df_vi = finance.income_statement(period='year', display_mode='vi')
-            >>> df_en = finance.income_statement(period='year', display_mode='en')
         """
         # Map period to termType (1=year, 2=quarter)
-        period_type = 1 if period == "year" else 2
+        effective_period = (
+            period if period else (self.period if self.period else "year")
+        )
+        period_type = 1 if effective_period == "year" else 2
 
-        # Fetch data with correct API parameters
-        financial_data = self._fetch_financial_data(report_type="KQKD", period_type=period_type, show_log=show_log)
-
-        if not financial_data:
-            raise ValueError(f"Không tìm thấy dữ liệu tài chính cho mã {self.symbol}.")
-
-        # Parse financial response with proper structure
-        df = self._parse_financial_response(financial_data, "Kết quả kinh doanh")
+        # Fetch data with pagination support
+        df = self._fetch_series_data(
+            report_type="KQKD",
+            period_type=period_type,
+            report_key="Kết quả kinh doanh",
+            include_metadata=include_metadata,
+            show_log=show_log,
+        )
 
         if df.empty:
-            logger.warning(f"Không tìm thấy báo cáo kết quả kinh doanh cho {self.symbol}.")
+            logger.warning(
+                f"Không tìm thấy báo cáo kết quả kinh doanh cho {self.symbol}."
+            )
             return pd.DataFrame()
 
         # Apply schema standardization if enabled
@@ -438,14 +665,17 @@ class Finance:
         df.attrs["period"] = period
 
         if show_log or self.show_log:
-            logger.info(f"Truy xuất thành công báo cáo kết quả kinh doanh cho {self.symbol}.")
+            logger.info(
+                f"Truy xuất thành công báo cáo kết quả kinh doanh cho {self.symbol}."
+            )
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def balance_sheet(
         self,
-        period: str = "year",
+        period: Optional[str] = None,
+        include_metadata: bool = False,
         display_mode: Optional[Union[str, FieldDisplayMode]] = FieldDisplayMode.STD,
         show_log: Optional[bool] = False,
     ) -> pd.DataFrame:
@@ -454,6 +684,7 @@ class Finance:
 
         Args:
             period: Loại kỳ báo cáo ('year' hoặc 'quarter'). Mặc định 'year'.
+            include_metadata: Bao gồm thông tin audit và unit trong rows. Mặc định False.
             display_mode: Chế độ hiển thị trường dữ liệu. Mặc định FieldDisplayMode.STD.
                 - FieldDisplayMode.STD: Chỉ giữ cột 'item' và 'item_id' (đã chuẩn hóa)
                 - FieldDisplayMode.ALL: Giữ tất cả cột item (item, item_en, item_id)
@@ -464,27 +695,21 @@ class Finance:
 
         Returns:
             DataFrame chứa bảng cân đối kế toán.
-
-        Examples:
-            >>> finance = Finance('ACB')
-            >>> df = finance.balance_sheet(period='year', display_mode=FieldDisplayMode.STD)
-            >>> df_all = finance.balance_sheet(period='year', display_mode=FieldDisplayMode.ALL)
-            >>> # Backward compatibility:
-            >>> df_vi = finance.balance_sheet(period='year', display_mode='vi')
-            >>> df_en = finance.balance_sheet(period='year', display_mode='en')
         """
         # Map period to termType (1=year, 2=quarter)
-        period_type = 1 if period == "year" else 2
+        effective_period = (
+            period if period else (self.period if self.period else "year")
+        )
+        period_type = 1 if effective_period == "year" else 2
 
-        # Fetch data with correct API parameters
-        financial_data = self._fetch_financial_data(report_type="CDKT", period_type=period_type, show_log=show_log)
-
-        if not financial_data:
-            raise ValueError(f"Không tìm thấy dữ liệu tài chính cho mã {self.symbol}.")
-
-        # Parse financial response with proper structure
-        # Note: API uses 'Cân đối kế toán' not 'Bảng cân đối kế toán'
-        df = self._parse_financial_response(financial_data, "Cân đối kế toán")
+        # Fetch data with pagination support
+        df = self._fetch_series_data(
+            report_type="CDKT",
+            period_type=period_type,
+            report_key="Cân đối kế toán",
+            include_metadata=include_metadata,
+            show_log=show_log,
+        )
 
         if df.empty:
             logger.warning(f"Không tìm thấy bảng cân đối kế toán cho {self.symbol}.")
@@ -508,10 +733,11 @@ class Finance:
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def cash_flow(
         self,
-        period: str = "year",
+        period: Optional[str] = None,
+        include_metadata: bool = False,
         display_mode: Optional[Union[str, FieldDisplayMode]] = FieldDisplayMode.STD,
         show_log: Optional[bool] = False,
     ) -> pd.DataFrame:
@@ -520,6 +746,7 @@ class Finance:
 
         Args:
             period: Loại kỳ báo cáo ('year' hoặc 'quarter'). Mặc định 'year'.
+            include_metadata: Bao gồm thông tin audit và unit trong rows. Mặc định False.
             display_mode: Chế độ hiển thị trường dữ liệu. Mặc định FieldDisplayMode.STD.
                 - FieldDisplayMode.STD: Chỉ giữ cột 'item' và 'item_id' (đã chuẩn hóa)
                 - FieldDisplayMode.ALL: Giữ tất cả cột item (item, item_en, item_id)
@@ -530,29 +757,21 @@ class Finance:
 
         Returns:
             DataFrame chứa báo cáo lưu chuyển tiền tệ.
-
-        Examples:
-            >>> finance = Finance('ACB')
-            >>> df = finance.cash_flow(period='year', display_mode=FieldDisplayMode.STD)
-            >>> df_all = finance.cash_flow(period='year', display_mode=FieldDisplayMode.ALL)
-            >>> # Backward compatibility:
-            >>> df_vi = finance.cash_flow(period='year', display_mode='vi')
-            >>> df_en = finance.cash_flow(period='year', display_mode='en')
         """
         # Map period to termType (1=year, 2=quarter)
-        period_type = 1 if period == "year" else 2
+        effective_period = (
+            period if period else (self.period if self.period else "year")
+        )
+        period_type = 1 if effective_period == "year" else 2
 
-        # Fetch data with correct API parameters
-        financial_data = self._fetch_financial_data(report_type="LCTT", period_type=period_type, show_log=show_log)
-
-        if not financial_data:
+        # Fetch one record to determine which cash flow key exists for this company
+        probe_data = self._fetch_financial_data(
+            report_type="LCTT", period_type=period_type, page_size=1, show_log=False
+        )
+        if not probe_data:
             raise ValueError(f"Không tìm thấy dữ liệu tài chính cho mã {self.symbol}.")
 
-        # Parse financial response with proper structure
-        # Note: API has two cash flow types - try indirect first (more common), then direct
-        content = financial_data.get("Content", {})
-
-        # Try indirect cash flow first (most common)
+        content = probe_data.get("Content", {})
         cash_flow_key = None
         if "Lưu chuyển tiền tệ gián tiếp" in content:
             cash_flow_key = "Lưu chuyển tiền tệ gián tiếp"
@@ -560,13 +779,24 @@ class Finance:
             cash_flow_key = "Lưu chuyển tiền tệ trực tiếp"
 
         if not cash_flow_key:
-            logger.warning(f"Không tìm thấy báo cáo lưu chuyển tiền tệ cho {self.symbol}.")
+            logger.warning(
+                f"Không tìm thấy báo cáo lưu chuyển tiền tệ cho {self.symbol}."
+            )
             return pd.DataFrame()
 
-        df = self._parse_financial_response(financial_data, cash_flow_key)
+        # Fetch with pagination support
+        df = self._fetch_series_data(
+            report_type="LCTT",
+            period_type=period_type,
+            report_key=cash_flow_key,
+            include_metadata=include_metadata,
+            show_log=show_log,
+        )
 
         if df.empty:
-            logger.warning(f"Không tìm thấy báo cáo lưu chuyển tiền tệ cho {self.symbol}.")
+            logger.warning(
+                f"Không tìm thấy báo cáo lưu chuyển tiền tệ cho {self.symbol}."
+            )
             return pd.DataFrame()
 
         # Apply schema standardization if enabled
@@ -583,14 +813,17 @@ class Finance:
         df.attrs["period"] = period
 
         if show_log or self.show_log:
-            logger.info(f"Truy xuất thành công báo cáo lưu chuyển tiền tệ cho {self.symbol}.")
+            logger.info(
+                f"Truy xuất thành công báo cáo lưu chuyển tiền tệ cho {self.symbol}."
+            )
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def ratio(
         self,
-        period: str = "year",
+        period: Optional[str] = None,
+        include_metadata: bool = False,
         display_mode: Optional[Union[str, FieldDisplayMode]] = FieldDisplayMode.STD,
         show_log: Optional[bool] = False,
     ) -> pd.DataFrame:
@@ -599,6 +832,7 @@ class Finance:
 
         Args:
             period: Loại kỳ báo cáo ('year' hoặc 'quarter'). Mặc định 'year'.
+            include_metadata: Bao gồm thông tin audit và unit trong rows. Mặc định False.
             display_mode: Chế độ hiển thị trường dữ liệu. Mặc định FieldDisplayMode.STD.
                 - FieldDisplayMode.STD: Chỉ giữ cột 'item' và 'item_id' (đã chuẩn hóa)
                 - FieldDisplayMode.ALL: Giữ tất cả cột item (item, item_en, item_id)
@@ -609,135 +843,122 @@ class Finance:
 
         Returns:
             DataFrame chứa các chỉ số tài chính.
-
-        Examples:
-            >>> finance = Finance('ACB')
-            >>> df = finance.ratio(period='year', display_mode=FieldDisplayMode.STD)
-            >>> df_all = finance.ratio(period='year', display_mode=FieldDisplayMode.ALL)
-            >>> # Backward compatibility:
-            >>> df_vi = finance.ratio(period='year', display_mode='vi')
-            >>> df_en = finance.ratio(period='year', display_mode='en')
         """
         # Map period to termType (1=year, 2=quarter)
-        period_type = 1 if period == "year" else 2
+        effective_period = (
+            period if period else (self.period if self.period else "year")
+        )
+        period_type = 1 if effective_period == "year" else 2
 
-        # Fetch data with correct API parameters
-        financial_data = self._fetch_financial_data(report_type="CSTC", period_type=period_type, show_log=show_log)
+        # Fetch data up to limit
+        effective_limit = getattr(self, "limit", 4)
+        dfs = []
+        collected_periods = set()
+        page = 1
+        request_page_size = max(effective_limit, 4)
 
-        if not financial_data:
-            raise ValueError(f"Không tìm thấy dữ liệu tài chính cho mã {self.symbol}.")
+        while len(collected_periods) < effective_limit:
+            financial_data = self._fetch_financial_data(
+                report_type="CSTC",
+                period_type=period_type,
+                page=page,
+                page_size=request_page_size,
+                show_log=show_log,
+            )
 
-        # Parse financial response with proper structure
-        # Note: API returns multiple ratio groups, combine them all
-        content = financial_data.get("Content", {})
+            if not financial_data:
+                break
 
-        # Ratio groups in the API response
-        ratio_groups = [
-            "Nhóm chỉ số Định giá",  # Valuation ratios
-            "Nhóm chỉ số Sinh lợi",  # Profitability ratios
-            "Nhóm chỉ số Tăng trưởng",  # Growth ratios
-            "Nhóm chỉ số Thanh khoản",  # Liquidity ratios
-            "Nhóm chỉ số Chất lượng tài sản",  # Asset quality ratios
-        ]
+            content = financial_data.get("Content", {})
+            ratio_groups = [k for k in content.keys() if "Nhóm chỉ số" in k]
 
-        # Collect all ratio data from all groups
-        all_ratio_data = []
-        for group_key in ratio_groups:
-            group_data = content.get(group_key, [])
-            if group_data:
-                all_ratio_data.extend(group_data)
+            if not ratio_groups:
+                break
 
-        if not all_ratio_data:
+            # Collect all ratio data from all groups
+            all_ratio_data = []
+            for group_key in ratio_groups:
+                group_data = content.get(group_key, [])
+                if group_data:
+                    all_ratio_data.extend(group_data)
+
+            if not all_ratio_data:
+                break
+
+            # Inject 'Financial Ratios Combined' into content and use _parse_financial_response
+            financial_data["Content"]["Financial Ratios Combined"] = all_ratio_data
+
+            df = self._parse_financial_response(
+                financial_data,
+                "Financial Ratios Combined",
+                include_metadata=include_metadata,
+            )
+
+            if df.empty:
+                break
+
+            new_periods = df.attrs.get("periods", [])
+            if not new_periods:
+                break
+
+            # Filter out periods we already have
+            actual_new_periods = [p for p in new_periods if p not in collected_periods]
+            if not actual_new_periods:
+                break
+
+            # If some periods are repeats, we only keep the new ones in this DF
+            if len(actual_new_periods) < len(new_periods):
+                cols_to_keep = [
+                    c
+                    for c in df.columns
+                    if c not in new_periods or c in actual_new_periods
+                ]
+                df = df[cols_to_keep]
+                df.attrs["periods"] = actual_new_periods
+
+            dfs.append(df)
+            collected_periods.update(actual_new_periods)
+
+            page += 1
+            if page > 20:
+                break
+
+        if not dfs:
             logger.warning(f"Không tìm thấy chỉ số tài chính cho {self.symbol}.")
             return pd.DataFrame()
 
-        # Extract components from response for proper parsing
-        audit_list = financial_data.get("Audit", [])
-        head_list = financial_data.get("Head", [])
+        # Merge DataFrames on item_id
+        final_df = dfs[0]
 
-        # Extract period information from Head
-        periods = []
-        if head_list:
-            for head in head_list:
-                if isinstance(head, dict):
-                    year = head.get("YearPeriod", "")
-                    term_name = head.get("TermName", "")
+        for i in range(1, len(dfs)):
+            next_df = dfs[i]
+            next_periods = next_df.attrs.get("periods", [])
 
-                    # Parse quarter number from TermName (e.g., "Quý 1" -> "Q1")
-                    if term_name and "Quý" in term_name:
-                        # Extract quarter number
-                        quarter_num = term_name.replace("Quý", "").strip()
-                        period_label = f"{year}-Q{quarter_num}"
-                    else:
-                        # Annual report - just use year
-                        period_label = str(year)
+            cols_to_merge = ["item_id"] + next_periods
 
-                    periods.append(period_label)
+            if "item_id" in next_df.columns:
+                current_attrs = final_df.attrs
+                final_df = pd.merge(
+                    final_df, next_df[cols_to_merge], on="item_id", how="outer"
+                )
+                current_attrs["periods"].extend(next_periods)
+                if "audit_status" in next_df.attrs:
+                    current_attrs["audit_status"].update(next_df.attrs["audit_status"])
+                if "unit_type" in next_df.attrs:
+                    current_attrs["unit_type"].update(next_df.attrs["unit_type"])
+                final_df.attrs = current_attrs
 
-        # Extract audit status from Audit
-        audit_status_map = {}
-        if audit_list:
-            for audit in audit_list:
-                if isinstance(audit, dict):
-                    code = audit.get("AuditedStatusCode")
-                    desc = audit.get("Description")
-                    if code and desc:
-                        audit_status_map[code] = desc
+        df = final_df
 
-        # Build DataFrame from ratio data
-        rows = []
-        item_id_counter = {}  # Track collisions
+        # Truncate to limit
+        all_periods = df.attrs.get("periods", [])
+        if len(all_periods) > effective_limit:
+            kept_periods = all_periods[:effective_limit]
+            drop_periods = [p for p in all_periods if p not in kept_periods]
+            df = df.drop(columns=drop_periods, errors="ignore")
+            df.attrs["periods"] = kept_periods
 
-        for record in all_ratio_data:
-            item = record.get("Name", "")
-            item_en = record.get("NameEn", "")
-
-            # Generate item_id using field handler
-            if item_en and item_en.strip():
-                item_id = self.field_handler.normalizer.normalize_field_name(item_en, preserve_hierarchy=True)
-            elif item and item.strip():
-                item_id = self.field_handler.normalizer.normalize_field_name(item, preserve_hierarchy=True)
-            else:
-                item_id = ""
-
-            # Handle collisions - append counter if duplicate
-            if item_id and item_id in item_id_counter:
-                item_id_counter[item_id] += 1
-                item_id = f"{item_id}_{item_id_counter[item_id]}"
-            elif item_id:
-                item_id_counter[item_id] = 1
-
-            row = {
-                "item": item,
-                "item_en": item_en,
-                "item_id": item_id,
-                "unit": record.get("Unit", ""),
-                "levels": record.get("Levels", 0),
-                "row_number": record.get("ID", 0),  # Use ID as row ordering (RowNumber is always None in API)
-            }
-
-            # Add period values
-            for i, period_label in enumerate(periods, 1):
-                value_key = f"Value{i}"
-                value = record.get(value_key)
-                if value is not None:
-                    try:
-                        value = float(value)
-                    except (ValueError, TypeError):
-                        pass
-                row[period_label] = value
-
-            rows.append(row)
-
-        df = pd.DataFrame(rows)
-
-        # Reorder columns: metadata first, then periods
-        metadata_cols = ["item", "item_en", "item_id", "unit", "levels", "row_number"]
-        period_cols = periods
-        df = df[metadata_cols + period_cols]
-
-        df.attrs["audit_status_map"] = audit_status_map
-        df.attrs["periods"] = periods
+        # Capture periods from first group
         df.attrs["report_key"] = "Financial Ratios"
 
         if df.empty:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unified provider registry system.
 
 This module provides a centralized registry for all data providers
@@ -210,7 +210,9 @@ class ProviderRegistry:
 
             for name, info in cls._registry[cat].items():
                 provider_type = info["type"]
-                type_key = "scraping" if provider_type == ProviderType.SCRAPING else "api"
+                type_key = (
+                    "scraping" if provider_type == ProviderType.SCRAPING else "api"
+                )
                 result[cat.value][type_key].append(name)
 
         return result
@@ -249,7 +251,9 @@ class ProviderRegistry:
                 return category[name]["type"] == ProviderType.API
 
         # Provider not found
-        raise UnsupportedProviderError(provider=name, available_providers=cls.get_all_provider_names())
+        raise UnsupportedProviderError(
+            provider=name, available_providers=cls.get_all_provider_names()
+        )
 
     @classmethod
     def is_scraping_provider(cls, name: str) -> bool:
@@ -321,6 +325,8 @@ class ProviderRegistry:
             lines.append(f"\n{category.value.upper()}:")
             for name, info in sorted(providers.items()):
                 type_str = "API" if info["type"] == ProviderType.API else "Scraping"
-                lines.append(f"  - {name:15s} [{type_str:8s}] ({info['class'].__name__})")
+                lines.append(
+                    f"  - {name:15s} [{type_str:8s}] ({info['class'].__name__})"
+                )
 
         return "\n".join(lines)

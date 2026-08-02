@@ -1,4 +1,4 @@
-﻿"""
+"""
 Proxy manager for vnstock - fetches and manages free proxies.
 
 Provides functionality to:
@@ -59,7 +59,9 @@ class ProxyManager:
         "origin": "https://vi.proxyscrape.com",
         "priority": "u=1, i",
         "referer": "https://vi.proxyscrape.com/",
-        "sec-ch-ua": ('"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"'),
+        "sec-ch-ua": (
+            '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"'
+        ),
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"macOS"',
         "sec-fetch-dest": "empty",
@@ -82,7 +84,9 @@ class ProxyManager:
         self.proxies: List[Proxy] = []
         self.last_fetch: Optional[datetime] = None
 
-    def fetch_proxies(self, limit: int = 15, skip: int = 0, protocol: str = "protocolipport") -> List[Proxy]:
+    def fetch_proxies(
+        self, limit: int = 15, skip: int = 0, protocol: str = "protocolipport"
+    ) -> List[Proxy]:
         """Fetch free proxies from proxyscrape API.
 
         Args:
@@ -103,7 +107,12 @@ class ProxyManager:
 
         try:
             logger.info(f"Fetching {limit} proxies from proxyscrape API...")
-            response = requests.get(self.PROXYSCRAPE_API, params=params, headers=self.HEADERS, timeout=self.timeout)
+            response = requests.get(
+                self.PROXYSCRAPE_API,
+                params=params,
+                headers=self.HEADERS,
+                timeout=self.timeout,
+            )
             response.raise_for_status()
 
             data = response.json()
@@ -142,7 +151,9 @@ class ProxyManager:
         for proxy_data in proxy_list:
             try:
                 # Handle different possible field names
-                protocol = proxy_data.get("protocol", proxy_data.get("Protocol", "http")).lower()
+                protocol = proxy_data.get(
+                    "protocol", proxy_data.get("Protocol", "http")
+                ).lower()
 
                 # Parse IP and port from different formats
                 # First try direct ip/port fields (newer API format)
@@ -176,7 +187,14 @@ class ProxyManager:
                 country = proxy_data.get("country", "")
                 speed = float(proxy_data.get("speed", 0))
 
-                proxy = Proxy(protocol=protocol, ip=ip, port=port, country=country, speed=speed, last_checked=datetime.now())
+                proxy = Proxy(
+                    protocol=protocol,
+                    ip=ip,
+                    port=port,
+                    country=country,
+                    speed=speed,
+                    last_checked=datetime.now(),
+                )
 
                 proxies.append(proxy)
                 logger.debug(f"Parsed proxy: {proxy}")
@@ -187,7 +205,9 @@ class ProxyManager:
 
         return proxies
 
-    def test_proxy(self, proxy: Proxy, test_url: str = "https://httpbin.org/ip", timeout: int = 5) -> bool:
+    def test_proxy(
+        self, proxy: Proxy, test_url: str = "https://httpbin.org/ip", timeout: int = 5
+    ) -> bool:
         """Test if proxy is working.
 
         Args:
@@ -199,7 +219,9 @@ class ProxyManager:
             True if proxy works, False otherwise
         """
         try:
-            response = requests.get(test_url, proxies=proxy.dict_format, timeout=timeout)
+            response = requests.get(
+                test_url, proxies=proxy.dict_format, timeout=timeout
+            )
             works = response.status_code == 200
             if works:
                 logger.debug(f"Proxy {proxy} is working")
@@ -210,7 +232,10 @@ class ProxyManager:
             return False
 
     def test_proxies(
-        self, proxies: Optional[List[Proxy]] = None, test_url: str = "https://httpbin.org/ip", timeout: int = 5
+        self,
+        proxies: Optional[List[Proxy]] = None,
+        test_url: str = "https://httpbin.org/ip",
+        timeout: int = 5,
     ) -> Tuple[List[Proxy], List[Proxy]]:
         """Test multiple proxies.
 
@@ -238,7 +263,9 @@ class ProxyManager:
 
         return working, failed
 
-    def get_fresh_proxies(self, use_cache: bool = True, auto_test: bool = True) -> List[str]:
+    def get_fresh_proxies(
+        self, use_cache: bool = True, auto_test: bool = True
+    ) -> List[str]:
         """
         Get list of working proxy addresses (protocol://ip:port).
 
@@ -321,12 +348,18 @@ class ProxyManager:
             print("No proxies available")
             return
 
-        header = f"{'Protocol':<10} {'IP':<15} {'Port':<6} {'Country':<15} {'Speed (ms)':<10}"
+        header = (
+            f"{'Protocol':<10} {'IP':<15} {'Port':<6} "
+            f"{'Country':<15} {'Speed (ms)':<10}"
+        )
         print(f"\n{header}")
         print("-" * 60)
 
         for proxy in proxies:
-            print(f"{proxy.protocol:<10} {proxy.ip:<15} {proxy.port:<6} {proxy.country:<15} {proxy.speed:<10.2f}")
+            print(
+                f"{proxy.protocol:<10} {proxy.ip:<15} {proxy.port:<6} "
+                f"{proxy.country:<15} {proxy.speed:<10.2f}"
+            )
 
         print()
 

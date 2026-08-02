@@ -1,4 +1,4 @@
-﻿"""Constants for KB Securities (KBS) data source."""
+"""Constants for KB Securities (KBS) data source."""
 
 # Base URLs
 _IIS_BASE_URL = "https://kbbuddywts.kbsec.com.vn/iis-server/investment"
@@ -24,7 +24,7 @@ _RANKING_FOREIGN_URL = f"{_IIS_BASE_URL}/rtranking/foreignTotal"
 # SAS Endpoints - Stock Data Store
 _SAS_STOCK_URL = f"{_SAS_BASE_URL}/kbsv-stock-data-store/stock"
 _SAS_HISTORICAL_QUOTES_URL = f"{_SAS_STOCK_URL}/{{symbol}}/historical-quotes"
-_SAS_FINANCE_INFO_URL = f"{_SAS_STOCK_URL}/finance-info"
+_SAS_FINANCE_INFO_URL = f"{_IIS_BASE_URL}/stock/finance-info"
 _SAS_TRADING_MARGIN_URL = f"{_SAS_STOCK_URL}/trading-margin"
 _SAS_CTKH_INFO_URL = f"{_SAS_STOCK_URL}/ctkh-info"
 
@@ -105,18 +105,6 @@ _OHLC_MAP = {
     "l": "low",
     "c": "close",
     "v": "volume",
-    # Derivative / Extended fields
-    "re": "reference_price",
-    "ptq": "put_through_volume",
-    "ptv": "put_through_value",
-    "cl": "ceiling_price",
-    "fl": "floor_price",
-    "fb": "foreign_buy_volume",
-    "fs": "foreign_sell_volume",
-    "fnet": "foreign_net_volume",
-    "oi": "open_interest",
-    "tt": "total_trades",
-    "tv": "total_value",
 }
 
 # Data type mapping for OHLC data
@@ -232,10 +220,12 @@ _RESAMPLE_MAP = {
 # Column mapping for price board (ISS endpoint)
 # Maps KBS API fields to schema-aligned field names (PriceBoardCore/Extended)
 _PRICE_BOARD_MAP = {
-    "TT": "total_trades",
+    "TT": "volume_accumulated",  # CORRECTED: TT = total accumulated volume (not total_trades)
+    "CV": "volume_last",  # CORRECTED: CV = current volume (last matched volume)
+    # ⚠️  KBS grouping differs from VCI (each provider aggregates ATC orders differently)
     "PP": "price_points",
     "HI": "high_price",
-    "TV": "total_value",
+    "TV": "total_value",  # CORRECTED: TV = total value (accumulated, unit VND)
     "LO": "low_price",
     "LS": "listed_shares",
     "CHP": "percent_change",
@@ -255,9 +245,9 @@ _PRICE_BOARD_MAP = {
     "S3": "ask_price_3",
     "FL": "floor_price",
     "FO": "foreign_ownership_ratio",
-    "FR": "foreign_sell_volume",
+    "FS": "foreign_sell_volume",  # FS raw key = foreign sell volume
     "PTQ": "put_through_qty",
-    "FS": "foreign_sell_count",
+    "FR": "foreign_room",  # FR raw key = foreign room
     "SB": "symbol",
     "PTV": "put_through_value",
     "TLQ": "total_listed_qty",
@@ -267,7 +257,7 @@ _PRICE_BOARD_MAP = {
     "CP": "close_price",
     "TB": "total_buy_vol",
     "PMP": "previous_match_price",
-    "CV": "current_vol",
+    "CV": "current_vol",  # noqa: F601
     "t": "time",
     "PMQ": "previous_match_qty",
     "TO": "total_offer_vol",
@@ -275,6 +265,7 @@ _PRICE_BOARD_MAP = {
     "U2": "ask_vol_2",
     "U3": "ask_vol_3",
     "MS": "market_status",
+    "OI": "open_interest",  # Open Interest for derivatives
 }
 
 # Column mapping for intraday trade history (real-time matching data)
@@ -348,8 +339,9 @@ _PRICE_BOARD_STANDARD_COLUMNS = [
     "high_price",  # Cao nhất
     "low_price",  # Thấp nhất
     "close_price",  # Đóng cửa / Giá khớp hiện tại
+    "volume_last",  # KHỐI LƯỢNG NGAY TẠI LẦN KHỚP LỆNH CUỐI (Khớp lệnh -> KL)
     "average_price",  # Giá trung bình
-    "total_trades",  # Tổng KL giao dịch
+    "volume_accumulated",  # ⭐ Accumulated volume (from raw TT field)
     "total_value",  # Tổng GT giao dịch
     "price_change",  # Thay đổi giá
     "percent_change",  # % Thay đổi
@@ -367,6 +359,7 @@ _PRICE_BOARD_STANDARD_COLUMNS = [
     "ask_vol_3",  # KL bán 3 (CORE)
     "foreign_buy_volume",  # KL NN mua
     "foreign_sell_volume",  # KL NN bán
+    "foreign_room",  # ⭐ Foreign investor room (from raw FR field)
 ]
 
 # Mapping from KBS API fields to the schema fields
@@ -426,6 +419,7 @@ _EXCHANGE_CODE_MAP = {
     "HOSE": "HOSE",  # Ho Chi Minh Stock Exchange
     "HSX": "HOSE",  # Old VCI code - normalize to HOSE
     "HNX": "HNX",  # Ha Noi Stock Exchange
+    "XHNF": "HNX",  # KBS derivative exchange code - map to HNX
     "UPCOM": "UPCOM",  # Unlisted Public Company Market
 }
 
@@ -519,59 +513,64 @@ _LABOR_STRUCTURE_MAP = {
 
 # Income Statement (KQKD) mapping
 _INCOME_STATEMENT_MAP = {
-    "doanh_thu": "revenue",
-    "doanh_thu_ban_hang": "revenue",
-    "loi_nhuan_gop": "gross_profit",
-    "loi_nhuan_hoat_dong": "operating_profit",
-    "loi_nhuan_truoc_thue": "profit_before_tax",
-    "loi_nhuan_sau_thue": "net_profit",
+    "operating_income": "revenue",
+    "net_revenue": "revenue",
+    "gross_profit": "gross_profit",
+    "operating_profit": "operating_profit",
+    "profit_before_tax": "profit_before_tax",
+    "net_profit_after_tax": "net_profit",
+    "cost_of_goods_sold": "cost_of_goods_sold",
+    "selling_expenses": "selling_expenses",
+    "general_and_administrative_expenses": "admin_expenses",
+    "financial_expenses": "finance_expenses",
+    "other_income": "other_income",
+    "other_expenses": "other_expenses",
     "eps": "eps",
-    "gia_von_hang_ban": "cost_of_goods_sold",
-    "chi_phi_ban_hang": "selling_expenses",
-    "chi_phi_quan_ly": "admin_expenses",
-    "chi_phi_tai_chinh": "finance_expenses",
-    "thu_nhap_khac": "other_income",
-    "chi_phi_khac": "other_expenses",
 }
 
 # Balance Sheet (CDKT) mapping
 _BALANCE_SHEET_MAP = {
-    "tong_tai_san": "total_assets",
-    "tai_san_hien_hanh": "current_assets",
-    "tai_san_co_dinh": "fixed_assets",
-    "tong_no_phai_tra": "total_liabilities",
-    "no_hien_hanh": "current_liabilities",
-    "no_dai_han": "long_term_liabilities",
-    "von_chu_so_huu": "equity",
-    "von_dieu_le": "charter_capital",
-    "loi_nhuan_chu_so_huu": "retained_earnings",
+    "assets": "total_assets",
+    "total_assets": "total_assets",
+    "short_term_assets": "current_assets",
+    "current_assets": "current_assets",
+    "fixed_assets": "fixed_assets",
+    "liabilities": "total_liabilities",
+    "total_liabilities": "total_liabilities",
+    "short_term_liabilities": "current_liabilities",
+    "current_liabilities": "current_liabilities",
+    "long_term_liabilities": "long_term_liabilities",
+    "non_current_liabilities": "long_term_liabilities",
+    "owners_equity": "equity",
+    "share_capital": "charter_capital",
+    "undistributed_earnings_after_tax": "retained_earnings",
 }
 
 # Cash Flow (LCTT) mapping
 _CASH_FLOW_MAP = {
-    "luu_chuy_tien_hoat_dong": "operating_cash_flow",
-    "luu_chuy_tien_dau_tu": "investing_cash_flow",
-    "luu_chuy_tien_tai_chinh": "financing_cash_flow",
-    "thay_doi_tien_mat": "net_change_in_cash",
-    "tien_mat_dau_ky": "beginning_cash",
-    "tien_mat_cuoi_ky": "ending_cash",
+    "net_cash_flows_from_operating_activities": "operating_cash_flow",
+    "net_cash_flows_from_investing_activities": "investing_cash_flow",
+    "net_cash_flows_from_financing_activities": "financing_cash_flow",
+    "net_increase_decrease_in_cash_and_cash_equivalents": "net_change_in_cash",
+    "cash_and_cash_equivalents_at_beginning_of_period": "beginning_cash",
+    "cash_and_cash_equivalents_at_end_of_period": "ending_cash",
 }
 
 # Financial Ratios (CSTC) mapping
 _FINANCIAL_RATIOS_MAP = {
-    "pe": "pe_ratio",
-    "pb": "pb_ratio",
-    "ps": "ps_ratio",
+    "p_e": "pe_ratio",
+    "p_b": "pb_ratio",
+    "p_s": "ps_ratio",
     "roe": "roe",
     "roa": "roa",
-    "bien_loi_nhuan_gop": "gross_margin",
-    "bien_loi_nhuan_rong": "net_margin",
-    "ty_le_thanh_toan_hien_hanh": "current_ratio",
-    "ty_le_thanh_toan_nhanh": "quick_ratio",
-    "ty_le_no_von": "debt_to_equity",
-    "ty_le_no_tai_san": "debt_to_assets",
-    "von_dieu_le_tren_co_phieu": "book_value_per_share",
-    "loi_nhuan_tren_co_phieu": "earnings_per_share",
+    "gross_profit_margin": "gross_margin",
+    "net_profit_margin": "net_margin",
+    "current_ratio": "current_ratio",
+    "quick_ratio": "quick_ratio",
+    "debt_equity": "debt_to_equity",
+    "liabilities_assets": "debt_to_assets",
+    "book_value_per_share": "book_value_per_share",
+    "earnings_per_share": "earnings_per_share",
 }
 
 # Financial report type mapping

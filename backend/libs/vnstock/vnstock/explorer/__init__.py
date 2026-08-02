@@ -1,4 +1,4 @@
-﻿# Lazy initialization to avoid circular import deadlock
+# Lazy initialization to avoid circular import deadlock
 _initialized = False
 
 

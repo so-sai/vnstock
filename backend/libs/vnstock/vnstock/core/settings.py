@@ -1,4 +1,4 @@
-﻿"""
+"""
 Configuration management for vnstock library.
 
 This module provides centralized configuration with environment
@@ -109,7 +109,10 @@ class VnstockConfig:
         # Validate log level
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if self.log_level.upper() not in valid_levels:
-            raise ValueError(f"Invalid log level: {self.log_level}. Must be one of: {', '.join(valid_levels)}")
+            raise ValueError(
+                f"Invalid log level: {self.log_level}. "
+                f"Must be one of: {', '.join(valid_levels)}"
+            )
         self.log_level = self.log_level.upper()
 
         # Load from environment if not set

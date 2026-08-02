@@ -1,9 +1,9 @@
-﻿"""Company module for KB Securities (KBS) data source."""
+"""Company module for KB Securities (KBS) data source."""
 
 from typing import Dict, List, Optional
 
 import pandas as pd
-from vnai import agg_execution
+from vnai import optimize_execution
 
 from vnstock.core.utils.client import ProxyConfig, send_request
 from vnstock.core.utils.logger import get_logger
@@ -35,11 +35,11 @@ class Company:
     - Cache dữ liệu để tránh gọi lại
     - Xử lý và trả về từng nhóm dữ liệu theo method được gọi
     - Tương tự cấu trúc của VCI Company
-    """
+    """  # noqa: W293
 
     def __init__(
         self,
-        symbol: str,
+        symbol: str = None,
         random_agent: Optional[bool] = False,
         proxy_config: Optional[ProxyConfig] = None,
         show_log: Optional[bool] = False,
@@ -60,15 +60,17 @@ class Company:
         Raises:
             ValueError: Nếu mã không phải là cổ phiếu.
         """
-        self.symbol = symbol.upper()
-        self.asset_type = get_asset_type(self.symbol)
+        self.symbol = symbol.upper() if symbol else ""
+        self.asset_type = get_asset_type(self.symbol) if symbol else "stock"
 
         # Validate if symbol is a stock
-        if self.asset_type not in ["stock"]:
+        if symbol and self.asset_type not in ["stock"]:
             raise ValueError("Mã CK không hợp lệ hoặc không phải cổ phiếu.")
 
         self.data_source = "KBS"
-        self.headers = get_headers(data_source=self.data_source, random_agent=random_agent)
+        self.headers = get_headers(
+            data_source=self.data_source, random_agent=random_agent
+        )
         self.show_log = show_log
 
         # Handle proxy configuration
@@ -80,7 +82,9 @@ class Company:
             if proxy_list and len(proxy_list) > 0:
                 req_mode = "proxy"
 
-            self.proxy_config = ProxyConfig(proxy_mode=p_mode, proxy_list=proxy_list, request_mode=req_mode)
+            self.proxy_config = ProxyConfig(
+                proxy_mode=p_mode, proxy_list=proxy_list, request_mode=req_mode
+            )
         else:
             self.proxy_config = proxy_config
 
@@ -97,7 +101,7 @@ class Company:
 
         Returns:
             Dictionary chứa tất cả dữ liệu công ty.
-        """
+        """  # noqa: W293
         if self._cache_loaded and self._raw_data is not None:
             return self._raw_data
 
@@ -140,7 +144,7 @@ class Company:
 
         Returns:
             DataFrame chứa thông tin profile chuẩn hoá
-        """
+        """  # noqa: W293
         if not raw_data:
             return pd.DataFrame()
 
@@ -159,7 +163,9 @@ class Company:
             if isinstance(labor_data, list) and len(labor_data) > 0:
                 # Sum up all employee counts from labor structure
                 total_employees = sum(
-                    int(item.get("Value", 0)) for item in labor_data if isinstance(item.get("Value"), (int, str))
+                    int(item.get("Value", 0))
+                    for item in labor_data
+                    if isinstance(item.get("Value"), (int, str))
                 )
                 if total_employees > 0:
                     profile_dict["number_of_employees"] = total_employees
@@ -169,7 +175,9 @@ class Company:
 
         # Normalize exchange code
         if "exchange" in df.columns:
-            df["exchange"] = df["exchange"].map(lambda x: _EXCHANGE_CODE_MAP.get(x, x) if pd.notna(x) else x)
+            df["exchange"] = df["exchange"].map(
+                lambda x: _EXCHANGE_CODE_MAP.get(x, x) if pd.notna(x) else x
+            )
 
         # Add metadata
         df.attrs["symbol"] = self.symbol
@@ -186,7 +194,7 @@ class Company:
 
         Returns:
             DataFrame chứa thông tin công ty con
-        """
+        """  # noqa: W293
         if "Subsidiaries" not in raw_data or not raw_data["Subsidiaries"]:
             return pd.DataFrame()
 
@@ -216,7 +224,7 @@ class Company:
 
         Returns:
             DataFrame chứa thông tin ban lãnh đạo
-        """
+        """  # noqa: W293
         if "Leaders" not in raw_data or not raw_data["Leaders"]:
             return pd.DataFrame()
 
@@ -241,7 +249,7 @@ class Company:
 
         Returns:
             DataFrame chứa thông tin cơ cấu cổ đông
-        """
+        """  # noqa: W293
         if "Ownership" not in raw_data or not raw_data["Ownership"]:
             return pd.DataFrame()
 
@@ -271,7 +279,7 @@ class Company:
 
         Returns:
             DataFrame chứa thông tin cổ đông lớn
-        """
+        """  # noqa: W293
         if "Shareholders" not in raw_data or not raw_data["Shareholders"]:
             return pd.DataFrame()
 
@@ -301,7 +309,7 @@ class Company:
 
         Returns:
             DataFrame chứa lịch sử vốn điều lệ
-        """
+        """  # noqa: W293
         if "CharterCapital" not in raw_data or not raw_data["CharterCapital"]:
             return pd.DataFrame()
 
@@ -331,7 +339,7 @@ class Company:
 
         Returns:
             DataFrame chứa cơ cấu lao động
-        """
+        """  # noqa: W293
         if "LaborStructure" not in raw_data or not raw_data["LaborStructure"]:
             return pd.DataFrame()
 
@@ -347,7 +355,7 @@ class Company:
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def overview(self, show_log: Optional[bool] = False) -> pd.DataFrame:
         """
         Truy xuất thông tin tổng quan của công ty.
@@ -377,7 +385,7 @@ class Company:
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def officers(self, show_log: Optional[bool] = False) -> pd.DataFrame:
         """
         Truy xuất thông tin lãnh đạo công ty (officers).
@@ -402,11 +410,13 @@ class Company:
         df = self._process_leaders(profile_data)
 
         if show_log or self.show_log:
-            logger.info(f"Truy xuất thành công {len(df)} lãnh đạo công ty cho {self.symbol}.")
+            logger.info(
+                f"Truy xuất thành công {len(df)} lãnh đạo công ty cho {self.symbol}."
+            )
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def shareholders(self, show_log: Optional[bool] = False) -> pd.DataFrame:
         """
         Truy xuất thông tin cổ đông của công ty.
@@ -435,7 +445,7 @@ class Company:
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def ownership(self, show_log: Optional[bool] = False) -> pd.DataFrame:
         """
         Truy xuất cơ cấu cổ đông của công ty.
@@ -464,7 +474,7 @@ class Company:
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def subsidiaries(self, show_log: Optional[bool] = False) -> pd.DataFrame:
         """
         Truy xuất thông tin công ty con và công ty liên kết của công ty.
@@ -483,7 +493,7 @@ class Company:
             >>> df = company.subsidiaries()
             >>> print(df.columns.tolist())
             ['date', 'name', 'charter_capital', 'ownership_ratio', 'currency', 'type']
-        """
+        """  # noqa: W293
         profile_data = self._fetch_profile(show_log=show_log)
 
         if not profile_data:
@@ -493,14 +503,18 @@ class Company:
 
         if len(df) > 0:
             # Add type column to distinguish subsidiaries and affiliates
-            df["type"] = df["ownership_percent"].apply(lambda x: "công ty con" if x > 50 else "công ty liên kết")
+            df["type"] = df["ownership_percent"].apply(
+                lambda x: "công ty con" if x > 50 else "công ty liên kết"
+            )
 
         if show_log or self.show_log:
-            logger.info(f"Truy xuất thành công {len(df)} công ty con/liên kết cho {self.symbol}.")
+            logger.info(
+                f"Truy xuất thành công {len(df)} công ty con/liên kết cho {self.symbol}."
+            )
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def affiliate(self, show_log: Optional[bool] = False) -> pd.DataFrame:
         """
         Truy xuất thông tin công ty liên kết của công ty (ownership ≤ 50%).
@@ -513,7 +527,7 @@ class Company:
 
         Returns:
             DataFrame chứa thông tin công ty liên kết.
-        """
+        """  # noqa: W293
         profile_data = self._fetch_profile(show_log=show_log)
 
         if not profile_data:
@@ -529,11 +543,13 @@ class Company:
         df_affiliate["type"] = "công ty liên kết"
 
         if show_log or self.show_log:
-            logger.info(f"Truy xuất thành công {len(df_affiliate)} công ty liên kết cho {self.symbol}.")
+            logger.info(
+                f"Truy xuất thành công {len(df_affiliate)} công ty liên kết cho {self.symbol}."
+            )
 
         return df_affiliate
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def capital_history(self, show_log: Optional[bool] = False) -> pd.DataFrame:
         """
         Truy xuất lịch sử vốn điều lệ của công ty.
@@ -562,7 +578,7 @@ class Company:
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def events(
         self,
         event_type: Optional[int] = None,
@@ -587,7 +603,7 @@ class Company:
         Examples:
             >>> company = Company('ACB')
             >>> df = company.events(event_type=2)  # Sự kiện trả cổ tức
-        """
+        """  # noqa: W291
         url = f"{_STOCK_INFO_URL}/event/{self.symbol}"
 
         # Build params
@@ -599,7 +615,9 @@ class Company:
 
         if event_type is not None:
             if event_type not in _EVENT_TYPE:
-                raise ValueError(f"event_type không hợp lệ. Các giá trị hợp lệ: {list(_EVENT_TYPE.keys())}")
+                raise ValueError(
+                    f"event_type không hợp lệ. Các giá trị hợp lệ: {list(_EVENT_TYPE.keys())}"
+                )
             params["eID"] = event_type
 
         json_data = send_request(
@@ -617,7 +635,11 @@ class Company:
             return pd.DataFrame()
 
         # Convert to DataFrame
-        df = pd.DataFrame(json_data)
+        df = (
+            pd.DataFrame([json_data])
+            if isinstance(json_data, dict)
+            else pd.DataFrame(json_data)
+        )
 
         # Convert column names to snake_case
         df.columns = [camel_to_snake(col) for col in df.columns]
@@ -633,7 +655,7 @@ class Company:
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def news(
         self,
         page: int = 1,
@@ -678,7 +700,11 @@ class Company:
             return pd.DataFrame()
 
         # Convert to DataFrame
-        df = pd.DataFrame(json_data)
+        df = (
+            pd.DataFrame([json_data])
+            if isinstance(json_data, dict)
+            else pd.DataFrame(json_data)
+        )
 
         # Convert column names to snake_case
         df.columns = [camel_to_snake(col) for col in df.columns]
@@ -692,7 +718,7 @@ class Company:
 
         return df
 
-    @agg_execution("KBS")
+    @optimize_execution("KBS")
     def insider_trading(
         self,
         page: int = 1,
@@ -737,7 +763,11 @@ class Company:
             return pd.DataFrame()
 
         # Convert to DataFrame
-        df = pd.DataFrame(json_data)
+        df = (
+            pd.DataFrame([json_data])
+            if isinstance(json_data, dict)
+            else pd.DataFrame(json_data)
+        )
 
         # Convert column names to snake_case
         df.columns = [camel_to_snake(col) for col in df.columns]
@@ -747,7 +777,9 @@ class Company:
         df.attrs["source"] = self.data_source
 
         if show_log or self.show_log:
-            logger.info(f"Truy xuất thành công {len(df)} bản ghi giao dịch nội bộ cho {self.symbol}.")
+            logger.info(
+                f"Truy xuất thành công {len(df)} bản ghi giao dịch nội bộ cho {self.symbol}."
+            )
 
         return df
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Interval/TimeFrame utility functions.
 
 Provides unified interval conversion across vnstock library.

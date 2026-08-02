@@ -1,4 +1,4 @@
-﻿"""
+"""
 Data access layer providing unified interface to multiple data sources.
 
 This module implements the facade pattern to access quote, company, finance,
@@ -84,7 +84,9 @@ class BaseComponent:
 
     SUPPORTED_SOURCES = []
 
-    def __init__(self, symbol: Optional[str] = None, source: str = Config.DEFAULT_SOURCE):
+    def __init__(
+        self, symbol: Optional[str] = None, source: str = Config.DEFAULT_SOURCE
+    ):
         """
         Initialize base component.
 
@@ -95,6 +97,20 @@ class BaseComponent:
         Raises:
             ValueError: If source not in SUPPORTED_SOURCES
         """
+        import datetime
+        import warnings
+
+        # Deprecation warning after 2025-08-31
+        deprecation_date = datetime.date(2025, 8, 31)
+        if datetime.date.today() > deprecation_date:
+            msg = (
+                f"⚠️  Lớp `{self.__class__.__name__}` trong `vnstock.common.data` "
+                "đã bị ngừng hỗ trợ và sẽ bị gỡ bỏ sau ngày 31/08/2025. "
+                "Vui lòng chuyển sang sử dụng bộ API mới trong `vnstock.api`.\n"
+                "👉 Xem hướng dẫn: /vnstock-migration"
+            )
+            warnings.warn(msg, DeprecationWarning, stacklevel=2)
+
         self.symbol = symbol.upper() if symbol else None
         self.source = source.upper()
         self._validate_source()
@@ -117,7 +133,9 @@ class StockComponents(BaseComponent):
 
     SUPPORTED_SOURCES = ["KBS", "VCI", "MSN", "FMP"]
 
-    def __init__(self, symbol: str, source: str = Config.DEFAULT_SOURCE, show_log: bool = True):
+    def __init__(
+        self, symbol: str, source: str = Config.DEFAULT_SOURCE, show_log: bool = True
+    ):
         """
         Initialize stock components.
 
@@ -203,7 +221,10 @@ class Quote(BaseComponent):
             self.symbol = symbol.upper()
             self.data_source = self._load_data_source()
 
-    @retry(stop=stop_after_attempt(Config.DEFAULT_RETRIES), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(Config.DEFAULT_RETRIES),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
     def history(self, symbol: Optional[str] = None, **kwargs):
         """Fetch historical price data."""
         if self.source == "MSN":
@@ -215,13 +236,19 @@ class Quote(BaseComponent):
         self._update_data_source(symbol)
         return self.data_source.history(**kwargs)
 
-    @retry(stop=stop_after_attempt(Config.DEFAULT_RETRIES), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(Config.DEFAULT_RETRIES),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
     def intraday(self, symbol: Optional[str] = None, **kwargs):
         """Fetch intraday trading data."""
         self._update_data_source(symbol)
         return self.data_source.intraday(**kwargs)
 
-    @retry(stop=stop_after_attempt(Config.DEFAULT_RETRIES), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(Config.DEFAULT_RETRIES),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
     def price_depth(self, symbol: Optional[str] = None, **kwargs):
         """Fetch order book depth data."""
         self._update_data_source(symbol)
@@ -242,47 +269,47 @@ class Listing(BaseComponent):
         module = importlib.import_module(self.source_module)
         return module.Listing()
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def all_symbols(self, **kwargs):
         """Get all available symbols."""
         return self.data_source.all_symbols(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def symbols_by_industries(self, **kwargs):
         """Get symbols grouped by industry."""
         return self.data_source.symbols_by_industries(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def symbols_by_exchange(self, **kwargs):
         """Get symbols for specific exchange."""
         return self.data_source.symbols_by_exchange(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def symbols_by_group(self, group="VN30", **kwargs):
         """Get symbols for market group (VN30, HNX, etc.)."""
         return self.data_source.symbols_by_group(group, **kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def industries_icb(self, **kwargs):
         """Get ICB industry classification."""
         return self.data_source.industries_icb(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def all_future_indices(self, **kwargs):
         """Get all available futures indices."""
         return self.data_source.all_future_indices(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def all_covered_warrant(self, **kwargs):
         """Get all covered warrants."""
         return self.data_source.all_covered_warrant(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def all_bonds(self, **kwargs):
         """Get all bonds."""
         return self.data_source.all_bonds(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def all_government_bonds(self, **kwargs):
         """Get all government bonds."""
         return self.data_source.all_government_bonds(**kwargs)
@@ -293,7 +320,9 @@ class Trading(BaseComponent):
 
     SUPPORTED_SOURCES = ["KBS", "VCI"]
 
-    def __init__(self, symbol: Optional[str] = "VN30F1M", source: str = Config.DEFAULT_SOURCE):
+    def __init__(
+        self, symbol: Optional[str] = "VN30F1M", source: str = Config.DEFAULT_SOURCE
+    ):
         super().__init__(symbol, source)
 
     def _load_data_source(self):
@@ -307,7 +336,10 @@ class Trading(BaseComponent):
             self.symbol = symbol.upper()
         self.data_source = self._load_data_source()
 
-    @retry(stop=stop_after_attempt(Config.DEFAULT_RETRIES), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(Config.DEFAULT_RETRIES),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
     def price_board(self, symbols_list: list, **kwargs):
         """Fetch price board for multiple symbols."""
         return self.data_source.price_board(symbols_list, **kwargs)
@@ -332,62 +364,62 @@ class Company(BaseComponent):
             self.symbol = symbol.upper()
             self.data_source = self._load_data_source()
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def overview(self, **kwargs):
         """Get company overview."""
         return self.data_source.overview(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def profile(self, **kwargs):
         """Get detailed company profile."""
         return self.data_source.profile(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def shareholders(self, **kwargs):
         """Get major shareholders."""
         return self.data_source.shareholders(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def insider_deals(self, **kwargs):
         """Get insider trading activity."""
         return self.data_source.insider_deals(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def subsidiaries(self, **kwargs):
         """Get subsidiaries and affiliates."""
         return self.data_source.subsidiaries(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def officers(self, **kwargs):
         """Get management team."""
         return self.data_source.officers(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def events(self, **kwargs):
         """Get company events."""
         return self.data_source.events(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def news(self, **kwargs):
         """Get company news."""
         return self.data_source.news(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def dividends(self, **kwargs):
         """Get dividend payment history."""
         return self.data_source.dividends(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def affiliate(self, **kwargs):
         """Get affiliated companies."""
         return self.data_source.affiliate(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def trading_stats(self, **kwargs):
         """Get trading statistics."""
         return self.data_source.trading_stats(**kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def ratio_summary(self, **kwargs):
         """Get financial ratio summary."""
         return self.data_source.ratio_summary(**kwargs)
@@ -399,7 +431,13 @@ class Finance(BaseComponent):
     SUPPORTED_SOURCES = ["KBS", "VCI", "FMP"]
     SUPPORTED_PERIODS = ["quarter", "annual"]
 
-    def __init__(self, symbol: str, period: str = "quarter", source: str = "VCI", get_all: bool = True):
+    def __init__(
+        self,
+        symbol: str,
+        period: str = "quarter",
+        source: str = "VCI",
+        get_all: bool = True,
+    ):
         """
         Initialize finance component.
 
@@ -444,7 +482,9 @@ class Finance(BaseComponent):
 
         return processed
 
-    def _get_financial_data(self, data_type: str, symbol: Optional[str] = None, **kwargs) -> Any:
+    def _get_financial_data(
+        self, data_type: str, symbol: Optional[str] = None, **kwargs
+    ) -> Any:
         """Generic method to fetch financial data."""
         self._update_data_source(symbol)
         processed_kwargs = self._process_kwargs(kwargs)
@@ -459,22 +499,22 @@ class Finance(BaseComponent):
             logger.error(f"Error fetching {data_type}: {e}")
             raise
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def balance_sheet(self, symbol: Optional[str] = None, **kwargs) -> Any:
         """Get balance sheet."""
         return self._get_financial_data("balance_sheet", symbol, **kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def income_statement(self, symbol: Optional[str] = None, **kwargs) -> Any:
         """Get income statement."""
         return self._get_financial_data("income_statement", symbol, **kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def cash_flow(self, symbol: Optional[str] = None, **kwargs) -> Any:
         """Get cash flow statement."""
         return self._get_financial_data("cash_flow", symbol, **kwargs)
 
-    @lru_cache(maxsize=Config.CACHE_SIZE)
+    @lru_cache(maxsize=Config.CACHE_SIZE)  # noqa: B019
     def ratio(self, symbol: Optional[str] = None, **kwargs) -> Any:
         """Get financial ratios."""
         return self._get_financial_data("ratio", symbol, **kwargs)
@@ -521,6 +561,20 @@ class MSNComponents:
         Raises:
             ValueError: If source is not MSN
         """
+        import datetime
+        import warnings
+
+        # Deprecation warning after 2025-08-31
+        deprecation_date = datetime.date(2025, 8, 31)
+        if datetime.date.today() > deprecation_date:
+            msg = (
+                "⚠️  Lớp `MSNComponents` trong `vnstock.common.data` "
+                "đã bị ngừng hỗ trợ và sẽ bị gỡ bỏ sau ngày 31/08/2025. "
+                "Vui lòng chuyển sang sử dụng bộ API mới trong `vnstock.api`.\n"
+                "👉 Xem hướng dẫn: /vnstock-migration"
+            )
+            warnings.warn(msg, DeprecationWarning, stacklevel=2)
+
         self.original_symbol = symbol.upper() if symbol else None
         self.source = source.upper()
 
@@ -553,7 +607,12 @@ class MSNComponents:
 class FMPComponents:
     """Unified component access for FMP international market data."""
 
-    def __init__(self, symbol: Optional[str] = "AAPL", source: str = "FMP", api_key: Optional[str] = None):
+    def __init__(
+        self,
+        symbol: Optional[str] = "AAPL",
+        source: str = "FMP",
+        api_key: Optional[str] = None,
+    ):
         """
         Initialize FMP components.
 
@@ -565,6 +624,20 @@ class FMPComponents:
         Raises:
             ValueError: If source is not FMP
         """
+        import datetime
+        import warnings
+
+        # Deprecation warning after 2025-08-31
+        deprecation_date = datetime.date(2025, 8, 31)
+        if datetime.date.today() > deprecation_date:
+            msg = (
+                "⚠️  Lớp `FMPComponents` trong `vnstock.common.data` "
+                "đã bị ngừng hỗ trợ và sẽ bị gỡ bỏ sau ngày 31/08/2025. "
+                "Vui lòng chuyển sang sử dụng bộ API mới trong `vnstock.api`.\n"
+                "👉 Xem hướng dẫn: /vnstock-migration"
+            )
+            warnings.warn(msg, DeprecationWarning, stacklevel=2)
+
         self.original_symbol = symbol.upper() if symbol else None
         self.symbol = self.original_symbol
         self.source = source.upper()

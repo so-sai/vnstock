@@ -1,4 +1,4 @@
-﻿# Các thông tin về giao dịch, sở hữu của các bên (đối tượng tham gia thị trường)
+# Trading information, ownership of parties (market participants)
 
 import json
 from typing import List, Optional, Union
@@ -22,6 +22,7 @@ logger = get_logger(__name__)
 class Trading:
     """
     Truy xuất dữ liệu giao dịch của mã chứng khoán từ nguồn dữ liệu VCI.
+    Retrieve stock trading data from VCI data source.
     """
 
     def __init__(
@@ -48,7 +49,9 @@ class Trading:
             if proxy_mode == "auto" or (proxy_list and len(proxy_list) > 0):
                 req_mode = "proxy"
 
-            self.proxy_config = ProxyConfig(proxy_mode=p_mode, proxy_list=proxy_list, request_mode=req_mode)
+            self.proxy_config = ProxyConfig(
+                proxy_mode=p_mode, proxy_list=proxy_list, request_mode=req_mode
+            )
         else:
             self.proxy_config = proxy_config
 
@@ -66,6 +69,7 @@ class Trading:
     ) -> pd.DataFrame:
         """
         Truy xuất thông tin bảng giá của các mã chứng khoán tuỳ chọn từ nguồn dữ liệu VCI.
+        Retrieve price board information for optionally selected stock symbols from VCI data source.
         """
         url = f"{self.base_url}price/symbols/getList"
         payload = json.dumps({"symbols": symbols_list})
@@ -91,7 +95,11 @@ class Trading:
         # Process each item in the JSON data
         for item in data:
             # Prepare nested dictionaries with higher indices: 'listing', 'bidAsk', 'match'
-            item_data = {"listing": item["listingInfo"], "bidAsk": item["bidAsk"], "match": item["matchPrice"]}
+            item_data = {
+                "listing": item["listingInfo"],
+                "bidAsk": item["bidAsk"],
+                "match": item["matchPrice"],
+            }
 
             # Flatten the nested dictionary while preserving the hierarchy in the keys
             row = flatten_data(item_data)
@@ -105,7 +113,7 @@ class Trading:
                 for i, ask in enumerate(item["bidAsk"]["askPrices"], start=1):
                     row[f"bidAsk_ask_{i}_price"] = ask["price"]
                     row[f"bidAsk_ask_{i}_volume"] = ask["volume"]
-            except:
+            except:  # noqa: E722
                 pass
 
             # Append the row dictionary to the list
@@ -116,7 +124,10 @@ class Trading:
 
         # Transform column names using camel_to_snake and create a MultiIndex
         combine_df.columns = pd.MultiIndex.from_tuples(
-            [tuple(camel_to_snake(part) for part in c.split("_", 1)) for c in combine_df.columns]
+            [
+                tuple(camel_to_snake(part) for part in c.split("_", 1))
+                for c in combine_df.columns
+            ]
         )
 
         drop_columns = [
@@ -149,14 +160,19 @@ class Trading:
         ]
 
         # Drop columns only if they exist in the DataFrame
-        combine_df = combine_df.drop(columns=[col for col in drop_columns if col in combine_df.columns])
+        combine_df = combine_df.drop(
+            columns=[col for col in drop_columns if col in combine_df.columns]
+        )
 
         # rename column for board inside listing to exchange
         combine_df = combine_df.rename(columns={"board": "exchange"}, level=1)
 
         if flatten_columns:
             combine_df = flatten_hierarchical_index(
-                combine_df, separator=separator, drop_levels=drop_levels, handle_duplicates=True
+                combine_df,
+                separator=separator,
+                drop_levels=drop_levels,
+                handle_duplicates=True,
             )
 
         combine_df.attrs["source"] = "VCI"

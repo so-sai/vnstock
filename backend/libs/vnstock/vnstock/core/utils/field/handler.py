@@ -1,4 +1,4 @@
-﻿"""
+"""
 Main field handler that integrates all field utilities.
 
 Provides a high-level interface for field validation, normalization,
@@ -105,7 +105,10 @@ class FieldHandler:
         return self.validator.validate_dataframe_columns(list(df.columns), report_type)
 
     def filter_fields(
-        self, df: pd.DataFrame, mode: FieldDisplayMode = FieldDisplayMode.STANDARDIZED_ONLY, show_warnings: bool = True
+        self,
+        df: pd.DataFrame,
+        mode: FieldDisplayMode = FieldDisplayMode.STANDARDIZED_ONLY,
+        show_warnings: bool = True,
     ) -> Tuple[pd.DataFrame, List[str]]:
         """
         Filter DataFrame columns based on display mode.
@@ -124,7 +127,9 @@ class FieldHandler:
 
         if mode == FieldDisplayMode.STANDARDIZED_ONLY:
             # Keep only standardized fields
-            standardized_cols = [col for col in df.columns if col in standardized_fields]
+            standardized_cols = [
+                col for col in df.columns if col in standardized_fields
+            ]
             filtered_df = df[standardized_cols]
 
             # Generate warnings for removed fields
@@ -148,7 +153,9 @@ class FieldHandler:
                     normalized = self.normalize_field_name(col)
                     renamed_cols[col] = normalized
                     if show_warnings:
-                        warnings.append(f"⚠️  Auto-converted field '{col}' → '{normalized}'")
+                        warnings.append(
+                            f"⚠️  Auto-converted field '{col}' → '{normalized}'"
+                        )
 
             filtered_df = df.rename(columns=renamed_cols)
 
@@ -158,7 +165,9 @@ class FieldHandler:
 
         return filtered_df, warnings
 
-    def detect_mismatch(self, field_name: str, report_type: str, period_type: str, symbol: str) -> Optional[Dict]:
+    def detect_mismatch(
+        self, field_name: str, report_type: str, period_type: str, symbol: str
+    ) -> Optional[Dict]:
         """
         Detect field mismatch.
 
@@ -171,7 +180,9 @@ class FieldHandler:
         Returns:
             Mismatch information or None
         """
-        return self.mismatch_detector.detect_mismatch(field_name, report_type, period_type, symbol)
+        return self.mismatch_detector.detect_mismatch(
+            field_name, report_type, period_type, symbol
+        )
 
     def get_mismatch_summary(self) -> Dict:
         """Get summary of all detected mismatches."""
@@ -186,7 +197,13 @@ class FieldHandler:
             "mismatch_count": len(self.mismatch_detector.mismatches),
         }
 
-    def create_field_mapping(self, field_id: str, original_vi: str, original_en: str = "", snake_case: str = "") -> Dict:
+    def create_field_mapping(
+        self,
+        field_id: str,
+        original_vi: str,
+        original_en: str = "",
+        snake_case: str = "",
+    ) -> Dict:
         """
         Create a field mapping.
 
@@ -199,9 +216,17 @@ class FieldHandler:
         Returns:
             Field mapping dictionary
         """
-        return self.field_mapper.create_mapping(field_id, original_vi, original_en, snake_case)
+        return self.field_mapper.create_mapping(
+            field_id, original_vi, original_en, snake_case
+        )
 
-    def add_field_mapping(self, field_id: str, original_vi: str, original_en: str = "", snake_case: str = ""):
+    def add_field_mapping(
+        self,
+        field_id: str,
+        original_vi: str,
+        original_en: str = "",
+        snake_case: str = "",
+    ):
         """
         Add a field mapping.
 
@@ -262,7 +287,9 @@ class FieldHandler:
         """
         return self.validator.suggest_field_name(field_name)
 
-    def check_data_integrity(self, field_ids: List[str], expected_fields: Optional[List[str]] = None) -> Dict:
+    def check_data_integrity(
+        self, field_ids: List[str], expected_fields: Optional[List[str]] = None
+    ) -> Dict:
         """
         Check data integrity.
 
@@ -304,7 +331,9 @@ class KBSFieldHandler(FieldHandler):
         """
         return self.field_mapper.get_kbs_field_info(field_id)
 
-    def create_kbs_mapping(self, field_id: str, item_vi: str, item_en: str = "") -> Dict:
+    def create_kbs_mapping(
+        self, field_id: str, item_vi: str, item_en: str = ""
+    ) -> Dict:
         """
         Create KBS field mapping.
 
@@ -318,7 +347,9 @@ class KBSFieldHandler(FieldHandler):
         """
         return self.field_mapper.create_kbs_mapping(field_id, item_vi, item_en)
 
-    def get_standardized_kbs_fields(self, report_type: Optional[str] = None) -> List[str]:
+    def get_standardized_kbs_fields(
+        self, report_type: Optional[str] = None
+    ) -> List[str]:
         """
         Get standardized KBS field names.
 

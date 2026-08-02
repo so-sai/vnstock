@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 
 import pandas as pd
 import requests
@@ -19,7 +19,7 @@ def sjc_gold_price(date=None):
 
     Returns:
         - Pandas DataFrame chứa thông tin giá vàng nếu thành công, ngược lại trả về None.
-    """
+    """  # noqa: W291
     # Set URL
     url = "https://sjc.com.vn/GoldPrice/Services/PriceService.ashx"
 
@@ -34,8 +34,10 @@ def sjc_gold_price(date=None):
             input_date = datetime.strptime(date, "%Y-%m-%d")
             if input_date < min_date:
                 raise ValueError("Ngày tra cứu phải từ 2/1/2016 trở đi.")
-        except ValueError:
-            raise ValueError("Định dạng ngày không hợp lệ. Vui lòng nhập theo định dạng YYYY-mm-dd.")
+        except ValueError as e:
+            raise ValueError(
+                "Định dạng ngày không hợp lệ. Vui lòng nhập theo định dạng YYYY-mm-dd."
+            ) from e
 
     # Format date for the API request
     formatted_date = input_date.strftime("%d/%m/%Y")
@@ -60,18 +62,16 @@ def sjc_gold_price(date=None):
             return None
 
         # Convert to DataFrame
-        df = pd.DataFrame(gold_data, columns=["TypeName", "BranchName", "BuyValue", "SellValue"])
-        df = df.rename(columns={
-            "TypeName": "name", "BranchName": "branch",
-            "BuyValue": "buy_price", "SellValue": "sell_price"
-        })
+        df = pd.DataFrame(gold_data)
+        df = df[["TypeName", "BranchName", "BuyValue", "SellValue"]]
+        df.columns = ["name", "branch", "buy_price", "sell_price"]
 
         # Add date column as datetime type
-        df.loc[:, "date"] = input_date
+        df["date"] = input_date
 
         # Ensure numerical columns are correctly formatted
-        df.loc[:, "buy_price"] = df["buy_price"].astype(float)
-        df.loc[:, "sell_price"] = df["sell_price"].astype(float)
+        df["buy_price"] = df["buy_price"].astype(float)
+        df["sell_price"] = df["sell_price"].astype(float)
 
         return df
     else:
@@ -80,14 +80,16 @@ def sjc_gold_price(date=None):
 
 
 @optimize_execution("MISC")
-def btmc_goldprice(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1llcg9t45hnoh8hmn7t5kc2v"):
+def btmc_goldprice(
+    url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1llcg9t45hnoh8hmn7t5kc2v",
+):
     """Parse dữ liệu giá vàng từ API JSON Bảo Tín Minh Châu.
 
     Args:
         url: Đường dẫn đến API JSON.
 
     Returns:
-        DataFrame chứa dữ liệu giá vàng (đã lọc bỏ BẠC).
+        DataFrame chứa dữ liệu giá vàng.
     """
     response = requests.get(url)
     json_data = response.json()
@@ -103,18 +105,13 @@ def btmc_goldprice(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1l
         ps_key = f"@ps_{row_number}"
         pt_key = f"@pt_{row_number}"
         d_key = f"@d_{row_number}"
-        name = item.get(n_key, "")
-        if "BẠC" in name.upper():
-            continue
-        buy_raw = item.get(pb_key, "0")
-        sell_raw = item.get(ps_key, "0")
         data.append(
             {
-                "name": name,
+                "name": item.get(n_key, ""),
                 "karat": item.get(k_key, ""),
                 "gold_content": item.get(h_key, ""),
-                "buy_price": float(buy_raw) * 10,
-                "sell_price": float(sell_raw) * 10,
+                "buy_price": item.get(pb_key, ""),
+                "sell_price": item.get(ps_key, ""),
                 "world_price": item.get(pt_key, ""),
                 "time": item.get(d_key, ""),
             }
@@ -127,6 +124,9 @@ def btmc_goldprice(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1l
 @optimize_execution("MISC")
 def btmc_silver_price(url="http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1llcg9t45hnoh8hmn7t5kc2v"):
     """Parse dữ liệu giá bạc từ API JSON Bảo Tín Minh Châu.
+
+    [FORK-PATCHED] Restored from fork 3.4.0 — removed in upstream 4.0.5.
+    silver_service.py depends on this function.
 
     Args:
         url: Đường dẫn đến API JSON.

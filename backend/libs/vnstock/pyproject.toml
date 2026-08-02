@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vnstock"
-version = "0.1.0"
+version = "4.0.5"
 description = "vnstock fork (PTCK-VN patched) — vendored as editable local package"
 readme = "README.md"
 requires-python = ">=3.10"

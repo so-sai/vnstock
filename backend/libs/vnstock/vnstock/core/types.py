@@ -1,4 +1,4 @@
-﻿"""
+"""
 Type definitions for vnstock library.
 
 This module provides:
@@ -55,6 +55,19 @@ class MarketType(str, Enum):
     COMMODITY = "commodity"
     CRYPTO = "crypto"
     FOREX = "forex"
+
+
+class InstrumentType(str, Enum):
+    """Specific instrument/security types."""
+
+    STOCK = "STOCK"
+    ETF = "ETF"
+    FUND = "FUND"
+    WARRANT = "WARRANT"
+    FUTURE = "FUTURE"
+    BOND = "BOND"
+    FUND_BOND = "FUND_BOND"
+    INDEX = "INDEX"
 
 
 class ExchangeType(str, Enum):
@@ -176,7 +189,9 @@ class FinancialData(TypedDict, total=False):
 class QuoteProvider(Protocol):
     """Protocol for quote data providers."""
 
-    def history(self, symbol: str, start: str, end: str, interval: str = "1D", **kwargs) -> pd.DataFrame:
+    def history(
+        self, symbol: str, start: str, end: str, interval: str = "1D", **kwargs
+    ) -> pd.DataFrame:
         """
         Fetch historical price data.
 
@@ -256,7 +271,9 @@ class CompanyProvider(Protocol):
 class FinancialProvider(Protocol):
     """Protocol for financial data providers."""
 
-    def balance_sheet(self, symbol: str, period: str = "quarter", **kwargs) -> pd.DataFrame:
+    def balance_sheet(
+        self, symbol: str, period: str = "quarter", **kwargs
+    ) -> pd.DataFrame:
         """
         Fetch balance sheet data.
 
@@ -270,7 +287,9 @@ class FinancialProvider(Protocol):
         """
         ...
 
-    def income_statement(self, symbol: str, period: str = "quarter", **kwargs) -> pd.DataFrame:
+    def income_statement(
+        self, symbol: str, period: str = "quarter", **kwargs
+    ) -> pd.DataFrame:
         """
         Fetch income statement data.
 
@@ -316,7 +335,9 @@ class FinancialProvider(Protocol):
 class TradingProvider(Protocol):
     """Protocol for trading data providers."""
 
-    def price_board(self, symbols: Optional[List[str]] = None, **kwargs) -> pd.DataFrame:
+    def price_board(
+        self, symbols: Optional[List[str]] = None, **kwargs
+    ) -> pd.DataFrame:
         """
         Fetch real-time price board data.
 
@@ -428,7 +449,8 @@ class FileTypes:
         # Document formats
         "pdf": "application/pdf",
         "doc": "application/msword",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "docx": "application/vnd.openxmlformats-officedocument."
+        "wordprocessingml.document",
         "txt": "text/plain",
         "rtf": "application/rtf",
         # Spreadsheet formats
@@ -438,7 +460,8 @@ class FileTypes:
         "tsv": "text/tab-separated-values",
         # Presentation formats
         "ppt": "application/vnd.ms-powerpoint",
-        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "pptx": "application/vnd.openxmlformats-officedocument."
+        "presentationml.presentation",
         # Data formats
         "json": "application/json",
         "xml": "application/xml",
@@ -548,7 +571,8 @@ def validate_provider_interface(provider: Any, category: DataCategory) -> bool:
 
     if not isinstance(provider, protocol):
         raise TypeError(
-            f"Provider {provider.__class__.__name__} does not implement {protocol.__name__} protocol for category {category}"
+            f"Provider {provider.__class__.__name__} does not implement "
+            f"{protocol.__name__} protocol for category {category}"
         )
 
     return True

@@ -1,4 +1,4 @@
-﻿"""
+"""
 API client utilities for vnstock data sources.
 
 This module provides utilities to send requests to vnstock data sources,
@@ -149,19 +149,19 @@ def send_request(
         Dict[str, Any]: Returned JSON data
 
     Raises:
-        ConnectionError: Nếu tất cả proxy đều thất bại hoặc request lỗi
+        ConnectionError: Nếu tất cả proxy đều thất bại hoặc request lỗi (If all proxies fail or request fails)
     """
-    # Chuyển đổi string thành enum nếu cần
+    # Convert string to enum if needed
     if isinstance(proxy_mode, str):
         try:
             proxy_mode = ProxyMode(proxy_mode)
-        except ValueError:
-            raise ValueError(f"Invalid proxy_mode: {proxy_mode}")
+        except ValueError as e:
+            raise ValueError(f"Invalid proxy_mode: {proxy_mode}") from e
     if isinstance(request_mode, str):
         try:
             request_mode = RequestMode(request_mode)
-        except ValueError:
-            raise ValueError(f"Invalid request_mode: {request_mode}")
+        except ValueError as e:
+            raise ValueError(f"Invalid request_mode: {request_mode}") from e
     # Log thông tin request nếu cần
     if show_log:
         logger.info(f"{method.upper()} request to {url} (mode: {request_mode.value})")
@@ -193,7 +193,9 @@ def send_request(
                     if show_log:
                         logger.info(f"Trying proxy: {proxy_url}")
                     proxies = build_proxy_dict(proxy_url)
-                    return send_request_direct(url, headers, method, params, payload, timeout, proxies)
+                    return send_request_direct(
+                        url, headers, method, params, payload, timeout, proxies
+                    )
                 except ConnectionError as e:
                     last_exception = e
                     if show_log:
@@ -208,12 +210,16 @@ def send_request(
             if show_log:
                 msg = f"Using proxy ({proxy_mode.value} mode): {selected_proxy}"
                 logger.info(msg)
-            return send_request_direct(url, headers, method, params, payload, timeout, proxies)
+            return send_request_direct(
+                url, headers, method, params, payload, timeout, proxies
+            )
     else:  # RequestMode.DIRECT
         # Send direct request without proxy
         if show_log:
             logger.info("Sending direct request (no proxy)")
-        return send_request_direct(url, headers, method, params, payload, timeout, proxies=None)
+        return send_request_direct(
+            url, headers, method, params, payload, timeout, proxies=None
+        )
 
 
 def send_request_direct(
@@ -246,7 +252,9 @@ def send_request_direct(
     try:
         # Handle GET/POST
         if method.upper() == "GET":
-            response = requests.get(url, headers=headers, params=params, timeout=timeout, proxies=proxies)
+            response = requests.get(
+                url, headers=headers, params=params, timeout=timeout, proxies=proxies
+            )
         else:  # POST
             if payload is not None:
                 if isinstance(payload, dict):
@@ -258,7 +266,9 @@ def send_request_direct(
                     raise ValueError(msg)
             else:
                 data_arg = None
-            response = requests.post(url, headers=headers, data=data_arg, timeout=timeout, proxies=proxies)
+            response = requests.post(
+                url, headers=headers, data=data_arg, timeout=timeout, proxies=proxies
+            )
         # Check response status
         if response.status_code != 200:
             msg = f"Failed to fetch data: {response.status_code} - {response.reason}"
@@ -267,7 +277,7 @@ def send_request_direct(
     except requests.exceptions.RequestException as e:
         error_msg = f"API request failed: {str(e)}"
         logger.error(error_msg)
-        raise ConnectionError(error_msg)
+        raise ConnectionError(error_msg) from e
 
 
 def reset_proxy_rotation():
@@ -295,7 +305,9 @@ def send_direct_request(url: str, headers: Dict[str, str], **kwargs):
     return send_request(url, headers, request_mode=RequestMode.DIRECT, **kwargs)
 
 
-def send_proxy_request(url: str, headers: Dict[str, str], proxy_list: List[str], **kwargs):
+def send_proxy_request(
+    url: str, headers: Dict[str, str], proxy_list: List[str], **kwargs
+):
     """
     Send request via standard proxy.
 
@@ -308,4 +320,6 @@ def send_proxy_request(url: str, headers: Dict[str, str], proxy_list: List[str],
     Returns:
         Dict[str, Any]: Returned JSON data
     """
-    return send_request(url, headers, proxy_list=proxy_list, request_mode=RequestMode.PROXY, **kwargs)
+    return send_request(
+        url, headers, proxy_list=proxy_list, request_mode=RequestMode.PROXY, **kwargs
+    )

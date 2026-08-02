@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import datetime
 import warnings
 from io import BytesIO
@@ -7,8 +7,10 @@ import pandas as pd
 import requests
 from vnai import optimize_execution
 
-warnings.filterwarnings("ignore", message="Workbook contains no default style, apply openpyxl's default")
-from vnstock.core.utils.parser import camel_to_snake
+warnings.filterwarnings(
+    "ignore", message="Workbook contains no default style, apply openpyxl's default"
+)
+from vnstock.core.utils.parser import camel_to_snake  # noqa: E402
 
 
 @optimize_execution("MISC")
@@ -18,7 +20,7 @@ def vcb_exchange_rate(date="2023-12-26"):
 
     Parameters:
         date (str): Date in format YYYY-MM-DD. If left blank, the current date will be used.
-    """
+    """  # noqa: W293
     if date == "":
         date = datetime.datetime.now().strftime("%Y-%m-%d")
     else:

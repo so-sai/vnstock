@@ -1,4 +1,4 @@
-﻿"""
+"""
 Field validation utilities.
 
 Provides tools for validating field names, checking coverage,
@@ -44,7 +44,9 @@ class FieldValidator:
         non_standardized_columns = column_set - standardized_fields
 
         # Calculate coverage
-        coverage_pct = (len(standardized_columns) / len(columns) * 100) if columns else 0
+        coverage_pct = (
+            (len(standardized_columns) / len(columns) * 100) if columns else 0
+        )
 
         validation = {
             "total_columns": len(columns),
@@ -78,8 +80,12 @@ class FieldValidator:
             "field_name": field_name,
             "is_standardized": is_standardized,
             "normalized_name": normalized,
-            "field_id": self.field_mapper.get_field_id(field_name) if is_standardized else None,
-            "field_info": self.field_mapper.get_field_info(self.field_mapper.get_field_id(field_name))
+            "field_id": self.field_mapper.get_field_id(field_name)
+            if is_standardized
+            else None,
+            "field_info": self.field_mapper.get_field_info(
+                self.field_mapper.get_field_id(field_name)
+            )
             if is_standardized
             else None,
         }
@@ -136,30 +142,50 @@ class FieldValidator:
         report_lines.append("=" * 80)
 
         total_validations = len(validations)
-        passed_validations = sum(1 for v in validations if v.get("validation_passed", False))
+        passed_validations = sum(
+            1 for v in validations if v.get("validation_passed", False)
+        )
 
         report_lines.append(f"\nTotal Validations: {total_validations}")
         report_lines.append(f"Passed Validations: {passed_validations}")
-        report_lines.append(f"Failed Validations: {total_validations - passed_validations}")
+        report_lines.append(
+            f"Failed Validations: {total_validations - passed_validations}"
+        )
 
         if validations:
-            avg_coverage = sum(v.get("coverage_pct", 0) for v in validations) / len(validations)
+            avg_coverage = sum(v.get("coverage_pct", 0) for v in validations) / len(
+                validations
+            )
             report_lines.append(f"Average Coverage: {avg_coverage:.1f}%")
 
         report_lines.append("\n--- Validation Details ---")
 
         for i, validation in enumerate(validations, 1):
             report_lines.append(f"\n{i}. {validation.get('report_type', 'Unknown')}")
-            report_lines.append(f"   Total Columns: {validation.get('total_columns', 0)}")
-            report_lines.append(f"   Standardized: {validation.get('standardized_columns', 0)}")
-            report_lines.append(f"   Non-standardized: {validation.get('non_standardized_columns', 0)}")
-            report_lines.append(f"   Coverage: {validation.get('coverage_pct', 0):.1f}%")
-            report_lines.append(f"   Status: {'✅ PASSED' if validation.get('validation_passed') else '❌ FAILED'}")
+            report_lines.append(
+                f"   Total Columns: {validation.get('total_columns', 0)}"
+            )
+            report_lines.append(
+                f"   Standardized: {validation.get('standardized_columns', 0)}"
+            )
+            report_lines.append(
+                f"   Non-standardized: {validation.get('non_standardized_columns', 0)}"
+            )
+            report_lines.append(
+                f"   Coverage: {validation.get('coverage_pct', 0):.1f}%"
+            )
+            report_lines.append(
+                f"   Status: {'✅ PASSED' if validation.get('validation_passed') else '❌ FAILED'}"
+            )
 
             if validation.get("non_standardized_field_names"):
-                report_lines.append(f"   Non-standardized fields: {validation['non_standardized_field_names'][:5]}")
+                report_lines.append(
+                    f"   Non-standardized fields: {validation['non_standardized_field_names'][:5]}"
+                )
                 if len(validation["non_standardized_field_names"]) > 5:
-                    report_lines.append(f"     ... and {len(validation['non_standardized_field_names']) - 5} more")
+                    report_lines.append(
+                        f"     ... and {len(validation['non_standardized_field_names']) - 5} more"
+                    )
 
         report_lines.append("\n" + "=" * 80)
 
@@ -184,7 +210,9 @@ class FieldValidator:
         if is_conflict:
             # Generate a unique name
             used_names = set(self.field_mapper.reverse_mappings.keys())
-            unique_name = self.field_mapper.normalizer.create_unique_name(normalized, "suggested", used_names)
+            unique_name = self.field_mapper.normalizer.create_unique_name(
+                normalized, "suggested", used_names
+            )
         else:
             unique_name = normalized
 
@@ -217,7 +245,9 @@ class FieldValidator:
         # Calculate overall statistics
         total_columns = sum(v["total_columns"] for v in results.values())
         total_standardized = sum(v["standardized_columns"] for v in results.values())
-        overall_coverage = (total_standardized / total_columns * 100) if total_columns > 0 else 0
+        overall_coverage = (
+            (total_standardized / total_columns * 100) if total_columns > 0 else 0
+        )
 
         batch_results = {
             "individual_validations": results,
@@ -231,7 +261,9 @@ class FieldValidator:
 
         return batch_results
 
-    def check_data_integrity(self, field_ids: List[str], expected_fields: Optional[List[str]] = None) -> Dict:
+    def check_data_integrity(
+        self, field_ids: List[str], expected_fields: Optional[List[str]] = None
+    ) -> Dict:
         """
         Check data integrity and completeness.
 
@@ -242,13 +274,17 @@ class FieldValidator:
         Returns:
             Integrity check results
         """
-        found_fields = set(str(f) for f in field_ids)
+        found_fields = {str(f) for f in field_ids}
 
         if expected_fields:
-            expected_set = set(str(f) for f in expected_fields)
+            expected_set = {str(f) for f in expected_fields}
             missing_fields = expected_set - found_fields
             extra_fields = found_fields - expected_set
-            completeness = (len(found_fields & expected_set) / len(expected_set) * 100) if expected_set else 0
+            completeness = (
+                (len(found_fields & expected_set) / len(expected_set) * 100)
+                if expected_set
+                else 0
+            )
         else:
             missing_fields = set()
             extra_fields = found_fields
@@ -256,7 +292,9 @@ class FieldValidator:
 
         integrity_check = {
             "found_field_count": len(found_fields),
-            "expected_field_count": len(expected_fields) if expected_fields else len(found_fields),
+            "expected_field_count": len(expected_fields)
+            if expected_fields
+            else len(found_fields),
             "missing_field_count": len(missing_fields),
             "extra_field_count": len(extra_fields),
             "completeness_pct": completeness,
@@ -281,7 +319,9 @@ class FieldMismatchDetector:
         self.field_mapper = field_mapper or FieldMapper()
         self.mismatches = []
 
-    def detect_mismatch(self, field_name: str, report_type: str, period_type: str, symbol: str) -> Optional[Dict]:
+    def detect_mismatch(
+        self, field_name: str, report_type: str, period_type: str, symbol: str
+    ) -> Optional[Dict]:
         """
         Detect if a field name is a mismatch.
 
@@ -318,7 +358,12 @@ class FieldMismatchDetector:
             Mismatch summary dictionary
         """
         if not self.mismatches:
-            return {"total_mismatches": 0, "severity_counts": {}, "report_type_counts": {}, "symbol_counts": {}}
+            return {
+                "total_mismatches": 0,
+                "severity_counts": {},
+                "report_type_counts": {},
+                "symbol_counts": {},
+            }
 
         severity_counts = {}
         report_type_counts = {}

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Field utilities for vnstock library.
 
 This module provides utilities for handling financial field names,
@@ -10,4 +10,11 @@ from .mapper import FieldMapper, KBSFieldMapper
 from .normalizer import FieldDisplayMode, FieldNormalizer
 from .validator import FieldValidator
 
-__all__ = ["FieldNormalizer", "FieldDisplayMode", "FieldMapper", "KBSFieldMapper", "FieldValidator", "FieldHandler"]
+__all__ = [
+    "FieldNormalizer",
+    "FieldDisplayMode",
+    "FieldMapper",
+    "KBSFieldMapper",
+    "FieldValidator",
+    "FieldHandler",
+]

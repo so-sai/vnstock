@@ -1,4 +1,4 @@
-﻿"""
+"""
 vnstock/api/trading.py
 
 Unified Trading adapter with dynamic method detection and parameter filtering.
@@ -7,6 +7,7 @@ Unified Trading adapter with dynamic method detection and parameter filtering.
 from typing import Any
 
 from tenacity import retry, stop_after_attempt, wait_exponential
+from vnai import optimize_execution
 
 from vnstock.base import BaseAdapter, dynamic_method
 from vnstock.config import Config
@@ -24,7 +25,13 @@ class Trading(BaseAdapter):
         board = t.price_board(symbols_list=["VCI", "VCB"], **kwargs)
     """
 
-    def __init__(self, source: str = "kbs", symbol: str = None, random_agent: bool = False, show_log: bool = False):
+    def __init__(
+        self,
+        source: str = "kbs",
+        symbol: str = None,
+        random_agent: bool = False,
+        show_log: bool = False,
+    ):
         # Ensure explorer modules are loaded (lazy load to avoid deadlock)
         from vnstock import _ensure_explorer_modules_loaded
 
@@ -38,13 +45,22 @@ class Trading(BaseAdapter):
 
         # Validate to accept vci, kbs as source
         if source.lower() not in ["kbs", "vci"]:
-            raise ValueError("Lớp Trading chỉ nhận giá trị tham số source là 'VCI' hoặc 'KBS'.")
+            raise ValueError(
+                "Lớp Trading chỉ nhận giá trị tham số source là 'VCI' hoặc 'KBS'."
+            )
 
-        super().__init__(source=source, symbol=symbol, random_agent=random_agent, show_log=show_log)
+        super().__init__(
+            source=source, symbol=symbol, random_agent=random_agent, show_log=show_log
+        )
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def trading_stats(self, *args: Any, **kwargs: Any) -> Any:
@@ -53,9 +69,14 @@ class Trading(BaseAdapter):
         """
         pass
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def side_stats(self, *args: Any, **kwargs: Any) -> Any:
@@ -64,20 +85,42 @@ class Trading(BaseAdapter):
         """
         pass
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
-    def price_board(self, *args: Any, **kwargs: Any) -> Any:
+    def price_board(self, symbols_list: Any = None, **kwargs: Any) -> Any:
         """
         Retrieve the price board (order book) for a list of symbols.
         """
-        pass
+        # Resolve symbols_list from self.symbol if missing
+        if not symbols_list and self.symbol:
+            symbols_list = self.symbol
 
+        # Ensure symbols_list is a list
+        if isinstance(symbols_list, str):
+            symbols_list = [symbols_list]
+        elif symbols_list is None:
+            symbols_list = []
+
+        return self._delegate_to_provider(
+            "price_board", symbols_list=symbols_list, **kwargs
+        )
+
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def price_history(self, *args: Any, **kwargs: Any) -> Any:
@@ -86,9 +129,14 @@ class Trading(BaseAdapter):
         """
         pass
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def foreign_trade(self, *args: Any, **kwargs: Any) -> Any:
@@ -97,9 +145,14 @@ class Trading(BaseAdapter):
         """
         pass
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def prop_trade(self, *args: Any, **kwargs: Any) -> Any:
@@ -108,9 +161,14 @@ class Trading(BaseAdapter):
         """
         pass
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def insider_deal(self, *args: Any, **kwargs: Any) -> Any:
@@ -119,9 +177,14 @@ class Trading(BaseAdapter):
         """
         pass
 
+    @optimize_execution("API")
     @retry(
         stop=stop_after_attempt(Config.RETRIES),
-        wait=wait_exponential(multiplier=Config.BACKOFF_MULTIPLIER, min=Config.BACKOFF_MIN, max=Config.BACKOFF_MAX),
+        wait=wait_exponential(
+            multiplier=Config.BACKOFF_MULTIPLIER,
+            min=Config.BACKOFF_MIN,
+            max=Config.BACKOFF_MAX,
+        ),
     )
     @dynamic_method
     def order_stats(self, *args: Any, **kwargs: Any) -> Any:
@@ -130,7 +193,9 @@ class Trading(BaseAdapter):
         """
         pass
 
-    def _delegate_to_provider(self, method_name: str, symbol: str = None, **kwargs: Any) -> Any:
+    def _delegate_to_provider(
+        self, method_name: str, symbol: str = None, **kwargs: Any
+    ) -> Any:
         """
         Delegate method call to the provider with symbol update if needed.
 
