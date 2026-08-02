@@ -10,7 +10,11 @@ Behavior
    lives in `backend/pyproject.toml`; root files (ptck.py, scripts/) have no
    ruff config and pre-existing violations, so linting them here would
    produce false positives and block unrelated commits.
-3. Run `ruff check` on the staged subset. Violations block the commit.
+3. Auto-fix safe violations (unused imports F401, unused variables F841)
+   via `ruff check --fix`, then re-stage the touched files so the commit
+   actually contains the fixes.
+4. Run a full `ruff check` on the staged subset. Remaining violations
+   (unsafe/unfixable) block the commit.
 
 Exit codes: 0 = ok, 1 = ruff violations or config error, 2 = no ruff found.
 """
@@ -22,6 +26,9 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Rules with SAFE auto-fixes: applied silently before the blocking check.
+AUTOFIX_SELECT = ("F401", "F841")
 
 
 def _git(args: list[str]) -> list[str]:
@@ -72,11 +79,33 @@ def main() -> int:
         print("[pre-commit] ERROR: ruff not found. Install: pip install ruff")
         return 2
 
+    # ── Phase 1: auto-fix safe violations (F401 unused import, F841 unused var) ──
+    print(f"[pre-commit] ruff auto-fix ({','.join(AUTOFIX_SELECT)}) on "
+          f"{len(files)} staged file(s)...")
+    fix_proc = subprocess.run(
+        [ruff, "check", "--fix", f"--select={','.join(AUTOFIX_SELECT)}", *files],
+        cwd=str(REPO_ROOT),
+    )
+    if fix_proc.returncode not in (0, 1):
+        print("[pre-commit] ERROR: ruff auto-fix failed unexpectedly.")
+        return 2
+
+    # Re-stage files ruff actually modified so fixes land in the commit.
+    # Only files we staged (in `files`) may have been touched by the fix —
+    # never re-stage unrelated unstaged work the developer left behind.
+    modified = _git(["diff", "--name-only", "--diff-filter=ACMR"])
+    touched_backend = [f for f in files if f in modified]
+    if touched_backend:
+        subprocess.run(["git", "add", "--", *touched_backend],
+                       cwd=str(REPO_ROOT), check=True)
+        print(f"[pre-commit] ruff auto-fixed + re-staged {len(touched_backend)} file(s).")
+
+    # ── Phase 2: blocking check on the (auto-fixed) staged subset ──
     print(f"[pre-commit] ruff check on {len(files)} staged file(s)...")
     proc = subprocess.run([ruff, "check", *files], cwd=str(REPO_ROOT))
     if proc.returncode != 0:
-        print("\n❌ COMMIT BLOCKED by ruff. Fix violations above, then re-stage:")
-        print("   ruff check --fix <files>  # or python ptck.py hooks-install --fix-all")
+        print("\n❌ COMMIT BLOCKED by ruff. Fix remaining violations, then re-stage:")
+        print("   ruff check --fix <files>")
         return 1
     print("[pre-commit] ruff: all staged backend files clean.")
     return 0
