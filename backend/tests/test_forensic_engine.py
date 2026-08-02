@@ -321,3 +321,121 @@ class TestEodRefreshHook:
             empty_db,
         )
         assert run_forensic_cache_refresh() == 0
+
+
+class TestForensicFPR:
+    """False Positive Rate measurement on clean VN30-like basket."""
+
+    def _clean_vn30_frame(self) -> pd.DataFrame:
+        """Build a clean VN30-like frame: no fraud, growing equities, low accruals."""
+        rows = []
+        for sym in ["VCB", "BID", "CTG", "FPT", "MWG", "PNJ", "VHM", "VRE", "HPG", "GAS"]:
+            for q in range(1, 9):
+                fy = 2024 + (q - 1) // 4
+                fq = ((q - 1) % 4) + 1
+                rev = 10_000_000_000_000 + q * 500_000_000_000 + hash(sym) % 1_000_000_000
+                ni = rev * 0.10 + q * 100_000_000
+                cfo = ni * 0.85
+                eq = 5_000_000_000_000 + q * 200_000_000_000
+                rec = eq * 0.05 + q * 50_000_000_000
+                ta = eq * 1.6
+                ca = ta * 0.55
+                liab = ta - eq
+                gp = rev * 0.25
+                cogs = rev - gp
+                dep = cogs * 0.08
+                sga = rev * 0.06
+                rows.append(
+                    {
+                        "symbol": sym,
+                        "period": f"{fy}Q{fq}",
+                        "fiscal_year": fy,
+                        "fiscal_quarter": fq,
+                        "REVENUE": rev,
+                        "NET_INCOME": ni,
+                        "CFO": cfo,
+                        "TOTAL_ASSETS": ta,
+                        "CURRENT_ASSETS": ca,
+                        "TOTAL_EQUITY": eq,
+                        "TOTAL_LIABILITIES": liab,
+                        "RECEIVABLES": rec,
+                        "GROSS_PROFIT": gp,
+                        "COGS": cogs,
+                        "DEPRECIATION": dep,
+                        "ADMIN_EXPENSES": sga,
+                    }
+                )
+        return pd.DataFrame(rows)
+
+    def test_clean_basket_zero_hard_violation_fpr(self):
+        """A clean VN30-like basket (no fraud) must produce 0% Hard_Violation FPR."""
+        frame = self._clean_vn30_frame()
+        result = ForensicEngine().compute_forensics(frame)
+        latest = result.sort_values(["symbol", "fiscal_year", "fiscal_quarter"]).groupby("symbol").tail(1)
+        assert latest["Hard_Violation"].sum() == 0
+        assert len(latest) > 0
+
+    def test_clean_basket_soft_warning_fpr_under_10pct(self):
+        """A clean VN30-like basket must keep soft-warning FPR below 10%."""
+        frame = self._clean_vn30_frame()
+        result = ForensicEngine().compute_forensics(frame)
+        latest = result.sort_values(["symbol", "fiscal_year", "fiscal_quarter"]).groupby("symbol").tail(1)
+        fpr = latest["M_Score_Flag"].sum() / len(latest) * 100
+        assert fpr < 10.0
+
+    def test_fpr_passes_hard_veto_gate(self):
+        """The Hard_Violation FPR gate (< 2.0%) must pass on clean data."""
+        frame = self._clean_vn30_frame()
+        result = ForensicEngine().compute_forensics(frame)
+        latest = result.sort_values(["symbol", "fiscal_year", "fiscal_quarter"]).groupby("symbol").tail(1)
+        fpr = latest["Hard_Violation"].sum() / len(latest) * 100
+        assert fpr < 2.0
+
+    def test_synthetic_period_exclusion(self):
+        """Periods with identical cross-symbol RECEIVABLES are excluded as synthetic."""
+        from backend.scripts.forensic_fpr_report import _detect_synthetic_periods
+
+        frame = pd.DataFrame(
+            [
+                {
+                    "symbol": "AAA",
+                    "period": "2026Q2",
+                    "fiscal_year": 2026,
+                    "fiscal_quarter": 2,
+                    "RECEIVABLES": 18_000_000_000_000.0,
+                    "TOTAL_EQUITY": 35_000_000_000_000.0,
+                },
+                {
+                    "symbol": "BBB",
+                    "period": "2026Q2",
+                    "fiscal_year": 2026,
+                    "fiscal_quarter": 2,
+                    "RECEIVABLES": 18_000_000_000_000.0,
+                    "TOTAL_EQUITY": 35_000_000_000_000.0,
+                },
+                {
+                    "symbol": "CCC",
+                    "period": "2026Q2",
+                    "fiscal_year": 2026,
+                    "fiscal_quarter": 2,
+                    "RECEIVABLES": 18_000_000_000_000.0,
+                    "TOTAL_EQUITY": 35_000_000_000_000.0,
+                },
+            ]
+        )
+        mask = _detect_synthetic_periods(frame)
+        assert mask.sum() == 3
+
+    def test_real_varying_receivables_not_synthetic(self):
+        """Periods with varying cross-symbol RECEIVABLES are NOT synthetic."""
+        from backend.scripts.forensic_fpr_report import _detect_synthetic_periods
+
+        frame = pd.DataFrame(
+            [
+                {"symbol": "AAA", "period": "2025Q3", "fiscal_year": 2025, "fiscal_quarter": 3, "RECEIVABLES": 100.0},
+                {"symbol": "BBB", "period": "2025Q3", "fiscal_year": 2025, "fiscal_quarter": 3, "RECEIVABLES": 200.0},
+                {"symbol": "CCC", "period": "2025Q3", "fiscal_year": 2025, "fiscal_quarter": 3, "RECEIVABLES": 150.0},
+            ]
+        )
+        mask = _detect_synthetic_periods(frame)
+        assert mask.sum() == 0

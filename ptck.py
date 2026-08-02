@@ -1711,6 +1711,21 @@ def cmd_data_quality(args):
     xuat_bao_cao()
 
 
+def cmd_forensic_fpr(args):
+    """Đo lường Tỷ lệ Báo động giả (FPR) của ForensicEngine trên rổ VN30."""
+    from backend.scripts.forensic_fpr_report import measure_fpr, print_report
+
+    symbols = None
+    if getattr(args, "symbols", None):
+        symbols = [s.strip().upper() for s in args.symbols.split(",")]
+
+    report = measure_fpr(
+        symbols=symbols,
+        exclude_synthetic=not getattr(args, "include_synthetic", False),
+    )
+    print_report(report)
+
+
 def cmd_index_decompose(args):
     """Phân tích chỉ số thị trường thống nhất."""
     from src.engine.index_reality_unifier import phan_tich_chi_so, in_bao_cao
@@ -4707,6 +4722,12 @@ def build_parser():
     # data-quality
     p_dq = sub.add_parser("data-quality", parents=[lang_parent], help="Đánh giá độ tin cậy dữ liệu (TẦNG 0)")
     p_dq.set_defaults(func=cmd_data_quality)
+
+    # forensic-fpr
+    p_ff = sub.add_parser("forensic-fpr", parents=[lang_parent], help="Đo lường tỷ lệ báo động giả (FPR) trên rổ VN30")
+    p_ff.add_argument("--symbols", default=None, help="Mã cụ thể, cách nhau bằng dấu phẩy (VD: VCB,REE,HDB)")
+    p_ff.add_argument("--include-synthetic", action="store_true", help="Giữ cả giai đoạn dữ liệu mẫu (demo fallback)")
+    p_ff.set_defaults(func=cmd_forensic_fpr)
 
     # index-decompose
     p_id = sub.add_parser("index-decompose", parents=[lang_parent], help="Phân tích chỉ số thị trường thống nhất")
