@@ -1247,114 +1247,48 @@ class CafeFCrawler:
 
     # ── Tầng 1b: VCI Bridge (thay thế CafeF) ────────────────────
     def fetch_vci_bridge(self, symbol: str) -> List[Dict]:
-        """Dùng VCI GraphQL API qua vnstock.Finance làm nguồn chính.
+        """Dùng VCI (vnstock wide-format) làm nguồn chính.
 
         Bản đồ URL: URL_MAP["VCI_GRAPHQL"] (NEEDS_API_KEY).
         Endpoint: https://trading.vietcap.com.vn/data-mt/graphql
 
-        Trả về list of dict (mỗi dict = 1 quarter) giống format
+        Trả về list of dict (mỗi dict = 1 quarter thật) giống format
         của fetch_quarter(), để write_batch() xử lý.
+
+        WHY: vnstock 4.0.5 trả WIDE format (item_id rows + period cols) —
+        hàm cũ lấy df.iloc[0] (dòng đầu = 1 metric, không phải 1 quý) rồi
+        nhân bản cho 20 quý → dữ liệu sai. Delegate qua
+        VnstockCrawler.fetch_financials_vnstock() để dùng chung parser
+        wide-format đã fix (VNSTOCK_ITEM_ID_MAP + _period_from_col).
         """
         try:
-            from src.providers.vnstock_provider import VnstockProvider
+            from src.financial.financial_facts import VnstockCrawler
         except ImportError as e:
-            logger.warning(f"VCI bridge: không import được vnstock — {e}")
+            logger.warning(f"VCI bridge: không import được financial_facts — {e}")
             return []
 
         try:
-            f = VnstockProvider(source="VCI")
-            df_bs = f.balance_sheet(symbol, lang="vi")
-            df_is = f.income_statement(symbol, lang="vi")
-            df_cf = f.cashflow(symbol, lang="vi")
-        except (KeyError, Exception) as e:
+            crawler = VnstockCrawler(db=self.db, source="VCI")
+            periods = crawler.fetch_financials_vnstock(symbol, limit=30)
+        except Exception as e:
             logger.warning(f"VCI bridge: VCI API thất bại cho {symbol} — {e}")
             return []
 
-        # Handle vnstock returning dict with 'data' key
-        if isinstance(df_bs, dict):
-            df_bs = df_bs.get("data", df_bs.get("balance_sheet", None))
-        if isinstance(df_is, dict):
-            df_is = df_is.get("data", df_is.get("income_statement", None))
-        if isinstance(df_cf, dict):
-            df_cf = df_cf.get("data", df_cf.get("cash_flow", None))
-
-        # Convert to DataFrame if not already
-        import pandas as pd
-        if df_bs is not None and not isinstance(df_bs, pd.DataFrame):
-            try:
-                df_bs = pd.DataFrame(df_bs)
-            except Exception:
-                df_bs = None
-        if df_is is not None and not isinstance(df_is, pd.DataFrame):
-            try:
-                df_is = pd.DataFrame(df_is)
-            except Exception:
-                df_is = None
-        if df_cf is not None and not isinstance(df_cf, pd.DataFrame):
-            try:
-                df_cf = pd.DataFrame(df_cf)
-            except Exception:
-                df_cf = None
-
-        if df_bs is None or (hasattr(df_bs, 'empty') and df_bs.empty):
-            logger.info(f"VCI bridge: {symbol} không có dữ liệu balance sheet")
+        if not periods:
+            logger.info(f"VCI bridge: {symbol} — không có dữ liệu parsed")
             return []
 
-        # Map vnstock columns → PTCK metric names (giống financial_facts.py)
-        from src.financial.financial_facts import VNSTOCK_METRIC_MAP_STANDARD, VNSTOCK_METRIC_MAP_BANK
         entity_type = self.db.get_entity_type(symbol) or "STANDARD"
-        vnstock_map = VNSTOCK_METRIC_MAP_BANK if entity_type == "BANK" else VNSTOCK_METRIC_MAP_STANDARD
+        for period_data in periods:
+            # Tính TOTAL_DEBT từ nợ ngắn + dài hạn
+            short_debt = period_data.get("SHORT_TERM_DEBT", 0) or 0
+            long_debt = period_data.get("LONG_TERM_DEBT", 0) or 0
+            if short_debt or long_debt:
+                period_data["TOTAL_DEBT"] = short_debt + long_debt
+            period_data["_entity_type"] = entity_type
 
-        def _extract(df: pd.DataFrame, vnstock_map: dict) -> Dict[str, float]:
-            """Extract single period from vnstock DataFrame."""
-            result = {}
-            if df is None or df.empty:
-                return result
-            # Lấy dòng đầu tiên (kỳ gần nhất)
-            row = df.iloc[0] if len(df) > 0 else None
-            if row is None:
-                return result
-            for vn_col, ptck_metric in vnstock_map.items():
-                if vn_col in row and row[vn_col] is not None:
-                    try:
-                        val = float(row[vn_col])
-                        if val != 0:
-                            result[ptck_metric] = val
-                    except (TypeError, ValueError):
-                        pass
-            return result
-
-        # Merge BS + IS + CF per quarter
-        bs_data = _extract(df_bs, vnstock_map)
-        is_data = _extract(df_is, vnstock_map)
-        cf_data = _extract(df_cf, vnstock_map)
-
-        merged = {**bs_data, **is_data, **cf_data}
-        if not merged:
-            logger.info(f"VCI bridge: {symbol} — không có metric nào extracted")
-            return []
-
-        # Tính TOTAL_DEBT
-        short_debt = merged.get("SHORT_TERM_DEBT", 0) or 0
-        long_debt = merged.get("LONG_TERM_DEBT", 0) or 0
-        if short_debt or long_debt:
-            merged["TOTAL_DEBT"] = short_debt + long_debt
-
-        merged["_entity_type"] = entity_type
-        logger.info(f"VCI bridge: {symbol} — {len(merged)} metrics")
-
-        # Trả về list với 1 period để crawl_symbol xử lý 20 quarters
-        quarters = self.generate_20_quarters()
-        result = []
-        for year, q in quarters:
-            period_data = {
-                "_fiscal_year": year,
-                "_fiscal_quarter": q,
-                "_entity_type": entity_type,
-            }
-            period_data.update(merged)
-            result.append(period_data)
-        return result
+        logger.info(f"VCI bridge: {symbol} — {len(periods)} periods parsed")
+        return periods
 
     # ── Tầng 1c: VNDirect Fininfo API bridge ─────────────────
     def fetch_vndirect_api(self, symbol: str) -> List[Dict]:
