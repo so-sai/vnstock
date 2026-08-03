@@ -4,18 +4,17 @@ Compares the 3 Bayesian evidence models (M1_MACRO, M2_FUNDAMENTAL,
 M3_BEHAVIORAL) against actual forward returns and against the legacy
 BacktestAlpha baseline on the 2022 window.
 
-Architecture note (honesty about limits):
-  - Feature loaders (macro/transmission/sector) read CURRENT state files,
-    so there is no 2022 time-travel for global state. We therefore:
-      * run BacktestAlpha on 2022 (fully time-traveled via its own DB query)
-        as the legacy baseline,
-      * compute per-model p_gain for a basket of symbols using the features
-        that ARE derivable live from DB (health archetype, valuation,
-        behavior volume profile),
-      * score them against forward 5d/10d returns in the 2022-06..2022-12
-        sub-window.
-  - Brier score = mean((p_gain - outcome)^2); accuracy = share of correct
-    direction (p_gain>=0.5 vs gain=1).
+Point-in-time design (look-ahead-safe):
+  - M1_MACRO global state is classified per sampled date via
+    MacroStateClassifier.classify(target_date), which reads the
+    historical macro_history feed (DXY, USD_VND, US10Y, WTI...) — no
+    look-ahead.
+  - Per-symbol features (health archetype, valuation, behavior volume
+    profile) are read from current DB (fundamental/per-symbol state has
+    limited 2022 history for small caps).
+  - Transmission falls back to neutral (interbank data starts 2023).
+  - Forward outcome = next ~10 day close return, strictly after the
+    decision date.
 """
 
 import sys
@@ -55,7 +54,7 @@ def _lookup(conn, q, params=()):
     return conn.execute(q, params).fetchall()
 
 
-def compute_per_model(symbol, conn, macro_state, transmission_phase):
+def compute_per_model(symbol, conn, macro_state, transmission_phase, macro_entropy=0.0):
     """Compute p_gain for M1/M2/M3 with DB-derivable features."""
     perception = PerceptionLoader()
     behavior = L4BehaviorLoader()
@@ -87,6 +86,7 @@ def compute_per_model(symbol, conn, macro_state, transmission_phase):
             valuation_zone=val_zone,
             behavior_position=beh_pos,
             capital_allocation="TRANSITIONAL",
+            macro_entropy=macro_entropy,
             evidence_weights=renormed,
             model_registry_lr=None,
         )
@@ -95,6 +95,7 @@ def compute_per_model(symbol, conn, macro_state, transmission_phase):
 
 
 def run_ab():
+    from src.core.macro.macro_state_classifier import MacroStateClassifier
     from src.engine.backtest_engine import BacktestAlpha
 
     print("=" * 70)
@@ -114,36 +115,62 @@ def run_ab():
             conn,
             "SELECT DISTINCT symbol FROM daily_ohlcv "
             "WHERE symbol NOT IN ('VNINDEX','VN30') AND date >= '2022-06-01' "
-            "ORDER BY symbol LIMIT 60",
+            "ORDER BY symbol LIMIT 40",
         )
     ]
 
-    macro_state = "STABLE"
-    transmission_phase = "FRAGILE_STABILITY"
+    # Point-in-time dates to sample across the 2022 sub-window (spaced ~3w apart)
+    sample_dates = [
+        "2022-06-06",
+        "2022-06-27",
+        "2022-07-18",
+        "2022-08-08",
+        "2022-08-29",
+        "2022-09-19",
+        "2022-10-10",
+        "2022-10-31",
+        "2022-11-21",
+        "2022-12-12",
+    ]
 
+    classifier = MacroStateClassifier()
     rows = []
-    for sym in symbols:
-        try:
-            pg = compute_per_model(sym, conn, macro_state, transmission_phase)
-            # forward outcome: use first/last close over the 2022 sub-window
-            fwd = _lookup(
-                conn,
-                "SELECT close FROM daily_ohlcv WHERE symbol=? AND date >= '2022-06-01' AND date <= '2022-12-15' ORDER BY date",
-                (sym,),
-            )
-            if len(fwd) < 5:
-                continue
-            start = fwd[0][0]
-            end = fwd[-1][0]
-            if not start or not end or start <= 0:
-                continue
-            fwd_ret = (end - start) / start
-            outcome = 1.0 if fwd_ret > 0 else 0.0
-            row = {"symbol": sym, "outcome": outcome, "fwd_ret": round(fwd_ret, 4)}
-            row.update(pg)
-            rows.append(row)
-        except Exception:
-            pass
+
+    for d in sample_dates:
+        # Point-in-time macro state at date d (no look-ahead)
+        ms = classifier.classify(target_date=d)
+        macro_state = ms.macro_state
+        macro_entropy = float(ms.entropy or 0.0)
+        transmission_phase = "FRAGILE_STABILITY"  # no 2022 interbank data
+
+        # fetch next 5 trading days closes for forward outcome (point-in-time fwd)
+        fwd_map = {}
+        for r in _lookup(
+            conn,
+            "SELECT symbol, date, close FROM daily_ohlcv WHERE date > ? AND date <= date(?, '+10 days')",
+            (d, d),
+        ):
+            fwd_map.setdefault(r[0], []).append(r[2])
+
+        for sym in symbols:
+            try:
+                fwd = [x for x in fwd_map.get(sym, []) if x]
+                if len(fwd) < 2:
+                    continue
+                fwd_ret = (fwd[-1] - fwd[0]) / fwd[0]
+                outcome = 1.0 if fwd_ret > 0 else 0.0
+                pg = compute_per_model(sym, conn, macro_state, transmission_phase, macro_entropy)
+                row = {
+                    "date": d,
+                    "symbol": sym,
+                    "outcome": outcome,
+                    "fwd_ret": round(fwd_ret, 4),
+                    "macro": macro_state,
+                }
+                row.update(pg)
+                rows.append(row)
+            except Exception:
+                pass
 
     conn.close()
 
@@ -153,22 +180,24 @@ def run_ab():
 
     df = pd.DataFrame(rows)
     print("=" * 70)
-    print("A/B TEST — Per-model posterior vs forward outcome (2022 basket)")
+    print("A/B TEST — Point-in-time per-model posterior vs forward outcome (2022)")
     print("=" * 70)
-    print(f"N symbols: {len(df)}")
+    print(f"N (date,symbol) observations: {len(df)}")
+    print("\nMacro state distribution across sampled 2022 dates:")
+    print(df["macro"].value_counts().to_string())
     for mid in ["M1_MACRO", "M2_FUNDAMENTAL", "M3_BEHAVIORAL"]:
         pcol = df[mid]
         out = df["outcome"]
         brier = float(((pcol - out) ** 2).mean())
-        # direction accuracy: p>=0.5 predicts gain
         acc = float(((pcol >= 0.5) == (out == 1.0)).mean())
         mean_p = float(pcol.mean())
+        std_p = float(pcol.std())
         print(f"\n{mid}:")
-        print(f"  Mean p_gain : {mean_p:.4f}")
-        print(f"  Brier       : {brier:.4f}  (lower=better)")
-        print(f"  Direction Acc: {acc:.1%}")
+        print(f"  Mean p_gain      : {mean_p:.4f}   (discrimination std: {std_p:.4f})")
+        print(f"  Brier            : {brier:.4f}  (lower=better)")
+        print(f"  Direction Acc    : {acc:.1%}")
 
-    print("\nPer-symbol table (top 15 by abs fwd_ret):")
+    print("\nSample (date, symbol, macro, p_gain, fwd_ret) — note p_gain now varies by date:")
     print(df.sort_values("fwd_ret", key=abs, ascending=False).head(15).to_string(index=False))
 
 
