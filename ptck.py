@@ -531,6 +531,12 @@ def cmd_final(args):
     in_bao_cao(kq)
 
 
+def cmd_vn20(args):
+    """PTCK_VN20 — 4-Tier Quant Screening (Buffett x VN Governance x Cycle)."""
+    from src.quant.vn20_quant_filter import run_vn20_filter
+    run_vn20_filter(top_n=args.top_n, verbose=not args.quiet)
+
+
 def cmd_snapshot(args):
     """Tạo ảnh chụp thị trường duy nhất + phase classification."""
     from src.core.market_snapshot import tao_anh_chup, in_anh_chup
@@ -4219,6 +4225,12 @@ def build_parser():
     p_final = sub.add_parser("final-decision", parents=[lang_parent], help="Bộ não quyết định cuối cùng")
     p_final.add_argument("--date", help="Ngày quyết định (YYYY-MM-DD)")
     p_final.set_defaults(func=cmd_final)
+
+    # vn20 — 4-Tier Quant Screening
+    p_vn20 = sub.add_parser("vn20", parents=[lang_parent], help="PTCK_VN20 — 4-Tier Quant Screening (Buffett x VN Governance x Cycle)")
+    p_vn20.add_argument("--top-n", type=int, default=None, help="Giới hạn số mã xuất ra")
+    p_vn20.add_argument("--quiet", action="store_true", help="Chỉ xuất dữ liệu JSON")
+    p_vn20.set_defaults(func=cmd_vn20)
 
     # snapshot
     p_snap = sub.add_parser("snapshot", parents=[lang_parent], help="Ảnh chụp thị trường duy nhất")
