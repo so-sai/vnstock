@@ -344,9 +344,14 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                     if mc not in df_save.columns:
                         df_save[mc] = 0
 
-                # Guard: if total_trades missing, default volume to 0
-                if "total_trades" not in df_save.columns:
-                    df_save["total_trades"] = 0
+                # Guard: KBS 4.0.5 rename total_trades -> volume_accumulated (commit 6396a4a).
+                # Accept both schemas; default volume to 0 only if neither present.
+                if "volume_accumulated" in df_save.columns:
+                    df_save["volume"] = df_save["volume_accumulated"]
+                elif "total_trades" in df_save.columns:
+                    df_save["volume"] = df_save["total_trades"]
+                else:
+                    df_save["volume"] = 0
 
                 df_save = df_save.rename(
                     columns={
@@ -354,7 +359,6 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                         "high_price": "high",
                         "low_price": "low",
                         "close_price": "close",
-                        "total_trades": "volume",
                         "foreign_buy_volume": "foreign_vol",
                     }
                 )
@@ -385,9 +389,13 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                     df_solo = _fallback_fetch_single(s)
                     if not df_solo.empty:
                         df_solo.columns = [str(c).lower() for c in df_solo.columns]
-                        if "volume" not in df_solo.columns and "total_trades" in df_solo.columns:
+                        if "volume" in df_solo.columns:
+                            pass
+                        elif "volume_accumulated" in df_solo.columns:
+                            df_solo = df_solo.rename(columns={"volume_accumulated": "volume"})
+                        elif "total_trades" in df_solo.columns:
                             df_solo = df_solo.rename(columns={"total_trades": "volume"})
-                        if "volume" not in df_solo.columns:
+                        else:
                             df_solo["volume"] = 0
                         cols_ohlcv = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
                         if "is_stale" in df_solo.columns:
