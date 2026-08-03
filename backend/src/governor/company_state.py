@@ -80,7 +80,8 @@ def _symbol_sector(symbol: str) -> Optional[str]:
     # _classify_by_ratios nay đã ICB-aware (BĐS → REAL_ESTATE_DEVELOPER),
     # nhưng các archetype khác vẫn có thể đoán sai sector cho symbol lạ.)
     try:
-        from src.business.archetype import ArchetypeEngine, BASELINE_MAP
+        from src.business.archetype import BASELINE_MAP, ArchetypeEngine
+
         if symbol.upper().strip() not in BASELINE_MAP:
             return None
         arch = ArchetypeEngine().classify(symbol.upper())
@@ -99,6 +100,7 @@ def _symbol_sector(symbol: str) -> Optional[str]:
         pass
     return None
 
+
 # Archetype-aware priors (Giai đoạn 1 + Giai đoạn 4 insights)
 # COMPOUNDERs have structural ROIC > WACC → higher baseline odds
 # CYCLICAL_HEAVY and REAL_ESTATE have earnings risk → lower baseline
@@ -116,24 +118,22 @@ PRIOR_BY_ARCHETYPE = {
     "UNKNOWN": 0.53,
 }
 
-# ── Evidence weights v3 (8 nodes, sum = 1.0) ──────────────────
-# WHY v2→v3 shift: macro(0.25→0.20), transmission(0.15→0.13),
-# sector(0.12→0.10), health(0.13→0.11), cap_alloc(0.15→0.13),
-# valuation(0.10→0.09), behavior(0.10→0.09) — all reduced
-# proportionally to make room for model_registry at 0.15.
-# WHY 0.15 for BMA: ModelRegistry fuses 3 competing hypotheses;
-# it's a meta-node that modulates all other evidence. Equal to
-# macro weight proportionally — reflects that "which model is
-# right" matters as much as "what does macro say".
+# ── Evidence weights v4 (9 nodes, sum = 1.0) ──────────────────
+# WHY v3→v4 shift: recovery_authenticity (#9) added at 0.08; all
+# prior nodes reduced proportionally (×0.92 factor) to keep sum=1.0.
+# Node #9 fuses RDS (relative demand), ΔBreadth_5D momentum and
+# ΔCredit shift to validate whether a bounce is genuine or a
+# dead-cat / liquidity-driven trap.
 EVIDENCE_WEIGHTS = {
-    "macro": 0.20,
-    "transmission": 0.13,
-    "sector": 0.10,
-    "health": 0.11,
-    "capital_allocation": 0.13,
-    "valuation": 0.09,
-    "behavior": 0.09,
+    "macro": 0.18,
+    "transmission": 0.12,
+    "sector": 0.09,
+    "health": 0.10,
+    "capital_allocation": 0.12,
+    "valuation": 0.08,
+    "behavior": 0.08,
     "model_registry": 0.15,
+    "recovery_authenticity": 0.08,
 }
 
 # ── Likelihood Ratios ─────────────────────────────────────────
@@ -189,23 +189,23 @@ LR_VALUATION = {
 #   valuation signal. Z-Score is demoted to secondary context tag.
 #   LR mapping converts MOS zone → internal LR_VALUATION key so
 #   the Bayesian inference uses the correct likelihood ratio.
-MOS_ZONE_UNDERVALUED = "MOS_UNDERVALUED"   # MoS > +20%
-MOS_ZONE_FAIR_VALUE  = "MOS_FAIR_VALUE"    # MoS 0% to +20%
-MOS_ZONE_OVERVALUED  = "MOS_OVERVALUED"    # MoS < 0%
-MOS_ZONE_NO_DATA     = "MOS_NO_DATA"
+MOS_ZONE_UNDERVALUED = "MOS_UNDERVALUED"  # MoS > +20%
+MOS_ZONE_FAIR_VALUE = "MOS_FAIR_VALUE"  # MoS 0% to +20%
+MOS_ZONE_OVERVALUED = "MOS_OVERVALUED"  # MoS < 0%
+MOS_ZONE_NO_DATA = "MOS_NO_DATA"
 
 # Map MOS zone → internal LR_VALUATION key (for compute_gain_probability)
 MOS_TO_LR_KEY = {
     MOS_ZONE_UNDERVALUED: "CHEAP",
-    MOS_ZONE_FAIR_VALUE:  "FAIR",
-    MOS_ZONE_OVERVALUED:  "EXPENSIVE",
-    MOS_ZONE_NO_DATA:     "FAIR",  # fallback
+    MOS_ZONE_FAIR_VALUE: "FAIR",
+    MOS_ZONE_OVERVALUED: "EXPENSIVE",
+    MOS_ZONE_NO_DATA: "FAIR",  # fallback
 }
 
 MOS_ZONE_THRESHOLDS = [
-    (MOS_ZONE_UNDERVALUED, 20.0),   # MoS > +20% → HẤP DẪN
-    (MOS_ZONE_FAIR_VALUE,  0.0),    # MoS >= 0% → HỢP LÝ
-    (MOS_ZONE_OVERVALUED,  float("-inf")),  # MoS < 0% → QUÁ GIÁ
+    (MOS_ZONE_UNDERVALUED, 20.0),  # MoS > +20% → HẤP DẪN
+    (MOS_ZONE_FAIR_VALUE, 0.0),  # MoS >= 0% → HỢP LÝ
+    (MOS_ZONE_OVERVALUED, float("-inf")),  # MoS < 0% → QUÁ GIÁ
 ]
 
 
@@ -229,7 +229,6 @@ def _format_market_context_tag(val: dict) -> str:
     """
     tsz = val.get("overall_zone_ts", "NO_DATA")
     csz = val.get("overall_zone", "NO_DATA")
-    pz = val.get("overall_zone_peer", "NO_DATA")
     has_ts = val.get("has_ts", False)
     # Determine which mode is active (TS preferred, fallback CS)
     if has_ts and tsz != "NO_DATA":
@@ -247,6 +246,7 @@ def _format_market_context_tag(val: dict) -> str:
         label = "Hợp lý (Market Fair)"
     return f"{mode}: {label}"
 
+
 LR_BEHAVIOR = {
     "IN_VA_DEMAND": 1.60,
     "IN_VA": 1.15,
@@ -263,6 +263,66 @@ LR_BEHAVIOR = {
     "BELOW_VA_DEMAND_LOCKDOWN": 0.55,
 }
 
+# ── Recovery Authenticity LR (Node #9) ─────────────────────────
+# Validates whether a bounce is genuine (RDS + ΔBreadth + ΔCredit)
+# or a liquidity-driven dead-cat / bull trap.
+LR_RECOVERY_AUTHENTICITY = {
+    # Combo states keyed "<relative_demand>|<breadth_momentum>|<credit_shift>"
+    "HIGH|POSITIVE|EASING": 1.60,  # active demand + broad + credit easing → genuine
+    "HIGH|POSITIVE|TIGHT": 1.25,
+    "HIGH|NEUTRAL|EASING": 1.30,
+    "HIGH|NEUTRAL|TIGHT": 1.00,
+    "HIGH|NEGATIVE|EASING": 1.10,
+    "HIGH|NEGATIVE|TIGHT": 0.70,
+    "LOW|POSITIVE|EASING": 0.90,
+    "LOW|POSITIVE|TIGHT": 0.55,
+    "LOW|NEUTRAL|EASING": 0.70,
+    "LOW|NEUTRAL|TIGHT": 0.40,
+    "LOW|NEGATIVE|EASING": 0.50,
+    "LOW|NEGATIVE|TIGHT": 0.30,
+    "NEUTRAL": 1.00,
+}
+
+
+def compute_recovery_authenticity_lr(
+    relative_demand: float = 1.0,
+    breadth_momentum_5d: float = 0.0,
+    credit_shift: float = 0.0,
+) -> float:
+    """Compute Node #9 likelihood ratio from the 3 dynamic indicators.
+
+    RDS (Relative Demand):   vol_up / vol_down * vol_20d / vol_60d
+    ΔBreadth_5D:             B_20(t) - B_20(t-5)
+    ΔCredit:                 CSI(t) - CSI(t-10)
+
+    Per the domain formulation:
+      RDS < 0.8 → weak demand (LR penalty); RDS > 1.2 → strong demand
+      ΔBreadth < 0 → green-shell-red-core (penalty); > +15% → broad
+      ΔCredit > 0 → liquidity still tightening; ≤ 0 → easing
+    """
+    if relative_demand > 1.2:
+        demand = "HIGH"
+    elif relative_demand < 0.8:
+        demand = "LOW"
+    else:
+        demand = "NEUTRAL"
+
+    if breadth_momentum_5d > 15.0:
+        breadth = "POSITIVE"
+    elif breadth_momentum_5d < 0.0:
+        breadth = "NEGATIVE"
+    else:
+        breadth = "NEUTRAL"
+
+    if credit_shift <= 0.0:
+        credit = "EASING"
+    else:
+        credit = "TIGHT"
+
+    key = f"{demand}|{breadth}|{credit}"
+    return LR_RECOVERY_AUTHENTICITY.get(key, LR_RECOVERY_AUTHENTICITY["NEUTRAL"])
+
+
 # ── Capital Allocation LR (Giai đoạn 4) ───────────────────────
 LR_CAPITAL_ALLOCATION = {
     "VALUE_CREATOR": 1.60,
@@ -273,6 +333,7 @@ LR_CAPITAL_ALLOCATION = {
     "VALUE_DESTROYER": 0.20,
 }
 
+
 # ── ModelRegistry LR (Giai đoạn 7) ───────────────────────────
 # LR = 1.0 - 0.5 * P(M1_MACRO | D, context)
 # WHY: When M1_MACRO dominates (e.g. 0.48 under CREDIT_STRESS),
@@ -282,7 +343,7 @@ LR_CAPITAL_ALLOCATION = {
 #      Linear slope 0.5 chosen so 50% M1 weight → LR=0.75 (moderate).
 def compute_model_registry_lr(bma_posterior: dict) -> float:
     """Compute LR from BMA posterior weights.
-    
+
     Higher M1_MACRO posterior = macro-driven uncertainty → penalize (LR < 1).
     Higher M2/M3 posterior = micro/behavior-driven → neutral/boost (LR ~ 1).
     """
@@ -310,6 +371,7 @@ def compute_gain_probability(
     evidence_weights: Optional[Dict[str, float]] = None,
     model_registry_lr: Optional[float] = None,
     lr_val_override: Optional[float] = None,
+    recovery_authenticity_lr: Optional[float] = None,
 ) -> Tuple[float, float, float]:
     """Bayesian Weight-of-Evidence v3 → P(Gain | Evidence).
 
@@ -345,6 +407,10 @@ def compute_gain_probability(
     lr_cap = _lookup_lr(LR_CAPITAL_ALLOCATION, capital_allocation)
     lr_model = model_registry_lr if model_registry_lr is not None else 1.0
 
+    lr_recovery = (
+        recovery_authenticity_lr if recovery_authenticity_lr is not None else _lookup_lr(LR_RECOVERY_AUTHENTICITY, "NEUTRAL")
+    )
+
     log_prior = math.log(prior_odds)
     log_lr = (
         w.get("macro", EVIDENCE_WEIGHTS["macro"]) * math.log(max(lr_macro, 0.01))
@@ -355,6 +421,7 @@ def compute_gain_probability(
         + w.get("valuation", EVIDENCE_WEIGHTS["valuation"]) * math.log(max(lr_val, 0.01))
         + w.get("behavior", EVIDENCE_WEIGHTS["behavior"]) * math.log(max(lr_beh, 0.01))
         + w.get("model_registry", EVIDENCE_WEIGHTS["model_registry"]) * math.log(max(lr_model, 0.01))
+        + w.get("recovery_authenticity", EVIDENCE_WEIGHTS["recovery_authenticity"]) * math.log(max(lr_recovery, 0.01))
     )
 
     log_posterior_odds = log_prior + log_lr
@@ -379,13 +446,13 @@ def compute_gain_probability(
 #   HOLD/WAIT → neutral
 #   REDUCE → moderately defensive
 UTILITY_MATRIX = {
-    "VETO":     [-1.0,  0.9],
-    "AVOID":    [-0.8,  0.7],
-    "REDUCE":   [-0.3,  0.6],
-    "WAIT":     [ 0.0,  0.0],
-    "HOLD":     [ 0.3, -0.3],
-    "SCALE_IN": [ 0.7, -0.6],
-    "OPEN":     [ 1.0, -1.0],
+    "VETO": [-1.0, 0.9],
+    "AVOID": [-0.8, 0.7],
+    "REDUCE": [-0.3, 0.6],
+    "WAIT": [0.0, 0.0],
+    "HOLD": [0.3, -0.3],
+    "SCALE_IN": [0.7, -0.6],
+    "OPEN": [1.0, -1.0],
 }
 
 
@@ -428,9 +495,7 @@ KELLY_B = 2.0
 MAX_ALLOC_PCT = 20.0
 
 
-def kelly_allocation(
-    p_gain: float, calibration_penalty: float, macro_entropy: float
-) -> float:
+def kelly_allocation(p_gain: float, calibration_penalty: float, macro_entropy: float) -> float:
     """Compute Kelly-optimal allocation, scaled by uncertainty."""
     p_loss = 1.0 - p_gain
     # Kelly fraction: f* = (p * b - q) / b
@@ -457,7 +522,7 @@ def _safe_div(a, b):
         return None
     try:
         return a / b
-    except (ZeroDivisionError, TypeError):
+    except ZeroDivisionError, TypeError:
         return None
 
 
@@ -469,13 +534,16 @@ class L2HealthLoader:
 
     def get_latest_ratios(self, symbol: str) -> Dict:
         cur = self.conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT ratio_name, ratio_value, interpretation
             FROM health_ratios
             WHERE symbol = ? AND period = (
                 SELECT MAX(period) FROM health_ratios WHERE symbol = ?
             )
-        """, (symbol.upper(), symbol.upper()))
+        """,
+            (symbol.upper(), symbol.upper()),
+        )
         rows = cur.fetchall()
         return {r[0]: {"value": r[1], "interpretation": r[2]} for r in rows}
 
@@ -491,7 +559,8 @@ class L3ValuationLoader:
 
     def get_latest_valuation(self, symbol: str) -> Dict:
         cur = self.conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT ratio_name, ratio_value, z_score, percentile, zone,
                    COALESCE(z_score_peer, z_score) AS z_score_peer,
                    COALESCE(zone_peer, zone) AS zone_peer,
@@ -502,20 +571,41 @@ class L3ValuationLoader:
                 SELECT MAX(period) FROM valuation_scores WHERE symbol = ?
             )
             ORDER BY ratio_name
-        """, (symbol.upper(), symbol.upper()))
+        """,
+            (symbol.upper(), symbol.upper()),
+        )
         rows = cur.fetchall()
-        return {r[0]: {"value": r[1], "z_score": r[2], "percentile": r[3], "zone": r[4],
-                        "z_score_peer": r[5], "zone_peer": r[6], "peer_group": r[7],
-                        "z_score_ts": r[8], "zone_ts": r[9],
-                        "mean_5y": r[10], "std_5y": r[11], "count_5y": r[12]}
-                for r in rows}
+        return {
+            r[0]: {
+                "value": r[1],
+                "z_score": r[2],
+                "percentile": r[3],
+                "zone": r[4],
+                "z_score_peer": r[5],
+                "zone_peer": r[6],
+                "peer_group": r[7],
+                "z_score_ts": r[8],
+                "zone_ts": r[9],
+                "mean_5y": r[10],
+                "std_5y": r[11],
+                "count_5y": r[12],
+            }
+            for r in rows
+        }
 
     def score_valuation(self, symbol: str) -> Dict:
         vals = self.get_latest_valuation(symbol)
         if not vals:
-            return {"score": 0, "grade": "NO_DATA", "overall_zone": "NO_DATA",
-                    "overall_zone_peer": "NO_DATA", "overall_zone_ts": "NO_DATA",
-                    "lowest_z": 0, "peer_group": None, "raw_values": {}}
+            return {
+                "score": 0,
+                "grade": "NO_DATA",
+                "overall_zone": "NO_DATA",
+                "overall_zone_peer": "NO_DATA",
+                "overall_zone_ts": "NO_DATA",
+                "lowest_z": 0,
+                "peer_group": None,
+                "raw_values": {},
+            }
 
         zone_scores = {"ULTRA_CHEAP": 2, "CHEAP": 1, "FAIR": 0, "EXPENSIVE": -1, "ULTRA_EXPENSIVE": -2}
         z_scores = []
@@ -540,10 +630,14 @@ class L3ValuationLoader:
                 has_ts = True
 
         def _zone_from_avg(avg: float) -> str:
-            if avg <= -1.5:  return "ULTRA_CHEAP"
-            if avg <= -0.5:  return "CHEAP"
-            if avg >= 1.5:   return "ULTRA_EXPENSIVE"
-            if avg >= 0.5:   return "EXPENSIVE"
+            if avg <= -1.5:
+                return "ULTRA_CHEAP"
+            if avg <= -0.5:
+                return "CHEAP"
+            if avg >= 1.5:
+                return "ULTRA_EXPENSIVE"
+            if avg >= 0.5:
+                return "EXPENSIVE"
             return "FAIR"
 
         avg_z = sum(z_scores) / len(z_scores) if z_scores else 0
@@ -579,35 +673,44 @@ class L4BehaviorLoader:
 
     def get_volume_profile(self, symbol: str) -> Optional[Dict]:
         cur = self.conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT price_current, poc, vah, val, volume_ratio,
                    price_ma20, price_ma50
             FROM volume_profile
             WHERE symbol = ?
             ORDER BY date DESC LIMIT 1
-        """, (symbol.upper(),))
+        """,
+            (symbol.upper(),),
+        )
         row = cur.fetchone()
         if not row:
             return None
         return {
-            "price": row[0], "poc": row[1], "vah": row[2],
-            "val": row[3], "volume_ratio": row[4],
-            "ma20": row[5], "ma50": row[6],
+            "price": row[0],
+            "poc": row[1],
+            "vah": row[2],
+            "val": row[3],
+            "volume_ratio": row[4],
+            "ma20": row[5],
+            "ma50": row[6],
         }
 
     def get_active_demand_count(self, symbol: str, days: int = 20) -> int:
         cur = self.conn.cursor()
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        cur.execute("""
+        cur.execute(
+            """
             SELECT COUNT(*) FROM active_demand
             WHERE symbol = ? AND date >= ?
-        """, (symbol.upper(), cutoff))
+        """,
+            (symbol.upper(), cutoff),
+        )
         return cur.fetchone()[0]
 
-    def score_behavior(self, symbol: str,
-                       fusion_action: str = "") -> Dict:
+    def score_behavior(self, symbol: str, fusion_action: str = "") -> Dict:
         """Score behavior from Volume Profile + optional decision fusion context.
-        
+
         WHY fusion_action (P1 bridge):
           decision_fusion.arbitrate() output enriches the Volume Profile
           position. When fusion says EXECUTE (consensus/trend/mean-reversion
@@ -748,11 +851,11 @@ class PerceptionLoader:
         """Load P2 HealthLatentState for a symbol — dynamic import to avoid circular."""
         try:
             from src.financial.company_health_v2 import CompanyHealthV2
+
             engine = CompanyHealthV2()
             state = engine.analyze(symbol)
             if state is None:
-                return {"archetype": "STEADY_EARNER", "vector": [0.5, 0.5, 0.5, 0.5, 0.5],
-                        "confidence": 0.5, "periods": 0}
+                return {"archetype": "STEADY_EARNER", "vector": [0.5, 0.5, 0.5, 0.5, 0.5], "confidence": 0.5, "periods": 0}
             return {
                 "archetype": state.archetype,
                 "archetype_label": state.archetype_label,
@@ -761,8 +864,7 @@ class PerceptionLoader:
                 "periods": state.data_periods,
             }
         except Exception:
-            return {"archetype": "STEADY_EARNER", "vector": [0.5, 0.5, 0.5, 0.5, 0.5],
-                    "confidence": 0.5, "periods": 0}
+            return {"archetype": "STEADY_EARNER", "vector": [0.5, 0.5, 0.5, 0.5, 0.5], "confidence": 0.5, "periods": 0}
 
 
 # =========================================================================
@@ -773,6 +875,7 @@ class PerceptionLoader:
 @dataclass
 class BayesianMandate:
     """Output of the P3 Bayesian Governor v2 for one symbol."""
+
     symbol: str
     action: str
     action_vn: str
@@ -885,6 +988,7 @@ class BayesianGovernor:
     def _get_factor_engine(self):
         if self._factor_engine is None:
             from src.business.factor_exposure import FactorExposureEngine, compute_lr_adjustment
+
             self._factor_engine = FactorExposureEngine()
             self._compute_lr_adjust = compute_lr_adjustment
         return self._factor_engine
@@ -892,12 +996,14 @@ class BayesianGovernor:
     def _get_context_engine(self):
         if self._context_engine is None:
             from src.financial.company_health import ContextualHealthEngine
+
             self._context_engine = ContextualHealthEngine()
         return self._context_engine
 
     def _get_capital_engine(self):
         if self._capital_engine is None:
             from src.business.capital_allocation import CapitalAllocationEngine
+
             self._capital_engine = CapitalAllocationEngine()
         return self._capital_engine
 
@@ -905,6 +1011,7 @@ class BayesianGovernor:
         """Map symbol to archetype prior key via Giai đoạn 1 classification."""
         try:
             from src.business.archetype import ArchetypeEngine
+
             arch = ArchetypeEngine().classify(symbol)
             return arch.archetype if arch else "UNKNOWN"
         except Exception:
@@ -913,6 +1020,7 @@ class BayesianGovernor:
     def _get_fair_engine(self):
         if self._fair_engine is None:
             from src.governor.fair_multiple_engine import compute_fair_multiple
+
             self._fair_engine = compute_fair_multiple
         return self._fair_engine
 
@@ -921,6 +1029,7 @@ class BayesianGovernor:
         #   delay until first assess() call to avoid cold-start penalty.
         if self._model_registry is None:
             from calibration.model_registry import ModelRegistry
+
             self._model_registry = ModelRegistry()
         return self._model_registry
 
@@ -934,10 +1043,10 @@ class BayesianGovernor:
             return self._cb_state
         try:
             from calibration.prediction_log import check_circuit_breaker_auto
+
             self._cb_state = check_circuit_breaker_auto(days=90)
         except Exception:
-            self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG",
-                              "active": 0, "reason": "CHECK_FAILED"}
+            self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": "CHECK_FAILED"}
         return self._cb_state
 
     def assess(self, symbol: str) -> BayesianMandate:
@@ -956,6 +1065,7 @@ class BayesianGovernor:
             if roe_val is None:
                 try:
                     from src.financial.company_health_v2 import CompanyHealthV2
+
                     ch = CompanyHealthV2()
                     ratios = ch._load_ratios(self.valuation.conn, symbol)
                     roe_series = ratios.get("ROE")
@@ -997,19 +1107,26 @@ class BayesianGovernor:
         fusion_action = ""
         try:
             from src.portfolio.decision_fusion import arbitrate
+
             vp = self.behavior.get_volume_profile(symbol)
             if vp:
-                price = vp["price"]; vah = vp["vah"]; val_vp = vp["val"]
+                price = vp["price"]
+                vah = vp["vah"]
+                val_vp = vp["val"]
                 vr = vp["volume_ratio"]
                 # Model A (Momentum) trigger: price in upper VA + volume expansion
                 a_buy = price >= (val_vp + vah) / 2 and vr >= 1.3
                 # Model B (Mean Reversion) trigger: price near/below VAL + contraction
                 b_buy = price <= val_vp + (vah - val_vp) * 0.3 and vr <= 0.7
                 _regime_map = {
-                    "CREDIT_STRESS": "CRISIS", "AI_BOOM": "TRENDING",
-                    "LIQUIDITY_EXPANSION": "TRENDING", "INFLATION_SHOCK": "CRISIS",
-                    "RECOVERY": "RECOVERY", "STABLE": "RANGING",
-                    "RISK_OFF": "CRISIS", "PRE_CREDIT_EXPANSION": "RECOVERY",
+                    "CREDIT_STRESS": "CRISIS",
+                    "AI_BOOM": "TRENDING",
+                    "LIQUIDITY_EXPANSION": "TRENDING",
+                    "INFLATION_SHOCK": "CRISIS",
+                    "RECOVERY": "RECOVERY",
+                    "STABLE": "RANGING",
+                    "RISK_OFF": "CRISIS",
+                    "PRE_CREDIT_EXPANSION": "RECOVERY",
                 }
                 df_regime = _regime_map.get(self._macro.get("state", "STABLE"), "RANGING")
                 fusion = arbitrate(
@@ -1030,9 +1147,7 @@ class BayesianGovernor:
         try:
             factor_eng = self._get_factor_engine()
             matrix = factor_eng.compute(symbol)
-            lr_mult = self._compute_lr_adjust(
-                matrix, self._macro["state"], self._transmission["phase"]
-            )
+            lr_mult = self._compute_lr_adjust(matrix, self._macro["state"], self._transmission["phase"])
             # Scale base LR by per-symbol multiplier
             lr_macro_dynamic = _lookup_lr(LR_MACRO, self._macro["state"]) * lr_mult
             lr_macro_dynamic = max(0.05, min(5.0, lr_macro_dynamic))
@@ -1068,6 +1183,7 @@ class BayesianGovernor:
         dynamic_weights = None
         try:
             from calibration.evidence_engine import get_dynamic_evidence_weights
+
             _ms = self._macro.get("state", "STABLE")
             _sp = sector_phase
             _en = float(self._macro.get("entropy", 0.0))
@@ -1082,6 +1198,7 @@ class BayesianGovernor:
         _causal_lag = None
         try:
             from calibration.causal_edge import CausalGraph
+
             _arch = self._get_archetype_prior(symbol)
             _cg = CausalGraph()
             _results = _cg.propagate(_ms, _arch, max_hops=3)
@@ -1130,9 +1247,7 @@ class BayesianGovernor:
         best_action, best_eu = pick_best_action(eu_list)
 
         # Kelly sizing
-        allocation = kelly_allocation(
-            p_gain, calib_penalty, self._macro["entropy"]
-        )
+        allocation = kelly_allocation(p_gain, calib_penalty, self._macro["entropy"])
         if best_action in ("VETO", "AVOID"):
             allocation = 0.0
         elif best_action == "REDUCE":
@@ -1147,10 +1262,9 @@ class BayesianGovernor:
         cb_reason = cb.get("reason", "")
         cb_active = cb.get("active", 0)
 
-        if cb_active and best_action in (
-            "OPEN", "SCALE_IN", "HOLD", "REDUCE", "WAIT", "AVOID"
-        ):
+        if cb_active and best_action in ("OPEN", "SCALE_IN", "HOLD", "REDUCE", "WAIT", "AVOID"):
             from calibration.prediction_log import CB_ACTION_MAP
+
             overrides = CB_ACTION_MAP.get(cb_level, {})
             if best_action in overrides:
                 new_action, capped_alloc = overrides[best_action]
@@ -1162,6 +1276,7 @@ class BayesianGovernor:
         try:
             _ensure_calib()
             from calibration.prediction_log import insert_prediction
+
             insert_prediction(
                 date_str=str(date.today()),
                 symbol=symbol,
@@ -1291,7 +1406,6 @@ GovernorEngine = BayesianGovernor
 # 7. REPORTING
 # =========================================================================
 
-from src.core.report_i18n_mapper import translate
 
 # P4 Calibration hook — lazy init
 _CALIB_INITED = False
@@ -1302,14 +1416,21 @@ def _ensure_calib():
     if not _CALIB_INITED:
         try:
             from calibration.prediction_log import init_schema
+
             init_schema()
             _CALIB_INITED = True
         except Exception:
             pass
 
+
 ARROW_MAP = {
-    "VETO": "⛔", "AVOID": "🚫", "REDUCE": "⬇",
-    "WAIT": "⏳", "HOLD": "➡", "SCALE_IN": "📈", "OPEN": "🚀", 
+    "VETO": "⛔",
+    "AVOID": "🚫",
+    "REDUCE": "⬇",
+    "WAIT": "⏳",
+    "HOLD": "➡",
+    "SCALE_IN": "📈",
+    "OPEN": "🚀",
 }
 
 
@@ -1345,13 +1466,14 @@ BUSINESS_STATUS_MAP = {
 
 def print_report(analysis: Dict):
     """Inverted Pyramid 3-Tầng CSI report.
-    
+
     WHY: End-investor reads Tầng 1 (verdict + 3 reasons) first,
          skims Tầng 2 (ranking table), and ignores Tầng 3 (dev audit).
          Developers read Tầng 3 for debugging. Separates concerns.
     """
     try:
         from src.core.canonical_output_adapter import localize_label
+
         # WHY: _() returns "VI (EN)" format — VI comes first for
         #   Vietnamese readers, EN in parentheses for bilingual reference.
         #   localize_label("full") returns the VI value from CLI_LABEL_MAP.
@@ -1359,7 +1481,9 @@ def print_report(analysis: Dict):
             vi = localize_label(x, "full")
             return f"{vi} ({x})" if vi != x else x
     except Exception:
-        def _(x): return x
+
+        def _(x):
+            return x
 
     m = analysis["macro_state"]
     t = analysis["transmission"]
@@ -1371,7 +1495,6 @@ def print_report(analysis: Dict):
     # ── Determine overall verdict ────────────────────────────────────
     has_buy = any(r.action in ("OPEN", "SCALE_IN") for r in results.values())
     all_reduce = all(r.action in ("REDUCE", "AVOID", "VETO") for r in results.values())
-    has_reduce = any(r.action == "REDUCE" for r in results.values())
     if has_buy:
         verdict = "CÓ CƠ HỘI MUA (SCALE_IN/OPEN)"
         capital_verdict = f"{_('Alloc')} > 0%"
@@ -1392,13 +1515,15 @@ def print_report(analysis: Dict):
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 1 — KẾT LUẬN CHÍNH (INVERTED PYRAMID TOP)
     # ══════════════════════════════════════════════════════════════════
-    print(f"\n  {'='*90}")
+    print(f"\n  {'=' * 90}")
     print(f"  🎯 {_('INVESTMENT DECISION REPORT')} — PTCK GOVERNOR V3 ({_('T+30D Forward')}) — {analysis['date']}")
-    print(f"  {'='*90}")
+    print(f"  {'=' * 90}")
     print(f"  {signal_icon} {_('OVERALL VERDICT')}: {verdict} ({_('CAPITAL RATIO')}: {capital_verdict})")
-    print(f"  👉 {_('Priority Symbols')}: {', '.join(deploy_symbols) if deploy_symbols else 'KHÔNG CÓ'} ({buy_ratio} {_('qualifying symbols')})")
-    print(f"  👉 {_('Portfolio Directive')}: {'HẠ TỶ TRỌNG / THU HỒI SỨC MUA (REDUCE ALL)' if all_reduce else 'GIỮ / TÍCH LŨY CHỌN LỌC'}")
-    print(f"  {'─'*90}")
+    _symbols = ", ".join(deploy_symbols) if deploy_symbols else "KHÔNG CÓ"
+    print(f"  👉 {_('Priority Symbols')}: {_symbols} ({buy_ratio} {_('qualifying symbols')})")
+    _directive = "HẠ TỶ TRỌNG / THU HỒI SỨC MUA (REDUCE ALL)" if all_reduce else "GIỮ / TÍCH LŨY CHỌN LỌC"
+    print(f"  👉 {_('Portfolio Directive')}: {_directive}")
+    print(f"  {'─' * 90}")
     print(f"  💡 {_('CORE REASONS')}:")
     macro_state_str = m.get("state", "?")
     macro_entropy = float(m.get("entropy", 0))
@@ -1419,18 +1544,18 @@ def print_report(analysis: Dict):
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 2 — BẢNG XẾP HẠNG HÀNH ĐỘNG (MIDDLE TIER)
     # ══════════════════════════════════════════════════════════════════
-    print(f"\n  {'='*95}")
+    print(f"\n  {'=' * 95}")
     print(f"  📊 {_('ACTION RANKING')} ({_('SORTED BY P(Gain) DESC')}):")
-    print(f"  {'='*95}")
+    print(f"  {'=' * 95}")
 
     # CSI v2 — Absolute Value First: MoS Zone is PRIMARY
-    MOS_EMOJI = {MOS_ZONE_UNDERVALUED: "🟢", MOS_ZONE_FAIR_VALUE: "🟡",
-                 MOS_ZONE_OVERVALUED: "🔴", MOS_ZONE_NO_DATA: "⚪"}
-    MOS_ABBR = {MOS_ZONE_UNDERVALUED: "HD", MOS_ZONE_FAIR_VALUE: "HL",
-                MOS_ZONE_OVERVALUED: "QG", MOS_ZONE_NO_DATA: "??"}
-    print(f"  {'Mã':<5} {'Ngành':<18} {'Hành động':<18} {'Vốn%':<7} {'DN (Business)':<22} "
-          f"{'Định giá Giá trị (MoS)':<34} {'Bối cảnh Thị trường':<30}")
-    print(f"  {'─'*140}")
+    MOS_EMOJI = {MOS_ZONE_UNDERVALUED: "🟢", MOS_ZONE_FAIR_VALUE: "🟡", MOS_ZONE_OVERVALUED: "🔴", MOS_ZONE_NO_DATA: "⚪"}
+    MOS_ABBR = {MOS_ZONE_UNDERVALUED: "HD", MOS_ZONE_FAIR_VALUE: "HL", MOS_ZONE_OVERVALUED: "QG", MOS_ZONE_NO_DATA: "??"}
+    print(
+        f"  {'Mã':<5} {'Ngành':<18} {'Hành động':<18} {'Vốn%':<7} {'DN (Business)':<22} "
+        f"{'Định giá Giá trị (MoS)':<34} {'Bối cảnh Thị trường':<30}"
+    )
+    print(f"  {'─' * 140}")
 
     sorted_symbols = sorted(results.items(), key=lambda x: x[1].p_gain, reverse=True)
     for sym, r in sorted_symbols:
@@ -1459,14 +1584,17 @@ def print_report(analysis: Dict):
             ctx_emoji = "➡️"
         ctx_display = f"{ctx_emoji} {ctx}"
 
-        print(f"  {arrow} {sym:<4} {sym_sector:<18} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% "
-              f"{status:<22} {mos_label:<34} {ctx_display:<30}")
+        print(
+            f"  {arrow} {sym:<4} {sym_sector:<18} {r.action_vn:<18} {r.allocation_pct:>+6.1f}% "
+            f"{status:<22} {mos_label:<34} {ctx_display:<30}"
+        )
 
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 2.5 — BẢNG ĐIỂM TỔNG HỢP COMPOSITE SCORE (0 – 100 SCALE)
     # ══════════════════════════════════════════════════════════════════
     try:
         from src.governor.composite_score_projector import CompositeScoreProjector, print_composite_dashboard
+
         projector = CompositeScoreProjector()
         comp_results = projector.project_batch(list(results.values()))
         print_composite_dashboard(comp_results)
@@ -1476,13 +1604,12 @@ def print_report(analysis: Dict):
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)
     # ══════════════════════════════════════════════════════════════════
-    print(f"\n  {'='*90}")
+    print(f"\n  {'=' * 90}")
     print(f"  🔍 {_('TECHNICAL AUDIT TRAIL')}:")
-    print(f"  {'='*90}")
+    print(f"  {'=' * 90}")
 
     # BMA + Model LR
     if bma_dict:
-        dominant = first_r.dominant_model
         bma_str = ", ".join(f"{k}={v:.0%}" for k, v in sorted(bma_dict.items(), key=lambda x: x[1], reverse=True))
         print(f"  • {_('BMA Weights')}  : {bma_str} | {_('Model LR')} = {first_r.model_registry_lr:.3f}")
 
@@ -1491,13 +1618,17 @@ def print_report(analysis: Dict):
     top_eu = top_r.eu_ranking[:4]  # top 4 actions
     eu_str = " | ".join(f"{a}: {eu:+.3f}" for a, eu in top_eu)
     print(f"  • {_('Top Expected Utility')} ({top_sym}) : {eu_str}")
-    print(f"  • {_('Context')}: {_('Macro')}={macro_state_str}, {_('Transmission')}={trans_phase}, "
-          f"{_('Top Sector')}={s.get('top_sector','?')} ({s.get('top_phase','?')}), "
-          f"{_('Healthy')}={s.get('n_healthy',0)}/19")
+    print(
+        f"  • {_('Context')}: {_('Macro')}={macro_state_str}, {_('Transmission')}={trans_phase}, "
+        f"{_('Top Sector')}={s.get('top_sector', '?')} ({s.get('top_phase', '?')}), "
+        f"{_('Healthy')}={s.get('n_healthy', 0)}/19"
+    )
 
     # Prediction count
-    print(f"  • {_('Symbols Analyzed')}: {n} {_('symbol')} | {_('Most Common Action')}: "
-          f"{max(set(r.action for r in results.values()), key=lambda a: sum(1 for r in results.values() if r.action == a))}")
+    print(
+        f"  • {_('Symbols Analyzed')}: {n} {_('symbol')} | {_('Most Common Action')}: "
+        f"{max(set(r.action for r in results.values()), key=lambda a: sum(1 for r in results.values() if r.action == a))}"
+    )
 
     # FairMultipleEngine audit
     ok = [r for r in results.values() if r.fair_status == "OK"]
@@ -1509,22 +1640,37 @@ def print_report(analysis: Dict):
             pb_s = f"{r.pb_raw:.1f}" if r.pb_raw is not None else "N/A"
             fpe_s = f"{r.fair_pe:.1f}" if r.fair_pe is not None else "N/A"
             fpb_s = f"{r.fair_pb:.1f}" if r.fair_pb is not None else "N/A"
-            print(f"      {r.symbol}: P/E={pe_s} P/B={pb_s} → Fair PE={fpe_s} Fair PB={fpb_s} "
-                  f"MoS={mos_s} Ke={r.fair_ke:.2%} g={r.fair_g:.2%} Sector={r.fair_sector}")
+            print(
+                f"      {r.symbol}: P/E={pe_s} P/B={pb_s} → Fair PE={fpe_s} Fair PB={fpb_s} "
+                f"MoS={mos_s} Ke={r.fair_ke:.2%} g={r.fair_g:.2%} Sector={r.fair_sector}"
+            )
     else:
         n_err = sum(1 for r in results.values() if r.fair_status != "" and r.fair_status != "OK")
         if n_err:
-            print(f"  • {_('FairMultipleEngine')}: {n_err}/{n} {_('symbol')} {_('skipped')} "
-                  f"(missing ROE/PE/PB or divergence)")
+            print(f"  • {_('FairMultipleEngine')}: {n_err}/{n} {_('symbol')} {_('skipped')} (missing ROE/PE/PB or divergence)")
 
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="P3 Governor — Bayesian Expected Utility")
-    parser.add_argument("--symbols", nargs="+", default=[
-        "FPT", "ACB", "HDB", "MBB", "VCB",
-        "HPG", "VHM", "DGC", "MWG", "GAS",
-    ], help="Danh sach symbol")
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=[
+            "FPT",
+            "ACB",
+            "HDB",
+            "MBB",
+            "VCB",
+            "HPG",
+            "VHM",
+            "DGC",
+            "MWG",
+            "GAS",
+        ],
+        help="Danh sach symbol",
+    )
     parser.add_argument("--output", choices=["report", "json"], default="report")
     args = parser.parse_args()
 
@@ -1538,6 +1684,7 @@ def main():
             if hasattr(obj, "__dataclass_fields__"):
                 return {f: getattr(obj, f) for f in obj.__dataclass_fields__}
             return str(obj)
+
         print(json.dumps(analysis, indent=2, ensure_ascii=False, default=_ser))
     else:
         print_report(analysis)
