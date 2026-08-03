@@ -1,4 +1,4 @@
-﻿"""
+"""
 orchestrator.py — Bộ quyết định cuối cùng
 
 Thứ tự ưu tiên (CAO → THẤP):
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -38,17 +38,19 @@ def _hydrate_path():
             sys.path.insert(0, str(p))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
-if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
+if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
     import io
+
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import src.config
 
 QUYET_DINH = ["THAM GIA FULL", "THAM GIA", "THAM GIA DO", "QUAN SAT", "GIAM RUI RO", "DUNG NGOAI"]
@@ -68,6 +70,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
 
     # ---- Bước 1: Ảnh chụp thị trường duy nhất ----
     from src.core.market_snapshot import tao_anh_chup
+
     anh_chup = tao_anh_chup(target_date, lang_mode=lang_mode)
 
     r = anh_chup.get("regime", {})
@@ -80,26 +83,56 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
     regime_status = r.get("trang_thai", "N/A")
     early_warning = ew.get("co_canh_bao", False)
 
+    # ---- Raw Daily-Report-style signal (pre-Governor reference for XAI) ----
+    # Mirror _ket_luan_hanh_vi from daily_market_report: technical/behavioral
+    # view of "can I participate" BEFORE Governor Laws/VETO are applied.
+    _raw_daily = "QUAN SAT"
+    try:
+        _risk_rating = str(anh_chup.get("muc_do_rui_ro", {}).get("xep_loai", "")).lower()
+        _risk_appetite = str(anh_chup.get("muc_do_rui_ro", {}).get("trang_thai", "")).upper()
+        _health_score = anh_chup.get("muc_do_rui_ro", {}).get("suc_khoe_do_rong")
+        if "CRISIS" in str(regime_status).upper():
+            _raw_daily = "DUNG NGOAI"
+        elif _risk_rating == "cao":
+            _raw_daily = "QUAN SAT"
+        elif "ĐÓNG" in _risk_appetite:
+            _raw_daily = "DUNG NGOAI"
+        elif "MỞ_RỘNG" in _risk_appetite and _health_score is not None and _health_score > 55:
+            _raw_daily = "THAM GIA"
+        elif "THẬN_TRỌNG" in _risk_appetite:
+            _raw_daily = "QUAN SAT"
+    except Exception:
+        pass
+
     # ---- Bước 0: Data Quality Guard ----
     try:
         import pandas as pd
 
         from src.database.db_core import get_connection
+
         with get_connection() as _conn:
             count_liquid = pd.read_sql(
-                "SELECT COUNT(DISTINCT symbol) as cnt FROM daily_ohlcv "
-                "WHERE date=? AND volume>50000 AND symbol!='VNINDEX'",
-                _conn, params=(target_date,)
-            ).iloc[0]['cnt']
+                "SELECT COUNT(DISTINCT symbol) as cnt FROM daily_ohlcv WHERE date=? AND volume>50000 AND symbol!='VNINDEX'",
+                _conn,
+                params=(target_date,),
+            ).iloc[0]["cnt"]
         if count_liquid < 50:
             ket_qua_tam = {
-                "ngay": target_date, "quyet_dinh": "DUNG NGOAI",
-                "ly_do": [f"dữ liệu không đảm bảo — chỉ {int(count_liquid)} mã đủ thanh khoản",
-                          "cảnh báo DATA QUALITY — nguy cơ dữ liệu nhiễu/lỗi feed",
-                          "tuyệt đối không giao dịch trên dữ liệu méo"],
+                "ngay": target_date,
+                "quyet_dinh": "DUNG NGOAI",
+                "ly_do": [
+                    f"dữ liệu không đảm bảo — chỉ {int(count_liquid)} mã đủ thanh khoản",
+                    "cảnh báo DATA QUALITY — nguy cơ dữ liệu nhiễu/lỗi feed",
+                    "tuyệt đối không giao dịch trên dữ liệu méo",
+                ],
                 "chi_tiet": {"data_quality_warning": True, "so_ma_du_lieu": int(count_liquid)},
             }
-            ket_qua_tam["độ_tin_cậy_sau_hiệu_chỉnh"] = {"điểm_số": 0, "mức": "THAP", "tạm_ngưng": True, "lý_do_tạm_ngưng": "dữ liệu không đủ thanh khoản để ra quyết định"}
+            ket_qua_tam["độ_tin_cậy_sau_hiệu_chỉnh"] = {
+                "điểm_số": 0,
+                "mức": "THAP",
+                "tạm_ngưng": True,
+                "lý_do_tạm_ngưng": "dữ liệu không đủ thanh khoản để ra quyết định",
+            }
             ket_qua_tam["bi_chặn_bởi_bảo_vệ"] = True
             ket_qua_tam["lý_do_chặn"] = f"chỉ {int(count_liquid)} mã đủ volume > 50k"
             return ket_qua_tam
@@ -110,7 +143,8 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
     _fallback_penalty = 0.0
     try:
         from src.data.fallback_resolver import resolve
-        _critical_symbols = ['VNINDEX', 'FPT', 'VCB', 'HPG', 'VNM', 'TCB']
+
+        _critical_symbols = ["VNINDEX", "FPT", "VCB", "HPG", "VNM", "TCB"]
         _force_lock = False
         _is_backup = False
         _fallback_reasons = []
@@ -121,22 +155,28 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
                 _fallback_reasons.append(f"{_sym}: synthetic data — FORCE_LOCK_HDR")
             elif _meta.get("source") == "BACKUP_PROVIDER":
                 _is_backup = True
-                _fallback_reasons.append(
-                    f"{_sym}: backup provider ({_meta.get('provider', '?')}) — hạ confidence 5%"
-                )
+                _fallback_reasons.append(f"{_sym}: backup provider ({_meta.get('provider', '?')}) — hạ confidence 5%")
                 # Lấy mức phạt confidence cao nhất
                 cp = _meta.get("confidence_penalty", 0.0)
                 _fallback_penalty = min(_fallback_penalty, cp)
         if _force_lock:
             ket_qua_tam = {
-                "ngay": target_date, "quyet_dinh": "DUNG NGOAI",
-                "ly_do": ["FORCE_LOCK_HDR — dữ liệu thị trường đang ở chế độ Synthetic",
-                          "API ngoại vi không khả dụng, hệ thống đóng băng giao dịch",
-                          "chỉ giao dịch lại khi API khôi phục và cache warmed"]
+                "ngay": target_date,
+                "quyet_dinh": "DUNG NGOAI",
+                "ly_do": [
+                    "FORCE_LOCK_HDR — dữ liệu thị trường đang ở chế độ Synthetic",
+                    "API ngoại vi không khả dụng, hệ thống đóng băng giao dịch",
+                    "chỉ giao dịch lại khi API khôi phục và cache warmed",
+                ]
                 + _fallback_reasons[:3],
                 "chi_tiet": {"fallback_guard": True, "fallback_reasons": _fallback_reasons},
             }
-            ket_qua_tam["độ_tin_cậy_sau_hiệu_chỉnh"] = {"điểm_số": 0, "mức": "THAP", "tạm_ngưng": True, "lý_do_tạm_ngưng": "synthetic data — FORCE_LOCK_HDR"}
+            ket_qua_tam["độ_tin_cậy_sau_hiệu_chỉnh"] = {
+                "điểm_số": 0,
+                "mức": "THAP",
+                "tạm_ngưng": True,
+                "lý_do_tạm_ngưng": "synthetic data — FORCE_LOCK_HDR",
+            }
             ket_qua_tam["bi_chặn_bởi_bảo_vệ"] = True
             ket_qua_tam["lý_do_chặn"] = "FORCE_LOCK_HDR — synthetic data"
             return ket_qua_tam
@@ -230,6 +270,8 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
     ket_qua = {
         "ngay": target_date,
         "quyet_dinh": quyet_dinh,
+        "quyet_dinh_raw": quyet_dinh,
+        "quyet_dinh_raw_daily": _raw_daily,
         "ly_do": ly_do,
         "chi_tiet": {
             "cau_truc": trang_thai_cau_truc,
@@ -245,6 +287,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
     # ---- Bước 3: Tự đánh giá độ tin cậy (dùng chung ảnh chụp) ----
     try:
         from src.engine.confidence_layer import đánh_giá_độ_tin_cậy
+
         đg = đánh_giá_độ_tin_cậy(anh_chup=anh_chup)
         _raw_score = đg["điểm_tin_cậy"]
         _adjusted = max(0.0, _raw_score + _fallback_penalty)
@@ -258,13 +301,16 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
         }
     except Exception:
         ket_qua["độ_tin_cậy_sau_hiệu_chỉnh"] = {
-            "điểm_số": 0.5, "mức": "TRUNG_BINH", "tạm_ngưng": False,
+            "điểm_số": 0.5,
+            "mức": "TRUNG_BINH",
+            "tạm_ngưng": False,
         }
 
     # ---- Bước 4: Lớp bảo vệ quyết định (Guard) ----
     du_lieu_lien_ngan_hang = None
     try:
         from src.services.macro.interbank_zscore import assess_interbank_risk
+
         du_lieu_lien_ngan_hang = assess_interbank_risk()
     except Exception:
         pass
@@ -293,6 +339,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
         if _quyet_dinh_raw in ("THAM GIA FULL", "THAM GIA"):
             try:
                 from src.services.macro.interbank_seeder import kiem_tra_sbv_theo_yeu_cau
+
                 _recall = kiem_tra_sbv_theo_yeu_cau()
                 _recall_triggered = _recall.get("scraped", False)
                 on_rate = _recall.get("ON")
@@ -322,6 +369,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
     if not _recall_triggered or ket_qua.get("quyet_dinh") != "DUNG NGOAI":
         try:
             from src.engine.decision_guard import kiem_tra_an_toan
+
             guarded = kiem_tra_an_toan(
                 quyet_dinh_de_xuat=ket_qua["quyet_dinh"],
                 ly_do_de_xuat=ket_qua.get("ly_do", []),
@@ -443,8 +491,10 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
         consensus_conditions = (
             trang_thai_cau_truc == "ĐỒNG THUẬN"
             and so_tru_ok == 3
-            and entropy is not None and entropy > 2.0
-            and adx_value is not None and adx_value > 25
+            and entropy is not None
+            and entropy > 2.0
+            and adx_value is not None
+            and adx_value > 25
             and is_trending_up
         )
 
@@ -456,10 +506,12 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
                 import pandas as pd
 
                 from src.database.db_core import get_connection
+
                 with get_connection() as _rc:
                     prev_dates = pd.read_sql(
                         "SELECT DISTINCT date FROM daily_ohlcv WHERE date<? AND symbol='VNINDEX' ORDER BY date DESC LIMIT 2",
-                        _rc, params=(target_date,)
+                        _rc,
+                        params=(target_date,),
                     )["date"].tolist()
                 if len(prev_dates) >= 2:
                     t1, t2 = prev_dates[0], prev_dates[1]
@@ -467,24 +519,29 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
                         vnindex_data = pd.read_sql(
                             "SELECT date, close, volume FROM daily_ohlcv "
                             "WHERE symbol='VNINDEX' AND date IN (?, ?, ?) ORDER BY date",
-                            _rc2, params=(target_date, t1, t2)
+                            _rc2,
+                            params=(target_date, t1, t2),
                         )
                     if len(vnindex_data) >= 3:
-                        c0, c1, c2 = vnindex_data['close'].values
-                        v1 = vnindex_data.iloc[1]['volume']
+                        c0, c1, c2 = vnindex_data["close"].values
+                        v1 = vnindex_data.iloc[1]["volume"]
                         vol_hist = pd.read_sql(
                             "SELECT date, SUM(volume) as total FROM daily_ohlcv "
                             "WHERE date<? AND date>=date(?, '-27 days') AND symbol='VNINDEX' "
                             "GROUP BY date ORDER BY date",
-                            _rc2, params=(target_date, target_date,)
+                            _rc2,
+                            params=(
+                                target_date,
+                                target_date,
+                            ),
                         )
-                        v_ma20 = float(vol_hist['total'].tail(20).mean()) if len(vol_hist) >= 5 else 0
+                        v_ma20 = float(vol_hist["total"].tail(20).mean()) if len(vol_hist) >= 5 else 0
                         is_pullback = float(c1) < float(c2)
                         is_low_vol = v_ma20 > 0 and (float(v1) / v_ma20) < 0.8
                         is_recovery = float(c0) > float(c1)
                         if is_pullback and is_low_vol and is_recovery:
                             retest_confirmed = True
-                            retest_log = f"retest T-1: pullback x{float(v1)/v_ma20:.2f} vol MA20 → xác nhận xu hướng"
+                            retest_log = f"retest T-1: pullback x{float(v1) / v_ma20:.2f} vol MA20 → xác nhận xu hướng"
             except Exception:
                 pass
 
@@ -517,6 +574,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
     if ket_qua.get("quyet_dinh") == "THAM GIA FULL":
         try:
             from src.engine.fast_exit_guard import kiem_tra_phan_phoi
+
             phan_phoi = kiem_tra_phan_phoi(target_date=target_date)
             ket_qua["fast_exit_guard"] = phan_phoi
             if phan_phoi.get("co_phan_phoi") and phan_phoi.get("muc_do") == "CAO":
@@ -538,6 +596,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
     # ---- Audit Trail: log transition từ previous decision ----
     try:
         from src.portfolio.decision_audit import log_transition
+
         _prev_path = Path(src.config.DATA_DIR) / "output" / "final_decision.json"
         _prev_state = ""
         if _prev_path.exists():
@@ -574,7 +633,14 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
 
 
 def in_bao_cao(kq: dict):
-    icons = {"THAM GIA FULL": "💎", "THAM GIA": "🟢", "THAM GIA DO": "🔵", "QUAN SAT": "🟡", "GIAM RUI RO": "🟠", "DUNG NGOAI": "🔴"}
+    icons = {
+        "THAM GIA FULL": "💎",
+        "THAM GIA": "🟢",
+        "THAM GIA DO": "🔵",
+        "QUAN SAT": "🟡",
+        "GIAM RUI RO": "🟠",
+        "DUNG NGOAI": "🔴",
+    }
     icon = icons.get(kq.get("quyet_dinh", ""), "⚪")
     print("\n" + "=" * 60)
     print("  BỘ QUYẾT ĐỊNH CUỐI CÙNG")
@@ -586,12 +652,21 @@ def in_bao_cao(kq: dict):
     for i, ld in enumerate(kq.get("ly_do", []), 1):
         print(f"    {i}. {ld}")
     print()
+
+    # ── XAI Causal Override Trace (transparency: no silent override) ──
+    try:
+        from src.utils.xai_override_trace import print_override_trace
+
+        print_override_trace(kq)
+    except Exception:
+        pass
+
     ct = kq.get("chi_tiet", {})
     print(f"  Cấu trúc:     {ct.get('cau_truc', 'N/A')} ({ct.get('so_tru_cau_truc', '?')}/3 trụ)")
     print(f"  Regime:       {ct.get('regime', 'N/A')}")
     print(f"  Cảnh báo sớm: {ct.get('canh_bao_som', 'N/A')}")
-    adx_ct = ct.get('adx')
-    da_ct = ct.get('delta_adx')
+    adx_ct = ct.get("adx")
+    da_ct = ct.get("delta_adx")
     if adx_ct is not None:
         adx_str = f"ADX {adx_ct}"
         if da_ct is not None:
@@ -607,8 +682,11 @@ def in_bao_cao(kq: dict):
     cd = kq.get("chuyen_doi_cau_truc")
     if hs:
         icons_hs = {
-            "TAI_PHAT_BENH": "🚨", "DANG_VO": "🔴",
-            "BAT_DAU_LANH": "🟠", "DANG_LANH": "🟡", "DA_LANH": "🟢",
+            "TAI_PHAT_BENH": "🚨",
+            "DANG_VO": "🔴",
+            "BAT_DAU_LANH": "🟠",
+            "DANG_LANH": "🟡",
+            "DA_LANH": "🟢",
         }
         icon_hs = icons_hs.get(hs, "⚪")
         print(f"  Lành:         {icon_hs} {hs} ({cd})")
@@ -642,12 +720,13 @@ def in_bao_cao(kq: dict):
     # CLI continuous polling: check alert file every render
     try:
         from src.services.macro.interbank_seeder import _is_sbv_alert_active
+
         if _is_sbv_alert_active():
-            print(f"  {'='*50}")
+            print(f"  {'=' * 50}")
             print("  ⚠ [ACTION REQUIRED]: CẤU TRÚC SBV THAY ĐỔI — PARSER KHÔNG KHẢ DỤNG.")
             print("  Dữ liệu gốc lưu tại: data/alerts/")
             print("  Chạy: python ptck.py sbv-update")
-            print(f"  {'='*50}")
+            print(f"  {'=' * 50}")
     except Exception:
         pass
 
