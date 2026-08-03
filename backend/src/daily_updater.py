@@ -336,10 +336,17 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                 df_save = df_pb.copy()
                 df_save["date"] = target_date
 
+                # Guard: normalize column names to lowercase
+                df_save.columns = [str(c).lower() for c in df_save.columns]
+
                 required_cols = ["foreign_buy_volume", "foreign_sell_volume", "close_price"]
                 for mc in required_cols:
                     if mc not in df_save.columns:
                         df_save[mc] = 0
+
+                # Guard: if total_trades missing, default volume to 0
+                if "total_trades" not in df_save.columns:
+                    df_save["total_trades"] = 0
 
                 df_save = df_save.rename(
                     columns={
@@ -377,6 +384,11 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                 try:
                     df_solo = _fallback_fetch_single(s)
                     if not df_solo.empty:
+                        df_solo.columns = [str(c).lower() for c in df_solo.columns]
+                        if "volume" not in df_solo.columns and "total_trades" in df_solo.columns:
+                            df_solo = df_solo.rename(columns={"total_trades": "volume"})
+                        if "volume" not in df_solo.columns:
+                            df_solo["volume"] = 0
                         cols_ohlcv = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
                         if "is_stale" in df_solo.columns:
                             cols_ohlcv.append("is_stale")

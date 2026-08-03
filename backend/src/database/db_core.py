@@ -1,4 +1,4 @@
-﻿import json
+import json
 import math
 import sqlite3
 import sys
@@ -10,7 +10,7 @@ from pathlib import Path
 
 def _hydrate_path():
     """Path Hydrator v2.1: Auto-locate Project Root"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -24,10 +24,11 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
 
-    backend_dir = root_path / 'backend'
+    backend_dir = root_path / "backend"
     if backend_dir.exists() and str(backend_dir) not in sys.path:
         sys.path.append(str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
@@ -61,7 +62,7 @@ class NumpyEncoder(json.JSONEncoder):
       - datetime / date          → ISO 8601 string
       - đối tượng có .to_dict()  → dict (pydantic-lite / dataclass tiện ích)
       - pydantic BaseModel       → dict (model_dump) — thay _PydanticEncoder cũ
-     """
+    """
 
     def default(self, obj):
         # Lazy import numpy — db_core không hard-depend numpy lúc import.
@@ -191,7 +192,7 @@ def optimize_sqlite_engine():
 
         # 3. Tạo Index phụ để Screener quét nhanh các query phức tạp
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_symbol_date 
+            CREATE INDEX IF NOT EXISTS idx_symbol_date
             ON daily_ohlcv(symbol, date);
         """)
 
@@ -240,6 +241,12 @@ def optimize_sqlite_engine():
         # Migration: add is_stale column to macro_history if missing
         try:
             cursor.execute("ALTER TABLE macro_history ADD COLUMN is_stale INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
+        # Migration: add is_stale to daily_ohlcv (needed by EliteArmor stale detection)
+        try:
+            cursor.execute("ALTER TABLE daily_ohlcv ADD COLUMN is_stale INTEGER DEFAULT 0")
         except Exception:
             pass
 
@@ -359,6 +366,7 @@ def optimize_sqlite_engine():
         conn.commit()
     print("[OK] Database Engine Optimized (WAL Mode Enabled & Indexed)")
 
+
 def refresh_fts5_index(conn):
     """Đồng bộ dữ liệu từ symbol_industry sang chỉ mục FTS5."""
     cursor = conn.cursor()
@@ -373,6 +381,7 @@ def refresh_fts5_index(conn):
     if cnt:
         print(f"[FTS5] Indexed {cnt} symbols for instant search")
 
+
 def save_data_upsert(table_name, df, conn):
     """Lưu dữ liệu vào SQLite sử dụng cơ chế INSERT OR REPLACE (UPSERT)"""
     if df.empty:
@@ -380,8 +389,8 @@ def save_data_upsert(table_name, df, conn):
 
     # --- SENTINEL SAFE PATTERN: Data Sanitization ---
     df_save = df.copy()
-    if 'date' in df_save.columns:
-        df_save['date'] = df_save['date'].astype(str)
+    if "date" in df_save.columns:
+        df_save["date"] = df_save["date"].astype(str)
 
     cursor = conn.cursor()
     columns = df_save.columns.tolist()
@@ -394,4 +403,3 @@ def save_data_upsert(table_name, df, conn):
     data = [tuple(x) for x in df_save.values]
     cursor.executemany(sql, data)
     conn.commit()
-
