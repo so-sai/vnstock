@@ -99,6 +99,15 @@ def _latest_period(conn) -> str:
 
 def _periods_n_years(period: str, n: int = N_YEARS) -> List[str]:
     """Return list of period keys for the last n years ending at `period`."""
+
+
+def _periods_n_years(period: str, n: int = N_YEARS) -> List[str]:
+    """Return period keys for the last n years ending at `period`, ASCENDING.
+
+    Oldest first (2024Q1 → 2026Q2) so `periods[-4:]` = the 4 MOST RECENT
+    quarters (was descending before — a latent bug that made D/E & Gross
+    Margin lookups target the oldest quarters instead of latest).
+    """
     try:
         y, q = period.split("Q")
         y = int(y)
@@ -106,8 +115,8 @@ def _periods_n_years(period: str, n: int = N_YEARS) -> List[str]:
     except Exception:
         return []
     out = []
-    for yy in range(y, y - n, -1):
-        for qq in range(4, 0, -1):
+    for yy in range(y - n + 1, y + 1):
+        for qq in range(1, 5):
             if (yy, qq) <= (y, q):
                 out.append(f"{yy}Q{qq}")
     return out[-n * 4 :]
