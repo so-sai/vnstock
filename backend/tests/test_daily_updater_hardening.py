@@ -22,12 +22,12 @@ xảy ra ở test_bug_regression.py NGAY CẢ KHI CHƯA CÓ thay đổi này (pr
 module này double-wrap → capture đọc file đã đóng. Đây là class bug GIỐNG hệt
 double-wrap đã fix trong daily_updater.py; chưa xử lý hết vì nằm ngoài scope.
 """
+
 import ast
 import re
 from pathlib import Path
 
 import pytest
-
 from conftest import PROJECT_ROOT
 
 DAILY_UPDATER = PROJECT_ROOT / "backend" / "src" / "daily_updater.py"
@@ -40,6 +40,14 @@ def _src(path: Path) -> str:
     # WHY utf-8-sig: daily_updater.py có BOM (U+FEFF) pre-existing; đọc sai encoding
     # sẽ làm ast.parse / string-match sai.
     return path.read_text(encoding="utf-8-sig")
+
+
+def _compact(src: str) -> str:
+    # WHY: ruff format tự wrap tham số xuống nhiều dòng nên assertion kiểu chuỗi
+    # literal chính xác sẽ vỡ vì formatting, dù logic thật vẫn đúng. Loại bỏ toàn
+    # bộ whitespace để assertion còn kiểm tra "param được khai báo/truyền" mà
+    # không phụ thuộc cách trình bày từng dòng.
+    return re.sub(r"\s+", "", src)
 
 
 # ============================================================
@@ -59,9 +67,7 @@ class TestIpBanProtection:
             "Mất random_agent — KBS sẽ fingerprint UA cố định và ban IP khi quét full-market."
         )
         updater_src = _src(DAILY_UPDATER)
-        assert "price_board(active_batch)" in updater_src, (
-            "daily_updater phải gọi price_board qua provider."
-        )
+        assert "price_board(active_batch)" in updater_src, "daily_updater phải gọi price_board qua provider."
 
     def test_update_market_batch_accepts_batch_size_and_throttle(self):
         """update_market_batch phải nhận batch_size + throttle_sec để điều tiết rate."""
@@ -80,26 +86,26 @@ class TestIpBanProtection:
     def test_run_daily_update_forwards_throttle_params(self):
         """run_daily_update phải truyền batch_size/throttle_sec xuống update_market_batch."""
         src = _src(DAILY_UPDATER)
-        assert "def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50, throttle_sec: float = 1.8):" in src, (
-            "run_daily_update mất tham số chống ban IP."
-        )
-        assert "update_market_batch(" in src
-        assert "batch_size=batch_size, throttle_sec=throttle_sec" in src, (
+        assert (
+            "def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50, throttle_sec: float = 1.8):"
+        ) in src, "run_daily_update mất tham số chống ban IP."
+        assert "update_market_batch(" in _compact(src)
+        assert "batch_size=batch_size,throttle_sec=throttle_sec" in _compact(src), (
             "Không truyền throttle xuống update_market_batch — chống ban IP bị vô hiệu."
         )
 
     def test_main_argparse_has_batch_and_throttle(self):
         """__main__ argparse phải có --batch-size và --throttle để CLI dùng được."""
-        src = _src(DAILY_UPDATER)
-        assert 'parser.add_argument("--batch-size"' in src
-        assert 'parser.add_argument("--throttle"' in src
-        assert "run_daily_update(args.date, args.manifest, batch_size=args.batch_size, throttle_sec=args.throttle)" in src
+        compact = _compact(_src(DAILY_UPDATER))
+        assert 'parser.add_argument("--batch-size"' in compact
+        assert 'parser.add_argument("--throttle"' in compact
+        assert "run_daily_update(args.date,args.manifest,batch_size=args.batch_size,throttle_sec=args.throttle)" in compact
 
     def test_ptck_forwards_cli_flags(self):
         """ptck.py cmd_daily_update phải forward --batch-size/--throttle qua subprocess."""
         src = _src(PTCK)
-        assert 'batch_size = getattr(args, \'batch_size\', 50)' in src
-        assert 'throttle = getattr(args, \'throttle\', 1.8)' in src
+        assert "batch_size = getattr(args, 'batch_size', 50)" in src
+        assert "throttle = getattr(args, 'throttle', 1.8)" in src
         assert 'cmd += ["--batch-size", str(batch_size), "--throttle", str(throttle)]' in src, (
             "ptck.py không forward flags chống ban IP xuống daily_updater."
         )
@@ -137,17 +143,13 @@ class TestStdoutSingleWrap:
         """__main__ không được wrap sys.stdout lần nữa (đã wrap ở module scope)."""
         src = _src(DAILY_UPDATER)
         main_block = src.split("if __name__", 1)[1]
-        assert "TextIOWrapper" not in main_block, (
-            "__main__ re-wrap sys.stdout — gây double-wrap, pipeline chết ngẫu nhiên."
-        )
+        assert "TextIOWrapper" not in main_block, "__main__ re-wrap sys.stdout — gây double-wrap, pipeline chết ngẫu nhiên."
 
     def test_console_handler_reuses_stdout(self):
         """Console handler phải dùng sys.stdout hiện tại, không wrap riêng."""
         src = _src(DAILY_UPDATER)
         assert "console_handler = logging.StreamHandler(sys.stdout)" in src
-        assert "console_handler.stream" not in src, (
-            "Console handler wrap stream riêng — double wrapper trên cùng buffer."
-        )
+        assert "console_handler.stream" not in src, "Console handler wrap stream riêng — double wrapper trên cùng buffer."
 
 
 # ============================================================
@@ -181,6 +183,7 @@ class TestEngineApiContracts:
 
     def test_market_behavior_uses_scan_multi(self):
         from src.financial.market_behavior_engine import MarketBehaviorEngine
+
         assert hasattr(MarketBehaviorEngine, "scan_multi"), "MarketBehaviorEngine mất scan_multi."
         assert not hasattr(MarketBehaviorEngine, "scan"), (
             "MarketBehaviorEngine có scan (API cũ) — daily_updater gọi scan_multi, nếu tồn tại "
@@ -193,6 +196,7 @@ class TestEngineApiContracts:
 
     def test_company_health_analyze_many_returns_dict(self):
         from src.financial.company_health_v2 import CompanyHealthV2
+
         result = CompanyHealthV2().analyze_many(["FPT"])
         assert isinstance(result, dict), (
             f"analyze_many trả {type(result).__name__} thay vì dict — daily_updater iterate .values() sẽ hỏng."
