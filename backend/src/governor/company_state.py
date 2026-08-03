@@ -1105,6 +1105,7 @@ class BayesianGovernor:
         #   Model A/B signals from Volume Profile (VAH/VAL/vol_ratio)
         #   and feed fusion_action into score_behavior() as modifier.
         fusion_action = ""
+        recov_vr = 1.0
         try:
             from src.portfolio.decision_fusion import arbitrate
 
@@ -1114,6 +1115,7 @@ class BayesianGovernor:
                 vah = vp["vah"]
                 val_vp = vp["val"]
                 vr = vp["volume_ratio"]
+                recov_vr = vr
                 # Model A (Momentum) trigger: price in upper VA + volume expansion
                 a_buy = price >= (val_vp + vah) / 2 and vr >= 1.3
                 # Model B (Mean Reversion) trigger: price near/below VAL + contraction
@@ -1225,6 +1227,16 @@ class BayesianGovernor:
 
         # Bayesian inference v3 with Giai đoạn 7 ModelRegistry LR
         #   + FairMultipleEngine lr_val_override (MoS-modulated valuation LR)
+        #   + Node #9 RecoveryAuthenticity (RDS + ΔBreadth + ΔCredit)
+        try:
+            _credit_shift = 50.0 - float(self._transmission.get("credit", 50.0))
+            recovery_authenticity_lr = compute_recovery_authenticity_lr(
+                relative_demand=float(recov_vr),
+                breadth_momentum_5d=0.0,
+                credit_shift=_credit_shift,
+            )
+        except Exception:
+            recovery_authenticity_lr = None
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
             transmission_phase=self._transmission["phase"],
@@ -1240,6 +1252,7 @@ class BayesianGovernor:
             evidence_weights=dynamic_weights,
             model_registry_lr=model_registry_lr,
             lr_val_override=val.get("_lr_val_override"),
+            recovery_authenticity_lr=recovery_authenticity_lr,
         )
 
         # Expected utility
