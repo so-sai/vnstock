@@ -4929,9 +4929,9 @@ def main():
 
     parser = build_parser()
     args = parser.parse_args()
-    # Mặc định 'full' (Tiếng Việt) cho mọi lệnh, trừ report daily
-    # (riêng lệnh đó default sang chế độ song ngữ Việt-Anh).
-    _VERBOSE_LANG = getattr(args, "verbose_lang", None) or "full"
+    # Mặc định 'annotated' (song ngữ Việt-Anh) cho mọi lệnh.
+    # Dùng --verbose-lang compact|full|auto để ghi đè.
+    _VERBOSE_LANG = getattr(args, "verbose_lang", None) or "annotated"
     # Re-hydrate: config.py may push vnstock_path to sys.path[0],
     # breaking core/ resolution. Ensure PROJECT_ROOT stays at [0].
     sp = str(PROJECT_ROOT)
