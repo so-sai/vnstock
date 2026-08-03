@@ -1330,6 +1330,7 @@ class BayesianGovernor:
                     lr_macro_override=lr_macro_dynamic,
                     evidence_weights=renormed,
                     model_registry_lr=None,
+                    recovery_authenticity_lr=recovery_authenticity_lr,
                 )
                 insert_prediction(
                     date_str=str(date.today()),
