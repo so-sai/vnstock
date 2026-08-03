@@ -1,4 +1,4 @@
-﻿"""
+"""
 time_series_aligner.py — Module 1: Causal-Preserving Time Alignment.
 
 Architecture: PTD Layer 0 (Data Infrastructure)
@@ -14,7 +14,7 @@ Pairwise deletion for holidays:
 import json
 import logging
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -119,6 +119,7 @@ def _is_weekend(d: date) -> bool:
 
 # ── US Session Calendar ───────────────────────────────────────────────
 
+
 class USSessionCalendar:
     """NYSE trading days: Mon-Fri excluding holidays, shifted for observance."""
 
@@ -138,6 +139,7 @@ class USSessionCalendar:
 
 # ── VN Session Calendar ───────────────────────────────────────────────
 
+
 class VNSessionCalendar:
     """HOSE trading days: Mon-Fri excluding VN holidays + weekends."""
 
@@ -150,6 +152,7 @@ class VNSessionCalendar:
 
 
 # ── Business Date Tagging ─────────────────────────────────────────────
+
 
 def _tag_business_date_us(df: pd.DataFrame) -> pd.DataFrame:
     """Tag US market data with business_date (trading day)."""
@@ -179,6 +182,7 @@ def _tag_business_date_vn(df: pd.DataFrame) -> pd.DataFrame:
 
 # ── Main Aligner ──────────────────────────────────────────────────────
 
+
 class TimeSeriesAligner:
     """
     Causal-preserving cross-market time alignment.
@@ -198,8 +202,7 @@ class TimeSeriesAligner:
         self.us_cal = USSessionCalendar()
         self.vn_cal = VNSessionCalendar()
 
-    def align(self, us_data: pd.DataFrame, vn_data: pd.DataFrame,
-               futures_data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    def align(self, us_data: pd.DataFrame, vn_data: pd.DataFrame, futures_data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """
         Align US(t-1) close → VN(t) close with optional futures fallback.
 
@@ -233,9 +236,7 @@ class TimeSeriesAligner:
         # Prepare futures fallback data
         futures_lookup = {}
         if futures_data is not None:
-            fd = futures_data.assign(
-                _date=pd.to_datetime(futures_data["date"]).dt.date
-            )
+            fd = futures_data.assign(_date=pd.to_datetime(futures_data["date"]).dt.date)
             for _, r in fd.iterrows():
                 futures_lookup[r["_date"]] = r["value"]
 
@@ -256,10 +257,12 @@ class TimeSeriesAligner:
             suffixes=("_vn", "_us"),
         )
 
-        aligned = aligned.rename(columns={
-            "session_end_utc_vn": "vn_close_utc",
-            "session_end_utc_us": "us_close_utc",
-        })
+        aligned = aligned.rename(
+            columns={
+                "session_end_utc_vn": "vn_close_utc",
+                "session_end_utc_us": "us_close_utc",
+            }
+        )
 
         # Tag futures proxy rows and fill US close with futures data
         proxy_flags = []
@@ -272,9 +275,9 @@ class TimeSeriesAligner:
 
         aligned = aligned.assign(
             lead_lag_hours=(
-                pd.to_datetime(aligned["vn_close_utc"])
-                - pd.to_datetime(aligned["us_close_utc"])
-            ).dt.total_seconds() / 3600,
+                pd.to_datetime(aligned["vn_close_utc"]) - pd.to_datetime(aligned["us_close_utc"])
+            ).dt.total_seconds()
+            / 3600,
             stale_flag=False,
             futures_proxy=proxy_flags,
         )
@@ -289,15 +292,13 @@ class TimeSeriesAligner:
 
         aligned = aligned.sort_values("business_date").reset_index(drop=True)
 
-        result = aligned[[
-            "business_date", "us_close", "vn_close",
-            "us_source_date", "lead_lag_hours", "stale_flag", "futures_proxy"
-        ]].copy()
+        result = aligned[
+            ["business_date", "us_close", "vn_close", "us_source_date", "lead_lag_hours", "stale_flag", "futures_proxy"]
+        ].copy()
         result = result.assign(business_date=pd.to_datetime(result["business_date"]))
         return result
 
-    def align_multi_asset(self, asset_data: dict[str, pd.DataFrame],
-                           vn_data: pd.DataFrame) -> pd.DataFrame:
+    def align_multi_asset(self, asset_data: dict[str, pd.DataFrame], vn_data: pd.DataFrame) -> pd.DataFrame:
         """
         Align multiple US-traded assets with VN.
 
@@ -314,8 +315,7 @@ class TimeSeriesAligner:
         for name, df in asset_data.items():
             aligned = self.align(df, vn_data)
             aligned = aligned.rename(columns={"us_close": name}).drop(
-                columns=["us_source_date", "lead_lag_hours", "stale_flag", "vn_close"],
-                errors="ignore"
+                columns=["us_source_date", "lead_lag_hours", "stale_flag", "vn_close"], errors="ignore"
             )
             if base is None:
                 base = aligned
@@ -328,8 +328,7 @@ class TimeSeriesAligner:
             base = base.merge(vn_part, on="business_date", how="left")
         return base
 
-    def get_correlation_window(self, aligned: pd.DataFrame,
-                                window: int = 90) -> pd.DataFrame:
+    def get_correlation_window(self, aligned: pd.DataFrame, window: int = 90) -> pd.DataFrame:
         """
         Extract pairwise-deletion window for correlation computation.
 
@@ -345,11 +344,9 @@ class TimeSeriesAligner:
             clean = clean[~clean["stale_flag"] | clean["futures_proxy"]]
         else:
             # Fallback: check trading day status
-            clean = clean[clean.apply(
-                lambda r: self.us_cal.is_trading_day(
-                    pd.to_datetime(r["us_source_date"]).date()
-                ), axis=1
-            )]
+            clean = clean[
+                clean.apply(lambda r: self.us_cal.is_trading_day(pd.to_datetime(r["us_source_date"]).date()), axis=1)
+            ]
         return clean.tail(window).reset_index(drop=True)
 
     def _next_vn_trading_day(self, d) -> Optional[date]:
@@ -363,10 +360,9 @@ class TimeSeriesAligner:
                 return candidate
         return None
 
-    def compute_correlation_matrix(self, aligned: pd.DataFrame,
-                                    assets: list[str],
-                                    window: int = 90,
-                                    method: str = "spearman") -> np.ndarray:
+    def compute_correlation_matrix(
+        self, aligned: pd.DataFrame, assets: list[str], window: int = 90, method: str = "spearman"
+    ) -> np.ndarray:
         """
         Compute rolling correlation matrix for aligned multi-asset data.
 
@@ -502,7 +498,7 @@ def _fetch_macro_as_df(variable: str, db_path: str, n_days: int = 365) -> pd.Dat
             if rows:
                 conn.close()
                 df = pd.DataFrame(rows, columns=["date", "value", "is_stale"])
-                df["date"] = pd.to_datetime(df["date"], format='mixed')
+                df["date"] = pd.to_datetime(df["date"], format="mixed")
                 return df.sort_values("date").drop_duplicates(subset="date")
         except Exception:
             continue
@@ -520,10 +516,12 @@ def _fetch_macro_as_df(variable: str, db_path: str, n_days: int = 365) -> pd.Dat
         if row:
             conn.close()
             df = pd.DataFrame([row], columns=["date", "value", "is_stale"])
-            df["date"] = pd.to_datetime(df["date"], format='mixed')
+            df["date"] = pd.to_datetime(df["date"], format="mixed")
             logger.info(
                 "_fetch_macro_as_df: %s forward-filled from %s (val=%.2f)",
-                variable, row[0], row[1],
+                variable,
+                row[0],
+                row[1],
             )
             return df
     except Exception:
@@ -541,9 +539,7 @@ def _fetch_vnindex(db_path: str, n_days: int = 365) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
     try:
         cursor = conn.execute(
-            "SELECT date, close AS value FROM daily_ohlcv "
-            "WHERE symbol = 'VNINDEX' AND date >= date('now', ?) "
-            "ORDER BY date",
+            "SELECT date, close AS value FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date >= date('now', ?) ORDER BY date",
             (f"-{n_days} days",),
         )
         rows = cursor.fetchall()
@@ -552,7 +548,7 @@ def _fetch_vnindex(db_path: str, n_days: int = 365) -> pd.DataFrame:
             logger.warning("_fetch_vnindex: no VNINDEX rows found")
             return pd.DataFrame(columns=["date", "value"])
         df = pd.DataFrame(rows, columns=["date", "value"])
-        df["date"] = pd.to_datetime(df["date"], format='mixed')
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
         return df.sort_values("date").drop_duplicates(subset="date")
     except Exception as exc:
         conn.close()
@@ -581,6 +577,7 @@ def compute_asia_rotation(
     """
     if db_path is None:
         from src.config import DATA_DIR
+
         db_path = str(DATA_DIR / "screener_cache.db")
 
     # 1. Fetch VNINDEX
@@ -617,11 +614,10 @@ def compute_asia_rotation(
     # 3. Merge all on date → daily returns
     merged = vn.rename(columns={"value": ASIA_TICKER_VNINDEX})
     for name, df in macros.items():
-        merged = merged.merge(
-            df.rename(columns={"value": name}),
-            on="date",
-            how="inner",
-        )
+        # Only select 'date' and 'value' — drop 'is_stale' etc. to avoid
+        # pandas MergeError when duplicate suffix columns accumulate.
+        clean = df[["date", "value"]].rename(columns={"value": name})
+        merged = merged.merge(clean, on="date", how="inner")
 
     # 3b. Count stale days across all macro sensors
     stale_accumulated = 0
@@ -661,15 +657,16 @@ def compute_asia_rotation(
         inflation_applied = True
         logger.critical(
             "[COV_INFLATION] Stale=%d, trace_mean=%.4f, noise_factor=%.4f, matrix=+%s",
-            stale_accumulated, trace_mean, noise_factor, noise
+            stale_accumulated,
+            trace_mean,
+            noise_factor,
+            noise,
         )
 
     # 6. Compute rotation angle
     from src.services.macro.market_macro_coordinator import MarketMacroCoordinator
 
-    angle_deg = MarketMacroCoordinator.compute_cross_asset_rotation(
-        corr_vn, corr_full
-    )
+    angle_deg = MarketMacroCoordinator.compute_cross_asset_rotation(corr_vn, corr_full)
 
     # 7. Spectral info from combined matrix
     aligner = TimeSeriesAligner()

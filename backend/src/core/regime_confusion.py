@@ -1,4 +1,4 @@
-﻿"""regime_confusion.py — Regime-Aware Confusion Matrix cho Strategy Evaluation.
+"""regime_confusion.py — Regime-Aware Confusion Matrix cho Strategy Evaluation.
 
 Ba hiệu chỉnh kiến trúc so với thiết kế heuristic:
 
@@ -14,9 +14,10 @@ Ba hiệu chỉnh kiến trúc so với thiết kế heuristic:
 
 Reference: Lopez de Prado (2018), "Advances in Financial Machine Learning", Ch. 14.
 """
+
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger("PTCK_SYSTEM")
@@ -29,12 +30,12 @@ ADX_BUCKETS: Dict[str, tuple[float, float]] = {
     "ADX_GT30": (30.0, 100.0),
 }
 
-DEFAULT_RISK_REWARD = 2.0       # Risk:Reward = 1:2
-RESOLVE_AFTER_DAYS = 5          # T+5 evaluation horizon
-PRIOR_ALPHA = 1                 # Beta prior α₀ (skeptical)
-PRIOR_BETA = 3                  # Beta prior β₀  → mean = 0.25
-MIN_SIGNALS_STATISTICAL = 30    # CLT threshold (not a hard gate, prior handles it)
-KELLY_FRACTION = 0.5            # Half-Kelly
+DEFAULT_RISK_REWARD = 2.0  # Risk:Reward = 1:2
+RESOLVE_AFTER_DAYS = 5  # T+5 evaluation horizon
+PRIOR_ALPHA = 1  # Beta prior α₀ (skeptical)
+PRIOR_BETA = 3  # Beta prior β₀  → mean = 0.25
+MIN_SIGNALS_STATISTICAL = 30  # CLT threshold (not a hard gate, prior handles it)
+KELLY_FRACTION = 0.5  # Half-Kelly
 
 
 def _days_between(d1: str, d2: str) -> int:
@@ -52,6 +53,7 @@ def _classify_adx(adx: float) -> str:
 
 # ── RegimeAwareConfusion ─────────────────────────────────────────────
 
+
 class RegimeAwareConfusion:
     """Confusion Matrix phân tầng theo Regime (ADX bucket).
 
@@ -61,17 +63,13 @@ class RegimeAwareConfusion:
       [Governor]    → calibration_score(adx_current) → EV/Kelly gate
     """
 
-    def __init__(self, strategy: str = "screener_v1",
-                 prior_alpha: int = PRIOR_ALPHA,
-                 prior_beta: int = PRIOR_BETA):
+    def __init__(self, strategy: str = "screener_v1", prior_alpha: int = PRIOR_ALPHA, prior_beta: int = PRIOR_BETA):
         self.strategy = strategy
         self.prior_alpha = prior_alpha
         self.prior_beta = prior_beta
 
         # Confusion matrix: {bucket: {"wins": n, "losses": n}}
-        self.matrix: Dict[str, Dict[str, int]] = {
-            b: {"wins": 0, "losses": 0} for b in ADX_BUCKETS
-        }
+        self.matrix: Dict[str, Dict[str, int]] = {b: {"wins": 0, "losses": 0} for b in ADX_BUCKETS}
 
         # Unresolved queue: {signal_id: signal_dict}
         self.unresolved: Dict[int, Dict[str, Any]] = {}
@@ -79,10 +77,15 @@ class RegimeAwareConfusion:
 
     # ── Queue Management ────────────────────────────────────────────
 
-    def enqueue_signal(self, entry_date: str, adx: float,
-                       entry_price: float,
-                       stop_loss: float, take_profit: float,
-                       expected_return: Optional[float] = None) -> int:
+    def enqueue_signal(
+        self,
+        entry_date: str,
+        adx: float,
+        entry_price: float,
+        stop_loss: float,
+        take_profit: float,
+        expected_return: Optional[float] = None,
+    ) -> int:
         """Đẩy tín hiệu vào unresolved queue, tag ADX bucket tại entry.
 
         Args:
@@ -107,8 +110,7 @@ class RegimeAwareConfusion:
         }
         return sid
 
-    def resolve_pending(self, current_date: str,
-                        price_lookup: Callable[[str, str], float]) -> int:
+    def resolve_pending(self, current_date: str, price_lookup: Callable[[str, str], float]) -> int:
         """Resolve tín hiệu đã đủ tuổi (T+5 hoặc SL/TP hit).
 
         Args:
@@ -153,8 +155,7 @@ class RegimeAwareConfusion:
         return resolved
 
     @staticmethod
-    def _classify_outcome(signal: Dict[str, Any],
-                          current_price: float) -> str:
+    def _classify_outcome(signal: Dict[str, Any], current_price: float) -> str:
         """Phân loại kết quả: win / loss / expired."""
         entry = signal["entry_price"]
         sl = signal.get("stop_loss")
@@ -197,8 +198,7 @@ class RegimeAwareConfusion:
 
     # ── EV/Kelly Gating ─────────────────────────────────────────────
 
-    def calibration_score(self, adx: float,
-                          risk_reward: float = DEFAULT_RISK_REWARD) -> float:
+    def calibration_score(self, adx: float, risk_reward: float = DEFAULT_RISK_REWARD) -> float:
         """Cổng EV/Kelly: quyết định calibration từ win rate.
 
         EV = win_rate × reward - (1 - win_rate) × risk
@@ -281,6 +281,7 @@ class RegimeAwareConfusion:
 
 # ── DB Persistence Helpers ──────────────────────────────────────────
 
+
 def save_confusion_to_db(confusion: RegimeAwareConfusion):
     """Lưu confusion matrix + unresolved queue vào screener_cache.db."""
     from src.database.db_core import get_connection
@@ -294,8 +295,7 @@ def save_confusion_to_db(confusion: RegimeAwareConfusion):
             )"""
         )
         conn.execute(
-            "INSERT OR REPLACE INTO strategy_confusion (strategy, data_json, updated_at) "
-            "VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO strategy_confusion (strategy, data_json, updated_at) VALUES (?, ?, ?)",
             (
                 confusion.strategy,
                 json.dumps(confusion.to_dict(), ensure_ascii=False),
@@ -306,11 +306,18 @@ def save_confusion_to_db(confusion: RegimeAwareConfusion):
 
 
 def load_confusion_from_db(strategy: str = "screener_v1") -> Optional[RegimeAwareConfusion]:
-    """Đọc confusion matrix từ DB."""
+    """Đọc confusion matrix từ DB (auto-create table nếu chưa có)."""
     from src.database.db_core import get_connection
 
     try:
         with get_connection() as conn:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS strategy_confusion (
+                    strategy TEXT PRIMARY KEY,
+                    data_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
             row = conn.execute(
                 "SELECT data_json FROM strategy_confusion WHERE strategy = ?",
                 (strategy,),

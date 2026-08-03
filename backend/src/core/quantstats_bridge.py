@@ -1,4 +1,4 @@
-﻿"""quantstats_bridge.py — Live Calibration Engine cho PTD.
+"""quantstats_bridge.py — Live Calibration Engine cho PTD.
 
 Biến QuantStats thành động cơ giám sát niềm tin (Belief Monitor).
 Không dùng để ngắm backtest, mà để đo độ lệch giữa kỳ vọng và thực tế.
@@ -8,9 +8,10 @@ Không dùng để ngắm backtest, mà để đo độ lệch giữa kỳ vọn
   - REJECTED: giả thuyết bị Governor bác bỏ → counterfactual metrics
   - RANDOM: Monte Carlo vectorized → random baseline phân vị 95%
 """
+
 import math
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -47,8 +48,7 @@ class QuantStatsBridge:
         cutoff = (datetime.now() - timedelta(days=self.window_days * 3)).isoformat()
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT date, total_equity FROM paper_equity_curve "
-                "WHERE date >= ? ORDER BY date",
+                "SELECT date, total_equity FROM paper_equity_curve WHERE date >= ? ORDER BY date",
                 (cutoff,),
             ).fetchall()
         if len(rows) < 2:
@@ -62,7 +62,7 @@ class QuantStatsBridge:
         # Cap outliers: daily return > 50% là capital injection, set về 0
         returns = np.clip(returns, -0.50, 0.50)
         if len(returns) > self.window_days:
-            returns = returns[-self.window_days:]
+            returns = returns[-self.window_days :]
         return returns
 
     def fetch_rejected_trades(self) -> np.ndarray:
@@ -105,8 +105,10 @@ class QuantStatsBridge:
         """
         try:
             from src.database.rejected_signals import (
-                get_counterfactual_returns, get_cumulative_information_gain,
+                get_counterfactual_returns,
+                get_cumulative_information_gain,
             )
+
             returns = get_counterfactual_returns(window_days=self.window_days, weighted=True)
             self._cache["cumulative_ig"] = get_cumulative_information_gain()
             if len(returns) > 0:
@@ -242,9 +244,14 @@ class QuantStatsBridge:
     @staticmethod
     def _empty_metrics() -> Dict[str, float]:
         return {
-            "sharpe": 0.0, "sortino": 0.0, "max_drawdown": 0.0,
-            "recovery_factor": 0.0, "win_rate": 0.0, "profit_factor": 0.0,
-            "kelly_criterion": 0.0, "n_observations": 0,
+            "sharpe": 0.0,
+            "sortino": 0.0,
+            "max_drawdown": 0.0,
+            "recovery_factor": 0.0,
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "kelly_criterion": 0.0,
+            "n_observations": 0,
         }
 
     # ── 3. RANDOM BASELINE (Vectorized Monte Carlo) ──────────────────
@@ -299,7 +306,7 @@ class QuantStatsBridge:
         # Rolling sharpe window=5
         daily_sharpes = []
         for i in range(len(returns) - 4):
-            window = returns[i:i + 5]
+            window = returns[i : i + 5]
             daily_sharpes.append(self.compute_sharpe(window, annualize=False))
         if not daily_sharpes:
             return 0.0
@@ -327,6 +334,7 @@ class QuantStatsBridge:
         """
         try:
             from src.database.rejected_signals import fetch_doc_returns
+
             pairs = fetch_doc_returns(window_days=self.window_days)
         except Exception:
             pairs = []
@@ -383,9 +391,7 @@ class QuantStatsBridge:
 
         # Sharpe vs Random P95
         random_p95 = random_metrics.get("random_sharpe_p95", 0.0)
-        sharpe_vs_random = (
-            sharpe_smoothed / random_p95 if random_p95 > 0.1 else 0.0
-        )
+        sharpe_vs_random = sharpe_smoothed / random_p95 if random_p95 > 0.1 else 0.0
 
         # Outlier ratio
         owr, olr = self.compute_outlier_ratio(live_returns)
@@ -433,8 +439,7 @@ class QuantStatsBridge:
             "cumulative_information_gain": self._cache.get("cumulative_ig", 0.0),
             "live_metrics": live_metrics,
             "rejected_metrics": rejected_metrics,
-            "random_metrics": {k: v for k, v in random_metrics.items()
-                               if k != "n_simulations"},
+            "random_metrics": {k: v for k, v in random_metrics.items() if k != "n_simulations"},
         }
 
     # ── 6. RUN ALL ───────────────────────────────────────────────────
@@ -456,9 +461,7 @@ class QuantStatsBridge:
         sigma = min(sigma, 0.05)  # cap daily vol ở 5% để Monte Carlo ổn định
         random_metrics = self.compute_random_baseline(mu=mu, sigma=sigma)
 
-        calibration = self.calibration_signal(
-            live_metrics, rejected_metrics, random_metrics, live_returns
-        )
+        calibration = self.calibration_signal(live_metrics, rejected_metrics, random_metrics, live_returns)
 
         return {
             "timestamp": datetime.now().isoformat(),
@@ -468,6 +471,21 @@ class QuantStatsBridge:
             "random_baseline": random_metrics,
             "calibration": calibration,
         }
+
+    @staticmethod
+    def _ensure_schema(conn):
+        """Auto-migration: add columns missing from earlier schema versions."""
+        cur = conn.execute("PRAGMA table_info(quantstats_calibration)")
+        columns = {row[1] for row in cur.fetchall()}
+        migrations = {
+            "doc_index": "ALTER TABLE quantstats_calibration ADD COLUMN doc_index REAL",
+            "doc_wins": "ALTER TABLE quantstats_calibration ADD COLUMN doc_wins INTEGER DEFAULT 0",
+            "doc_losses": "ALTER TABLE quantstats_calibration ADD COLUMN doc_losses INTEGER DEFAULT 0",
+        }
+        for col, ddl in migrations.items():
+            if col not in columns:
+                conn.execute(ddl)
+        conn.commit()
 
     def save_to_db(self, report: Dict[str, Any]):
         """Lưu kết quả QuantStats vào CSDL meta_evidence.
@@ -496,6 +514,7 @@ class QuantStatsBridge:
                 "  created_at TEXT DEFAULT (datetime('now'))"
                 ")"
             )
+            self._ensure_schema(conn)
             conn.execute(
                 "INSERT INTO quantstats_calibration "
                 "(timestamp, sharpe_live_smoothed, sharpe_vs_random, "
@@ -525,9 +544,7 @@ class QuantStatsBridge:
         """Đọc bản ghi quantstats gần nhất."""
         try:
             with get_connection() as conn:
-                row = conn.execute(
-                    "SELECT * FROM quantstats_calibration ORDER BY id DESC LIMIT 1"
-                ).fetchone()
+                row = conn.execute("SELECT * FROM quantstats_calibration ORDER BY id DESC LIMIT 1").fetchone()
             if row:
                 return dict(row)
         except Exception:
