@@ -26,11 +26,10 @@ Governor only sees the vector; the archetype is for human reporting.
 
 import json
 import logging
-import math
 import sqlite3
 import sys
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -139,6 +138,16 @@ class HealthLatentState:
     no_data_organs: list[str] = None
 
 
+def _quarter_at(target_date: str) -> str:
+    """Convert YYYY-MM-DD → fiscal period key (YYYYQn) for point-in-time lookups."""
+    try:
+        y, m, _ = target_date.split("-")
+        q = (int(m) - 1) // 3 + 1
+        return f"{y}Q{q}"
+    except Exception:
+        return ""
+
+
 class CompanyHealthV2:
     """
     Company Health v2 — 5-Organ Latent Engine.
@@ -177,18 +186,23 @@ class CompanyHealthV2:
             missing.append("balance_sheet")
         return missing
 
-    def analyze(self, symbol: str) -> Optional[HealthLatentState]:
-        """Compute 5-organ health state for a single symbol."""
+    def analyze(self, symbol: str, target_date: Optional[str] = None) -> Optional[HealthLatentState]:
+        """Compute 5-organ health state for a single symbol.
+
+        Point-in-time: when target_date is provided, only financial periods
+        published by that date are used (period <= target_date's quarter) —
+        prevents time-collapse in backtests. None = live latest.
+        """
         conn = sqlite3.connect(self._db)
 
         # 1. Load raw ratios
-        ratios = self._load_ratios(conn, symbol)
+        ratios = self._load_ratios(conn, symbol, target_date=target_date)
         if not ratios:
             conn.close()
             return None
 
         # 2. Load financial facts for ROIC
-        facts = self._load_facts(conn, symbol)
+        facts = self._load_facts(conn, symbol, target_date=target_date)
 
         # 3. Determine entity type
         entity_type = self._get_entity_type(conn, symbol)
@@ -207,20 +221,26 @@ class CompanyHealthV2:
             balance_sheet=round(balance_sheet, 4),
             efficiency=round(efficiency, 4),
             moat=round(moat, 4),
-            vector=[round(profitability, 4), round(cash, 4), round(balance_sheet, 4),
-                    round(efficiency, 4), round(moat, 4)],
+            vector=[round(profitability, 4), round(cash, 4), round(balance_sheet, 4), round(efficiency, 4), round(moat, 4)],
         )
 
         # 5. Classify archetype
         archetype, confidence = self._classify_archetype(organs, no_data_organs)
 
         # 6. Get metadata
-        periods = conn.execute(
-            "SELECT COUNT(DISTINCT period) FROM health_ratios WHERE symbol=?", (symbol,)
-        ).fetchone()[0]
-        latest = conn.execute(
-            "SELECT MAX(period) FROM health_ratios WHERE symbol=?", (symbol,)
-        ).fetchone()[0]
+        if target_date:
+            period_key = _quarter_at(target_date)
+            periods = conn.execute(
+                "SELECT COUNT(DISTINCT period) FROM health_ratios WHERE symbol=? AND period <= ?",
+                (symbol, period_key),
+            ).fetchone()[0]
+            latest = conn.execute(
+                "SELECT MAX(period) FROM health_ratios WHERE symbol=? AND period <= ?",
+                (symbol, period_key),
+            ).fetchone()[0]
+        else:
+            periods = conn.execute("SELECT COUNT(DISTINCT period) FROM health_ratios WHERE symbol=?", (symbol,)).fetchone()[0]
+            latest = conn.execute("SELECT MAX(period) FROM health_ratios WHERE symbol=?", (symbol,)).fetchone()[0]
 
         conn.close()
 
@@ -244,15 +264,23 @@ class CompanyHealthV2:
     # ── Data Loading ─────────────────────────────────────────────
 
     @staticmethod
-    def _load_ratios(conn, symbol: str) -> dict:
-        """Load ALL historical ratios for a symbol.
+    def _load_ratios(conn, symbol: str, target_date: Optional[str] = None) -> dict:
+        """Load historical ratios for a symbol (optionally point-in-time).
 
         Returns: {ratio_name: [(period, value), ...]}
+        When target_date is provided, only periods published by that date are
+        included (period <= target_date's quarter) — prevents time-collapse.
         """
-        rows = conn.execute(
-            "SELECT period, ratio_name, ratio_value FROM health_ratios "
-            "WHERE symbol=? ORDER BY period", (symbol,)
-        ).fetchall()
+        if target_date:
+            period_key = _quarter_at(target_date)
+            rows = conn.execute(
+                "SELECT period, ratio_name, ratio_value FROM health_ratios WHERE symbol=? AND period <= ? ORDER BY period",
+                (symbol, period_key),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT period, ratio_name, ratio_value FROM health_ratios WHERE symbol=? ORDER BY period", (symbol,)
+            ).fetchall()
 
         result = defaultdict(list)
         for period, rname, rval in rows:
@@ -261,16 +289,22 @@ class CompanyHealthV2:
         return dict(result)
 
     @staticmethod
-    def _load_facts(conn, symbol: str) -> dict:
-        """Load all financial facts for a symbol.
+    def _load_facts(conn, symbol: str, target_date: Optional[str] = None) -> dict:
+        """Load financial facts for a symbol (optionally point-in-time).
 
         Returns: {metric: [(period, value), ...]}
         """
         try:
-            rows = conn.execute(
-                "SELECT period, metric, value FROM financial_facts "
-                "WHERE symbol=? ORDER BY period", (symbol,)
-            ).fetchall()
+            if target_date:
+                period_key = _quarter_at(target_date)
+                rows = conn.execute(
+                    "SELECT period, metric, value FROM financial_facts WHERE symbol=? AND period <= ? ORDER BY period",
+                    (symbol, period_key),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT period, metric, value FROM financial_facts WHERE symbol=? ORDER BY period", (symbol,)
+                ).fetchall()
         except Exception:
             return {}
 
@@ -282,9 +316,7 @@ class CompanyHealthV2:
 
     @staticmethod
     def _get_entity_type(conn, symbol: str) -> str:
-        row = conn.execute(
-            "SELECT entity_type FROM entity_registry WHERE symbol=?", (symbol,)
-        ).fetchone()
+        row = conn.execute("SELECT entity_type FROM entity_registry WHERE symbol=?", (symbol,)).fetchone()
         return row[0] if row else "STANDARD"
 
     # ── Helper: Trend / Persistence ──────────────────────────────
@@ -430,7 +462,6 @@ class CompanyHealthV2:
 
     def _score_balance_sheet(self, ratios: dict, entity: str, facts: dict) -> float:
         debt_eq = ratios.get("DEBT_TO_EQUITY", [])
-        debt_as = ratios.get("DEBT_TO_ASSETS", [])
         int_cov = ratios.get("INTEREST_COVERAGE", [])
         npl = ratios.get("NPL_RATIO", [])
 
@@ -579,31 +610,36 @@ class CompanyHealthV2:
         candidates = []
 
         # HIGH_QUALITY_COMPOUNDER: all organs strong
-        if (p >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["profitability_min"] and
-                c >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["cash_min"] and
-                b >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["balance_sheet_min"] and
-                e >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["efficiency_min"] and
-                m >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["moat_min"]):
+        if (
+            p >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["profitability_min"]
+            and c >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["cash_min"]
+            and b >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["balance_sheet_min"]
+            and e >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["efficiency_min"]
+            and m >= ARCHETYPES["HIGH_QUALITY_COMPOUNDER"]["moat_min"]
+        ):
             confidence = np.mean([p, c, b, e, m])
             candidates.append(("HIGH_QUALITY_COMPOUNDER", confidence))
 
         # STEADY_EARNER: moderate across the board
-        if (p >= ARCHETYPES["STEADY_EARNER"]["profitability_min"] and
-                c >= ARCHETYPES["STEADY_EARNER"]["cash_min"] and
-                b >= ARCHETYPES["STEADY_EARNER"]["balance_sheet_min"]):
+        if (
+            p >= ARCHETYPES["STEADY_EARNER"]["profitability_min"]
+            and c >= ARCHETYPES["STEADY_EARNER"]["cash_min"]
+            and b >= ARCHETYPES["STEADY_EARNER"]["balance_sheet_min"]
+        ):
             confidence = np.mean([p, c, b])
             candidates.append(("STEADY_EARNER", confidence))
 
         # LEVERAGED_GROWTH: weak balance sheet but decent profitability
-        if (b <= ARCHETYPES["LEVERAGED_GROWTH"]["balance_sheet_max"] and
-                p >= ARCHETYPES["LEVERAGED_GROWTH"]["profitability_min"] and
-                e >= ARCHETYPES["LEVERAGED_GROWTH"]["efficiency_min"]):
+        if (
+            b <= ARCHETYPES["LEVERAGED_GROWTH"]["balance_sheet_max"]
+            and p >= ARCHETYPES["LEVERAGED_GROWTH"]["profitability_min"]
+            and e >= ARCHETYPES["LEVERAGED_GROWTH"]["efficiency_min"]
+        ):
             confidence = np.mean([p, e]) * 0.7
             candidates.append(("LEVERAGED_GROWTH", confidence))
 
         # CYCLICAL: moderate profitability, weak moat
-        if (p >= ARCHETYPES["CYCLICAL"]["profitability_min"] and
-                m <= ARCHETYPES["CYCLICAL"]["moat_max"]):
+        if p >= ARCHETYPES["CYCLICAL"]["profitability_min"] and m <= ARCHETYPES["CYCLICAL"]["moat_max"]:
             confidence = np.mean([p, 1 - m]) * 0.6
             candidates.append(("CYCLICAL", confidence))
 
@@ -624,8 +660,7 @@ class CompanyHealthV2:
             candidates.append(("DISTRESSED", confidence))
 
         # COMMODITY: no moat, profitability tied to cycle
-        if (m <= ARCHETYPES["COMMODITY"]["moat_max"] and
-                p >= ARCHETYPES["COMMODITY"]["profitability_min"]):
+        if m <= ARCHETYPES["COMMODITY"]["moat_max"] and p >= ARCHETYPES["COMMODITY"]["profitability_min"]:
             confidence = (1.0 - m) * 0.5
             candidates.append(("COMMODITY", confidence))
 
@@ -644,22 +679,21 @@ class CompanyHealthV2:
     @staticmethod
     def save_report(states: dict[str, HealthLatentState], path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            sym: asdict(st) for sym, st in states.items() if st is not None
-        }
+        data = {sym: asdict(st) for sym, st in states.items() if st is not None}
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 # ── CLI Helper ───────────────────────────────────────────────────
 
+
 def print_health_report(states: dict[str, Optional[HealthLatentState]]) -> None:
     """Print human-readable health latent state report."""
-    print(f"\n  {'='*70}")
-    print(f"  COMPANY HEALTH v2 — 5-ORGAN LATENT STATE")
+    print(f"\n  {'=' * 70}")
+    print("  COMPANY HEALTH v2 — 5-ORGAN LATENT STATE")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  {'='*70}")
+    print(f"  {'=' * 70}")
     print(f"  {'Symbol':<8} {'Type':<10} {'Prof':>6} {'Cash':>6} {'Bal':>6} {'Eff':>6} {'Moat':>6} {'Archetype':<35}")
-    print(f"  {'─'*70}")
+    print(f"  {'─' * 70}")
 
     for sym, state in states.items():
         if state is None:
@@ -668,11 +702,13 @@ def print_health_report(states: dict[str, Optional[HealthLatentState]]) -> None:
         o = state.organs
         cash_str = " NO DATA" if "cash" in (state.no_data_organs or []) else f"{o.cash:>6.2f}"
         bal_str = " NO DATA" if "balance_sheet" in (state.no_data_organs or []) else f"{o.balance_sheet:>6.2f}"
-        print(f"  {sym:<8} {state.entity_type:<10} {o.profitability:>6.2f} {cash_str} {bal_str} "
-              f"{o.efficiency:>6.2f} {o.moat:>6.2f} "
-              f"{state.archetype_label:<35}")
+        print(
+            f"  {sym:<8} {state.entity_type:<10} {o.profitability:>6.2f} {cash_str} {bal_str} "
+            f"{o.efficiency:>6.2f} {o.moat:>6.2f} "
+            f"{state.archetype_label:<35}"
+        )
 
-    print(f"  {'='*70}\n")
+    print(f"  {'=' * 70}\n")
 
     # Detail view
     for sym, state in states.items():
@@ -683,17 +719,19 @@ def print_health_report(states: dict[str, Optional[HealthLatentState]]) -> None:
         print(f"  │  Archetype: {state.archetype} (P={state.archetype_confidence:.2%})")
         print(f"  │  Vector:    [{o.profitability:.3f} {o.cash:.3f} {o.balance_sheet:.3f} {o.efficiency:.3f} {o.moat:.3f}]")
         print(f"  │  Data:      {state.data_periods} periods, latest {state.latest_period}")
-        print(f"  │")
+        print("  │")
         no_data = state.no_data_organs or []
-        for name, key, val in [("Profitability ", "profitability", o.profitability),
-                               ("Cash         ", "cash", o.cash),
-                               ("Balance Sheet", "balance_sheet", o.balance_sheet),
-                               ("Efficiency   ", "efficiency", o.efficiency),
-                               ("Moat         ", "moat", o.moat)]:
+        for name, key, val in [
+            ("Profitability ", "profitability", o.profitability),
+            ("Cash         ", "cash", o.cash),
+            ("Balance Sheet", "balance_sheet", o.balance_sheet),
+            ("Efficiency   ", "efficiency", o.efficiency),
+            ("Moat         ", "moat", o.moat),
+        ]:
             if key in no_data:
                 print(f"  │  {name}: NO DATA")
                 continue
             bar = "▓" * int(val * 20) + "░" * (20 - int(val * 20))
             color = "🟢" if val > 0.6 else "🟡" if val > 0.3 else "🔴"
             print(f"  │  {name}: {val:5.3f} {color} |{bar}|")
-        print(f"  └──")
+        print("  └──")

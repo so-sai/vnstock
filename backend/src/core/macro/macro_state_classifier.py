@@ -15,7 +15,7 @@ Usage:
 import json
 import logging
 import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -52,9 +52,7 @@ MACRO_STATE_DIR.mkdir(parents=True, exist_ok=True)
 from src.database.db_core import get_connection
 
 # ── PTD Pipeline imports ──────────────────────────────────────────
-from src.services.macro.ptd_engine import PTDEngine, MacroState
-from src.services.macro.bp_imm import BPIMM
-
+from src.services.macro.ptd_engine import MacroState, PTDEngine
 
 # ── Driver mapping configuration ──────────────────────────────────
 # 7-dim driver vector: [Liquidity, Inflation, Growth, Energy, Risk, AI_Capex, Trust]
@@ -191,10 +189,7 @@ class MacroStateClassifier:
             macro_state=state_label,
             posterior=round(posterior, 4),
             entropy=entropy_norm,
-            drivers={
-                label: round(float(macro_state.driver_vector[i]), 4)
-                for i, label in enumerate(DRIVER_LABELS)
-            },
+            drivers={label: round(float(macro_state.driver_vector[i]), 4) for i, label in enumerate(DRIVER_LABELS)},
             raw_drivers=raw_drivers,
             phase_label=macro_state.phase_label,
             phase_confidence=round(macro_state.phase_confidence, 4),
@@ -203,9 +198,7 @@ class MacroStateClassifier:
             position_scalar=round(macro_state.position_scalar, 4),
             risk_on_scalar=round(macro_state.risk_on_scalar, 4),
             defensive_scalar=round(macro_state.defensive_scalar, 4),
-            raw_narrative_probs={
-                k: round(float(v), 4) for k, v in macro_state.narrative_probs.items()
-            },
+            raw_narrative_probs={k: round(float(v), 4) for k, v in macro_state.narrative_probs.items()},
             raw_regime_weights=[round(float(w), 4) for w in macro_state.regime_weights],
             raw_n_regime_components=macro_state.n_regime_components,
         )
@@ -310,42 +303,102 @@ class MacroStateClassifier:
         }
 
         # --- Driver 0: Liquidity ---
-        ib = macro.get("INTERBANK_ON", 4.5)
-        ib_1w = macro.get("INTERBANK_1W", ib)
-        liquidity_raw = (ib + ib_1w) / 2.0
-        liquidity = 1.0 - float(np.clip(liquidity_raw / 10.0, 0.0, 1.0))
+        # Bayesian marginalization: chỉ tính từ biến CÓ THẬT trong kho (date<=target).
+        # Thiếu INTERBANK trước 2023 → liquidity neutral 0.5 (uninformative),
+        # KHÔNG ép hằng số 4.5% (định kiến 2025) làm nhiễu chu kỳ 2021-2022.
+        _ib_components = []
+        for _k in ("INTERBANK_ON", "INTERBANK_1W"):
+            if _k in macro and macro[_k] is not None:
+                _ib_components.append(float(macro[_k]))
+        if _ib_components:
+            ib = sum(_ib_components) / len(_ib_components)
+            liquidity = 1.0 - float(np.clip(ib / 10.0, 0.0, 1.0))
+        else:
+            liquidity = 0.5
 
         # --- Driver 1: Inflation ---
-        breakeven = macro.get("BREAKEVEN_INFLATION", 2.5)
-        gold = macro.get("GOLD_XAU", 2000)
-        inflation = float(np.clip(
-            (breakeven / 3.0) * 0.6 + (gold / 3000.0) * 0.4,
-            0.0, 1.0,
-        ))
+        # Dùng GOLD (có từ 2021) + BREAKEVEN (chỉ 2026+). Nếu thiếu breakeven,
+        # marginalize: chỉ dùng gold component và chuẩn hóa lại (không thêm 0.4 weight chết).
+        _inf_components = []
+        _inf_weights = []
+        if "BREAKEVEN_INFLATION" in macro and macro["BREAKEVEN_INFLATION"] is not None:
+            _inf_components.append(float(np.clip(macro["BREAKEVEN_INFLATION"] / 3.0, 0.0, 1.0)))
+            _inf_weights.append(0.6)
+        if "GOLD_XAU" in macro and macro["GOLD_XAU"] is not None:
+            _inf_components.append(float(np.clip(macro["GOLD_XAU"] / 3000.0, 0.0, 1.0)))
+            _inf_weights.append(0.4)
+        if _inf_components:
+            inflation = float(
+                np.clip(
+                    sum(c * w for c, w in zip(_inf_components, _inf_weights)) / sum(_inf_weights),
+                    0.0,
+                    1.0,
+                )
+            )
+        else:
+            inflation = 0.5
 
         # --- Driver 2: Growth ---
-        copper = macro.get("COPPER_HG", 4.0)
-        growth = float(np.clip(copper / 6.0, 0.0, 1.0))
+        if "COPPER_HG" in macro and macro["COPPER_HG"] is not None:
+            growth = float(np.clip(macro["COPPER_HG"] / 6.0, 0.0, 1.0))
+        else:
+            growth = 0.5
 
         # --- Driver 3: Energy ---
-        oil = macro.get("BRENT_OIL", 75)
-        energy = float(np.clip(oil / 120.0, 0.0, 1.0))
+        if "BRENT_OIL" in macro and macro["BRENT_OIL"] is not None:
+            energy = float(np.clip(macro["BRENT_OIL"] / 120.0, 0.0, 1.0))
+        elif "WTI_OIL" in macro and macro["WTI_OIL"] is not None:
+            energy = float(np.clip(macro["WTI_OIL"] / 120.0, 0.0, 1.0))
+        else:
+            energy = 0.5
 
         # --- Driver 4: Risk ---
-        vix = macro.get("VIX", 18)
-        dxy = macro.get("DXY", 104)
-        risk_raw = (vix / 40.0) * 0.5 + ((dxy - 95) / 30.0) * 0.5
-        risk = float(np.clip(risk_raw, 0.0, 1.0))
+        # VIX chỉ có 2025+. Trước đó marginalize: chỉ dùng DXY (có từ 2021).
+        _risk_components = []
+        _risk_weights = []
+        if "VIX" in macro and macro["VIX"] is not None:
+            _risk_components.append(float(np.clip(macro["VIX"] / 40.0, 0.0, 1.0)))
+            _risk_weights.append(0.5)
+        if "DXY" in macro and macro["DXY"] is not None:
+            _risk_components.append(float(np.clip((macro["DXY"] - 95) / 30.0, 0.0, 1.0)))
+            _risk_weights.append(0.5)
+        if _risk_components:
+            risk = float(
+                np.clip(
+                    sum(c * w for c, w in zip(_risk_components, _risk_weights)) / sum(_risk_weights),
+                    0.0,
+                    1.0,
+                )
+            )
+        else:
+            risk = 0.5
 
         # --- Driver 5: AI_Capex ---
-        nasdaq = macro.get("NASDAQ", 18000)
-        ai_capex = float(np.clip((nasdaq - 10000) / 20000.0, 0.0, 1.0))
+        # NASDAQ chỉ có 2025+. Thiếu → neutral 0.5 (không ép 18000).
+        if "NASDAQ" in macro and macro["NASDAQ"] is not None:
+            ai_capex = float(np.clip((macro["NASDAQ"] - 10000) / 20000.0, 0.0, 1.0))
+        else:
+            ai_capex = 0.5
 
         # --- Driver 6: Trust ---
-        usd_vnd = macro.get("USD_VND", 25400)
-        us10y = macro.get("US10Y", 4.2)
-        trust_raw = ((usd_vnd - 24000) / 3000.0) * 0.5 + (us10y / 6.0) * 0.5
-        trust = float(np.clip(trust_raw, 0.0, 1.0))
+        _trust_components = []
+        _trust_weights = []
+        if "USD_VND" in macro and macro["USD_VND"] is not None:
+            _trust_components.append(float(np.clip((macro["USD_VND"] - 24000) / 3000.0, 0.0, 1.0)))
+            _trust_weights.append(0.5)
+        if "US10Y" in macro and macro["US10Y"] is not None:
+            _trust_components.append(float(np.clip(macro["US10Y"] / 6.0, 0.0, 1.0)))
+            _trust_weights.append(0.5)
+        if _trust_components:
+            trust = float(
+                np.clip(
+                    sum(c * w for c, w in zip(_trust_components, _trust_weights)) / sum(_trust_weights),
+                    0.0,
+                    1.0,
+                )
+            )
+        else:
+            trust = 0.5
 
         obs = np.array([liquidity, inflation, growth, energy, risk, ai_capex, trust])
         obs_norm = np.clip((obs - 0.5) * 4.0, -2.0, 2.0)
@@ -473,15 +526,13 @@ class MacroStateClassifier:
         if path.exists():
             try:
                 records = json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, ValueError):
+            except json.JSONDecodeError, ValueError:
                 records = []
         records.append(asdict(state))
         # Keep last 365 entries
         if len(records) > 365:
             records = records[-365:]
-        path.write_text(
-            json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        path.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def _load_latest(self) -> Optional[ClassifiedMacroState]:
         """Load most recent state from history file."""
@@ -512,35 +563,36 @@ class MacroStateClassifier:
 
 # ── Standalone CLI helper ─────────────────────────────────────────
 
+
 def print_state_report(state: ClassifiedMacroState) -> None:
     """Print a human-readable MacroState report."""
-    print(f"\n  {'='*60}")
+    print(f"\n  {'=' * 60}")
     print(f"  MACRO STATE REPORT — {state.date}")
-    print(f"  {'='*60}")
+    print(f"  {'=' * 60}")
     print(f"  State:       {state.macro_state}")
     print(f"  Posterior:   {state.posterior:.2%}")
     print(f"  Entropy:     {state.entropy:.4f} ({'LOW=clear' if state.entropy < 0.4 else 'HIGH=uncertain'})")
     print(f"  Phase:       {state.phase_label} ({state.phase_confidence:.2%})")
     print(f"  Novelty:     {'⚠ DETECTED' if state.novelty_flag else '✅ None'}")
     print(f"  Stress:      {state.spectral_stress}")
-    print(f"  {'─'*60}")
-    print(f"  RAW MACRO DRIVERS:")
+    print(f"  {'─' * 60}")
+    print("  RAW MACRO DRIVERS:")
     for k, v in state.raw_drivers.items():
         if v != 0:
             print(f"    {k:>20}: {v}")
-    print(f"  {'─'*60}")
-    print(f"  NORMALIZED DRIVERS:")
+    print(f"  {'─' * 60}")
+    print("  NORMALIZED DRIVERS:")
     for label, val in state.drivers.items():
         bar_count = max(0, min(20, int(abs(val) * 10)))
         bar = "▓" * bar_count + "░" * (20 - bar_count)
         direction = "▲" if val > 0 else "▼" if val < 0 else "─"
         print(f"    {label:>12}: {val:+7.3f} {direction} |{bar}|")
-    print(f"  {'─'*60}")
-    print(f"  POSITION SCALARS:")
+    print(f"  {'─' * 60}")
+    print("  POSITION SCALARS:")
     print(f"    General:   {state.position_scalar:.2%}")
     print(f"    Risk-On:   {state.risk_on_scalar:.2%}")
     print(f"    Defensive: {state.defensive_scalar:.2%}")
-    print(f"  {'─'*60}")
+    print(f"  {'─' * 60}")
     print(f"  Regimes: {state.raw_regime_weights}")
     print(f"  Narratives: {state.raw_narrative_probs}")
-    print(f"  {'='*60}\n")
+    print(f"  {'=' * 60}\n")

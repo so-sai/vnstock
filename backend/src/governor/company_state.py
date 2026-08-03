@@ -551,29 +551,69 @@ class L2HealthLoader:
         self.conn.close()
 
 
+def _period_at(target_date: str) -> str:
+    """Convert YYYY-MM-DD → fiscal period key (YYYYQn) for point-in-time lookups.
+
+    Quý tài chính theo năm dương lịch: Q1=Jan-Mar, Q2=Apr-Jun, ...
+    Dùng để chặn time-collapse: chỉ đọc dữ liệu BCTC của các kỳ đã công bố
+    tính tới target_date (period <= target_date's quarter).
+    """
+    try:
+        y, m, _ = target_date.split("-")
+        q = (int(m) - 1) // 3 + 1
+        return f"{y}Q{q}"
+    except Exception:
+        return ""
+
+
 class L3ValuationLoader:
     """Layer 3 — Valuation Z-Scores."""
 
     def __init__(self):
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
-    def get_latest_valuation(self, symbol: str) -> Dict:
+    def get_latest_valuation(self, symbol: str, target_date: Optional[str] = None) -> Dict:
+        """Point-in-time valuation lookup.
+
+        When target_date is provided, only periods already published by that
+        date are visible (period <= target_date's quarter) — prevents
+        time-collapse in backtests. When None (live), uses MAX(period).
+        """
         cur = self.conn.cursor()
-        cur.execute(
-            """
-            SELECT ratio_name, ratio_value, z_score, percentile, zone,
-                   COALESCE(z_score_peer, z_score) AS z_score_peer,
-                   COALESCE(zone_peer, zone) AS zone_peer,
-                   peer_group,
-                   z_score_ts, zone_ts, mean_5y, std_5y, count_5y
-            FROM valuation_scores
-            WHERE symbol = ? AND period = (
-                SELECT MAX(period) FROM valuation_scores WHERE symbol = ?
+        if target_date:
+            period_key = _period_at(target_date)
+            cur.execute(
+                """
+                SELECT ratio_name, ratio_value, z_score, percentile, zone,
+                       COALESCE(z_score_peer, z_score) AS z_score_peer,
+                       COALESCE(zone_peer, zone) AS zone_peer,
+                       peer_group,
+                       z_score_ts, zone_ts, mean_5y, std_5y, count_5y
+                FROM valuation_scores
+                WHERE symbol = ? AND period = (
+                    SELECT MAX(period) FROM valuation_scores
+                    WHERE symbol = ? AND period <= ?
+                )
+                ORDER BY ratio_name
+                """,
+                (symbol.upper(), symbol.upper(), period_key),
             )
-            ORDER BY ratio_name
-        """,
-            (symbol.upper(), symbol.upper()),
-        )
+        else:
+            cur.execute(
+                """
+                SELECT ratio_name, ratio_value, z_score, percentile, zone,
+                       COALESCE(z_score_peer, z_score) AS z_score_peer,
+                       COALESCE(zone_peer, zone) AS zone_peer,
+                       peer_group,
+                       z_score_ts, zone_ts, mean_5y, std_5y, count_5y
+                FROM valuation_scores
+                WHERE symbol = ? AND period = (
+                    SELECT MAX(period) FROM valuation_scores WHERE symbol = ?
+                )
+                ORDER BY ratio_name
+                """,
+                (symbol.upper(), symbol.upper()),
+            )
         rows = cur.fetchall()
         return {
             r[0]: {
@@ -593,8 +633,8 @@ class L3ValuationLoader:
             for r in rows
         }
 
-    def score_valuation(self, symbol: str) -> Dict:
-        vals = self.get_latest_valuation(symbol)
+    def score_valuation(self, symbol: str, target_date: Optional[str] = None) -> Dict:
+        vals = self.get_latest_valuation(symbol, target_date=target_date)
         if not vals:
             return {
                 "score": 0,
@@ -616,8 +656,12 @@ class L3ValuationLoader:
         raw_values = {}
         has_ts = False
         for rname, rinfo in vals.items():
-            z_scores.append(rinfo.get("z_score", 0))
-            z_scores_peer.append(rinfo.get("z_score_peer", rinfo.get("z_score", 0)))
+            z = rinfo.get("z_score")
+            if z is None:
+                continue
+            z_scores.append(z)
+            zp = rinfo.get("z_score_peer")
+            z_scores_peer.append(zp if zp is not None else z)
             scores.append(zone_scores.get(rinfo.get("zone", "FAIR"), 0))
             if rinfo.get("peer_group"):
                 peer_group = rinfo["peer_group"]
@@ -671,18 +715,36 @@ class L4BehaviorLoader:
     def __init__(self):
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
-    def get_volume_profile(self, symbol: str) -> Optional[Dict]:
+    def get_volume_profile(self, symbol: str, target_date: Optional[str] = None) -> Optional[Dict]:
+        """Point-in-time volume profile lookup.
+
+        When target_date is provided, only profile rows computed by that date
+        are visible (date <= target_date) — prevents time-collapse in
+        backtests. When None (live), uses latest row.
+        """
         cur = self.conn.cursor()
-        cur.execute(
-            """
-            SELECT price_current, poc, vah, val, volume_ratio,
-                   price_ma20, price_ma50
-            FROM volume_profile
-            WHERE symbol = ?
-            ORDER BY date DESC LIMIT 1
-        """,
-            (symbol.upper(),),
-        )
+        if target_date:
+            cur.execute(
+                """
+                SELECT price_current, poc, vah, val, volume_ratio,
+                       price_ma20, price_ma50
+                FROM volume_profile
+                WHERE symbol = ? AND date <= ?
+                ORDER BY date DESC LIMIT 1
+                """,
+                (symbol.upper(), target_date),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT price_current, poc, vah, val, volume_ratio,
+                       price_ma20, price_ma50
+                FROM volume_profile
+                WHERE symbol = ?
+                ORDER BY date DESC LIMIT 1
+                """,
+                (symbol.upper(),),
+            )
         row = cur.fetchone()
         if not row:
             return None
@@ -696,19 +758,29 @@ class L4BehaviorLoader:
             "ma50": row[6],
         }
 
-    def get_active_demand_count(self, symbol: str, days: int = 20) -> int:
+    def get_active_demand_count(self, symbol: str, days: int = 20, target_date: Optional[str] = None) -> int:
         cur = self.conn.cursor()
-        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        cur.execute(
-            """
-            SELECT COUNT(*) FROM active_demand
-            WHERE symbol = ? AND date >= ?
-        """,
-            (symbol.upper(), cutoff),
-        )
+        if target_date:
+            cutoff = (datetime.strptime(target_date, "%Y-%m-%d") - timedelta(days=days)).strftime("%Y-%m-%d")
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM active_demand
+                WHERE symbol = ? AND date >= ? AND date <= ?
+                """,
+                (symbol.upper(), cutoff, target_date),
+            )
+        else:
+            cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM active_demand
+                WHERE symbol = ? AND date >= ?
+                """,
+                (symbol.upper(), cutoff),
+            )
         return cur.fetchone()[0]
 
-    def score_behavior(self, symbol: str, fusion_action: str = "") -> Dict:
+    def score_behavior(self, symbol: str, fusion_action: str = "", target_date: Optional[str] = None) -> Dict:
         """Score behavior from Volume Profile + optional decision fusion context.
 
         WHY fusion_action (P1 bridge):
@@ -719,7 +791,7 @@ class L4BehaviorLoader:
           "_LOCKDOWN" → lower LR. This integrates Model A/B arbitration
           into L4_BEHAVIOR without duplicating the policy matrix.
         """
-        vp = self.get_volume_profile(symbol)
+        vp = self.get_volume_profile(symbol, target_date=target_date)
         if not vp:
             return {"score": 0, "grade": "NO_DATA", "position": "UNKNOWN", "signals": 0}
 
@@ -727,7 +799,7 @@ class L4BehaviorLoader:
         val = vp["val"]
         vah = vp["vah"]
         vol_ratio = vp["volume_ratio"]
-        signals = self.get_active_demand_count(symbol)
+        signals = self.get_active_demand_count(symbol, target_date=target_date)
 
         if price < val:
             position = "BELOW_VA"
@@ -847,13 +919,18 @@ class PerceptionLoader:
         except Exception:
             return {"top_sector": "UNKNOWN", "n_healthy": 0, "chain": [], "top_phase": "NEUTRAL"}
 
-    def load_health(self, symbol: str) -> dict:
-        """Load P2 HealthLatentState for a symbol — dynamic import to avoid circular."""
+    def load_health(self, symbol: str, target_date: Optional[str] = None) -> dict:
+        """Load P2 HealthLatentState for a symbol — dynamic import to avoid circular.
+
+        Point-in-time: when target_date is provided, only financial periods
+        published by that date feed the health state (period <= target_date's
+        quarter). None = live latest.
+        """
         try:
             from src.financial.company_health_v2 import CompanyHealthV2
 
             engine = CompanyHealthV2()
-            state = engine.analyze(symbol)
+            state = engine.analyze(symbol, target_date=target_date)
             if state is None:
                 return {"archetype": "STEADY_EARNER", "vector": [0.5, 0.5, 0.5, 0.5, 0.5], "confidence": 0.5, "periods": 0}
             return {
