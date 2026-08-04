@@ -1026,8 +1026,16 @@ class BayesianMandate:
     causal_coherence: float = 0.0  # avg edge confidence across all paths
     causal_lag_months: int = 0  # max transmission lag (months)
     causal_paths_found: int = 0  # number of DAG paths propagated
-    sector_macro_score: float = 0.0  # dot-product M · W_i (Sector Exposure Matrix)
-    sector_macro_lr: float = 1.0  # LR derived from sector macro score
+    sector_macro_score: float = 0.0  # dot-product M · W_i (raw, no lag)
+    sector_macro_lr: float = 1.0  # LR derived from sector macro score (raw)
+
+    # Macro Lag Engine (Step 2 — LAW-009)
+    # WHY: Raw M vector snapshot is NOT the effective signal. Exponential
+    #      time-decay over lookback window gives the TRUE lag-adjusted score.
+    sector_macro_score_effective: float = 0.0  # lag-adjusted M · W_i
+    sector_macro_lr_effective: float = 1.0  # LR from lag-adjusted score
+    signal_deficit: float = 0.0  # raw - effective (negative = signal propagating)
+    lag_half_life: float = 0.0  # sector half_life used (days)
 
 
 ACTION_VN = {
@@ -1320,9 +1328,17 @@ class BayesianGovernor:
         # ── Giai đoạn 6b: Sector Macro Score (Dot Product M · W_i) ──
         # WHY: SectorExposureMatrix computes per-sector macro fingerprint.
         #      Sector score → LR bridges Macro Engine → Bayesian Governor.
+        #      MacroLagEngine applies exponential time-decay (LAW-009):
+        #        Effective_M = Σ M(t-d) × 0.5^(d/HL) / Σ 0.5^(d/HL)
+        #      This prevents false positives when macro just turned positive.
         _sector_macro_score = 0.0
         _sector_macro_lr = 1.0
+        _sector_macro_score_eff = 0.0
+        _sector_macro_lr_eff = 1.0
+        _signal_deficit = 0.0
+        _lag_hl = 0.0
         try:
+            from governor.macro_lag_engine import MacroLagEngine
             from governor.regional_influence_engine import RegionalInfluenceEngine
             from governor.sector_exposure_matrix import SectorExposureMatrix
 
@@ -1331,12 +1347,19 @@ class BayesianGovernor:
                 _engine = RegionalInfluenceEngine()
                 _M = _engine.compute().macro_vector
                 _matrix = SectorExposureMatrix()
+
+                # Raw score (snapshot)
                 _result = _matrix.compute_sector_macro_score(_sector_name, _M)
                 _sector_macro_score = _result.macro_score
-                # LR mapping: score ∈ [0,1] → LR ∈ [0.3, 2.0]
-                # Low macro score (bearish) → LR < 1.0 (reduce gain prob)
-                # High macro score (bullish) → LR > 1.0 (increase gain prob)
                 _sector_macro_lr = 0.3 + 1.7 * _sector_macro_score
+
+                # Lag-adjusted score (LAW-009)
+                _lag_engine = MacroLagEngine()
+                _lag_result = _lag_engine.compute(_sector_name)
+                _sector_macro_score_eff = _lag_result.effective_score
+                _sector_macro_lr_eff = 0.3 + 1.7 * _sector_macro_score_eff
+                _signal_deficit = _lag_result.signal_deficit
+                _lag_hl = _lag_result.half_life
         except Exception as e:
             logger.warning("[GOV] SectorExposureMatrix FAILED for %s: %s", symbol, e)
 
@@ -1530,6 +1553,11 @@ class BayesianGovernor:
             causal_paths_found=_causal_paths,
             sector_macro_score=round(_sector_macro_score, 4),
             sector_macro_lr=round(_sector_macro_lr, 4),
+            # Macro Lag Engine (Step 2 — LAW-009)
+            sector_macro_score_effective=round(_sector_macro_score_eff, 4),
+            sector_macro_lr_effective=round(_sector_macro_lr_eff, 4),
+            signal_deficit=round(_signal_deficit, 4),
+            lag_half_life=round(_lag_hl, 1),
         )
 
     def analyze(self, symbols: List[str]) -> Dict:
