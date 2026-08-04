@@ -747,12 +747,17 @@ def in_bao_cao(kq: dict):
     try:
         from src.governor.regional_influence_engine import RegionalInfluenceEngine
         from src.governor.sector_exposure_matrix import SectorExposureMatrix
+        from src.governor.macro_lag_engine import MacroLagEngine
 
         _engine = RegionalInfluenceEngine()
         _macro_result = _engine.compute()
         _M = _macro_result.macro_vector
         _matrix = SectorExposureMatrix()
         _scores = _matrix.compute_all_sector_scores(_M)
+
+        # ── Lag-adjusted signals (LAW-009) ──
+        _lag_engine = MacroLagEngine()
+        _lag_results = _lag_engine.compute_all_sectors()
 
         print()
         print("  MACRO STATE VECTOR (M):")
@@ -768,19 +773,31 @@ def in_bao_cao(kq: dict):
             print(f"    {_icon} {_node:20s}: {_score:.2%} {_bar}")
 
         print()
-        print("  SECTOR MACRO SCORES (M · W_i):")
+        print("  SECTOR MACRO SCORES (M · W_i) + LAG-ADJUSTED (LAW-009):")
         _ranked = _matrix.get_sector_ranking(_M)
-        for _i, (_sect, _sc) in enumerate(_ranked[:3]):
-            _icon = "🟢" if _sc > 0.5 else "🟡" if _sc > 0.35 else "🔴"
-            print(f"    {_icon} {_i + 1}. {_sect:12s}: {_sc:.2%}")
+        for _i, (_sect, _sc) in enumerate(_ranked[:5]):
+            _lag = _lag_results.get(_sect)
+            _eff = _lag.effective_score if _lag else _sc
+            _deficit = _lag.signal_deficit if _lag else 0.0
+            _hl = _lag.half_life if _lag else 0
+            _icon = "🟢" if _eff > 0.5 else "🟡" if _eff > 0.35 else "🔴"
+            _deficit_str = f"{_deficit:+.2%}" if abs(_deficit) > 0.01 else "  0.00%"
+            print(f"    {_icon} {_i + 1}. {_sect:12s}: raw={_sc:.2%}  eff={_eff:.2%}  deficit={_deficit_str}  HL={_hl:.0f}d")
         print(f"    {'...':>14s}")
         for _i, (_sect, _sc) in enumerate(_ranked[-2:]):
-            _icon = "🟢" if _sc > 0.5 else "🟡" if _sc > 0.35 else "🔴"
-            print(f"    {_icon} {len(_ranked) - 1 + _i}. {_sect:12s}: {_sc:.2%}")
+            _lag = _lag_results.get(_sect)
+            _eff = _lag.effective_score if _lag else _sc
+            _deficit = _lag.signal_deficit if _lag else 0.0
+            _hl = _lag.half_life if _lag else 0
+            _icon = "🟢" if _eff > 0.5 else "🟡" if _eff > 0.35 else "🔴"
+            _deficit_str = f"{_deficit:+.2%}" if abs(_deficit) > 0.01 else "  0.00%"
+            print(f"    {_icon} {len(_ranked) - 1 + _i}. {_sect:12s}: raw={_sc:.2%}  eff={_eff:.2%}  deficit={_deficit_str}  HL={_hl:.0f}d")
 
         # Inject into final decision
         kq["macro_state_vector"] = _M
         kq["sector_macro_scores"] = {s: r.macro_score for s, r in _scores.items()}
+        kq["sector_macro_scores_effective"] = {s: r.effective_score for s, r in _lag_results.items()}
+        kq["sector_signal_deficits"] = {s: r.signal_deficit for s, r in _lag_results.items()}
         kq["sector_ranking"] = [(s, sc) for s, sc in _ranked]
 
     except Exception as e:

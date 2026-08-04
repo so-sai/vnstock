@@ -1,4 +1,13 @@
-"""causal_dag_engine.py - Causal DAG Engine (LAW-008, LAW-009, LAW-010)."""
+"""causal_dag_engine.py - Causal DAG Engine (LAW-008, LAW-009, LAW-010).
+
+LAW-009 (Causal Delay & Interaction Principle):
+  Macro signals do not transmit instantaneously. Each macro→sector link has
+  a characteristic lag and half-life. The effective macro signal is NOT the
+  latest snapshot, but a time-decay-weighted integral of historical signals.
+  Implemented in: governor/macro_lag_engine.py (TransmissionParameters,
+  MacroLagEngine, CompanyExposureModifier). This module provides the
+  MarginStressNode and CausalDAGEngine for DAG-level processing.
+"""
 
 import datetime
 import math
