@@ -1,0 +1,648 @@
+"""
+Unified System Replay — Ablation Study for Macro Pipeline (LAW-009 + InteractionEngine)
+
+Compares 3 scenarios:
+  A: Baseline    — Raw M · W_i (no lag, no interaction)
+  B: Lag Only    — MacroLagEngine applied (LAW-009)
+  C: Full Pipeline — Lag + InteractionEngine
+
+Measures: Sharpe, MaxDD, Alpha, WinRate, Decision Delta
+Period: 2021-04 to 2026-08 (macro_history available range)
+"""
+from __future__ import annotations
+
+import json
+import logging
+import sqlite3
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+def _hydrate_path():
+    """Path Hydrator v2.1: Auto-locate Project Root."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    current = Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
+            return current
+        current = current.parent
+    return Path(__file__).resolve().parent.parent.parent
+
+
+PROJECT_ROOT = _hydrate_path()
+BACKEND_DIR = PROJECT_ROOT / "backend"
+SRC_DIR = BACKEND_DIR / "src"
+DATA_DIR = BACKEND_DIR / "data"
+REPORTS_DIR = DATA_DIR / "reports" / "ablation_studies"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from governor.interaction_engine import InteractionEngine
+from governor.macro_lag_engine import MacroLagEngine
+from governor.regional_influence_engine import RegionalInfluenceEngine
+from governor.sector_exposure_matrix import SectorExposureMatrix
+
+
+UNIVERSE = list(set([
+    "HPG", "VNM", "VIC", "VHM", "VRE", "VCB", "BID", "CTG", "TCB", "MBB",
+    "ACB", "VPB", "STB", "TPB", "HDB", "LPB", "VIB", "AGB", "BWE", "MWG",
+    "FPT", "VGT", "PTB", "PLX", "GAS", "POW", "NT2", "PC1", "GVR",
+    "SSI", "VND", "HCM", "SHS", "VCI",
+]))
+
+
+@dataclass
+class ScenarioState:
+    capital: float = 100_000_000.0
+    initial_capital: float = 100_000_000.0
+    positions: Dict[str, float] = field(default_factory=dict)
+    entry_prices: Dict[str, float] = field(default_factory=dict)
+    equity_curve: List[float] = field(default_factory=list)
+    trade_log: List[dict] = field(default_factory=list)
+    daily_returns: List[float] = field(default_factory=list)
+
+
+@dataclass
+class ReplayResult:
+    scenario: str
+    start_date: str
+    end_date: str
+    trading_days: int
+    total_return: float
+    sharpe_ratio: float
+    max_drawdown: float
+    win_rate: float
+    total_trades: int
+    annualized_return: float
+    volatility: float
+    final_equity: float
+
+
+def _get_trading_days(conn: sqlite3.Connection, start: str, end: str) -> List[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' "
+        "AND date BETWEEN ? AND ? ORDER BY date",
+        (start, end),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _get_close(conn: sqlite3.Connection, symbol: str, date: str) -> Optional[float]:
+    row = conn.execute(
+        "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?", (symbol, date)
+    ).fetchone()
+    return float(row[0]) if row else None
+
+
+def _get_vnindex_close(conn: sqlite3.Connection, date: str) -> Optional[float]:
+    return _get_close(conn, "VNINDEX", date)
+
+
+def _get_sector(conn: sqlite3.Connection, symbol: str) -> Optional[str]:
+    from governor.sector_exposure_matrix import VIETNAMESE_SECTOR_MAP
+    row = conn.execute(
+        "SELECT icb_name2 FROM symbol_industry WHERE symbol=?", (symbol,)
+    ).fetchone()
+    if not row:
+        return None
+    return VIETNAMESE_SECTOR_MAP.get(row[0])
+
+def _compute_scores_for_date(
+    conn, target_date, macro_engine, lag_engine, ix_engine, matrix, macro_cache
+):
+    """Compute A/B/C scores for all sectors on one date."""
+    if macro_cache and macro_cache["date"] == target_date:
+        macro_result = macro_cache["result"]
+    else:
+        try:
+            macro_result = macro_engine.compute(target_date)
+        except Exception:
+            macro_result = None
+        macro_cache = {"date": target_date, "result": macro_result}
+
+    if macro_result is None:
+        return {}, macro_cache
+
+    M = macro_result.macro_vector
+    scores_a, scores_b, scores_c = {}, {}, {}
+
+    sectors_seen = set()
+    for sym in UNIVERSE:
+        sec = _get_sector(conn, sym)
+        if sec and sec not in sectors_seen:
+            sectors_seen.add(sec)
+        else:
+            continue
+
+        try:
+            r = matrix.compute_sector_macro_score(sec, M)
+            scores_a[sec] = r.macro_score
+        except Exception:
+            scores_a[sec] = 0.5
+
+        try:
+            lr = lag_engine.compute(sec, target_date)
+            scores_b[sec] = lr.effective_score
+        except Exception:
+            scores_b[sec] = scores_a.get(sec, 0.5)
+
+        try:
+            ix_r = ix_engine.compute(M, sec)
+            scores_c[sec] = scores_b.get(sec, 0.5) * ix_r.multiplier
+        except Exception:
+            scores_c[sec] = scores_b.get(sec, 0.5)
+
+    return {"A": scores_a, "B": scores_b, "C": scores_c}, macro_cache
+
+
+def _decide(score, price, entry):
+    if score is None:
+        return "HOLD"
+    if score > 0.6 and entry is None:
+        return "BUY"
+    elif score < 0.35 and entry is not None:
+        return "SELL"
+    elif entry is not None and price < entry * 0.93:
+        return "SELL"
+    return "HOLD"
+
+
+def _execute(state, conn, date, action, symbol, score):
+    price = _get_close(conn, symbol, date)
+    if not price or price <= 0:
+        return
+
+    current_shares = state.positions.get(symbol, 0)
+
+    if action == "BUY" and current_shares == 0:
+        alloc = state.capital * 0.05
+        exec_price = price * 1.002
+        shares = int(alloc / exec_price)
+        if shares > 0:
+            cost = shares * exec_price * 1.0015
+            if cost <= state.capital:
+                state.capital -= cost
+                state.positions[symbol] = shares
+                state.entry_prices[symbol] = exec_price
+                state.trade_log.append({
+                    "date": date, "symbol": symbol, "action": "BUY",
+                    "price": round(exec_price, 2), "shares": shares,
+                    "score": round(score, 4),
+                })
+
+    elif action == "SELL" and current_shares > 0:
+        exec_price = price * 0.998
+        revenue = current_shares * exec_price * 0.9985
+        entry = state.entry_prices.get(symbol, exec_price)
+        pnl = (exec_price - entry) / entry
+        state.capital += revenue
+        state.trade_log.append({
+            "date": date, "symbol": symbol, "action": "SELL",
+            "price": round(exec_price, 2), "shares": current_shares,
+            "score": round(score, 4), "pnl_pct": round(pnl * 100, 2),
+        })
+        state.positions.pop(symbol, None)
+        state.entry_prices.pop(symbol, None)
+
+
+def _mark_to_market(state, conn, date):
+    total = state.capital
+    for sym, shares in state.positions.items():
+        p = _get_close(conn, sym, date)
+        if p:
+            total += shares * p
+    state.equity_curve.append(total)
+
+
+def _build_result(state, scenario, start, end, days):
+    curve = np.array(state.equity_curve) if state.equity_curve else np.array([state.initial_capital])
+    total_ret = (curve[-1] / curve[0]) - 1.0
+    daily_rets = np.diff(curve) / curve[:-1] if len(curve) > 1 else np.array([0.0])
+    vol = float(np.std(daily_rets) * np.sqrt(252)) if len(daily_rets) > 1 else 0.0
+    sharpe = float(np.mean(daily_rets) / np.std(daily_rets) * np.sqrt(252)) if np.std(daily_rets) > 0 else 0.0
+    peak = np.maximum.accumulate(curve)
+    dd = (curve - peak) / peak
+    max_dd = float(np.min(dd))
+    years = max(days / 252, 0.01)
+    ann_ret = (1 + total_ret) ** (1 / years) - 1
+    sells = [t for t in state.trade_log if t["action"] == "SELL"]
+    wins = sum(1 for t in sells if t.get("pnl_pct", 0) > 0)
+    win_rate = wins / len(sells) if sells else 0.0
+
+    return ReplayResult(
+        scenario=scenario, start_date=start, end_date=end,
+        trading_days=days, total_return=round(total_ret * 100, 2),
+        sharpe_ratio=round(sharpe, 4), max_drawdown=round(max_dd * 100, 2),
+        win_rate=round(win_rate * 100, 1), total_trades=len(state.trade_log),
+        annualized_return=round(ann_ret * 100, 2), volatility=round(vol * 100, 2),
+        final_equity=round(curve[-1], 0),
+    )
+
+def run_unified_replay(
+    start_date="2021-04-01",
+    end_date="2026-08-04",
+    db_path=None,
+    sample_every=5,
+):
+    """Run 3-scenario ablation backtest.
+
+    Args:
+        start_date: First trading day (default: 2021-04-01, macro data starts)
+        end_date: Last trading day (default: today)
+        db_path: Override DB path
+        sample_every: Only score every N-th trading day (default: 5). Reduces
+                      runtime by ~80% while capturing major regime shifts.
+
+    Returns:
+        Dict[str, ReplayResult] for scenarios A, B, C
+    """
+    if db_path is None:
+        db_path = str(DATA_DIR / "screener_cache.db")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        trading_days = _get_trading_days(conn, start_date, end_date)
+    finally:
+        conn.close()
+
+    if not trading_days:
+        logger.error("No trading days found in range %s - %s", start_date, end_date)
+        return {}
+
+    # Pre-sample days to score (heavy computation only on these)
+    scored_indices = set(range(0, len(trading_days), sample_every))
+
+    print(f"\n{'='*70}")
+    print(f"  UNIFIED SYSTEM REPLAY — ABLATION STUDY")
+    print(f"  Period: {trading_days[0]} -> {trading_days[-1]} ({len(trading_days)} days)")
+    print(f"  Scored days: {len(scored_indices)}/{len(trading_days)} (every {sample_every}d)")
+    print(f"  Universe: {len(UNIVERSE)} symbols")
+    print(f"{'='*70}\n")
+
+    # Initialize engines
+    macro_engine = RegionalInfluenceEngine(db_path)
+    lag_engine = MacroLagEngine(db_path)
+    ix_engine = InteractionEngine()
+    matrix = SectorExposureMatrix()
+
+    # Pre-compute sector mappings for universe
+    conn = sqlite3.connect(db_path)
+    try:
+        from governor.sector_exposure_matrix import VIETNAMESE_SECTOR_MAP
+        sym_sector = {}
+        for sym in UNIVERSE:
+            row = conn.execute(
+                "SELECT icb_name2 FROM symbol_industry WHERE symbol=?", (sym,)
+            ).fetchone()
+            if row:
+                sec = VIETNAMESE_SECTOR_MAP.get(row[0])
+                if sec:
+                    sym_sector[sym] = sec
+
+        # Pre-load all close prices for universe + VNINDEX into memory
+        symbols_to_load = UNIVERSE + ["VNINDEX"]
+        placeholders = ",".join("?" * len(symbols_to_load))
+        rows = conn.execute(
+            f"SELECT symbol, date, close FROM daily_ohlcv "
+            f"WHERE symbol IN ({placeholders}) AND date BETWEEN ? AND ? "
+            f"ORDER BY symbol, date",
+            (*symbols_to_load, start_date, end_date),
+        ).fetchall()
+        price_cache = {}
+        for sym, dt, cl in rows:
+            if sym not in price_cache:
+                price_cache[sym] = {}
+            price_cache[sym][dt] = float(cl)
+    finally:
+        conn.close()
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 1: Pre-fetch ALL macro data into memory (one-time)
+    # ═══════════════════════════════════════════════════════════
+    print("  [Phase 1] Pre-fetching macro vectors + lag scores...")
+    t0 = time.time()
+
+    scored_dates = [trading_days[i] for i in sorted(scored_indices)]
+
+    # Pre-compute M vectors for all scored days
+    macro_cache = {}  # date → M dict
+    for d in scored_dates:
+        try:
+            macro_cache[d] = macro_engine.compute(d).macro_vector
+        except Exception:
+            macro_cache[d] = None
+
+    # Pre-compute lag scores for all scored days × all sectors (batch)
+    lag_cache = {}  # date → {sector: effective_score}
+    for d in scored_dates:
+        lag_cache[d] = {}
+        try:
+            lag_results = lag_engine.compute_all_sectors(d)
+            for sec, lr in lag_results.items():
+                lag_cache[d][sec] = lr.effective_score
+        except Exception:
+            for sec in set(sym_sector.values()):
+                lag_cache[d][sec] = 0.5
+
+    # Pre-compute interaction multipliers for all scored days × all sectors (batch)
+    ix_cache = {}  # date → {sector: multiplier}
+    for d in scored_dates:
+        ix_cache[d] = {}
+        M = macro_cache.get(d)
+        if M is None:
+            for sec in set(sym_sector.values()):
+                ix_cache[d][sec] = 1.0
+            continue
+        try:
+            ix_results = ix_engine.compute_all_sectors(M)
+            for sec, ix_r in ix_results.items():
+                ix_cache[d][sec] = ix_r.multiplier
+        except Exception:
+            for sec in set(sym_sector.values()):
+                ix_cache[d][sec] = 1.0
+
+    print(f"  [Phase 1] Done in {time.time()-t0:.1f}s "
+          f"({len(scored_dates)} days × {len(set(sym_sector.values()))} sectors)")
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 2: Backtest loop (pure in-memory, no DB queries)
+    # ═══════════════════════════════════════════════════════════
+    print("  [Phase 2] Running backtest loop...")
+    t0 = time.time()
+
+    # Initialize 3 scenario states
+    states = {
+        "A": ScenarioState(initial_capital=100_000_000.0, capital=100_000_000.0),
+        "B": ScenarioState(initial_capital=100_000_000.0, capital=100_000_000.0),
+        "C": ScenarioState(initial_capital=100_000_000.0, capital=100_000_000.0),
+    }
+
+    decision_delta = []
+    scored_day_count = 0
+
+    for i, target_date in enumerate(trading_days):
+        if (i + 1) % 200 == 0 or i == 0:
+            eq_a = states["A"].equity_curve[-1] if states["A"].equity_curve else 100e6
+            print(f"  Day {i+1}/{len(trading_days)}: {target_date} | A={eq_a/1e6:.1f}M")
+
+        M = macro_cache.get(target_date)
+        if M is None:
+            for s in states.values():
+                _mark_to_market_fast(s, target_date, price_cache)
+            continue
+
+        scored_day_count += 1
+        sectors_in_universe = set(sym_sector.values())
+
+        # Compute scores for all 3 scenarios from cached data
+        scores_a, scores_b, scores_c = {}, {}, {}
+        for sec in sectors_in_universe:
+            try:
+                r = matrix.compute_sector_macro_score(sec, M)
+                scores_a[sec] = r.macro_score
+            except Exception:
+                scores_a[sec] = 0.5
+            scores_b[sec] = lag_cache.get(target_date, {}).get(sec, 0.5)
+            ix_mult = ix_cache.get(target_date, {}).get(sec, 1.0)
+            scores_c[sec] = scores_b[sec] * ix_mult
+
+        all_scores = {"A": scores_a, "B": scores_b, "C": scores_c}
+
+        # Top-N sector rotation: trade only on rebalance days
+        is_rebalance = (scored_day_count % REBALANCE_FREQ == 0) or (i == 0)
+
+        for sc_key in ["A", "B", "C"]:
+            sector_scores = all_scores[sc_key]
+            sorted_sectors = sorted(sector_scores.items(), key=lambda x: x[1], reverse=True)
+            top_n = [s for s, _ in sorted_sectors[:MAX_POSITIONS]]
+
+            for sym, sec in sym_sector.items():
+                price = price_cache.get(sym, {}).get(target_date)
+                if not price:
+                    continue
+
+                score = sector_scores.get(sec, 0.5)
+                entry = states[sc_key].entry_prices.get(sym)
+                action = _decide(score, price, entry)
+
+                if is_rebalance:
+                    # Full rebalance: sell non-top-N, buy missing top-N
+                    if sec not in top_n and sym in states[sc_key].positions:
+                        _execute_fast(states[sc_key], target_date, "SELL",
+                                      sym, score, price, None)
+                    elif sec in top_n and sym not in states[sc_key].positions:
+                        _execute_fast(states[sc_key], target_date, "BUY",
+                                      sym, score, price, None)
+                else:
+                    # Non-rebalance: only stop-loss exits
+                    if action == "SELL" and sym in states[sc_key].positions:
+                        _execute_fast(states[sc_key], target_date, "SELL",
+                                      sym, score, price, None)
+
+            _mark_to_market_fast(states[sc_key], target_date, price_cache)
+
+        # Track decision deltas (A vs C)
+        a_buys = {s for s in top_n if all_scores["A"].get(s, 0) > 0.6}
+        c_buys = {s for s in top_n if all_scores["C"].get(s, 0) > 0.6}
+        if a_buys != c_buys:
+            decision_delta.append({
+                "date": target_date,
+                "a_only": sorted(a_buys - c_buys),
+                "c_only": sorted(c_buys - a_buys),
+                "both": sorted(a_buys & c_buys),
+            })
+
+    print(f"  [Phase 2] Done in {time.time()-t0:.1f}s "
+          f"({scored_day_count} scored days × {len(trading_days)} total days)")
+
+    # Build results
+    results = {}
+    for sc_key in ["A", "B", "C"]:
+        label = {"A": "Baseline (Raw)", "B": "Lag Only (LAW-009)", "C": "Full Pipeline"}[sc_key]
+        results[sc_key] = _build_result(
+            states[sc_key], label, trading_days[0], trading_days[-1], len(trading_days)
+        )
+
+    _print_summary(results, decision_delta)
+    _save_reports(results, decision_delta, trading_days[0], trading_days[-1])
+    return results
+
+
+MAX_POSITIONS = 20  # max concurrent positions
+REBALANCE_FREQ = 10  # rebalance every N scored days
+
+
+def _execute_fast(state, date, action, symbol, score, price, last_action_date):
+    """Paper trading: sell when sector drops out of top-N, buy when it enters."""
+    current_shares = state.positions.get(symbol, 0)
+
+    if action == "BUY" and current_shares == 0:
+        if len(state.positions) >= MAX_POSITIONS:
+            return
+        # Equal split of available cash across open slots
+        open_slots = MAX_POSITIONS - len(state.positions)
+        alloc_per_slot = state.capital / max(open_slots, 1)
+        exec_price = price * 1.002
+        shares = int(alloc_per_slot / exec_price)
+        cost = shares * exec_price * 1.0015
+        if shares > 0 and cost <= state.capital:
+            state.capital -= cost
+            state.positions[symbol] = shares
+            state.entry_prices[symbol] = exec_price
+            state.trade_log.append({
+                "date": date, "symbol": symbol, "action": "BUY",
+                "price": round(exec_price, 2), "shares": shares,
+                "score": round(score, 4),
+            })
+
+    elif action == "SELL" and current_shares > 0:
+        exec_price = price * 0.998
+        revenue = current_shares * exec_price * 0.9985
+        entry = state.entry_prices.get(symbol, exec_price)
+        pnl = (exec_price - entry) / entry
+        state.capital += revenue
+        state.trade_log.append({
+            "date": date, "symbol": symbol, "action": "SELL",
+            "price": round(exec_price, 2), "shares": current_shares,
+            "score": round(score, 4), "pnl_pct": round(pnl * 100, 2),
+        })
+        state.positions.pop(symbol, None)
+        state.entry_prices.pop(symbol, None)
+
+
+def _mark_to_market_fast(state, date, price_cache):
+    """Mark to market using pre-loaded prices."""
+    total = state.capital
+    for sym, shares in state.positions.items():
+        p = price_cache.get(sym, {}).get(date)
+        if p:
+            total += shares * p
+    state.equity_curve.append(total)
+
+def _print_summary(results, decision_delta):
+    print(f"\n{'='*70}")
+    print("  ABLATION STUDY RESULTS")
+    print(f"{'='*70}\n")
+
+    header = f"{'Metric':<25} {'A: Baseline':>15} {'B: Lag Only':>15} {'C: Full':>15}"
+    print(header)
+    print("-" * 70)
+
+    metrics = [
+        ("Total Return (%)", "total_return", ".2f"),
+        ("Annualized Return (%)", "annualized_return", ".2f"),
+        ("Sharpe Ratio", "sharpe_ratio", ".4f"),
+        ("Max Drawdown (%)", "max_drawdown", ".2f"),
+        ("Volatility (%)", "volatility", ".2f"),
+        ("Win Rate (%)", "win_rate", ".1f"),
+        ("Total Trades", "total_trades", "d"),
+        ("Final Equity (M)", "final_equity", ".0f"),
+    ]
+
+    ra, rb, rc = results["A"], results["B"], results["C"]
+    for label, attr, fmt in metrics:
+        va = getattr(ra, attr)
+        vb = getattr(rb, attr)
+        vc = getattr(rc, attr)
+        if attr == "final_equity":
+            va, vb, vc = va / 1e6, vb / 1e6, vc / 1e6
+        print(f"  {label:<23} {va:>15{fmt}} {vb:>15{fmt}} {vc:>15{fmt}}")
+
+    # Alpha comparison
+    print(f"\n{'='*70}")
+    print("  ALPHA ANALYSIS (vs Baseline A)")
+    print(f"{'='*70}\n")
+
+    sharpe_b_alpha = rb.sharpe_ratio - ra.sharpe_ratio
+    sharpe_c_alpha = rc.sharpe_ratio - ra.sharpe_ratio
+    ret_c_alpha = rc.annualized_return - ra.annualized_return
+    mdd_c_improvement = ra.max_drawdown - rc.max_drawdown  # positive = less drawdown
+
+    print(f"  {'Metric':<30} {'B - A':>15} {'C - A':>15}")
+    print(f"  {'-'*60}")
+    print(f"  {'Sharpe Delta':<30} {sharpe_b_alpha:>+15.4f} {sharpe_c_alpha:>+15.4f}")
+    print(f"  {'Annual Return Delta (%)':<30} {'N/A':>15} {ret_c_alpha:>+15.2f}")
+    print(f"  {'MaxDD Improvement (pp)':<30} {'N/A':>15} {mdd_c_improvement:>+15.2f}")
+
+    # Decision Delta
+    print(f"\n{'='*70}")
+    print("  DECISION DELTA (Scenario A vs C)")
+    print(f"{'='*70}\n")
+
+    total_days = len(decision_delta) + 1
+    days_with_delta = len(decision_delta)
+    total_a_only = sum(len(d["a_only"]) for d in decision_delta)
+    total_c_only = sum(len(d["c_only"]) for d in decision_delta)
+    total_both = sum(len(d["both"]) for d in decision_delta)
+
+    print(f"  Days with decision difference: {days_with_delta}/{total_days} ({days_with_delta/total_days*100:.1f}%)")
+    print(f"  Total BUY signals (A only):    {total_a_only}")
+    print(f"  Total BUY signals (C only):    {total_c_only}")
+    print(f"  Total BUY signals (both):      {total_both}")
+
+    if decision_delta:
+        print(f"\n  Sample decision changes (last 5):")
+        for d in decision_delta[-5:]:
+            a_str = ",".join(d["a_only"]) if d["a_only"] else "-"
+            c_str = ",".join(d["c_only"]) if d["c_only"] else "-"
+            print(f"    {d['date']}: A-only=[{a_str}] C-only=[{c_str}]")
+
+
+def _save_reports(results, decision_delta, start, end):
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    summary = {
+        "period": {"start": start, "end": end},
+        "scenarios": {},
+        "decision_delta_summary": {
+            "total_days": len(decision_delta) + 1,
+            "days_with_difference": len(decision_delta),
+        },
+    }
+    for key, r in results.items():
+        summary["scenarios"][key] = {
+            "label": r.scenario,
+            "total_return_pct": r.total_return,
+            "annualized_return_pct": r.annualized_return,
+            "sharpe_ratio": r.sharpe_ratio,
+            "max_drawdown_pct": r.max_drawdown,
+            "volatility_pct": r.volatility,
+            "win_rate_pct": r.win_rate,
+            "total_trades": r.total_trades,
+            "final_equity": r.final_equity,
+        }
+
+    # Save summary JSON
+    summary_path = REPORTS_DIR / f"ablation_{start}_{end}_summary.json"
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    print(f"\n  Summary saved: {summary_path}")
+
+    # Save decision delta CSV
+    delta_path = REPORTS_DIR / f"ablation_{start}_{end}_delta.csv"
+    with open(delta_path, "w") as f:
+        f.write("date,a_only,c_only,both\n")
+        for d in decision_delta:
+            f.write(f"{d['date']},{';'.join(d['a_only'])},{';'.join(d['c_only'])},{';'.join(d['both'])}\n")
+    print(f"  Delta CSV saved: {delta_path}")
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Unified System Replay — Ablation Study")
+    parser.add_argument("--start", default="2021-04-01", help="Start date (default: 2021-04-01)")
+    parser.add_argument("--end", default="2026-08-04", help="End date (default: 2026-08-04)")
+    parser.add_argument("--db", default=None, help="Override DB path")
+    parser.add_argument("--sample-every", type=int, default=5, help="Score every N-th day (default: 5)")
+    args = parser.parse_args()
+    run_unified_replay(args.start, args.end, args.db, args.sample_every)
