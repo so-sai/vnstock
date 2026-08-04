@@ -4,6 +4,15 @@
 
 **Startup:** `python backend/src/utils/sentinel_check.py; kit recall`. **Sentinel Law:** All `.py` files MUST include `_hydrate_path()` v2.2 anchored on `AGENTS.md + backend is_dir`. **Memory:** `.kit/local_brain.db` is truth; markdown is volatile. **Friction:** `kit learn --tag pattern|friction`. **CLI:** Always use `ptck.py`; never import modules directly.
 
+4. Earlier: `final-decision` DUNG NGOAI confirmed via XAI trace — structural VỠ CẤU TRÚC 1/3 pillar + DDI healing illusion + Interbank VETO, confidence 31-32%.
+
+**Session Aug 04 (Zero-Hallucination Campaign & Technical Maturity):** Bắt đầu từ LỖ HỔNG Density-vs-Provenance — `DataIntegrityAuditor` đo density/magnitude nên dữ liệu bịa (vừa đầy đủ vừa đúng độ lớn) bỏ qua **provenance** → trá hình nguồn thật trong DB. Đã triệt tiêu hoàn toàn ảo giác dữ liệu:
+1. **Niêm phong Zero-Hallucination** (commit `6cd60f6`): `_generate_synthetic_base` vĩnh viễn trả `[]` (Sắc lệnh 2026-08-04). Nguồn thật chết ⇒ `NO_DATA` → Governor ép **ĐỨNG NGOÀI** (bảo toàn vốn thô), không bao giờ bịa. `financial_facts.db` thêm cột `is_synthetic` (migration idempotent ALTER) + `write_batch`/`write_fact` lưu `source`/`is_synthetic` (No Provenance = No Trust). `DataIntegrityAuditor` giờ trừ mọi quý chứa fact synthetic khỏi density → không nhận `PERFECT` nhờ số vẽ. Tests mới: +2 provenance auditor, +3 NO_DATA/provenance crawler. **607/607 PASS**. `vn50_seeder.py` release khỏi hoãn commit (LAW-007).
+2. **Purge 352 bản ghi dữ liệu giả**: xóa rows STANDARD kỳ 2025Q3→2026Q2 ingested < 08-04 03:00 (gồm 5 row `TOTAL_DEBT=25e12` HDB/MBB/VCB/VPB/IJC + các 9.4e12/9.85e12...). Giữ 612 rows STANDARD re-crawl thật (BSR/GVR/HVN/FPT/HPG...) + 123 rows BANK thật (NII/CUSTOMER_DEPOSITS). DB sau purge: 0 bản ghi lệch scale tỷ đồng, 0 synthetic còn sót.
+3. **Đính chính CLI chuẩn VN20**: lệnh đúng là `python ptck.py vn20` — flag `--rebalance` KHÔNG tồn tại trong parser vn20 (chỉ `--top-n`/`--quiet`, ptck.py:4231). Sector Gate vốn tự chạy trong `run_vn20_filter`.
+4. **Fix FutureWarning pandas** (`vn20_quant_filter.py:364`): `df.groupby("symbol")["close"].pct_change(fill_method=None)` — loại bỏ deprecation của pandas về `fill_method` mặc định. Test vn20 sạch warning pct_change; full suite **607/607 PASS** (64s).
+5. **Kết quả phân bổ VN20 hiện tại** (`ptck.py vn20`, data 2026-08-03): Funnel 55→11→10→10→9; **9/9 Ngân hàng** (HDB/ACB/MBB/TPB/VIB/AGT/STB/LPB/BID) qua 4 tầng, MoS 40-79%, pha RECOVERY. Sector Gate khống chế nhóm Ngân hàng ở **~49.98-50%**, **50% Cash/Defensive (ĐỨNG NGOÀI)** — bắt đáy từng phần, giữ đạn phòng thủ.
+
 **Session Jul 31:** Vietstock BCTT tab free — 46 norms (CASH_EQUIV, RECEIVABLES, INVENTORY, LONG_TERM_DEBT, COGS) via 3 endpoints, 9 periods, merge financeinfo 4q + BCTT 9q. Cross-check tool detect 1Q label drift in CafeF BCM data. Full suite 406/406 PASS.
 
 **Session Aug 03 (Post-Market Campaign):** Locked 2026-08-03 decision **DUNG NGOAI** (100% Cash) — verified real (not data artifact) after volume backfill. Fixed `volume_accumulated` mapping (KBS 4.0.5 renamed `total_trades`; commit `63a060f`) → 330 stocks >50k vol. Then post-market:

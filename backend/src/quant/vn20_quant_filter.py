@@ -361,7 +361,7 @@ def compute_sector_context(conn, sector: str, lookback: int = 90) -> Dict:
     if df.empty or len(df) < 30:
         return {"sector": sector, "momentum": None, "valuation_pct": None}
 
-    df["ret"] = df.groupby("symbol")["close"].pct_change()
+    df["ret"] = df.groupby("symbol")["close"].pct_change(fill_method=None)
     daily = df.groupby("date")["ret"].mean().reset_index().sort_values("date")
     # Clean inf/NaN (broken prices produce inf pct_change → poisons cumprod)
     daily["ret"] = daily["ret"].replace([float("inf"), float("-inf")], pd.NA)
