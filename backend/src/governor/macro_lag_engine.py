@@ -314,7 +314,7 @@ class MacroLagEngine:
         in DB), we fetch raw indicator histories and normalize them.
         This is more robust because we can handle missing data per-day.
         """
-        from src.governor.regional_influence_engine import (
+        from governor.regional_influence_engine import (
             NODE_COMPOSITE_WEIGHTS,
             NORMALIZATION_BOUNDS,
             _normalize,
