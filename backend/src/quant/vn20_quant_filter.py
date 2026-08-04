@@ -361,14 +361,16 @@ def compute_sector_context(conn, sector: str, lookback: int = 90) -> Dict:
     if df.empty or len(df) < 30:
         return {"sector": sector, "momentum": None, "valuation_pct": None}
 
-    df["ret"] = df.groupby("symbol")["close"].pct_change(fill_method=None)
+    df.loc[:, "ret"] = df.groupby("symbol")["close"].pct_change(fill_method=None)
     daily = df.groupby("date")["ret"].mean().reset_index().sort_values("date")
     # Clean inf/NaN (broken prices produce inf pct_change → poisons cumprod)
-    daily["ret"] = daily["ret"].replace([float("inf"), float("-inf")], pd.NA)
+    # WHY: .loc[:, "ret"] thay vì daily["ret"]=... — chained assignment kích hoạt
+    # pandas FutureWarning (copy-vs-view); đây là lệnh gán đơn trên cột độc lập.
+    daily.loc[:, "ret"] = daily["ret"].replace([float("inf"), float("-inf")], pd.NA)
     daily = daily.dropna(subset=["ret"])
-    daily["cum"] = (1 + daily["ret"].fillna(0.0)).cumprod()
-    daily["ma5"] = daily["cum"].rolling(5).mean()
-    daily["ma20"] = daily["cum"].rolling(20).mean()
+    daily.loc[:, "cum"] = (1 + daily["ret"].fillna(0.0)).cumprod()
+    daily.loc[:, "ma5"] = daily["cum"].rolling(5).mean()
+    daily.loc[:, "ma20"] = daily["cum"].rolling(20).mean()
     last5 = daily["ma5"].dropna()
     last20 = daily["ma20"].dropna()
     if len(last20) == 0 or len(last5) == 0:

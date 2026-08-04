@@ -1,0 +1,27 @@
+# ==============================================================================
+# .pre-commit-config.yaml — Portable Static-Analysis Hooks (CI/CD Layer 1)
+#
+# WHY (khắc phục điểm mù của git-local hook):
+#   Hook .git/hooks/pre-commit chỉ tồn tại trên máy dev, không được version-control —
+#   clone máy mới là MẤT hoàn toàn lớp bảo vệ ruff (điểm mù reproducibility).
+#   Tệp này khai báo hooks portable: bất kỳ ai chạy `pre-commit install` đều nhận
+#   cùng một rào chắn static analysis (ruff check + ruff format) mà không cần đọc
+#   mã nguồn. CI/CD Layer 2 (.github/workflows/ci.yml) thực thi chính xác các hook
+#   này trên mỗi push/pull_request → máy dev + CI dùng CHUNG một config.
+#
+# Lưu ý: ruff đọc config từ backend/pyproject.toml ([tool.ruff]), args dưới đây chỉ
+# chỉ định đường dẫn backend (project gốc của repo).
+# ==============================================================================
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # ruff >= 0.9.4 (khớp dev dependency trong backend/pyproject.toml)
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        name: ruff lint (backend)
+        files: ^backend/
+        args: [--config, backend/pyproject.toml]
+      - id: ruff-format
+        name: ruff format (backend)
+        files: ^backend/
+        args: [--config, backend/pyproject.toml]
