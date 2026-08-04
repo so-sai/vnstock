@@ -126,7 +126,12 @@ class RegionalInfluenceEngine:
         self.db_path = db_path or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
 
     def _fetch_latest(self, variable: str, target_date: Optional[str] = None) -> Optional[float]:
-        """Fetch latest value for a macro variable."""
+        """Fetch latest value for a macro variable.
+
+        WHY: VNINDEX lives in daily_ohlcv (not macro_history) because it's
+        crawled by VnstockProvider, not yfinance. All other macro variables
+        live in macro_history. This fallback bridges the two tables.
+        """
         conn = sqlite3.connect(self.db_path)
         try:
             if target_date:
@@ -139,7 +144,24 @@ class RegionalInfluenceEngine:
                     "SELECT value FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1",
                     (variable,),
                 ).fetchone()
-            return float(row[0]) if row and row[0] is not None else None
+            if row and row[0] is not None:
+                return float(row[0])
+
+            # VNINDEX fallback: lives in daily_ohlcv, not macro_history
+            if variable == "VNINDEX":
+                if target_date:
+                    row = conn.execute(
+                        "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1",
+                        (target_date,),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 1"
+                    ).fetchone()
+                if row and row[0] is not None:
+                    return float(row[0])
+
+            return None
         except Exception:
             return None
         finally:
@@ -217,7 +239,10 @@ class RegionalInfluenceEngine:
 
         # Commodity Cycle
         indicators["BRENT_OIL"] = self._fetch_rolling_avg("BRENT_OIL", 5, target_date)
-        indicators["COPPER"] = self._fetch_rolling_avg("COPPER_HG", 5, target_date)
+        copper_lb = self._fetch_rolling_avg("COPPER_HG", 5, target_date)
+        # WHY: DB stores COPPER in USD/lb (HG=F), but normalization bounds
+        # are in USD/ton (6000-11000). Convert: 1 metric ton = 2204.62 lbs.
+        indicators["COPPER"] = copper_lb * 2204.62 if copper_lb is not None else None
 
         # Domestic Liquidity
         indicators["INTERBANK_ON"] = self._fetch_latest("INTERBANK_ON", target_date)
