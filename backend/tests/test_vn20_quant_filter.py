@@ -186,6 +186,71 @@ class TestTier2DilutionScaleBreak:
         assert r["receivables_ratio"] is None
 
 
+# ── Industry-Relative Percentile Gate (FPT Type II fix) ────────────
+
+
+class TestTier2IndustryPercentile:
+    """Tầng 2 Percentile: FPT (67.2% receivables) phải pass nếu < P75 ngành IT."""
+
+    def test_fpt_passes_when_below_sector_pct75(self):
+        """FPT 67.2% < P75 sector 'Phần mềm & Dịch vụ máy tính' (72%) → PASS."""
+        conn = make_conn()
+        seed_fact(conn, "FPT", "RECEIVABLES", [("2026Q2", 11175.0)])
+        seed_fact(conn, "FPT", "REVENUE", [("2026Q2", 16624.0)])
+        seed_fact(conn, "FPT", "SHARES_OUT", [(f"{y}Q{q}", 1e9) for y in (2024, 2025, 2026) for q in range(1, 5)])
+
+        r = vf.tier2_governance_shield(
+            conn,
+            "FPT",
+            vf._periods_n_years("2026Q2", 3),
+            sector_pct75=0.72,
+        )
+        assert r["pass"] is True, f"FPT 67.2% should pass with sector P75=72%, got {r['reasons']}"
+        assert abs(r["receivables_ratio"] - 0.672) < 0.01
+
+    def test_symbol_fails_when_above_sector_pct75(self):
+        """Symbol with receivables > sector P75 → FAIL."""
+        conn = make_conn()
+        seed_fact(conn, "BAD", "RECEIVABLES", [("2026Q2", 800.0)])
+        seed_fact(conn, "BAD", "REVENUE", [("2026Q2", 1000.0)])
+        seed_fact(conn, "BAD", "SHARES_OUT", [(f"{y}Q{q}", 100.0) for y in (2024, 2025, 2026) for q in range(1, 5)])
+
+        r = vf.tier2_governance_shield(
+            conn,
+            "BAD",
+            vf._periods_n_years("2026Q2", 3),
+            sector_pct75=0.50,
+        )
+        assert r["pass"] is False
+        assert r["receivables_ratio"] == 0.8
+        assert any("P75" in x for x in r["reasons"])
+
+    def test_low_receivables_always_passes(self):
+        """Dù sector P75 thấp, ratio <= 25% luôn pass (safe harbor)."""
+        conn = make_conn()
+        seed_fact(conn, "GOOD", "RECEIVABLES", [("2026Q2", 100.0)])
+        seed_fact(conn, "GOOD", "REVENUE", [("2026Q2", 1000.0)])
+        seed_fact(conn, "GOOD", "SHARES_OUT", [(f"{y}Q{q}", 100.0) for y in (2024, 2025, 2026) for q in range(1, 5)])
+
+        r = vf.tier2_governance_shield(
+            conn,
+            "GOOD",
+            vf._periods_n_years("2026Q2", 3),
+            sector_pct75=0.05,  # sector P75 thấp bất thường
+        )
+        assert r["pass"] is True, "Ratio 10% <= 25% safe harbor → always pass"
+
+    def test_no_pct75_falls_back_to_static(self):
+        """Nếu không có sector_pct75 (legacy), dùng T2_RECEIVABLES_MAX."""
+        conn = make_conn()
+        seed_fact(conn, "OLD", "RECEIVABLES", [("2026Q2", 300.0)])
+        seed_fact(conn, "OLD", "REVENUE", [("2026Q2", 1000.0)])
+        seed_fact(conn, "OLD", "SHARES_OUT", [(f"{y}Q{q}", 100.0) for y in (2024, 2025, 2026) for q in range(1, 5)])
+
+        r = vf.tier2_governance_shield(conn, "OLD", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False, "30% > 25% static → fail when no sector P75"
+
+
 # ── Bug 4: Sector momentum inf handling ─────────────────────────────
 
 

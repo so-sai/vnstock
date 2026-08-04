@@ -229,11 +229,20 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: List[str
 # ════════════════════════════════════════════════════════════════════
 
 
-def tier2_governance_shield(conn, symbol: str, periods: List[str], entity_type: str = "STANDARD") -> Dict:
+def tier2_governance_shield(
+    conn, symbol: str, periods: List[str], entity_type: str = "STANDARD", sector_pct75: Optional[float] = None
+) -> Dict:
     """Tier 2: dilution rate + receivables health.
 
     Banks: receivables gate is skipped (banks don't have trade receivables;
     governance risk is captured by NPL/capital adequacy in Tier 1/health).
+
+    Receivables logic (Industry-Relative Percentile Gate):
+      - Pass if ratio <= T2_RECEIVABLES_MAX (25%) — safe harbor for low-receivables sectors
+      - Pass if ratio <= sector_pct75 — company is in top 75% of its industry
+      - Fail if ratio exceeds both thresholds — excessive receivables vs peers
+      WHY: Static 25% cap causes Type II Error against B2B/IT companies (FPT 67.2%)
+      where high receivables are structural, not governance risk.
     """
     result = {
         "symbol": symbol,
@@ -283,8 +292,18 @@ def tier2_governance_shield(conn, symbol: str, periods: List[str], entity_type: 
             rev_last = max(rev.values())
             if rev_last and rev_last > 0:
                 result["receivables_ratio"] = round(rec_last / rev_last, 4)
-                if result["receivables_ratio"] > T2_RECEIVABLES_MAX:
-                    result["reasons"].append(f"Receivables {result['receivables_ratio']:.1%} > 25%")
+                # Industry-Relative Percentile Gate (dual-condition):
+                #   1. Safe harbor: ratio <= 25% → always pass (low-receivables sectors)
+                #   2. Sector relative: ratio <= sector_pct75 → pass (top 75% of industry)
+                #   3. Fail if exceeds both thresholds
+                ratio = result["receivables_ratio"]
+                if ratio <= T2_RECEIVABLES_MAX:
+                    pass  # safe harbor
+                elif sector_pct75 is not None and ratio <= sector_pct75:
+                    pass  # within industry norm
+                else:
+                    p75_str = f"{sector_pct75:.0%}" if sector_pct75 is not None else "N/A"
+                    result["reasons"].append(f"Receivables {ratio:.1%} > {p75_str} sector P75")
         else:
             result["reasons"].append("Receivables data missing")
 
@@ -410,6 +429,40 @@ def _load_symbol_industry(conn) -> Dict[str, str]:
         return {r["symbol"]: r["icb_name3"] for r in rows}
     except Exception:
         return {}
+
+
+def _compute_sector_receivables_p75(
+    fin_conn, screen_conn, universe: List[str], periods: List[str]
+) -> Dict[str, Optional[float]]:
+    """Compute 75th percentile of RECEIVABLES/REVENUE per sector across universe.
+
+    Returns {sector_name: p75_ratio}. Sectors with < 3 symbols having data → None
+    (fallback to static T2_RECEIVABLES_MAX in tier2).
+    WHY: Industry-Relative Percentile Gate replaces static 25% cap to avoid
+    Type II Error against B2B/IT companies where high receivables are structural.
+    """
+    mapping = _load_symbol_industry(screen_conn)
+    sector_ratios: Dict[str, List[float]] = {}
+    for sym in universe:
+        sector = mapping.get(sym, "UNKNOWN")
+        rec = _load_metric_years(fin_conn, sym, "RECEIVABLES", periods[-4:])
+        rev = _load_metric_years(fin_conn, sym, "REVENUE", periods[-4:])
+        if rec and rev:
+            rec_last = max(rec.values())
+            rev_last = max(rev.values())
+            if rev_last and rev_last > 0:
+                ratio = rec_last / rev_last
+                sector_ratios.setdefault(sector, []).append(ratio)
+
+    result: Dict[str, Optional[float]] = {}
+    for sector, ratios in sector_ratios.items():
+        if len(ratios) >= 3:
+            sorted_r = sorted(ratios)
+            idx = int(len(sorted_r) * 0.75)
+            result[sector] = round(sorted_r[min(idx, len(sorted_r) - 1)], 4)
+        else:
+            result[sector] = None  # too few symbols — fallback to static gate
+    return result
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -551,6 +604,9 @@ def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
     mapping = _load_symbol_industry(screen)
     sector_ctx_cache: Dict[str, Dict] = {}
 
+    # Industry-Relative Percentile: pre-compute sector P75 for receivables gate
+    sector_pct75 = _compute_sector_receivables_p75(fin, screen, universe, periods)
+
     passed_t12 = []
     stage_counts = {"T1_pass": 0, "T2_pass": 0, "T3_pass": 0, "T4_pass": 0, "total_universe": len(universe)}
 
@@ -563,14 +619,14 @@ def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
             continue
         stage_counts["T1_pass"] += 1
 
-        # Tier 2
-        t2 = tier2_governance_shield(fin, sym, periods, entity_type=entity)
+        # Tier 2 (with industry-relative receivables percentile)
+        sector = mapping.get(sym, "UNKNOWN")
+        t2 = tier2_governance_shield(fin, sym, periods, entity_type=entity, sector_pct75=sector_pct75.get(sector))
         if not t2["pass"]:
             continue
         stage_counts["T2_pass"] += 1
 
         # Tier 3 (sector cycle)
-        sector = mapping.get(sym, "UNKNOWN")
         if sector not in sector_ctx_cache:
             sector_ctx_cache[sector] = compute_sector_context(screen, sector)
         t3 = tier3_sector_cycle(sym, sector_ctx_cache.get(sector, {}))
