@@ -43,6 +43,8 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 SRC_DIR = BACKEND_DIR / "src"
 DATA_DIR = BACKEND_DIR / "data"
 REPORTS_DIR = DATA_DIR / "reports" / "ablation_studies"
+CACHE_DIR = DATA_DIR / "cache"
+CACHE_FILE = CACHE_DIR / "macro_preload.parquet"
 
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -248,6 +250,95 @@ def _build_result(state, scenario, start, end, days):
         final_equity=round(curve[-1], 0),
     )
 
+
+# ═══════════════════════════════════════════════════════════
+# Parquet Cache for Phase 1 Pre-fetch Results
+# ═══════════════════════════════════════════════════════════
+
+def _macro_cache_valid(cache_path: Path, db_path: str, start_date: str) -> bool:
+    """Check if Parquet cache exists and is newer than macro_history data."""
+    if not cache_path.exists():
+        return False
+    try:
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT MAX(date) FROM macro_history"
+        ).fetchone()
+        conn.close()
+        latest_macro = row[0] if row and row[0] else "1970-01-01"
+        cache_mtime = datetime.fromtimestamp(cache_path.stat().st_mtime)
+        cache_date = cache_mtime.strftime("%Y-%m-%d")
+        return cache_date >= latest_macro and cache_date >= start_date
+    except Exception:
+        return False
+
+
+def _save_macro_cache(
+    macro_cache: Dict[str, Optional[Dict]],
+    lag_cache: Dict[str, Dict[str, float]],
+    ix_cache: Dict[str, Dict[str, float]],
+    path: Path,
+):
+    """Save pre-fetched macro data to Parquet."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    rows = []
+    for date in sorted(macro_cache.keys()):
+        M = macro_cache.get(date) or {}
+        for sector, lag_score in lag_cache.get(date, {}).items():
+            rows.append({
+                "date": date,
+                "sector": sector,
+                "M_US_Liquidity": M.get("US_Liquidity", 0.5),
+                "M_China_Economy": M.get("China_Economy", 0.5),
+                "M_Commodity_Cycle": M.get("Commodity_Cycle", 0.5),
+                "M_Domestic_Liquidity": M.get("Domestic_Liquidity", 0.5),
+                "lag_effective_score": lag_score,
+                "ix_multiplier": ix_cache.get(date, {}).get(sector, 1.0),
+            })
+
+    if not rows:
+        return
+
+    table = pa.Table.from_pylist(rows)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table, str(path))
+
+
+def _load_macro_cache(
+    path: Path,
+) -> Tuple[Dict[str, Optional[Dict]], Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
+    """Load pre-fetched macro data from Parquet."""
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(str(path))
+    df = table.to_pandas()
+
+    macro_cache: Dict[str, Optional[Dict]] = {}
+    lag_cache: Dict[str, Dict[str, float]] = {}
+    ix_cache: Dict[str, Dict[str, float]] = {}
+
+    for _, row in df.iterrows():
+        d = row["date"]
+        sec = row["sector"]
+        if d not in macro_cache:
+            macro_cache[d] = {
+                "US_Liquidity": row["M_US_Liquidity"],
+                "China_Economy": row["M_China_Economy"],
+                "Commodity_Cycle": row["M_Commodity_Cycle"],
+                "Domestic_Liquidity": row["M_Domestic_Liquidity"],
+            }
+        if d not in lag_cache:
+            lag_cache[d] = {}
+        if d not in ix_cache:
+            ix_cache[d] = {}
+        lag_cache[d][sec] = float(row["lag_effective_score"])
+        ix_cache[d][sec] = float(row["ix_multiplier"])
+
+    return macro_cache, lag_cache, ix_cache
+
+
 def run_unified_replay(
     start_date="2021-04-01",
     end_date="2026-08-04",
@@ -334,42 +425,55 @@ def run_unified_replay(
 
     scored_dates = [trading_days[i] for i in sorted(scored_indices)]
 
-    # Pre-compute M vectors for all scored days
-    macro_cache = {}  # date → M dict
-    for d in scored_dates:
-        try:
-            macro_cache[d] = macro_engine.compute(d).macro_vector
-        except Exception:
-            macro_cache[d] = None
+    # Check Parquet cache first
+    if _macro_cache_valid(CACHE_FILE, db_path, start_date):
+        print("  [Phase 1] Loading from Parquet cache...")
+        macro_cache, lag_cache, ix_cache = _load_macro_cache(CACHE_FILE)
+        print(f"  [Phase 1] Cached {len(macro_cache)} days loaded in {time.time()-t0:.1f}s")
+    else:
+        # Pre-compute M vectors for all scored days
+        macro_cache = {}  # date → M dict
+        for d in scored_dates:
+            try:
+                macro_cache[d] = macro_engine.compute(d).macro_vector
+            except Exception:
+                macro_cache[d] = None
 
-    # Pre-compute lag scores for all scored days × all sectors (batch)
-    lag_cache = {}  # date → {sector: effective_score}
-    for d in scored_dates:
-        lag_cache[d] = {}
-        try:
-            lag_results = lag_engine.compute_all_sectors(d)
-            for sec, lr in lag_results.items():
-                lag_cache[d][sec] = lr.effective_score
-        except Exception:
-            for sec in set(sym_sector.values()):
-                lag_cache[d][sec] = 0.5
+        # Pre-compute lag scores for all scored days × all sectors (batch)
+        lag_cache = {}  # date → {sector: effective_score}
+        for d in scored_dates:
+            lag_cache[d] = {}
+            try:
+                lag_results = lag_engine.compute_all_sectors(d)
+                for sec, lr in lag_results.items():
+                    lag_cache[d][sec] = lr.effective_score
+            except Exception:
+                for sec in set(sym_sector.values()):
+                    lag_cache[d][sec] = 0.5
 
-    # Pre-compute interaction multipliers for all scored days × all sectors (batch)
-    ix_cache = {}  # date → {sector: multiplier}
-    for d in scored_dates:
-        ix_cache[d] = {}
-        M = macro_cache.get(d)
-        if M is None:
-            for sec in set(sym_sector.values()):
-                ix_cache[d][sec] = 1.0
-            continue
+        # Pre-compute interaction multipliers for all scored days × all sectors (batch)
+        ix_cache = {}  # date → {sector: multiplier}
+        for d in scored_dates:
+            ix_cache[d] = {}
+            M = macro_cache.get(d)
+            if M is None:
+                for sec in set(sym_sector.values()):
+                    ix_cache[d][sec] = 1.0
+                continue
+            try:
+                ix_results = ix_engine.compute_all_sectors(M)
+                for sec, ix_r in ix_results.items():
+                    ix_cache[d][sec] = ix_r.multiplier
+            except Exception:
+                for sec in set(sym_sector.values()):
+                    ix_cache[d][sec] = 1.0
+
+        # Save to Parquet cache for next run
         try:
-            ix_results = ix_engine.compute_all_sectors(M)
-            for sec, ix_r in ix_results.items():
-                ix_cache[d][sec] = ix_r.multiplier
-        except Exception:
-            for sec in set(sym_sector.values()):
-                ix_cache[d][sec] = 1.0
+            _save_macro_cache(macro_cache, lag_cache, ix_cache, CACHE_FILE)
+            print(f"  [Phase 1] Cache saved to {CACHE_FILE}")
+        except Exception as e:
+            logger.warning("[REPLAY] Failed to save Parquet cache: %s", e)
 
     print(f"  [Phase 1] Done in {time.time()-t0:.1f}s "
           f"({len(scored_dates)} days × {len(set(sym_sector.values()))} sectors)")
