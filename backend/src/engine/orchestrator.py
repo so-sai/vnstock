@@ -742,6 +742,50 @@ def in_bao_cao(kq: dict):
         print(f"  Tin cậy:      {icon_dg} {đg.get('điểm_số', 0):.0%} ({đg.get('mức', 'N/A')})")
         if đg.get("tạm_ngưng"):
             print(f"  ⚠ Tạm ngưng kết luận: {đg.get('lý_do_tạm_ngưng', '')}")
+
+    # ── Sector Macro Scores (Multi-Polar Exposure Matrix) ──
+    try:
+        from src.governor.regional_influence_engine import RegionalInfluenceEngine
+        from src.governor.sector_exposure_matrix import SectorExposureMatrix
+
+        _engine = RegionalInfluenceEngine()
+        _macro_result = _engine.compute()
+        _M = _macro_result.macro_vector
+        _matrix = SectorExposureMatrix()
+        _scores = _matrix.compute_all_sector_scores(_M)
+
+        print()
+        print("  MACRO STATE VECTOR (M):")
+        _node_icons = {
+            "US_Liquidity": "🇺🇸",
+            "China_Economy": "🇨🇳",
+            "Commodity_Cycle": "🛢️",
+            "Domestic_Liquidity": "🏦",
+        }
+        for _node, _score in _M.items():
+            _icon = _node_icons.get(_node, "📊")
+            _bar = "█" * int(_score * 20) + "░" * (20 - int(_score * 20))
+            print(f"    {_icon} {_node:20s}: {_score:.2%} {_bar}")
+
+        print()
+        print("  SECTOR MACRO SCORES (M · W_i):")
+        _ranked = _matrix.get_sector_ranking(_M)
+        for _i, (_sect, _sc) in enumerate(_ranked[:3]):
+            _icon = "🟢" if _sc > 0.5 else "🟡" if _sc > 0.35 else "🔴"
+            print(f"    {_icon} {_i + 1}. {_sect:12s}: {_sc:.2%}")
+        print(f"    {'...':>14s}")
+        for _i, (_sect, _sc) in enumerate(_ranked[-2:]):
+            _icon = "🟢" if _sc > 0.5 else "🟡" if _sc > 0.35 else "🔴"
+            print(f"    {_icon} {len(_ranked) - 1 + _i}. {_sect:12s}: {_sc:.2%}")
+
+        # Inject into final decision
+        kq["macro_state_vector"] = _M
+        kq["sector_macro_scores"] = {s: r.macro_score for s, r in _scores.items()}
+        kq["sector_ranking"] = [(s, sc) for s, sc in _ranked]
+
+    except Exception as e:
+        logger.debug("[ORCH] Sector macro scores unavailable: %s", e)
+
     print("=" * 60)
 
 

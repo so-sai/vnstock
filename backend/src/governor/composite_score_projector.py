@@ -19,7 +19,7 @@ WHY:
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -38,6 +38,7 @@ if str(BACKEND_DIR) not in sys.path:
 @dataclass
 class ExecutionPolicy:
     """Decoupled Execution Policy determining Buy & Full Margin thresholds."""
+
     name: str = "BALANCED"
     buy_threshold: float = 70.0
     full_margin_threshold: float = 85.0
@@ -53,23 +54,24 @@ POLICIES = {
 @dataclass
 class CompositeScoreResult:
     """Output DTO of CompositeScoreProjector for one symbol."""
+
     symbol: str
-    macro_score: float          # 0.0 - 20.0 pt
-    internal_score: float       # 0.0 - 30.0 pt
-    market_score: float         # 0.0 - 50.0 pt
-    raw_score: float            # 0.0 - 100.0 pt (Linear sum)
-    final_score: float          # 0.0 - 100.0 pt (After non-linear veto mapping)
-    coverage: float             # Evidence Coverage (0.0 - 1.0)
-    coherence: float            # Causal Coherence (0.0 - 1.0)
-    buy_gap: float              # Points needed to reach Buy Threshold (0.0 = in buy zone)
-    allocation_pct: float       # Target Capital Allocation % [0%, 100%]
-    delta_pct: float            # Position Delta Adjustment %
-    display_flag: str           # 🚀 FULL_MARGIN / 🟢 OK / ⚠️ MACRO_STRESS / ⛔ CRISIS_VETO / ⛔ OVERPRICED_VETO
-    governor_mandate: str       # CAPITAL_PRESERVATION / NEUTRAL_DEFENSIVE / NORMAL_OPERATION / AGGRESSIVE_DEPLOYMENT
-    why_drivers: str            # Key XAI primary drivers explaining decision
-    veto_flag: str              # NONE / OVERPRICED_VETO / CRISIS_VETO / MACRO_STRESS / DISTRESSED_VETO
-    action: str                 # VETO / AVOID / REDUCE / WAIT / HOLD / SCALE_IN / OPEN
-    recommendation: str         # MUA_TOI_DA_DON_BAY / MUA_TIC_LUY / CAN_BANG / GIAM_TY_TRONG / CAM_MUA
+    macro_score: float  # 0.0 - 20.0 pt
+    internal_score: float  # 0.0 - 30.0 pt
+    market_score: float  # 0.0 - 50.0 pt
+    raw_score: float  # 0.0 - 100.0 pt (Linear sum)
+    final_score: float  # 0.0 - 100.0 pt (After non-linear veto mapping)
+    coverage: float  # Evidence Coverage (0.0 - 1.0)
+    coherence: float  # Causal Coherence (0.0 - 1.0)
+    buy_gap: float  # Points needed to reach Buy Threshold (0.0 = in buy zone)
+    allocation_pct: float  # Target Capital Allocation % [0%, 100%]
+    delta_pct: float  # Position Delta Adjustment %
+    display_flag: str  # 🚀 FULL_MARGIN / 🟢 OK / ⚠️ MACRO_STRESS / ⛔ CRISIS_VETO / ⛔ OVERPRICED_VETO
+    governor_mandate: str  # CAPITAL_PRESERVATION / NEUTRAL_DEFENSIVE / NORMAL_OPERATION / AGGRESSIVE_DEPLOYMENT
+    why_drivers: str  # Key XAI primary drivers explaining decision
+    veto_flag: str  # NONE / OVERPRICED_VETO / CRISIS_VETO / MACRO_STRESS / DISTRESSED_VETO
+    action: str  # VETO / AVOID / REDUCE / WAIT / HOLD / SCALE_IN / OPEN
+    recommendation: str  # MUA_TOI_DA_DON_BAY / MUA_TIC_LUY / CAN_BANG / GIAM_TY_TRONG / CAM_MUA
 
 
 class CompositeScoreProjector:
@@ -94,9 +96,14 @@ class CompositeScoreProjector:
         target_alloc = max(0.0, alloc_raw)
         delta_pct = alloc_raw
 
-        # Coverage & Coherence metrics
-        coverage = getattr(mandate, "coverage", 0.85)
-        coherence = getattr(mandate, "coherence", 0.88)
+        # Coverage & Coherence metrics — NOW WIRED FROM CAUSAL DAG
+        # WHY: Previously hardcoded 0.85/0.88. Now populated from
+        #      BayesianMandate.causal_confidence / causal_coherence
+        #      computed by CausalGraph().propagate() in Giai đoạn 6.
+        coverage = getattr(mandate, "causal_confidence", 0.0)
+        coherence = getattr(mandate, "causal_coherence", 0.0)
+        # Fallback: if CausalGraph didn't run (NO_DATA), use 0.0
+        # instead of pretending coverage is 85%
 
         # 1. Macro Score (0 - 20 pt)
         macro_score = 20.0 * min(1.0, max(0.0, p_gain * 1.2))
@@ -205,13 +212,19 @@ class CompositeScoreProjector:
 
 def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: str = "BALANCED"):
     """Print clean 0–100 Composite Score Dashboard for CLI in Parallel Bilingual (Việt - Anh) format."""
-    from src.utils.cli_theme import c_red, c_green, c_yellow, c_cyan, c_dim
+    from src.utils.cli_theme import c_cyan, c_dim, c_green, c_red, c_yellow
 
     print("\n  " + "=" * 145)
-    print(f"  🎯 {c_cyan('PTCK EPISTEMIC COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')} | POLICY: {c_yellow(policy_name)}")
+    print(
+        f"  🎯 {c_cyan('PTCK EPISTEMIC COMPOSITE SCORE & ACTION DASHBOARD (0 – 100 SCALE)')} | POLICY: {c_yellow(policy_name)}"
+    )
     print("  " + "=" * 145)
-    print(f"  {'Symbol (Mã)':<10} {'Macro(20)':>9} {'Internal(30)':>12} {'Market(50)':>11} "
-          f"{'Score (100)':>13}   {'Coverage':>9} {'Coherence':>10}   {'Target Alloc':>12}   {'Action Delta':>13}   {'Buy Gap (70+)':>13}   {'Veto / Status Flag':<18} {'Recommendation (Khuyến nghị)'}")
+    print(
+        f"  {'Symbol (Mã)':<10} {'Macro(20)':>9} {'Internal(30)':>12} "
+        f"{'Market(50)':>11} {'Score (100)':>13}   {'Coverage':>9} "
+        f"{'Coherence':>10}   {'Target Alloc':>12}   {'Action Delta':>13} "
+        f"  {'Buy Gap (70+)':>13}   {'Veto/Status':<18} {'Recommendation'}"
+    )
     print("  " + "─" * 145)
     for r in results:
         if "FULL_MARGIN" in r.display_flag:
@@ -253,9 +266,24 @@ def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: 
             alloc_str = c_red(f"{r.allocation_pct:>5.1f}%")
 
         sym_str = c_cyan(r.symbol) if r.final_score >= 50.0 else r.symbol
-        cov_str = c_dim(f"{r.coverage:.0%}")
-        coh_str = c_dim(f"{r.coherence:.0%}")
+        # Color-code Coverage/Coherence: GREEN if >= 0.6, YELLOW if >= 0.3, RED if < 0.3
+        if r.coverage >= 0.6:
+            cov_str = c_green(f"{r.coverage:.0%}")
+        elif r.coverage >= 0.3:
+            cov_str = c_yellow(f"{r.coverage:.0%}")
+        else:
+            cov_str = c_red(f"{r.coverage:.0%}")
+        if r.coherence >= 0.6:
+            coh_str = c_green(f"{r.coherence:.0%}")
+        elif r.coherence >= 0.3:
+            coh_str = c_yellow(f"{r.coherence:.0%}")
+        else:
+            coh_str = c_red(f"{r.coherence:.0%}")
 
-        print(f"  {sym_str:<10} {r.macro_score:>9.1f} {r.internal_score:>12.1f} {r.market_score:>11.1f} "
-              f"  {score_str} / 100   {cov_str:>8} {coh_str:>10}   {alloc_str:>12}   {delta_str:>13}   {gap_str:<13}    {flag_str:<18} {rec_str}")
+        print(
+            f"  {sym_str:<10} {r.macro_score:>9.1f} {r.internal_score:>12.1f} "
+            f"{r.market_score:>11.1f}   {score_str} / 100   {cov_str:>8} "
+            f"{coh_str:>10}   {alloc_str:>12}   {delta_str:>13}   "
+            f"{gap_str:<13}    {flag_str:<18} {rec_str}"
+        )
     print("  " + "=" * 145 + "\n")

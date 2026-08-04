@@ -66,6 +66,15 @@ MACRO_NODES = ["US_Liquidity", "China_Economy", "Commodity_Cycle", "Domestic_Liq
 # Each sector's vulnerability to each macro node.
 # Weights sum to 1.0 per sector (probability simplex).
 #
+# WHY (First Principles — Multi-Polar Fingerprint):
+#   "Không phải mọi cổ phiếu đều quan tâm Trung Quốc như nhau."
+#   Macro Score ≠ Global Macro Score
+#   Macro_i = W_i × GlobalFactors  (dot product per sector)
+#
+#   Same macro shock → DIFFERENT impact across sectors.
+#   Fed tightening hurts BANK (-0.35) but barely affects STEEL (-0.10).
+#   China boom helps STEEL (+0.50) but barely affects BANK (+0.05).
+#
 # Calibration Sources:
 #   US_Liquidity:    Fed Funds Rate, DXY, US 10Y Treasury, VIX
 #   China_Economy:   China Credit Impulse, Caixin PMI, USD/CNY
@@ -73,15 +82,20 @@ MACRO_NODES = ["US_Liquidity", "China_Economy", "Commodity_Cycle", "Domestic_Liq
 #   Domestic_Liquidity: SBV OMO, Interbank ON, VND M2 growth
 #
 # Reference: VN30 sector correlation analysis 2020-2025
+# User-refined matrix (2026-08-04): Each sector has unique Exposure Matrix
 
 SECTOR_EXPOSURE_WEIGHTS: Dict[str, Dict[str, float]] = {
     # ── Financials ────────────────────────────────────────────────────
+    # WHY: Ngân hàng sống còn nhờ SBV/OMO/Interbank (0.60).
+    # Fed ảnh hưởng gián qua DXY → VND pressure → capital flow.
+    # China几乎没有直接影响 (0.05).
     "BANK": {
         "US_Liquidity": 0.35,  # Fed rate → capital flow, DXY → VND pressure
         "China_Economy": 0.05,  # Minimal direct link
         "Commodity_Cycle": 0.00,  # No commodity exposure
         "Domestic_Liquidity": 0.60,  # SBV OMO, Interbank, credit growth
     },
+    # WHY: Chứng khoán nhạy với risk appetite (VIX) + margin lending.
     "SEC": {
         "US_Liquidity": 0.25,  # Risk appetite, VIX
         "China_Economy": 0.10,  # Regional sentiment
@@ -89,6 +103,8 @@ SECTOR_EXPOSURE_WEIGHTS: Dict[str, Dict[str, float]] = {
         "Domestic_Liquidity": 0.60,  # Margin lending, trading volume
     },
     # ── Real Estate ───────────────────────────────────────────────────
+    # WHY: BĐS nhạy nhất với lãi suất vay (0.60).
+    # China spillover qua tâm lý BĐS khu công nghiệp.
     "RE": {
         "US_Liquidity": 0.15,  # FDI flows, bond yields
         "China_Economy": 0.15,  # China property sentiment spillover
@@ -96,12 +112,15 @@ SECTOR_EXPOSURE_WEIGHTS: Dict[str, Dict[str, float]] = {
         "Domestic_Liquidity": 0.60,  # Mortgage rates, SBV credit policy
     },
     # ── Industrials / Materials ───────────────────────────────────────
+    # WHY: Thép phụ thuộc TRỰC TIẾP vào China Credit Impulse + HRC prices.
+    # Khi TQ bơm tiền → nhu cầu thép tăng → HPG, HSG hưởng lợi.
     "STEEL": {
         "US_Liquidity": 0.10,  # Minimal
         "China_Economy": 0.50,  # HRC prices, China credit impulse
         "Commodity_Cycle": 0.30,  # Iron ore, coking coal
         "Domestic_Liquidity": 0.10,  # Domestic demand
     },
+    # WHY: Xây dựng phụ thuộc đầu tư công + vật liệu.
     "CONST": {
         "US_Liquidity": 0.10,  # Minimal
         "China_Economy": 0.20,  # Material costs
@@ -109,12 +128,14 @@ SECTOR_EXPOSURE_WEIGHTS: Dict[str, Dict[str, float]] = {
         "Domestic_Liquidity": 0.45,  # Public investment, bond issuance
     },
     # ── Energy / Utilities ────────────────────────────────────────────
+    # WHY: Dầu khí sống bằng Brent crude (0.50) + refining margins.
     "OIL": {
         "US_Liquidity": 0.15,  # USD pricing, Fed policy
         "China_Economy": 0.20,  # Demand from China manufacturing
         "Commodity_Cycle": 0.50,  # Brent crude, refining margins
         "Domestic_Liquidity": 0.15,  # Domestic fuel pricing
     },
+    # WHY: Tiện ích phụ thuộc giá nhiên liệu đầu vào + tariff政策.
     "UTILITY": {
         "US_Liquidity": 0.10,  # Minimal
         "China_Economy": 0.15,  # Equipment imports
@@ -122,12 +143,15 @@ SECTOR_EXPOSURE_WEIGHTS: Dict[str, Dict[str, float]] = {
         "Domestic_Liquidity": 0.50,  # Tariff policy, retail electricity
     },
     # ── Consumer / Retail ─────────────────────────────────────────────
+    # WHY: Bán lẻ sống bằng tiêu dùng nội địa (0.55).
     "CONSUMER": {
         "US_Liquidity": 0.10,  # Import costs
         "China_Economy": 0.15,  # Input sourcing
         "Commodity_Cycle": 0.20,  # Packaging, raw materials
         "Domestic_Liquidity": 0.55,  # Consumer credit, disposable income
     },
+    # WHY: Thực phẩm phụ thuộc agricultural commodities (0.35).
+    # Phân bón (DCM, DPM) đặc biệt nhạy với Oil.
     "FOOD": {
         "US_Liquidity": 0.05,  # Minimal
         "China_Economy": 0.15,  # Feedstock, fertilizer
@@ -135,6 +159,7 @@ SECTOR_EXPOSURE_WEIGHTS: Dict[str, Dict[str, float]] = {
         "Domestic_Liquidity": 0.45,  # Domestic consumption
     },
     # ── Technology ────────────────────────────────────────────────────
+    # WHY: Tech valuations correlation với NASDAQ (0.30).
     "TECH": {
         "US_Liquidity": 0.30,  # Tech valuations, NASDAQ correlation
         "China_Economy": 0.20,  # Supply chain, hardware sourcing
@@ -142,6 +167,8 @@ SECTOR_EXPOSURE_WEIGHTS: Dict[str, Dict[str, float]] = {
         "Domestic_Liquidity": 0.40,  # IT spending, digital transformation
     },
     # ── Transport / Logistics ─────────────────────────────────────────
+    # WHY: Logistics sống bằng SCFI/BDI (0.25) + China trade volume (0.30).
+    # Khi TQ xuất khẩu mạnh → cảng biển HAH, GMD hưởng lợi.
     "TRANS": {
         "US_Liquidity": 0.15,  # Global trade volumes
         "China_Economy": 0.30,  # China import/export volumes
@@ -155,19 +182,31 @@ DEFAULT_EXPOSURE = {node: 0.25 for node in MACRO_NODES}
 
 # ── Sector Name Mapping (Vietnamese → English) ────────────────────────
 VIETNAMESE_SECTOR_MAP = {
+    # Full ICB names from symbol_industry.icb_name2 (screener_cache.db)
     "Ngân hàng": "BANK",
-    "Chứng khoán": "SEC",
+    "Dịch vụ tài chính": "SEC",
+    "Bảo hiểm": "SEC",
     "Bất động sản": "RE",
-    "Thép": "STEEL",
+    "Tài nguyên Cơ bản": "STEEL",
+    "Hóa chất": "STEEL",
+    "Xây dựng và Vật liệu": "CONST",
     "Xây dựng": "CONST",
     "Dầu khí": "OIL",
-    "Tiện ích": "UTILITY",
+    "Điện, nước & xăng dầu khí đốt": "UTILITY",
+    "Hàng cá nhân & Gia dụng": "CONSUMER",
     "Bán lẻ": "CONSUMER",
-    "Thực phẩm": "FOOD",
+    "Thực phẩm và đồ uống": "FOOD",
+    "Công nghệ Thông tin": "TECH",
     "Công nghệ": "TECH",
+    "Hàng & Dịch vụ Công nghiệp": "TRANS",
     "Logistics": "TRANS",
     "Vận tải": "TRANS",
     "Cảng biển": "TRANS",
+    "Du lịch và Giải trí": "TRANS",
+    "Viễn thông": "TECH",
+    "Truyền thông": "TECH",
+    "Y tế": "CONSUMER",
+    "Ô tô và phụ tùng": "TRANS",
 }
 
 

@@ -34,7 +34,10 @@ if Path(sys.executable).stem.lower().startswith("python"):
             break
 PROJECT_ROOT = _candidate
 BACKEND_DIR = PROJECT_ROOT / "backend"
+SRC_DIR = BACKEND_DIR / "src"
 DATA_DIR = BACKEND_DIR / "data"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
@@ -372,6 +375,7 @@ def compute_gain_probability(
     model_registry_lr: Optional[float] = None,
     lr_val_override: Optional[float] = None,
     recovery_authenticity_lr: Optional[float] = None,
+    sector_macro_lr: float = 1.0,
 ) -> Tuple[float, float, float]:
     """Bayesian Weight-of-Evidence v3 → P(Gain | Evidence).
 
@@ -379,6 +383,8 @@ def compute_gain_probability(
     for dynamically weighted log-LR fusion.
 
     Giai đoạn 7: model_registry_lr from BMA competition posterior.
+    Step 1 (The Great Surgery): sector_macro_lr from SectorExposureMatrix
+    dot-product M · W_i, bridging Macro Engine → Bayesian Governor.
 
     So với v1:
       - Thêm capital_allocation node (Giai đoạn 4)
@@ -386,6 +392,7 @@ def compute_gain_probability(
       - dynamic LR macro override (Giai đoạn 2)
       - dynamic evidence weights (LAW-004)
       - model_registry BMA evidence (Giai đoạn 7)
+      - sector_macro_lr (Step 1 — Causal DAG wiring)
 
     Returns:
       (posterior_prob, log_posterior_odds, calibration_penalty)
@@ -422,6 +429,7 @@ def compute_gain_probability(
         + w.get("behavior", EVIDENCE_WEIGHTS["behavior"]) * math.log(max(lr_beh, 0.01))
         + w.get("model_registry", EVIDENCE_WEIGHTS["model_registry"]) * math.log(max(lr_model, 0.01))
         + w.get("recovery_authenticity", EVIDENCE_WEIGHTS["recovery_authenticity"]) * math.log(max(lr_recovery, 0.01))
+        + 0.08 * math.log(max(sector_macro_lr, 0.01))  # Step 1: Sector Macro Exposure (weight 0.08)
     )
 
     log_posterior_odds = log_prior + log_lr
@@ -1007,6 +1015,16 @@ class BayesianMandate:
     dominant_model: str = ""
     model_registry_lr: float = 1.0
 
+    # Causal DAG wiring (Step 1 — The Great Surgery)
+    # WHY: _causal_conf / _causal_lag were computed in Giai đoạn 6 but discarded.
+    #      Now stored here so CompositeScoreProjector uses real DAG confidence.
+    causal_confidence: float = 0.0  # max path confidence from CausalGraph
+    causal_coherence: float = 0.0  # avg edge confidence across all paths
+    causal_lag_months: int = 0  # max transmission lag (months)
+    causal_paths_found: int = 0  # number of DAG paths propagated
+    sector_macro_score: float = 0.0  # dot-product M · W_i (Sector Exposure Matrix)
+    sector_macro_lr: float = 1.0  # LR derived from sector macro score
+
 
 ACTION_VN = {
     "VETO": "Cấm tuyệt đối",
@@ -1273,8 +1291,12 @@ class BayesianGovernor:
             pass
 
         # ── Giai đoạn 6: CausalEdge propagation (Sprint 3) ──
+        # WHY: Previously _causal_conf/_causal_lag were computed then discarded.
+        #      Now stored in BayesianMandate for CompositeScoreProjector wiring.
         _causal_conf = None
         _causal_lag = None
+        _causal_coherence = 0.0
+        _causal_paths = 0
         try:
             from calibration.causal_edge import CausalGraph
 
@@ -1284,6 +1306,32 @@ class BayesianGovernor:
             if _results:
                 _causal_conf = max(r["confidence"] for r in _results)
                 _causal_lag = max(r["lag_max"] for r in _results)
+                _causal_paths = len(_results)
+                # Coherence = avg confidence across all reached nodes
+                _causal_coherence = sum(r["confidence"] for r in _results) / len(_results)
+        except Exception:
+            pass
+
+        # ── Giai đoạn 6b: Sector Macro Score (Dot Product M · W_i) ──
+        # WHY: SectorExposureMatrix computes per-sector macro fingerprint.
+        #      Sector score → LR bridges Macro Engine → Bayesian Governor.
+        _sector_macro_score = 0.0
+        _sector_macro_lr = 1.0
+        try:
+            from governor.regional_influence_engine import RegionalInfluenceEngine
+            from governor.sector_exposure_matrix import SectorExposureMatrix
+
+            _sector_name = _symbol_sector(symbol)
+            if _sector_name:
+                _engine = RegionalInfluenceEngine()
+                _M = _engine.compute().macro_vector
+                _matrix = SectorExposureMatrix()
+                _result = _matrix.compute_sector_macro_score(_sector_name, _M)
+                _sector_macro_score = _result.macro_score
+                # LR mapping: score ∈ [0,1] → LR ∈ [0.3, 2.0]
+                # Low macro score (bearish) → LR < 1.0 (reduce gain prob)
+                # High macro score (bullish) → LR > 1.0 (increase gain prob)
+                _sector_macro_lr = 0.3 + 1.7 * _sector_macro_score
         except Exception:
             pass
 
@@ -1330,6 +1378,7 @@ class BayesianGovernor:
             model_registry_lr=model_registry_lr,
             lr_val_override=val.get("_lr_val_override"),
             recovery_authenticity_lr=recovery_authenticity_lr,
+            sector_macro_lr=_sector_macro_lr,
         )
 
         # Expected utility
@@ -1469,6 +1518,13 @@ class BayesianGovernor:
             bma_posterior=self._bma_posterior or {},
             dominant_model=(self._dominant_model or {}).get("model_id", ""),
             model_registry_lr=round(model_registry_lr, 4) if model_registry_lr else 1.0,
+            # Causal DAG wiring (Step 1 — The Great Surgery)
+            causal_confidence=round(_causal_conf, 4) if _causal_conf is not None else 0.0,
+            causal_coherence=round(_causal_coherence, 4),
+            causal_lag_months=_causal_lag or 0,
+            causal_paths_found=_causal_paths,
+            sector_macro_score=round(_sector_macro_score, 4),
+            sector_macro_lr=round(_sector_macro_lr, 4),
         )
 
     def analyze(self, symbols: List[str]) -> Dict:
