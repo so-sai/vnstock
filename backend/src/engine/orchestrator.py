@@ -382,6 +382,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
             ket_qua["bi_chặn_bởi_bảo_vệ"] = guarded["bi_chặn"]
             ket_qua["lý_do_chặn"] = guarded["ly_do_chặn"]
             ket_qua["he_so_giam_ty_trong"] = guarded.get("he_so_giam_ty_trong", 1.0)
+            ket_qua["lri"] = guarded.get("lri", {})
         except Exception:
             if not _recall_triggered:
                 ket_qua["bi_chặn_bởi_bảo_vệ"] = False

@@ -1,4 +1,4 @@
-﻿"""
+"""
 decision_guard.py — Lớp bảo vệ quyết định cuối cùng
 
 Vai trò:
@@ -26,6 +26,7 @@ Quy tắc:
       Phát hiện thời điểm Breadth Trap suy yếu để chuẩn bị recovery.
       Tích hợp qua breadth_trap_state trong output.
 """
+
 import logging
 
 from src.engine.breadth_trap_detector import BreadthTrapDetector
@@ -65,6 +66,7 @@ def _he_so_tuoi_du_lieu(hours_stale: float) -> float:
     else:
         progress = min((hours_stale - 48) / 120, 1.0)
         return round(max(0.1, 0.3 - 0.2 * progress), 2)
+
 
 def kiem_tra_an_toan(
     quyet_dinh_de_xuat: str,
@@ -115,7 +117,9 @@ def kiem_tra_an_toan(
             he_so_giam_ty_trong = _he_so_tuoi_du_lieu(hours_stale)
             logger.warning(
                 "[GUARD] stale_override=True (Z_fast=%.1f, %gh), he_so_giam_ty_trong=%.2f",
-                z_fast, hours_stale, he_so_giam_ty_trong,
+                z_fast,
+                hours_stale,
+                he_so_giam_ty_trong,
             )
         elif ib_veto == "ACTIVE":
             he_so_giam_ty_trong = 0.0
@@ -127,6 +131,7 @@ def kiem_tra_an_toan(
         is_lc = du_lieu_lien_ngan_hang.get("is_liquidity_crisis", False)
 
         from src.engine.partial_data_entropy import assess_crisis_unlock, compute_temporal_penalty, update_crisis_cooldown
+
         update_crisis_cooldown(on_rate, z_fast)
 
         if is_lc:
@@ -137,7 +142,9 @@ def kiem_tra_an_toan(
             he_so_giam_ty_trong *= phi
             logger.info(
                 "[GUARD] Temporal coupling: Z_fast=%.1f, Φ=%.3f, he_so=%.3f",
-                z_fast, phi, he_so_giam_ty_trong,
+                z_fast,
+                phi,
+                he_so_giam_ty_trong,
             )
 
         # ── Crisis Cooldown Gate: chặn mở khóa nếu chưa đủ 3 phiên an toàn ──
@@ -148,29 +155,21 @@ def kiem_tra_an_toan(
 
     # Lấy thông tin từ Bộ tự đánh giá
     tam_ngung = do_tin_cay.get("tạm_ngưng_kết_luận", False)
-    diem_tin_cay = do_tin_cay.get("điểm_tin_cậy", 0.5)
 
     # Lấy entropy, cấu trúc, breadth, và index reality từ ảnh chụp (nếu có)
-    entropy = None
     so_tru = 0
     diem_thi_truong_that = None
     do_lech_pha = None
-    nhan_dien = None
     breadth_trap_state = None
     if anh_chup:
         c = anh_chup.get("cau_truc", {})
-        entropy = c.get("entropy")
         so_tru = c.get("so_tru_ok", c.get("so_tru", 0))
         ir = anh_chup.get("phan_tich_chi_so", {})
         diem_thi_truong_that = ir.get("diem_thi_truong_that")
         do_lech_pha = ir.get("do_lech_pha")
-        nhan_dien = ir.get("nhan_dien")
 
         # Breadth Trap Detector — CUSUM trên Δdivergence
-        breadth_pct = (
-            anh_chup.get("regime", {}).get("do_rong")
-            or anh_chup.get("_regime_details", {}).get("breadth_pct")
-        )
+        breadth_pct = anh_chup.get("regime", {}).get("do_rong") or anh_chup.get("_regime_details", {}).get("breadth_pct")
         if breadth_pct is not None and so_tru > 0:
             detector = get_trap_detector()
             breadth_trap_state = detector.update(float(breadth_pct), so_tru)
@@ -182,8 +181,10 @@ def kiem_tra_an_toan(
     breadth_momentum = None
     try:
         from src.engine.macro_stale_tracker import StaleTracker
+
         tracker = StaleTracker.get_instance()
         from src.config import DATA_DIR
+
         db_path = str(DATA_DIR / "screener_cache.db")
         stale_state = tracker.update(db_path=db_path)
         if stale_state.get("veto"):
@@ -201,6 +202,7 @@ def kiem_tra_an_toan(
     recovery_gov_state = None
     try:
         from src.engine.recovery_governor import RecoveryGovernor
+
         gov = RecoveryGovernor.get_instance()
         # Ghi nhận trạng thái veto (sẽ được xác định sau)
         # fresh_ratio từ stale_state, so_tru từ c, breadth_momentum từ regime
@@ -233,9 +235,9 @@ def kiem_tra_an_toan(
     if not bi_chặn and so_tru <= 1:
         if diem_thi_truong_that is not None and diem_thi_truong_that >= 0.2:
             logger.warning(
-                "[GUARD] DIEM_THI_TRUONG_THAT=%.2f >= 0.2 nhung so_tru=%d/3 — "
-                "phân kỳ cấu trúc, tính thanh khoản bất thường",
-                diem_thi_truong_that, so_tru,
+                "[GUARD] DIEM_THI_TRUONG_THAT=%.2f >= 0.2 nhung so_tru=%d/3 — phân kỳ cấu trúc, tính thanh khoản bất thường",
+                diem_thi_truong_that,
+                so_tru,
             )
         quyet_dinh = "DUNG NGOAI"
         ly_do_chặn = f"cấu trúc thị trường vỡ ({so_tru}/3 trụ) — thiếu nền tảng đồng thuận"
@@ -273,6 +275,43 @@ def kiem_tra_an_toan(
     if bi_chặn:
         he_so_giam_ty_trong = 0.0
 
+    # ── LRI Integration: Dimmer Scaling thay thế VETO nhị phân ──
+    # WHY: VETO đập bệt 0% Cash khiến hệ thống bỏ lỡ cơ hội khi Kinh tế thực
+    # đang tăng trưởng mạnh nhưng Thanh khoản Tài chính còn thắt chặt.
+    # LRI cho phép giải ngân co giãn theo tỷ lệ LRI × allocation.
+    lri_result = None
+    try:
+        from src.governor.liquidity_recovery_index import compute_lri
+
+        lri_result = compute_lri()
+        lri_score = lri_result.lri
+
+        # LRI modulates he_so_giam_ty_trong:
+        # - If LRI < 0.3 (DEFENSIVE): force he_so = 0.0 (hard floor)
+        # - If 0.3 <= LRI < 0.8 (PROBE): multiply he_so by LRI (graduated)
+        # - If LRI >= 0.8 (AGGRESSIVE): no modulation (keep existing he_so)
+        if lri_score < 0.3:
+            he_so_giam_ty_trong = 0.0
+            logger.warning(
+                "[GUARD] LRI=%.4f DEFENSIVE — he_so_giam_ty_trong forced to 0.0",
+                lri_score,
+            )
+        elif lri_score < 0.8:
+            he_so_giam_ty_trong *= lri_score
+            logger.info(
+                "[GUARD] LRI=%.4f PROBE — he_so_giam_ty_trong scaled to %.3f",
+                lri_score,
+                he_so_giam_ty_trong,
+            )
+        else:
+            logger.info(
+                "[GUARD] LRI=%.4f AGGRESSIVE — he_so_giam_ty_trong unchanged (%.3f)",
+                lri_score,
+                he_so_giam_ty_trong,
+            )
+    except Exception as exc:
+        logger.warning("[GUARD] LRI computation error (non-blocking): %s", exc)
+
     # ── Contribution Breakdown ──
     contribution = _build_contribution(
         bi_chặn=bi_chặn,
@@ -293,13 +332,23 @@ def kiem_tra_an_toan(
         "bi_chặn": bi_chặn,
         "ly_do_chặn": ly_do_chặn,
         "he_so_giam_ty_trong": he_so_giam_ty_trong,
+        "lri": {
+            "score": lri_result.lri if lri_result else None,
+            "regime": lri_result.regime if lri_result else None,
+            "max_allocation_pct": lri_result.max_allocation_pct if lri_result else None,
+            "components": lri_result.components_raw if lri_result else {},
+        }
+        if lri_result
+        else {},
         "breadth_trap": breadth_trap_state or {},
         "recovery_governor": recovery_gov_state or {},
         "macro_stale": {
             "fresh_ratio": stale_state.get("fresh_ratio") if stale_state else None,
             "terminal_ratio": stale_state.get("terminal_ratio") if stale_state else None,
             "veto": macro_veto,
-        } if stale_state else {},
+        }
+        if stale_state
+        else {},
         "contribution": contribution,
     }
 
