@@ -1,26 +1,35 @@
-"""liquidity_recovery_index.py — Chỉ Số Khôi Phục Thanh Khoản (LRI).
+"""liquidity_recovery_index.py — Chi So Khoi Phuc Thanh Khoan (LRI) v3.
 
-Tích hợp 5 biến số leading liquidity thành 1 chỉ báo liên tục [0, 1]:
-  - S_Interbank (30%): Lãi suất liên ngân hàng qua đêm — phong vũ biểu nhạy nhất
-  - S_USDVND (25%): Áp lực rút vốn ngoại / can thiệp SBV
-  - S_OMO (20%): Hành động bơm hút ròng của SBV
-  - S_FII (15%): Dòng vốn khối ngoại — lực cầu ngoại khối
-  - S_Breadth (10%): Độ rộng dòng tiền toàn sàn
+v3 CHANGELOG (Regime-Aware Bayesian Bound — 2026-08-04):
+  Architecture:
+    Macro History -> Epoch Detector -> Regime Classifier
+    -> Historical Distribution -> Bayesian Bound Estimator -> S_Interbank
 
-Khi LRI >= 0.8: Mở tối đa tỷ trọng (100% sức mua VN20)
-Khi 0.3 <= LRI < 0.8: Giải ngân co giãn (VN20_Weight × LRI)
-Khi LRI < 0.3: Ngắt mạch phòng thủ (100% Cash)
+  S_Interbank: Regime-Aware Bayesian Bound
+    - 4 regimes: LOW_RATE, NORMAL, HIGH_RATE, CRISIS
+    - Each regime has its own P10/P90 distribution
+    - Bayesian blending: alpha*Observed + beta*Historical + gamma*Policy
+    - Policy prior: SBV operating corridor (3.0%-7.5%)
+    - Graceful degradation: falls back to Policy when data insufficient
 
-WHY: Thay thế VETO nhị phân bằng Dimmer Scaling — cho phép dòng vốn chảy
-vào tài sản có MoS khổng lồ ngay cả khi thanh khoản chung còn thắt chặt.
-Triệt tiêu "mâu thuẫn Kinh tế thực vs Thanh khoản Tài chính" — giai đoạn
-kinh tế tăng trưởng mạnh nhưng chứng khoán ì ạch vì VETO đập bệt.
+  S_USDVND: MA90 deviation (unchanged from v2)
+  PIT: compute(target_date=None) — all queries date-bounded
+  Degraded mode: logs [M4_DEGRADED_MODE] when data missing
 """
 
+import logging
+import sqlite3
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from src.governor.regime_classifier import (
+    REGIME_BOUNDS as HMM_REGIME_BOUNDS,
+)
+from src.governor.regime_classifier import (
+    RegimeClassifier,
+)
 
 
 def _hydrate_path():
@@ -36,70 +45,86 @@ def _hydrate_path():
 
 
 PROJECT_ROOT = _hydrate_path()
-
-import sqlite3
+logger = logging.getLogger(__name__)
 
 # ── Normalization thresholds ─────────────────────────────────────────
 # Each component is normalized to [0, 1] where 1 = maximum liquidity (best).
 
-# Interbank ON: lower = better (excess liquidity)
-INTERBANK_LOW = 2.0  # < 2% → score 1.0 (plentiful liquidity)
-INTERBANK_HIGH = 6.0  # > 6% → score 0.0 (tight liquidity)
+# Interbank ON — Policy Corridor (SBV operating range 2016-2026):
+# Used as Bayesian prior gamma when data-driven bounds are insufficient.
+INTERBANK_LOW = 3.0  # <= 3% -> score 1.0 (plentiful liquidity)
+INTERBANK_HIGH = 7.5  # >= 7.5% -> score 0.0 (tight liquidity crisis)
 
-# USD/VND deviation from equilibrium (24,000): smaller = better
-USDVND_LOW = 0.0  # at equilibrium → score 1.0
-USDVND_HIGH = 1500.0  # > 1500 deviation → score 0.0 (capital flight)
+# USD/VND deviation from MA90: smaller = better
+USDVND_DEVIATION_DENOM = 0.02  # 2% deviation -> score 0.0
 
 # OMO net injection: positive = better (injecting liquidity)
-OMO_HIGH = 50000.0  # > 50k bn VND net inject → score 1.0
-OMO_LOW = -50000.0  # < -50k bn VND net drain → score 0.0
+OMO_HIGH = 50000.0  # > 50k bn VND net inject -> score 1.0
+OMO_LOW = -50000.0  # < -50k bn VND net drain -> score 0.0
 
 # FII net flow: positive = better (foreign buying)
-FII_HIGH = 500.0  # > 500 bn VND net buy → score 1.0
-FII_LOW = -2000.0  # < -2000 bn VND net sell → score 0.0
+FII_HIGH = 500.0  # > 500 bn VND net buy -> score 1.0
+FII_LOW = -2000.0  # < -2000 bn VND net sell -> score 0.0
 
 # Breadth: higher = better (broader participation)
-BREADTH_LOW = 30.0  # < 30% → score 0.0 (narrow)
-BREADTH_HIGH = 70.0  # > 70% → score 1.0 (broad)
+BREADTH_LOW = 30.0  # < 30% -> score 0.0 (narrow)
+BREADTH_HIGH = 70.0  # > 70% -> score 1.0 (broad)
+
+# ── Bayesian blending weights ────────────────────────────────────────
+# alpha: weight on observed data percentile (grows with sample size)
+# beta:  weight on regime-specific historical distribution (fuzzy-weighted)
+# gamma: weight on policy prior (SBV corridor)
+BAYESIAN_ALPHA_WEIGHT = 0.50
+BAYESIAN_GAMMA_WEIGHT = 0.20
+MIN_OBS_FOR_DATA = 30
+MIN_OBS_FULL_BAYESIAN = 250
+
+# Fallback regime bounds when HMM unavailable (same as regime_classifier)
+REGIME_BOUNDS = HMM_REGIME_BOUNDS
 
 
 def _normalize(value: float, low: float, high: float, invert: bool = False) -> float:
     """Normalize value to [0, 1]. Invert=True for inverse indicators (lower=better)."""
     if value is None:
-        return 0.5  # neutral when missing
+        return 0.5
     if invert:
-        # For inverse: low value → high score
         score = (high - value) / (high - low) if high != low else 0.5
     else:
-        # For direct: high value → high score
         score = (value - low) / (high - low) if high != low else 0.5
     return max(0.0, min(1.0, score))
 
 
 @dataclass
 class LRIResult:
-    """Kết quả tính LRI."""
+    """Ket qua tinh LRI."""
 
-    lri: float  # Composite LRI [0, 1]
-    s_interbank: float  # Normalized interbank score
-    s_usdvnd: float  # Normalized USD/VND score
-    s_omo: float  # Normalized OMO score
-    s_fii: float  # Normalized FII flow score
-    s_breadth: float  # Normalized breadth score
-    regime: str  # 'AGGRESSIVE' | 'PROBE' | 'DEFENSIVE'
-    max_allocation_pct: float  # Max allocation percentage (0-100)
-    components_raw: dict  # Raw values for audit trail
+    lri: float
+    s_interbank: float
+    s_usdvnd: float
+    s_omo: float
+    s_fii: float
+    s_breadth: float
+    regime: str
+    max_allocation_pct: float
+    components_raw: dict
+    degraded_components: list = field(default_factory=list)
 
 
 class LiquidityRecoveryIndex:
     """Compute LRI from macro + market data.
 
+    v3: Regime-Aware Bayesian Bound for S_Interbank.
+    - Detects current interest rate regime (LOW_RATE/NORMAL/HIGH_RATE/CRISIS)
+    - Each regime has its own P10/P90 distribution
+    - Bayesian blending: observed data + regime historical + policy prior
+    - Naturally adapts across economic decades without hard-coded constants
+
     Weights:
-      S_Interbank: 30% — Phong vũ biểu nhạy nhất của thanh khoản hệ thống
-      S_USDVND:    25% — Áp lực rút vốn ngoại và can thiệp SBV
-      S_OMO:       20% — Hành động trực tiếp của Ngân hàng Nhà nước
-      S_FII:       15% — Lực cầu ngoại khối
-      S_Breadth:   10% — Sự lan tỏa trên toàn sàn chứng khoán
+      S_Interbank: 30% — Phong vu bieu nhay nhat cua thanh khoan he thong
+      S_USDVND:    25% — Ap luc rut von ngoai va can thiep SBV
+      S_OMO:       20% — Hanh dong truc tiep cua Ngan hang Nha nuoc
+      S_FII:       15% — Luc cau ngoai khoi
+      S_Breadth:   10% — Su lan toa tren toan san chung khoan
     """
 
     WEIGHTS = {
@@ -110,10 +135,12 @@ class LiquidityRecoveryIndex:
         "breadth": 0.10,
     }
 
-    # Regime thresholds
-    AGGRESSIVE_THRESHOLD = 0.8  # LRI >= 0.8 → full allocation
-    PROBE_THRESHOLD = 0.3  # LRI >= 0.3 → graduated allocation
-    # LRI < 0.3 → defensive (100% cash)
+    AGGRESSIVE_THRESHOLD = 0.8
+    PROBE_THRESHOLD = 0.3
+
+    MA90_WINDOW = 90
+    REGIME_WINDOW = 90  # 90-day rolling avg for regime detection
+    EPOCH_WINDOW = 1250  # 5-year window for epoch baseline
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
@@ -123,75 +150,215 @@ class LiquidityRecoveryIndex:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def _fetch_latest_macro(self, variable: str) -> Optional[float]:
-        """Fetch latest value for a macro variable."""
+    def _fetch_latest_macro(self, variable: str, target_date: Optional[str] = None) -> Optional[float]:
+        """Fetch latest value for a macro variable, optionally bounded by target_date."""
         conn = self._get_conn()
         try:
-            row = conn.execute(
-                "SELECT value FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1",
-                (variable,),
-            ).fetchone()
+            if target_date:
+                row = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = ? AND date <= ? ORDER BY date DESC LIMIT 1",
+                    (variable, target_date),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1",
+                    (variable,),
+                ).fetchone()
             return float(row[0]) if row and row[0] is not None else None
         except Exception:
             return None
         finally:
             conn.close()
 
-    def _fetch_latest_foreign_flow(self) -> Optional[float]:
+    def _fetch_ma90_usdvnd(self, target_date: Optional[str] = None) -> Optional[float]:
+        """Fetch 90-day MA of USD/VND ending at target_date."""
+        conn = self._get_conn()
+        try:
+            if target_date:
+                rows = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = 'USD_VND' AND date <= ? ORDER BY date DESC LIMIT ?",
+                    (target_date, self.MA90_WINDOW),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = 'USD_VND' ORDER BY date DESC LIMIT ?",
+                    (self.MA90_WINDOW,),
+                ).fetchall()
+            if len(rows) < 10:
+                return None
+            return sum(r[0] for r in rows) / len(rows)
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def _fetch_interbank_values(self, target_date: Optional[str] = None, limit: int = 1250) -> list:
+        """Fetch interbank values for analysis."""
+        conn = self._get_conn()
+        try:
+            if target_date:
+                rows = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = 'INTERBANK_ON' AND date <= ? ORDER BY date DESC LIMIT ?",
+                    (target_date, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = 'INTERBANK_ON' ORDER BY date DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [r[0] for r in rows]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def _classify_regime_fuzzy(self, target_date: Optional[str] = None) -> tuple:
+        """Classify regime using HMM and return fuzzy probabilities.
+
+        Returns (regime_label, regime_probs_dict, hmm_fitted).
+        """
+        classifier = RegimeClassifier(self.db_path)
+        result = classifier.classify(target_date)
+        return result.regime, result.probabilities, result.hmm_fitted
+
+    def _compute_bayesian_bounds_fuzzy(self, values: list, regime_probs: dict) -> tuple:
+        """Compute Fuzzy Adaptive Bounds using regime probability vector.
+
+        LAW-010: P90_eff = alpha * Observed + beta * sum(P(Regime_k) * Hist_k) + gamma * Policy
+
+        regime_probs: {"EXPANSION": 0.1, "NORMAL": 0.75, "CONTRACTION": 0.15}
+        """
+        policy_p10, policy_p90 = INTERBANK_LOW, INTERBANK_HIGH
+
+        n = len(values)
+        if n < MIN_OBS_FOR_DATA:
+            alpha = 0.0
+        elif n >= MIN_OBS_FULL_BAYESIAN:
+            alpha = BAYESIAN_ALPHA_WEIGHT
+        else:
+            alpha = BAYESIAN_ALPHA_WEIGHT * (n - MIN_OBS_FOR_DATA) / (MIN_OBS_FULL_BAYESIAN - MIN_OBS_FOR_DATA)
+
+        beta = 1.0 - alpha - BAYESIAN_GAMMA_WEIGHT
+        gamma = BAYESIAN_GAMMA_WEIGHT
+
+        # Fuzzy-weighted regime historical bounds
+        regime_p10 = sum(regime_probs.get(r, 0.0) * REGIME_BOUNDS[r]["p10"] for r in REGIME_BOUNDS)
+        regime_p90 = sum(regime_probs.get(r, 0.0) * REGIME_BOUNDS[r]["p90"] for r in REGIME_BOUNDS)
+
+        if n < MIN_OBS_FOR_DATA:
+            observed_p10 = regime_p10
+            observed_p90 = regime_p90
+        else:
+            sorted_vals = sorted(values)
+            observed_p10 = sorted_vals[int(len(sorted_vals) * 0.1)]
+            observed_p90 = sorted_vals[int(len(sorted_vals) * 0.9)]
+
+        p10 = alpha * observed_p10 + beta * regime_p10 + gamma * policy_p10
+        p90 = alpha * observed_p90 + beta * regime_p90 + gamma * policy_p90
+
+        if p10 >= p90:
+            p10, p90 = (p10 + p90) / 2 - 0.1, (p10 + p90) / 2 + 0.1
+
+        return round(p10, 2), round(p90, 2), alpha
+
+    def _fetch_latest_foreign_flow(self, target_date: Optional[str] = None) -> Optional[float]:
         """Fetch latest 10-day cumulative foreign net flow (billion VND)."""
         conn = self._get_conn()
         try:
-            row = conn.execute(
-                "SELECT SUM(net_value) FROM ("
-                "  SELECT date, net_value FROM market_foreign_history "
-                "  WHERE symbol = 'TOTAL' ORDER BY date DESC LIMIT 10"
-                ")"
-            ).fetchone()
+            if target_date:
+                row = conn.execute(
+                    "SELECT SUM(net_value) FROM ("
+                    "  SELECT date, net_value FROM market_foreign_history "
+                    "  WHERE symbol = 'TOTAL' AND date <= ? "
+                    "  ORDER BY date DESC LIMIT 10"
+                    ")",
+                    (target_date,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT SUM(net_value) FROM ("
+                    "  SELECT date, net_value FROM market_foreign_history "
+                    "  WHERE symbol = 'TOTAL' "
+                    "  ORDER BY date DESC LIMIT 10"
+                    ")"
+                ).fetchone()
             if row and row[0] is not None:
                 return float(row[0])
-            # Fallback: sum all symbols' net_value for latest date
-            row2 = conn.execute(
-                "SELECT SUM(net_value) FROM market_foreign_history WHERE date = (SELECT MAX(date) FROM market_foreign_history)"
-            ).fetchone()
+            if target_date:
+                row2 = conn.execute(
+                    "SELECT SUM(net_value) FROM market_foreign_history "
+                    "WHERE date = (SELECT MAX(date) FROM market_foreign_history WHERE date <= ?)",
+                    (target_date,),
+                ).fetchone()
+            else:
+                row2 = conn.execute(
+                    "SELECT SUM(net_value) FROM market_foreign_history "
+                    "WHERE date = (SELECT MAX(date) FROM market_foreign_history)"
+                ).fetchone()
             return float(row2[0]) if row2 and row2[0] is not None else None
         except Exception:
             return None
         finally:
             conn.close()
 
-    def _fetch_latest_breadth(self) -> Optional[float]:
+    def _fetch_latest_breadth(self, target_date: Optional[str] = None) -> Optional[float]:
         """Fetch latest market breadth from regime_history."""
         conn = self._get_conn()
         try:
-            row = conn.execute("SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1").fetchone()
+            if target_date:
+                row = conn.execute(
+                    "SELECT breadth_pct FROM regime_history WHERE date <= ? ORDER BY date DESC LIMIT 1",
+                    (target_date,),
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1").fetchone()
             return float(row[0]) if row and row[0] is not None else None
         except Exception:
             return None
         finally:
             conn.close()
 
-    def compute(self) -> LRIResult:
+    def compute(self, target_date: Optional[str] = None) -> LRIResult:
         """Compute LRI from latest available data.
 
-        Returns LRIResult with composite score, component scores, and regime.
-        """
-        # Fetch raw data
-        interbank_on = self._fetch_latest_macro("INTERBANK_ON")
-        usd_vnd = self._fetch_latest_macro("USD_VND")
-        fii_flow = self._fetch_latest_foreign_flow()
-        breadth = self._fetch_latest_breadth()
+        Args:
+            target_date: PIT cutoff date (YYYY-MM-DD). All data queries are
+                bounded by date <= target_date. None = live (latest data).
 
-        # OMO: use INTERBANK_ON as proxy (actual OMO data is sparse — only 1 record)
-        # WHY: OMO net injection is inversely correlated with interbank rate.
-        # When SBV injects liquidity, interbank drops; when draining, interbank rises.
+        Returns LRIResult with composite score, component scores, regime,
+        and degraded_components list.
+        """
+        degraded = []
+
+        # Fetch raw data (PIT-bounded)
+        interbank_on = self._fetch_latest_macro("INTERBANK_ON", target_date)
+        usd_vnd = self._fetch_latest_macro("USD_VND", target_date)
+        fii_flow = self._fetch_latest_foreign_flow(target_date)
+        breadth = self._fetch_latest_breadth(target_date)
+
+        # Degraded mode detection
+        if interbank_on is None:
+            degraded.append("INTERBANK")
+        if usd_vnd is None:
+            degraded.append("USDVND")
+
+        # OMO: use INTERBANK_ON as proxy
         omo_proxy = -(interbank_on - 3.0) * 10000 if interbank_on is not None else None
 
-        # USD/VND deviation from equilibrium
-        usdvnd_dev = abs(usd_vnd - 24000.0) if usd_vnd is not None else None
+        # ── S_USDVND: MA90 deviation (unchanged from v2) ─────────────
+        usdvnd_ma90 = self._fetch_ma90_usdvnd(target_date)
+        usdvnd_dev_pct = None
+        if usd_vnd is not None and usdvnd_ma90 is not None and usdvnd_ma90 > 0:
+            usdvnd_dev_pct = abs(usd_vnd - usdvnd_ma90) / usdvnd_ma90
+        s_usdvnd = _normalize(usdvnd_dev_pct, 0.0, USDVND_DEVIATION_DENOM, invert=True)
 
-        # Normalize each component
-        s_interbank = _normalize(interbank_on, INTERBANK_LOW, INTERBANK_HIGH, invert=True)
-        s_usdvnd = _normalize(usdvnd_dev, USDVND_LOW, USDVND_HIGH, invert=True)
+        # ── S_Interbank: Regime-Aware Bayesian Bound ─────────────────
+        ib_values = self._fetch_interbank_values(target_date, limit=self.EPOCH_WINDOW)
+        ib_regime, ib_regime_probs, ib_hmm_fitted = self._classify_regime_fuzzy(target_date)
+        ib_p10, ib_p90, ib_alpha = self._compute_bayesian_bounds_fuzzy(ib_values, ib_regime_probs)
+        s_interbank = _normalize(interbank_on, ib_p10, ib_p90, invert=True)
+
+        # ── Remaining components ─────────────────────────────────────
         s_omo = _normalize(omo_proxy, OMO_LOW, OMO_HIGH)
         s_fii = _normalize(fii_flow, FII_LOW, FII_HIGH)
         s_breadth = _normalize(breadth, BREADTH_LOW, BREADTH_HIGH)
@@ -208,14 +375,21 @@ class LiquidityRecoveryIndex:
 
         # Determine regime
         if lri >= self.AGGRESSIVE_THRESHOLD:
-            regime = "AGGRESSIVE"
+            alloc_regime = "AGGRESSIVE"
             max_alloc = 100.0
         elif lri >= self.PROBE_THRESHOLD:
-            regime = "PROBE"
-            max_alloc = lri * 100.0  # Graduated allocation
+            alloc_regime = "PROBE"
+            max_alloc = lri * 100.0
         else:
-            regime = "DEFENSIVE"
+            alloc_regime = "DEFENSIVE"
             max_alloc = 0.0
+
+        # Degraded mode logging
+        if degraded:
+            logger.warning(
+                "[M4_DEGRADED_MODE] Lack of %s data - Marginalizing LRI",
+                "+".join(degraded),
+            )
 
         return LRIResult(
             lri=lri,
@@ -224,12 +398,20 @@ class LiquidityRecoveryIndex:
             s_omo=round(s_omo, 4),
             s_fii=round(s_fii, 4),
             s_breadth=round(s_breadth, 4),
-            regime=regime,
+            regime=alloc_regime,
             max_allocation_pct=round(max_alloc, 2),
+            degraded_components=degraded,
             components_raw={
                 "interbank_on": interbank_on,
+                "interbank_regime": ib_regime,
+                "interbank_regime_probs": ib_regime_probs,
+                "interbank_hmm_fitted": ib_hmm_fitted,
+                "interbank_p10": ib_p10,
+                "interbank_p90": ib_p90,
+                "interbank_alpha": round(ib_alpha, 4),
                 "usd_vnd": usd_vnd,
-                "usdvnd_deviation": usdvnd_dev,
+                "usdvnd_ma90": usdvnd_ma90,
+                "usdvnd_deviation_pct": (round(usdvnd_dev_pct * 100, 4) if usdvnd_dev_pct is not None else None),
                 "omo_proxy": omo_proxy,
                 "fii_flow_10d": fii_flow,
                 "breadth_pct": breadth,
@@ -237,23 +419,34 @@ class LiquidityRecoveryIndex:
         )
 
 
-def compute_lri(db_path: Optional[str] = None) -> LRIResult:
+def compute_lri(db_path: Optional[str] = None, target_date: Optional[str] = None) -> LRIResult:
     """Convenience function to compute LRI."""
-    return LiquidityRecoveryIndex(db_path).compute()
+    return LiquidityRecoveryIndex(db_path).compute(target_date)
 
 
 if __name__ == "__main__":
     result = compute_lri()
     print("=" * 60)
-    print("  LIQUIDITY RECOVERY INDEX (LRI)")
+    print("  LIQUIDITY RECOVERY INDEX (LRI) v3 — Regime-Aware Bayesian")
     print("=" * 60)
     print(f"  LRI Composite:  {result.lri:.4f}")
     print(f"  Regime:         {result.regime}")
     print(f"  Max Allocation: {result.max_allocation_pct:.1f}%")
+    if result.degraded_components:
+        print(f"  Degraded:       {', '.join(result.degraded_components)}")
     print("\n  Components:")
     raw = result.components_raw
-    print(f"    S_Interbank:  {result.s_interbank:.4f}  (raw: {raw['interbank_on']})")
-    print(f"    S_USDVND:     {result.s_usdvnd:.4f}  (raw: {raw['usd_vnd']}, dev: {raw['usdvnd_deviation']})")
+    print(
+        f"    S_Interbank:  {result.s_interbank:.4f}  "
+        f"(raw: {raw['interbank_on']}%, regime: {raw['interbank_regime']}, "
+        f"P10: {raw['interbank_p10']}%, P90: {raw['interbank_p90']}%, "
+        f"alpha: {raw['interbank_alpha']})"
+    )
+    print(
+        f"    S_USDVND:     {result.s_usdvnd:.4f}  "
+        f"(raw: {raw['usd_vnd']}, MA90: {raw['usdvnd_ma90']:.0f}, "
+        f"dev: {raw['usdvnd_deviation_pct']}%)"
+    )
     print(f"    S_OMO:        {result.s_omo:.4f}  (proxy: {raw['omo_proxy']})")
     print(f"    S_FII:        {result.s_fii:.4f}  (raw: {raw['fii_flow_10d']})")
     print(f"    S_Breadth:    {result.s_breadth:.4f}  (raw: {raw['breadth_pct']})")
