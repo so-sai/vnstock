@@ -397,7 +397,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "raw": "thô",
     "eff": "hiệu quả",
     "deficit": "điều chỉnh",
-    "HL": "Bán kỳ",
+    "HL": "Half-life (Bán rã)",
     "Blocking Model": "Mô hình chặn",
     "Decision": "Quyết định",
     "Blocked": "Bị chặn",
