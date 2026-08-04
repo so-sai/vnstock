@@ -19,7 +19,7 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -40,13 +40,14 @@ if str(BACKEND_DIR) not in sys.path:
 @dataclass
 class DensityAuditResult:
     """Output DTO for symbol data density audit."""
+
     symbol: str
     required_quarters: int
     available_quarters: int
     density_pct: float
     missing_quarters: List[str] = field(default_factory=list)
     missing_fields: List[str] = field(default_factory=list)
-    status: str = "PERFECT"                     # PERFECT / GAP_FOUND / SEVERE_GAP
+    status: str = "PERFECT"  # PERFECT / GAP_FOUND / SEVERE_GAP
     healed: bool = False
 
 
@@ -75,11 +76,14 @@ class DataIntegrityAuditor:
         conn = self._get_conn()
         try:
             cur = conn.cursor()
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT DISTINCT period
                 FROM financial_facts
                 WHERE symbol = ?
-            """, (sym,))
+            """,
+                (sym,),
+            )
             avail_periods = set(r[0] for r in cur.fetchall())
         finally:
             conn.close()
@@ -87,6 +91,33 @@ class DataIntegrityAuditor:
         available_count = sum(1 for q in required_quarters if q in avail_periods)
         missing_quarters = [q for q in required_quarters if q not in avail_periods]
         tot = len(required_quarters)
+        density_pct = round((available_count / float(tot)) * 100.0, 1) if tot > 0 else 0.0
+
+        # Provenance audit: dữ liệu bịa (is_synthetic=1) KHÔNG được tính là dữ liệu hợp lệ.
+        # WHY: Density audit cũ bị đánh lừa — synthetic lấp đầy quý rỗng → 100% → PERFECT.
+        # Một số vẽ vừa "đầy đủ" vừa "đúng độ lớn" nhưng không có xuất xứ thật = vô giá trị
+        # (No Provenance = No Trust). Mọi quý chứa fact synthetic bị đánh dấu là thiếu.
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT DISTINCT period FROM financial_facts
+                WHERE symbol = ? AND is_synthetic = 1
+            """,
+                (sym,),
+            )
+            synth_periods = set(r[0] for r in cur.fetchall())
+        finally:
+            conn.close()
+
+        for q in synth_periods:
+            if q in avail_periods and q in required_quarters:
+                available_count -= 1
+                missing_quarters.append(q)
+
+        available_count = max(available_count, 0)
+        missing_quarters = sorted(set(missing_quarters))
         density_pct = round((available_count / float(tot)) * 100.0, 1) if tot > 0 else 0.0
 
         if density_pct >= 98.0:
@@ -111,10 +142,13 @@ class DataIntegrityAuditor:
     def _seed_symbol(self, symbol: str) -> Dict:
         """Call VnstockCrawler seeder to backfill missing data."""
         from src.financial.financial_facts import VnstockCrawler
+
         crawler = VnstockCrawler()
         return crawler.seed_symbol(symbol)
 
-    def audit_and_heal(self, symbols: List[str], auto_backfill: bool = True, start_year: int = 2019, end_year: int = 2026) -> Dict[str, DensityAuditResult]:
+    def audit_and_heal(
+        self, symbols: List[str], auto_backfill: bool = True, start_year: int = 2019, end_year: int = 2026
+    ) -> Dict[str, DensityAuditResult]:
         """Audit data density and automatically self-heal missing quarters."""
         results = self.audit_many(symbols, start_year, end_year)
 
@@ -137,13 +171,15 @@ class DataIntegrityAuditor:
 
 def print_density_audit_report(results: Dict[str, DensityAuditResult]):
     """Print clean Deep Data Density Audit Report for CLI."""
-    from src.utils.cli_theme import c_red, c_green, c_yellow, c_cyan, c_dim
+    from src.utils.cli_theme import c_cyan, c_green, c_red, c_yellow
 
     print("\n  " + "=" * 125)
     print(f"  🔍 {c_cyan('PTCK DEEP DATA DENSITY AUDIT REPORT (2019Q1 – 2026Q2)')}")
     print("  " + "=" * 125)
-    print(f"  {'Symbol (Mã)':<10} {'Required':>10} {'Available':>11} {'Data Density (%)':>18} "
-          f"  {'Missing Quarters (Các quý thiếu)':<32} {'Audit Status'}")
+    print(
+        f"  {'Symbol (Mã)':<10} {'Required':>10} {'Available':>11} {'Data Density (%)':>18} "
+        f"  {'Missing Quarters (Các quý thiếu)':<32} {'Audit Status'}"
+    )
     print("  " + "─" * 125)
 
     for sym, r in results.items():
@@ -165,7 +201,9 @@ def print_density_audit_report(results: Dict[str, DensityAuditResult]):
 
         healed_tag = c_cyan(" [HEALED]") if r.healed else ""
 
-        print(f"  {sym:<10} {r.required_quarters:>10} {r.available_quarters:>11} {den_str:>18} "
-              f"  {missing_str:<32} {st_str}{healed_tag}")
+        print(
+            f"  {sym:<10} {r.required_quarters:>10} {r.available_quarters:>11} {den_str:>18} "
+            f"  {missing_str:<32} {st_str}{healed_tag}"
+        )
 
     print("  " + "=" * 125 + "\n")

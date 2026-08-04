@@ -307,7 +307,59 @@ class DataIntegrityValidator:
     """Bộ kiểm duyệt toàn vẹn dữ liệu. Bắt buộc chạy trước khi ghi."""
 
     MIN_VND_SCALE = 1_000  # Giá trị VND < 1,000 bị nghi ngờ
-    MAX_VND_SCALE = 1_000_000_000_000  # > 1 nghìn tỷ
+
+    # Các chỉ số quy mô lớn (luôn là VND thật, không bao giờ < vài tỷ) — khi bị báo theo
+    # đơn vị Tỷ đồng (giá trị nằm trong dải [MIN_VND_SCALE, 500,000]) cần ×10^9 về VND.
+    # WHY: Nhiều bridge/nguồn trả REVENUE/TOTAL_ASSETS/TOTAL_EQUITY theo "tỷ đồng" (vd
+    # 13,789 cho doanh thu ~13.8 nghìn tỷ) thay vì VND. auto_scale_to_vnd chỉ scale khi
+    # abs(raw) < 1,000 nên giá trị 13,789 lọt qua → ghi tỷ đồng vào cột VND → mọi tỷ số
+    # (ROE, GM, MoS...) biến dạng 10^9 lần. Bổ sung ngưỡng phá hiện theo dải tỷ.
+    # Loại trừ các metric ratio/per-share (EPS, BVPS, ROE...) vì không phụ thuộc đơn vị.
+    LARGE_SCALE_METRICS = {
+        # STANDARD income / balance / cash flow
+        "REVENUE",
+        "COGS",
+        "GROSS_PROFIT",
+        "NET_INCOME",
+        "EBIT",
+        "EBITDA",
+        "INTEREST_EXPENSE",
+        "TOTAL_ASSETS",
+        "CURRENT_ASSETS",
+        "CURRENT_LIAB",
+        "TOTAL_EQUITY",
+        "TOTAL_LIABILITIES",
+        "TOTAL_DEBT",
+        "SHORT_TERM_DEBT",
+        "LONG_TERM_DEBT",
+        "CASH_EQUIV",
+        "RECEIVABLES",
+        "INVENTORY",
+        "CFO",
+        "CFI",
+        "CFF",
+        "CAPEX",
+        "FCF",
+        # BANK income / balance
+        "NII",
+        "TOI",
+        "NET_PROFIT",
+        "PROVISION_EXPENSE",
+        "INTEREST_INCOME",
+        "NON_II",
+        "OPERATING_EXPENSE",
+        "CUSTOMER_LOANS",
+        "CUSTOMER_DEPOSITS",
+        "BONDS_AND_GOVT",
+        "CASH_AND_BALANCES",
+        "DUE_FROM_OTHER_BANKS",
+        "DUE_TO_OTHER_BANKS",
+        "RESERVES",
+        "PROVISION",
+        "INTANGIBLE_ASSETS",
+    }
+    # Dải "tỷ đồng" hợp lệ [MIN_VND_SCALE, 500,000] — giá trị nằm giữa → nghi tỷ→VND·10^9
+    TY_BAND_UPPER = 5_000_000  # 5 triệu tỷ — đủ cho ngân hàng lớn (VCB assets > 2 triệu tỷ)
 
     @staticmethod
     def auto_scale_to_vnd(value: float, metric: str, symbol: str) -> Tuple[float, str]:
@@ -350,6 +402,21 @@ class DataIntegrityValidator:
                 if DataIntegrityValidator._in_plausible_range(scaled, metric, symbol):
                     note = f"AUTO_SCALED_{scale}x"
                     return scaled, note
+
+        # Kiểm tra: chỉ số quy mô lớn bị báo theo đơn vị Tỷ đồng → scale ×10^9 về VND.
+        # WHY: Nhiều nguồn (CafeF, fixture cũ, bridge phụ) trả REVENUE/TOTAL_ASSETS/... theo
+        # tỷ đồng — giá trị nằm trong dải [1,000, TY_BAND_UPPER] (vd 13,789 cho ~13.8 nghìn tỷ)
+        # nhưng > MIN_VND_SCALE nên block trên bỏ qua → ghi thẳng tỷ vào cột VND. Bổ sung
+        # ngưỡng phá hiện này kèm xác nhận _in_plausible_range để không scale nhầm giá trị
+        # vốn đã đúng VND (nếu đã đúng thì scaled sẽ rơi ngoài dải hợp lý → giữ nguyên).
+        if (
+            metric in DataIntegrityValidator.LARGE_SCALE_METRICS
+            and metric not in scale_free_metrics
+            and DataIntegrityValidator.MIN_VND_SCALE <= abs(raw) <= DataIntegrityValidator.TY_BAND_UPPER
+        ):
+            scaled = raw * 1_000_000_000
+            if DataIntegrityValidator._in_plausible_range(scaled, metric, symbol):
+                return scaled, "AUTO_SCALED_1000000000x"
 
         return raw, "OK"
 
@@ -504,6 +571,7 @@ class FinancialFactsDB:
             value           REAL,
             unit            TEXT DEFAULT 'VND',
             source          TEXT DEFAULT 'vnstock',
+            is_synthetic    INTEGER DEFAULT 0,      -- 1 = dữ liệu bịa (Zero-Hallucination guard)
             reported_at     TEXT,
             ingested_at     TEXT DEFAULT (datetime('now')),
             integrity_flags TEXT DEFAULT '',        -- 'AUTO_SCALED_1000x;DATA_CORRUPTED'
@@ -538,6 +606,14 @@ class FinancialFactsDB:
         CREATE INDEX IF NOT EXISTS idx_il_batch ON ingestion_log(batch_id);
         CREATE INDEX IF NOT EXISTS idx_il_status ON ingestion_log(status);
         """)
+        # Migration an toàn: DB cũ thiếu cột is_synthetic (Provenance guard).
+        # WHY: CREATE TABLE IF NOT EXISTS không thêm cột mới vào bảng đã tồn tại. ALTER
+        # ADD COLUMN đặt trong try/except để idempotent — chạy nhiều lần cũng không lỗi.
+        try:
+            cursor.execute("ALTER TABLE financial_facts ADD COLUMN is_synthetic INTEGER DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Cột đã tồn tại
         conn.commit()
 
     def get_entity_type(self, symbol: str) -> str:
@@ -576,6 +652,7 @@ class FinancialFactsDB:
         value: float,
         unit: str = "VND",
         source: str = "vnstock",
+        is_synthetic: int = 0,
         reported_at: str = None,
         integrity_flags: str = "",
     ) -> Dict:
@@ -600,8 +677,9 @@ class FinancialFactsDB:
                 """
                 INSERT OR REPLACE INTO financial_facts
                     (symbol, period, fiscal_year, fiscal_quarter, entity_type,
-                     statement_type, metric, value, unit, source, reported_at, integrity_flags)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     statement_type, metric, value, unit, source, is_synthetic,
+                     reported_at, integrity_flags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     symbol.upper(),
@@ -614,6 +692,7 @@ class FinancialFactsDB:
                     scaled_value,
                     unit,
                     source,
+                    1 if is_synthetic else 0,
                     reported_at or datetime.now().strftime("%Y-%m-%d"),
                     integrity_flags,
                 ),
@@ -624,8 +703,20 @@ class FinancialFactsDB:
             conn.rollback()
             return {"status": "ERROR", "metric": metric, "reason": str(e)}
 
-    def write_batch(self, symbol: str, period_metrics: dict, entity_type: str, batch_id: str = None) -> Dict:
-        """Ghi batch các facts cho 1 kỳ của 1 symbol."""
+    def write_batch(
+        self,
+        symbol: str,
+        period_metrics: dict,
+        entity_type: str,
+        batch_id: str = None,
+        source: str = "vnstock",
+        is_synthetic: int = 0,
+    ) -> Dict:
+        """Ghi batch các facts cho 1 kỳ của 1 symbol.
+
+        source: Nguồn gốc dữ liệu thật (vci/cafef/vnstock/vndirect/tcbs/...).
+        is_synthetic: 1 nếu dữ liệu là bịa (Provenance guard — Zero-Hallucination).
+        """
         conn = self.connect()
         cursor = conn.cursor()
         batch_id = batch_id or datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -633,13 +724,30 @@ class FinancialFactsDB:
         # Parse period from period_metrics dict
         fiscal_year = period_metrics.get("_fiscal_year")
         fiscal_quarter = period_metrics.get("_fiscal_quarter")
-        # WHY: Fallback 2026Q2 cho dict thiếu meta _fiscal_year/_fiscal_quarter (vd dữ liệu
-        # sample/seed tay) để batch vẫn ghi được kỳ hợp lệ thay vì lỗi — parse period từ
-        # meta trước, ưu tiên dữ liệu gốc hơn hardcode.
+        # WHY: Không còn fallback mặc định 2026Q2 — nếu dict thiếu meta kỳ kế toán thì batch
+        # KHÔNG được ghi, trả SKIP_MISSING_PERIOD. Fallback 2026Q2 từng ép mọi batch thiếu
+        # meta vào 2026Q2 → pha trộn dữ liệu của nhiều kỳ (REVENUE 13,789 tỷ của nguồn lạ
+        # gắn nhầm vào 2026Q2). Dữ liệu thiếu kỳ là dữ liệu bẩn, phải loại bỏ không ghi.
         if fiscal_year is None or fiscal_quarter is None:
-            fiscal_year = 2026
-            fiscal_quarter = 2
+            return {
+                "status": "SKIP_MISSING_PERIOD",
+                "symbol": symbol.upper(),
+                "period": None,
+                "facts_written": 0,
+                "reason": "period_metrics thiếu _fiscal_year/_fiscal_quarter",
+            }
         period = f"{fiscal_year}Q{fiscal_quarter}"
+
+        # Purge-before-write: xóa toàn bộ facts cũ của (symbol, period) trước khi ghi.
+        # WHY: INSERT OR REPLACE chỉ thay row cùng (symbol, period, metric) — các metric cũ
+        # không còn xuất hiện trong batch mới vẫn tồn tại (vd REVENUE=13,789 tỷ của 2026Q2
+        # ghi lúc 01:30 sống sót qua các lần crawl sau vì crawl mới chỉ viết 2024Q3-2025Q2,
+        # không đụng tới row 2026Q2). DELETE trước INSERT khiến mỗi kỳ luôn là ảnh trung
+        # thực của đợt crawl mới nhất — triệt tiêu dữ liệu đọng (stale metrics).
+        cursor.execute(
+            "DELETE FROM financial_facts WHERE symbol = ? AND period = ?",
+            (symbol.upper(), period),
+        )
 
         # Store balance sheet items for integrity check
         bs_facts = {}
@@ -675,8 +783,8 @@ class FinancialFactsDB:
                 """
                 INSERT OR REPLACE INTO financial_facts
                     (symbol, period, fiscal_year, fiscal_quarter, entity_type,
-                     statement_type, metric, value, source, integrity_flags)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     statement_type, metric, value, source, is_synthetic, integrity_flags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     symbol.upper(),
@@ -687,7 +795,8 @@ class FinancialFactsDB:
                     st,
                     metric,
                     scaled,
-                    "vnstock",
+                    source,
+                    1 if is_synthetic else 0,
                     flags if flags != "OK" else "",
                 ),
             )

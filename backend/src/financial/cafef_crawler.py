@@ -23,9 +23,10 @@ nạp trực tiếp vào financial_facts.db qua FinancialFactsDB + DataIntegrity
 ║     - financial_facts.py: VciGraphQL + KBS/SaaS API                  ║
 ║     - Cả hai API đều không hoạt động (CORS, auth thay đổi)           ║
 ║                                                                      ║
-║  4. SYNTHETIC (tầng 4 — fallback cuối cùng)                         ║
-║     - _generate_synthetic_base() — nội suy từ 2022→2026              ║
-║     - Chỉ dùng khi cả 3 tầng trên đều thất bại                      ║
+║  4. SYNTHETIC (tầng 4 — KHÓA VĨNH VIỄN — Zero-Hallucination)          ║
+║     - _generate_synthetic_base() — ĐÃ BỊ VÔ HIỆU HÓA, luôn trả []      ║
+║     - Sắc lệnh 2026-08-04: CẤM bịa dữ liệu. Nguồn thật chết →         ║
+║       SEVERE_GAP → Governor ép DŨNG NGOẠI (100% Cash), KHÔNG sinh số  ║
 ║                                                                      ║
 ║  CLI: python ptck.py cafef-crawl [--symbols ...] [--source vci|cafef|synthetic]  ║
 ║                                                                      ║
@@ -248,7 +249,7 @@ URL_MAP = {
         "status": "ALIVE",  # ✅ verified 2026-08-01 — GIẢI QUYẾT lỗ hổng CFO BCM/VRE
         "lib": "requests + BeautifulSoup (fetch_cafef_cashflow)",
         "notes": "Mỗi trang trả cửa sổ 4 quý (td.h_t label). Fetch Q4 mỗi năm + "
-                 "Q2 năm hiện tại phủ đủ 20 quý. Giá trị VND đầy đủ (không nhân đơn vị).",
+        "Q2 năm hiện tại phủ đủ 20 quý. Giá trị VND đầy đủ (không nhân đơn vị).",
     },
     "CAFEF_NOTE_INDI": {
         "url": "https://cafef.vn/du-lieu/Ajax/Bank/NoteIndicator.aspx",
@@ -339,7 +340,7 @@ URL_MAP = {
         "status": "UNVERIFIED_DNS",  # ⚠️ DNS fail từ môi trường dev 2026-07-31
         "lib": "requests (fetch_vndirect_api)",
         "notes": "VNDirect Fininfo API — q=reportType:QUARTER~symbol:{sym}~modelType:1. "
-                 "Mô hình: BCTC full 4 bảng, JSON chuẩn. Cần kiểm chứng lại khi network cho phép.",
+        "Mô hình: BCTC full 4 bảng, JSON chuẩn. Cần kiểm chứng lại khi network cho phép.",
     },
     "TCBS_FINAPI": {
         "url": "https://finapi.tcbs.com.vn/v1/stock/{symbol}/financial-statement",
@@ -349,7 +350,7 @@ URL_MAP = {
         "status": "UNVERIFIED_DNS",  # ⚠️ DNS fail từ môi trường dev 2026-07-31
         "lib": "requests (fetch_tcbs_api)",
         "notes": "TCBS FinAPI — type=BALANCE_SHEET|INCOME_STATEMENT|CASH_FLOW&size=20&isAll=true. "
-                 "Dữ liệu chuẩn hóa, đủ CFO + nợ chi tiết. Cần kiểm chứng lại khi network cho phép.",
+        "Dữ liệu chuẩn hóa, đủ CFO + nợ chi tiết. Cần kiểm chứng lại khi network cho phép.",
     },
     "VIETSTOCK_FININFO": {
         "url": "https://finance.vietstock.vn/{symbol}/tai-chinh.htm",
@@ -362,15 +363,15 @@ URL_MAP = {
         "status": "ALIVE",  # ✅ verified 2026-07-31
         "lib": "Playwright sync_api channel='chrome' (fetch_vietstock_api)",
         "notes": "Nguồn thứ 4 (kiểm tra chéo). Merge financeinfo + BCTT. "
-                 "BCTC CHI TIẾT (CDKT/KQKD/LCTT_GetListReportData) → PAYWALL "
-                 "(RequestUpgradeAccount_Permission, cần VietstockPro). "
-                 "BCTT tab free: GetListReportNorm_BCTT_ByStockCode (46 norms) + "
-                 "BCTT_GetListReportData (38 periods) + "
-                 "GetReportDataDetailValue_BCTT_ByReportDataIds (9 periods, capped). "
-                 "BCTT metrics: REVENUE/COGS/GROSS_PROFIT/EBIT/NET_INCOME/EPS + "
-                 "CASH_EQUIV/RECEIVABLES/INVENTORY + CURRENT_ASSETS/TOTAL_ASSETS/"
-                 "TOTAL_LIABILITIES/CURRENT_LIAB/LONG_TERM_DEBT/TOTAL_EQUITY + "
-                 "BOOK_VALUE_PS. Playwright phải dùng channel='chrome'.",
+        "BCTC CHI TIẾT (CDKT/KQKD/LCTT_GetListReportData) → PAYWALL "
+        "(RequestUpgradeAccount_Permission, cần VietstockPro). "
+        "BCTT tab free: GetListReportNorm_BCTT_ByStockCode (46 norms) + "
+        "BCTT_GetListReportData (38 periods) + "
+        "GetReportDataDetailValue_BCTT_ByReportDataIds (9 periods, capped). "
+        "BCTT metrics: REVENUE/COGS/GROSS_PROFIT/EBIT/NET_INCOME/EPS + "
+        "CASH_EQUIV/RECEIVABLES/INVENTORY + CURRENT_ASSETS/TOTAL_ASSETS/"
+        "TOTAL_LIABILITIES/CURRENT_LIAB/LONG_TERM_DEBT/TOTAL_EQUITY + "
+        "BOOK_VALUE_PS. Playwright phải dùng channel='chrome'.",
     },
 }
 
@@ -426,8 +427,11 @@ URL_MAP = {
 # ── CafeF Playwright — Table Signatures ──────────────────────────
 # Dùng để phát hiện cấu trúc trang thay đổi (giống SBV pattern).
 CAFEF_TABLE_SIGNATURES = [
-    "tableContent", "Doanh thu thuần", "Lợi nhuận gộp",
-    "Tổng cộng tài sản", "Vốn chủ sở hữu",
+    "tableContent",
+    "Doanh thu thuần",
+    "Lợi nhuận gộp",
+    "Tổng cộng tài sản",
+    "Vốn chủ sở hữu",
 ]
 CAFEF_CLOUDFLARE_SIGS = ["cf-browser-request", "Attention Required", "Just a moment", "sucuri"]
 CAFEF_JS_RENDERING_SIGS = ["shadow-root", "<script", "render(", "createElement", "appendChild"]
@@ -498,14 +502,16 @@ class CafeFCrawler:
         self.use_playwright = use_playwright
         self.delay = delay
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
+            }
+        )
 
     @staticmethod
     def generate_20_quarters() -> List[Tuple[int, int]]:
@@ -543,11 +549,7 @@ class CafeFCrawler:
             return None
 
     def _cafef_url(self, symbol: str, st_type: int, year: int, quarter: int) -> str:
-        return (
-            f"https://s.cafef.vn/bao-cao-tai-chinh/"
-            f"{symbol}/{st_type}/{year}/{quarter}/0/0/"
-            f"bao-cao-tai-chinh-.chn"
-        )
+        return f"https://s.cafef.vn/bao-cao-tai-chinh/{symbol}/{st_type}/{year}/{quarter}/0/0/bao-cao-tai-chinh-.chn"
 
     def _try_alt_url(self, symbol: str, st_type: int, year: int, quarter: int) -> str:
         label = {1: "balance", 2: "incstament", 3: "cashflow"}
@@ -557,8 +559,7 @@ class CafeFCrawler:
             f"?year={year}&quarter={quarter}"
         )
 
-    def fetch_statement(self, symbol: str, st_type: int,
-                         year: int, quarter: int) -> Dict[str, float]:
+    def fetch_statement(self, symbol: str, st_type: int, year: int, quarter: int) -> Dict[str, float]:
         """Fetch one statement (BS/IS/CF) for one quarter."""
         entity_type = self.db.get_entity_type(symbol)
         mapping = CAFEF_MAP_BANK if entity_type == "BANK" else CAFEF_MAP_STANDARD
@@ -582,8 +583,7 @@ class CafeFCrawler:
 
             # ── Tầng 2: Playwright (fallback khi requests 404, hoặc force) ──
             if not html_raw:
-                reason = ('force Playwright' if self.use_playwright
-                          else 'requests thất bại, thử Playwright')
+                reason = "force Playwright" if self.use_playwright else "requests thất bại, thử Playwright"
                 logger.info(f"  CafeF: {reason} cho {url}")
                 html_raw = self._try_cafef_pw(url)
 
@@ -655,125 +655,209 @@ class CafeFCrawler:
 
     @staticmethod
     def _generate_synthetic_base(symbol: str, entity_type: str) -> List[Dict]:
-        """Generate 20 quarters of synthetic financial data with realistic trends.
+        """KHÓA VĨNH VIỄN — Zero-Hallucination Policy.
 
-        WHY: nội suy tuyến tính 2022→2026 + biến động mùa vụ ±5-6% để dữ liệu
-        KHÔNG tuyến tính phẳng — health engine cần trend/stability có ý nghĩa.
-        Chỉ là phương án cuối cùng khi mọi nguồn thật đều chết.
+        Sắc lệnh 2026-08-04: TUYỆT ĐỐI CẤM sinh dữ liệu bịa (hallucinated data).
+        Trước đây hàm này nội suy 20 quý dữ liệu giả (debt_2026=25e12, rev_2026=9.85e12...)
+        để "che lỗi crash" khi mọi nguồn thật chết. Hậu quả: các giá trị vẽ ra này trá
+        hình nguồn thật trong DB, dẫn tới quyết định giải ngân trăm tỷ dựa trên ảo giác.
+
+        Quy tắc mới: nếu MỌI nguồn thật đều rỗng → trả [] (KHÔNG bịa dữ liệu). Lớp trên
+        (crawl_symbol) ghi nhận NO_DATA, DataIntegrityAuditor đánh dấu SEVERE_GAP, Governor
+        ép vị thế DŨNG NGOẠI (100% Cash). Thà lỡ cơ hội còn hơn mất tiền vì số vẽ.
         """
+        logger.error(
+            f"[ZERO-HALLUCINATION] _generate_synthetic_base KHÔNG CÒN ĐƯỢC PHÉP CHẠY "
+            f"(symbol={symbol}, entity_type={entity_type}). Nguồn thật chết → trả [] thay vì bịa dữ liệu."
+        )
+        return []
         base_data = {
             "FPT": {
                 "type": "STANDARD",
-                "rev_2022": 5_500_000_000_000, "rev_2026": 9_850_000_000_000,
-                "ni_2022": 1_200_000_000_000, "ni_2026": 2_100_000_000_000,
-                "assets_2022": 55_000_000_000_000, "assets_2026": 82_000_000_000_000,
-                "equity_2022": 22_000_000_000_000, "equity_2026": 35_000_000_000_000,
-                "cfo_2022": 1_500_000_000_000, "cfo_2026": 2_520_000_000_000,
-                "cash_2022": 7_000_000_000_000, "cash_2026": 12_000_000_000_000,
-                "debt_2022": 15_000_000_000_000, "debt_2026": 25_000_000_000_000,
+                "rev_2022": 5_500_000_000_000,
+                "rev_2026": 9_850_000_000_000,
+                "ni_2022": 1_200_000_000_000,
+                "ni_2026": 2_100_000_000_000,
+                "assets_2022": 55_000_000_000_000,
+                "assets_2026": 82_000_000_000_000,
+                "equity_2022": 22_000_000_000_000,
+                "equity_2026": 35_000_000_000_000,
+                "cfo_2022": 1_500_000_000_000,
+                "cfo_2026": 2_520_000_000_000,
+                "cash_2022": 7_000_000_000_000,
+                "cash_2026": 12_000_000_000_000,
+                "debt_2022": 15_000_000_000_000,
+                "debt_2026": 25_000_000_000_000,
                 "shares": 292_000_000,
             },
             "ACB": {
                 "type": "BANK",
-                "nii_2022": 12_000_000_000_000, "nii_2026": 18_000_000_000_000,
-                "np_2022": 6_500_000_000_000, "np_2026": 10_000_000_000_000,
-                "assets_2022": 380_000_000_000_000, "assets_2026": 578_000_000_000_000,
-                "equity_2022": 45_000_000_000_000, "equity_2026": 70_000_000_000_000,
-                "loans_2022": 320_000_000_000_000, "loans_2026": 480_000_000_000_000,
-                "deposits_2022": 350_000_000_000_000, "deposits_2026": 520_000_000_000_000,
-                "npl_2022": 0.018, "npl_2026": 0.015,
-                "casa_2022": 0.22, "casa_2026": 0.30,
+                "nii_2022": 12_000_000_000_000,
+                "nii_2026": 18_000_000_000_000,
+                "np_2022": 6_500_000_000_000,
+                "np_2026": 10_000_000_000_000,
+                "assets_2022": 380_000_000_000_000,
+                "assets_2026": 578_000_000_000_000,
+                "equity_2022": 45_000_000_000_000,
+                "equity_2026": 70_000_000_000_000,
+                "loans_2022": 320_000_000_000_000,
+                "loans_2026": 480_000_000_000_000,
+                "deposits_2022": 350_000_000_000_000,
+                "deposits_2026": 520_000_000_000_000,
+                "npl_2022": 0.018,
+                "npl_2026": 0.015,
+                "casa_2022": 0.22,
+                "casa_2026": 0.30,
                 "shares": 2_200_000_000,
             },
             "HDB": {
                 "type": "BANK",
-                "nii_2022": 9_000_000_000_000, "nii_2026": 14_000_000_000_000,
-                "np_2022": 5_000_000_000_000, "np_2026": 8_000_000_000_000,
-                "assets_2022": 280_000_000_000_000, "assets_2026": 428_000_000_000_000,
-                "equity_2022": 32_000_000_000_000, "equity_2026": 50_000_000_000_000,
-                "loans_2022": 230_000_000_000_000, "loans_2026": 350_000_000_000_000,
-                "deposits_2022": 250_000_000_000_000, "deposits_2026": 380_000_000_000_000,
-                "npl_2022": 0.022, "npl_2026": 0.018,
-                "casa_2022": 0.18, "casa_2026": 0.25,
+                "nii_2022": 9_000_000_000_000,
+                "nii_2026": 14_000_000_000_000,
+                "np_2022": 5_000_000_000_000,
+                "np_2026": 8_000_000_000_000,
+                "assets_2022": 280_000_000_000_000,
+                "assets_2026": 428_000_000_000_000,
+                "equity_2022": 32_000_000_000_000,
+                "equity_2026": 50_000_000_000_000,
+                "loans_2022": 230_000_000_000_000,
+                "loans_2026": 350_000_000_000_000,
+                "deposits_2022": 250_000_000_000_000,
+                "deposits_2026": 380_000_000_000_000,
+                "npl_2022": 0.022,
+                "npl_2026": 0.018,
+                "casa_2022": 0.18,
+                "casa_2026": 0.25,
                 "shares": 1_800_000_000,
             },
             "MBB": {
                 "type": "BANK",
-                "nii_2022": 10_500_000_000_000, "nii_2026": 16_000_000_000_000,
-                "np_2022": 6_000_000_000_000, "np_2026": 9_500_000_000_000,
-                "assets_2022": 340_000_000_000_000, "assets_2026": 507_000_000_000_000,
-                "equity_2022": 42_000_000_000_000, "equity_2026": 65_000_000_000_000,
-                "loans_2022": 280_000_000_000_000, "loans_2026": 420_000_000_000_000,
-                "deposits_2022": 300_000_000_000_000, "deposits_2026": 450_000_000_000_000,
-                "npl_2022": 0.020, "npl_2026": 0.016,
-                "casa_2022": 0.20, "casa_2026": 0.28,
+                "nii_2022": 10_500_000_000_000,
+                "nii_2026": 16_000_000_000_000,
+                "np_2022": 6_000_000_000_000,
+                "np_2026": 9_500_000_000_000,
+                "assets_2022": 340_000_000_000_000,
+                "assets_2026": 507_000_000_000_000,
+                "equity_2022": 42_000_000_000_000,
+                "equity_2026": 65_000_000_000_000,
+                "loans_2022": 280_000_000_000_000,
+                "loans_2026": 420_000_000_000_000,
+                "deposits_2022": 300_000_000_000_000,
+                "deposits_2026": 450_000_000_000_000,
+                "npl_2022": 0.020,
+                "npl_2026": 0.016,
+                "casa_2022": 0.20,
+                "casa_2026": 0.28,
                 "shares": 2_000_000_000,
             },
             "VCB": {
                 "type": "BANK",
-                "nii_2022": 9_500_000_000_000, "nii_2026": 14_500_000_000_000,
-                "np_2022": 5_500_000_000_000, "np_2026": 9_200_000_000_000,
-                "assets_2022": 450_000_000_000_000, "assets_2026": 650_000_000_000_000,
-                "equity_2022": 55_000_000_000_000, "equity_2026": 85_000_000_000_000,
-                "loans_2022": 310_000_000_000_000, "loans_2026": 450_000_000_000_000,
-                "deposits_2022": 350_000_000_000_000, "deposits_2026": 500_000_000_000_000,
-                "npl_2022": 0.016, "npl_2026": 0.012,
-                "casa_2022": 0.24, "casa_2026": 0.32,
+                "nii_2022": 9_500_000_000_000,
+                "nii_2026": 14_500_000_000_000,
+                "np_2022": 5_500_000_000_000,
+                "np_2026": 9_200_000_000_000,
+                "assets_2022": 450_000_000_000_000,
+                "assets_2026": 650_000_000_000_000,
+                "equity_2022": 55_000_000_000_000,
+                "equity_2026": 85_000_000_000_000,
+                "loans_2022": 310_000_000_000_000,
+                "loans_2026": 450_000_000_000_000,
+                "deposits_2022": 350_000_000_000_000,
+                "deposits_2026": 500_000_000_000_000,
+                "npl_2022": 0.016,
+                "npl_2026": 0.012,
+                "casa_2022": 0.24,
+                "casa_2026": 0.32,
                 "shares": 1_800_000_000,
             },
             "HPG": {
                 "type": "STANDARD",
-                "rev_2022": 55_000_000_000_000, "rev_2026": 68_000_000_000_000,
-                "ni_2022": 6_500_000_000_000, "ni_2026": 8_200_000_000_000,
-                "assets_2022": 170_000_000_000_000, "assets_2026": 210_000_000_000_000,
-                "equity_2022": 90_000_000_000_000, "equity_2026": 115_000_000_000_000,
-                "cfo_2022": 8_000_000_000_000, "cfo_2026": 10_500_000_000_000,
-                "cash_2022": 12_000_000_000_000, "cash_2026": 18_000_000_000_000,
-                "debt_2022": 45_000_000_000_000, "debt_2026": 55_000_000_000_000,
+                "rev_2022": 55_000_000_000_000,
+                "rev_2026": 68_000_000_000_000,
+                "ni_2022": 6_500_000_000_000,
+                "ni_2026": 8_200_000_000_000,
+                "assets_2022": 170_000_000_000_000,
+                "assets_2026": 210_000_000_000_000,
+                "equity_2022": 90_000_000_000_000,
+                "equity_2026": 115_000_000_000_000,
+                "cfo_2022": 8_000_000_000_000,
+                "cfo_2026": 10_500_000_000_000,
+                "cash_2022": 12_000_000_000_000,
+                "cash_2026": 18_000_000_000_000,
+                "debt_2022": 45_000_000_000_000,
+                "debt_2026": 55_000_000_000_000,
                 "shares": 3_200_000_000,
             },
             "VHM": {
                 "type": "STANDARD",
-                "rev_2022": 68_000_000_000_000, "rev_2026": 80_000_000_000_000,
-                "ni_2022": 12_000_000_000_000, "ni_2026": 15_000_000_000_000,
-                "assets_2022": 520_000_000_000_000, "assets_2026": 600_000_000_000_000,
-                "equity_2022": 190_000_000_000_000, "equity_2026": 240_000_000_000_000,
-                "cfo_2022": 10_000_000_000_000, "cfo_2026": 14_000_000_000_000,
-                "cash_2022": 15_000_000_000_000, "cash_2026": 25_000_000_000_000,
-                "debt_2022": 180_000_000_000_000, "debt_2026": 200_000_000_000_000,
+                "rev_2022": 68_000_000_000_000,
+                "rev_2026": 80_000_000_000_000,
+                "ni_2022": 12_000_000_000_000,
+                "ni_2026": 15_000_000_000_000,
+                "assets_2022": 520_000_000_000_000,
+                "assets_2026": 600_000_000_000_000,
+                "equity_2022": 190_000_000_000_000,
+                "equity_2026": 240_000_000_000_000,
+                "cfo_2022": 10_000_000_000_000,
+                "cfo_2026": 14_000_000_000_000,
+                "cash_2022": 15_000_000_000_000,
+                "cash_2026": 25_000_000_000_000,
+                "debt_2022": 180_000_000_000_000,
+                "debt_2026": 200_000_000_000_000,
                 "shares": 4_000_000_000,
             },
             "DGC": {
                 "type": "STANDARD",
-                "rev_2022": 12_000_000_000_000, "rev_2026": 18_000_000_000_000,
-                "ni_2022": 2_800_000_000_000, "ni_2026": 4_200_000_000_000,
-                "assets_2022": 22_000_000_000_000, "assets_2026": 35_000_000_000_000,
-                "equity_2022": 14_000_000_000_000, "equity_2026": 22_000_000_000_000,
-                "cfo_2022": 3_200_000_000_000, "cfo_2026": 5_000_000_000_000,
-                "cash_2022": 3_500_000_000_000, "cash_2026": 6_000_000_000_000,
-                "debt_2022": 4_500_000_000_000, "debt_2026": 7_000_000_000_000,
+                "rev_2022": 12_000_000_000_000,
+                "rev_2026": 18_000_000_000_000,
+                "ni_2022": 2_800_000_000_000,
+                "ni_2026": 4_200_000_000_000,
+                "assets_2022": 22_000_000_000_000,
+                "assets_2026": 35_000_000_000_000,
+                "equity_2022": 14_000_000_000_000,
+                "equity_2026": 22_000_000_000_000,
+                "cfo_2022": 3_200_000_000_000,
+                "cfo_2026": 5_000_000_000_000,
+                "cash_2022": 3_500_000_000_000,
+                "cash_2026": 6_000_000_000_000,
+                "debt_2022": 4_500_000_000_000,
+                "debt_2026": 7_000_000_000_000,
                 "shares": 380_000_000,
             },
             "MWG": {
                 "type": "STANDARD",
-                "rev_2022": 45_000_000_000_000, "rev_2026": 55_000_000_000_000,
-                "ni_2022": 1_800_000_000_000, "ni_2026": 2_800_000_000_000,
-                "assets_2022": 60_000_000_000_000, "assets_2026": 75_000_000_000_000,
-                "equity_2022": 22_000_000_000_000, "equity_2026": 32_000_000_000_000,
-                "cfo_2022": 2_500_000_000_000, "cfo_2026": 4_000_000_000_000,
-                "cash_2022": 5_000_000_000_000, "cash_2026": 8_000_000_000_000,
-                "debt_2022": 25_000_000_000_000, "debt_2026": 30_000_000_000_000,
+                "rev_2022": 45_000_000_000_000,
+                "rev_2026": 55_000_000_000_000,
+                "ni_2022": 1_800_000_000_000,
+                "ni_2026": 2_800_000_000_000,
+                "assets_2022": 60_000_000_000_000,
+                "assets_2026": 75_000_000_000_000,
+                "equity_2022": 22_000_000_000_000,
+                "equity_2026": 32_000_000_000_000,
+                "cfo_2022": 2_500_000_000_000,
+                "cfo_2026": 4_000_000_000_000,
+                "cash_2022": 5_000_000_000_000,
+                "cash_2026": 8_000_000_000_000,
+                "debt_2022": 25_000_000_000_000,
+                "debt_2026": 30_000_000_000_000,
                 "shares": 1_200_000_000,
             },
             "GAS": {
                 "type": "STANDARD",
-                "rev_2022": 85_000_000_000_000, "rev_2026": 100_000_000_000_000,
-                "ni_2022": 8_500_000_000_000, "ni_2026": 11_000_000_000_000,
-                "assets_2022": 80_000_000_000_000, "assets_2026": 100_000_000_000_000,
-                "equity_2022": 50_000_000_000_000, "equity_2026": 65_000_000_000_000,
-                "cfo_2022": 10_000_000_000_000, "cfo_2026": 13_000_000_000_000,
-                "cash_2022": 12_000_000_000_000, "cash_2026": 18_000_000_000_000,
-                "debt_2022": 18_000_000_000_000, "debt_2026": 22_000_000_000_000,
+                "rev_2022": 85_000_000_000_000,
+                "rev_2026": 100_000_000_000_000,
+                "ni_2022": 8_500_000_000_000,
+                "ni_2026": 11_000_000_000_000,
+                "assets_2022": 80_000_000_000_000,
+                "assets_2026": 100_000_000_000_000,
+                "equity_2022": 50_000_000_000_000,
+                "equity_2026": 65_000_000_000_000,
+                "cfo_2022": 10_000_000_000_000,
+                "cfo_2026": 13_000_000_000_000,
+                "cash_2022": 12_000_000_000_000,
+                "cash_2026": 18_000_000_000_000,
+                "debt_2022": 18_000_000_000_000,
+                "debt_2026": 22_000_000_000_000,
                 "shares": 1_915_000_000,
             },
         }
@@ -815,17 +899,26 @@ class CafeFCrawler:
                 toi = nii_adj * 1.35
                 opex = toi * 0.33
 
-                data.update({
-                    "NII": nii_adj, "NET_PROFIT": np_adj,
-                    "PROVISION_EXPENSE": provision,
-                    "TOTAL_ASSETS": assets, "TOTAL_LIABILITIES": assets - equity,
-                    "CUSTOMER_LOANS": loans, "CUSTOMER_DEPOSITS": deposits,
-                    "TOTAL_EQUITY": equity, "CASH_AND_BALANCES": cash,
-                    "EPS": eps, "SHARES_OUT": bd["shares"],
-                    "NPL_RATIO": npl, "CASA_RATIO": casa,
-                    "CFO": np_adj * 1.05,
-                    "TOI": toi, "OPERATING_EXPENSE": opex,
-                })
+                data.update(
+                    {
+                        "NII": nii_adj,
+                        "NET_PROFIT": np_adj,
+                        "PROVISION_EXPENSE": provision,
+                        "TOTAL_ASSETS": assets,
+                        "TOTAL_LIABILITIES": assets - equity,
+                        "CUSTOMER_LOANS": loans,
+                        "CUSTOMER_DEPOSITS": deposits,
+                        "TOTAL_EQUITY": equity,
+                        "CASH_AND_BALANCES": cash,
+                        "EPS": eps,
+                        "SHARES_OUT": bd["shares"],
+                        "NPL_RATIO": npl,
+                        "CASA_RATIO": casa,
+                        "CFO": np_adj * 1.05,
+                        "TOI": toi,
+                        "OPERATING_EXPENSE": opex,
+                    }
+                )
             else:
                 # STANDARD (FPT-like)
                 rev = bd["rev_2022"] + (bd["rev_2026"] - bd["rev_2022"]) * year_progress
@@ -852,19 +945,33 @@ class CafeFCrawler:
                 capex = cfo_adj * 0.30
                 eps = ni_adj / bd["shares"]
 
-                data.update({
-                    "REVENUE": rev_adj, "COGS": rev_adj - gp,
-                    "GROSS_PROFIT": gp, "NET_INCOME": ni_adj,
-                    "EBITDA": ebitda, "INVENTORY": inv, "RECEIVABLES": rec,
-                    "INTEREST_EXPENSE": interest, "EBIT": ebitda - interest * 0.4,
-                    "TOTAL_ASSETS": assets, "TOTAL_LIABILITIES": assets - equity,
-                    "CURRENT_ASSETS": ca, "CURRENT_LIAB": cl,
-                    "TOTAL_EQUITY": equity, "TOTAL_DEBT": debt,
-                    "SHORT_TERM_DEBT": debt * 0.6, "LONG_TERM_DEBT": debt * 0.4,
-                    "CASH_EQUIV": cash, "CFO": cfo_adj, "CAPEX": capex,
-                    "EPS": eps, "SHARES_OUT": bd["shares"],
-                    "BOOK_VALUE_PS": equity / bd["shares"],
-                })
+                data.update(
+                    {
+                        "REVENUE": rev_adj,
+                        "COGS": rev_adj - gp,
+                        "GROSS_PROFIT": gp,
+                        "NET_INCOME": ni_adj,
+                        "EBITDA": ebitda,
+                        "INVENTORY": inv,
+                        "RECEIVABLES": rec,
+                        "INTEREST_EXPENSE": interest,
+                        "EBIT": ebitda - interest * 0.4,
+                        "TOTAL_ASSETS": assets,
+                        "TOTAL_LIABILITIES": assets - equity,
+                        "CURRENT_ASSETS": ca,
+                        "CURRENT_LIAB": cl,
+                        "TOTAL_EQUITY": equity,
+                        "TOTAL_DEBT": debt,
+                        "SHORT_TERM_DEBT": debt * 0.6,
+                        "LONG_TERM_DEBT": debt * 0.4,
+                        "CASH_EQUIV": cash,
+                        "CFO": cfo_adj,
+                        "CAPEX": capex,
+                        "EPS": eps,
+                        "SHARES_OUT": bd["shares"],
+                        "BOOK_VALUE_PS": equity / bd["shares"],
+                    }
+                )
 
             result.append(data)
 
@@ -977,8 +1084,8 @@ class CafeFCrawler:
                         # Extract quarter label (e.g., "Quý 2- 2025" -> year=2025, q=2)
                         quarter_label = header_labels[i - 1] if i - 1 < len(header_labels) else f"Q{i}"
                         # Parse year and quarter from label - format: "Quý 2- 2025"
-                        year_match = re.search(r'(\d{4})', quarter_label)
-                        q_match = re.search(r'Quý\s+(\d+)', quarter_label)
+                        year_match = re.search(r"(\d{4})", quarter_label)
+                        q_match = re.search(r"Quý\s+(\d+)", quarter_label)
                         if year_match:
                             year = int(year_match.group(1))
                             quarter = int(q_match.group(1)) if q_match else 1
@@ -1048,8 +1155,7 @@ class CafeFCrawler:
         quarters = {}
         for year, qtr in pages:
             url = (
-                f"https://cafef.vn/du-lieu/bao-cao-tai-chinh/"
-                f"{symbol.upper()}/CashFlow/{year}/{qtr}/0/0/luu-chuyen-tien-te.chn"
+                f"https://cafef.vn/du-lieu/bao-cao-tai-chinh/{symbol.upper()}/CashFlow/{year}/{qtr}/0/0/luu-chuyen-tien-te.chn"
             )
             try:
                 r = self.session.get(url, headers=headers, timeout=20)
@@ -1075,14 +1181,16 @@ class CafeFCrawler:
             parts = key.rsplit("Q", 1)
             if len(parts) != 2:
                 continue
-            result.append({
-                "_fiscal_year": int(parts[0]),
-                "_fiscal_quarter": int(parts[1]),
-                "_entity_type": entity_type,
-                **data,
-            })
+            result.append(
+                {
+                    "_fiscal_year": int(parts[0]),
+                    "_fiscal_quarter": int(parts[1]),
+                    "_entity_type": entity_type,
+                    **data,
+                }
+            )
         result.sort(key=lambda d: (d["_fiscal_year"], d["_fiscal_quarter"]))
-        cf_metrics = sorted({k for d in result for k in d if not k.startswith('_')})
+        cf_metrics = sorted({k for d in result for k in d if not k.startswith("_")})
         logger.info(f"CafeF CF: {symbol} — {len(result)} quý, metrics={cf_metrics}")
         return result
 
@@ -1093,9 +1201,7 @@ class CafeFCrawler:
         align theo cột. Giá trị là VND đầy đủ (không nhân đơn vị).
         """
         soup = BeautifulSoup(html, "html.parser")
-        period_labels = [
-            c.get_text(strip=True) for c in soup.select("td.h_t") if c.get_text(strip=True)
-        ]
+        period_labels = [c.get_text(strip=True) for c in soup.select("td.h_t") if c.get_text(strip=True)]
         if not period_labels:
             return {}
 
@@ -1390,7 +1496,7 @@ class CafeFCrawler:
                         val = float(row[col])
                         if val != 0:
                             data[metric] = val
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         pass
             if not data:
                 continue
@@ -1545,7 +1651,7 @@ class CafeFCrawler:
                         val = float(row[col])
                         if val != 0:
                             data[metric] = val
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         pass
             if not data:
                 continue
@@ -1673,7 +1779,7 @@ class CafeFCrawler:
                     val = self._parse_cafef_value(val_text)
                     if val is not None:
                         year_label = year_labels[i - 1] if i - 1 < len(year_labels) else ""
-                        year_match = re.search(r'(\d{4})', year_label)
+                        year_match = re.search(r"(\d{4})", year_label)
                         if year_match:
                             year = int(year_match.group(1))
                             key = f"{year}"
@@ -1743,7 +1849,8 @@ class CafeFCrawler:
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(
-                    headless=True, channel="chrome",
+                    headless=True,
+                    channel="chrome",
                     args=WINDOWS_LAUNCH_FLAGS,
                 )
                 ctx = browser.new_context(
@@ -1755,9 +1862,7 @@ class CafeFCrawler:
                     ),
                     locale="vi-VN",
                 )
-                ctx.add_init_script(
-                    """Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"""
-                )
+                ctx.add_init_script("""Object.defineProperty(navigator, 'webdriver', { get: () => undefined });""")
                 page = ctx.new_page()
 
                 # BLOCK RESOURCE: chặn ảnh/css/font/media tiết kiệm RAM (chỉ giữ
@@ -1798,8 +1903,7 @@ class CafeFCrawler:
             logger.warning(f"CafeF PW thất bại: {e}")
             return None
 
-    def crawl_symbol(self, symbol: str, entity_type: str = None,
-                     source: str = "vci") -> Dict:
+    def crawl_symbol(self, symbol: str, entity_type: str = None, source: str = "vci") -> Dict:
         """Crawl 20 quarters for one symbol.
 
         Args:
@@ -1815,9 +1919,33 @@ class CafeFCrawler:
         # WHY: entity_type quyết định map metric (STANDARD vs BANK) — auto-detect
         # qua danh sách cứng khi registry chưa có để tránh parse sai bảng BCTC.
         # Bank symbols list — auto-detect nếu entity_type chưa có
-        BANK_SYMBOLS = {"ACB", "HDB", "MBB", "VCB", "VPB", "TPB", "SHB", "OCB", "BIDV", "AGRIBANK", "EXIMBANK",
-                        "VIETINBANK", "SAIGONBANK", "NVB", "PVCOMBANK", "HBANK", "UOB", "LVB", "NAB", "SEABANK",
-                        "KAB", "LPB", "ABBANK", "WINGBANK", "POB"}
+        BANK_SYMBOLS = {
+            "ACB",
+            "HDB",
+            "MBB",
+            "VCB",
+            "VPB",
+            "TPB",
+            "SHB",
+            "OCB",
+            "BIDV",
+            "AGRIBANK",
+            "EXIMBANK",
+            "VIETINBANK",
+            "SAIGONBANK",
+            "NVB",
+            "PVCOMBANK",
+            "HBANK",
+            "UOB",
+            "LVB",
+            "NAB",
+            "SEABANK",
+            "KAB",
+            "LPB",
+            "ABBANK",
+            "WINGBANK",
+            "POB",
+        }
         detected_type = self.db.get_entity_type(symbol)
         if not detected_type or detected_type not in ("STANDARD", "BANK"):
             detected_type = "BANK" if symbol.upper() in BANK_SYMBOLS else "STANDARD"
@@ -1829,6 +1957,11 @@ class CafeFCrawler:
         quarters = self.generate_20_quarters()
         all_periods = None
         use_synthetic = False
+        # Provenance guard: dấu vết nguồn gốc dữ liệu cuối cùng (No Provenance = No Trust).
+        # WHY: ghi chính xác nguồn nào đã sinh ra dữ liệu để DataIntegrityAuditor phát hiện
+        # dữ liệu bịa (is_synthetic=1) thay vì chỉ đo density/magnitude mù với nguồn gốc.
+        data_source = source
+        data_is_synthetic = 0
 
         # WHY: cascade nguồn xếp theo chất lượng — VCI (BCTC full 4 bảng) →
         # VNDirect/TCBS (JSON chuẩn, đủ CFO) → CafeF Bank API (17 rows) →
@@ -1889,8 +2022,7 @@ class CafeFCrawler:
         else:
             # ── CafeF cũ (legacy, thường 404) ───────────────
             test_data = self.fetch_quarter(symbol, 2026, 2)
-            test_metrics = sum(1 for k in test_data
-                              if not k.startswith("_") and test_data[k] is not None)
+            test_metrics = sum(1 for k in test_data if not k.startswith("_") and test_data[k] is not None)
             if test_metrics == 0:
                 logger.info("  CafeF cũ không có dữ liệu, thử CafeF Bank API")
                 all_periods = self.fetch_cafef_bank_api(symbol)
@@ -1909,14 +2041,8 @@ class CafeFCrawler:
         if all_periods:
             cf_periods = self.fetch_cafef_cashflow(symbol)
             if cf_periods:
-                cf_by_key = {
-                    f"{p['_fiscal_year']}Q{p['_fiscal_quarter']}": p
-                    for p in cf_periods
-                }
-                existing_keys = {
-                    f"{p.get('_fiscal_year')}Q{p.get('_fiscal_quarter')}"
-                    for p in all_periods
-                }
+                cf_by_key = {f"{p['_fiscal_year']}Q{p['_fiscal_quarter']}": p for p in cf_periods}
+                existing_keys = {f"{p.get('_fiscal_year')}Q{p.get('_fiscal_quarter')}" for p in all_periods}
                 merged = 0
                 # Tạo thêm period CF-only cho các quý nguồn BS/IS không có.
                 # WHY: chỉ lấy metric CF thuần (CFO/CFI/CFF/CAPEX) — các dòng
@@ -1936,23 +2062,36 @@ class CafeFCrawler:
                 # Tạo thêm period CF-only cho các quý nguồn BS/IS không có
                 for key, cf in cf_by_key.items():
                     if key not in existing_keys:
-                        all_periods.append({
-                            "_fiscal_year": cf["_fiscal_year"],
-                            "_fiscal_quarter": cf["_fiscal_quarter"],
-                            "_entity_type": actual_type,
-                            **{k: v for k, v in cf.items()
-                               if not k.startswith("_") and k in CF_ONLY_METRICS},
-                        })
+                        all_periods.append(
+                            {
+                                "_fiscal_year": cf["_fiscal_year"],
+                                "_fiscal_quarter": cf["_fiscal_quarter"],
+                                "_entity_type": actual_type,
+                                **{k: v for k, v in cf.items() if not k.startswith("_") and k in CF_ONLY_METRICS},
+                            }
+                        )
                         merged += 1
                 logger.info(f"  CafeF CF merge: {symbol} — {merged} facts bổ sung")
 
         if use_synthetic:
             all_periods = self._generate_synthetic_base(symbol, actual_type)
+            # Nếu (bất kỳ lý do nào) vẫn sinh ra dữ liệu bịa, đánh dấu provenance để auditor
+            # phát hiện. Thực tế hàm đã khóa trả [] nhưng giữ guard phòng tái phát quằn.
+            if all_periods:
+                data_source = "synthetic"
+                data_is_synthetic = 1
+                logger.warning(f"  [ZERO-HALLUCINATION GUARD] {symbol} ghi dữ liệu synthetic (is_synthetic=1)")
 
         if not all_periods:
             logger.warning(f"  {symbol}: không có dữ liệu từ bất kỳ nguồn nào")
-            return {"symbol": symbol, "entity_type": actual_type, "total_quarters": 0,
-                    "success": 0, "empty": len(quarters), "total_metrics": 0}
+            return {
+                "symbol": symbol,
+                "entity_type": actual_type,
+                "total_quarters": 0,
+                "success": 0,
+                "empty": len(quarters),
+                "total_metrics": 0,
+            }
 
         success = 0
         empty = 0
@@ -1965,22 +2104,21 @@ class CafeFCrawler:
                 continue
             period = f"{year}Q{q}"
 
-            metrics_count = sum(1 for k in period_data
-                               if not k.startswith("_") and period_data[k] is not None)
+            metrics_count = sum(1 for k in period_data if not k.startswith("_") and period_data[k] is not None)
             if metrics_count == 0:
                 empty += 1
                 logger.warning(f"  [{period}] No data")
                 continue
 
-            result = self.db.write_batch(symbol, period_data, actual_type, self.batch_id)
+            result = self.db.write_batch(
+                symbol, period_data, actual_type, self.batch_id, source=data_source, is_synthetic=data_is_synthetic
+            )
             if result["status"] == "SUCCESS":
                 success += 1
             total_metrics += result.get("facts_written", 0)
-            logger.info(f"  [{result['status']}] {symbol} {period}: "
-                        f"{result['facts_written']} facts")
+            logger.info(f"  [{result['status']}] {symbol} {period}: {result['facts_written']} facts")
 
-        logger.info(f"=== {symbol} done: {success} OK, {empty} empty, "
-                    f"{total_metrics} total facts ===")
+        logger.info(f"=== {symbol} done: {success} OK, {empty} empty, {total_metrics} total facts ===")
         return {
             "symbol": symbol,
             "entity_type": actual_type,
@@ -1993,6 +2131,7 @@ class CafeFCrawler:
     def crawl_multi(self, targets: List[Tuple[str, str]], source: str = "vci") -> Dict:
         """Crawl multiple symbols."""
         import time
+
         overall = {"symbols": 0, "total_facts": 0}
         for i, (sym, ent) in enumerate(targets):
             if i > 0 and self.delay > 0:
@@ -2004,8 +2143,7 @@ class CafeFCrawler:
 
     # ── Cross-check đa nguồn ─────────────────────────────────
     @staticmethod
-    def cross_check(reference: List[Dict], candidate: List[Dict],
-                    tolerance_pct: float = 20.0) -> Dict:
+    def cross_check(reference: List[Dict], candidate: List[Dict], tolerance_pct: float = 20.0) -> Dict:
         """So sánh 2 nguồn dữ liệu trên cùng metric (kiểm tra chéo).
 
         Dùng cho Vietstock summary (reference/candidate) với nguồn khác
@@ -2035,9 +2173,17 @@ class CafeFCrawler:
         # CFO/CAPEX vì nguồn free thường thiếu); tolerance 20% dung sai khác
         # biệt đơn vị/làm tròn giữa các nguồn.
         common_metrics = (
-            "REVENUE", "GROSS_PROFIT", "EBIT", "NET_INCOME",
-            "TOTAL_ASSETS", "CURRENT_ASSETS", "TOTAL_LIABILITIES",
-            "CURRENT_LIAB", "TOTAL_EQUITY", "EPS", "BOOK_VALUE_PS",
+            "REVENUE",
+            "GROSS_PROFIT",
+            "EBIT",
+            "NET_INCOME",
+            "TOTAL_ASSETS",
+            "CURRENT_ASSETS",
+            "TOTAL_LIABILITIES",
+            "CURRENT_LIAB",
+            "TOTAL_EQUITY",
+            "EPS",
+            "BOOK_VALUE_PS",
         )
         details = []
         checked = 0
@@ -2058,13 +2204,15 @@ class CafeFCrawler:
                     matched += 1
                 else:
                     mismatched += 1
-                    details.append({
-                        "period": f"{key[0]}Q{key[1]}",
-                        "metric": metric,
-                        "reference": rv,
-                        "candidate": cv,
-                        "diff_pct": round(diff_pct, 2),
-                    })
+                    details.append(
+                        {
+                            "period": f"{key[0]}Q{key[1]}",
+                            "metric": metric,
+                            "reference": rv,
+                            "candidate": cv,
+                            "diff_pct": round(diff_pct, 2),
+                        }
+                    )
         return {
             "checked": checked,
             "matched": matched,
@@ -2088,5 +2236,4 @@ if __name__ == "__main__":
 
     logger.info("=== CafeF Crawler — 20 quarters per symbol ===")
     overall = crawler.crawl_multi(targets)
-    logger.info(f"=== ALL DONE: {overall['symbols']} symbols, "
-                f"{overall['total_facts']} total facts ===")
+    logger.info(f"=== ALL DONE: {overall['symbols']} symbols, {overall['total_facts']} total facts ===")
