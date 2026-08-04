@@ -551,3 +551,62 @@ class MacroLagEngine:
         for sector in SECTOR_TRANSMISSION:
             results[sector] = self.compute(sector, target_date)
         return results
+
+    def compute_persistence(self, sector: str, target_date: Optional[str] = None) -> float:
+        """Compute signal persistence for a sector.
+
+        Persistence measures how stable the macro signal direction has been
+        over recent periods. High persistence = consistent trend.
+        Low persistence = volatile / noisy signal.
+
+        Formula:
+          persistence = (consecutive same-direction periods) / (total periods checked)
+
+        Returns:
+            float ∈ [0, 1] — 1.0 = perfectly stable, 0.0 = completely volatile
+        """
+        # Fetch raw M vectors over last 90 days
+        lookback_days = 90
+        if target_date:
+            try:
+                dt = datetime.strptime(target_date, "%Y-%m-%d")
+                end_dt = dt
+            except (ValueError, TypeError):
+                end_dt = datetime.now()
+        else:
+            end_dt = datetime.now()
+
+        m_vectors = []
+        for d in range(0, lookback_days, 5):  # sample every 5 days
+            check_date = (end_dt - timedelta(days=d)).strftime("%Y-%m-%d")
+            try:
+                m = self._reconstruct_m_vector(check_date)
+                m_vectors.append(m)
+            except Exception:
+                continue
+
+        if len(m_vectors) < 3:
+            return 0.5  # insufficient data, neutral persistence
+
+        # Compute sector score at each point in time
+        matrix = SectorExposureMatrix()
+        scores = []
+        for m in m_vectors:
+            result = matrix.compute_sector_macro_score(sector, m)
+            scores.append(result.macro_score)
+
+        # Count direction changes
+        direction_changes = 0
+        for i in range(1, len(scores)):
+            prev_delta = scores[i - 1] - scores[i - 2] if i >= 2 else 0
+            curr_delta = scores[i] - scores[i - 1]
+            # Direction change if signs differ (and both non-zero)
+            if prev_delta * curr_delta < 0 and abs(prev_delta) > 0.01 and abs(curr_delta) > 0.01:
+                direction_changes += 1
+
+        total_transitions = len(scores) - 1
+        if total_transitions <= 0:
+            return 0.5
+
+        persistence = 1.0 - (direction_changes / total_transitions)
+        return round(max(0.0, min(1.0, persistence)), 4)

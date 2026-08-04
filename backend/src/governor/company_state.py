@@ -1043,6 +1043,14 @@ class BayesianMandate:
     interaction_multiplier: float = 1.0  # non-linear adjustment [0.70, 1.35]
     interaction_active_synergies: List = field(default_factory=list)  # triggered rules
 
+    # Persistence + Momentum (Step 4 — Signal Quality)
+    # WHY: Same raw score can mean very different things:
+    #   - Rising for 6 months = strong persistent trend
+    #   - Just spiked = noise, likely mean-revert
+    macro_momentum: dict = field(default_factory=dict)  # {node: Δscore over 30d}
+    macro_confidence: dict = field(default_factory=dict)  # {node: data completeness [0,1]}
+    macro_persistence: float = 0.0  # signal stability [0,1] (consecutive same-direction periods)
+
 
 ACTION_VN = {
     "VETO": "Cấm tuyệt đối",
@@ -1346,6 +1354,9 @@ class BayesianGovernor:
         _lag_hl = 0.0
         _interaction_mult = 1.0
         _interaction_synergies = []
+        _momentum = {}
+        _confidence = {}
+        _persistence = 0.5
         try:
             from governor.interaction_engine import InteractionEngine
             from governor.macro_lag_engine import MacroLagEngine
@@ -1355,7 +1366,10 @@ class BayesianGovernor:
             _sector_name = _symbol_sector(symbol)
             if _sector_name:
                 _engine = RegionalInfluenceEngine()
-                _M = _engine.compute().macro_vector
+                _macro_result = _engine.compute()
+                _M = _macro_result.macro_vector
+                _momentum = _macro_result.momentum or {}
+                _confidence = _macro_result.confidence or {}
                 _matrix = SectorExposureMatrix()
 
                 # Raw score (snapshot)
@@ -1370,6 +1384,9 @@ class BayesianGovernor:
                 _sector_macro_lr_eff = 0.3 + 1.7 * _sector_macro_score_eff
                 _signal_deficit = _lag_result.signal_deficit
                 _lag_hl = _lag_result.half_life
+
+                # Persistence (signal stability)
+                _persistence = _lag_engine.compute_persistence(_sector_name)
 
                 # Non-linear interaction (Step 3)
                 _ix_engine = InteractionEngine()
@@ -1577,6 +1594,10 @@ class BayesianGovernor:
             # Interaction Engine (Step 3 — Non-linear Synergy)
             interaction_multiplier=round(_interaction_mult, 4),
             interaction_active_synergies=_interaction_synergies,
+            # Signal Quality (Step 4 — Momentum + Confidence + Persistence)
+            macro_momentum=_momentum,
+            macro_confidence=_confidence,
+            macro_persistence=round(_persistence, 4),
         )
 
     def analyze(self, symbols: List[str]) -> Dict:

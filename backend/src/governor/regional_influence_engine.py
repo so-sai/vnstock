@@ -103,6 +103,14 @@ class RegionalMacroResult:
     component_scores: dict  # Raw indicator scores
     data_quality: dict  # Which indicators had data
     node_details: dict  # Per-node decomposition
+    momentum: dict = None  # {node: Δscore over lookback} — direction of change
+    confidence: dict = None  # {node: data completeness ratio [0,1]}
+
+    def __post_init__(self):
+        if self.momentum is None:
+            self.momentum = {}
+        if self.confidence is None:
+            self.confidence = {}
 
 
 class RegionalInfluenceEngine:
@@ -281,12 +289,79 @@ class RegionalInfluenceEngine:
                 }
             node_details[node_name] = details
 
+        # ── Compute momentum (direction of change) ──────────────────
+        momentum = {}
+        for node_name in ["US_Liquidity", "China_Economy", "Commodity_Cycle", "Domestic_Liquidity"]:
+            weights = NODE_COMPOSITE_WEIGHTS.get(node_name, {})
+            current_score = macro_vector[node_name]
+
+            # Fetch historical score (30 days ago) for comparison
+            past_score = self._compute_historical_node_score(
+                node_name, target_date, lookback_days=30
+            )
+            if past_score is not None:
+                delta = current_score - past_score
+                momentum[node_name] = round(delta, 4)
+            else:
+                momentum[node_name] = None
+
+        # ── Compute confidence (data completeness per node) ─────────
+        confidence = {}
+        for node_name in ["US_Liquidity", "China_Economy", "Commodity_Cycle", "Domestic_Liquidity"]:
+            weights = NODE_COMPOSITE_WEIGHTS.get(node_name, {})
+            total = len(weights)
+            has_data = sum(
+                1 for ind in weights
+                if data_quality.get(ind, False)
+            )
+            confidence[node_name] = round(has_data / total, 2) if total > 0 else 0.0
+
         return RegionalMacroResult(
             macro_vector=macro_vector,
             component_scores=indicator_scores,
             data_quality=data_quality,
             node_details=node_details,
+            momentum=momentum,
+            confidence=confidence,
         )
+
+    def _compute_historical_node_score(
+        self, node_name: str, target_date: Optional[str], lookback_days: int = 30
+    ) -> Optional[float]:
+        """Compute node score at a historical date for momentum comparison."""
+        if not target_date:
+            return None
+        try:
+            from datetime import datetime, timedelta
+            dt = datetime.strptime(target_date, "%Y-%m-%d")
+            past_dt = dt - timedelta(days=lookback_days)
+            past_date = past_dt.strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            return None
+
+        # Fetch historical indicators
+        indicators = {}
+        indicators["US_FED_RATE"] = self._fetch_latest("FED_TARGET_RATE", past_date)
+        indicators["DXY"] = self._fetch_rolling_avg("DXY", 5, past_date)
+        indicators["US10Y"] = self._fetch_rolling_avg("US10Y", 5, past_date)
+        indicators["VIX"] = self._fetch_rolling_avg("VIX", 5, past_date)
+        indicators["USDCNY"] = self._fetch_latest("USD_CNY", past_date)
+        indicators["BRENT_OIL"] = self._fetch_rolling_avg("BRENT_OIL", 5, past_date)
+        copper_lb = self._fetch_rolling_avg("COPPER_HG", 5, past_date)
+        indicators["COPPER"] = copper_lb * 2204.62 if copper_lb is not None else None
+        indicators["INTERBANK_ON"] = self._fetch_latest("INTERBANK_ON", past_date)
+        indicators["VNINDEX"] = self._fetch_latest("VNINDEX", past_date)
+
+        invert_map = {"US_FED_RATE", "VIX", "DXY", "US10Y", "USDCNY", "INTERBANK_ON"}
+        indicator_scores = {}
+        data_quality = {}
+        for variable, value in indicators.items():
+            invert = variable in invert_map
+            normalized = self._normalize_indicator(variable, value, invert)
+            indicator_scores[variable] = normalized
+            data_quality[variable] = value is not None and normalized is not None
+
+        return self._compute_node_score(node_name, indicator_scores, data_quality)
 
 
 def compute_macro_vector(target_date: Optional[str] = None, db_path: Optional[str] = None) -> dict:

@@ -773,29 +773,39 @@ def in_bao_cao(kq: dict):
             "Commodity_Cycle": "🛢️",
             "Domestic_Liquidity": "🏦",
         }
+        _macro_result = _engine.compute()
+        _momentum = _macro_result.momentum or {}
+        _confidence = _macro_result.confidence or {}
         for _node, _score in _M.items():
             _icon = _node_icons.get(_node, "📊")
             _bar = "█" * int(_score * 20) + "░" * (20 - int(_score * 20))
-            print(f"    {_icon} {_node:20s}: {_score:.2%} {_bar}")
+            _mom = _momentum.get(_node)
+            _conf = _confidence.get(_node, 0.0)
+            _mom_str = ""
+            if _mom is not None:
+                _arrow = "↗" if _mom > 0.02 else "↘" if _mom < -0.02 else "→"
+                _mom_str = f"  {_arrow}{_mom:+.1%}"
+            _conf_str = f"  [C:{_conf:.0%}]" if _conf < 0.8 else ""
+            print(f"    {_icon} {_node:20s}: {_score:.2%} {_bar}{_mom_str}{_conf_str}")
 
         print()
         print(f"  {localize_label('SECTOR MACRO SCORES (M · W_i) + LAG-ADJUSTED (LAW-009):')}")
         _lbl_raw = localize_label("raw")
         _lbl_eff = localize_label("eff")
-        _lbl_def = localize_label("deficit")
+        _lbl_adj = localize_label("deficit")
         _lbl_hl = localize_label("HL")
         _ranked = _matrix.get_sector_ranking(_M)
         for _i, (_sect, _sc) in enumerate(_ranked[:5]):
             _lag = _lag_results.get(_sect)
             _ix = _ix_results.get(_sect)
             _eff = _lag.effective_score if _lag else _sc
-            _deficit = _lag.signal_deficit if _lag else 0.0
+            _adj = _lag.signal_deficit if _lag else 0.0
             _hl = _lag.half_life if _lag else 0
             _mult = _ix.multiplier if _ix else 1.0
             _icon = "🟢" if _eff > 0.5 else "🟡" if _eff > 0.35 else "🔴"
-            _deficit_str = f"{_deficit:+.2%}" if abs(_deficit) > 0.01 else "  0.00%"
+            _adj_str = f"{_adj:+.2%}" if abs(_adj) > 0.01 else "  0.00%"
             _mult_str = f"×{_mult:.3f}" if abs(_mult - 1.0) > 0.005 else "  ×1.000"
-            print(f"    {_icon} {_i + 1}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  {_lbl_eff}={_eff:.2%}  {_lbl_def}={_deficit_str}  {_lbl_hl}={_hl:.0f}d  {_mult_str}")
+            print(f"    {_icon} {_i + 1}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  {_lbl_eff}={_eff:.2%}  {_lbl_adj}={_adj_str}  {_lbl_hl}={_hl:.0f}d  {_mult_str}")
             if _ix and _ix.active_synergies:
                 for _synergy in _ix.active_synergies:
                     _s_icon = "⚡" if _synergy["type"] == "POSITIVE_BOOM" else "🔻"
@@ -805,13 +815,13 @@ def in_bao_cao(kq: dict):
             _lag = _lag_results.get(_sect)
             _ix = _ix_results.get(_sect)
             _eff = _lag.effective_score if _lag else _sc
-            _deficit = _lag.signal_deficit if _lag else 0.0
+            _adj = _lag.signal_deficit if _lag else 0.0
             _hl = _lag.half_life if _lag else 0
             _mult = _ix.multiplier if _ix else 1.0
             _icon = "🟢" if _eff > 0.5 else "🟡" if _eff > 0.35 else "🔴"
-            _deficit_str = f"{_deficit:+.2%}" if abs(_deficit) > 0.01 else "  0.00%"
+            _adj_str = f"{_adj:+.2%}" if abs(_adj) > 0.01 else "  0.00%"
             _mult_str = f"×{_mult:.3f}" if abs(_mult - 1.0) > 0.005 else "  ×1.000"
-            print(f"    {_icon} {len(_ranked) - 1 + _i}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  {_lbl_eff}={_eff:.2%}  {_lbl_def}={_deficit_str}  {_lbl_hl}={_hl:.0f}d  {_mult_str}")
+            print(f"    {_icon} {len(_ranked) - 1 + _i}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  {_lbl_eff}={_eff:.2%}  {_lbl_adj}={_adj_str}  {_lbl_hl}={_hl:.0f}d  {_mult_str}")
 
         # Inject into final decision
         kq["macro_state_vector"] = _M
