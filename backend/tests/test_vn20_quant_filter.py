@@ -250,6 +250,22 @@ class TestTier2IndustryPercentile:
         r = vf.tier2_governance_shield(conn, "OLD", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is False, "30% > 25% static → fail when no sector P75"
 
+    def test_solo_sector_uses_p100_fallback(self):
+        """Solo sector (1 stock): sector_pct75=max ratio → stock always passes."""
+        conn = make_conn()
+        seed_fact(conn, "SOLO", "RECEIVABLES", [("2026Q2", 672.0)])
+        seed_fact(conn, "SOLO", "REVENUE", [("2026Q2", 1000.0)])
+        seed_fact(conn, "SOLO", "SHARES_OUT", [(f"{y}Q{q}", 100.0) for y in (2024, 2025, 2026) for q in range(1, 5)])
+
+        # Solo sector: pct75 = max ratio = 0.672
+        r = vf.tier2_governance_shield(
+            conn,
+            "SOLO",
+            vf._periods_n_years("2026Q2", 3),
+            sector_pct75=0.672,  # computed as max(ratios) for solo sector
+        )
+        assert r["pass"] is True, f"Solo stock 67.2% should pass with P100={0.672}, got {r['reasons']}"
+
 
 # ── Bug 4: Sector momentum inf handling ─────────────────────────────
 

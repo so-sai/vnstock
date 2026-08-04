@@ -461,7 +461,11 @@ def _compute_sector_receivables_p75(
             idx = int(len(sorted_r) * 0.75)
             result[sector] = round(sorted_r[min(idx, len(sorted_r) - 1)], 4)
         else:
-            result[sector] = None  # too few symbols — fallback to static gate
+            # WHY: Sectors with < 3 symbols use max ratio (P100) as threshold.
+            # Solo stocks always pass (their ratio ≤ their own max). This avoids
+            # Type II Error where a single B2B/IT stock (e.g. FPT) fails T2 simply
+            # because no peers exist in the universe for industry-relative comparison.
+            result[sector] = round(max(ratios), 4) if ratios else None
     return result
 
 

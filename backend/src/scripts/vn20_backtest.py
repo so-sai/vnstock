@@ -87,7 +87,8 @@ def _compute_sector_pct75(
             idx = int(len(sorted_r) * 0.75)
             result[sector] = sorted_r[min(idx, len(sorted_r) - 1)]
         else:
-            result[sector] = None
+            # Solo/small sector fallback: use max ratio (P100)
+            result[sector] = max(ratios) if ratios else None
     return result
 
 
