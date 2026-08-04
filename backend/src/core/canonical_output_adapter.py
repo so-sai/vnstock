@@ -390,6 +390,14 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Contribution Breakdown": "Phân rã Đóng góp",
     "Position Level": "Mức vị thế",
     "Position Label": "Nhãn vị thế",
+
+    # ── Macro Fingerprint (LAW-009) ──
+    "MACRO STATE VECTOR (M):": "VECTOR TRẠNG THÁI VĨ MÔ (M):",
+    "SECTOR MACRO SCORES (M · W_i) + LAG-ADJUSTED (LAW-009):": "ĐIỂM VĨ MÔ NGÀNH (M · W_i) + ĐIỀU CHỈNH ĐỘ TRỄ (LAW-009):",
+    "raw": "thô",
+    "eff": "hiệu quả",
+    "deficit": "thiếu hụt",
+    "HL": "BGL",
     "Blocking Model": "Mô hình chặn",
     "Decision": "Quyết định",
     "Blocked": "Bị chặn",
