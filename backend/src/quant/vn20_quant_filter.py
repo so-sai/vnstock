@@ -196,7 +196,10 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: List[str
     else:
         result["reasons"].append("CFO data missing")
 
-    # D/E
+    # D/E — Banks: use CAPITAL_RATIO as capital-safety proxy instead of D/E.
+    # VCI statements don't emit DEBT_TO_EQUITY for banks (NPL/CASA are separate
+    # indicators); missing D/E for a BANK is NOT a fail — the leverage gate is
+    # replaced by the capital adequacy check.
     de_max = T1_DE_MAX_BANK if entity_type == "BANK" else T1_DE_MAX_NONBANK
     result["de_max"] = de_max
     de_series = _load_ratio_series(conn, symbol, "DEBT_TO_EQUITY", periods[-4:])
@@ -204,16 +207,16 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: List[str
         result["de"] = round(de_series[-1], 4)
         if result["de"] > de_max:
             result["reasons"].append(f"D/E {result['de']} > {de_max}")
-    else:
+    elif entity_type != "BANK":
         result["reasons"].append("D/E data missing")
 
-    # Gross margin
+    # Gross margin — banks exempt (no COGS-based margin; NIM used instead)
     gm_series = _load_ratio_series(conn, symbol, "GROSS_MARGIN", periods[-4:])
     if gm_series:
         result["gross_margin"] = round(gm_series[-1], 4)
         if result["gross_margin"] < T1_GROSS_MARGIN_MIN and entity_type != "BANK":
             result["reasons"].append(f"Gross margin {result['gross_margin']} < 25%")
-    else:
+    elif entity_type != "BANK":
         result["reasons"].append("Gross margin data missing")
 
     result["pass"] = len(result["reasons"]) == 0
@@ -225,8 +228,12 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: List[str
 # ════════════════════════════════════════════════════════════════════
 
 
-def tier2_governance_shield(conn, symbol: str, periods: List[str]) -> Dict:
-    """Tier 2: dilution rate + receivables health."""
+def tier2_governance_shield(conn, symbol: str, periods: List[str], entity_type: str = "STANDARD") -> Dict:
+    """Tier 2: dilution rate + receivables health.
+
+    Banks: receivables gate is skipped (banks don't have trade receivables;
+    governance risk is captured by NPL/capital adequacy in Tier 1/health).
+    """
     result = {
         "symbol": symbol,
         "pass": False,
@@ -258,23 +265,27 @@ def tier2_governance_shield(conn, symbol: str, periods: List[str]) -> Dict:
         result["dilution"] = round(med, 4)
         if result["dilution"] > T2_DILUTION_MAX:
             result["reasons"].append(f"Dilution {result['dilution']:.1%} > 5%/yr")
-    if result["dilution"] is None:
-        result["reasons"].append("SHARES_OUT data missing")
+    # else: SHARES_OUT absent → dilution gate is SKIPPED (missing ≠ bad).
+    # Source gap: VCI statements don't emit share count (market-level data).
+    # Hard-failing on it would bias against banks/issuers without the metric.
 
     # Receivables ratio — computed from raw financial_facts (RECEIVABLES/REVENUE).
     # NOTE: health_ratios.RECEIVABLES_TO_REVENUE is unreliable (hardcoded 1.5
     # in crawler output) → derive from statements instead.
-    rec = _load_metric_years(conn, symbol, "RECEIVABLES", periods[-4:])
-    rev = _load_metric_years(conn, symbol, "REVENUE", periods[-4:])
-    if rec and rev:
-        rec_last = max(rec.values())
-        rev_last = max(rev.values())
-        if rev_last and rev_last > 0:
-            result["receivables_ratio"] = round(rec_last / rev_last, 4)
-            if result["receivables_ratio"] > T2_RECEIVABLES_MAX:
-                result["reasons"].append(f"Receivables {result['receivables_ratio']:.1%} > 25%")
+    if entity_type == "BANK":
+        result["receivables_ratio"] = None  # n/a for banks — skip gate
     else:
-        result["reasons"].append("Receivables data missing")
+        rec = _load_metric_years(conn, symbol, "RECEIVABLES", periods[-4:])
+        rev = _load_metric_years(conn, symbol, "REVENUE", periods[-4:])
+        if rec and rev:
+            rec_last = max(rec.values())
+            rev_last = max(rev.values())
+            if rev_last and rev_last > 0:
+                result["receivables_ratio"] = round(rec_last / rev_last, 4)
+                if result["receivables_ratio"] > T2_RECEIVABLES_MAX:
+                    result["reasons"].append(f"Receivables {result['receivables_ratio']:.1%} > 25%")
+        else:
+            result["reasons"].append("Receivables data missing")
 
     result["pass"] = len(result["reasons"]) == 0
     return result
@@ -510,7 +521,7 @@ def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
         stage_counts["T1_pass"] += 1
 
         # Tier 2
-        t2 = tier2_governance_shield(fin, sym, periods)
+        t2 = tier2_governance_shield(fin, sym, periods, entity_type=entity)
         if not t2["pass"]:
             continue
         stage_counts["T2_pass"] += 1

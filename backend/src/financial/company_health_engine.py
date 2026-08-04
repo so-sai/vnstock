@@ -15,13 +15,11 @@ phát hiện xu hướng suy giảm, lưu vào health_ratios table.
 # WHY: Ghi kết quả vào bảng health_ratios riêng (không đụng financial_facts):
 #   ratio là dữ liệu DERIVED tái tính được, giữ tầng 1 thuần raw facts.
 
-import sqlite3
 import json
+import sqlite3
 import sys
-import os
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 _candidate = Path(sys.executable).resolve().parent
 if Path(sys.executable).stem.lower().startswith("python"):
@@ -35,7 +33,7 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 DATA_DIR = BACKEND_DIR / "data"
 sys.path.insert(0, str(BACKEND_DIR))
 
-from src.financial.financial_facts import FinancialFactsDB, FINANCIAL_DB_PATH
+from src.financial.financial_facts import FinancialFactsDB
 
 # =========================================================================
 # RATIO REGISTRY
@@ -250,6 +248,7 @@ RATIO_META = {
 # HEALTH ENGINE
 # =========================================================================
 
+
 class HealthEngine:
     """Tính toán chỉ số sức khỏe tài chính từ Raw Facts."""
 
@@ -283,7 +282,7 @@ class HealthEngine:
         """)
         conn.commit()
         conn.close()
-        print(f"  Schema OK: health_ratios table")
+        print("  Schema OK: health_ratios table")
 
     def _safe_div(self, a, b):
         # WHY: trả None (không raise) khi chia 0/thiếu dữ liệu → ratio đó bị
@@ -293,7 +292,7 @@ class HealthEngine:
             return None
         try:
             return a / b
-        except (ZeroDivisionError, TypeError):
+        except ZeroDivisionError, TypeError:
             return None
 
     def _interpret(self, ratio_name: str, value: float) -> str:
@@ -362,8 +361,7 @@ class HealthEngine:
         r["DEBT_TO_EQUITY"] = self._safe_div(debt, equity)
         r["DEBT_TO_ASSETS"] = self._safe_div(debt, assets)
         if interest and interest != 0:
-            ebit = (period_metrics.get("EBITDA") or
-                    (ni + interest if ni else None))
+            ebit = period_metrics.get("EBITDA") or (ni + interest if ni else None)
             if ebit is not None:
                 r["INTEREST_COVERAGE"] = self._safe_div(ebit, interest)
         r["RECEIVABLES_TO_REVENUE"] = self._safe_div(rec, rev)
@@ -374,7 +372,11 @@ class HealthEngine:
     def compute_bank_ratios(self, period_metrics: dict) -> Dict[str, float]:
         r = {}
         nii = period_metrics.get("NII")
+        # NET_PROFIT vs NET_INCOME: VCI maps net_profit_loss_after_tax → NET_INCOME,
+        # CafeF maps netProfit → NET_PROFIT. Accept either for bank ratios.
         np_ = period_metrics.get("NET_PROFIT")
+        if np_ is None:
+            np_ = period_metrics.get("NET_INCOME")
         prov = period_metrics.get("PROVISION_EXPENSE")
         loans = period_metrics.get("CUSTOMER_LOANS")
         deposits = period_metrics.get("CUSTOMER_DEPOSITS")
@@ -400,8 +402,7 @@ class HealthEngine:
             r["CASA_RATIO"] = casa
         return {k: v for k, v in r.items() if v is not None}
 
-    def compute_period_ratios(self, symbol: str, period: str,
-                               period_metrics: dict, entity_type: str) -> Dict:
+    def compute_period_ratios(self, symbol: str, period: str, period_metrics: dict, entity_type: str) -> Dict:
         # WHY: chọn bộ công thức theo entity_type — ngân hàng không có
         # Inventory/Gross Profit, thay bằng NIM/LDR/NPL/CASA; STANDARD ngược lại.
         if entity_type == "BANK":
@@ -427,7 +428,6 @@ class HealthEngine:
 
         conn = self.connect()
         results = []
-        warnings = []
 
         # WHY: duyệt kỳ MỚI NHẤT trước — log dễ đọc, và các consumer
         # (get_latest_health) lấy MAX(period) không phụ thuộc thứ tự này.
@@ -444,17 +444,27 @@ class HealthEngine:
                 metadata = {"thresholds": meta.get("thresholds", {})}
                 # WHY: INSERT OR REPLACE + UNIQUE(symbol, period, ratio_name)
                 # → compute lại idempotent, không đúp dòng khi chạy nhiều lần.
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO health_ratios
                         (symbol, period, fiscal_year, fiscal_quarter,
                          entity_type, ratio_name, ratio_value, category,
                          interpretation, metadata)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    symbol.upper(), period, fy, fq, entity_type.upper(),
-                    rname, rinfo["value"], rinfo["category"],
-                    rinfo["interpretation"], json.dumps(metadata),
-                ))
+                """,
+                    (
+                        symbol.upper(),
+                        period,
+                        fy,
+                        fq,
+                        entity_type.upper(),
+                        rname,
+                        rinfo["value"],
+                        rinfo["category"],
+                        rinfo["interpretation"],
+                        json.dumps(metadata),
+                    ),
+                )
                 period_count += 1
 
             results.append({"period": period, "ratios": period_count})
@@ -475,35 +485,46 @@ class HealthEngine:
     def get_health_summary(self, symbol: str) -> Optional[Dict]:
         conn = self.connect()
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT period, ratio_name, ratio_value, category, interpretation
             FROM health_ratios
             WHERE symbol = ?
             ORDER BY period DESC, category, ratio_name
-        """, (symbol.upper(),))
+        """,
+            (symbol.upper(),),
+        )
         rows = cur.fetchall()
         conn.close()
         if not rows:
             return None
         result = {"symbol": symbol.upper(), "ratios": []}
         for r in rows:
-            result["ratios"].append({
-                "period": r[0], "ratio": r[1], "value": r[2],
-                "category": r[3], "interpretation": r[4],
-            })
+            result["ratios"].append(
+                {
+                    "period": r[0],
+                    "ratio": r[1],
+                    "value": r[2],
+                    "category": r[3],
+                    "interpretation": r[4],
+                }
+            )
         return result
 
     def get_latest_health(self, symbol: str) -> Optional[Dict]:
         conn = self.connect()
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT period, ratio_name, ratio_value, category, interpretation
             FROM health_ratios
             WHERE symbol = ? AND period = (
                 SELECT MAX(period) FROM health_ratios WHERE symbol = ?
             )
             ORDER BY category, ratio_name
-        """, (symbol.upper(), symbol.upper()))
+        """,
+            (symbol.upper(), symbol.upper()),
+        )
         rows = cur.fetchall()
         conn.close()
         if not rows:
@@ -514,9 +535,13 @@ class HealthEngine:
             cat = r[3]
             if cat not in result["ratios"]:
                 result["ratios"][cat] = []
-            result["ratios"][cat].append({
-                "ratio": r[1], "value": r[2], "interpretation": r[4],
-            })
+            result["ratios"][cat].append(
+                {
+                    "ratio": r[1],
+                    "value": r[2],
+                    "interpretation": r[4],
+                }
+            )
         return result
 
     def compare_symbols(self, symbols: List[str]) -> Dict:
@@ -532,15 +557,14 @@ class HealthEngine:
 # CLI ENTRY POINT
 # =========================================================================
 
+
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Company Health Engine — PTCK_VN Phase 2")
-    parser.add_argument("action", choices=["init", "compute", "show", "compare"],
-                        help="Hành động")
-    parser.add_argument("--symbols", nargs="+", default=["FPT", "ACB", "HDB", "MBB", "VCB"],
-                        help="Danh sách symbol")
-    parser.add_argument("--periods", type=int, default=8,
-                        help="Số kỳ gần nhất")
+    parser.add_argument("action", choices=["init", "compute", "show", "compare"], help="Hành động")
+    parser.add_argument("--symbols", nargs="+", default=["FPT", "ACB", "HDB", "MBB", "VCB"], help="Danh sách symbol")
+    parser.add_argument("--periods", type=int, default=8, help="Số kỳ gần nhất")
     args = parser.parse_args()
 
     engine = HealthEngine()
@@ -555,8 +579,7 @@ def main():
         for sym in args.symbols:
             print(f"\n  [{sym}] Computing...")
             result = engine.compute_health(sym)
-            print(f"  [{result['status']}] {result['symbol']}: "
-                  f"{result['periods']} periods, {result['total_ratios']} ratios")
+            print(f"  [{result['status']}] {result['symbol']}: {result['periods']} periods, {result['total_ratios']} ratios")
 
     elif args.action == "show":
         for sym in args.symbols:
@@ -564,9 +587,9 @@ def main():
             if not h:
                 print(f"\n  {sym}: NO DATA")
                 continue
-            print(f"\n  {'='*50}")
+            print(f"\n  {'=' * 50}")
             print(f"  {sym} ({h['period']})")
-            print(f"  {'='*50}")
+            print(f"  {'=' * 50}")
             for cat, ratios in h["ratios"].items():
                 print(f"\n  [{cat.upper()}]")
                 for r in ratios:
@@ -581,9 +604,9 @@ def main():
                     print(f"    {ico.get(r['interpretation'], '⚪')} {r['ratio']:25s} = {vs:>10s}  ({r['interpretation']})")
 
     elif args.action == "compare":
-        print(f"\n  {'='*70}")
+        print(f"\n  {'=' * 70}")
         print(f"  COMPARE: {', '.join(args.symbols)}")
-        print(f"  {'='*70}")
+        print(f"  {'=' * 70}")
         all_ratios = set()
         data = {}
         for sym in args.symbols:
@@ -598,7 +621,7 @@ def main():
         all_ratios = sorted(all_ratios)
         header = f"  {'Ratio':30s}" + "".join(f" {s:>10s}" for s in args.symbols)
         print(f"\n  {header}")
-        print(f"  {'-'*len(header)}")
+        print(f"  {'-' * len(header)}")
         for rname in all_ratios:
             row = f"  {rname:30s}"
             for sym in args.symbols:

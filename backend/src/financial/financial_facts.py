@@ -42,76 +42,76 @@ FINANCIAL_DB_PATH = DATA_DIR / "financial_facts.db"
 # Assets = Liabilities + Equity).
 STANDARD_METRICS = {
     # Income Statement
-    "REVENUE":         ("Doanh thu thuần", "IS"),
-    "COGS":            ("Giá vốn hàng bán", "IS"),
-    "GROSS_PROFIT":    ("Lợi nhuận gộp", "IS"),
-    "NET_INCOME":      ("Lợi nhuận sau thuế", "IS"),
-    "EBIT":            ("Lợi nhuận thuần HĐKD", "IS"),
-    "EBITDA":          ("EBITDA", "IS"),
-    "INTEREST_EXPENSE":("Chi phí lãi vay", "IS"),
+    "REVENUE": ("Doanh thu thuần", "IS"),
+    "COGS": ("Giá vốn hàng bán", "IS"),
+    "GROSS_PROFIT": ("Lợi nhuận gộp", "IS"),
+    "NET_INCOME": ("Lợi nhuận sau thuế", "IS"),
+    "EBIT": ("Lợi nhuận thuần HĐKD", "IS"),
+    "EBITDA": ("EBITDA", "IS"),
+    "INTEREST_EXPENSE": ("Chi phí lãi vay", "IS"),
     # Balance Sheet
-    "TOTAL_ASSETS":    ("Tổng tài sản", "BS"),
-    "CURRENT_ASSETS":  ("Tài sản ngắn hạn", "BS"),
-    "CURRENT_LIAB":    ("Nợ ngắn hạn", "BS"),
-    "TOTAL_EQUITY":    ("Vốn chủ sở hữu", "BS"),
-    "TOTAL_LIABILITIES":("Nợ phải trả", "BS"),
-    "TOTAL_DEBT":      ("Tổng nợ vay", "BS"),
+    "TOTAL_ASSETS": ("Tổng tài sản", "BS"),
+    "CURRENT_ASSETS": ("Tài sản ngắn hạn", "BS"),
+    "CURRENT_LIAB": ("Nợ ngắn hạn", "BS"),
+    "TOTAL_EQUITY": ("Vốn chủ sở hữu", "BS"),
+    "TOTAL_LIABILITIES": ("Nợ phải trả", "BS"),
+    "TOTAL_DEBT": ("Tổng nợ vay", "BS"),
     "SHORT_TERM_DEBT": ("Nợ vay ngắn hạn", "BS"),
-    "LONG_TERM_DEBT":  ("Nợ vay dài hạn", "BS"),
-    "CASH_EQUIV":      ("Tiền và tương đương tiền", "BS"),
-    "RECEIVABLES":     ("Khoản phải thu ngắn hạn", "BS"),
-    "INVENTORY":       ("Hàng tồn kho", "BS"),
+    "LONG_TERM_DEBT": ("Nợ vay dài hạn", "BS"),
+    "CASH_EQUIV": ("Tiền và tương đương tiền", "BS"),
+    "RECEIVABLES": ("Khoản phải thu ngắn hạn", "BS"),
+    "INVENTORY": ("Hàng tồn kho", "BS"),
     # Cash Flow
-    "CFO":             ("Lưu chuyển tiền từ HĐKD", "CF"),
-    "CFI":             ("Lưu chuyển tiền từ HĐĐT", "CF"),
-    "CFF":             ("Lưu chuyển tiền từ HĐTC", "CF"),
-    "CAPEX":           ("Chi mua TSCĐ", "CF"),
-    "FCF":             ("Dòng tiền tự do", "CF"),
+    "CFO": ("Lưu chuyển tiền từ HĐKD", "CF"),
+    "CFI": ("Lưu chuyển tiền từ HĐĐT", "CF"),
+    "CFF": ("Lưu chuyển tiền từ HĐTC", "CF"),
+    "CAPEX": ("Chi mua TSCĐ", "CF"),
+    "FCF": ("Dòng tiền tự do", "CF"),
     # Per Share
-    "EPS":             ("EPS cơ bản", "IS"),
-    "BOOK_VALUE_PS":   ("Giá trị sổ sách/cp", "BS"),
-    "SHARES_OUT":      ("Số lượng CP lưu hành", "BS"),
+    "EPS": ("EPS cơ bản", "IS"),
+    "BOOK_VALUE_PS": ("Giá trị sổ sách/cp", "BS"),
+    "SHARES_OUT": ("Số lượng CP lưu hành", "BS"),
 }
 
 BANK_METRICS = {
     # Income Statement
-    "NII":             ("Thu nhập lãi thuần", "IS"),
-    "TOI":             ("Tổng thu nhập hoạt động", "IS"),
-    "NET_PROFIT":      ("Lợi nhuận sau thuế", "IS"),
-    "PROVISION_EXPENSE":("Chi phí dự phòng rủi ro", "IS"),
+    "NII": ("Thu nhập lãi thuần", "IS"),
+    "TOI": ("Tổng thu nhập hoạt động", "IS"),
+    "NET_PROFIT": ("Lợi nhuận sau thuế", "IS"),
+    "PROVISION_EXPENSE": ("Chi phí dự phòng rủi ro", "IS"),
     "INTEREST_INCOME": ("Thu nhập lãi", "IS"),
-    "INTEREST_EXPENSE":("Chi phí lãi", "IS"),
-    "NON_II":          ("Thu nhập ngoài lãi", "IS"),
-    "OPERATING_EXPENSE":("Chi phí hoạt động", "IS"),
+    "INTEREST_EXPENSE": ("Chi phí lãi", "IS"),
+    "NON_II": ("Thu nhập ngoài lãi", "IS"),
+    "OPERATING_EXPENSE": ("Chi phí hoạt động", "IS"),
     # Balance Sheet
-    "TOTAL_ASSETS":    ("Tổng tài sản", "BS"),
-    "TOTAL_LIABILITIES":("Nợ phải trả", "BS"),
-    "CUSTOMER_LOANS":  ("Cho vay khách hàng", "BS"),
-    "CUSTOMER_DEPOSITS":("Tiền gửi khách hàng", "BS"),
-    "TOTAL_EQUITY":    ("Vốn chủ sở hữu", "BS"),
-    "BONDS_AND_GOVT":  ("Chứng khoán đầu tư", "BS"),
-    "CASH_AND_BALANCES":("Tiền và vàng", "BS"),
-    "DUE_FROM_OTHER_BANKS":("Tiền gửi tại các TCTD khác", "BS"),
-    "DUE_TO_OTHER_BANKS":("Tiền gửi của các TCTD khác", "BS"),
-    "RESERVES":        ("Dự phòng rủi ro", "BS"),
-    "PROVISION":       ("Dự phòng", "BS"),
-    "INTANGIBLE_ASSETS":("Tài sản cố định vô hình", "BS"),
+    "TOTAL_ASSETS": ("Tổng tài sản", "BS"),
+    "TOTAL_LIABILITIES": ("Nợ phải trả", "BS"),
+    "CUSTOMER_LOANS": ("Cho vay khách hàng", "BS"),
+    "CUSTOMER_DEPOSITS": ("Tiền gửi khách hàng", "BS"),
+    "TOTAL_EQUITY": ("Vốn chủ sở hữu", "BS"),
+    "BONDS_AND_GOVT": ("Chứng khoán đầu tư", "BS"),
+    "CASH_AND_BALANCES": ("Tiền và vàng", "BS"),
+    "DUE_FROM_OTHER_BANKS": ("Tiền gửi tại các TCTD khác", "BS"),
+    "DUE_TO_OTHER_BANKS": ("Tiền gửi của các TCTD khác", "BS"),
+    "RESERVES": ("Dự phòng rủi ro", "BS"),
+    "PROVISION": ("Dự phòng", "BS"),
+    "INTANGIBLE_ASSETS": ("Tài sản cố định vô hình", "BS"),
     # Off-balance sheet (thường có trong BS bank)
-    "OFF_BALANCE_LOANS":("Cam kết cho vay ngoại bảng", "BS"),
+    "OFF_BALANCE_LOANS": ("Cam kết cho vay ngoại bảng", "BS"),
     # Cash Flow
-    "CFO":             ("Lưu chuyển tiền từ HĐKD", "CF"),
-    "CFI":             ("Lưu chuyển tiền từ HĐĐT", "CF"),
-    "CFF":             ("Lưu chuyển tiền từ HĐTC", "CF"),
+    "CFO": ("Lưu chuyển tiền từ HĐKD", "CF"),
+    "CFI": ("Lưu chuyển tiền từ HĐĐT", "CF"),
+    "CFF": ("Lưu chuyển tiền từ HĐTC", "CF"),
     # Per Share + Ratios
-    "EPS":             ("EPS cơ bản", "IS"),
-    "BOOK_VALUE_PS":   ("Giá trị sổ sách/cp", "BS"),
-    "SHARES_OUT":      ("Số lượng CP lưu hành", "BS"),
-    "NPL_RATIO":       ("Tỷ lệ nợ xấu", "IS"),
-    "CASA_RATIO":      ("Tỷ lệ tiền gửi không kỳ hạn", "BS"),
-    "CAR":             ("Tỷ lệ an toàn vốn", "BS"),
-    "ROE":             ("ROE", "IS"),
-    "ROA":             ("ROA", "IS"),
-    "NIM":             ("Tỷ lệ thu nhập lãi thuần", "IS"),
+    "EPS": ("EPS cơ bản", "IS"),
+    "BOOK_VALUE_PS": ("Giá trị sổ sách/cp", "BS"),
+    "SHARES_OUT": ("Số lượng CP lưu hành", "BS"),
+    "NPL_RATIO": ("Tỷ lệ nợ xấu", "IS"),
+    "CASA_RATIO": ("Tỷ lệ tiền gửi không kỳ hạn", "BS"),
+    "CAR": ("Tỷ lệ an toàn vốn", "BS"),
+    "ROE": ("ROE", "IS"),
+    "ROA": ("ROA", "IS"),
+    "NIM": ("Tỷ lệ thu nhập lãi thuần", "IS"),
 }
 
 # Vnstock metric mapping: vnstock column name → our metric name
@@ -224,6 +224,7 @@ VNSTOCK_ITEM_ID_MAP = {
     # Cash flow
     "net_cash_inflows_outflows_from_operating_activities": "CFO",
     "operating_cash_flow": "CFO",
+    "net_cash_from_operating_activities": "CFO",
     "net_cash_inflows_outflows_from_investing_activities": "CFI",
     "investing_cash_flow": "CFI",
     "net_cash_inflows_outflows_from_financing_activities": "CFF",
@@ -233,6 +234,27 @@ VNSTOCK_ITEM_ID_MAP = {
     "cash_and_cash_equivalents_at_the_end_of_period": "CASH_END",
     "cash_and_cash_equivalents_at_end_of_the_period": "CASH_END",
     "ending_cash": "CASH_END",
+    # ── Bank-specific (VCI GraphQL item_ids) — unlocks ~40% VN-Index cap ──
+    "net_interest_income": "NII",
+    "interest_and_similar_income": "INTEREST_INCOME",
+    "interest_and_similar_expenses": "INTEREST_EXPENSE",
+    "fees_and_commission_income": "NON_II",
+    "fees_and_commission_expenses": "NON_II",
+    "net_fee_and_commission_income": "NON_II",
+    "net_gain_loss_from_trading_of_trading_securities": "NON_II",
+    "net_gain_loss_from_disposal_of_investment_securities": "NON_II",
+    "net_other_income_expenses": "NON_II",
+    "total_operating_income": "TOI",
+    "provision_for_credit_losses": "PROVISION_EXPENSE",
+    "provision_for_losses_on_loans_and_advances_to_customers": "PROVISION_EXPENSE",
+    "loans_and_advances_to_customers_net": "CUSTOMER_LOANS",
+    "loans_and_advances_to_customers": "CUSTOMER_LOANS",
+    "deposits_from_customers": "CUSTOMER_DEPOSITS",
+    "balances_with_the_sbv": "CASH_AND_BALANCES",
+    "cash_and_precious_metals": "CASH_AND_BALANCES",
+    "net_accounting_profit_loss_before_tax": "PRE_TAX_INCOME",
+    "general_and_admin_expenses": "OPERATING_EXPENSE",
+    "net_operating_profit_before_allowance_for_credit_loss": "OPERATING_PROFIT",
 }
 
 # Entity type registry
@@ -280,10 +302,11 @@ ENTITY_TYPES = {
 # DATA INTEGRITY VALIDATOR
 # =========================================================================
 
+
 class DataIntegrityValidator:
     """Bộ kiểm duyệt toàn vẹn dữ liệu. Bắt buộc chạy trước khi ghi."""
 
-    MIN_VND_SCALE = 1_000       # Giá trị VND < 1,000 bị nghi ngờ
+    MIN_VND_SCALE = 1_000  # Giá trị VND < 1,000 bị nghi ngờ
     MAX_VND_SCALE = 1_000_000_000_000  # > 1 nghìn tỷ
 
     @staticmethod
@@ -296,8 +319,18 @@ class DataIntegrityValidator:
         - metric = REVENUE, TOTAL_ASSETS, NET_INCOME, CUSTOMER_LOANS → scale về VND
         - Nếu giá trị < 1,000 cho balance sheet items → nghi ngờ scale sai
         """
-        scale_free_metrics = {"EPS", "BOOK_VALUE_PS", "NPL_RATIO", "CASA_RATIO",
-                              "CAR", "ROE", "ROA", "NIM", "GROSS_MARGIN", "NET_MARGIN"}
+        scale_free_metrics = {
+            "EPS",
+            "BOOK_VALUE_PS",
+            "NPL_RATIO",
+            "CASA_RATIO",
+            "CAR",
+            "ROE",
+            "ROA",
+            "NIM",
+            "GROSS_MARGIN",
+            "NET_MARGIN",
+        }
 
         if metric in scale_free_metrics:
             return value, "OK"
@@ -329,17 +362,17 @@ class DataIntegrityValidator:
         # CF métric để None vì dòng tiền hợp pháp có thể âm; income items kiểm tra theo
         # abs(value) để bỏ qua dấu (lợi nhuận âm vẫn hợp lệ về độ lớn).
         ranges = {
-            "REVENUE":        (1_000_000_000, 500_000_000_000_000),     # 1 tỷ → 500 nghìn tỷ
-            "NET_INCOME":     (0, 100_000_000_000_000),                  # 0 → 100 nghìn tỷ
-            "TOTAL_ASSETS":   (100_000_000_000, 1_000_000_000_000_000), # 100 tỷ → 1 triệu tỷ
-            "TOTAL_EQUITY":   (10_000_000_000, 500_000_000_000_000),    # 10 tỷ → 500 nghìn tỷ
+            "REVENUE": (1_000_000_000, 500_000_000_000_000),  # 1 tỷ → 500 nghìn tỷ
+            "NET_INCOME": (0, 100_000_000_000_000),  # 0 → 100 nghìn tỷ
+            "TOTAL_ASSETS": (100_000_000_000, 1_000_000_000_000_000),  # 100 tỷ → 1 triệu tỷ
+            "TOTAL_EQUITY": (10_000_000_000, 500_000_000_000_000),  # 10 tỷ → 500 nghìn tỷ
             "CURRENT_ASSETS": (10_000_000_000, 500_000_000_000_000),
-            "CURRENT_LIAB":   (10_000_000_000, 500_000_000_000_000),
+            "CURRENT_LIAB": (10_000_000_000, 500_000_000_000_000),
             "CUSTOMER_LOANS": (100_000_000_000, 500_000_000_000_000),
             "CUSTOMER_DEPOSITS": (100_000_000_000, 500_000_000_000_000),
-            "CFO":            None,  # Có thể âm
-            "CFI":            None,
-            "NII":            (0, 100_000_000_000_000),
+            "CFO": None,  # Có thể âm
+            "CFI": None,
+            "NII": (0, 100_000_000_000_000),
             "PROVISION_EXPENSE": (0, 50_000_000_000_000),
         }
         if metric not in ranges:
@@ -357,26 +390,32 @@ class DataIntegrityValidator:
 
     @staticmethod
     def validate_balance_sheet(
-        total_assets: float,
-        total_liabilities: float,
-        total_equity: float,
-        symbol: str,
-        period: str
+        total_assets: float, total_liabilities: float, total_equity: float, symbol: str, period: str
     ) -> Dict:
         """Bắt buộc: Assets = Liabilities + Equity (sai số ≤ 0.1%).
 
         Returns dict: {valid, error_pct, pass, action}
         """
         if total_assets is None or total_liabilities is None or total_equity is None:
-            return {"valid": False, "error_pct": None, "pass": False,
-                    "reason": "THIEU_DU_LIEU_BALANCE_SHEET", "action": "DATA_CORRUPTED"}
+            return {
+                "valid": False,
+                "error_pct": None,
+                "pass": False,
+                "reason": "THIEU_DU_LIEU_BALANCE_SHEET",
+                "action": "DATA_CORRUPTED",
+            }
 
         # Check nếu total_liabilities không có sẵn, tính từ total_assets - equity
         liabilities_check = total_liabilities + total_equity
 
         if abs(total_assets) < 1:
-            return {"valid": False, "error_pct": None, "pass": False,
-                    "reason": "TOTAL_ASSETS_BANG_KHONG", "action": "DATA_CORRUPTED"}
+            return {
+                "valid": False,
+                "error_pct": None,
+                "pass": False,
+                "reason": "TOTAL_ASSETS_BANG_KHONG",
+                "action": "DATA_CORRUPTED",
+            }
 
         error_pct = abs(liabilities_check - total_assets) / abs(total_assets) * 100
 
@@ -385,17 +424,19 @@ class DataIntegrityValidator:
         # (BS của kỳ khác, thiếu nợ, nhầm đơn vị) → đánh dấu DATA_CORRUPTED để không phá
         # các tính toán dựa trên cân đối kế toán ở các tầng trên.
         if error_pct <= 0.1:
-            return {"valid": True, "error_pct": round(error_pct, 4), "pass": True,
-                    "reason": "OK", "action": "WRITE"}
+            return {"valid": True, "error_pct": round(error_pct, 4), "pass": True, "reason": "OK", "action": "WRITE"}
         else:
-            return {"valid": False, "error_pct": round(error_pct, 4), "pass": False,
-                    "reason": f"BALANCE_SHEET_MISMATCH: {error_pct:.2f}% > 0.1%",
-                    "action": "DATA_CORRUPTED"}
+            return {
+                "valid": False,
+                "error_pct": round(error_pct, 4),
+                "pass": False,
+                "reason": f"BALANCE_SHEET_MISMATCH: {error_pct:.2f}% > 0.1%",
+                "action": "DATA_CORRUPTED",
+            }
 
     @staticmethod
     def validate_integrity_before_write(
-        symbol: str, period: str, metric: str, value: float,
-        statement_type: str, entity_type: str
+        symbol: str, period: str, metric: str, value: float, statement_type: str, entity_type: str
     ) -> Dict:
         """Kiểm tra toàn vẹn trước khi ghi vào DB."""
         warnings = []
@@ -406,6 +447,7 @@ class DataIntegrityValidator:
 
         # 2. NaN/Inf check
         import math
+
         if not isinstance(value, (int, float)) or math.isnan(value) or math.isinf(value):
             return {"pass": False, "action": "SKIP_NAN", "reason": "VALUE_IS_NAN_OR_INF"}
 
@@ -415,13 +457,13 @@ class DataIntegrityValidator:
             if "AUTO_SCALED" in scale_note:
                 warnings.append(scale_note)
 
-        return {"pass": True, "action": "WRITE", "value": scaled_value,
-                "scale_note": scale_note, "warnings": warnings}
+        return {"pass": True, "action": "WRITE", "value": scaled_value, "scale_note": scale_note, "warnings": warnings}
 
 
 # =========================================================================
 # FINANCIAL FACTS DB MANAGER
 # =========================================================================
+
 
 class FinancialFactsDB:
     """Quản lý financial_facts.db — Schema Kép."""
@@ -513,16 +555,30 @@ class FinancialFactsDB:
         """Đăng ký entity vào registry."""
         conn = self.connect()
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT OR REPLACE INTO entity_registry (symbol, entity_type, full_name, updated_at)
             VALUES (?, ?, ?, datetime('now'))
-        """, (symbol.upper(), entity_type.upper(), full_name))
+        """,
+            (symbol.upper(), entity_type.upper(), full_name),
+        )
         conn.commit()
 
-    def write_fact(self, symbol: str, period: str, fiscal_year: int, fiscal_quarter: int,
-                   entity_type: str, statement_type: str, metric: str, value: float,
-                   unit: str = 'VND', source: str = 'vnstock', reported_at: str = None,
-                   integrity_flags: str = '') -> Dict:
+    def write_fact(
+        self,
+        symbol: str,
+        period: str,
+        fiscal_year: int,
+        fiscal_quarter: int,
+        entity_type: str,
+        statement_type: str,
+        metric: str,
+        value: float,
+        unit: str = "VND",
+        source: str = "vnstock",
+        reported_at: str = None,
+        integrity_flags: str = "",
+    ) -> Dict:
         """Ghi một fact vào DB sau khi kiểm tra toàn vẹn."""
         # Validate before write
         validation = DataIntegrityValidator.validate_integrity_before_write(
@@ -540,23 +596,35 @@ class FinancialFactsDB:
         conn = self.connect()
         cursor = conn.cursor()
         try:
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO financial_facts
                     (symbol, period, fiscal_year, fiscal_quarter, entity_type,
                      statement_type, metric, value, unit, source, reported_at, integrity_flags)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (symbol.upper(), period, fiscal_year, fiscal_quarter,
-                  entity_type.upper(), statement_type, metric, scaled_value,
-                  unit, source, reported_at or datetime.now().strftime("%Y-%m-%d"),
-                  integrity_flags))
+            """,
+                (
+                    symbol.upper(),
+                    period,
+                    fiscal_year,
+                    fiscal_quarter,
+                    entity_type.upper(),
+                    statement_type,
+                    metric,
+                    scaled_value,
+                    unit,
+                    source,
+                    reported_at or datetime.now().strftime("%Y-%m-%d"),
+                    integrity_flags,
+                ),
+            )
             conn.commit()
             return {"status": "SUCCESS", "metric": metric, "value": scaled_value, "integrity_flags": integrity_flags}
         except Exception as e:
             conn.rollback()
             return {"status": "ERROR", "metric": metric, "reason": str(e)}
 
-    def write_batch(self, symbol: str, period_metrics: dict, entity_type: str,
-                    batch_id: str = None) -> Dict:
+    def write_batch(self, symbol: str, period_metrics: dict, entity_type: str, batch_id: str = None) -> Dict:
         """Ghi batch các facts cho 1 kỳ của 1 symbol."""
         conn = self.connect()
         cursor = conn.cursor()
@@ -592,9 +660,7 @@ class FinancialFactsDB:
             else:
                 st = STANDARD_METRICS.get(metric, ("", "BS"))[1]
 
-            validation = DataIntegrityValidator.validate_integrity_before_write(
-                symbol, period, metric, value, st, entity_type
-            )
+            validation = DataIntegrityValidator.validate_integrity_before_write(symbol, period, metric, value, st, entity_type)
             if not validation["pass"]:
                 if validation["action"] == "SKIP_NONE" or validation["action"] == "SKIP_NAN":
                     warnings.append(f"SKIP_{metric}={value}")
@@ -605,14 +671,26 @@ class FinancialFactsDB:
             if flags not in ("OK", ""):
                 warnings.append(flags)
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO financial_facts
                     (symbol, period, fiscal_year, fiscal_quarter, entity_type,
                      statement_type, metric, value, source, integrity_flags)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (symbol.upper(), period, fiscal_year, fiscal_quarter,
-                  entity_type.upper(), st, metric, scaled, "vnstock",
-                  flags if flags != "OK" else ""))
+            """,
+                (
+                    symbol.upper(),
+                    period,
+                    fiscal_year,
+                    fiscal_quarter,
+                    entity_type.upper(),
+                    st,
+                    metric,
+                    scaled,
+                    "vnstock",
+                    flags if flags != "OK" else "",
+                ),
+            )
             total_written += 1
 
             # Collect BS facts for balance sheet check
@@ -643,8 +721,7 @@ class FinancialFactsDB:
                 implied_liabilities = total_assets - total_equity
 
                 bs_check = DataIntegrityValidator.validate_balance_sheet(
-                    total_assets, total_equity, implied_liabilities,
-                    symbol, period
+                    total_assets, total_equity, implied_liabilities, symbol, period
                 )
                 error_pct = bs_check.get("error_pct")
                 if not bs_check["pass"]:
@@ -654,14 +731,25 @@ class FinancialFactsDB:
 
         # Log ingestion
         status = "DATA_CORRUPTED" if not integrity_pass else "SUCCESS"
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO ingestion_log
                 (batch_id, symbol, period, status, facts_written,
                  integrity_pass, warnings, error_pct, error_detail)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (batch_id, symbol.upper(), period, status, total_written,
-              int(integrity_pass), ";".join(warnings[:5]) if warnings else "",
-              error_pct, error_detail))
+        """,
+            (
+                batch_id,
+                symbol.upper(),
+                period,
+                status,
+                total_written,
+                int(integrity_pass),
+                ";".join(warnings[:5]) if warnings else "",
+                error_pct,
+                error_detail,
+            ),
+        )
         conn.commit()
 
         return {
@@ -672,11 +760,10 @@ class FinancialFactsDB:
             "integrity_pass": integrity_pass,
             "warnings": warnings,
             "error_detail": error_detail,
-            "batch_id": batch_id
+            "batch_id": batch_id,
         }
 
-    def get_facts(self, symbol: str, metrics: List[str] = None,
-                  periods: int = 8, entity_type: str = None) -> List[Dict]:
+    def get_facts(self, symbol: str, metrics: List[str] = None, periods: int = 8, entity_type: str = None) -> List[Dict]:
         """Lấy dữ liệu facts đã được chuẩn hóa."""
         conn = self.connect()
         cursor = conn.cursor()
@@ -720,9 +807,12 @@ class FinancialFactsDB:
         """Lấy kỳ gần nhất có dữ liệu cho symbol."""
         conn = self.connect()
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT MAX(period) FROM financial_facts WHERE symbol = ?
-        """, (symbol.upper(),))
+        """,
+            (symbol.upper(),),
+        )
         row = cursor.fetchone()
         return row[0] if row else None
 
@@ -731,10 +821,11 @@ class FinancialFactsDB:
 # VNSTOCK CRAWLER (with CafeF fallback)
 # =========================================================================
 
+
 class VnstockCrawler:
     """Crawler lấy dữ liệu tài chính từ vnstock (VCI) hoặc CafeF scraper."""
 
-    def __init__(self, db: FinancialFactsDB = None, source: str = 'VCI'):
+    def __init__(self, db: FinancialFactsDB = None, source: str = "VCI"):
         self.db = db or FinancialFactsDB()
         self.source = source
         self.batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -762,27 +853,26 @@ class VnstockCrawler:
             except Exception as e:
                 if attempt < retries - 1:
                     import time
+
                     time.sleep(2)
                     continue
-                print(f"    {name} ERROR (attempt {attempt+1}): {e}")
+                print(f"    {name} ERROR (attempt {attempt + 1}): {e}")
                 return None
 
     def fetch_financials_vnstock(self, symbol: str, limit: Optional[int] = 30) -> List[Dict]:
         """Lấy financial statements qua ProviderManager (fallback vnstock → cache)."""
         try:
             from src.providers import get_provider_manager
+
             mgr = get_provider_manager()
         except Exception as e:
             print(f"  [ProviderManager] init error: {e}")
             return []
 
         statements = {}
-        statements["IS"] = self._safe_get(
-            lambda: mgr.income_statement(symbol, limit=limit), "Income stmt")
-        statements["BS"] = self._safe_get(
-            lambda: mgr.balance_sheet(symbol, limit=limit), "Balance sheet")
-        statements["CF"] = self._safe_get(
-            lambda: mgr.cashflow(symbol, limit=limit), "Cash flow")
+        statements["IS"] = self._safe_get(lambda: mgr.income_statement(symbol, limit=limit), "Income stmt")
+        statements["BS"] = self._safe_get(lambda: mgr.balance_sheet(symbol, limit=limit), "Balance sheet")
+        statements["CF"] = self._safe_get(lambda: mgr.cashflow(symbol, limit=limit), "Cash flow")
 
         return self._parse_statements(symbol, statements)
 
@@ -802,16 +892,17 @@ class VnstockCrawler:
                 continue
 
             try:
-                df.columns = [str(c).lower().replace(" ", "_").replace("-", "_").strip()
-                             for c in df.columns]
+                df.columns = [str(c).lower().replace(" ", "_").replace("-", "_").strip() for c in df.columns]
             except Exception:
                 continue
 
             # vnstock 4.0.5 trả WIDE format: item_id rows + period columns.
             if "item_id" in df.columns:
-                period_cols = [c for c in df.columns
-                               if c not in ("item", "item_en", "item_id", "unit",
-                                            "levels", "row_number", "audit_status")]
+                period_cols = [
+                    c
+                    for c in df.columns
+                    if c not in ("item", "item_en", "item_id", "unit", "levels", "row_number", "audit_status")
+                ]
                 try:
                     for _, row in df.iterrows():
                         item_id = str(row["item_id"]) if pd.notna(row["item_id"]) else ""
@@ -823,8 +914,7 @@ class VnstockCrawler:
                             if per is None:
                                 continue
                             if per not in periods_data:
-                                periods_data[per] = {"_fiscal_year": int(per[:4]),
-                                                     "_fiscal_quarter": int(per[5:6])}
+                                periods_data[per] = {"_fiscal_year": int(per[:4]), "_fiscal_quarter": int(per[5:6])}
                             try:
                                 v = row[col]
                                 if v is None or pd.isna(v):
@@ -834,7 +924,7 @@ class VnstockCrawler:
                                 else:
                                     v = float(v)
                                 periods_data[per][mapped] = v
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 continue
                 except Exception as e:
                     print(f"    Wide-format parse error: {e}")
@@ -867,8 +957,7 @@ class VnstockCrawler:
                         continue
 
                     if per not in periods_data:
-                        periods_data[per] = {"_fiscal_year": int(per[:4]),
-                                             "_fiscal_quarter": int(per[5:6])}
+                        periods_data[per] = {"_fiscal_year": int(per[:4]), "_fiscal_quarter": int(per[5:6])}
 
                     for col in df.columns:
                         if col in (year_col, quarter_col, period_col, "ticker", "symbol", "ma"):
@@ -883,7 +972,7 @@ class VnstockCrawler:
                             else:
                                 v = float(v)
                             periods_data[per][mapped] = v
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             continue
             except Exception as e:
                 print(f"    Parse error: {e}")
@@ -902,9 +991,7 @@ class VnstockCrawler:
         entity_type = self.db.get_entity_type(symbol)
         print(f"  [CafeF] Scraping {symbol} ({entity_type})...")
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
         # CafeF URLs for financial data
         # Income statement: https://s.cafef.vn/soc/mas-fpt.chn
@@ -949,53 +1036,107 @@ class VnstockCrawler:
     def _get_sample_standard(self, symbol: str) -> List[Dict]:
         """FPT-like sample data (2025Q1 through 2026Q2)."""
         return [
-            {"_fiscal_year": 2026, "_fiscal_quarter": 2,
-             "REVENUE": 9_850_000_000_000, "NET_INCOME": 2_100_000_000_000,
-             "CFO": 2_520_000_000_000, "TOTAL_ASSETS": 82_000_000_000_000,
-             "TOTAL_EQUITY": 35_000_000_000_000, "CURRENT_ASSETS": 45_000_000_000_000,
-             "CURRENT_LIAB": 30_000_000_000_000, "TOTAL_DEBT": 25_000_000_000_000,
-             "CASH_EQUIV": 12_000_000_000_000, "RECEIVABLES": 18_000_000_000_000,
-             "INVENTORY": 5_000_000_000_000, "EBITDA": 3_200_000_000_000,
-             "EPS": 7200, "SHARES_OUT": 292_000_000,
-             "BOOK_VALUE_PS": 120_000, "CAPEX": 850_000_000_000,
-             "INTEREST_EXPENSE": 520_000_000_000},
-            {"_fiscal_year": 2026, "_fiscal_quarter": 1,
-             "REVENUE": 9_600_000_000_000, "NET_INCOME": 2_050_000_000_000,
-             "CFO": 2_460_000_000_000, "TOTAL_ASSETS": 80_000_000_000_000,
-             "TOTAL_EQUITY": 34_000_000_000_000, "CURRENT_ASSETS": 44_000_000_000_000,
-             "CURRENT_LIAB": 29_000_000_000_000, "TOTAL_DEBT": 24_000_000_000_000,
-             "CASH_EQUIV": 11_000_000_000_000, "RECEIVABLES": 17_500_000_000_000,
-             "INVENTORY": 4_800_000_000_000, "EBITDA": 3_100_000_000_000,
-             "EPS": 7100, "SHARES_OUT": 292_000_000,
-             "BOOK_VALUE_PS": 116_000, "CAPEX": 800_000_000_000,
-             "INTEREST_EXPENSE": 500_000_000_000},
-            {"_fiscal_year": 2025, "_fiscal_quarter": 4,
-             "REVENUE": 9_400_000_000_000, "NET_INCOME": 2_000_000_000_000,
-             "CFO": 2_400_000_000_000, "TOTAL_ASSETS": 78_000_000_000_000,
-             "TOTAL_EQUITY": 33_000_000_000_000, "CURRENT_ASSETS": 43_000_000_000_000,
-             "CURRENT_LIAB": 28_000_000_000_000, "TOTAL_DEBT": 23_000_000_000_000,
-             "CASH_EQUIV": 10_500_000_000_000, "RECEIVABLES": 17_000_000_000_000,
-             "INVENTORY": 4_500_000_000_000, "EBITDA": 3_000_000_000_000,
-             "EPS": 7000, "SHARES_OUT": 290_000_000,
-             "BOOK_VALUE_PS": 114_000, "CAPEX": 750_000_000_000,
-             "INTEREST_EXPENSE": 480_000_000_000},
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 2,
+                "REVENUE": 9_850_000_000_000,
+                "NET_INCOME": 2_100_000_000_000,
+                "CFO": 2_520_000_000_000,
+                "TOTAL_ASSETS": 82_000_000_000_000,
+                "TOTAL_EQUITY": 35_000_000_000_000,
+                "CURRENT_ASSETS": 45_000_000_000_000,
+                "CURRENT_LIAB": 30_000_000_000_000,
+                "TOTAL_DEBT": 25_000_000_000_000,
+                "CASH_EQUIV": 12_000_000_000_000,
+                "RECEIVABLES": 18_000_000_000_000,
+                "INVENTORY": 5_000_000_000_000,
+                "EBITDA": 3_200_000_000_000,
+                "EPS": 7200,
+                "SHARES_OUT": 292_000_000,
+                "BOOK_VALUE_PS": 120_000,
+                "CAPEX": 850_000_000_000,
+                "INTEREST_EXPENSE": 520_000_000_000,
+            },
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 1,
+                "REVENUE": 9_600_000_000_000,
+                "NET_INCOME": 2_050_000_000_000,
+                "CFO": 2_460_000_000_000,
+                "TOTAL_ASSETS": 80_000_000_000_000,
+                "TOTAL_EQUITY": 34_000_000_000_000,
+                "CURRENT_ASSETS": 44_000_000_000_000,
+                "CURRENT_LIAB": 29_000_000_000_000,
+                "TOTAL_DEBT": 24_000_000_000_000,
+                "CASH_EQUIV": 11_000_000_000_000,
+                "RECEIVABLES": 17_500_000_000_000,
+                "INVENTORY": 4_800_000_000_000,
+                "EBITDA": 3_100_000_000_000,
+                "EPS": 7100,
+                "SHARES_OUT": 292_000_000,
+                "BOOK_VALUE_PS": 116_000,
+                "CAPEX": 800_000_000_000,
+                "INTEREST_EXPENSE": 500_000_000_000,
+            },
+            {
+                "_fiscal_year": 2025,
+                "_fiscal_quarter": 4,
+                "REVENUE": 9_400_000_000_000,
+                "NET_INCOME": 2_000_000_000_000,
+                "CFO": 2_400_000_000_000,
+                "TOTAL_ASSETS": 78_000_000_000_000,
+                "TOTAL_EQUITY": 33_000_000_000_000,
+                "CURRENT_ASSETS": 43_000_000_000_000,
+                "CURRENT_LIAB": 28_000_000_000_000,
+                "TOTAL_DEBT": 23_000_000_000_000,
+                "CASH_EQUIV": 10_500_000_000_000,
+                "RECEIVABLES": 17_000_000_000_000,
+                "INVENTORY": 4_500_000_000_000,
+                "EBITDA": 3_000_000_000_000,
+                "EPS": 7000,
+                "SHARES_OUT": 290_000_000,
+                "BOOK_VALUE_PS": 114_000,
+                "CAPEX": 750_000_000_000,
+                "INTEREST_EXPENSE": 480_000_000_000,
+            },
         ]
 
     def _get_sample_bank(self, symbol: str) -> List[Dict]:
         """Bank sample data."""
         base_data = {
-            "ACB": {"loans": 480_000_000_000_000, "deposits": 520_000_000_000_000,
-                    "equity": 70_000_000_000_000, "nii": 18_000_000_000_000,
-                    "profit": 10_000_000_000_000, "npl": 0.015, "casa": 0.30,
-                    "eps": 4500, "shares": 2_200_000_000},
-            "HDB": {"loans": 350_000_000_000_000, "deposits": 380_000_000_000_000,
-                    "equity": 50_000_000_000_000, "nii": 14_000_000_000_000,
-                    "profit": 8_000_000_000_000, "npl": 0.018, "casa": 0.25,
-                    "eps": 3500, "shares": 1_800_000_000},
-            "MBB": {"loans": 420_000_000_000_000, "deposits": 450_000_000_000_000,
-                    "equity": 65_000_000_000_000, "nii": 16_000_000_000_000,
-                    "profit": 9_500_000_000_000, "npl": 0.016, "casa": 0.28,
-                    "eps": 4200, "shares": 2_000_000_000},
+            "ACB": {
+                "loans": 480_000_000_000_000,
+                "deposits": 520_000_000_000_000,
+                "equity": 70_000_000_000_000,
+                "nii": 18_000_000_000_000,
+                "profit": 10_000_000_000_000,
+                "npl": 0.015,
+                "casa": 0.30,
+                "eps": 4500,
+                "shares": 2_200_000_000,
+            },
+            "HDB": {
+                "loans": 350_000_000_000_000,
+                "deposits": 380_000_000_000_000,
+                "equity": 50_000_000_000_000,
+                "nii": 14_000_000_000_000,
+                "profit": 8_000_000_000_000,
+                "npl": 0.018,
+                "casa": 0.25,
+                "eps": 3500,
+                "shares": 1_800_000_000,
+            },
+            "MBB": {
+                "loans": 420_000_000_000_000,
+                "deposits": 450_000_000_000_000,
+                "equity": 65_000_000_000_000,
+                "nii": 16_000_000_000_000,
+                "profit": 9_500_000_000_000,
+                "npl": 0.016,
+                "casa": 0.28,
+                "eps": 4200,
+                "shares": 2_000_000_000,
+            },
         }
         sd = base_data.get(symbol, base_data["ACB"])
 
@@ -1003,27 +1144,54 @@ class VnstockCrawler:
         provision = sd["profit"] * 0.18
 
         return [
-            {"_fiscal_year": 2026, "_fiscal_quarter": 2,
-             "NII": sd["nii"], "NET_PROFIT": sd["profit"],
-             "PROVISION_EXPENSE": provision, "TOTAL_ASSETS": base_assets,
-             "CUSTOMER_LOANS": sd["loans"], "CUSTOMER_DEPOSITS": sd["deposits"],
-             "TOTAL_EQUITY": sd["equity"], "CASH_AND_BALANCES": sd["deposits"] * 0.12,
-             "EPS": sd["eps"], "SHARES_OUT": sd["shares"],
-             "NPL_RATIO": sd["npl"], "CASA_RATIO": sd["casa"]},
-            {"_fiscal_year": 2026, "_fiscal_quarter": 1,
-             "NII": sd["nii"] * 0.95, "NET_PROFIT": sd["profit"] * 0.92,
-             "PROVISION_EXPENSE": provision * 0.95, "TOTAL_ASSETS": base_assets * 0.98,
-             "CUSTOMER_LOANS": sd["loans"] * 0.97, "CUSTOMER_DEPOSITS": sd["deposits"] * 0.98,
-             "TOTAL_EQUITY": sd["equity"], "CASH_AND_BALANCES": sd["deposits"] * 0.11,
-             "EPS": sd["eps"] * 0.95, "SHARES_OUT": sd["shares"],
-             "NPL_RATIO": sd["npl"] + 0.001, "CASA_RATIO": sd["casa"] - 0.01},
-            {"_fiscal_year": 2025, "_fiscal_quarter": 4,
-             "NII": sd["nii"] * 0.90, "NET_PROFIT": sd["profit"] * 0.88,
-             "PROVISION_EXPENSE": provision * 0.90, "TOTAL_ASSETS": base_assets * 0.95,
-             "CUSTOMER_LOANS": sd["loans"] * 0.95, "CUSTOMER_DEPOSITS": sd["deposits"] * 0.96,
-             "TOTAL_EQUITY": sd["equity"] * 0.98, "CASH_AND_BALANCES": sd["deposits"] * 0.10,
-             "EPS": sd["eps"] * 0.90, "SHARES_OUT": sd["shares"],
-             "NPL_RATIO": sd["npl"] + 0.002, "CASA_RATIO": sd["casa"] - 0.02},
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 2,
+                "NII": sd["nii"],
+                "NET_PROFIT": sd["profit"],
+                "PROVISION_EXPENSE": provision,
+                "TOTAL_ASSETS": base_assets,
+                "CUSTOMER_LOANS": sd["loans"],
+                "CUSTOMER_DEPOSITS": sd["deposits"],
+                "TOTAL_EQUITY": sd["equity"],
+                "CASH_AND_BALANCES": sd["deposits"] * 0.12,
+                "EPS": sd["eps"],
+                "SHARES_OUT": sd["shares"],
+                "NPL_RATIO": sd["npl"],
+                "CASA_RATIO": sd["casa"],
+            },
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 1,
+                "NII": sd["nii"] * 0.95,
+                "NET_PROFIT": sd["profit"] * 0.92,
+                "PROVISION_EXPENSE": provision * 0.95,
+                "TOTAL_ASSETS": base_assets * 0.98,
+                "CUSTOMER_LOANS": sd["loans"] * 0.97,
+                "CUSTOMER_DEPOSITS": sd["deposits"] * 0.98,
+                "TOTAL_EQUITY": sd["equity"],
+                "CASH_AND_BALANCES": sd["deposits"] * 0.11,
+                "EPS": sd["eps"] * 0.95,
+                "SHARES_OUT": sd["shares"],
+                "NPL_RATIO": sd["npl"] + 0.001,
+                "CASA_RATIO": sd["casa"] - 0.01,
+            },
+            {
+                "_fiscal_year": 2025,
+                "_fiscal_quarter": 4,
+                "NII": sd["nii"] * 0.90,
+                "NET_PROFIT": sd["profit"] * 0.88,
+                "PROVISION_EXPENSE": provision * 0.90,
+                "TOTAL_ASSETS": base_assets * 0.95,
+                "CUSTOMER_LOANS": sd["loans"] * 0.95,
+                "CUSTOMER_DEPOSITS": sd["deposits"] * 0.96,
+                "TOTAL_EQUITY": sd["equity"] * 0.98,
+                "CASH_AND_BALANCES": sd["deposits"] * 0.10,
+                "EPS": sd["eps"] * 0.90,
+                "SHARES_OUT": sd["shares"],
+                "NPL_RATIO": sd["npl"] + 0.002,
+                "CASA_RATIO": sd["casa"] - 0.02,
+            },
         ]
 
     def seed_symbol(self, symbol: str) -> Dict:
@@ -1058,17 +1226,18 @@ class VnstockCrawler:
             "success_periods": success,
             "corrupted_periods": corrupted,
             "total_facts": total_facts,
-            "batch_id": self.batch_id
+            "batch_id": self.batch_id,
         }
 
     def seed_multiple(self, symbols: List[str]) -> Dict:
         """Seed dữ liệu cho nhiều symbol."""
-        overall = {"symbols_total": len(symbols), "symbols_done": 0,
-                   "total_facts": 0, "periods_total": 0}
+        overall = {"symbols_total": len(symbols), "symbols_done": 0, "total_facts": 0, "periods_total": 0}
         for sym in symbols:
             result = self.seed_symbol(sym)
-            print(f"  [{result['status']}] {result['symbol']} ({result.get('entity_type','?')}): "
-                  f"{result['periods']} periods, {result['total_facts']} facts")
+            print(
+                f"  [{result['status']}] {result['symbol']} ({result.get('entity_type', '?')}): "
+                f"{result['periods']} periods, {result['total_facts']} facts"
+            )
             if result["status"] == "DONE":
                 overall["symbols_done"] += 1
                 overall["total_facts"] += result["total_facts"]
@@ -1080,15 +1249,16 @@ class VnstockCrawler:
 # CLI ENTRY POINT
 # =========================================================================
 
+
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Financial Facts Engine — PTCK_VN Phase 2")
-    parser.add_argument("action", choices=["init", "seed", "status", "validate"],
-                       help="Hành động")
-    parser.add_argument("--symbols", nargs="+", default=["FPT", "ACB", "HDB", "MBB"],
-                       help="Danh sách symbol (mặc định: FPT ACB HDB MBB)")
-    parser.add_argument("--source", default="VCI", choices=["VCI", "KBS", "TCBS"],
-                       help="Nguồn dữ liệu vnstock")
+    parser.add_argument("action", choices=["init", "seed", "status", "validate"], help="Hành động")
+    parser.add_argument(
+        "--symbols", nargs="+", default=["FPT", "ACB", "HDB", "MBB"], help="Danh sách symbol (mặc định: FPT ACB HDB MBB)"
+    )
+    parser.add_argument("--source", default="VCI", choices=["VCI", "KBS", "TCBS"], help="Nguồn dữ liệu vnstock")
     args = parser.parse_args()
 
     db = FinancialFactsDB()
@@ -1137,7 +1307,7 @@ def main():
             LIMIT 20
         """)
         print(f"  {'Symbol':<10} {'Type':<12} {'Facts':<8} {'First':<12} {'Last':<12}")
-        print(f"  {'-'*54}")
+        print(f"  {'-' * 54}")
         for r in cursor.fetchall():
             print(f"  {r[0]:<10} {r[1]:<12} {r[2]:<8} {r[3]:<12} {r[4]:<12}")
 
@@ -1161,12 +1331,15 @@ def main():
         cursor = conn.cursor()
 
         for sym in args.symbols:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT period, metric, value, integrity_flags
                 FROM financial_facts
                 WHERE symbol = ? AND metric IN ('TOTAL_ASSETS', 'TOTAL_EQUITY')
                 ORDER BY period DESC
-            """, (sym,))
+            """,
+                (sym,),
+            )
             rows = cursor.fetchall()
             if rows:
                 print(f"\n  {sym}:")

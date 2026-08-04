@@ -95,6 +95,18 @@ class TestTier1RoeAnnualization:
         assert "D/E" not in " ".join(r["reasons"])
         assert r["de_max"] == 8.0
 
+    def test_bank_missing_de_and_gross_margin_not_fail(self):
+        """Banks without DEBT_TO_EQUITY / GROSS_MARGIN (VCI bank statements
+        don't emit them) must NOT fail Tier 1 on missing data."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "BID", "ROE", qs)
+        seed_fact(conn, "BID", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+        seed_fact(conn, "BID", "NET_PROFIT", [(f"{y}Q{q}", 5e11) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        r = vf.tier1_buffett_quality(conn, "BID", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is True, f"Bank should pass without D/E/GM, got {r['reasons']}"
+
 
 # ── Bug 2: Receivables derived from facts, not hardcoded 1.5 ─────────
 
@@ -154,6 +166,24 @@ class TestTier2DilutionScaleBreak:
             seed_fact(conn, "DIL", "SHARES_OUT", [(f"{y}Q{q}", 1.1e9)])
         r = vf.tier2_governance_shield(conn, "DIL", vf._periods_n_years("2026Q2", 3))
         assert r["dilution"] is not None and r["dilution"] > 0.05
+
+    def test_missing_shares_out_skips_dilution_not_fail(self):
+        """VCI statements don't emit SHARES_OUT → dilution gate SKIPPED, not failed."""
+        conn = make_conn()
+        # STANDARD: provide receivables so the only question is the dilution gate
+        seed_fact(conn, "NODIL", "RECEIVABLES", [("2026Q2", 100.0)])
+        seed_fact(conn, "NODIL", "REVENUE", [("2026Q2", 1000.0)])
+        r = vf.tier2_governance_shield(conn, "NODIL", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is True, "Missing SHARES_OUT must not fail Tier 2"
+        assert r["dilution"] is None
+
+    def test_bank_skips_receivables_gate(self):
+        """Banks: receivables gate skipped (no trade receivables)."""
+        conn = make_conn()
+        seed_fact(conn, "BK", "SHARES_OUT", [(f"{y}Q{q}", 100.0) for y in (2024, 2025, 2026) for q in range(1, 5)])
+        r = vf.tier2_governance_shield(conn, "BK", vf._periods_n_years("2026Q2", 3), entity_type="BANK")
+        assert r["pass"] is True
+        assert r["receivables_ratio"] is None
 
 
 # ── Bug 4: Sector momentum inf handling ─────────────────────────────
