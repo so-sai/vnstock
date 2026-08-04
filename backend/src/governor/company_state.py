@@ -1037,6 +1037,12 @@ class BayesianMandate:
     signal_deficit: float = 0.0  # raw - effective (negative = signal propagating)
     lag_half_life: float = 0.0  # sector half_life used (days)
 
+    # Interaction Engine (Step 3 — Non-linear Synergy)
+    # WHY: Dot product is linear. When China + Commodities both boom,
+    #      the combined effect on STEEL is MORE than the sum of parts.
+    interaction_multiplier: float = 1.0  # non-linear adjustment [0.70, 1.35]
+    interaction_active_synergies: List = field(default_factory=list)  # triggered rules
+
 
 ACTION_VN = {
     "VETO": "Cấm tuyệt đối",
@@ -1330,14 +1336,18 @@ class BayesianGovernor:
         #      Sector score → LR bridges Macro Engine → Bayesian Governor.
         #      MacroLagEngine applies exponential time-decay (LAW-009):
         #        Effective_M = Σ M(t-d) × 0.5^(d/HL) / Σ 0.5^(d/HL)
-        #      This prevents false positives when macro just turned positive.
+        #      InteractionEngine applies non-linear synergy/friction:
+        #        Score_final = Score_eff × multiplier (clamped [0.70, 1.35])
         _sector_macro_score = 0.0
         _sector_macro_lr = 1.0
         _sector_macro_score_eff = 0.0
         _sector_macro_lr_eff = 1.0
         _signal_deficit = 0.0
         _lag_hl = 0.0
+        _interaction_mult = 1.0
+        _interaction_synergies = []
         try:
+            from governor.interaction_engine import InteractionEngine
             from governor.macro_lag_engine import MacroLagEngine
             from governor.regional_influence_engine import RegionalInfluenceEngine
             from governor.sector_exposure_matrix import SectorExposureMatrix
@@ -1360,6 +1370,12 @@ class BayesianGovernor:
                 _sector_macro_lr_eff = 0.3 + 1.7 * _sector_macro_score_eff
                 _signal_deficit = _lag_result.signal_deficit
                 _lag_hl = _lag_result.half_life
+
+                # Non-linear interaction (Step 3)
+                _ix_engine = InteractionEngine()
+                _ix_result = _ix_engine.compute(_M, _sector_name)
+                _interaction_mult = _ix_result.multiplier
+                _interaction_synergies = _ix_result.active_synergies
         except Exception as e:
             logger.warning("[GOV] SectorExposureMatrix FAILED for %s: %s", symbol, e)
 
@@ -1558,6 +1574,9 @@ class BayesianGovernor:
             sector_macro_lr_effective=round(_sector_macro_lr_eff, 4),
             signal_deficit=round(_signal_deficit, 4),
             lag_half_life=round(_lag_hl, 1),
+            # Interaction Engine (Step 3 — Non-linear Synergy)
+            interaction_multiplier=round(_interaction_mult, 4),
+            interaction_active_synergies=_interaction_synergies,
         )
 
     def analyze(self, symbols: List[str]) -> Dict:

@@ -745,10 +745,11 @@ def in_bao_cao(kq: dict):
 
     # ── Sector Macro Scores (Multi-Polar Exposure Matrix) ──
     try:
+        from src.core.canonical_output_adapter import localize_label
+        from src.governor.interaction_engine import InteractionEngine
+        from src.governor.macro_lag_engine import MacroLagEngine
         from src.governor.regional_influence_engine import RegionalInfluenceEngine
         from src.governor.sector_exposure_matrix import SectorExposureMatrix
-        from src.governor.macro_lag_engine import MacroLagEngine
-        from src.core.canonical_output_adapter import localize_label
 
         _engine = RegionalInfluenceEngine()
         _macro_result = _engine.compute()
@@ -759,6 +760,10 @@ def in_bao_cao(kq: dict):
         # ── Lag-adjusted signals (LAW-009) ──
         _lag_engine = MacroLagEngine()
         _lag_results = _lag_engine.compute_all_sectors()
+
+        # ── Non-linear interactions (Step 3) ──
+        _ix_engine = InteractionEngine()
+        _ix_results = _ix_engine.compute_all_sectors(_M)
 
         print()
         print(f"  {localize_label('MACRO STATE VECTOR (M):')}")
@@ -782,27 +787,38 @@ def in_bao_cao(kq: dict):
         _ranked = _matrix.get_sector_ranking(_M)
         for _i, (_sect, _sc) in enumerate(_ranked[:5]):
             _lag = _lag_results.get(_sect)
+            _ix = _ix_results.get(_sect)
             _eff = _lag.effective_score if _lag else _sc
             _deficit = _lag.signal_deficit if _lag else 0.0
             _hl = _lag.half_life if _lag else 0
+            _mult = _ix.multiplier if _ix else 1.0
             _icon = "🟢" if _eff > 0.5 else "🟡" if _eff > 0.35 else "🔴"
             _deficit_str = f"{_deficit:+.2%}" if abs(_deficit) > 0.01 else "  0.00%"
-            print(f"    {_icon} {_i + 1}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  {_lbl_eff}={_eff:.2%}  {_lbl_def}={_deficit_str}  {_lbl_hl}={_hl:.0f}d")
+            _mult_str = f"×{_mult:.3f}" if abs(_mult - 1.0) > 0.005 else "  ×1.000"
+            print(f"    {_icon} {_i + 1}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  {_lbl_eff}={_eff:.2%}  {_lbl_def}={_deficit_str}  {_lbl_hl}={_hl:.0f}d  {_mult_str}")
+            if _ix and _ix.active_synergies:
+                for _synergy in _ix.active_synergies:
+                    _s_icon = "⚡" if _synergy["type"] == "POSITIVE_BOOM" else "🔻"
+                    print(f"         {_s_icon} {_synergy['rule']} → ×{_synergy['multiplier']:.3f}")
         print(f"    {'...':>14s}")
         for _i, (_sect, _sc) in enumerate(_ranked[-2:]):
             _lag = _lag_results.get(_sect)
+            _ix = _ix_results.get(_sect)
             _eff = _lag.effective_score if _lag else _sc
             _deficit = _lag.signal_deficit if _lag else 0.0
             _hl = _lag.half_life if _lag else 0
+            _mult = _ix.multiplier if _ix else 1.0
             _icon = "🟢" if _eff > 0.5 else "🟡" if _eff > 0.35 else "🔴"
             _deficit_str = f"{_deficit:+.2%}" if abs(_deficit) > 0.01 else "  0.00%"
-            print(f"    {_icon} {len(_ranked) - 1 + _i}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  {_lbl_eff}={_eff:.2%}  {_lbl_def}={_deficit_str}  {_lbl_hl}={_hl:.0f}d")
+            _mult_str = f"×{_mult:.3f}" if abs(_mult - 1.0) > 0.005 else "  ×1.000"
+            print(f"    {_icon} {len(_ranked) - 1 + _i}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  {_lbl_eff}={_eff:.2%}  {_lbl_def}={_deficit_str}  {_lbl_hl}={_hl:.0f}d  {_mult_str}")
 
         # Inject into final decision
         kq["macro_state_vector"] = _M
         kq["sector_macro_scores"] = {s: r.macro_score for s, r in _scores.items()}
         kq["sector_macro_scores_effective"] = {s: r.effective_score for s, r in _lag_results.items()}
         kq["sector_signal_deficits"] = {s: r.signal_deficit for s, r in _lag_results.items()}
+        kq["sector_interactions"] = {s: r.multiplier for s, r in _ix_results.items()}
         kq["sector_ranking"] = [(s, sc) for s, sc in _ranked]
 
     except Exception as e:
