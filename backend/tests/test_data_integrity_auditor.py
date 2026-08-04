@@ -1,5 +1,14 @@
 """test_data_integrity_auditor.py — TDD cho DataIntegrityAuditor (Deep Data Density Scanner & Self-Healing).
 
+WHY dữ liệu phải là THẬT (100% provenance, không bịa):
+  Mệnh lệnh của hệ thống là "ĐỨNG NGOÀI" (bảo toàn vốn thô) khi thiếu thông tin. Mỗi con
+  số giải ngân (sa 100%) — GOV dựa trên dữ liệu giả sẽ là quyết định giải ngân/đứng ngoài
+  trăm tỷ bằng ảo giác, gây vỡ quỹ. Do đó:
+    - Dữ liệu KHÔNG có xuất xứ hợp lệ = vô giá trị (No Provenance = No Trust), dù trông
+      "đầy đủ" (density 100%) hay "đúng độ lớn" (trong dải nghìn tỷ).
+    - Khóa sinh dữ liệu giả, trả mảng rỗng khi nguồn thật chết để Governor ép ĐỨNG NGOÀI.
+  Lỗi quay về trạng thái an toàn (bon không ra tiêu tiền) — đúng tôn chỉ của sắc lệnh.
+
 Kiểm thử:
   - Quét mật độ dữ liệu 30 quý gần nhất (2019Q1 - 2026Q2) cho danh mục cổ phiếu
   - Phân loại trạng thái Audit Status (PERFECT / GAP_FOUND / SEVERE_GAP)

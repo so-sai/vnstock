@@ -230,6 +230,12 @@ class TestBridgeIntegration:
 # Zero-Hallucination Policy (Sắc lệnh 2026-08-04)
 # ============================================================
 class TestZeroHallucinationLock:
+    # WHY cần dữ liệu THẬT (không bịa): mệnh lệnh hệ thống là "ĐỨNG NGOÀI" khi thiếu
+    # thông tin — bảo toàn vốn thô. Dữ liệu vẽ (debt_2026=25e12, rev_2026=9.85e12...)
+    # từng trá hình nguồn thật trong DB → dẫn tới quyết định giải ngân/đứng ngoài trăm tỷ
+    # dựa trên ảo giác. Dữ liệu không có xuất xứ hợp lệ = vô giá trị, dù "đầy đủ" hay
+    # "đúng độ lớn". Khóa chặt tận gốc để Governor luôn nhận NO_DATA thật → ép ĐỨNG NGOÀI.
+
     def test_synthetic_base_is_permanently_locked(self):
         """_generate_synthetic_base phải trả [] — CẤM bịa dữ liệu tài chính.
 
