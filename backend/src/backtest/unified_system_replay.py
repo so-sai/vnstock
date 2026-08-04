@@ -50,7 +50,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from governor.interaction_engine import InteractionEngine
-from governor.macro_lag_engine import MacroLagEngine
+from governor.macro_lag_engine import MacroLagEngine, SECTOR_TRANSMISSION
 from governor.regional_influence_engine import RegionalInfluenceEngine
 from governor.sector_exposure_matrix import SectorExposureMatrix
 
@@ -256,7 +256,8 @@ def _build_result(state, scenario, start, end, days):
 # ═══════════════════════════════════════════════════════════
 
 def _macro_cache_valid(cache_path: Path, db_path: str, start_date: str) -> bool:
-    """Check if Parquet cache exists and is newer than macro_history data."""
+    """Check if Parquet cache exists, is newer than macro_history, and
+    matches current engine configurations (weights + rules)."""
     if not cache_path.exists():
         return False
     try:
@@ -268,9 +269,60 @@ def _macro_cache_valid(cache_path: Path, db_path: str, start_date: str) -> bool:
         latest_macro = row[0] if row and row[0] else "1970-01-01"
         cache_mtime = datetime.fromtimestamp(cache_path.stat().st_mtime)
         cache_date = cache_mtime.strftime("%Y-%m-%d")
-        return cache_date >= latest_macro and cache_date >= start_date
+        if cache_date < latest_macro or cache_date < start_date:
+            return False
+
+        # Check engine configuration version
+        current_version = _get_engine_version()
+        try:
+            import pyarrow.parquet as pq
+            meta = pq.read_metadata(str(cache_path))
+            cached_version = meta.metadata.get(b"engine_version", b"").decode()
+            if cached_version != current_version:
+                return False
+        except Exception:
+            return False
+
+        return True
     except Exception:
         return False
+
+
+def _get_engine_version() -> str:
+    """Compute a version hash from current engine configurations.
+
+    Uses module-level constants (no instance creation needed).
+    Any change in weights, rules, or transmission parameters
+    invalidates the Parquet cache automatically.
+    """
+    import hashlib
+
+    h = hashlib.sha256()
+
+    # SectorExposureMatrix weights (module-level constant)
+    from governor.sector_exposure_matrix import SECTOR_EXPOSURE_WEIGHTS
+    for sector in sorted(SECTOR_EXPOSURE_WEIGHTS):
+        weights = SECTOR_EXPOSURE_WEIGHTS[sector]
+        for node in sorted(weights):
+            h.update(f"{sector}:{node}:{weights[node]}".encode())
+
+    # InteractionEngine rules (module-level constant)
+    from governor.interaction_engine import INTERACTION_RULES
+    for rule in sorted(INTERACTION_RULES, key=lambda r: r.get("name", "")):
+        h.update(
+            f"IX:{rule.get('name','')}:{rule.get('threshold',0)}:"
+            f"{rule.get('scale',1)}".encode()
+        )
+
+    # MacroLagEngine transmission parameters (module-level constant)
+    for sector in sorted(SECTOR_TRANSMISSION):
+        tp = SECTOR_TRANSMISSION[sector]
+        h.update(
+            f"LAG:{sector}:{tp.lag_min}:{tp.lag_max}:"
+            f"{tp.half_life}:{tp.attenuation}".encode()
+        )
+
+    return h.hexdigest()
 
 
 def _save_macro_cache(
@@ -303,6 +355,10 @@ def _save_macro_cache(
 
     table = pa.Table.from_pylist(rows)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Embed engine version in Parquet metadata for cache invalidation
+    version = _get_engine_version()
+    table = table.replace_schema_metadata({b"engine_version": version.encode()})
     pq.write_table(table, str(path))
 
 
