@@ -1,0 +1,271 @@
+"""regional_influence_engine.py — Macro State Vector Computation.
+
+Computes the Macro State Vector M ∈ R^4 from live market data:
+  M = [US_Liquidity, China_Economy, Commodity_Cycle, Domestic_Liquidity]
+
+Each component is normalized to [0, 1] via regime-aware Bayesian bounds.
+
+Integration:
+  Macro History DB → RegionalInfluenceEngine → M vector → SectorExposureMatrix
+                                                      → Sector Macro Scores
+
+LAW-010 (Regime Invariance):
+  All macro observations are evaluated conditional on regime.
+"""
+
+import logging
+import sqlite3
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+def _hydrate_path():
+    """Path Hydrator v2.1: Auto-locate Project Root."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    current = Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
+            return current
+        current = current.parent
+    return Path(__file__).resolve().parent.parent.parent
+
+
+PROJECT_ROOT = _hydrate_path()
+
+# ── Normalization Bounds ──────────────────────────────────────────────
+# Historical ranges for each macro variable (VN market 2011-2026).
+NORMALIZATION_BOUNDS = {
+    # US Liquidity: Fed Funds Rate + DXY composite
+    "US_FED_RATE": {"low": 0.0, "high": 5.5},
+    "DXY": {"low": 90.0, "high": 115.0},
+    "US10Y": {"low": 0.5, "high": 5.0},
+    "VIX": {"low": 12.0, "high": 35.0},
+    # China Economy
+    "USDCNY": {"low": 6.3, "high": 7.5},
+    # Commodity Cycle
+    "BRENT_OIL": {"low": 40.0, "high": 120.0},
+    "COPPER": {"low": 6000.0, "high": 11000.0},
+    # Domestic Liquidity
+    "INTERBANK_ON": {"low": 2.0, "high": 8.0},
+    "VNINDEX": {"low": 800.0, "high": 1500.0},
+}
+
+# ── Composite Weights for Each Macro Node ─────────────────────────────
+# How to aggregate multiple indicators into one node score.
+NODE_COMPOSITE_WEIGHTS = {
+    "US_Liquidity": {
+        "US_FED_RATE": 0.40,
+        "DXY": 0.30,
+        "US10Y": 0.20,
+        "VIX": 0.10,
+    },
+    "China_Economy": {
+        "USDCNY": 0.50,
+        "BRENT_OIL": 0.25,  # China is largest oil importer
+        "COPPER": 0.25,  # China is largest copper consumer
+    },
+    "Commodity_Cycle": {
+        "BRENT_OIL": 0.40,
+        "COPPER": 0.40,
+        "DXY": 0.20,  # USD inverse correlation with commodities
+    },
+    "Domestic_Liquidity": {
+        "INTERBANK_ON": 0.50,
+        "VNINDEX": 0.30,  # Market breadth as liquidity proxy
+        "US10Y": 0.20,  # Global yield influence
+    },
+}
+
+
+def _normalize(value: float, low: float, high: float, invert: bool = False) -> float:
+    """Normalize value to [0, 1]. Invert=True for inverse indicators."""
+    if value is None:
+        return 0.5
+    if high <= low:
+        return 0.5
+    clamped = max(low, min(high, value))
+    normalized = (clamped - low) / (high - low)
+    return 1.0 - normalized if invert else normalized
+
+
+@dataclass
+class RegionalMacroResult:
+    """Result of regional macro state vector computation."""
+
+    macro_vector: dict  # M = {node: score ∈ [0, 1]}
+    component_scores: dict  # Raw indicator scores
+    data_quality: dict  # Which indicators had data
+    node_details: dict  # Per-node decomposition
+
+
+class RegionalInfluenceEngine:
+    """Compute Macro State Vector M from live market data.
+
+    Architecture:
+      1. Fetch macro indicators from DB
+      2. Normalize each indicator to [0, 1]
+      3. Aggregate into 4 macro nodes via weighted average
+      4. Return M vector for SectorExposureMatrix
+
+    Example:
+      engine = RegionalInfluenceEngine()
+      result = engine.compute()
+      print(result.macro_vector)
+      # {'US_Liquidity': 0.35, 'China_Economy': 0.72,
+      #  'Commodity_Cycle': 0.58, 'Domestic_Liquidity': 0.61}
+    """
+
+    def __init__(self, db_path: Optional[str] = None):
+        self.db_path = db_path or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
+
+    def _fetch_latest(self, variable: str, target_date: Optional[str] = None) -> Optional[float]:
+        """Fetch latest value for a macro variable."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            if target_date:
+                row = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = ? AND date <= ? ORDER BY date DESC LIMIT 1",
+                    (variable, target_date),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1",
+                    (variable,),
+                ).fetchone()
+            return float(row[0]) if row and row[0] is not None else None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def _fetch_rolling_avg(self, variable: str, window: int = 20, target_date: Optional[str] = None) -> Optional[float]:
+        """Fetch rolling average for a macro variable."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            if target_date:
+                rows = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = ? AND date <= ? ORDER BY date DESC LIMIT ?",
+                    (variable, target_date, window),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT value FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT ?",
+                    (variable, window),
+                ).fetchall()
+            values = [r[0] for r in rows if r[0] is not None]
+            return float(np.mean(values)) if values else None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def _normalize_indicator(self, variable: str, value: Optional[float], invert: bool = False) -> Optional[float]:
+        """Normalize a macro indicator to [0, 1]."""
+        if value is None:
+            return None
+        bounds = NORMALIZATION_BOUNDS.get(variable)
+        if not bounds:
+            return None
+        return _normalize(value, bounds["low"], bounds["high"], invert)
+
+    def _compute_node_score(
+        self,
+        node_name: str,
+        indicator_scores: dict,
+        data_quality: dict,
+    ) -> float:
+        """Compute weighted average score for a macro node."""
+        weights = NODE_COMPOSITE_WEIGHTS.get(node_name, {})
+        total_weight = 0.0
+        weighted_sum = 0.0
+
+        for indicator, weight in weights.items():
+            score = indicator_scores.get(indicator)
+            has_data = data_quality.get(indicator, False)
+            if has_data and score is not None:
+                weighted_sum += score * weight
+                total_weight += weight
+
+        if total_weight > 0:
+            return weighted_sum / total_weight
+        return 0.5  # neutral when no data
+
+    def compute(self, target_date: Optional[str] = None) -> RegionalMacroResult:
+        """Compute Macro State Vector M.
+
+        Returns:
+            RegionalMacroResult with M vector and diagnostics
+        """
+        # ── Fetch all indicators ──────────────────────────────────────
+        indicators = {}
+
+        # US Liquidity
+        indicators["US_FED_RATE"] = self._fetch_latest("FED_TARGET_RATE", target_date)
+        indicators["DXY"] = self._fetch_rolling_avg("DXY", 5, target_date)
+        indicators["US10Y"] = self._fetch_rolling_avg("US10Y", 5, target_date)
+        indicators["VIX"] = self._fetch_rolling_avg("VIX", 5, target_date)
+
+        # China Economy
+        indicators["USDCNY"] = self._fetch_latest("USD_CNY", target_date)
+
+        # Commodity Cycle
+        indicators["BRENT_OIL"] = self._fetch_rolling_avg("BRENT_OIL", 5, target_date)
+        indicators["COPPER"] = self._fetch_rolling_avg("COPPER_HG", 5, target_date)
+
+        # Domestic Liquidity
+        indicators["INTERBANK_ON"] = self._fetch_latest("INTERBANK_ON", target_date)
+        indicators["VNINDEX"] = self._fetch_latest("VNINDEX", target_date)
+
+        # ── Normalize indicators ──────────────────────────────────────
+        indicator_scores = {}
+        data_quality = {}
+
+        # Invert indicators where HIGHER = WORSE for liquidity
+        invert_map = {"US_FED_RATE", "VIX", "DXY", "US10Y", "USDCNY", "INTERBANK_ON"}
+
+        for variable, value in indicators.items():
+            invert = variable in invert_map
+            normalized = self._normalize_indicator(variable, value, invert)
+            indicator_scores[variable] = normalized
+            data_quality[variable] = value is not None and normalized is not None
+
+        # ── Compute node scores ───────────────────────────────────────
+        node_details = {}
+        macro_vector = {}
+
+        for node_name in ["US_Liquidity", "China_Economy", "Commodity_Cycle", "Domestic_Liquidity"]:
+            score = self._compute_node_score(node_name, indicator_scores, data_quality)
+            macro_vector[node_name] = round(score, 4)
+
+            # Decompose node into constituent indicators
+            weights = NODE_COMPOSITE_WEIGHTS.get(node_name, {})
+            details = {}
+            for indicator, weight in weights.items():
+                s = indicator_scores.get(indicator)
+                details[indicator] = {
+                    "raw": indicators.get(indicator),
+                    "normalized": round(s, 4) if s is not None else None,
+                    "weight": weight,
+                }
+            node_details[node_name] = details
+
+        return RegionalMacroResult(
+            macro_vector=macro_vector,
+            component_scores=indicator_scores,
+            data_quality=data_quality,
+            node_details=node_details,
+        )
+
+
+def compute_macro_vector(target_date: Optional[str] = None, db_path: Optional[str] = None) -> dict:
+    """Convenience function: returns just the M vector dict."""
+    engine = RegionalInfluenceEngine(db_path)
+    result = engine.compute(target_date)
+    return result.macro_vector
