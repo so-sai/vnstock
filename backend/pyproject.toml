@@ -81,9 +81,13 @@ line-length = 127
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"] # Basic errors, forensics, imports, warnings
+select = [
+    "E", "F", "I", "W",  # Basic errors, forensics, imports, warnings
+    "S110",              # try-except-pass (silent exception swallowing)
+    "BLE001",            # blind except Exception (no specific exception type)
+]
 ignore = [
-    "E402", # Cho phép import sau sys.path.insert (Dành cho main.py và vendor)
+    "E402",  # Cho phép import sau sys.path.insert (Dành cho main.py và vendor)
 ]
 
 [tool.ruff.format]
