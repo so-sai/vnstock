@@ -24,10 +24,14 @@ Three First-Principles display contracts:
 """
 
 import json
+import logging
 import sys
 from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ─────────────────────────────────
 def _hydrate_path():
@@ -104,6 +108,7 @@ class CSIExplainEngine:
     def _get_graph(self):
         if self._graph is None:
             from calibration.causal_edge import CausalGraph
+
             self._graph = CausalGraph()
         return self._graph
 
@@ -111,16 +116,19 @@ class CSIExplainEngine:
         if self._world is None:
             try:
                 from src.sensors.world_sensor import WorldSensor
+
                 # status() reads the persisted fed_policy_cache.json without
                 # hitting the network — deterministic for CLI explanation.
                 self._world = WorldSensor(use_cache=True).status()
-            except Exception:
+            except Exception as e:
+                logger.warning("[CSI] WorldSensor load FAILED: %s — World layer empty", e)
                 self._world = {}
         return self._world
 
     def _get_perception(self):
         if self._perception is None:
             from src.governor.company_state import PerceptionLoader
+
             self._perception = PerceptionLoader()
         return self._perception
 
@@ -191,6 +199,7 @@ class CSIExplainEngine:
         """
         try:
             from src.business.archetype import ArchetypeEngine
+
             arch = ArchetypeEngine().classify(symbol)
             return arch.archetype if arch else "UNKNOWN"
         except Exception:
@@ -200,6 +209,7 @@ class CSIExplainEngine:
         """Map symbol → ICB sector name via the same mapping SectorStateEngine uses."""
         try:
             from src.core.macro.sector_state_engine import SectorStateEngine
+
             mapping = SectorStateEngine._load_icb_mapping()
             for sector, syms in mapping.items():
                 if symbol in syms:
@@ -244,8 +254,10 @@ class CSIExplainEngine:
         for wn in world_nodes:
             # FED_TARGET_RATE → INTEREST_RATE via US10Y_YIELD is the
             # canonical rates channel; DXY_USD → USD_VND is the FX channel.
-            vn_target = "INTEREST_RATE" if wn["node"] == "FED_TARGET_RATE" else (
-                "USD_VND" if wn["node"] == "DXY_USD" else "LIQUIDITY_TRAP"
+            vn_target = (
+                "INTEREST_RATE"
+                if wn["node"] == "FED_TARGET_RATE"
+                else ("USD_VND" if wn["node"] == "DXY_USD" else "LIQUIDITY_TRAP")
             )
             try:
                 path = cg.trace_path(wn["node"], vn_target, None)
@@ -315,10 +327,7 @@ class CSIExplainEngine:
 
         if policy_rate_active and dissent_active:
             primary = "dissent" if uncertainty > 0.25 else "policy_rate"
-            message = (
-                "Áp lực kép: chính sách lãi suất duy trì cao (Fact) "
-                "và bất đồng Fed gia tăng độ bất định (Surprise)."
-            )
+            message = "Áp lực kép: chính sách lãi suất duy trì cao (Fact) và bất đồng Fed gia tăng độ bất định (Surprise)."
         elif policy_rate_active:
             primary = "policy_rate"
             message = "CSI bị kìm bởi MỨC LÃI SUẤT (Fact — policy rate còn cao)."
@@ -357,6 +366,7 @@ class CSIExplainEngine:
         # P3 governor — CSI score + MoS + action.
         try:
             from src.governor.company_state import BayesianGovernor
+
             gov = BayesianGovernor()
             mandate = gov.assess(symbol)
             gov.close()
@@ -386,9 +396,7 @@ class CSIExplainEngine:
             if leg:
                 for hop in leg["hops"]:
                     hop_confidences.append(hop.get("compounded_confidence", 0.0))
-        edge_chain_conf = (
-            hop_confidences[-1] if hop_confidences else chain_conf
-        )
+        edge_chain_conf = hop_confidences[-1] if hop_confidences else chain_conf
         csi_confidence = round(0.7 * chain_conf + 0.3 * edge_chain_conf, 3)
 
         return {
@@ -424,6 +432,7 @@ class CSIExplainEngine:
 #   đầu vào (tính khả thi giao dịch), KHÔNG phải điểm đánh giá an toàn —
 #   an toàn do chính p_gain/action của BayesianGovernor quyết định.
 
+
 def scan_all(
     symbols: Optional[List[str]] = None,
     min_vol: float = 100_000,
@@ -453,28 +462,32 @@ def scan_all(
             r = engine.explain(sym)
             csi = r.get("csi", {})
             ent = r.get("entropy", {})
-            rows.append({
-                "symbol": sym,
-                "date": r.get("date", str(date.today())),
-                "csi_p_gain": csi.get("p_gain"),
-                "action": csi.get("action"),
-                "mos": csi.get("mos"),
-                "market_context": csi.get("market_context"),
-                "archetype": r.get("archetype"),
-                "csi_confidence": ent.get("csi_confidence"),
-            })
+            rows.append(
+                {
+                    "symbol": sym,
+                    "date": r.get("date", str(date.today())),
+                    "csi_p_gain": csi.get("p_gain"),
+                    "action": csi.get("action"),
+                    "mos": csi.get("mos"),
+                    "market_context": csi.get("market_context"),
+                    "archetype": r.get("archetype"),
+                    "csi_confidence": ent.get("csi_confidence"),
+                }
+            )
         except Exception:
             # Mã thiếu dữ liệu Governor → bỏ qua, không làm hỏng batch.
-            rows.append({
-                "symbol": sym,
-                "date": str(date.today()),
-                "csi_p_gain": None,
-                "action": "N/A",
-                "mos": None,
-                "market_context": "N/A",
-                "archetype": "UNKNOWN",
-                "csi_confidence": None,
-            })
+            rows.append(
+                {
+                    "symbol": sym,
+                    "date": str(date.today()),
+                    "csi_p_gain": None,
+                    "action": "N/A",
+                    "mos": None,
+                    "market_context": "N/A",
+                    "archetype": "UNKNOWN",
+                    "csi_confidence": None,
+                }
+            )
         if progress_cb:
             progress_cb(i, total, sym)
 
@@ -488,35 +501,35 @@ def _liquid_symbols(min_vol: float = 100_000) -> List[str]:
     (giống breadth_engine.py) để tái sử dụng cùng nguồn dữ liệu.
     """
     try:
-        import sqlite3
         import pandas as pd
+
         from src.database.db_core import get_connection
+
         with get_connection() as conn:
             # WHY: tính cutoff date trong Python vì mỗi date có ~1500 rows
             # (1/symbol) — OFFSET 25 trong SQL vẫn rơi vào cùng ngày max.
-            dates = [r[0] for r in conn.execute(
-                "SELECT DISTINCT date FROM daily_ohlcv ORDER BY date DESC LIMIT 30"
-            ).fetchall()]
+            dates = [
+                r[0] for r in conn.execute("SELECT DISTINCT date FROM daily_ohlcv ORDER BY date DESC LIMIT 30").fetchall()
+            ]
         if not dates:
             return []
         cutoff = dates[-1] if len(dates) >= 26 else dates[-1]
         with get_connection() as conn:
             df = pd.read_sql(
                 "SELECT symbol, date, volume FROM daily_ohlcv WHERE date >= ?",
-                conn, params=(cutoff,),
+                conn,
+                params=(cutoff,),
             )
         if df.empty:
             return []
         df = df.copy()
-        df['date'] = pd.to_datetime(df['date'], format='mixed')
-        df = df.sort_values(['symbol', 'date'])
-        g = df.groupby('symbol')
-        df.loc[:, 'avg_vol_20d'] = g['volume'].transform(
-            lambda x: x.rolling(20, min_periods=5).mean()
-        )
-        latest = df[df['date'] == df['date'].max()].copy()
-        liquid = latest[latest['avg_vol_20d'] >= min_vol]
-        return sorted(liquid['symbol'].unique().tolist())
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
+        df = df.sort_values(["symbol", "date"])
+        g = df.groupby("symbol")
+        df.loc[:, "avg_vol_20d"] = g["volume"].transform(lambda x: x.rolling(20, min_periods=5).mean())
+        latest = df[df["date"] == df["date"].max()].copy()
+        liquid = latest[latest["avg_vol_20d"] >= min_vol]
+        return sorted(liquid["symbol"].unique().tolist())
     except Exception:
         return []
 
@@ -555,37 +568,38 @@ def print_csi_explain(result: Dict, lang_mode: str = "full") -> None:
         "OPEN": "↑↑",
     }.get(csi.get("action"), "→")
 
-    print(f"\n  {'═'*100}")
-    print(f"  🔎 CSI EXPLAIN — {sym} | {result['date']} | "
-          f"Archetype: {result['archetype']}"
-          + (f" (Health: {result['health_archetype']})" if result.get("health_archetype") else ""))
-    print(f"  {'═'*100}")
+    print(f"\n  {'═' * 100}")
+    print(
+        f"  🔎 CSI EXPLAIN — {sym} | {result['date']} | "
+        f"Archetype: {result['archetype']}"
+        + (f" (Health: {result['health_archetype']})" if result.get("health_archetype") else "")
+    )
+    print(f"  {'═' * 100}")
 
     # ── Header: CSI score + confidence ────────────────────────────────
-    print(f"\n  🎯 {sym} CSI: {csi.get('p_gain', 0.0):.2f} {arrow} "
-          f"({_fmt_mos(csi.get('mos'))})")
-    print(f"     {_('Action')}: {csi.get('action')} | "
-          f"{_('Market context')}: {csi.get('market_context')}")
-    print(f"     {_('Chain Confidence')}: {ent['csi_confidence']:.2f} "
-          f"(1 - H={ent['macro_entropy']:.2f}/{ent['max_entropy']:.2f})")
+    print(f"\n  🎯 {sym} CSI: {csi.get('p_gain', 0.0):.2f} {arrow} ({_fmt_mos(csi.get('mos'))})")
+    print(f"     {_('Action')}: {csi.get('action')} | {_('Market context')}: {csi.get('market_context')}")
+    print(
+        f"     {_('Chain Confidence')}: {ent['csi_confidence']:.2f} "
+        f"(1 - H={ent['macro_entropy']:.2f}/{ent['max_entropy']:.2f})"
+    )
 
     # ── Layer 1: World FedState (Facts + Surprise) ────────────────────
-    print(f"\n  🌍 WORLD LAYER (P0.5 — FedState)")
-    print(f"  {'─'*100}")
+    print("\n  🌍 WORLD LAYER (P0.5 — FedState)")
+    print(f"  {'─' * 100}")
     for wn in result["world"]:
         tag = "FACT" if wn["kind"] == "fact" else "SURPRISE"
         label = wn["label"]
         print(f"    [{wn['node']}] ({label}) = {wn['display']:<12} [{tag}]")
 
     # ── Layer 2: Causal DAG trace ─────────────────────────────────────
-    print(f"\n  🔀 CAUSAL DAG TRACE (Cây vết truyền dẫn)")
-    print(f"  {'─'*100}")
+    print("\n  🔀 CAUSAL DAG TRACE (Cây vết truyền dẫn)")
+    print(f"  {'─' * 100}")
 
     world_to_vn = trace.get("world_to_vn")
     company_leg = trace.get("company_leg")
 
     if world_to_vn and world_to_vn.get("hops"):
-        prev_target = None
         for i, hop in enumerate(world_to_vn["hops"]):
             src = hop["source"]
             tgt = hop["target"]
@@ -594,11 +608,10 @@ def print_csi_explain(result: Dict, lang_mode: str = "full") -> None:
             branch = "│" if i < len(world_to_vn["hops"]) - 1 else "└"
             print(f"    [{src}]")
             print(f"      {branch}──({lag}, {conf})──> [{tgt}]")
-            prev_target = tgt
     else:
         # Fallback: show world nodes feeding the macro state directly.
         ms = macro.get("state", "STABLE")
-        print(f"    [World FedState]")
+        print("    [World FedState]")
         print(f"      └──(no registered causal edge)──> [VN Macro: {ms}]")
 
     # Macro → company leg
@@ -607,13 +620,14 @@ def print_csi_explain(result: Dict, lang_mode: str = "full") -> None:
     print(f"    [VN MACRO: {ms}] (P={macro.get('posterior', 0):.2f}, H={m_ent:.2f})")
 
     tp = trans.get("phase", "N/A")
-    print(f"      └──(transmission)──> [{_('Transmission')}: {tp} "
-          f"(Liquidity {trans.get('liquidity', 0):.0f}, "
-          f"Credit {trans.get('credit', 0):.0f})]")
+    print(
+        f"      └──(transmission)──> [{_('Transmission')}: {tp} "
+        f"(Liquidity {trans.get('liquidity', 0):.0f}, "
+        f"Credit {trans.get('credit', 0):.0f})]"
+    )
 
     if sector:
-        print(f"        └──(sector)──> [{_('Sector')}: {sector['name']} "
-              f"({sector['phase']}, score {sector['score']:.1f})]")
+        print(f"        └──(sector)──> [{_('Sector')}: {sector['name']} ({sector['phase']}, score {sector['score']:.1f})]")
     else:
         print(f"        └──(sector)──> [{_('Sector')}: N/A]")
 
@@ -630,45 +644,48 @@ def print_csi_explain(result: Dict, lang_mode: str = "full") -> None:
     print(f"                    └──> [🎯 {sym} CSI: {csi.get('p_gain', 0.0):.2f} {arrow}]")
 
     # ── Layer 3: Facts vs Surprise ────────────────────────────────────
-    print(f"\n  📊 FACTS vs SURPRISE (Dữ liệu thực vs Độ lệch kỳ vọng)")
-    print(f"  {'─'*100}")
+    print("\n  📊 FACTS vs SURPRISE (Dữ liệu thực vs Độ lệch kỳ vọng)")
+    print(f"  {'─' * 100}")
     print(f"    {attr['message']}")
     if attr["primary"] == "policy_rate":
-        print(f"    → Nguồn chính: POLICY RATE (Fact) — mức lãi suất "
-              f"{attr['fed_rate']:.2f}% kìm CSI.")
+        print(f"    → Nguồn chính: POLICY RATE (Fact) — mức lãi suất {attr['fed_rate']:.2f}% kìm CSI.")
     elif attr["primary"] == "dissent":
-        print(f"    → Nguồn chính: HAWKISH DISSENT (Surprise) — "
-              f"{attr['dissent']} phiếu bất đồng, uncertainty={attr['uncertainty']:.2f}.")
+        print(
+            f"    → Nguồn chính: HAWKISH DISSENT (Surprise) — "
+            f"{attr['dissent']} phiếu bất đồng, uncertainty={attr['uncertainty']:.2f}."
+        )
     else:
-        print(f"    → Không có nguồn World vượt ngưỡng áp lực.")
+        print("    → Không có nguồn World vượt ngưỡng áp lực.")
 
     # ── Layer 4: Entropy / Confidence ─────────────────────────────────
-    print(f"\n  🧮 ENTROPY / CONFIDENCE")
-    print(f"  {'─'*100}")
+    print("\n  🧮 ENTROPY / CONFIDENCE")
+    print(f"  {'─' * 100}")
     print(f"    Macro entropy H = {ent['macro_entropy']:.2f} (max {ent['max_entropy']:.2f})")
     print(f"    Chain confidence = 1 - H/H_max = {ent['chain_confidence']:.3f}")
     print(f"    Edge confidence  = {ent['edge_chain_confidence']:.3f}")
     print(f"    CSI confidence   = 0.7·chain + 0.3·edge = {ent['csi_confidence']:.3f}")
 
     # ── Layer 5: Company health evidence ──────────────────────────────
-    print(f"\n  🏥 COMPANY EVIDENCE (P2)")
-    print(f"  {'─'*100}")
-    print(f"    Archetype: {health.get('archetype', 'N/A')} "
-          f"(P={health.get('confidence', 0):.2f}) | "
-          f"Periods: {health.get('periods', 0)}")
-    print(f"    Organs: " + ", ".join(
-        f"{k}={v:.2f}" for k, v in zip(
-            ["Profit", "Cash", "BS", "Eff", "Moat"], health.get("vector", [])
-        )
-    ))
+    print("\n  🏥 COMPANY EVIDENCE (P2)")
+    print(f"  {'─' * 100}")
+    print(
+        f"    Archetype: {health.get('archetype', 'N/A')} "
+        f"(P={health.get('confidence', 0):.2f}) | "
+        f"Periods: {health.get('periods', 0)}"
+    )
+    print(
+        "    Organs: "
+        + ", ".join(f"{k}={v:.2f}" for k, v in zip(["Profit", "Cash", "BS", "Eff", "Moat"], health.get("vector", [])))
+    )
 
-    print(f"\n  {'═'*100}\n")
+    print(f"\n  {'═' * 100}\n")
 
 
 def _localize(label: str) -> str:
     """Localize label (best-effort, VI-first for Vietnamese readers)."""
     try:
         from src.core.canonical_output_adapter import localize_label
+
         vi = localize_label(label, "full")
         return f"{vi} ({label})" if vi != label else label
     except Exception:
@@ -693,41 +710,35 @@ def print_sector_csi_comparison(results: List[Dict], sector_name: str) -> None:
         return
 
     # Deduplicate sector phase from results (all share same sector leg).
-    sector_phase = next(
-        (r["sector"]["phase"] for r in results if r.get("sector")), "N/A"
-    )
-    sector_score = next(
-        (r["sector"]["score"] for r in results if r.get("sector")), 0.0
-    )
+    sector_phase = next((r["sector"]["phase"] for r in results if r.get("sector")), "N/A")
+    sector_score = next((r["sector"]["score"] for r in results if r.get("sector")), 0.0)
 
-    print(f"\n  {'═'*100}")
+    print(f"\n  {'═' * 100}")
     print(f"  🏭 SECTOR CSI COMPARISON — {sector_name}")
-    print(f"     Phase: {sector_phase} | Score: {sector_score:.1f} | "
-          f"Date: {results[0]['date']}")
-    print(f"  {'═'*100}")
+    print(f"     Phase: {sector_phase} | Score: {sector_score:.1f} | Date: {results[0]['date']}")
+    print(f"  {'═' * 100}")
 
     # ── Shared macro context (one row) ────────────────────────────────
     r0 = results[0]
-    print(f"\n  🌍 SHARED MACRO CONTEXT")
-    print(f"  {'─'*100}")
+    print("\n  🌍 SHARED MACRO CONTEXT")
+    print(f"  {'─' * 100}")
     ms = r0["macro"].get("state", "N/A")
     tp = r0["transmission"].get("phase", "N/A")
     attr = r0["attribution"]
-    print(f"    Macro State: {ms} | Transmission: {tp} | "
-          f"Attribution: {attr['primary']} ({attr['message'][:60]}...)")
-    fed_rate = next(
-        (w["value"] for w in r0["world"] if w["node"] == "FED_TARGET_RATE"), None
+    print(f"    Macro State: {ms} | Transmission: {tp} | Attribution: {attr['primary']} ({attr['message'][:60]}...)")
+    fed_rate = next((w["value"] for w in r0["world"] if w["node"] == "FED_TARGET_RATE"), None)
+    print(
+        f"    Fed Rate: {fed_rate:.2f}% | "
+        f"Entropy: {r0['entropy']['macro_entropy']:.2f} | "
+        f"Confidence: {r0['entropy']['csi_confidence']:.3f}"
     )
-    print(f"    Fed Rate: {fed_rate:.2f}% | "
-          f"Entropy: {r0['entropy']['macro_entropy']:.2f} | "
-          f"Confidence: {r0['entropy']['csi_confidence']:.3f}")
 
     # ── Per-symbol comparison table ────────────────────────────────────
-    print(f"\n  📊 PER-SYMBOL BREAKDOWN")
-    print(f"  {'─'*100}")
+    print("\n  📊 PER-SYMBOL BREAKDOWN")
+    print(f"  {'─' * 100}")
     header = f"    {'Symbol':<8} {'CSI':>5} {'Action':<10} {'Archetype':<20} {'MoS':>8} {'Conf':>6} {'Attribution':<12}"
     print(header)
-    print(f"    {'─'*92}")
+    print(f"    {'─' * 92}")
 
     for r in sorted(results, key=lambda x: x["csi"].get("p_gain", 0), reverse=True):
         sym = r["symbol"]
@@ -739,16 +750,15 @@ def print_sector_csi_comparison(results: List[Dict], sector_name: str) -> None:
         conf = r["entropy"]["csi_confidence"]
         attrib = r["attribution"]["primary"]
 
-        arrow = {"REDUCE": "↓", "AVOID": "↓↓", "VETO": "✖",
-                 "WAIT": "→", "HOLD": "•", "SCALE_IN": "↑", "OPEN": "↑↑"
-                 }.get(action, "→")
+        arrow = {"REDUCE": "↓", "AVOID": "↓↓", "VETO": "✖", "WAIT": "→", "HOLD": "•", "SCALE_IN": "↑", "OPEN": "↑↑"}.get(
+            action, "→"
+        )
 
-        print(f"    {sym:<8} {csi_val:.2f}{arrow:>1} {action:<10} {arch:<20} "
-              f"{mos_str:>8} {conf:>6.3f} {attrib:<12}")
+        print(f"    {sym:<8} {csi_val:.2f}{arrow:>1} {action:<10} {arch:<20} {mos_str:>8} {conf:>6.3f} {attrib:<12}")
 
     # ── Causal path divergence (which hops differ) ─────────────────────
-    print(f"\n  🔀 CAUSAL PATH DIVERGENCE")
-    print(f"  {'─'*100}")
+    print("\n  🔀 CAUSAL PATH DIVERGENCE")
+    print(f"  {'─' * 100}")
     # Group by archetype to show path similarities/differences.
     by_arch: Dict[str, List[Dict]] = {}
     for r in results:
@@ -774,24 +784,24 @@ def print_sector_csi_comparison(results: List[Dict], sector_name: str) -> None:
                 conf = f"conf {hop['confidence']:.2f}"
                 print(f"        └──({lag}, {conf})──> [{hop['target']}]")
         else:
-            print(f"        └──(no registered company edge)")
+            print("        └──(no registered company edge)")
 
     # ── Key insight ────────────────────────────────────────────────────
-    print(f"\n  💡 INSIGHT")
-    print(f"  {'─'*100}")
+    print("\n  💡 INSIGHT")
+    print(f"  {'─' * 100}")
     csi_vals = [r["csi"].get("p_gain", 0) for r in results]
     if csi_vals:
         spread = max(csi_vals) - min(csi_vals)
         best = max(results, key=lambda x: x["csi"].get("p_gain", 0))
         worst = min(results, key=lambda x: x["csi"].get("p_gain", 0))
-        print(f"    CSI Spread (Biên Phân Hóa Bối Cảnh): {spread:.2f} "
-              f"({worst['symbol']}={min(csi_vals):.2f} → {best['symbol']}={max(csi_vals):.2f})")
-        print(f"    All {len(results)} symbols share macro drag: {attr['primary']} "
-              f"(Fed {fed_rate:.2f}%)")
-        print(f"    Differentiation comes from company-specific health/archetype, "
-              f"not sector leg.")
+        print(
+            f"    CSI Spread (Biên Phân Hóa Bối Cảnh): {spread:.2f} "
+            f"({worst['symbol']}={min(csi_vals):.2f} → {best['symbol']}={max(csi_vals):.2f})"
+        )
+        print(f"    All {len(results)} symbols share macro drag: {attr['primary']} (Fed {fed_rate:.2f}%)")
+        print("    Differentiation comes from company-specific health/archetype, not sector leg.")
 
-    print(f"\n  {'═'*100}\n")
+    print(f"\n  {'═' * 100}\n")
 
 
 def resolve_sector_symbols(sector_query: str) -> List[str]:
@@ -801,6 +811,7 @@ def resolve_sector_symbols(sector_query: str) -> List[str]:
     """
     try:
         from src.core.macro.sector_state_engine import SectorStateEngine
+
         mapping = SectorStateEngine._load_icb_mapping()
     except Exception:
         return []
@@ -822,6 +833,7 @@ def list_sectors() -> List[str]:
     """Return all available ICB sector names for display."""
     try:
         from src.core.macro.sector_state_engine import SectorStateEngine
+
         mapping = SectorStateEngine._load_icb_mapping()
         return sorted(mapping.keys())
     except Exception:
@@ -830,6 +842,7 @@ def list_sectors() -> List[str]:
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="CSI Causal Trace Explainer")
     parser.add_argument("--symbol", type=str, required=True, help="Mã cổ phiếu")
     args = parser.parse_args()

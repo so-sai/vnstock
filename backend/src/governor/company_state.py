@@ -16,6 +16,7 @@ Output layers (CSI Inverted Pyramid):
 """
 
 import json
+import logging
 import math
 import sqlite3
 import sys
@@ -23,6 +24,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -884,7 +887,8 @@ class PerceptionLoader:
                 "posterior": latest.get("posterior", 0.5),
                 "entropy": latest.get("entropy", 1.5),
             }
-        except Exception:
+        except Exception as e:
+            logger.warning("[GOV] Failed to load macro_state_history.json: %s — defaulting to STABLE", e)
             return {"state": "STABLE", "posterior": 0.5, "entropy": 1.5}
 
     def load_transmission(self) -> dict:
@@ -1140,8 +1144,9 @@ class BayesianGovernor:
             from calibration.prediction_log import check_circuit_breaker_auto
 
             self._cb_state = check_circuit_breaker_auto(days=90)
-        except Exception:
-            self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": "CHECK_FAILED"}
+        except Exception as e:
+            logger.warning("[GOV] Circuit breaker check FAILED: %s — defaulting to BÌNH_THƯỜNG (level 0)", e)
+            self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": f"CHECK_FAILED: {e}"}
         return self._cb_state
 
     def assess(self, symbol: str) -> BayesianMandate:
@@ -1287,8 +1292,8 @@ class BayesianGovernor:
             dw = get_dynamic_evidence_weights(_ms, _sp, _en)
             if dw:
                 dynamic_weights = dw
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[GOV] EvidenceEngine dynamic weights FAILED: %s — using static weights", e)
 
         # ── Giai đoạn 6: CausalEdge propagation (Sprint 3) ──
         # WHY: Previously _causal_conf/_causal_lag were computed then discarded.
@@ -1309,8 +1314,8 @@ class BayesianGovernor:
                 _causal_paths = len(_results)
                 # Coherence = avg confidence across all reached nodes
                 _causal_coherence = sum(r["confidence"] for r in _results) / len(_results)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[GOV] CausalGraph propagation FAILED for %s: %s", symbol, e)
 
         # ── Giai đoạn 6b: Sector Macro Score (Dot Product M · W_i) ──
         # WHY: SectorExposureMatrix computes per-sector macro fingerprint.
@@ -1332,8 +1337,8 @@ class BayesianGovernor:
                 # Low macro score (bearish) → LR < 1.0 (reduce gain prob)
                 # High macro score (bullish) → LR > 1.0 (increase gain prob)
                 _sector_macro_lr = 0.3 + 1.7 * _sector_macro_score
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[GOV] SectorExposureMatrix FAILED for %s: %s", symbol, e)
 
         # ── Giai đoạn 7: ModelRegistry BMA competition (Sprint 4) ──
         # WHY: BMA weights are computed ONCE per batch (lazy-cached via
@@ -1347,8 +1352,8 @@ class BayesianGovernor:
                 self._bma_posterior = mr.bma_posterior(_ms, arch_prior_key)
                 self._dominant_model = mr.select_best(_ms, arch_prior_key)
             model_registry_lr = compute_model_registry_lr(self._bma_posterior)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[GOV] ModelRegistry BMA FAILED: %s — model_registry_lr=1.0", e)
 
         # Bayesian inference v3 with Giai đoạn 7 ModelRegistry LR
         #   + FairMultipleEngine lr_val_override (MoS-modulated valuation LR)
