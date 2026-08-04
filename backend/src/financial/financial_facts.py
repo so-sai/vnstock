@@ -554,6 +554,43 @@ class FinancialFactsDB:
             self.conn.close()
             self.conn = None
 
+    def cascade_delete_health_ratios(self, symbol: str = None, period: str = None, min_ratio_value: float = None):
+        """Xóa health_ratios tương ứng khi financial_facts bị purge.
+
+        Args:
+            symbol: Xóa cho 1 symbol cụ thể (None = all symbols)
+            period: Xóa cho 1 period cụ thể (None = all periods)
+            min_ratio_value: Xóa rows có ratio_value > threshold (ví dụ D/E > 10.0)
+
+        WHY: Tránh lệch pha CSDL giữa financial_facts (raw) và health_ratios (derived).
+        Khi facts bị purge/recalculate, ratios phải được cascade delete để tránh
+        dữ liệu rác tồn tại indefinitely (ví dụ D/E=609M từ TOTAL_DEBT synthetic).
+        """
+        conn = self.connect()
+        conditions = []
+        params = []
+
+        if symbol:
+            conditions.append("symbol = ?")
+            params.append(symbol.upper())
+        if period:
+            conditions.append("period = ?")
+            params.append(period)
+        if min_ratio_value is not None:
+            conditions.append("ratio_value > ?")
+            params.append(min_ratio_value)
+
+        where = " AND ".join(conditions) if conditions else "1=1"
+        sql = f"DELETE FROM health_ratios WHERE {where}"
+
+        try:
+            cursor = conn.execute(sql, params)
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
+        except Exception:
+            return 0
+
     def init_schema(self):
         """Khởi tạo Schema Kép."""
         conn = self.connect()
@@ -748,6 +785,19 @@ class FinancialFactsDB:
             "DELETE FROM financial_facts WHERE symbol = ? AND period = ?",
             (symbol.upper(), period),
         )
+
+        # CASCADE DELETE health_ratios: xóa chỉ số dẫn xuất tương ứng để tránh
+        # lệch pha CSDL (financial_facts sạch nhưng health_ratios còn rác).
+        # WHY: health_ratios được compute từ financial_facts — khi facts thay đổi,
+        # ratios phải được recomputed. Nếu không cascade delete, dữ liệu rác
+        # (ví dụ D/E=609M từ TOTAL_DEBT synthetic) sẽ tồn tại indefinitely.
+        try:
+            cursor.execute(
+                "DELETE FROM health_ratios WHERE symbol = ? AND period = ?",
+                (symbol.upper(), period),
+            )
+        except Exception:
+            pass  # health_ratios table may not exist yet
 
         # Store balance sheet items for integrity check
         bs_facts = {}

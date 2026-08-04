@@ -434,17 +434,28 @@ def _load_symbol_industry(conn) -> Dict[str, str]:
 def _compute_sector_receivables_p75(
     fin_conn, screen_conn, universe: List[str], periods: List[str]
 ) -> Dict[str, Optional[float]]:
-    """Compute 75th percentile of RECEIVABLES/REVENUE per sector across universe.
+    """Compute 75th percentile of RECEIVABLES/REVENUE per sector.
 
-    Returns {sector_name: p75_ratio}. Sectors with < 3 symbols having data → None
-    (fallback to static T2_RECEIVABLES_MAX in tier2).
+    Two-layer scan:
+      Layer 1: Scan ALL stocks from symbol_industry (full market, ~1555 symbols)
+        to maximize sector coverage. Only stocks with RECEIVABLES+REVENUE data
+        contribute to the ratio distribution.
+      Layer 2: For sectors with < 3 stocks having data, use max ratio (P100)
+        as fallback threshold. Solo stocks always pass (ratio ≤ their own max).
+
+    Returns {sector_name: p75_ratio_or_p100_fallback}.
     WHY: Industry-Relative Percentile Gate replaces static 25% cap to avoid
     Type II Error against B2B/IT companies where high receivables are structural.
+    Full-market scan ensures sectors like IT (FPT) get maximum peer context.
     """
-    mapping = _load_symbol_industry(screen_conn)
+    # Layer 1: Load ALL symbols from symbol_industry (full market)
+    all_mapping = _load_symbol_industry(screen_conn)
+    all_symbols = list(all_mapping.keys())
+
+    # Compute RECEIVABLES/REVENUE ratio for every symbol with data
     sector_ratios: Dict[str, List[float]] = {}
-    for sym in universe:
-        sector = mapping.get(sym, "UNKNOWN")
+    for sym in all_symbols:
+        sector = all_mapping.get(sym, "UNKNOWN")
         rec = _load_metric_years(fin_conn, sym, "RECEIVABLES", periods[-4:])
         rev = _load_metric_years(fin_conn, sym, "REVENUE", periods[-4:])
         if rec and rev:
@@ -454,6 +465,7 @@ def _compute_sector_receivables_p75(
                 ratio = rec_last / rev_last
                 sector_ratios.setdefault(sector, []).append(ratio)
 
+    # Layer 2: Compute P75 per sector, with P100 fallback for small sectors
     result: Dict[str, Optional[float]] = {}
     for sector, ratios in sector_ratios.items():
         if len(ratios) >= 3:
