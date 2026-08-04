@@ -254,3 +254,26 @@ class TestTier4Mos:
         r = vf.tier4_valuation_mos(conn, "EXP")
         assert r["pass"] is False
         assert r["mos"] < vf.T4_MOS_MIN
+
+
+# ── Max Sector Concentration Gate ────────────────────────────────────
+
+
+class TestSectorConcentrationGate:
+    def test_all_banks_capped_to_50_pct(self):
+        """6 banks (100% of picks) must be capped so banking sector <= 50%."""
+        qualified = [{"symbol": f"BK{i}", "sector": "Ngân hàng", "score": 80 - i, "mos": 0.6} for i in range(6)]
+        alloc = vf.allocate(qualified)
+        sw = alloc["sector_weights"]
+        assert alloc["sector_capped"] is True
+        assert sw.get("Ngân hàng", 0) <= vf.T4_MAX_SECTOR_WEIGHT + 0.001
+        assert alloc["cash"] >= 0.3, f"Excess bank weight must drain to cash, cash={alloc['cash']}"
+
+    def test_diversified_no_cap(self):
+        """Well-diversified picks across sectors → no cap, no cash drain."""
+        sectors = ["Ngân hàng", "Hóa chất", "Kim loại", "Bán lẻ", "Công nghệ"]
+        qualified = [{"symbol": f"S{i}", "sector": sectors[i % 5], "score": 80 - i, "mos": 0.6} for i in range(5)]
+        alloc = vf.allocate(qualified)
+        assert alloc["sector_capped"] is False
+        for sec, sw in alloc["sector_weights"].items():
+            assert sw <= vf.T4_MAX_SECTOR_WEIGHT + 0.001

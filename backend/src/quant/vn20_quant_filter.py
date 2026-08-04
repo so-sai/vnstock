@@ -66,6 +66,7 @@ T4_MOS_MIN = 0.25  # 25% margin of safety (VN premium)
 T4_TARGET_SIZE = 5  # 5-8 names
 T4_TARGET_SIZE_MAX = 8
 T4_MAX_WEIGHT = 0.25  # 25% max per name
+T4_MAX_SECTOR_WEIGHT = 0.50  # max 50% of portfolio in a single sector
 N_YEARS = 3  # lookback for "3 consecutive years"
 
 # ── Sector cycle phases ──
@@ -460,10 +461,15 @@ def tier4_valuation_mos(conn, symbol: str) -> Dict:
 
 
 def allocate(qualified: List[Dict]) -> Dict:
-    """Bayesian-style allocation: 5-8 names, max 25% each."""
+    """Bayesian-style allocation: 5-8 names, max 25% each.
+
+    Max Sector Concentration Gate: no single sector may exceed
+    T4_MAX_SECTOR_WEIGHT of the portfolio. Excess sector weight is drained
+    to cash/defensive. Prevents sector-clustering trap (e.g. 6/6 banks).
+    """
     n = len(qualified)
     if n == 0:
-        return {"weights": {}, "summary": "NO_QUALIFIED"}
+        return {"weights": {}, "cash": 1.0, "summary": "NO_QUALIFIED"}
     target_n = min(max(n, T4_TARGET_SIZE), T4_TARGET_SIZE_MAX)
     picked = sorted(qualified, key=lambda x: x.get("score", 0), reverse=True)[:target_n]
 
@@ -477,11 +483,46 @@ def allocate(qualified: List[Dict]) -> Dict:
 
     # Renormalize to 100%
     total = sum(weights.values())
-    weights = {k: round(v / total, 4) for k, v in weights.items()}
+    if total > 0:
+        weights = {k: round(v / total, 4) for k, v in weights.items()}
+
+    # ── Max Sector Concentration Gate ──
+    # Aggregate per sector, cap each at T4_MAX_SECTOR_WEIGHT, drain excess to cash.
+    sector_map = {p["symbol"]: p.get("sector", "UNKNOWN") for p in picked}
+    sector_total: Dict[str, float] = {}
+    for sym, w in weights.items():
+        sec = sector_map.get(sym, "UNKNOWN")
+        sector_total[sec] = sector_total.get(sec, 0.0) + w
+
+    capped = False
+    for sec, tot in sector_total.items():
+        if tot > T4_MAX_SECTOR_WEIGHT:
+            capped = True
+            # scale down every name in this sector proportionally
+            factor = T4_MAX_SECTOR_WEIGHT / tot
+            for sym in weights:
+                if sector_map.get(sym) == sec:
+                    weights[sym] = round(weights[sym] * factor, 4)
+
+    # NOTE: after capping we do NOT re-normalize — the shaved-off weight
+    # intentionally becomes cash/defensive. Re-normalizing would re-inflate
+    # the capped sector back toward 100% (single-sector trap).
+
+    # Sector totals after gate (for reporting)
+    post_sector: Dict[str, float] = {}
+    for sym, w in weights.items():
+        sec = sector_map.get(sym, "UNKNOWN")
+        post_sector[sec] = post_sector.get(sec, 0.0) + w
 
     # Any leftover to cash / defensive
     leftover = round(1.0 - sum(weights.values()), 4)
-    return {"weights": weights, "cash": leftover, "summary": f"{len(picked)} names"}
+    return {
+        "weights": weights,
+        "cash": leftover,
+        "sector_weights": {k: round(v, 4) for k, v in post_sector.items()},
+        "sector_capped": capped,
+        "summary": f"{len(picked)} names",
+    }
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -612,10 +653,18 @@ def _print_report(qualified: List[Dict], allocation: Dict, stage: Dict, periods:
     print("-" * 78)
     w = allocation.get("weights", {})
     cash = allocation.get("cash", 0)
+    sector_w = allocation.get("sector_weights", {})
     for sym, wt in sorted(w.items(), key=lambda x: -x[1]):
         print(f"    Weight {sym}: {wt:.1%}")
+    if sector_w:
+        print("    Sector weights:")
+        for sec, sw in sorted(sector_w.items(), key=lambda x: -x[1]):
+            flag = " ⚠️ CAP" if sw > T4_MAX_SECTOR_WEIGHT else ""
+            print(f"      {sec:<24s}: {sw:.1%}{flag}")
     if cash:
         print(f"    → Cash/Defensive: {cash:.1%}")
+    if allocation.get("sector_capped"):
+        print(f"    ⚠️ Sector concentration gate ACTIVE (max {T4_MAX_SECTOR_WEIGHT:.0%}/sector) — excess drained to cash")
     print("=" * 78)
 
 
