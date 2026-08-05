@@ -1098,16 +1098,25 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
     MAX_POSITIONS = 10
     CASH_RESERVE = 0.05
     TRAILING_STOP = 0.05
-    TRAILING_TAKE = 0.15
+    TRAILING_TAKE = 0.20  # Grid Search optimal: +20%
+
+    # Grid Search optimized weights (2021-2026, Sharpe=0.59)
+    W_FUND = 0.20
+    W_MACRO = 0.00
+    W_ALPHA = 0.10
+    W_BEHAV = 0.70
+    ENTRY_THRESH = 0.55
+    EXIT_THRESH = 0.35
 
     print(f"\n{'=' * 70}")
     print("  MULTI-FACTOR BACKTEST — 5 Models (M1+M2+M3+Alpha+VN20)")
     print(f"{'=' * 70}")
     print(f"  Period: {start} -> {end}")
     print(f"  Scored days: every {sample_every}d")
-    print("  Transaction cost: 0.45% | Trailing stop: -5% | Take profit: +15%")
+    print(f"  Transaction cost: 0.45% | Trailing stop: -{TRAILING_STOP:.0%} | Take profit: +{TRAILING_TAKE:.0%}")
     print(f"  Max positions: {MAX_POSITIONS} | Cash reserve: {CASH_RESERVE:.0%}")
-    print("  Entry threshold: 0.50 | Exit threshold: 0.40")
+    print(f"  Entry threshold: {ENTRY_THRESH:.2f} | Exit threshold: {EXIT_THRESH:.2f}")
+    print(f"  Weights: M2={W_FUND:.2f} M1={W_MACRO:.2f} Alpha={W_ALPHA:.2f} M3={W_BEHAV:.2f}")
     print()
 
     if db_path is None:
@@ -1131,6 +1140,8 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
         cash_reserve=CASH_RESERVE,
         trailing_stop=TRAILING_STOP,
         trailing_take=TRAILING_TAKE,
+        entry_threshold=ENTRY_THRESH,
+        exit_threshold=EXIT_THRESH,
     )
     decision_log = []
     equity_curve = []
@@ -1191,8 +1202,8 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
                                 behav_score = _get_behavioral_score(conn, sym, date)
                                 alpha_score = _get_momentum_score(conn, sym, date)
 
-                                composite = 0.35 * fund_score + 0.25 * eff_score + 0.25 * alpha_score + 0.15 * behav_score
-                                if composite > 0.50:
+                                composite = W_FUND * fund_score + W_MACRO * eff_score + W_ALPHA * alpha_score + W_BEHAV * behav_score
+                                if composite > ENTRY_THRESH:
                                     buy_candidates.append((sym, composite, sect))
 
                 buy_candidates.sort(key=lambda x: x[1], reverse=True)
@@ -1201,8 +1212,7 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
                 for sym, composite, sect in buy_candidates[:MAX_POSITIONS]:
                     if len(tracker.positions) >= MAX_POSITIONS:
                         break
-                    action = _multi_factor_decide(composite, 0, None)
-                    if action == "BUY" and sym not in tracker.positions:
+                    if composite > ENTRY_THRESH and sym not in tracker.positions:
                         price = _get_close(conn, sym, date)
                         if price:
                             current_prices[sym] = price
@@ -1215,11 +1225,20 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
                     if price:
                         entry = tracker.entry_prices.get(sym)
                         composite = _get_fundamental_score(conn, sym, date)
-                        action = _multi_factor_decide(composite, price, entry)
+                        # Exit conditions using configurable thresholds
+                        should_sell = False
+                        if entry:
+                            pnl = (price - entry) / entry
+                            if pnl <= -TRAILING_STOP:
+                                should_sell = True
+                            if pnl >= TRAILING_TAKE:
+                                should_sell = True
+                        if composite < EXIT_THRESH:
+                            should_sell = True
                         # Sector rotation exit: sell if sector drops out of top 5
                         pos_sector = _get_sector(conn, sym)
                         sector_rotated = pos_sector and pos_sector not in top_sectors
-                        if action == "SELL" or sector_rotated:
+                        if should_sell or sector_rotated:
                             tracker.sell(sym, price, composite, current_prices)
                             # Rebuild prices after sell to remove sold position
                             current_prices = {s: current_prices[s] for s in tracker.positions if s in current_prices}

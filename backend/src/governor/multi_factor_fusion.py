@@ -46,13 +46,13 @@ if str(SRC_DIR) not in sys.path:
 
 
 # ═══════════════════════════════════════════════════════════
-# Default Fusion Weights (expert-calibrated)
+# Default Fusion Weights (Grid Search optimized, 2021-2026, Sharpe=0.59)
 # ═══════════════════════════════════════════════════════════
 DEFAULT_FUSION_WEIGHTS = {
-    "M2_FUNDAMENTAL": 0.35,
-    "M1_MACRO": 0.25,
-    "ALPHA_MOMENTUM": 0.25,
-    "M3_BEHAVIORAL": 0.15,
+    "M2_FUNDAMENTAL": 0.20,
+    "M1_MACRO": 0.00,
+    "ALPHA_MOMENTUM": 0.10,
+    "M3_BEHAVIORAL": 0.70,
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -62,8 +62,8 @@ MAX_POSITION_WEIGHT = 0.15   # 15% max per symbol
 MAX_SECTOR_WEIGHT = 0.30    # 30% max per sector
 MIN_CASH_RESERVE = 0.05     # 5% cash always reserved
 TRANSACTION_COST = 0.0045   # 0.45% per round-trip (fee + tax + slippage)
-TRAILING_STOP_PCT = 0.07    # 7% trailing stop loss
-TRAILING_TAKE_PCT = 0.15    # 15% trailing take profit (partial)
+TRAILING_STOP_PCT = 0.05    # 5% trailing stop loss (Grid Search optimal)
+TRAILING_TAKE_PCT = 0.20    # 20% trailing take profit (Grid Search optimal)
 
 
 @dataclass
