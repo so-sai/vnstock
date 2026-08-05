@@ -831,6 +831,43 @@ def in_bao_cao(kq: dict):
         kq["sector_interactions"] = {s: r.multiplier for s, r in _ix_results.items()}
         kq["sector_ranking"] = [(s, sc) for s, sc in _ranked]
 
+        # ── Multi-Factor Fusion Engine (Step 8) ──
+        try:
+            from src.governor.multi_factor_fusion import FactorScores, MultiFactorFusion
+
+            _fusion = MultiFactorFusion()
+            _factor_scores = []
+            for _sect, _sc in _ranked[:10]:
+                _lag = _lag_results.get(_sect)
+                _eff = _lag.effective_score if _lag else _sc
+                _factor_scores.append(FactorScores(
+                    symbol=_sect,
+                    date=target_date,
+                    sector=_sect,
+                    M1_macro=_eff,
+                    M2_fundamental=0.5,
+                    M3_behavioral=0.5,
+                    alpha_momentum=0.5,
+                    vn20_pass=True,
+                ))
+            _fusion_results = _fusion.fuse(_factor_scores)
+            _risk = _fusion.get_risk_metrics(_fusion_results)
+
+            print()
+            print("  MULTI-FACTOR FUSION (S_Composite = 0.35*M2 + 0.25*M1 + 0.25*Alpha + 0.15*M3):")
+            for _fr in _fusion_results[:5]:
+                if _fr.action in ("BUY", "HOLD"):
+                    _icon = "🟢" if _fr.action == "BUY" else "🟡"
+                    print(f"    {_icon} {_fr.symbol:12s}: {_fr.composite_score:.2%} {_fr.action} ({_fr.target_weight:.0%})")
+            print(f"    Allocation: {_risk['total_allocated']:.0f}% | Cash: {_risk['cash_reserve']:.0f}% | Positions: {_risk['n_positions']}")
+
+            kq["multi_factor_fusion"] = {
+                "results": [(r.symbol, r.composite_score, r.action, r.target_weight) for r in _fusion_results],
+                "risk_metrics": _risk,
+            }
+        except Exception as e:
+            logger.debug("[ORCH] Multi-factor fusion unavailable: %s", e)
+
     except Exception as e:
         logger.debug("[ORCH] Sector macro scores unavailable: %s", e)
 
