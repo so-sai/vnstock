@@ -53,7 +53,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "pytest-cov>=4.0", "pytest-timeout", "ruff>=0.9.4", "httpx>=0.24", "pot>=0.9"]
+  test = ["pytest>=7.0", "pytest-cov>=4.0", "pytest-timeout", "ruff>=0.9.4", "httpx>=0.24", "pot>=0.9", "hypothesis>=6.0.0"]
 
 [project.urls]
 Documentation = "https://vnstocks.com/docs"
@@ -172,3 +172,17 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 check_untyped_defs = false
 ignore_missing_imports = true
+
+# ── Mypy Strict Scoped — chỉ tầng Governor (vùng lõi ra quyết định) ─────────
+# Giai đoạn 2 (2026-08-05): siết kiểm tra kiểu tĩnh trên vùng toán học nhạy cảm
+# nhất; module legacy (crawler/vendor dict-heavy) KHÔNG bị ảnh hưởng.
+[[tool.mypy.overrides]]
+module = [
+    "src.governor.*",
+    "src.engine.decision_guard",
+]
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_return_any = true
+disallow_incomplete_defs = true
+no_implicit_optional = true

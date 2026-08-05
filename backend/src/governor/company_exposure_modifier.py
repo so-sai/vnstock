@@ -42,7 +42,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 
-def _hydrate_path():
+def _hydrate_path() -> Path:
     """Path Hydrator v2.1: Auto-locate Project Root."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent

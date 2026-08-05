@@ -1,4 +1,4 @@
-﻿"""
+"""
 recovery_governor.py — Dual CUSUM Structure Recovery Velocity Governor.
 
 Kiến trúc:
@@ -13,7 +13,7 @@ Hiệu chuẩn đề xuất (tham khảo backtest 2022):
   h₃ = 0.50 (full threshold)
   h  = 0.15 (cutoff threshold)
 """
-import json
+
 import json
 import logging
 from datetime import datetime
@@ -26,6 +26,7 @@ def _resolve_data_dir() -> Path:
     """Resolve data directory for whitelist file."""
     try:
         from src.config import DATA_DIR
+
         return Path(DATA_DIR)
     except ImportError:
         probe = Path(__file__).resolve().parent.parent.parent / "data"
@@ -44,10 +45,11 @@ def load_erl_whitelist(data_dir: Path | None = None) -> list[dict]:
         return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get("whitelist", [])
+        return data.get("whitelist", [])  # type: ignore[no-any-return]
     except (json.JSONDecodeError, FileNotFoundError) as e:
         logger.warning("Lỗi đọc erl_whitelist.json: %s", e)
         return []
+
 
 # ── Mặc định (có thể override qua calibrate) ──
 # Calibrated via Grid Search on 2022 data (70/30 OOS, 241 rows)
@@ -154,11 +156,7 @@ class RecoveryGovernor:
             dsotru = (so_tru - self._prev_sotru) / 3.0  # chuẩn hóa về [0,1]
             dbreadth = (breadth_momentum - (self._prev_breadth_mom or 0)) / 100.0  # chuẩn hóa
 
-            dS_dt = (
-                W_DELTA_FRESH * dfresh
-                + W_DELTA_SOTRU * dsotru
-                + W_DELTA_BREADTH * dbreadth
-            )
+            dS_dt = W_DELTA_FRESH * dfresh + W_DELTA_SOTRU * dsotru + W_DELTA_BREADTH * dbreadth
 
         # Lưu cho lần sau
         self._prev_fresh = fresh_ratio
@@ -176,7 +174,9 @@ class RecoveryGovernor:
                 if self._whitelist:
                     logger.info(
                         "S+ = %.4f > h1 = %.2f — ERL Whitelist (%d mã sẵn sàng PROBE 20%%).",
-                        self.S_plus, self.h1, len(self._whitelist),
+                        self.S_plus,
+                        self.h1,
+                        len(self._whitelist),
                     )
         else:
             self._whitelist = []
@@ -202,13 +202,9 @@ class RecoveryGovernor:
             position_level = POS_PROBE
             position_label = "PROBE"
             n_wl = len(self._whitelist)
-            position_reason.append(
-                f"S+={self.S_plus:.3f} > h1={self.h1} — PROBE entry (ERL Whitelist: {n_wl} mã)"
-            )
+            position_reason.append(f"S+={self.S_plus:.3f} > h1={self.h1} — PROBE entry (ERL Whitelist: {n_wl} mã)")
         else:
-            position_reason.append(
-                f"S+={self.S_plus:.3f} <= h1={self.h1} — chưa đủ tín hiệu phục hồi"
-            )
+            position_reason.append(f"S+={self.S_plus:.3f} <= h1={self.h1} — chưa đủ tín hiệu phục hồi")
 
         record = {
             "today": today,

@@ -44,10 +44,67 @@ def get_trap_detector() -> BreadthTrapDetector:
     return _breadth_trap_detector
 
 
-def reset_trap_detector():
+def reset_trap_detector() -> None:
     """Reset detector state (dùng trong test)."""
     global _breadth_trap_detector
     _breadth_trap_detector = None
+
+
+def compute_policy_cap_boost(target_date: str | None = None) -> dict:
+    """Tính mức nâng trần tỷ trọng giải ngân do chính sách thanh khoản.
+
+    Chỉ các PolicyEvent loại KBNN_LDR_ADJUSTMENT mới cấp cap_boost:
+      - Scale theo max benefit ratio trong clusters (Big3 = 1.0).
+      - LDR relief 500bps @ benefit 1.0 -> cap_boost 0.15.
+      - Trả về max boost trong các event active (non-additive để tránh trùng).
+
+    Returns:
+        {
+            "cap_boost": float [0, 0.15],
+            "active_events": [ {id, title, benefit_ratio} ],
+            "beneficiary_cluster": str,
+        }
+    """
+    best_boost: float = 0.0
+    best_cluster: str = "NONE"
+    events: list[dict] = []
+    try:
+        from datetime import date, datetime
+
+        from src.governor.policy_impact_engine import PolicyImpactEngine
+
+        engine = PolicyImpactEngine()
+        active = engine.get_active_events(target_date)
+        _td = target_date or date.today().isoformat()
+        _today = datetime.strptime(_td, "%Y-%m-%d").date()
+        for evt in active:
+            if evt.event_type != "KBNN_LDR_ADJUSTMENT":
+                continue
+            max_ratio = max(evt.clusters.values()) if evt.clusters else 0.0
+            if max_ratio <= 0:
+                continue
+            # LAW-009: transmission decay + Policy Cliff — không FOMO ngày 1,
+            # không "vach da" ngày expiry
+            life = engine._lifecycle_factor(evt, _today)
+            if life <= 0:
+                continue
+            ldr_relief = evt.delta_params.get("ldr_relief_bps", 0.0)
+            boost = min(0.15, (ldr_relief / 500.0) * 0.15 * max_ratio * life)
+            if boost > best_boost:
+                best_boost = round(boost, 4)
+                best_cluster = max(evt.clusters, key=lambda k: evt.clusters.get(k, 0.0)) if evt.clusters else "NONE"
+            events.append(
+                {
+                    "id": evt.id,
+                    "title": evt.title,
+                    "benefit_ratio": max_ratio,
+                    "lifecycle_factor": round(life, 4),
+                    "cap_boost": round(boost, 4),
+                }
+            )
+    except Exception as exc:
+        logger.warning("[GUARD] Policy cap boost error (non-blocking): %s", exc)
+    return {"cap_boost": best_boost, "active_events": events, "beneficiary_cluster": best_cluster}
 
 
 def _he_so_tuoi_du_lieu(hours_stale: float) -> float:
@@ -74,6 +131,7 @@ def kiem_tra_an_toan(
     do_tin_cay: dict,
     anh_chup: dict | None = None,
     du_lieu_lien_ngan_hang: dict | None = None,
+    chinh_sach: dict | None = None,
 ) -> dict:
     """Kiểm tra an toàn trước khi cho phép quyết định đi vào thực tế.
 
@@ -84,6 +142,9 @@ def kiem_tra_an_toan(
         anh_chup: Ảnh chụp thị trường (dùng để kiểm tra entropy + cấu trúc)
         du_lieu_lien_ngan_hang: Output từ assess_interbank_risk()
             (dùng để kiểm tra stale_override + điều chỉnh tỷ trọng)
+        chinh_sach: Thông tin chính sách vĩ mô (PolicyImpactEngine).
+            Truyền để tự động nâng trần tỷ trọng cho cụm hưởng lợi.
+            Nếu None → tự tính qua compute_policy_cap_boost().
 
     Returns:
         dict: {
@@ -92,6 +153,7 @@ def kiem_tra_an_toan(
             "bi_chặn": True/False,
             "ly_do_chặn": "..." hoặc None,
             "he_so_giam_ty_trong": 0.0 ~ 1.0 (mặc định 1.0),
+            "policy_impact": {cap_boost, active_events, beneficiary_cluster},
         }
     """
     quyet_dinh = quyet_dinh_de_xuat
@@ -312,6 +374,20 @@ def kiem_tra_an_toan(
     except Exception as exc:
         logger.warning("[GUARD] LRI computation error (non-blocking): %s", exc)
 
+    # ── Policy Impact Integration: nâng trần tỷ trọng cho cụm hưởng lợi ──
+    # WHY: QD 1743 giai toa LDR -> Big3 duoc phep tang ty trong toi da.
+    #      cap_boost chi cong khi he_so > 0 (khong pha vo veto/hard-floor).
+    policy_impact = chinh_sach if chinh_sach is not None else compute_policy_cap_boost()
+    policy_cap_boost = policy_impact.get("cap_boost", 0.0) or 0.0
+    if policy_cap_boost > 0 and he_so_giam_ty_trong > 0 and not bi_chặn:
+        he_so_giam_ty_trong = round(min(1.0, he_so_giam_ty_trong + policy_cap_boost), 4)
+        logger.info(
+            "[GUARD] Policy cap_boost=%.4f -> he_so_giam_ty_trong=%.4f (%s)",
+            policy_cap_boost,
+            he_so_giam_ty_trong,
+            policy_impact.get("beneficiary_cluster", "NONE"),
+        )
+
     # ── Contribution Breakdown ──
     contribution = _build_contribution(
         bi_chặn=bi_chặn,
@@ -350,6 +426,7 @@ def kiem_tra_an_toan(
         if stale_state
         else {},
         "contribution": contribution,
+        "policy_impact": policy_impact,
     }
 
 

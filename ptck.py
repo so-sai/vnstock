@@ -154,21 +154,27 @@ def cmd_regime(args):
 def cmd_report(args):
     """Báo cáo thị trường."""
     if args.subcommand == "weekly":
-        from src.services.weekly_cognitive_report import build_narrative
-        narrative = build_narrative()
+        from src.services.weekly_cognitive_report import build_weekly_report
+        report = build_weekly_report()
         print("=" * 60)
         print(f"  PTCK — {_ll('WEEKLY COGNITIVE REPORT')}")
         print("=" * 60)
-        if isinstance(narrative, dict):
-            for section, content in narrative.items():
-                print(f"\n  [{section}]")
-                if isinstance(content, str):
-                    print(f"    {content}")
-                else:
-                    for k, v in content.items():
-                        print(f"    {k}: {v}")
+        if isinstance(report, dict):
+            summary = report.get("summary_vi", "")
+            if summary:
+                print(f"\n  {summary}")
+            for section in ("market", "gold", "trust"):
+                data = report.get(section, {})
+                if isinstance(data, dict):
+                    label = data.get("label_vi", "")
+                    expl = data.get("explanation_vi", "")
+                    sev = data.get("severity", "")
+                    print(f"\n  [{section.upper()}] {label} ({sev})")
+                    if expl:
+                        print(f"    {expl}")
+            print(f"\n  Overall: {report.get('label_vi', '')}")
         else:
-            print(f"  {narrative}")
+            print(f"  {report}")
         print("=" * 60)
     elif args.subcommand == "daily":
         from src.services.daily_market_report import build_daily_report, in_bao_cao
@@ -1965,6 +1971,132 @@ def cmd_scan(args):
     from src.engine.elite_scanner import run_elite_scanner
     run_elite_scanner(deep_scan=deep)
     print("=" * 60)
+
+
+def cmd_analyze(args):
+    """Phân tích dòng tiền & xu hướng cho danh mục tùy chọn."""
+    symbols_raw = getattr(args, 'symbols', None)
+    if not symbols_raw:
+        print("  Usage: python ptck.py analyze --symbols BCM IJC VCB SHB TDB HPG")
+        return
+    symbols = [s.upper() for s in symbols_raw]
+
+    from src.utils.cli_theme import c_green, c_red, c_yellow, c_cyan, c_dim
+
+    print("\n" + "=" * 85)
+    print(f"  PHÂN TÍCH DANH MỤC: {', '.join(symbols)}")
+    print("=" * 85)
+
+    from src.database.db_core import get_connection
+    from src.backtest.unified_system_replay import _vn20_gate
+
+    with get_connection() as conn:
+        fin_db = str(Path(__file__).parent / "backend" / "data" / "financial_facts.db")
+        conn.execute(f"ATTACH DATABASE '{fin_db}' AS fin")
+        for sym in symbols:
+            rows = conn.execute(
+                """SELECT date, open, high, low, close, volume,
+                          LAG(close) OVER (ORDER BY date) as prev_close
+                   FROM daily_ohlcv
+                   WHERE symbol = ?
+                     AND date >= date((SELECT MAX(date) FROM daily_ohlcv), '-15 days')
+                   ORDER BY date""",
+                (sym,),
+            ).fetchall()
+            if not rows:
+                print(f"\n  {sym}: KHÔNG CÓ DỮ LIỆU")
+                continue
+
+            # Use only clean data (per-1000 format)
+            clean = [r for r in rows if r[4] and r[4] > 100]
+            if len(clean) < 2:
+                print(f"\n  {sym}: dữ liệu không đủ")
+                continue
+
+            first, last = clean[0], clean[-1]
+            week_chg = ((last[4] - first[4]) / first[4] * 100) if first[4] > 0 else 0
+            day_chg = ((last[4] - last[6]) / last[6] * 100) if last[6] and last[6] > 0 else 0
+
+            # Volume
+            vols = [r[5] for r in clean if r[5]]
+            avg_vol = sum(vols) / len(vols) if vols else 0
+            vol_ratio = (vols[-1] / avg_vol) if avg_vol > 0 else 0
+
+            # RSI(5)
+            closes = [r[4] for r in clean]
+            ups = sum(max(0, closes[i] - closes[i - 1]) for i in range(1, len(closes))) / max(1, len(closes) - 1)
+            dns = sum(max(0, closes[i - 1] - closes[i]) for i in range(1, len(closes))) / max(1, len(closes) - 1)
+            rsi = 100 - (100 / (1 + ups / dns)) if dns > 0 else 100
+
+            # Support/Resistance
+            highs = [r[2] for r in clean if r[2]]
+            lows = [r[3] for r in clean if r[3]]
+            res_avg = sum(sorted(highs)[-2:]) / 2 if len(highs) >= 2 else (max(highs) if highs else 0)
+            sup_avg = sum(sorted(lows)[:2]) / 2 if len(lows) >= 2 else (min(lows) if lows else 0)
+
+            # VN20 Gate
+            target_date = last[0]
+            vn20_pass = _vn20_gate(conn, sym, target_date)
+            vn20_label = c_green("[VN20: PASS]") if vn20_pass else c_red("[VN20: FAIL]")
+
+            # Policy Context (PolicyImpactEngine)
+            policy_line = ""
+            try:
+                from src.governor.policy_impact_engine import PolicyImpactEngine
+                _pie = PolicyImpactEngine()
+                _pimp = _pie.compute_impact(sym, target_date)
+                if _pimp.active_events:
+                    _evt = _pimp.active_events[0]
+                    _tag = "TÁC ĐỘNG TÍCH CỰC" if _pimp.total_impact_score > 0 else "TÁC ĐỘNG TIÊU CỰC"
+                    _tag_color = c_green if _pimp.total_impact_score > 0 else c_red
+                    policy_line = (
+                        f"\n  Policy: {_tag_color(_tag)} {c_cyan(_evt['title'])}"
+                        f" | Cụm: {_pimp.cluster} | Lợi ích: {_evt['benefit_ratio']:.2f}"
+                        f" | LDR giảm: {_pimp.ldr_relief_bps:,.0f} bps"
+                        f" | Score: {_pimp.total_impact_score:+.3f}"
+                    )
+            except Exception:
+                pass
+
+            # Verdict
+            if week_chg > 5 and rsi > 60:
+                trend = "STRONG UPTREND"
+                trend_color = c_green
+            elif week_chg > 2 and rsi > 50:
+                trend = "UPTREND"
+                trend_color = c_green
+            elif week_chg < -5 and rsi < 40:
+                trend = "STRONG DOWNTREND"
+                trend_color = c_red
+            elif week_chg < -2:
+                trend = "DOWNTREND"
+                trend_color = c_red
+            else:
+                trend = "SIDEWAYS"
+                trend_color = c_yellow
+
+            if rsi > 80:
+                signal = c_red("TRÁNH — quá mua")
+            elif rsi > 70:
+                signal = c_yellow("CHỜ — rủi ro cao")
+            elif week_chg > 2 and vol_ratio > 1.0:
+                signal = c_green("THEO DÕI — có thể mua")
+            elif week_chg > 0 and vol_ratio < 0.7:
+                signal = c_yellow("CHỜ — volume yếu")
+            else:
+                signal = c_cyan("THEO DÕI")
+
+            vol_icon = "V+" if vol_ratio > 1.5 else ("V=" if vol_ratio > 1.0 else "V-")
+            chg_color = c_green if day_chg > 0 else (c_red if day_chg < 0 else c_dim)
+            print(f"""
+  {trend_color(sym)} ({trend_color(trend)}) {vn20_label}
+  {'─' * 60}
+  Giá:       {last[4]:>10,.0f}  | Tuần: {chg_color(f'{week_chg:+.2f}%')}  | Hôm: {chg_color(f'{day_chg:+.2f}%')}
+  Volume:    {vols[-1] if vols else 0:>12,.0f}  | TB:   {avg_vol:>12,.0f}  | {vol_icon} {vol_ratio:.2f}x
+  RSI(5):    {rsi:.1f}  | Support: {sup_avg:,.0f}  | Resistance: {res_avg:,.0f}
+  Khuyến nghị: {signal}{policy_line}""")
+
+    print("\n" + "=" * 85)
 
 
 def cmd_gold(args):
@@ -4342,6 +4474,11 @@ def build_parser():
     p_scan.add_argument("--deep", action="store_true", help="Deep scan")
     p_scan.add_argument("--symbol", type=str, help="Quét nhanh dữ liệu của 1 mã cổ phiếu riêng lẻ")
     p_scan.set_defaults(func=cmd_scan)
+
+    # analyze
+    p_analyze = sub.add_parser("analyze", parents=[lang_parent], help="Phân tích dòng tiền & xu hướng danh mục")
+    p_analyze.add_argument("--symbols", nargs="+", required=True, help="Danh sách mã cổ phiếu (VD: BCM IJC VCB SHB TDB HPG)")
+    p_analyze.set_defaults(func=cmd_analyze)
 
     # gold
     p_gold = sub.add_parser("gold", parents=[lang_parent], help="Gold information")

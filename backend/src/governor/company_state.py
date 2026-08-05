@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def _symbol_sector(symbol: str) -> Optional[str]:
         row = cur.fetchone()
         conn.close()
         if row and row[0]:
-            return row[0].strip()
+            return str(row[0]).strip()
     except Exception:
         pass
     # Fallback: archetype → sector (chỉ cho symbol ĐÃ BIẾT trong BASELINE_MAP.
@@ -359,7 +359,7 @@ def compute_model_registry_lr(bma_posterior: dict) -> float:
 
 def _lookup_lr(table: dict, key: str, default: float = 1.0) -> float:
     """Safe LR lookup with logging-unfriendly fallback."""
-    return table.get(str(key).strip().upper(), default)
+    return float(table.get(str(key).strip().upper(), default))
 
 
 def compute_gain_probability(
@@ -528,11 +528,11 @@ def kelly_allocation(p_gain: float, calibration_penalty: float, macro_entropy: f
 # =========================================================================
 
 
-def _safe_div(a, b):
+def _safe_div(a: Any, b: Any) -> Optional[float]:
     if b is None or b == 0:
         return None
     try:
-        return a / b
+        return float(a) / float(b)
     except ZeroDivisionError, TypeError:
         return None
 
@@ -540,7 +540,7 @@ def _safe_div(a, b):
 class L2HealthLoader:
     """Legacy health loader — kept for base ratio access."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
     def get_latest_ratios(self, symbol: str) -> Dict:
@@ -558,7 +558,7 @@ class L2HealthLoader:
         rows = cur.fetchall()
         return {r[0]: {"value": r[1], "interpretation": r[2]} for r in rows}
 
-    def close(self):
+    def close(self) -> None:
         self.conn.close()
 
 
@@ -580,7 +580,7 @@ def _period_at(target_date: str) -> str:
 class L3ValuationLoader:
     """Layer 3 — Valuation Z-Scores."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
     def get_latest_valuation(self, symbol: str, target_date: Optional[str] = None) -> Dict:
@@ -716,14 +716,14 @@ class L3ValuationLoader:
             result["overall_zone"] = _zone_from_avg(avg_z_ts)
         return result
 
-    def close(self):
+    def close(self) -> None:
         self.conn.close()
 
 
 class L4BehaviorLoader:
     """Layer 4 — Market Behavior (Volume Profile + Active Demand)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
     def get_volume_profile(self, symbol: str, target_date: Optional[str] = None) -> Optional[Dict]:
@@ -789,7 +789,7 @@ class L4BehaviorLoader:
                 """,
                 (symbol.upper(), cutoff),
             )
-        return cur.fetchone()[0]
+        return int(cur.fetchone()[0])
 
     def score_behavior(self, symbol: str, fusion_action: str = "", target_date: Optional[str] = None) -> Dict:
         """Score behavior from Volume Profile + optional decision fusion context.
@@ -859,7 +859,7 @@ class L4BehaviorLoader:
             "vol_ratio": round(vol_ratio, 2),
         }
 
-    def close(self):
+    def close(self) -> None:
         self.conn.close()
 
 
@@ -1051,6 +1051,12 @@ class BayesianMandate:
     macro_confidence: dict = field(default_factory=dict)  # {node: data completeness [0,1]}
     macro_persistence: float = 0.0  # signal stability [0,1] (consecutive same-direction periods)
 
+    # PolicyImpactEngine — chinh sach vi mo (PolicyEvent -> impact score)
+    # WHY: Co quan ly van de chinh sach nhu QD 1743 lam giai toa LDR cho Big3.
+    #      Truyen vao mandate de CompositeScoreProjector & allocation cap nhat.
+    policy_context: Dict = field(default_factory=dict)
+    policy_cap_boost: float = 0.0  # muc nang tran ty trong do chinh sach [0, 0.15]
+
 
 ACTION_VN = {
     "VETO": "Cấm tuyệt đối",
@@ -1076,27 +1082,27 @@ class BayesianGovernor:
       - ModelRegistry BMA competition evidence (Giai đoạn 7 / Sprint 4)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.perception = PerceptionLoader()
         self.valuation = L3ValuationLoader()
         self.behavior = L4BehaviorLoader()
 
         # FairMultipleEngine: absolute intrinsic valuation via Gordon Growth
-        self._fair_engine = None
+        self._fair_engine: Any = None
 
         # Giai đoạn 2: Factor Exposure
-        self._factor_engine = None
+        self._factor_engine: Any = None
 
         # Giai đoạn 3: Contextual Health
-        self._context_engine = None
+        self._context_engine: Any = None
 
         # Giai đoạn 4: Capital Allocation
-        self._capital_engine = None
+        self._capital_engine: Any = None
 
         # Giai đoạn 7: ModelRegistry (BMA competition)
-        self._model_registry = None
-        self._bma_posterior = None
-        self._dominant_model = None
+        self._model_registry: Any = None
+        self._bma_posterior: Optional[Dict[str, float]] = None
+        self._dominant_model: Optional[Dict[str, str]] = None
 
         # Load market-level context once
         self._macro = self.perception.load_macro_state()
@@ -1104,9 +1110,9 @@ class BayesianGovernor:
         self._sector = self.perception.load_sector()
 
         # Circuit breaker cache (lazy-loaded once per instance)
-        self._cb_state = None
+        self._cb_state: Optional[Dict[str, Any]] = None
 
-    def _get_factor_engine(self):
+    def _get_factor_engine(self) -> Any:
         if self._factor_engine is None:
             from src.business.factor_exposure import FactorExposureEngine, compute_lr_adjustment
 
@@ -1114,14 +1120,14 @@ class BayesianGovernor:
             self._compute_lr_adjust = compute_lr_adjustment
         return self._factor_engine
 
-    def _get_context_engine(self):
+    def _get_context_engine(self) -> Any:
         if self._context_engine is None:
             from src.financial.company_health import ContextualHealthEngine
 
             self._context_engine = ContextualHealthEngine()
         return self._context_engine
 
-    def _get_capital_engine(self):
+    def _get_capital_engine(self) -> Any:
         if self._capital_engine is None:
             from src.business.capital_allocation import CapitalAllocationEngine
 
@@ -1138,14 +1144,14 @@ class BayesianGovernor:
         except Exception:
             return "UNKNOWN"
 
-    def _get_fair_engine(self):
+    def _get_fair_engine(self) -> Any:
         if self._fair_engine is None:
             from src.governor.fair_multiple_engine import compute_fair_multiple
 
             self._fair_engine = compute_fair_multiple
         return self._fair_engine
 
-    def _get_model_registry(self):
+    def _get_model_registry(self) -> Any:
         # WHY lazy-init: ModelRegistry opens calibration.db connection;
         #   delay until first assess() call to avoid cold-start penalty.
         if self._model_registry is None:
@@ -1154,7 +1160,7 @@ class BayesianGovernor:
             self._model_registry = ModelRegistry()
         return self._model_registry
 
-    def _check_circuit_breaker(self):
+    def _check_circuit_breaker(self) -> Dict[str, Any]:
         """Check calibration degradation and cache circuit breaker state.
 
         Chỉ check 1 lần per Governor instance (lazy-loaded). Kết quả được
@@ -1169,6 +1175,8 @@ class BayesianGovernor:
         except Exception as e:
             logger.warning("[GOV] Circuit breaker check FAILED: %s — defaulting to BÌNH_THƯỜNG (level 0)", e)
             self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": f"CHECK_FAILED: {e}"}
+        if self._cb_state is None:
+            self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": "DEFAULT"}
         return self._cb_state
 
     def assess(self, symbol: str) -> BayesianMandate:
@@ -1354,8 +1362,8 @@ class BayesianGovernor:
         _lag_hl = 0.0
         _interaction_mult = 1.0
         _interaction_synergies = []
-        _momentum = {}
-        _confidence = {}
+        _momentum: Dict[str, float] = {}
+        _confidence: Dict[str, float] = {}
         _persistence = 0.5
         try:
             from governor.interaction_engine import InteractionEngine
@@ -1407,7 +1415,9 @@ class BayesianGovernor:
                 _ms = self._macro.get("state", "STABLE")
                 self._bma_posterior = mr.bma_posterior(_ms, arch_prior_key)
                 self._dominant_model = mr.select_best(_ms, arch_prior_key)
-            model_registry_lr = compute_model_registry_lr(self._bma_posterior)
+            bma = self._bma_posterior
+            if bma is not None:
+                model_registry_lr = compute_model_registry_lr(bma)
         except Exception as e:
             logger.warning("[GOV] ModelRegistry BMA FAILED: %s — model_registry_lr=1.0", e)
 
@@ -1537,6 +1547,26 @@ class BayesianGovernor:
         except Exception:
             pass
 
+        # ── Policy Impact Engine (PolicyEvent -> policy_context) ──
+        # WHY: Chinh sach vi mo (QD 1743...) tac dong bat doi xung len tung cum.
+        #      Truyen ket qua vao mandate de T5 Governor nang tran ty trong cho Big3.
+        policy_ctx: Dict = {}
+        policy_cap_boost: float = 0.0
+        try:
+            from src.governor.policy_impact_engine import PolicyImpactEngine
+
+            _pie = PolicyImpactEngine()
+            _pimp = _pie.compute_impact(symbol)
+            if _pimp.active_events:
+                policy_ctx = _pimp.to_dict()
+                policy_ctx["total_impact_score"] = round(_pimp.total_impact_score, 4)
+                # Cap boost scale: full 500bps LDR relief for benefit 1.0 -> +0.15
+                _relief = _pimp.ldr_relief_bps
+                policy_cap_boost = round(min(0.15, (_relief / 500.0) * 0.15), 4)
+        except Exception:
+            policy_ctx = {}
+            policy_cap_boost = 0.0
+
         return BayesianMandate(
             symbol=symbol,
             action=best_action,
@@ -1577,7 +1607,7 @@ class BayesianGovernor:
             circuit_breaker_label=cb_label,
             circuit_breaker_trigger=cb_reason,
             bma_posterior=self._bma_posterior or {},
-            dominant_model=(self._dominant_model or {}).get("model_id", ""),
+            dominant_model=(self._dominant_model or {}).get("model_id", "") if self._dominant_model is not None else "",
             model_registry_lr=round(model_registry_lr, 4) if model_registry_lr else 1.0,
             # Causal DAG wiring (Step 1 — The Great Surgery)
             causal_confidence=round(_causal_conf, 4) if _causal_conf is not None else 0.0,
@@ -1598,6 +1628,8 @@ class BayesianGovernor:
             macro_momentum=_momentum,
             macro_confidence=_confidence,
             macro_persistence=round(_persistence, 4),
+            policy_context=policy_ctx,
+            policy_cap_boost=policy_cap_boost,
         )
 
     def analyze(self, symbols: List[str]) -> Dict:
@@ -1613,7 +1645,7 @@ class BayesianGovernor:
             "results": results,
         }
 
-    def close(self):
+    def close(self) -> None:
         self.valuation.close()
         self.behavior.close()
 
@@ -1631,7 +1663,7 @@ GovernorEngine = BayesianGovernor
 _CALIB_INITED = False
 
 
-def _ensure_calib():
+def _ensure_calib() -> None:
     global _CALIB_INITED
     if not _CALIB_INITED:
         try:
@@ -1684,7 +1716,7 @@ BUSINESS_STATUS_MAP = {
 #   print_report() using MOS_EMOJI/MOS_ABBR/MOS_ZONE_* constants.
 
 
-def print_report(analysis: Dict):
+def print_report(analysis: Dict[str, Any]) -> None:
     """Inverted Pyramid 3-Tầng CSI report.
 
     WHY: End-investor reads Tầng 1 (verdict + 3 reasons) first,
@@ -1697,12 +1729,12 @@ def print_report(analysis: Dict):
         # WHY: _() returns "VI (EN)" format — VI comes first for
         #   Vietnamese readers, EN in parentheses for bilingual reference.
         #   localize_label("full") returns the VI value from CLI_LABEL_MAP.
-        def _(x):
+        def _(x: str) -> str:
             vi = localize_label(x, "full")
             return f"{vi} ({x})" if vi != x else x
     except Exception:
 
-        def _(x):
+        def _(x: str) -> str:
             return x
 
     m = analysis["macro_state"]
@@ -1870,7 +1902,7 @@ def print_report(analysis: Dict):
             print(f"  • {_('FairMultipleEngine')}: {n_err}/{n} {_('symbol')} {_('skipped')} (missing ROE/PE/PB or divergence)")
 
 
-def main():
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="P3 Governor — Bayesian Expected Utility")
@@ -1900,7 +1932,7 @@ def main():
 
     if args.output == "json":
         # Serialize dataclass fields
-        def _ser(obj):
+        def _ser(obj: Any) -> Any:
             if hasattr(obj, "__dataclass_fields__"):
                 return {f: getattr(obj, f) for f in obj.__dataclass_fields__}
             return str(obj)

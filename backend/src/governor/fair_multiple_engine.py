@@ -18,7 +18,7 @@ Outputs: fair_pe, fair_pb, margin_of_safety_pb, margin_of_safety_pe
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -115,8 +115,8 @@ PAYOUT_BY_ARCHETYPE = {
 }
 
 # ── Macroeconomic assumptions (Vietnam 2026) ────────────────────────
-DEFAULT_RF = 0.055      # 10Y Vietnam govt bond yield ~5.5%
-DEFAULT_ERP = 0.10      # Equity risk premium ~10% (emerging market)
+DEFAULT_RF = 0.055  # 10Y Vietnam govt bond yield ~5.5%
+DEFAULT_ERP = 0.10  # Equity risk premium ~10% (emerging market)
 
 
 def _get_sector_for_symbol(symbol: str) -> str:
@@ -135,7 +135,7 @@ def _get_sector_for_symbol(symbol: str) -> str:
         row = cur.fetchone()
         conn.close()
         if row and row[0]:
-            return row[0].strip()
+            return str(row[0].strip())
         return "UNKNOWN"
     except Exception:
         return "UNKNOWN"
@@ -176,7 +176,7 @@ def compute_fair_multiple(
     archetype: str = "UNKNOWN",
     rf: float = DEFAULT_RF,
     erp: float = DEFAULT_ERP,
-) -> Dict:
+) -> Dict[str, Any]:
     """Compute fair PE/PB and margin of safety via Gordon Growth Model.
 
     Parameters
@@ -210,7 +210,7 @@ def compute_fair_multiple(
         sector: sector name
         status: "OK" or error message
     """
-    result = {
+    result: Dict[str, Any] = {
         "fair_pe": None,
         "fair_pb": None,
         "margin_of_safety_pct": None,
@@ -273,23 +273,26 @@ def compute_fair_multiple(
     # Overall MoS = average of PE-based and PB-based
     mos_overall = (mos_pe + mos_pb) / 2.0
 
-    result.update({
-        "fair_pe": round(fair_pe, 2),
-        "fair_pb": round(fair_pb, 2),
-        "margin_of_safety_pct": round(mos_overall * 100, 1),
-        "mos_pe_pct": round(mos_pe * 100, 1),
-        "mos_pb_pct": round(mos_pb * 100, 1),
-        "ke": round(ke, 4),
-        "g": round(g, 4),
-        "beta": round(beta, 2),
-        "sector": sector,
-    })
+    result.update(
+        {
+            "fair_pe": round(fair_pe, 2),
+            "fair_pb": round(fair_pb, 2),
+            "margin_of_safety_pct": round(mos_overall * 100, 1),
+            "mos_pe_pct": round(mos_pe * 100, 1),
+            "mos_pb_pct": round(mos_pb * 100, 1),
+            "ke": round(ke, 4),
+            "g": round(g, 4),
+            "beta": round(beta, 2),
+            "sector": sector,
+        }
+    )
     return result
 
 
 # ── Standalone CLI ──────────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Fair Multiple Engine CLI")
     parser.add_argument("symbols", nargs="+", help="Symbols to evaluate")
     args = parser.parse_args()

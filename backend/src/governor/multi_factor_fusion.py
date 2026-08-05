@@ -17,16 +17,17 @@ Decision Hierarchy:
 LAW-009: All macro scores are lag-adjusted before fusion.
 LAW-010: All scores are regime-normalized before fusion.
 """
+
 import logging
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
-def _hydrate_path():
+def _hydrate_path() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     current = Path(__file__).resolve().parent
@@ -58,17 +59,18 @@ DEFAULT_FUSION_WEIGHTS = {
 # ═══════════════════════════════════════════════════════════
 # Position Sizing Constraints
 # ═══════════════════════════════════════════════════════════
-MAX_POSITION_WEIGHT = 0.15   # 15% max per symbol
-MAX_SECTOR_WEIGHT = 0.30    # 30% max per sector
-MIN_CASH_RESERVE = 0.05     # 5% cash always reserved
-TRANSACTION_COST = 0.0045   # 0.45% per round-trip (fee + tax + slippage)
-TRAILING_STOP_PCT = 0.05    # 5% trailing stop loss (Grid Search optimal)
-TRAILING_TAKE_PCT = 0.20    # 20% trailing take profit (Grid Search optimal)
+MAX_POSITION_WEIGHT = 0.15  # 15% max per symbol
+MAX_SECTOR_WEIGHT = 0.30  # 30% max per sector
+MIN_CASH_RESERVE = 0.05  # 5% cash always reserved
+TRANSACTION_COST = 0.0045  # 0.45% per round-trip (fee + tax + slippage)
+TRAILING_STOP_PCT = 0.05  # 5% trailing stop loss (Grid Search optimal)
+TRAILING_TAKE_PCT = 0.20  # 20% trailing take profit (Grid Search optimal)
 
 
 @dataclass
 class FactorScores:
     """Individual model scores for one symbol on one date."""
+
     symbol: str
     date: str
     sector: str
@@ -83,6 +85,7 @@ class FactorScores:
 @dataclass
 class Position:
     """Tracked position with risk management."""
+
     symbol: str
     shares: float
     entry_price: float
@@ -96,6 +99,7 @@ class Position:
 @dataclass
 class FusionResult:
     """Fusion output for one symbol."""
+
     symbol: str
     sector: str
     composite_score: float
@@ -155,14 +159,16 @@ class MultiFactorFusion:
         for fs in scores:
             # Step 1: VN20 Gate (hard filter)
             if not fs.vn20_pass:
-                results.append(FusionResult(
-                    symbol=fs.symbol,
-                    sector=fs.sector,
-                    composite_score=0.0,
-                    action="EXCLUDED",
-                    target_weight=0.0,
-                    reason="VN20 Quant Gate: FAIL",
-                ))
+                results.append(
+                    FusionResult(
+                        symbol=fs.symbol,
+                        sector=fs.sector,
+                        composite_score=0.0,
+                        action="EXCLUDED",
+                        target_weight=0.0,
+                        reason="VN20 Quant Gate: FAIL",
+                    )
+                )
                 continue
 
             # Step 2: Compute composite score
@@ -176,19 +182,19 @@ class MultiFactorFusion:
 
             # Step 3: Determine action
             current_pos = current_positions.get(fs.symbol)
-            action, target_weight, reason = self._decide(
-                fs, composite, current_pos
-            )
+            action, target_weight, reason = self._decide(fs, composite, current_pos)
 
-            results.append(FusionResult(
-                symbol=fs.symbol,
-                sector=fs.sector,
-                composite_score=round(composite, 4),
-                action=action,
-                target_weight=target_weight,
-                current_weight=current_pos.current_weight if current_pos else 0.0,
-                reason=reason,
-            ))
+            results.append(
+                FusionResult(
+                    symbol=fs.symbol,
+                    sector=fs.sector,
+                    composite_score=round(composite, 4),
+                    action=action,
+                    target_weight=target_weight,
+                    current_weight=current_pos.current_weight if current_pos else 0.0,
+                    reason=reason,
+                )
+            )
 
         # Step 4: Apply sector cap
         results = self._apply_sector_cap(results)
@@ -256,9 +262,7 @@ class MultiFactorFusion:
         """Compute portfolio-level risk metrics."""
         total_weight = sum(r.target_weight for r in results if r.action in ("BUY", "HOLD"))
         n_positions = sum(1 for r in results if r.action == "BUY")
-        avg_composite = (
-            sum(r.composite_score for r in results if r.action == "BUY") / max(n_positions, 1)
-        )
+        avg_composite = sum(r.composite_score for r in results if r.action == "BUY") / max(n_positions, 1)
 
         return {
             "total_allocated": round(total_weight * 100, 1),
@@ -268,14 +272,10 @@ class MultiFactorFusion:
             "sector_concentration_risk": self._check_sector_concentration(results),
         }
 
-    def _check_sector_concentration(
-        self, results: List[FusionResult]
-    ) -> Dict[str, float]:
+    def _check_sector_concentration(self, results: List[FusionResult]) -> Dict[str, float]:
         """Check sector concentration for risk monitoring."""
         sector_weights: Dict[str, float] = {}
         for r in results:
             if r.action in ("BUY", "HOLD") and r.target_weight > 0:
-                sector_weights[r.sector] = (
-                    sector_weights.get(r.sector, 0.0) + r.target_weight
-                )
+                sector_weights[r.sector] = sector_weights.get(r.sector, 0.0) + r.target_weight
         return {s: round(w * 100, 1) for s, w in sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)}

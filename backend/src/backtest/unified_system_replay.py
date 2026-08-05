@@ -972,7 +972,14 @@ def _get_momentum_score(conn, symbol, target_date):
 
 
 def _vn20_gate(conn, symbol, target_date):
-    """VN20 Quant Gate: Annualized ROE>10% + D/E<2 + liquidity check.
+    """VN20 Quant Gate: Annualized ROE>10% + leverage + liquidity check.
+
+    Non-banks: D/E < 2.0
+    Banks (identified by CAPITAL_RATIO presence):
+      - CAPITAL_RATIO >= 5% (Basel III Tier 1 minimum, Thông tư 41/2016/TT-NHNN)
+      - NIM >= 1.8% annualized (DB stores quarterly → ×4)
+      - NPL < 3.0% if available (NHNN threshold)
+    If neither D/E nor CAPITAL_RATIO exists, skip leverage check.
     ROE is quarterly in DB — multiply by 4 for annualized comparison."""
     try:
         period = _date_to_period(target_date)
@@ -984,15 +991,44 @@ def _vn20_gate(conn, symbol, target_date):
             "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='DEBT_TO_EQUITY' AND period<=? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
+        cap_row = conn.execute(
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='CAPITAL_RATIO' AND period<=? ORDER BY period DESC LIMIT 1",
+            (symbol, period),
+        ).fetchone()
+        nim_row = conn.execute(
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='NIM' AND period<=? ORDER BY period DESC LIMIT 1",
+            (symbol, period),
+        ).fetchone()
+        npl_row = conn.execute(
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='NPL_RATIO' AND period<=? ORDER BY period DESC LIMIT 1",
+            (symbol, period),
+        ).fetchone()
         vol_row = conn.execute(
             "SELECT volume FROM daily_ohlcv WHERE symbol=? AND date=?",
             (symbol, target_date),
         ).fetchone()
+
         roe_quarterly = roe_row[0] if roe_row else 0
-        de = de_row[0] if de_row else 99
+        de = de_row[0] if de_row else None
+        cap = cap_row[0] if cap_row else None
+        nim_raw = nim_row[0] if nim_row else None
+        npl = npl_row[0] if npl_row else None
         vol = vol_row[0] if vol_row else 0
-        roe_annual = (roe_quarterly or 0) * 4  # Annualize quarterly ROE
-        return roe_annual > 0.10 and (de or 99) < 2.0 and (vol or 0) > 50000
+        roe_annual = (roe_quarterly or 0) * 4
+
+        is_bank = cap is not None
+        if is_bank:
+            cap_ok = cap > 0.05
+            nim_ann = (nim_raw * 4) if nim_raw is not None else None
+            nim_ok = (nim_ann > 0.018) if nim_ann is not None else True
+            npl_ok = (npl < 0.030) if npl is not None else True
+            leverage_ok = cap_ok and nim_ok and npl_ok
+        elif de is not None:
+            leverage_ok = de < 2.0
+        else:
+            leverage_ok = True
+
+        return roe_annual > 0.10 and leverage_ok and (vol or 0) > 50000
     except Exception:
         return False
 
@@ -1202,7 +1238,9 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
                                 behav_score = _get_behavioral_score(conn, sym, date)
                                 alpha_score = _get_momentum_score(conn, sym, date)
 
-                                composite = W_FUND * fund_score + W_MACRO * eff_score + W_ALPHA * alpha_score + W_BEHAV * behav_score
+                                composite = (
+                                    W_FUND * fund_score + W_MACRO * eff_score + W_ALPHA * alpha_score + W_BEHAV * behav_score
+                                )
                                 if composite > ENTRY_THRESH:
                                     buy_candidates.append((sym, composite, sect))
 

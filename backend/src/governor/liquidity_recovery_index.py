@@ -32,7 +32,7 @@ from src.governor.regime_classifier import (
 )
 
 
-def _hydrate_path():
+def _hydrate_path() -> Path:
     """Path Hydrator v2.1: Auto-locate Project Root."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -186,7 +186,7 @@ class LiquidityRecoveryIndex:
                 ).fetchall()
             if len(rows) < 10:
                 return None
-            return sum(r[0] for r in rows) / len(rows)
+            return float(sum(r[0] for r in rows) / len(rows))
         except Exception:
             return None
         finally:
@@ -350,18 +350,18 @@ class LiquidityRecoveryIndex:
         usdvnd_dev_pct = None
         if usd_vnd is not None and usdvnd_ma90 is not None and usdvnd_ma90 > 0:
             usdvnd_dev_pct = abs(usd_vnd - usdvnd_ma90) / usdvnd_ma90
-        s_usdvnd = _normalize(usdvnd_dev_pct, 0.0, USDVND_DEVIATION_DENOM, invert=True)
+        s_usdvnd = _normalize(0.5 if usdvnd_dev_pct is None else usdvnd_dev_pct, 0.0, USDVND_DEVIATION_DENOM, invert=True)
 
         # ── S_Interbank: Regime-Aware Bayesian Bound ─────────────────
         ib_values = self._fetch_interbank_values(target_date, limit=self.EPOCH_WINDOW)
         ib_regime, ib_regime_probs, ib_hmm_fitted = self._classify_regime_fuzzy(target_date)
         ib_p10, ib_p90, ib_alpha = self._compute_bayesian_bounds_fuzzy(ib_values, ib_regime_probs)
-        s_interbank = _normalize(interbank_on, ib_p10, ib_p90, invert=True)
+        s_interbank = _normalize(0.5 if interbank_on is None else interbank_on, ib_p10, ib_p90, invert=True)
 
         # ── Remaining components ─────────────────────────────────────
-        s_omo = _normalize(omo_proxy, OMO_LOW, OMO_HIGH)
-        s_fii = _normalize(fii_flow, FII_LOW, FII_HIGH)
-        s_breadth = _normalize(breadth, BREADTH_LOW, BREADTH_HIGH)
+        s_omo = _normalize(0.5 if omo_proxy is None else omo_proxy, OMO_LOW, OMO_HIGH)
+        s_fii = _normalize(0.5 if fii_flow is None else fii_flow, FII_LOW, FII_HIGH)
+        s_breadth = _normalize(0.5 if breadth is None else breadth, BREADTH_LOW, BREADTH_HIGH)
 
         # Compute weighted LRI
         lri = (

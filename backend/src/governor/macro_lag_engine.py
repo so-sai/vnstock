@@ -48,13 +48,16 @@ import logging
 import sqlite3
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from governor.sector_exposure_matrix import SectorExposureMatrix
 
 logger = logging.getLogger(__name__)
 
 
-def _hydrate_path():
+def _hydrate_path() -> Path:
     """Path Hydrator v2.1: Auto-locate Project Root."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -359,7 +362,7 @@ class MacroLagEngine:
         m_vectors: List[Dict[str, float]] = []
 
         for date_str in sorted_dates:
-            indicator_scores: Dict[str, float] = {}
+            indicator_scores: Dict[str, Optional[float]] = {}
             data_quality: Dict[str, bool] = {}
 
             for var, (node, norm_key, invert) in indicator_map.items():
@@ -571,7 +574,7 @@ class MacroLagEngine:
             try:
                 dt = datetime.strptime(target_date, "%Y-%m-%d")
                 end_dt = dt
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 end_dt = datetime.now()
         else:
             end_dt = datetime.now()
@@ -580,8 +583,9 @@ class MacroLagEngine:
         for d in range(0, lookback_days, 5):  # sample every 5 days
             check_date = (end_dt - timedelta(days=d)).strftime("%Y-%m-%d")
             try:
-                m = self._reconstruct_m_vector(check_date)
-                m_vectors.append(m)
+                vectors = self._reconstruct_historical_vectors(1, check_date)
+                if vectors:
+                    m_vectors.append(vectors[0])
             except Exception:
                 continue
 

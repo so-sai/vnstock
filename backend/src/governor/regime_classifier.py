@@ -42,14 +42,17 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple, cast
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from hmmlearn.hmm import GaussianHMM
 
 logger = logging.getLogger(__name__)
 
 
-def _hydrate_path():
+def _hydrate_path() -> Path:
     """Path Hydrator v2.1: Auto-locate Project Root."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -334,7 +337,7 @@ class RegimeClassifier:
         # Scale logits by temperature
         logits = np.log(probs + 1e-10) / temperature
         scaled = np.exp(logits)
-        return scaled / np.sum(scaled)
+        return cast(np.ndarray, scaled / np.sum(scaled))
 
     def _smooth_probability_vector(self, current_probs: np.ndarray, history: Optional[List[np.ndarray]] = None) -> np.ndarray:
         """Smooth probability vector using EMA and rolling average.
@@ -363,7 +366,7 @@ class RegimeClassifier:
         else:
             smoothed = current_probs
 
-        return smoothed
+        return cast(np.ndarray, smoothed)
 
     # ── Main Classification ───────────────────────────────────────────
 
@@ -402,7 +405,7 @@ class RegimeClassifier:
         # Fallback: use raw interbank if no features
         if len(X) == 0:
             regime_probs = _heuristic_classify(avg_90d)
-            regime = max(regime_probs, key=regime_probs.get)
+            regime = max(regime_probs, key=lambda k: regime_probs.get(k, 0.0))
             return RegimeResult(
                 regime=regime,
                 probabilities=regime_probs,
@@ -417,7 +420,7 @@ class RegimeClassifier:
         model, means, bic = self._fit_hmm(X)
         if model is None:
             regime_probs = _heuristic_classify(avg_90d)
-            regime = max(regime_probs, key=regime_probs.get)
+            regime = max(regime_probs, key=lambda k: regime_probs.get(k, 0.0))
             return RegimeResult(
                 regime=regime,
                 probabilities=regime_probs,
@@ -430,7 +433,7 @@ class RegimeClassifier:
 
         try:
             # Compute posterior probabilities for all observations
-            posteriors = model.predict_proba(X)
+            posteriors = cast("GaussianHMM", model).predict_proba(X)
             raw_probs = posteriors[-1]  # latest time step
 
             # Apply temperature scaling
@@ -441,7 +444,7 @@ class RegimeClassifier:
 
             # Build result
             regime_probs = {REGIME_LABELS[i]: float(smoothed_probs[i]) for i in range(HMM_N_STATES)}
-            regime = max(regime_probs, key=regime_probs.get)
+            regime = max(regime_probs, key=lambda k: regime_probs.get(k, 0.0))
             confidence = float(np.max(smoothed_probs))
 
             return RegimeResult(
@@ -457,7 +460,7 @@ class RegimeClassifier:
         except Exception as e:
             logger.warning("[REGIME_CLASSIFIER] HMM predict failed: %s", e)
             regime_probs = _heuristic_classify(avg_90d)
-            regime = max(regime_probs, key=regime_probs.get)
+            regime = max(regime_probs, key=lambda k: regime_probs.get(k, 0.0))
             return RegimeResult(
                 regime=regime,
                 probabilities=regime_probs,

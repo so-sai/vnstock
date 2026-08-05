@@ -28,13 +28,13 @@ import logging
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 logger = logging.getLogger(__name__)
 
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ─────────────────────────────────
-def _hydrate_path():
+def _hydrate_path() -> Path:
     if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
@@ -98,14 +98,14 @@ MAX_ENTROPY = 2.322
 class CSIExplainEngine:
     """Build the causal DAG trace + confidence for a single symbol."""
 
-    def __init__(self):
-        self._graph = None
-        self._world = None
-        self._perception = None
+    def __init__(self) -> None:
+        self._graph: Any = None
+        self._world: Optional[Dict] = None
+        self._perception: Any = None
 
     # ── Lazy dependencies ────────────────────────────────────────────
 
-    def _get_graph(self):
+    def _get_graph(self) -> Any:
         if self._graph is None:
             from calibration.causal_edge import CausalGraph
 
@@ -125,7 +125,7 @@ class CSIExplainEngine:
                 self._world = {}
         return self._world
 
-    def _get_perception(self):
+    def _get_perception(self) -> Any:
         if self._perception is None:
             from src.governor.company_state import PerceptionLoader
 
@@ -436,7 +436,7 @@ class CSIExplainEngine:
 def scan_all(
     symbols: Optional[List[str]] = None,
     min_vol: float = 100_000,
-    progress_cb=None,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
 ) -> List[Dict]:
     """Quét CSI cho tập mã (mặc định: mọi mã đạt Vol20D >= min_vol).
 
@@ -840,7 +840,7 @@ def list_sectors() -> List[str]:
         return []
 
 
-def main():
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="CSI Causal Trace Explainer")
@@ -848,7 +848,7 @@ def main():
     args = parser.parse_args()
 
     if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding="utf-8")
+        cast(Any, sys.stdout).reconfigure(encoding="utf-8")
 
     engine = CSIExplainEngine()
     result = engine.explain(args.symbol)

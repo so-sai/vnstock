@@ -52,16 +52,16 @@ Usage:
 
 import logging
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
-def _hydrate_path():
+def _hydrate_path() -> Path:
     """Path Hydrator v2.1: Auto-locate Project Root."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -81,7 +81,7 @@ PROJECT_ROOT = _hydrate_path()
 #   thresholds: Minimum values for each node to activate
 #   condition:  Optional custom lambda for complex conditions
 #   impact:     Per-sector multiplier impact (1.0 = no effect)
-#   type:       POSITIVE_BOOM (amplifying) or NEGATIVE_FRICTION (dampening)
+#   kind (booming vs friction): POSITIVE_BOOM (amplifying) or NEGATIVE_FRICTION (dampening)
 #   scale:      Excess scaling factor (default 4.0)
 
 INTERACTION_RULES: List[Dict[str, Any]] = [
@@ -142,9 +142,11 @@ MULTIPLIER_HIGH = 1.35
 
 # ── Result Dataclass ──────────────────────────────────────────────────
 
+
 @dataclass
 class InteractionResult:
     """Result of non-linear interaction computation for one sector."""
+
     sector: str
     multiplier: float  # Clamped to [0.70, 1.35]
     raw_multiplier: float  # Before clamping
@@ -225,14 +227,16 @@ class InteractionEngine:
                     # Smooth application: impact scaled by excess
                     applied_impact = 1.0 + (impact - 1.0) * min(1.0, excess)
                     multiplier *= applied_impact
-                    active_synergies.append({
-                        "rule": rule["name"],
-                        "multiplier": round(applied_impact, 4),
-                        "type": rule["type"],
-                        "impact_raw": impact,
-                        "excess": round(excess, 4),
-                        "description": rule.get("description", ""),
-                    })
+                    active_synergies.append(
+                        {
+                            "rule": rule["name"],
+                            "multiplier": round(applied_impact, 4),
+                            "type": rule["type"],
+                            "impact_raw": impact,
+                            "excess": round(excess, 4),
+                            "description": rule.get("description", ""),
+                        }
+                    )
 
         raw_multiplier = multiplier
         clamped_multiplier = float(np.clip(multiplier, MULTIPLIER_LOW, MULTIPLIER_HIGH))

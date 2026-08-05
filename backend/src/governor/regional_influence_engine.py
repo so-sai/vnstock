@@ -25,7 +25,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def _hydrate_path():
+def _hydrate_path() -> Path:
     """Path Hydrator v2.1: Auto-locate Project Root."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -103,10 +103,10 @@ class RegionalMacroResult:
     component_scores: dict  # Raw indicator scores
     data_quality: dict  # Which indicators had data
     node_details: dict  # Per-node decomposition
-    momentum: dict = None  # {node: Δscore over lookback} — direction of change
-    confidence: dict = None  # {node: data completeness ratio [0,1]}
+    momentum: Optional[dict] = None  # {node: Δscore over lookback} — direction of change
+    confidence: Optional[dict] = None  # {node: data completeness ratio [0,1]}
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.momentum is None:
             self.momentum = {}
         if self.confidence is None:
@@ -296,24 +296,19 @@ class RegionalInfluenceEngine:
             current_score = macro_vector[node_name]
 
             # Fetch historical score (30 days ago) for comparison
-            past_score = self._compute_historical_node_score(
-                node_name, target_date, lookback_days=30
-            )
+            past_score = self._compute_historical_node_score(node_name, target_date, lookback_days=30)
             if past_score is not None:
                 delta = current_score - past_score
                 momentum[node_name] = round(delta, 4)
             else:
-                momentum[node_name] = None
+                momentum[node_name] = 0.0
 
         # ── Compute confidence (data completeness per node) ─────────
         confidence = {}
         for node_name in ["US_Liquidity", "China_Economy", "Commodity_Cycle", "Domestic_Liquidity"]:
             weights = NODE_COMPOSITE_WEIGHTS.get(node_name, {})
             total = len(weights)
-            has_data = sum(
-                1 for ind in weights
-                if data_quality.get(ind, False)
-            )
+            has_data = sum(1 for ind in weights if data_quality.get(ind, False))
             confidence[node_name] = round(has_data / total, 2) if total > 0 else 0.0
 
         return RegionalMacroResult(
@@ -333,10 +328,11 @@ class RegionalInfluenceEngine:
             return None
         try:
             from datetime import datetime, timedelta
+
             dt = datetime.strptime(target_date, "%Y-%m-%d")
             past_dt = dt - timedelta(days=lookback_days)
             past_date = past_dt.strftime("%Y-%m-%d")
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
 
         # Fetch historical indicators

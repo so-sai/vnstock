@@ -80,7 +80,7 @@ class CompositeScoreProjector:
     def __init__(self, policy: Optional[ExecutionPolicy] = None):
         self.policy = policy or POLICIES["BALANCED"]
 
-    def project(self, mandate) -> CompositeScoreResult:
+    def project(self, mandate: object) -> CompositeScoreResult:
         symbol = getattr(mandate, "symbol", "UNKNOWN")
         action = getattr(mandate, "action", "WAIT")
         p_gain = getattr(mandate, "p_gain", 0.5)
@@ -210,7 +210,7 @@ class CompositeScoreProjector:
         return sorted(results, key=lambda r: r.final_score, reverse=True)
 
 
-def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: str = "BALANCED"):
+def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: str = "BALANCED") -> None:
     """Print clean 0–100 Composite Score Dashboard for CLI in Parallel Bilingual (Việt - Anh) format."""
     from src.utils.cli_theme import c_cyan, c_dim, c_green, c_red, c_yellow
 
