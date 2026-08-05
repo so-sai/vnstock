@@ -797,6 +797,361 @@ def _save_reports(results, decision_delta, start, end):
     print(f"  Delta CSV saved: {delta_path}")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# MULTI-FACTOR BACKTEST (5 Models: M1 + M2 + M3 + Alpha + VN20 Gate)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FINANCIAL_DB_PATH = DATA_DIR / "financial_facts.db"
+
+
+def _get_financial_score(fin_conn, symbol, target_date, metric_names, weights=None):
+    """Read health_ratios from financial_facts.db, return composite score [0,1]."""
+    try:
+        if weights is None:
+            weights = {m: 1.0 / len(metric_names) for m in metric_names}
+        scores = {}
+        for m in metric_names:
+            row = fin_conn.execute(
+                "SELECT ratio_value FROM health_ratios "
+                "WHERE symbol=? AND ratio_name=? AND period<=? "
+                "ORDER BY period DESC LIMIT 1",
+                (symbol, m, _date_to_period(target_date)),
+            ).fetchone()
+            if row and row[0] is not None:
+                scores[m] = row[0]
+        if not scores:
+            return 0.5
+        # Normalize each metric to [0,1]
+        # NOTE: health_ratios stored as decimals (ROE=0.15 = 15%)
+        normalized = {}
+        for m, val in scores.items():
+            if m == "ROE":
+                normalized[m] = max(0.0, min(1.0, val / 0.30))  # 30% = 1.0
+            elif m == "DEBT_TO_EQUITY":
+                normalized[m] = max(0.0, min(1.0, 1.0 - val / 3.0))
+            elif m in ("GROSS_MARGIN", "NET_MARGIN"):
+                normalized[m] = max(0.0, min(1.0, val / 0.50))  # 50% = 1.0
+            elif m == "CURRENT_RATIO":
+                normalized[m] = max(0.0, min(1.0, val / 3.0))
+            else:
+                normalized[m] = max(0.0, min(1.0, val))
+        total_w = sum(weights.get(m, 0) for m in normalized)
+        if total_w == 0:
+            return 0.5
+        return sum(normalized[m] * weights.get(m, 0) for m in normalized) / total_w
+    except Exception:
+        return 0.5
+
+
+def _date_to_period(target_date):
+    """Convert date string '2025-06-30' to period '2025Q2'."""
+    from datetime import datetime
+    try:
+        d = datetime.strptime(target_date, "%Y-%m-%d")
+        q = (d.month - 1) // 3 + 1
+        return f"{d.year}Q{q}"
+    except Exception:
+        return "2025Q2"
+
+
+def _get_fundamental_score(fin_conn, symbol, target_date):
+    """M2: Fundamental quality from health_ratios (ROE + Gross Margin + D/E)."""
+    return _get_financial_score(fin_conn, symbol, target_date,
+                                ["ROE", "GROSS_MARGIN", "DEBT_TO_EQUITY"],
+                                {"ROE": 0.4, "GROSS_MARGIN": 0.3, "DEBT_TO_EQUITY": 0.3})
+
+
+def _get_behavioral_score(conn, symbol, target_date):
+    """M3: Volume pattern + institutional flow proxy."""
+    try:
+        rows = conn.execute(
+            "SELECT volume, close FROM daily_ohlcv WHERE symbol=? AND date<? "
+            "ORDER BY date DESC LIMIT 30",
+            (symbol, target_date),
+        ).fetchall()
+        if len(rows) < 10:
+            return 0.5
+        volumes = [float(r[0]) for r in rows]
+        closes = [float(r[1]) for r in rows]
+        avg_vol = sum(volumes[5:]) / max(len(volumes[5:]), 1)
+        recent_vol = sum(volumes[:5]) / 5
+        vol_ratio = recent_vol / max(avg_vol, 1)
+        price_chg = (closes[0] - closes[5]) / closes[5] if closes[5] else 0
+        vol_chg = vol_ratio - 1.0
+        score = 0.5 + price_chg * 0.3 + vol_chg * 0.2
+        return max(0.0, min(1.0, score))
+    except Exception:
+        return 0.5
+
+
+def _get_momentum_score(conn, symbol, target_date):
+    """Alpha: Multi-timeframe momentum (5D/10D/20D)."""
+    try:
+        rows = conn.execute(
+            "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<? "
+            "ORDER BY date DESC LIMIT 40",
+            (symbol, target_date),
+        ).fetchall()
+        if len(rows) < 20:
+            return 0.5
+        prices = [float(r[0]) for r in rows]
+        ret_5d = (prices[0] - prices[4]) / prices[4] if prices[4] else 0
+        ret_10d = (prices[0] - prices[9]) / prices[9] if prices[9] else 0
+        ret_20d = (prices[0] - prices[19]) / prices[19] if prices[19] else 0
+        score = 0.5 + ret_5d * 0.4 + ret_10d * 0.3 + ret_20d * 0.2
+        return max(0.0, min(1.0, score))
+    except Exception:
+        return 0.5
+
+
+def _vn20_gate(fin_conn, conn, symbol, target_date):
+    """VN20 Quant Gate: ROE>5% (quarterly) + D/E<2 + liquidity check."""
+    try:
+        period = _date_to_period(target_date)
+        roe_row = fin_conn.execute(
+            "SELECT ratio_value FROM health_ratios WHERE symbol=? AND ratio_name='ROE' AND period<=? ORDER BY period DESC LIMIT 1",
+            (symbol, period),
+        ).fetchone()
+        de_row = fin_conn.execute(
+            "SELECT ratio_value FROM health_ratios WHERE symbol=? AND ratio_name='DEBT_TO_EQUITY' AND period<=? ORDER BY period DESC LIMIT 1",
+            (symbol, period),
+        ).fetchone()
+        vol_row = conn.execute(
+            "SELECT volume FROM daily_ohlcv WHERE symbol=? AND date=?",
+            (symbol, target_date),
+        ).fetchone()
+        roe = roe_row[0] if roe_row else 0
+        de = de_row[0] if de_row else 99
+        vol = vol_row[0] if vol_row else 0
+        # ROE is quarterly — threshold 5% quarterly ≈ 20% annualized
+        return (roe or 0) > 0.05 and (de or 99) < 2.0 and (vol or 0) > 50000
+    except Exception:
+        return False
+
+
+def _multi_factor_decide(score, price, entry, trailing_stop=0.07, trailing_take=0.15):
+    """Decision logic with trailing stop/take."""
+    if score is None:
+        return "HOLD"
+    if entry is None and score > 0.55:
+        return "BUY"
+    if entry is not None:
+        pnl = (price - entry) / entry
+        if pnl <= -trailing_stop:
+            return "SELL"
+        if pnl >= trailing_take:
+            return "SELL"
+        if score < 0.35:
+            return "SELL"
+    return "HOLD"
+
+
+def _execute_multi_factor(state, conn, date, action, symbol, score, weight=0.10):
+    """Execute with position sizing + transaction costs."""
+    price = _get_close(conn, symbol, date)
+    if not price or price <= 0:
+        return
+
+    current_shares = state.positions.get(symbol, 0)
+
+    if action == "BUY" and current_shares == 0:
+        alloc = state.capital * weight
+        exec_price = price * 1.002
+        shares = int(alloc / exec_price)
+        if shares > 0:
+            cost = shares * exec_price * 1.0045
+            if cost <= state.capital:
+                state.capital -= cost
+                state.positions[symbol] = shares
+                state.entry_prices[symbol] = exec_price
+                state.trade_log.append({
+                    "date": date, "symbol": symbol, "action": "BUY",
+                    "price": round(exec_price, 2), "shares": shares,
+                    "score": round(score, 4), "cost": round(cost, 0),
+                })
+
+    elif action == "SELL" and current_shares > 0:
+        exec_price = price * 0.998
+        revenue = current_shares * exec_price * 0.9955
+        entry = state.entry_prices.get(symbol, exec_price)
+        pnl = (exec_price - entry) / entry
+        state.capital += revenue
+        state.trade_log.append({
+            "date": date, "symbol": symbol, "action": "SELL",
+            "price": round(exec_price, 2), "shares": current_shares,
+            "score": round(score, 4), "pnl_pct": round(pnl * 100, 2),
+        })
+        state.positions.pop(symbol, None)
+        state.entry_prices.pop(symbol, None)
+
+
+def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
+                               db_path=None, sample_every=5):
+    """Run 5-model multi-factor backtest with Position Sizing + Risk Management."""
+    print(f"\n{'='*70}")
+    print("  MULTI-FACTOR BACKTEST — 5 Models (M1+M2+M3+Alpha+VN20)")
+    print(f"{'='*70}")
+    print(f"  Period: {start} -> {end}")
+    print(f"  Scored days: every {sample_every}d")
+    print(f"  Transaction cost: 0.45% | Trailing stop: -7% | Take profit: +15%")
+    print(f"  Position sizing: 10% per stock, 30% sector cap, 5% cash reserve")
+    print()
+
+    if db_path is None:
+        db_path = str(DATA_DIR / "screener_cache.db")
+
+    conn = sqlite3.connect(db_path)
+    fin_conn = sqlite3.connect(str(FINANCIAL_DB_PATH))
+    macro_engine = RegionalInfluenceEngine()
+    lag_engine = MacroLagEngine()
+    ix_engine = InteractionEngine()
+    matrix = SectorExposureMatrix()
+
+    dates = _get_trading_days(conn, start, end)
+    score_days = dates[::sample_every]
+
+    state = ScenarioState()
+    vnindex_start = _get_vnindex_close(conn, dates[0])
+    decision_log = []
+    macro_cache = {"date": None, "result": None}
+
+    print(f"  [Phase 1] Pre-fetching macro vectors...")
+    preload_start = time.time()
+    try:
+        import pandas as pd
+        if CACHE_FILE.exists():
+            df = pd.read_parquet(CACHE_FILE)
+            cached_days = len(df)
+            print(f"  [Phase 1] Loaded {cached_days} days from Parquet cache in {time.time()-preload_start:.1f}s")
+    except Exception:
+        pass
+    print(f"  [Phase 1] Done in {time.time()-preload_start:.1f}s")
+
+    print(f"  [Phase 2] Running multi-factor backtest loop...")
+    t2 = time.time()
+
+    for i, date in enumerate(dates):
+        # Score every N-th day
+        if date in score_days:
+            macro_result = None
+            try:
+                macro_result = macro_engine.compute(date)
+            except Exception:
+                pass
+
+            if macro_result:
+                M = macro_result.macro_vector
+                sector_scores = matrix.get_sector_ranking(M)
+                lag_results = lag_engine.compute_all_sectors(date)
+                ix_results = ix_engine.compute_all_sectors(M)
+
+                buy_candidates = []
+                for sect, raw_score in sector_scores:
+                    eff = lag_results.get(sect)
+                    eff_score = eff.effective_score if eff else raw_score
+                    mult = ix_results.get(sect)
+                    final_score = eff_score * (mult.multiplier if mult else 1.0)
+
+                    if final_score > 0.50:
+                        # Get top stock in sector
+                        stocks = [s for s in UNIVERSE if _get_sector(conn, s) == sect]
+                        for sym in stocks[:2]:
+                            if _vn20_gate(fin_conn, conn, sym, date):
+                                fund_score = _get_fundamental_score(fin_conn, sym, date)
+                                behav_score = _get_behavioral_score(conn, sym, date)
+                                alpha_score = _get_momentum_score(conn, sym, date)
+
+                                composite = (
+                                    0.35 * fund_score
+                                    + 0.25 * eff_score
+                                    + 0.25 * alpha_score
+                                    + 0.15 * behav_score
+                                )
+                                if composite > 0.55:
+                                    buy_candidates.append((sym, composite, sect))
+
+                buy_candidates.sort(key=lambda x: x[1], reverse=True)
+
+                for sym, composite, sect in buy_candidates[:5]:
+                    action = _multi_factor_decide(composite, 0, None)
+                    if action == "BUY":
+                        _execute_multi_factor(state, conn, date, "BUY", sym, composite, weight=0.10)
+                        decision_log.append({"date": date, "symbol": sym, "action": "BUY", "score": composite})
+
+            # SELL check for existing positions
+            for sym in list(state.positions.keys()):
+                price = _get_close(conn, sym, date)
+                if price:
+                    entry = state.entry_prices.get(sym)
+                    composite = _get_fundamental_score(fin_conn, sym, date)
+                    action = _multi_factor_decide(composite, price, entry)
+                    if action == "SELL":
+                        _execute_multi_factor(state, conn, date, "SELL", sym, composite)
+
+        _mark_to_market(state, conn, date)
+
+        if (i + 1) % 200 == 0:
+            equity = state.equity_curve[-1] if state.equity_curve else state.initial_capital
+            print(f"  Day {i+1}/{len(dates)}: {date} | Equity={equity/1e6:.1f}M | Positions={len(state.positions)}")
+
+    t2 = time.time() - t2
+    print(f"  [Phase 2] Done in {t2:.1f}s ({len(score_days)} scored days x {len(dates)} total)")
+
+    # Build result
+    result = _build_result(state, "MULTI_FACTOR", start, end, len(dates))
+
+    # Print report
+    print(f"\n{'='*70}")
+    print("  MULTI-FACTOR BACKTEST RESULTS")
+    print(f"{'='*70}\n")
+
+    metrics = [
+        ("Total Return (%)", result.total_return, ".2f"),
+        ("Annualized Return (%)", result.annualized_return, ".2f"),
+        ("Sharpe Ratio", result.sharpe_ratio, ".4f"),
+        ("Max Drawdown (%)", result.max_drawdown, ".2f"),
+        ("Volatility (%)", result.volatility, ".2f"),
+        ("Win Rate (%)", result.win_rate, ".1f"),
+        ("Total Trades", result.total_trades, "d"),
+        ("Final Equity (M)", result.final_equity / 1e6, ".1f"),
+    ]
+    for label, val, fmt in metrics:
+        print(f"  {label:<25} {val:>15{fmt}}")
+
+    # Position summary
+    print(f"\n  Active positions: {len(state.positions)}")
+    for sym, shares in list(state.positions.items())[:10]:
+        entry = state.entry_prices.get(sym, 0)
+        print(f"    {sym}: {shares} shares @ {entry:.2f}")
+
+    # Save report
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "mode": "multi_factor",
+        "period": {"start": start, "end": end},
+        "scenarios": {
+            "MULTI_FACTOR": {
+                "total_return_pct": result.total_return,
+                "annualized_return_pct": result.annualized_return,
+                "sharpe_ratio": result.sharpe_ratio,
+                "max_drawdown_pct": result.max_drawdown,
+                "volatility_pct": result.volatility,
+                "win_rate_pct": result.win_rate,
+                "total_trades": result.total_trades,
+                "final_equity": result.final_equity,
+            }
+        },
+    }
+    summary_path = REPORTS_DIR / f"multifactor_{start}_{end}_summary.json"
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    print(f"\n  Summary saved: {summary_path}")
+
+    conn.close()
+    fin_conn.close()
+    return result
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Unified System Replay — Ablation Study")
@@ -804,5 +1159,10 @@ if __name__ == "__main__":
     parser.add_argument("--end", default="2026-08-04", help="End date (default: 2026-08-04)")
     parser.add_argument("--db", default=None, help="Override DB path")
     parser.add_argument("--sample-every", type=int, default=5, help="Score every N-th day (default: 5)")
+    parser.add_argument("--mode", choices=["ablation", "multi-factor"], default="ablation",
+                        help="Run mode: ablation (A/B/C) or multi-factor (5 models)")
     args = parser.parse_args()
-    run_unified_replay(args.start, args.end, args.db, args.sample_every)
+    if args.mode == "multi-factor":
+        run_multi_factor_backtest(args.start, args.end, args.db, args.sample_every)
+    else:
+        run_unified_replay(args.start, args.end, args.db, args.sample_every)
