@@ -80,8 +80,24 @@ def run_breadth_analysis(target_date: str | None = None):
     ref_rows = df[df['date'] == latest_date]
     if ref_rows.empty or ref_rows['volume'].sum() == 0:
         fallback_date = valid_dates[-1]
-        print(f"ℹ️ Ngày {latest_date.strftime('%Y-%m-%d')} không có giao dịch "
-              f"(nghỉ lễ/cuối tuần) — fallback về phiên gần nhất: {fallback_date.strftime('%Y-%m-%d')}")
+        from datetime import date as _date
+        _today = latest_date.date() if hasattr(latest_date, 'date') else latest_date
+        _is_weekend = _today.weekday() >= 5
+        _holidays = set()
+        try:
+            import json as _json
+            _cal_path = Path(__file__).resolve().parent.parent / "config" / "weekend_holidays.json"
+            with open(_cal_path, encoding="utf-8") as _f:
+                _holidays = set(_json.load(_f).get("holidays", []))
+        except Exception:
+            pass
+        _is_holiday = _today.isoformat() in _holidays
+        if _is_weekend or _is_holiday:
+            _reason = "cuối tuần" if _is_weekend else "ngày lễ"
+        else:
+            _reason = "chưa nạp dữ liệu phiên mới"
+        print(f"ℹ️ Ngày {latest_date.strftime('%Y-%m-%d')} không có dữ liệu "
+              f"({_reason}) — fallback về phiên gần nhất: {fallback_date.strftime('%Y-%m-%d')}")
         latest_date = fallback_date
 
     prev_dates = valid_dates[-3:] if len(valid_dates) >= 3 else valid_dates[-3:]
