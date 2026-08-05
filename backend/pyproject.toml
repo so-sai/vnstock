@@ -110,6 +110,13 @@ addopts = [
     "--strict-config",
     "--disable-warnings",
 ]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::UserWarning:pandas.*",
+    "ignore::UserWarning:pydantic.*",
+    "ignore::FutureWarning:pandas.*",
+]
 markers = [
     "unit: Unit tests - fast, isolated tests",
     "integration: Integration tests - may call external services",
