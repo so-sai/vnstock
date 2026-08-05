@@ -804,29 +804,34 @@ def _save_reports(results, decision_delta, start, end):
 FINANCIAL_DB_PATH = DATA_DIR / "financial_facts.db"
 
 
-def _get_financial_score(fin_conn, symbol, target_date, metric_names, weights=None):
-    """Read health_ratios from financial_facts.db, return composite score [0,1]."""
+def _get_financial_score(conn, symbol, target_date, metric_names, weights=None):
+    """Read health_ratios from attached fin schema, return composite score [0,1].
+    ROE is quarterly — annualize by multiplying by 4 for proper normalization."""
     try:
         if weights is None:
             weights = {m: 1.0 / len(metric_names) for m in metric_names}
         scores = {}
         for m in metric_names:
-            row = fin_conn.execute(
-                "SELECT ratio_value FROM health_ratios "
+            row = conn.execute(
+                "SELECT ratio_value FROM fin.health_ratios "
                 "WHERE symbol=? AND ratio_name=? AND period<=? "
                 "ORDER BY period DESC LIMIT 1",
                 (symbol, m, _date_to_period(target_date)),
             ).fetchone()
             if row and row[0] is not None:
-                scores[m] = row[0]
+                val = row[0]
+                # Annualize quarterly ROE
+                if m == "ROE":
+                    val = val * 4
+                scores[m] = val
         if not scores:
             return 0.5
         # Normalize each metric to [0,1]
-        # NOTE: health_ratios stored as decimals (ROE=0.15 = 15%)
+        # ROE is now annualized (e.g., 0.08 quarterly → 0.32 annualized)
         normalized = {}
         for m, val in scores.items():
             if m == "ROE":
-                normalized[m] = max(0.0, min(1.0, val / 0.30))  # 30% = 1.0
+                normalized[m] = max(0.0, min(1.0, val / 0.30))  # 30% annualized = 1.0
             elif m == "DEBT_TO_EQUITY":
                 normalized[m] = max(0.0, min(1.0, 1.0 - val / 3.0))
             elif m in ("GROSS_MARGIN", "NET_MARGIN"):
@@ -854,9 +859,9 @@ def _date_to_period(target_date):
         return "2025Q2"
 
 
-def _get_fundamental_score(fin_conn, symbol, target_date):
-    """M2: Fundamental quality from health_ratios (ROE + Gross Margin + D/E)."""
-    return _get_financial_score(fin_conn, symbol, target_date,
+def _get_fundamental_score(conn, symbol, target_date):
+    """M2: Fundamental quality from health_ratios (annualized ROE + Gross Margin + D/E)."""
+    return _get_financial_score(conn, symbol, target_date,
                                 ["ROE", "GROSS_MARGIN", "DEBT_TO_EQUITY"],
                                 {"ROE": 0.4, "GROSS_MARGIN": 0.3, "DEBT_TO_EQUITY": 0.3})
 
@@ -904,27 +909,28 @@ def _get_momentum_score(conn, symbol, target_date):
         return 0.5
 
 
-def _vn20_gate(fin_conn, conn, symbol, target_date):
-    """VN20 Quant Gate: ROE>5% (quarterly) + D/E<2 + liquidity check."""
+def _vn20_gate(conn, symbol, target_date):
+    """VN20 Quant Gate: Annualized ROE>10% + D/E<2 + liquidity check.
+    ROE is quarterly in DB — multiply by 4 for annualized comparison."""
     try:
         period = _date_to_period(target_date)
-        roe_row = fin_conn.execute(
-            "SELECT ratio_value FROM health_ratios WHERE symbol=? AND ratio_name='ROE' AND period<=? ORDER BY period DESC LIMIT 1",
+        roe_row = conn.execute(
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='ROE' AND period<=? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
-        de_row = fin_conn.execute(
-            "SELECT ratio_value FROM health_ratios WHERE symbol=? AND ratio_name='DEBT_TO_EQUITY' AND period<=? ORDER BY period DESC LIMIT 1",
+        de_row = conn.execute(
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='DEBT_TO_EQUITY' AND period<=? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         vol_row = conn.execute(
             "SELECT volume FROM daily_ohlcv WHERE symbol=? AND date=?",
             (symbol, target_date),
         ).fetchone()
-        roe = roe_row[0] if roe_row else 0
+        roe_quarterly = roe_row[0] if roe_row else 0
         de = de_row[0] if de_row else 99
         vol = vol_row[0] if vol_row else 0
-        # ROE is quarterly — threshold 5% quarterly ≈ 20% annualized
-        return (roe or 0) > 0.05 and (de or 99) < 2.0 and (vol or 0) > 50000
+        roe_annual = (roe_quarterly or 0) * 4  # Annualize quarterly ROE
+        return roe_annual > 0.10 and (de or 99) < 2.0 and (vol or 0) > 50000
     except Exception:
         return False
 
@@ -1001,7 +1007,9 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
         db_path = str(DATA_DIR / "screener_cache.db")
 
     conn = sqlite3.connect(db_path)
-    fin_conn = sqlite3.connect(str(FINANCIAL_DB_PATH))
+    # ATTACH financial_facts.db for single-connection access
+    fin_db_path = str(FINANCIAL_DB_PATH).replace("\\", "/")
+    conn.execute(f"ATTACH DATABASE '{fin_db_path}' AS fin")
     macro_engine = RegionalInfluenceEngine()
     lag_engine = MacroLagEngine()
     ix_engine = InteractionEngine()
@@ -1056,8 +1064,8 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
                         # Get top stock in sector
                         stocks = [s for s in UNIVERSE if _get_sector(conn, s) == sect]
                         for sym in stocks[:2]:
-                            if _vn20_gate(fin_conn, conn, sym, date):
-                                fund_score = _get_fundamental_score(fin_conn, sym, date)
+                            if _vn20_gate(conn, sym, date):
+                                fund_score = _get_fundamental_score(conn, sym, date)
                                 behav_score = _get_behavioral_score(conn, sym, date)
                                 alpha_score = _get_momentum_score(conn, sym, date)
 
@@ -1083,7 +1091,7 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
                 price = _get_close(conn, sym, date)
                 if price:
                     entry = state.entry_prices.get(sym)
-                    composite = _get_fundamental_score(fin_conn, sym, date)
+                    composite = _get_fundamental_score(conn, sym, date)
                     action = _multi_factor_decide(composite, price, entry)
                     if action == "SELL":
                         _execute_multi_factor(state, conn, date, "SELL", sym, composite)
@@ -1147,8 +1155,8 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
         json.dump(summary, f, indent=2, ensure_ascii=False)
     print(f"\n  Summary saved: {summary_path}")
 
+    conn.execute("DETACH DATABASE fin")
     conn.close()
-    fin_conn.close()
     return result
 
 
