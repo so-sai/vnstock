@@ -9,6 +9,7 @@ Compares 3 scenarios:
 Measures: Sharpe, MaxDD, Alpha, WinRate, Decision Delta
 Period: 2021-04 to 2026-08 (macro_history available range)
 """
+
 from __future__ import annotations
 
 import json
@@ -49,24 +50,59 @@ CACHE_FILE = CACHE_DIR / "macro_preload.parquet"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from backtest.portfolio_tracker import PortfolioTracker
 from governor.interaction_engine import InteractionEngine
-from governor.macro_lag_engine import MacroLagEngine, SECTOR_TRANSMISSION
+from governor.macro_lag_engine import SECTOR_TRANSMISSION, MacroLagEngine
 from governor.regional_influence_engine import RegionalInfluenceEngine
 from governor.sector_exposure_matrix import SectorExposureMatrix
 
-
-UNIVERSE = list(set([
-    "HPG", "VNM", "VIC", "VHM", "VRE", "VCB", "BID", "CTG", "TCB", "MBB",
-    "ACB", "VPB", "STB", "TPB", "HDB", "LPB", "VIB", "AGB", "BWE", "MWG",
-    "FPT", "VGT", "PTB", "PLX", "GAS", "POW", "NT2", "PC1", "GVR",
-    "SSI", "VND", "HCM", "SHS", "VCI",
-]))
+UNIVERSE = list(
+    set(
+        [
+            "HPG",
+            "VNM",
+            "VIC",
+            "VHM",
+            "VRE",
+            "VCB",
+            "BID",
+            "CTG",
+            "TCB",
+            "MBB",
+            "ACB",
+            "VPB",
+            "STB",
+            "TPB",
+            "HDB",
+            "LPB",
+            "VIB",
+            "AGB",
+            "BWE",
+            "MWG",
+            "FPT",
+            "VGT",
+            "PTB",
+            "PLX",
+            "GAS",
+            "POW",
+            "NT2",
+            "PC1",
+            "GVR",
+            "SSI",
+            "VND",
+            "HCM",
+            "SHS",
+            "VCI",
+        ]
+    )
+)
 
 
 @dataclass
 class ScenarioState:
     capital: float = 100_000_000.0
     initial_capital: float = 100_000_000.0
+    invested: float = 0.0  # Track total invested capital
     positions: Dict[str, float] = field(default_factory=dict)
     entry_prices: Dict[str, float] = field(default_factory=dict)
     equity_curve: List[float] = field(default_factory=list)
@@ -92,18 +128,22 @@ class ReplayResult:
 
 def _get_trading_days(conn: sqlite3.Connection, start: str, end: str) -> List[str]:
     rows = conn.execute(
-        "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' "
-        "AND date BETWEEN ? AND ? ORDER BY date",
+        "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN ? AND ? ORDER BY date",
         (start, end),
     ).fetchall()
     return [r[0] for r in rows]
 
 
 def _get_close(conn: sqlite3.Connection, symbol: str, date: str) -> Optional[float]:
-    row = conn.execute(
-        "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?", (symbol, date)
-    ).fetchone()
-    return float(row[0]) if row else None
+    row = conn.execute("SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?", (symbol, date)).fetchone()
+    if not row:
+        return None
+    price = float(row[0])
+    # NORMALIZE: some DB rows store per-1000-share prices (< 1000)
+    # VN stocks trade at 1,000-300,000 VND per share; anything < 1000 is wrong unit
+    if 0 < price < 1000:
+        price *= 1000
+    return price
 
 
 def _get_vnindex_close(conn: sqlite3.Connection, date: str) -> Optional[float]:
@@ -112,16 +152,14 @@ def _get_vnindex_close(conn: sqlite3.Connection, date: str) -> Optional[float]:
 
 def _get_sector(conn: sqlite3.Connection, symbol: str) -> Optional[str]:
     from governor.sector_exposure_matrix import VIETNAMESE_SECTOR_MAP
-    row = conn.execute(
-        "SELECT icb_name2 FROM symbol_industry WHERE symbol=?", (symbol,)
-    ).fetchone()
+
+    row = conn.execute("SELECT icb_name2 FROM symbol_industry WHERE symbol=?", (symbol,)).fetchone()
     if not row:
         return None
     return VIETNAMESE_SECTOR_MAP.get(row[0])
 
-def _compute_scores_for_date(
-    conn, target_date, macro_engine, lag_engine, ix_engine, matrix, macro_cache
-):
+
+def _compute_scores_for_date(conn, target_date, macro_engine, lag_engine, ix_engine, matrix, macro_cache):
     """Compute A/B/C scores for all sectors on one date."""
     if macro_cache and macro_cache["date"] == target_date:
         macro_result = macro_cache["result"]
@@ -196,11 +234,16 @@ def _execute(state, conn, date, action, symbol, score):
                 state.capital -= cost
                 state.positions[symbol] = shares
                 state.entry_prices[symbol] = exec_price
-                state.trade_log.append({
-                    "date": date, "symbol": symbol, "action": "BUY",
-                    "price": round(exec_price, 2), "shares": shares,
-                    "score": round(score, 4),
-                })
+                state.trade_log.append(
+                    {
+                        "date": date,
+                        "symbol": symbol,
+                        "action": "BUY",
+                        "price": round(exec_price, 2),
+                        "shares": shares,
+                        "score": round(score, 4),
+                    }
+                )
 
     elif action == "SELL" and current_shares > 0:
         exec_price = price * 0.998
@@ -208,11 +251,17 @@ def _execute(state, conn, date, action, symbol, score):
         entry = state.entry_prices.get(symbol, exec_price)
         pnl = (exec_price - entry) / entry
         state.capital += revenue
-        state.trade_log.append({
-            "date": date, "symbol": symbol, "action": "SELL",
-            "price": round(exec_price, 2), "shares": current_shares,
-            "score": round(score, 4), "pnl_pct": round(pnl * 100, 2),
-        })
+        state.trade_log.append(
+            {
+                "date": date,
+                "symbol": symbol,
+                "action": "SELL",
+                "price": round(exec_price, 2),
+                "shares": current_shares,
+                "score": round(score, 4),
+                "pnl_pct": round(pnl * 100, 2),
+            }
+        )
         state.positions.pop(symbol, None)
         state.entry_prices.pop(symbol, None)
 
@@ -242,11 +291,17 @@ def _build_result(state, scenario, start, end, days):
     win_rate = wins / len(sells) if sells else 0.0
 
     return ReplayResult(
-        scenario=scenario, start_date=start, end_date=end,
-        trading_days=days, total_return=round(total_ret * 100, 2),
-        sharpe_ratio=round(sharpe, 4), max_drawdown=round(max_dd * 100, 2),
-        win_rate=round(win_rate * 100, 1), total_trades=len(state.trade_log),
-        annualized_return=round(ann_ret * 100, 2), volatility=round(vol * 100, 2),
+        scenario=scenario,
+        start_date=start,
+        end_date=end,
+        trading_days=days,
+        total_return=round(total_ret * 100, 2),
+        sharpe_ratio=round(sharpe, 4),
+        max_drawdown=round(max_dd * 100, 2),
+        win_rate=round(win_rate * 100, 1),
+        total_trades=len(state.trade_log),
+        annualized_return=round(ann_ret * 100, 2),
+        volatility=round(vol * 100, 2),
         final_equity=round(curve[-1], 0),
     )
 
@@ -255,6 +310,7 @@ def _build_result(state, scenario, start, end, days):
 # Parquet Cache for Phase 1 Pre-fetch Results
 # ═══════════════════════════════════════════════════════════
 
+
 def _macro_cache_valid(cache_path: Path, db_path: str, start_date: str) -> bool:
     """Check if Parquet cache exists, is newer than macro_history, and
     matches current engine configurations (weights + rules)."""
@@ -262,9 +318,7 @@ def _macro_cache_valid(cache_path: Path, db_path: str, start_date: str) -> bool:
         return False
     try:
         conn = sqlite3.connect(db_path)
-        row = conn.execute(
-            "SELECT MAX(date) FROM macro_history"
-        ).fetchone()
+        row = conn.execute("SELECT MAX(date) FROM macro_history").fetchone()
         conn.close()
         latest_macro = row[0] if row and row[0] else "1970-01-01"
         cache_mtime = datetime.fromtimestamp(cache_path.stat().st_mtime)
@@ -276,6 +330,7 @@ def _macro_cache_valid(cache_path: Path, db_path: str, start_date: str) -> bool:
         current_version = _get_engine_version()
         try:
             import pyarrow.parquet as pq
+
             meta = pq.read_metadata(str(cache_path))
             cached_version = meta.metadata.get(b"engine_version", b"").decode()
             if cached_version != current_version:
@@ -301,6 +356,7 @@ def _get_engine_version() -> str:
 
     # SectorExposureMatrix weights (module-level constant)
     from governor.sector_exposure_matrix import SECTOR_EXPOSURE_WEIGHTS
+
     for sector in sorted(SECTOR_EXPOSURE_WEIGHTS):
         weights = SECTOR_EXPOSURE_WEIGHTS[sector]
         for node in sorted(weights):
@@ -308,19 +364,14 @@ def _get_engine_version() -> str:
 
     # InteractionEngine rules (module-level constant)
     from governor.interaction_engine import INTERACTION_RULES
+
     for rule in sorted(INTERACTION_RULES, key=lambda r: r.get("name", "")):
-        h.update(
-            f"IX:{rule.get('name','')}:{rule.get('threshold',0)}:"
-            f"{rule.get('scale',1)}".encode()
-        )
+        h.update(f"IX:{rule.get('name', '')}:{rule.get('threshold', 0)}:{rule.get('scale', 1)}".encode())
 
     # MacroLagEngine transmission parameters (module-level constant)
     for sector in sorted(SECTOR_TRANSMISSION):
         tp = SECTOR_TRANSMISSION[sector]
-        h.update(
-            f"LAG:{sector}:{tp.lag_min}:{tp.lag_max}:"
-            f"{tp.half_life}:{tp.attenuation}".encode()
-        )
+        h.update(f"LAG:{sector}:{tp.lag_min}:{tp.lag_max}:{tp.half_life}:{tp.attenuation}".encode())
 
     return h.hexdigest()
 
@@ -339,16 +390,18 @@ def _save_macro_cache(
     for date in sorted(macro_cache.keys()):
         M = macro_cache.get(date) or {}
         for sector, lag_score in lag_cache.get(date, {}).items():
-            rows.append({
-                "date": date,
-                "sector": sector,
-                "M_US_Liquidity": M.get("US_Liquidity", 0.5),
-                "M_China_Economy": M.get("China_Economy", 0.5),
-                "M_Commodity_Cycle": M.get("Commodity_Cycle", 0.5),
-                "M_Domestic_Liquidity": M.get("Domestic_Liquidity", 0.5),
-                "lag_effective_score": lag_score,
-                "ix_multiplier": ix_cache.get(date, {}).get(sector, 1.0),
-            })
+            rows.append(
+                {
+                    "date": date,
+                    "sector": sector,
+                    "M_US_Liquidity": M.get("US_Liquidity", 0.5),
+                    "M_China_Economy": M.get("China_Economy", 0.5),
+                    "M_Commodity_Cycle": M.get("Commodity_Cycle", 0.5),
+                    "M_Domestic_Liquidity": M.get("Domestic_Liquidity", 0.5),
+                    "lag_effective_score": lag_score,
+                    "ix_multiplier": ix_cache.get(date, {}).get(sector, 1.0),
+                }
+            )
 
     if not rows:
         return
@@ -429,12 +482,12 @@ def run_unified_replay(
     # Pre-sample days to score (heavy computation only on these)
     scored_indices = set(range(0, len(trading_days), sample_every))
 
-    print(f"\n{'='*70}")
-    print(f"  UNIFIED SYSTEM REPLAY — ABLATION STUDY")
+    print(f"\n{'=' * 70}")
+    print("  UNIFIED SYSTEM REPLAY — ABLATION STUDY")
     print(f"  Period: {trading_days[0]} -> {trading_days[-1]} ({len(trading_days)} days)")
     print(f"  Scored days: {len(scored_indices)}/{len(trading_days)} (every {sample_every}d)")
     print(f"  Universe: {len(UNIVERSE)} symbols")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Initialize engines
     macro_engine = RegionalInfluenceEngine(db_path)
@@ -446,11 +499,10 @@ def run_unified_replay(
     conn = sqlite3.connect(db_path)
     try:
         from governor.sector_exposure_matrix import VIETNAMESE_SECTOR_MAP
+
         sym_sector = {}
         for sym in UNIVERSE:
-            row = conn.execute(
-                "SELECT icb_name2 FROM symbol_industry WHERE symbol=?", (sym,)
-            ).fetchone()
+            row = conn.execute("SELECT icb_name2 FROM symbol_industry WHERE symbol=?", (sym,)).fetchone()
             if row:
                 sec = VIETNAMESE_SECTOR_MAP.get(row[0])
                 if sec:
@@ -485,7 +537,7 @@ def run_unified_replay(
     if _macro_cache_valid(CACHE_FILE, db_path, start_date):
         print("  [Phase 1] Loading from Parquet cache...")
         macro_cache, lag_cache, ix_cache = _load_macro_cache(CACHE_FILE)
-        print(f"  [Phase 1] Cached {len(macro_cache)} days loaded in {time.time()-t0:.1f}s")
+        print(f"  [Phase 1] Cached {len(macro_cache)} days loaded in {time.time() - t0:.1f}s")
     else:
         # Pre-compute M vectors for all scored days
         macro_cache = {}  # date → M dict
@@ -531,8 +583,7 @@ def run_unified_replay(
         except Exception as e:
             logger.warning("[REPLAY] Failed to save Parquet cache: %s", e)
 
-    print(f"  [Phase 1] Done in {time.time()-t0:.1f}s "
-          f"({len(scored_dates)} days × {len(set(sym_sector.values()))} sectors)")
+    print(f"  [Phase 1] Done in {time.time() - t0:.1f}s ({len(scored_dates)} days × {len(set(sym_sector.values()))} sectors)")
 
     # ═══════════════════════════════════════════════════════════
     # PHASE 2: Backtest loop (pure in-memory, no DB queries)
@@ -553,7 +604,7 @@ def run_unified_replay(
     for i, target_date in enumerate(trading_days):
         if (i + 1) % 200 == 0 or i == 0:
             eq_a = states["A"].equity_curve[-1] if states["A"].equity_curve else 100e6
-            print(f"  Day {i+1}/{len(trading_days)}: {target_date} | A={eq_a/1e6:.1f}M")
+            print(f"  Day {i + 1}/{len(trading_days)}: {target_date} | A={eq_a / 1e6:.1f}M")
 
         M = macro_cache.get(target_date)
         if M is None:
@@ -598,16 +649,13 @@ def run_unified_replay(
                 if is_rebalance:
                     # Full rebalance: sell non-top-N, buy missing top-N
                     if sec not in top_n and sym in states[sc_key].positions:
-                        _execute_fast(states[sc_key], target_date, "SELL",
-                                      sym, score, price, None)
+                        _execute_fast(states[sc_key], target_date, "SELL", sym, score, price, None)
                     elif sec in top_n and sym not in states[sc_key].positions:
-                        _execute_fast(states[sc_key], target_date, "BUY",
-                                      sym, score, price, None)
+                        _execute_fast(states[sc_key], target_date, "BUY", sym, score, price, None)
                 else:
                     # Non-rebalance: only stop-loss exits
                     if action == "SELL" and sym in states[sc_key].positions:
-                        _execute_fast(states[sc_key], target_date, "SELL",
-                                      sym, score, price, None)
+                        _execute_fast(states[sc_key], target_date, "SELL", sym, score, price, None)
 
             _mark_to_market_fast(states[sc_key], target_date, price_cache)
 
@@ -615,23 +663,22 @@ def run_unified_replay(
         a_buys = {s for s in top_n if all_scores["A"].get(s, 0) > 0.6}
         c_buys = {s for s in top_n if all_scores["C"].get(s, 0) > 0.6}
         if a_buys != c_buys:
-            decision_delta.append({
-                "date": target_date,
-                "a_only": sorted(a_buys - c_buys),
-                "c_only": sorted(c_buys - a_buys),
-                "both": sorted(a_buys & c_buys),
-            })
+            decision_delta.append(
+                {
+                    "date": target_date,
+                    "a_only": sorted(a_buys - c_buys),
+                    "c_only": sorted(c_buys - a_buys),
+                    "both": sorted(a_buys & c_buys),
+                }
+            )
 
-    print(f"  [Phase 2] Done in {time.time()-t0:.1f}s "
-          f"({scored_day_count} scored days × {len(trading_days)} total days)")
+    print(f"  [Phase 2] Done in {time.time() - t0:.1f}s ({scored_day_count} scored days × {len(trading_days)} total days)")
 
     # Build results
     results = {}
     for sc_key in ["A", "B", "C"]:
         label = {"A": "Baseline (Raw)", "B": "Lag Only (LAW-009)", "C": "Full Pipeline"}[sc_key]
-        results[sc_key] = _build_result(
-            states[sc_key], label, trading_days[0], trading_days[-1], len(trading_days)
-        )
+        results[sc_key] = _build_result(states[sc_key], label, trading_days[0], trading_days[-1], len(trading_days))
 
     _print_summary(results, decision_delta)
     _save_reports(results, decision_delta, trading_days[0], trading_days[-1])
@@ -659,11 +706,16 @@ def _execute_fast(state, date, action, symbol, score, price, last_action_date):
             state.capital -= cost
             state.positions[symbol] = shares
             state.entry_prices[symbol] = exec_price
-            state.trade_log.append({
-                "date": date, "symbol": symbol, "action": "BUY",
-                "price": round(exec_price, 2), "shares": shares,
-                "score": round(score, 4),
-            })
+            state.trade_log.append(
+                {
+                    "date": date,
+                    "symbol": symbol,
+                    "action": "BUY",
+                    "price": round(exec_price, 2),
+                    "shares": shares,
+                    "score": round(score, 4),
+                }
+            )
 
     elif action == "SELL" and current_shares > 0:
         exec_price = price * 0.998
@@ -671,11 +723,17 @@ def _execute_fast(state, date, action, symbol, score, price, last_action_date):
         entry = state.entry_prices.get(symbol, exec_price)
         pnl = (exec_price - entry) / entry
         state.capital += revenue
-        state.trade_log.append({
-            "date": date, "symbol": symbol, "action": "SELL",
-            "price": round(exec_price, 2), "shares": current_shares,
-            "score": round(score, 4), "pnl_pct": round(pnl * 100, 2),
-        })
+        state.trade_log.append(
+            {
+                "date": date,
+                "symbol": symbol,
+                "action": "SELL",
+                "price": round(exec_price, 2),
+                "shares": current_shares,
+                "score": round(score, 4),
+                "pnl_pct": round(pnl * 100, 2),
+            }
+        )
         state.positions.pop(symbol, None)
         state.entry_prices.pop(symbol, None)
 
@@ -689,10 +747,11 @@ def _mark_to_market_fast(state, date, price_cache):
             total += shares * p
     state.equity_curve.append(total)
 
+
 def _print_summary(results, decision_delta):
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("  ABLATION STUDY RESULTS")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     header = f"{'Metric':<25} {'A: Baseline':>15} {'B: Lag Only':>15} {'C: Full':>15}"
     print(header)
@@ -719,9 +778,9 @@ def _print_summary(results, decision_delta):
         print(f"  {label:<23} {va:>15{fmt}} {vb:>15{fmt}} {vc:>15{fmt}}")
 
     # Alpha comparison
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("  ALPHA ANALYSIS (vs Baseline A)")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     sharpe_b_alpha = rb.sharpe_ratio - ra.sharpe_ratio
     sharpe_c_alpha = rc.sharpe_ratio - ra.sharpe_ratio
@@ -729,15 +788,15 @@ def _print_summary(results, decision_delta):
     mdd_c_improvement = ra.max_drawdown - rc.max_drawdown  # positive = less drawdown
 
     print(f"  {'Metric':<30} {'B - A':>15} {'C - A':>15}")
-    print(f"  {'-'*60}")
+    print(f"  {'-' * 60}")
     print(f"  {'Sharpe Delta':<30} {sharpe_b_alpha:>+15.4f} {sharpe_c_alpha:>+15.4f}")
     print(f"  {'Annual Return Delta (%)':<30} {'N/A':>15} {ret_c_alpha:>+15.2f}")
     print(f"  {'MaxDD Improvement (pp)':<30} {'N/A':>15} {mdd_c_improvement:>+15.2f}")
 
     # Decision Delta
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("  DECISION DELTA (Scenario A vs C)")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     total_days = len(decision_delta) + 1
     days_with_delta = len(decision_delta)
@@ -745,13 +804,13 @@ def _print_summary(results, decision_delta):
     total_c_only = sum(len(d["c_only"]) for d in decision_delta)
     total_both = sum(len(d["both"]) for d in decision_delta)
 
-    print(f"  Days with decision difference: {days_with_delta}/{total_days} ({days_with_delta/total_days*100:.1f}%)")
+    print(f"  Days with decision difference: {days_with_delta}/{total_days} ({days_with_delta / total_days * 100:.1f}%)")
     print(f"  Total BUY signals (A only):    {total_a_only}")
     print(f"  Total BUY signals (C only):    {total_c_only}")
     print(f"  Total BUY signals (both):      {total_both}")
 
     if decision_delta:
-        print(f"\n  Sample decision changes (last 5):")
+        print("\n  Sample decision changes (last 5):")
         for d in decision_delta[-5:]:
             a_str = ",".join(d["a_only"]) if d["a_only"] else "-"
             c_str = ",".join(d["c_only"]) if d["c_only"] else "-"
@@ -851,6 +910,7 @@ def _get_financial_score(conn, symbol, target_date, metric_names, weights=None):
 def _date_to_period(target_date):
     """Convert date string '2025-06-30' to period '2025Q2'."""
     from datetime import datetime
+
     try:
         d = datetime.strptime(target_date, "%Y-%m-%d")
         q = (d.month - 1) // 3 + 1
@@ -861,17 +921,20 @@ def _date_to_period(target_date):
 
 def _get_fundamental_score(conn, symbol, target_date):
     """M2: Fundamental quality from health_ratios (annualized ROE + Gross Margin + D/E)."""
-    return _get_financial_score(conn, symbol, target_date,
-                                ["ROE", "GROSS_MARGIN", "DEBT_TO_EQUITY"],
-                                {"ROE": 0.4, "GROSS_MARGIN": 0.3, "DEBT_TO_EQUITY": 0.3})
+    return _get_financial_score(
+        conn,
+        symbol,
+        target_date,
+        ["ROE", "GROSS_MARGIN", "DEBT_TO_EQUITY"],
+        {"ROE": 0.4, "GROSS_MARGIN": 0.3, "DEBT_TO_EQUITY": 0.3},
+    )
 
 
 def _get_behavioral_score(conn, symbol, target_date):
     """M3: Volume pattern + institutional flow proxy."""
     try:
         rows = conn.execute(
-            "SELECT volume, close FROM daily_ohlcv WHERE symbol=? AND date<? "
-            "ORDER BY date DESC LIMIT 30",
+            "SELECT volume, close FROM daily_ohlcv WHERE symbol=? AND date<? ORDER BY date DESC LIMIT 30",
             (symbol, target_date),
         ).fetchall()
         if len(rows) < 10:
@@ -893,8 +956,7 @@ def _get_momentum_score(conn, symbol, target_date):
     """Alpha: Multi-timeframe momentum (5D/10D/20D)."""
     try:
         rows = conn.execute(
-            "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<? "
-            "ORDER BY date DESC LIMIT 40",
+            "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<? ORDER BY date DESC LIMIT 40",
             (symbol, target_date),
         ).fetchall()
         if len(rows) < 20:
@@ -935,11 +997,11 @@ def _vn20_gate(conn, symbol, target_date):
         return False
 
 
-def _multi_factor_decide(score, price, entry, trailing_stop=0.07, trailing_take=0.15):
-    """Decision logic with trailing stop/take."""
+def _multi_factor_decide(score, price, entry, trailing_stop=0.05, trailing_take=0.15):
+    """Decision logic with -5% trailing stop, -0.40 exit threshold."""
     if score is None:
         return "HOLD"
-    if entry is None and score > 0.55:
+    if entry is None and score > 0.50:
         return "BUY"
     if entry is not None:
         pnl = (price - entry) / entry
@@ -947,67 +1009,111 @@ def _multi_factor_decide(score, price, entry, trailing_stop=0.07, trailing_take=
             return "SELL"
         if pnl >= trailing_take:
             return "SELL"
-        if score < 0.35:
+        if score < 0.40:
             return "SELL"
     return "HOLD"
 
 
-def _execute_multi_factor(state, conn, date, action, symbol, score, weight=0.10):
-    """Execute with position sizing + transaction costs."""
+def _get_total_nav(state, conn, date):
+    """Calculate total NAV = Cash + sum(positions * current_price)."""
+    total = state.capital
+    for sym, shares in state.positions.items():
+        p = _get_close(conn, sym, date)
+        if p:
+            total += shares * p
+    return total
+
+
+def _execute_multi_factor(state, conn, date, action, symbol, score, capital_per_stock, max_positions):
+    """Execute with FIXED position sizing — tracks invested capital separately.
+
+    BUG FIX: Previously, selling a position added full market value to capital,
+    causing capital explosion. Now we track invested capital separately and
+    only return the original investment + profit/loss on sell.
+    """
     price = _get_close(conn, symbol, date)
     if not price or price <= 0:
         return
 
     current_shares = state.positions.get(symbol, 0)
 
-    if action == "BUY" and current_shares == 0:
-        alloc = state.capital * weight
+    if action == "BUY" and current_shares == 0 and len(state.positions) < max_positions:
+        alloc = min(capital_per_stock, state.capital * 0.95)
         exec_price = price * 1.002
         shares = int(alloc / exec_price)
         if shares > 0:
             cost = shares * exec_price * 1.0045
             if cost <= state.capital:
                 state.capital -= cost
+                state.invested += cost
                 state.positions[symbol] = shares
                 state.entry_prices[symbol] = exec_price
-                state.trade_log.append({
-                    "date": date, "symbol": symbol, "action": "BUY",
-                    "price": round(exec_price, 2), "shares": shares,
-                    "score": round(score, 4), "cost": round(cost, 0),
-                })
+                state.trade_log.append(
+                    {
+                        "date": date,
+                        "symbol": symbol,
+                        "action": "BUY",
+                        "price": round(exec_price, 2),
+                        "shares": shares,
+                        "score": round(score, 4),
+                        "cost": round(cost, 0),
+                    }
+                )
 
     elif action == "SELL" and current_shares > 0:
         exec_price = price * 0.998
-        revenue = current_shares * exec_price * 0.9955
         entry = state.entry_prices.get(symbol, exec_price)
-        pnl = (exec_price - entry) / entry
-        state.capital += revenue
-        state.trade_log.append({
-            "date": date, "symbol": symbol, "action": "SELL",
-            "price": round(exec_price, 2), "shares": current_shares,
-            "score": round(score, 4), "pnl_pct": round(pnl * 100, 2),
-        })
+        pnl = (exec_price - entry) / entry if entry else 0
+        # Return original investment + profit/loss (not full market value)
+        original_cost = current_shares * entry * 1.0045 if entry else 0
+        return_amount = original_cost * (1 + pnl) * 0.9955  # net of fees
+        state.capital += return_amount
+        state.invested -= original_cost
+        state.trade_log.append(
+            {
+                "date": date,
+                "symbol": symbol,
+                "action": "SELL",
+                "price": round(exec_price, 2),
+                "shares": current_shares,
+                "score": round(score, 4),
+                "pnl_pct": round(pnl * 100, 2),
+            }
+        )
         state.positions.pop(symbol, None)
         state.entry_prices.pop(symbol, None)
 
 
-def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
-                               db_path=None, sample_every=5):
-    """Run 5-model multi-factor backtest with Position Sizing + Risk Management."""
-    print(f"\n{'='*70}")
+def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None, sample_every=5):
+    """Run 5-model multi-factor backtest with PROPER Portfolio Management.
+
+    Uses PortfolioTracker (TDD-verified) for capital accounting.
+    - Max 10 positions (equal weighting)
+    - Total exposure capped at 95% (5% cash reserve)
+    - Capital per stock capped at initial_capital (no compounding)
+    - Trailing stop: -5% | Take profit: +15%
+    - Entry threshold: 0.50 | Exit threshold: 0.40
+    - Sector rotation: exit if sector drops out of top 5
+    """
+    MAX_POSITIONS = 10
+    CASH_RESERVE = 0.05
+    TRAILING_STOP = 0.05
+    TRAILING_TAKE = 0.15
+
+    print(f"\n{'=' * 70}")
     print("  MULTI-FACTOR BACKTEST — 5 Models (M1+M2+M3+Alpha+VN20)")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print(f"  Period: {start} -> {end}")
     print(f"  Scored days: every {sample_every}d")
-    print(f"  Transaction cost: 0.45% | Trailing stop: -7% | Take profit: +15%")
-    print(f"  Position sizing: 10% per stock, 30% sector cap, 5% cash reserve")
+    print("  Transaction cost: 0.45% | Trailing stop: -5% | Take profit: +15%")
+    print(f"  Max positions: {MAX_POSITIONS} | Cash reserve: {CASH_RESERVE:.0%}")
+    print("  Entry threshold: 0.50 | Exit threshold: 0.40")
     print()
 
     if db_path is None:
         db_path = str(DATA_DIR / "screener_cache.db")
 
     conn = sqlite3.connect(db_path)
-    # ATTACH financial_facts.db for single-connection access
     fin_db_path = str(FINANCIAL_DB_PATH).replace("\\", "/")
     conn.execute(f"ATTACH DATABASE '{fin_db_path}' AS fin")
     macro_engine = RegionalInfluenceEngine()
@@ -1018,28 +1124,41 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
     dates = _get_trading_days(conn, start, end)
     score_days = dates[::sample_every]
 
-    state = ScenarioState()
-    vnindex_start = _get_vnindex_close(conn, dates[0])
+    # TDD-verified PortfolioTracker replaces raw ScenarioState
+    tracker = PortfolioTracker(
+        initial_capital=100_000_000.0,
+        max_positions=MAX_POSITIONS,
+        cash_reserve=CASH_RESERVE,
+        trailing_stop=TRAILING_STOP,
+        trailing_take=TRAILING_TAKE,
+    )
     decision_log = []
-    macro_cache = {"date": None, "result": None}
+    equity_curve = []
 
-    print(f"  [Phase 1] Pre-fetching macro vectors...")
+    print("  [Phase 1] Pre-fetching macro vectors...")
     preload_start = time.time()
     try:
         import pandas as pd
+
         if CACHE_FILE.exists():
             df = pd.read_parquet(CACHE_FILE)
             cached_days = len(df)
-            print(f"  [Phase 1] Loaded {cached_days} days from Parquet cache in {time.time()-preload_start:.1f}s")
+            print(f"  [Phase 1] Loaded {cached_days} days from Parquet cache in {time.time() - preload_start:.1f}s")
     except Exception:
         pass
-    print(f"  [Phase 1] Done in {time.time()-preload_start:.1f}s")
+    print(f"  [Phase 1] Done in {time.time() - preload_start:.1f}s")
 
-    print(f"  [Phase 2] Running multi-factor backtest loop...")
+    print("  [Phase 2] Running multi-factor backtest loop...")
     t2 = time.time()
 
     for i, date in enumerate(dates):
-        # Score every N-th day
+        # Build current prices dict for PortfolioTracker
+        current_prices = {}
+        for sym in tracker.positions:
+            p = _get_close(conn, sym, date)
+            if p:
+                current_prices[sym] = p
+
         if date in score_days:
             macro_result = None
             try:
@@ -1053,6 +1172,10 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
                 lag_results = lag_engine.compute_all_sectors(date)
                 ix_results = ix_engine.compute_all_sectors(M)
 
+                # Get top sectors (for rotation exit)
+                top_sectors = [s for s, _ in sector_scores[:5]]
+
+                # Build buy candidates
                 buy_candidates = []
                 for sect, raw_score in sector_scores:
                     eff = lag_results.get(sect)
@@ -1061,7 +1184,6 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
                     final_score = eff_score * (mult.multiplier if mult else 1.0)
 
                     if final_score > 0.50:
-                        # Get top stock in sector
                         stocks = [s for s in UNIVERSE if _get_sector(conn, s) == sect]
                         for sym in stocks[:2]:
                             if _vn20_gate(conn, sym, date):
@@ -1069,49 +1191,85 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
                                 behav_score = _get_behavioral_score(conn, sym, date)
                                 alpha_score = _get_momentum_score(conn, sym, date)
 
-                                composite = (
-                                    0.35 * fund_score
-                                    + 0.25 * eff_score
-                                    + 0.25 * alpha_score
-                                    + 0.15 * behav_score
-                                )
-                                if composite > 0.55:
+                                composite = 0.35 * fund_score + 0.25 * eff_score + 0.25 * alpha_score + 0.15 * behav_score
+                                if composite > 0.50:
                                     buy_candidates.append((sym, composite, sect))
 
                 buy_candidates.sort(key=lambda x: x[1], reverse=True)
 
-                for sym, composite, sect in buy_candidates[:5]:
+                # BUY: Top candidates only
+                for sym, composite, sect in buy_candidates[:MAX_POSITIONS]:
+                    if len(tracker.positions) >= MAX_POSITIONS:
+                        break
                     action = _multi_factor_decide(composite, 0, None)
-                    if action == "BUY":
-                        _execute_multi_factor(state, conn, date, "BUY", sym, composite, weight=0.10)
-                        decision_log.append({"date": date, "symbol": sym, "action": "BUY", "score": composite})
+                    if action == "BUY" and sym not in tracker.positions:
+                        price = _get_close(conn, sym, date)
+                        if price:
+                            current_prices[sym] = price
+                            tracker.buy(sym, price, composite, current_prices)
+                            decision_log.append({"date": date, "symbol": sym, "action": "BUY", "score": composite})
 
-            # SELL check for existing positions
-            for sym in list(state.positions.keys()):
-                price = _get_close(conn, sym, date)
-                if price:
-                    entry = state.entry_prices.get(sym)
-                    composite = _get_fundamental_score(conn, sym, date)
-                    action = _multi_factor_decide(composite, price, entry)
-                    if action == "SELL":
-                        _execute_multi_factor(state, conn, date, "SELL", sym, composite)
+                # SELL: Check existing positions
+                for sym in list(tracker.positions.keys()):
+                    price = _get_close(conn, sym, date)
+                    if price:
+                        entry = tracker.entry_prices.get(sym)
+                        composite = _get_fundamental_score(conn, sym, date)
+                        action = _multi_factor_decide(composite, price, entry)
+                        # Sector rotation exit: sell if sector drops out of top 5
+                        pos_sector = _get_sector(conn, sym)
+                        sector_rotated = pos_sector and pos_sector not in top_sectors
+                        if action == "SELL" or sector_rotated:
+                            tracker.sell(sym, price, composite, current_prices)
+                            # Rebuild prices after sell to remove sold position
+                            current_prices = {s: current_prices[s] for s in tracker.positions if s in current_prices}
 
-        _mark_to_market(state, conn, date)
+        # Mark to market
+        nav = tracker.nav(current_prices)
+        equity_curve.append(nav)
 
         if (i + 1) % 200 == 0:
-            equity = state.equity_curve[-1] if state.equity_curve else state.initial_capital
-            print(f"  Day {i+1}/{len(dates)}: {date} | Equity={equity/1e6:.1f}M | Positions={len(state.positions)}")
+            print(
+                f"  Day {i + 1}/{len(dates)}: {date} | NAV={nav / 1e6:.1f}M | Positions={len(tracker.positions)} | Cash={tracker.cash / 1e6:.1f}M"
+            )
 
     t2 = time.time() - t2
     print(f"  [Phase 2] Done in {t2:.1f}s ({len(score_days)} scored days x {len(dates)} total)")
 
-    # Build result
-    result = _build_result(state, "MULTI_FACTOR", start, end, len(dates))
+    # Build result from equity curve
+    curve = np.array(equity_curve) if equity_curve else np.array([tracker.initial_capital])
+    total_ret = (curve[-1] / curve[0]) - 1.0
+    daily_rets = np.diff(curve) / curve[:-1] if len(curve) > 1 else np.array([0.0])
+    vol = float(np.std(daily_rets) * np.sqrt(252)) if len(daily_rets) > 1 else 0.0
+    sharpe = float(np.mean(daily_rets) / np.std(daily_rets) * np.sqrt(252)) if np.std(daily_rets) > 0 else 0.0
+    peak = np.maximum.accumulate(curve)
+    dd = (curve - peak) / peak
+    max_dd = float(np.min(dd))
+    years = max(len(dates) / 252, 0.01)
+    ann_ret = (1 + total_ret) ** (1 / years) - 1
+    sells = [t for t in tracker.trade_log if t["action"] == "SELL"]
+    wins = sum(1 for t in sells if t.get("pnl_pct", 0) > 0)
+    win_rate = wins / len(sells) if sells else 0.0
+
+    result = ReplayResult(
+        scenario="MULTI_FACTOR",
+        start_date=start,
+        end_date=end,
+        trading_days=len(dates),
+        total_return=round(total_ret * 100, 2),
+        sharpe_ratio=round(sharpe, 4),
+        max_drawdown=round(max_dd * 100, 2),
+        win_rate=round(win_rate * 100, 1),
+        total_trades=len(tracker.trade_log),
+        annualized_return=round(ann_ret * 100, 2),
+        volatility=round(vol * 100, 2),
+        final_equity=round(curve[-1], 0),
+    )
 
     # Print report
-    print(f"\n{'='*70}")
-    print("  MULTI-FACTOR BACKTEST RESULTS")
-    print(f"{'='*70}\n")
+    print(f"\n{'=' * 70}")
+    print("  MULTI-FACTOR BACKTEST RESULTS (FIXED)")
+    print(f"{'=' * 70}\n")
 
     metrics = [
         ("Total Return (%)", result.total_return, ".2f"),
@@ -1121,15 +1279,15 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
         ("Volatility (%)", result.volatility, ".2f"),
         ("Win Rate (%)", result.win_rate, ".1f"),
         ("Total Trades", result.total_trades, "d"),
-        ("Final Equity (M)", result.final_equity / 1e6, ".1f"),
+        ("Final NAV (M)", result.final_equity / 1e6, ".1f"),
     ]
     for label, val, fmt in metrics:
         print(f"  {label:<25} {val:>15{fmt}}")
 
     # Position summary
-    print(f"\n  Active positions: {len(state.positions)}")
-    for sym, shares in list(state.positions.items())[:10]:
-        entry = state.entry_prices.get(sym, 0)
+    print(f"\n  Active positions: {len(tracker.positions)}")
+    for sym, shares in list(tracker.positions.items())[:10]:
+        entry = tracker.entry_prices.get(sym, 0)
         print(f"    {sym}: {shares} shares @ {entry:.2f}")
 
     # Save report
@@ -1162,13 +1320,18 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04",
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Unified System Replay — Ablation Study")
     parser.add_argument("--start", default="2021-04-01", help="Start date (default: 2021-04-01)")
     parser.add_argument("--end", default="2026-08-04", help="End date (default: 2026-08-04)")
     parser.add_argument("--db", default=None, help="Override DB path")
     parser.add_argument("--sample-every", type=int, default=5, help="Score every N-th day (default: 5)")
-    parser.add_argument("--mode", choices=["ablation", "multi-factor"], default="ablation",
-                        help="Run mode: ablation (A/B/C) or multi-factor (5 models)")
+    parser.add_argument(
+        "--mode",
+        choices=["ablation", "multi-factor"],
+        default="ablation",
+        help="Run mode: ablation (A/B/C) or multi-factor (5 models)",
+    )
     args = parser.parse_args()
     if args.mode == "multi-factor":
         run_multi_factor_backtest(args.start, args.end, args.db, args.sample_every)
