@@ -140,6 +140,8 @@ class RegionalInfluenceEngine:
         crawled by VnstockProvider, not yfinance. All other macro variables
         live in macro_history. This fallback bridges the two tables.
         """
+        from src.governor.schemas import validate_finite_float
+
         conn = sqlite3.connect(self.db_path)
         try:
             if target_date:
@@ -153,7 +155,9 @@ class RegionalInfluenceEngine:
                     (variable,),
                 ).fetchone()
             if row and row[0] is not None:
-                return float(row[0])
+                val = validate_finite_float(row[0], label=f"macro:{variable}")
+                if val is not None:
+                    return val
 
             # VNINDEX fallback: lives in daily_ohlcv, not macro_history
             if variable == "VNINDEX":
@@ -167,16 +171,20 @@ class RegionalInfluenceEngine:
                         "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 1"
                     ).fetchone()
                 if row and row[0] is not None:
-                    return float(row[0])
+                    val = validate_finite_float(row[0], label="macro:VNINDEX")
+                    if val is not None:
+                        return val
 
             return None
-        except Exception:
+        except sqlite3.Error:
             return None
         finally:
             conn.close()
 
     def _fetch_rolling_avg(self, variable: str, window: int = 20, target_date: Optional[str] = None) -> Optional[float]:
         """Fetch rolling average for a macro variable."""
+        from src.governor.schemas import validate_finite_float
+
         conn = sqlite3.connect(self.db_path)
         try:
             if target_date:
@@ -189,9 +197,14 @@ class RegionalInfluenceEngine:
                     "SELECT value FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT ?",
                     (variable, window),
                 ).fetchall()
-            values = [r[0] for r in rows if r[0] is not None]
+            values = []
+            for r in rows:
+                if r[0] is not None:
+                    v = validate_finite_float(r[0], label=f"rolling:{variable}")
+                    if v is not None:
+                        values.append(v)
             return float(np.mean(values)) if values else None
-        except Exception:
+        except sqlite3.Error:
             return None
         finally:
             conn.close()

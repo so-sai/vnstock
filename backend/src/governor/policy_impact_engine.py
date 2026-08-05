@@ -185,11 +185,20 @@ class PolicyImpactEngine:
         try:
             with open(self.events_path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
+            skipped = 0
             for item in raw:
+                from src.governor.schemas import PolicyEventInputSchema, safe_validate
+
+                validated = safe_validate(PolicyEventInputSchema, item, label=f"policy_event:{item.get('id', '?')}")
+                if validated is None:
+                    skipped += 1
+                    continue
                 evt = PolicyEvent(**item)
                 self._events[evt.id] = evt
+            if skipped:
+                logger.warning("[POLICY_SHIELD] Bo qua %d su kien chinh sach khong hop le", skipped)
             logger.info("Nap %d policy events tu %s", len(self._events), self.events_path)
-        except Exception as exc:
+        except (json.JSONDecodeError, OSError, KeyError) as exc:
             logger.error("Loi doc policy_events.json: %s", exc)
 
     def _save_events(self) -> None:

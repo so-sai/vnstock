@@ -137,7 +137,7 @@ def _get_sector_for_symbol(symbol: str) -> str:
         if row and row[0]:
             return str(row[0].strip())
         return "UNKNOWN"
-    except Exception:
+    except sqlite3.Error:
         return "UNKNOWN"
 
 
@@ -163,7 +163,7 @@ def _get_current_price(symbol: str) -> Optional[float]:
         row = cur.fetchone()
         conn.close()
         return row[0] if row else None
-    except Exception:
+    except sqlite3.Error:
         return None
 
 
@@ -300,4 +300,4 @@ if __name__ == "__main__":
     for sym in args.symbols:
         # Quick test with hardcoded values — production call via Governor
         print(f"\n{sym}:")
-        print(f"  Sector beta lookup only (integrated via Governor)")
+        print("  Sector beta lookup only (integrated via Governor)")

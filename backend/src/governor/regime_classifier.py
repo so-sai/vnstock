@@ -145,7 +145,7 @@ class RegimeClassifier:
                 ).fetchall()
             values = [r[0] for r in rows if r[0] is not None]
             return np.array(values[::-1])  # oldest first
-        except Exception:
+        except sqlite3.Error:
             return np.array([])
         finally:
             conn.close()
@@ -319,7 +319,7 @@ class RegimeClassifier:
 
             return model, means[order], bic
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — external HMM engine
             logger.warning("[REGIME_CLASSIFIER] HMM fit failed: %s", e)
             return None, None, None
 
@@ -457,7 +457,7 @@ class RegimeClassifier:
                 bic_score=bic,
             )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — external HMM engine
             logger.warning("[REGIME_CLASSIFIER] HMM predict failed: %s", e)
             regime_probs = _heuristic_classify(avg_90d)
             regime = max(regime_probs, key=lambda k: regime_probs.get(k, 0.0))

@@ -25,6 +25,7 @@ Three First-Principles display contracts:
 
 import json
 import logging
+import sqlite3
 import sys
 from datetime import date
 from pathlib import Path
@@ -120,7 +121,7 @@ class CSIExplainEngine:
                 # status() reads the persisted fed_policy_cache.json without
                 # hitting the network — deterministic for CLI explanation.
                 self._world = WorldSensor(use_cache=True).status()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — external sensor module
                 logger.warning("[CSI] WorldSensor load FAILED: %s — World layer empty", e)
                 self._world = {}
         return self._world
@@ -202,7 +203,7 @@ class CSIExplainEngine:
 
             arch = ArchetypeEngine().classify(symbol)
             return arch.archetype if arch else "UNKNOWN"
-        except Exception:
+        except Exception:  # noqa: BLE001 — external engine
             return "UNKNOWN"
 
     def _symbol_sector(self, symbol: str) -> Optional[str]:
@@ -214,7 +215,7 @@ class CSIExplainEngine:
             for sector, syms in mapping.items():
                 if symbol in syms:
                     return sector
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — external module
             pass
         return None
 
@@ -232,7 +233,7 @@ class CSIExplainEngine:
                         "phase": s.get("phase", "NEUTRAL"),
                         "score": s.get("score", 0),
                     }
-        except Exception:
+        except json.JSONDecodeError, OSError, KeyError:
             pass
         return None
 
@@ -261,7 +262,7 @@ class CSIExplainEngine:
             )
             try:
                 path = cg.trace_path(wn["node"], vn_target, None)
-            except Exception:
+            except Exception:  # noqa: BLE001 — external causal engine
                 path = None
             if path:
                 # Store the first found (highest-confidence) world→VN leg.
@@ -286,7 +287,7 @@ class CSIExplainEngine:
                     continue
                 try:
                     path = cg.trace_path(src, target_node, archetype)
-                except Exception:
+                except Exception:  # noqa: BLE001 — external causal engine
                     path = None
                 if path:
                     company_leg = {
@@ -309,7 +310,7 @@ class CSIExplainEngine:
         try:
             h = float(entropy or 0.0)
             return max(0.0, min(1.0, 1.0 - h / MAX_ENTROPY))
-        except Exception:
+        except ValueError, TypeError:
             return 0.5
 
     # ── Attribution: Policy Rate vs Hawkish Dissent ───────────────────
@@ -376,7 +377,7 @@ class CSIExplainEngine:
                 "mos": mandate.margin_of_safety,
                 "market_context": mandate.market_context_tag,
             }
-        except Exception:
+        except Exception:  # noqa: BLE001 — external governor module
             csi = {"p_gain": 0.5, "action": "N/A", "mos": None, "market_context": "N/A"}
 
         # Sector leg.
@@ -474,7 +475,7 @@ def scan_all(
                     "csi_confidence": ent.get("csi_confidence"),
                 }
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — batch resilience
             # Mã thiếu dữ liệu Governor → bỏ qua, không làm hỏng batch.
             rows.append(
                 {
@@ -530,7 +531,7 @@ def _liquid_symbols(min_vol: float = 100_000) -> List[str]:
         latest = df[df["date"] == df["date"].max()].copy()
         liquid = latest[latest["avg_vol_20d"] >= min_vol]
         return sorted(liquid["symbol"].unique().tolist())
-    except Exception:
+    except sqlite3.Error, OSError, ValueError:
         return []
 
 
@@ -688,7 +689,7 @@ def _localize(label: str) -> str:
 
         vi = localize_label(label, "full")
         return f"{vi} ({label})" if vi != label else label
-    except Exception:
+    except Exception:  # noqa: BLE001 — external adapter module
         return label
 
 
@@ -813,7 +814,7 @@ def resolve_sector_symbols(sector_query: str) -> List[str]:
         from src.core.macro.sector_state_engine import SectorStateEngine
 
         mapping = SectorStateEngine._load_icb_mapping()
-    except Exception:
+    except Exception:  # noqa: BLE001 — external module
         return []
 
     # Exact match first.
@@ -836,7 +837,7 @@ def list_sectors() -> List[str]:
 
         mapping = SectorStateEngine._load_icb_mapping()
         return sorted(mapping.keys())
-    except Exception:
+    except Exception:  # noqa: BLE001 — external module
         return []
 
 

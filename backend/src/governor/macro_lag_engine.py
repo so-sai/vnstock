@@ -586,7 +586,7 @@ class MacroLagEngine:
                 vectors = self._reconstruct_historical_vectors(1, check_date)
                 if vectors:
                     m_vectors.append(vectors[0])
-            except Exception:
+            except Exception:  # noqa: BLE001 — external engine call
                 continue
 
         if len(m_vectors) < 3:

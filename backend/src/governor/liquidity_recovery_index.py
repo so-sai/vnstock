@@ -165,7 +165,7 @@ class LiquidityRecoveryIndex:
                     (variable,),
                 ).fetchone()
             return float(row[0]) if row and row[0] is not None else None
-        except Exception:
+        except sqlite3.Error:
             return None
         finally:
             conn.close()
@@ -187,7 +187,7 @@ class LiquidityRecoveryIndex:
             if len(rows) < 10:
                 return None
             return float(sum(r[0] for r in rows) / len(rows))
-        except Exception:
+        except sqlite3.Error:
             return None
         finally:
             conn.close()
@@ -207,7 +207,7 @@ class LiquidityRecoveryIndex:
                     (limit,),
                 ).fetchall()
             return [r[0] for r in rows]
-        except Exception:
+        except sqlite3.Error:
             return []
         finally:
             conn.close()
@@ -296,7 +296,7 @@ class LiquidityRecoveryIndex:
                     "WHERE date = (SELECT MAX(date) FROM market_foreign_history)"
                 ).fetchone()
             return float(row2[0]) if row2 and row2[0] is not None else None
-        except Exception:
+        except sqlite3.Error:
             return None
         finally:
             conn.close()
@@ -313,7 +313,7 @@ class LiquidityRecoveryIndex:
             else:
                 row = conn.execute("SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1").fetchone()
             return float(row[0]) if row and row[0] is not None else None
-        except Exception:
+        except sqlite3.Error:
             return None
         finally:
             conn.close()

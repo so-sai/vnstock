@@ -80,7 +80,7 @@ def _symbol_sector(symbol: str) -> Optional[str]:
         conn.close()
         if row and row[0]:
             return str(row[0]).strip()
-    except Exception:
+    except sqlite3.Error:
         pass
     # Fallback: archetype → sector (chỉ cho symbol ĐÃ BIẾT trong BASELINE_MAP.
     # _classify_by_ratios nay đã ICB-aware (BĐS → REAL_ESTATE_DEVELOPER),
@@ -102,7 +102,7 @@ def _symbol_sector(symbol: str) -> Optional[str]:
             return "Bán lẻ"
         if arch_name == "TECHNOLOGY":
             return "Công nghệ Thông tin"
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — ArchetypeEngine may raise arbitrary errors
         pass
     return None
 
@@ -544,6 +544,8 @@ class L2HealthLoader:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
     def get_latest_ratios(self, symbol: str) -> Dict:
+        from src.governor.schemas import validate_finite_float
+
         cur = self.conn.cursor()
         cur.execute(
             """
@@ -556,7 +558,18 @@ class L2HealthLoader:
             (symbol.upper(), symbol.upper()),
         )
         rows = cur.fetchall()
-        return {r[0]: {"value": r[1], "interpretation": r[2]} for r in rows}
+        result: Dict = {}
+        for r in rows:
+            ratio_name, ratio_value, interpretation = r
+            validated_val = validate_finite_float(
+                ratio_value,
+                label=f"health:{symbol}:{ratio_name}",
+                min_val=-100.0,
+                max_val=100.0,
+            )
+            if validated_val is not None:
+                result[ratio_name] = {"value": validated_val, "interpretation": interpretation}
+        return result
 
     def close(self) -> None:
         self.conn.close()
@@ -573,7 +586,7 @@ def _period_at(target_date: str) -> str:
         y, m, _ = target_date.split("-")
         q = (int(m) - 1) // 3 + 1
         return f"{y}Q{q}"
-    except Exception:
+    except ValueError, TypeError:
         return ""
 
 
@@ -887,7 +900,7 @@ class PerceptionLoader:
                 "posterior": latest.get("posterior", 0.5),
                 "entropy": latest.get("entropy", 1.5),
             }
-        except Exception as e:
+        except (json.JSONDecodeError, OSError, KeyError) as e:
             logger.warning("[GOV] Failed to load macro_state_history.json: %s — defaulting to STABLE", e)
             return {"state": "STABLE", "posterior": 0.5, "entropy": 1.5}
 
@@ -908,7 +921,7 @@ class PerceptionLoader:
                 "credit": latest.get("credit", 50),
                 "confidence": latest.get("confidence", 50),
             }
-        except Exception:
+        except json.JSONDecodeError, OSError, KeyError:
             return {"phase": "FRAGILE_STABILITY", "liquidity": 50, "credit": 50, "confidence": 50}
 
     def load_sector(self) -> dict:
@@ -928,7 +941,7 @@ class PerceptionLoader:
                 "chain": chain,
                 "top_phase": top_phase,
             }
-        except Exception:
+        except json.JSONDecodeError, OSError, KeyError:
             return {"top_sector": "UNKNOWN", "n_healthy": 0, "chain": [], "top_phase": "NEUTRAL"}
 
     def load_health(self, symbol: str, target_date: Optional[str] = None) -> dict:
@@ -952,7 +965,7 @@ class PerceptionLoader:
                 "confidence": state.archetype_confidence,
                 "periods": state.data_periods,
             }
-        except Exception:
+        except Exception:  # noqa: BLE001 — CompanyHealthV2.analyze may raise arbitrary errors
             return {"archetype": "STEADY_EARNER", "vector": [0.5, 0.5, 0.5, 0.5, 0.5], "confidence": 0.5, "periods": 0}
 
 
@@ -1141,7 +1154,7 @@ class BayesianGovernor:
 
             arch = ArchetypeEngine().classify(symbol)
             return arch.archetype if arch else "UNKNOWN"
-        except Exception:
+        except Exception:  # noqa: BLE001 — ArchetypeEngine may raise arbitrary errors
             return "UNKNOWN"
 
     def _get_fair_engine(self) -> Any:
@@ -1172,7 +1185,7 @@ class BayesianGovernor:
             from calibration.prediction_log import check_circuit_breaker_auto
 
             self._cb_state = check_circuit_breaker_auto(days=90)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — circuit_breaker may raise arbitrary errors
             logger.warning("[GOV] Circuit breaker check FAILED: %s — defaulting to BÌNH_THƯỜNG (level 0)", e)
             self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": f"CHECK_FAILED: {e}"}
         if self._cb_state is None:
@@ -1203,7 +1216,7 @@ class BayesianGovernor:
                         last_roe = roe_series[-1][1]
                         if last_roe is not None:
                             roe_val = last_roe * 4.0 if last_roe < 0.25 else last_roe
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 — CompanyHealthV2 internal DB may raise
                     pass
             if roe_val is not None and pe_val is not None and pb_val is not None:
                 fair = self._get_fair_engine()(
@@ -1213,7 +1226,7 @@ class BayesianGovernor:
                     pb_current=pb_val,
                     archetype=health.get("archetype", "UNKNOWN"),
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — FairMultipleEngine may raise arbitrary errors
             pass
 
         # ── CSI v2: MoS Zone replaces Z-Score as PRIMARY valuation signal ──
@@ -1267,7 +1280,7 @@ class BayesianGovernor:
                     df_regime,
                 )
                 fusion_action = fusion.get("action", "")
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — DecisionFusion may raise arbitrary errors
             pass
         beh = self.behavior.score_behavior(symbol, fusion_action=fusion_action)
 
@@ -1283,7 +1296,7 @@ class BayesianGovernor:
             # Scale base LR by per-symbol multiplier
             lr_macro_dynamic = _lookup_lr(LR_MACRO, self._macro["state"]) * lr_mult
             lr_macro_dynamic = max(0.05, min(5.0, lr_macro_dynamic))
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — FactorEngine may raise arbitrary errors
             pass
 
         # ── Giai đoạn 3: Contextual Health ──────────────────
@@ -1293,7 +1306,7 @@ class BayesianGovernor:
             ctx = ctx_eng.assess(symbol)
             if ctx:
                 contextual_health_score = ctx.overall_score
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — ContextHealthEngine may raise arbitrary errors
             pass
 
         # ── Giai đoạn 4: Capital Allocation ─────────────────
@@ -1305,7 +1318,7 @@ class BayesianGovernor:
             if cap:
                 capital_arch = cap.archetype
                 capital_score = cap.quality_score
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — CapitalAllocationEngine may raise arbitrary errors
             pass
 
         # Derive sector phase
@@ -1322,7 +1335,7 @@ class BayesianGovernor:
             dw = get_dynamic_evidence_weights(_ms, _sp, _en)
             if dw:
                 dynamic_weights = dw
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — EvidenceEngine may raise arbitrary errors
             logger.warning("[GOV] EvidenceEngine dynamic weights FAILED: %s — using static weights", e)
 
         # ── Giai đoạn 6: CausalEdge propagation (Sprint 3) ──
@@ -1344,7 +1357,7 @@ class BayesianGovernor:
                 _causal_paths = len(_results)
                 # Coherence = avg confidence across all reached nodes
                 _causal_coherence = sum(r["confidence"] for r in _results) / len(_results)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — CausalGraph may raise arbitrary errors
             logger.warning("[GOV] CausalGraph propagation FAILED for %s: %s", symbol, e)
 
         # ── Giai đoạn 6b: Sector Macro Score (Dot Product M · W_i) ──
@@ -1401,7 +1414,7 @@ class BayesianGovernor:
                 _ix_result = _ix_engine.compute(_M, _sector_name)
                 _interaction_mult = _ix_result.multiplier
                 _interaction_synergies = _ix_result.active_synergies
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — SectorExposureMatrix may raise arbitrary errors
             logger.warning("[GOV] SectorExposureMatrix FAILED for %s: %s", symbol, e)
 
         # ── Giai đoạn 7: ModelRegistry BMA competition (Sprint 4) ──
@@ -1418,7 +1431,7 @@ class BayesianGovernor:
             bma = self._bma_posterior
             if bma is not None:
                 model_registry_lr = compute_model_registry_lr(bma)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — ModelRegistry may raise arbitrary errors
             logger.warning("[GOV] ModelRegistry BMA FAILED: %s — model_registry_lr=1.0", e)
 
         # Bayesian inference v3 with Giai đoạn 7 ModelRegistry LR
@@ -1431,7 +1444,7 @@ class BayesianGovernor:
                 breadth_momentum_5d=0.0,
                 credit_shift=_credit_shift,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — RecoveryAuthenticity may raise arbitrary errors
             recovery_authenticity_lr = None
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
@@ -1544,7 +1557,7 @@ class BayesianGovernor:
                     valuation_zone=val.get("overall_zone", "FAIR"),
                     behavior_position=beh.get("position", "UNKNOWN"),
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — BayesianMandate construction may raise
             pass
 
         # ── Policy Impact Engine (PolicyEvent -> policy_context) ──
@@ -1563,7 +1576,7 @@ class BayesianGovernor:
                 # Cap boost scale: full 500bps LDR relief for benefit 1.0 -> +0.15
                 _relief = _pimp.ldr_relief_bps
                 policy_cap_boost = round(min(0.15, (_relief / 500.0) * 0.15), 4)
-        except Exception:
+        except Exception:  # noqa: BLE001 — PolicyImpactEngine may raise arbitrary errors
             policy_ctx = {}
             policy_cap_boost = 0.0
 
@@ -1671,7 +1684,7 @@ def _ensure_calib() -> None:
 
             init_schema()
             _CALIB_INITED = True
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — init_schema may raise on missing DB
             pass
 
 
@@ -1732,7 +1745,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
         def _(x: str) -> str:
             vi = localize_label(x, "full")
             return f"{vi} ({x})" if vi != x else x
-    except Exception:
+    except Exception:  # noqa: BLE001 — localize_label may raise on missing locale
 
         def _(x: str) -> str:
             return x
@@ -1850,7 +1863,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
         projector = CompositeScoreProjector()
         comp_results = projector.project_batch(list(results.values()))
         print_composite_dashboard(comp_results)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — CompositeScoreProjector may raise arbitrary errors
         pass
 
     # ══════════════════════════════════════════════════════════════════
