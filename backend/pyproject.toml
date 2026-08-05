@@ -116,6 +116,8 @@ filterwarnings = [
     "ignore::UserWarning:pandas.*",
     "ignore::UserWarning:pydantic.*",
     "ignore::FutureWarning:pandas.*",
+    "ignore::pydantic.PydanticDeprecatedSince20",
+    "ignore::DeprecationWarning:pydantic.*",
 ]
 markers = [
     "unit: Unit tests - fast, isolated tests",
