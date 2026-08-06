@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,6 +19,7 @@ def _hydrate_path():
     if str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -36,20 +37,20 @@ from src.engine.data_quality import danh_gia_chat_luong_du_lieu
 # ── Encoding ──────────────────────────────────────────────
 if sys.platform == "win32":
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
-            except Exception:
+                sys.stdout.reconfigure(encoding="utf-8")
+            except Exception:  # noqa: BLE001, S110 - best-effort encoding
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 LOG_DIR = PROJECT_ROOT / "backend" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logger = logging.getLogger("PTCK_BACKFILL")
 logger.setLevel(logging.INFO)
 
-_fh = logging.FileHandler(LOG_DIR / f"backfill_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log", encoding='utf-8')
+_fh = logging.FileHandler(LOG_DIR / f"backfill_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log", encoding="utf-8")
 _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logger.addHandler(_fh)
 
@@ -75,7 +76,7 @@ TOI_DA_THU_LAI = 3
 VCI_TIMEOUT = 25.0
 # Multi-Source Fallback: thử VCI trước, nếu thất bại thì chuyển sang
 # TCBS → DNSE → KBS. Thứ tự ưu tiên theo tốc độ phản hồi và chất lượng dữ liệu.
-FALLBACK_SOURCES = ['vci', 'tcbs', 'dnse', 'kbs']
+FALLBACK_SOURCES = ["vci", "tcbs", "dnse", "kbs"]
 # Sau bao nhiêu lần timeout liên tiếp thì recreate HTTPS session pool
 MAX_CONSECUTIVE_TIMEOUTS = 3
 
@@ -83,24 +84,98 @@ MAX_CONSECUTIVE_TIMEOUTS = 3
 # Nếu VCI trả về rỗng cho các mã này → nghi ngờ Silent Throttling
 # (HTTP 200 + mảng rỗng thay vì lỗi thật).
 HOSE_BLUECHIPS = {
-    'VCB', 'TCB', 'CTG', 'MBB', 'STB', 'VPB', 'HDB', 'SHB', 'NVB',
-    'VIB', 'ABB', 'OJB', 'BID', 'CTG', 'TCB', 'VPB', 'MBB', 'STB',
-    'HPG', 'BVH', 'PNJ', 'MWG', 'FPT', 'VIC', 'VHM', 'NVL', 'MSN',
-    'SAB', 'VNM', 'KDH', 'ROX', 'DIG', 'GAS', 'PLX', 'BCM', 'VPB',
-    'TCB', 'ACB', 'TCB', 'VCB', 'MBB', 'STB', 'HDB', 'VPB', 'SHB',
-    'CTG', 'TCB', 'VIB', 'ABB', 'OJB', 'NVB', 'BID', 'CTG',
+    "VCB",
+    "TCB",
+    "CTG",
+    "MBB",
+    "STB",
+    "VPB",
+    "HDB",
+    "SHB",
+    "NVB",
+    "VIB",
+    "ABB",
+    "OJB",
+    "BID",
+    "CTG",
+    "TCB",
+    "VPB",
+    "MBB",
+    "STB",
+    "HPG",
+    "BVH",
+    "PNJ",
+    "MWG",
+    "FPT",
+    "VIC",
+    "VHM",
+    "NVL",
+    "MSN",
+    "SAB",
+    "VNM",
+    "KDH",
+    "ROX",
+    "DIG",
+    "GAS",
+    "PLX",
+    "BCM",
+    "VPB",
+    "TCB",
+    "ACB",
+    "TCB",
+    "VCB",
+    "MBB",
+    "STB",
+    "HDB",
+    "VPB",
+    "SHB",
+    "CTG",
+    "TCB",
+    "VIB",
+    "ABB",
+    "OJB",
+    "NVB",
+    "BID",
+    "CTG",
 }
 # Tập hợp rút gọn các mã HOSE/VN30 phổ biến nhất để check nhanh.
-HOSE_BLUECHIPS = frozenset({
-    'VCB', 'TCB', 'CTG', 'MBB', 'STB', 'VPB', 'HDB', 'SHB', 'NVB',
-    'VIB', 'BID', 'HPG', 'BVH', 'PNJ', 'MWG', 'FPT', 'VIC', 'VHM',
-    'NVL', 'MSN', 'SAB', 'VNM', 'KDH', 'ROX', 'DIG', 'GAS', 'PLX', 'BCM',
-})
+HOSE_BLUECHIPS = frozenset(
+    {
+        "VCB",
+        "TCB",
+        "CTG",
+        "MBB",
+        "STB",
+        "VPB",
+        "HDB",
+        "SHB",
+        "NVB",
+        "VIB",
+        "BID",
+        "HPG",
+        "BVH",
+        "PNJ",
+        "MWG",
+        "FPT",
+        "VIC",
+        "VHM",
+        "NVL",
+        "MSN",
+        "SAB",
+        "VNM",
+        "KDH",
+        "ROX",
+        "DIG",
+        "GAS",
+        "PLX",
+        "BCM",
+    }
+)
 # Tăng từ 12.0s → 25.0s để hỗ trợ mã UPCoM/thanh khoản thấp phản hồi chậm.
 VCI_TIMEOUT = 25.0
 # Multi-Source Fallback: thử VCI trước, nếu thất bại thì chuyển sang
 # TCBS → DNSE → KBS. Thứ tự ưu tiên theo tốc độ phản hồi và chất lượng dữ liệu.
-FALLBACK_SOURCES = ['vci', 'tcbs', 'dnse', 'kbs']
+FALLBACK_SOURCES = ["vci", "tcbs", "dnse", "kbs"]
 # Sau bao nhiêu lần timeout liên tiếp thì recreate HTTPS session pool
 MAX_CONSECUTIVE_TIMEOUTS = 3
 
@@ -110,11 +185,11 @@ def _lay_danh_sach_can_backfill() -> list:
     dg = danh_gia_chat_luong_du_lieu()
     if dg.empty:
         return []
-    thieu = dg[dg['so_phien'] < NGUONG_PHIEN]
+    thieu = dg[dg["so_phien"] < NGUONG_PHIEN]
     # Chỉ backfill mã từng có dữ liệu trước đây (có ngày_min sau mốc)
     # Loại mã < 20 phiên (mã mới thực sự)
-    can_bf = thieu[thieu['so_phien'] >= 20].copy()
-    ds = sorted(can_bf['symbol'].tolist())
+    can_bf = thieu[thieu["so_phien"] >= 20].copy()
+    ds = sorted(can_bf["symbol"].tolist())
     logger.info(f"Tìm thấy {len(ds)} mã cần backfill (≥20 phiên hiện có, <{NGUONG_PHIEN} phiên).")
     logger.info(f"  {len(thieu) - len(ds)} mã khác có <20 phiên (bỏ qua — có thể là mã mới thực sự).")
     return ds
@@ -123,9 +198,7 @@ def _lay_danh_sach_can_backfill() -> list:
 def _lay_ngay_hien_tai(symbol: str) -> str:
     """Lấy ngày giao dịch gần nhất của symbol trong DB."""
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT MAX(date) FROM daily_ohlcv WHERE symbol = ?", (symbol,)
-        ).fetchone()
+        row = conn.execute("SELECT MAX(date) FROM daily_ohlcv WHERE symbol = ?", (symbol,)).fetchone()
         return row[0] if row and row[0] else None
 
 
@@ -155,7 +228,7 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
     import threading
 
     df = pd.DataFrame()
-    source_info = {'source': None, 'vci_timeout': False, 'vci_empty': False}
+    source_info = {"source": None, "vci_timeout": False, "vci_empty": False, "vci_silent_throttle": False}
     consecutive_timeouts = 0
     for source in FALLBACK_SOURCES:
         box = {}
@@ -164,9 +237,10 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
             try:
                 # Data goes through the provider abstraction, not vnstock directly.
                 from src.providers.vnstock_provider import VnstockProvider
+
                 provider = VnstockProvider(source=src)
                 box["df"] = provider.history(symbol, start=start, end=end, pause=0)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - provider boundary
                 box["err"] = e
 
         t = threading.Thread(target=_run, daemon=True)
@@ -174,17 +248,15 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
         t.join(VCI_TIMEOUT)
         if t.is_alive():
             consecutive_timeouts += 1
-            if source == 'vci':
-                source_info['vci_timeout'] = True
-            logger.warning(
-                f"_fetch_lich_su: {symbol} {source} TIMEOUT >{VCI_TIMEOUT}s — bỏ qua"
-            )
+            if source == "vci":
+                source_info["vci_timeout"] = True
+            logger.warning(f"_fetch_lich_su: {symbol} {source} TIMEOUT >{VCI_TIMEOUT}s — bỏ qua")
             if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
                 logger.warning(
-                    f"_fetch_lich_su: {symbol} {consecutive_timeouts} consecutive timeouts — "
-                    f"recreate HTTPS session pool"
+                    f"_fetch_lich_su: {symbol} {consecutive_timeouts} consecutive timeouts — recreate HTTPS session pool"
                 )
                 import gc
+
                 gc.collect()
                 consecutive_timeouts = 0
             continue
@@ -195,45 +267,45 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
         df = box.get("df")
         if df is not None and not df.empty:
             df = df.copy()
-            df['source'] = source
-            source_info['source'] = source
+            df["source"] = source
+            source_info["source"] = source
             break
-        if source == 'vci':
-            source_info['vci_empty'] = True
+        if source == "vci":
+            source_info["vci_empty"] = True
             if symbol.upper() in HOSE_BLUECHIPS:
-                source_info['vci_silent_throttle'] = True
+                source_info["vci_silent_throttle"] = True
         df = pd.DataFrame()
     if df is None or df.empty:
         return pd.DataFrame(), source_info
-    if 'adj_close' not in df.columns and 'close' in df.columns:
-        df['adj_close'] = df['close']
+    if "adj_close" not in df.columns and "close" in df.columns:
+        df["adj_close"] = df["close"]
     # Chuẩn hóa tên cột
     rename_map = {}
     for col in df.columns:
-        if col == 'time':
-            rename_map['time'] = 'date'
-        elif col == 'open_price':
-            rename_map['open_price'] = 'open'
-        elif col == 'high_price':
-            rename_map['high_price'] = 'high'
-        elif col == 'low_price':
-            rename_map['low_price'] = 'low'
-        elif col == 'close_price':
-            rename_map['close_price'] = 'close'
-        elif col == 'total_trades':
-            rename_map['total_trades'] = 'volume'
+        if col == "time":
+            rename_map["time"] = "date"
+        elif col == "open_price":
+            rename_map["open_price"] = "open"
+        elif col == "high_price":
+            rename_map["high_price"] = "high"
+        elif col == "low_price":
+            rename_map["low_price"] = "low"
+        elif col == "close_price":
+            rename_map["close_price"] = "close"
+        elif col == "total_trades":
+            rename_map["total_trades"] = "volume"
     if rename_map:
         df = df.rename(columns=rename_map)
     # Đảm bảo các cột bắt buộc
-    for col in ['open', 'high', 'low', 'close', 'adj_close']:
+    for col in ["open", "high", "low", "close", "adj_close"]:
         if col not in df.columns:
             df[col] = 0.0
-    if 'volume' not in df.columns:
-        df['volume'] = 0
-    df['symbol'] = symbol
+    if "volume" not in df.columns:
+        df["volume"] = 0
+    df["symbol"] = symbol
     # Chuẩn hóa ngày
-    df['date'] = pd.to_datetime(df['date'], format='mixed').dt.strftime('%Y-%m-%d')
-    cols = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
+    df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
+    cols = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
     df = df[[c for c in cols if c in df.columns]]
     return df, source_info
 
@@ -241,17 +313,11 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
 def _kiem_tra_symbol_co_san(symbol: str) -> bool:
     """Kiểm tra symbol có tồn tại trong DB không (đã từng seed)."""
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM daily_ohlcv WHERE symbol = ? LIMIT 1", (symbol,)
-        ).fetchone()
+        row = conn.execute("SELECT 1 FROM daily_ohlcv WHERE symbol = ? LIMIT 1", (symbol,)).fetchone()
         return row is not None
 
 
-def backfill(symbols: list = None,
-             start: str = None,
-             end: str = None,
-             dry_run: bool = False,
-             verbose: bool = True) -> dict:
+def backfill(symbols: list = None, start: str = None, end: str = None, dry_run: bool = False, verbose: bool = True) -> dict:
     """
     Engine khôi phục dữ liệu lịch sử cho các mã thiếu dữ liệu.
 
@@ -283,12 +349,12 @@ def backfill(symbols: list = None,
         if not symbols:
             print("  ✅ Không có mã nào cần backfill.")
             print("=" * 70)
-            return {'total': 0, 'success': 0, 'failed': 0, 'dry_run': dry_run}
+            return {"total": 0, "success": 0, "failed": 0, "dry_run": dry_run}
 
     if start is None:
         start = MOC_THOI_GIAN_MAC_DINH
     if end is None:
-        end = datetime.now().strftime('%Y-%m-%d')
+        end = datetime.now().strftime("%Y-%m-%d")
 
     print(f"  📅 Phạm vi thời gian: {start} → {end}")
     print(f"  🎯 Số lượng mã: {len(symbols)}")
@@ -300,10 +366,10 @@ def backfill(symbols: list = None,
     if dry_run:
         print("\n  📋 DANH SÁCH MÃ SẼ BACKFILL (DRY RUN):")
         print(f"  {'Mã':<8} {'Phiên hiện':>10} {'Ngày cuối':>12}")
-        print(f"  {'─'*8} {'─'*10} {'─'*12}")
+        print(f"  {'─' * 8} {'─' * 10} {'─' * 12}")
         dg = danh_gia_chat_luong_du_lieu()
         for s in symbols:
-            row = dg[dg['symbol'] == s]
+            row = dg[dg["symbol"] == s]
             if not row.empty:
                 r = row.iloc[0]
                 print(f"  {s:<8} {r['so_phien']:>10} {r['ngay_max']:>12}")
@@ -311,7 +377,7 @@ def backfill(symbols: list = None,
         print("    (chạy lại với --apply hoặc bỏ --dry-run để thực thi)")
         print(f"\n  ⏱  Thời gian ước tính: ~{len(symbols) * 3} giây (chưa tính cooldown)")
         print("=" * 70)
-        return {'total': len(symbols), 'success': 0, 'failed': 0, 'dry_run': True}
+        return {"total": len(symbols), "success": 0, "failed": 0, "dry_run": True}
 
     # 2. THỰC THI BACKFILL
     print()
@@ -335,17 +401,17 @@ def backfill(symbols: list = None,
             continue
 
         if verbose:
-            print(f"\r  [{idx}/{tong}] {symbol}...", end='', flush=True)
+            print(f"\r  [{idx}/{tong}] {symbol}...", end="", flush=True)
 
         for lan_thu in range(TOI_DA_THU_LAI):
             try:
                 df, src_info = _fetch_lich_su(symbol, start, end)
 
-                if src_info['vci_timeout']:
+                if src_info["vci_timeout"]:
                     vci_rate_limit_count += 1
-                if src_info['vci_silent_throttle']:
+                if src_info["vci_silent_throttle"]:
                     vci_silent_throttle_count += 1
-                elif src_info['vci_empty']:
+                elif src_info["vci_empty"]:
                     vci_not_found_count += 1
 
                 if df.empty:
@@ -357,47 +423,42 @@ def backfill(symbols: list = None,
 
                 # Đếm dòng hiện tại trong DB
                 with get_connection() as conn:
-                    dong_truoc = conn.execute(
-                        "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol = ?", (symbol,)
-                    ).fetchone()[0]
+                    dong_truoc = conn.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE symbol = ?", (symbol,)).fetchone()[0]
 
                 # Upsert tất cả dữ liệu từ API (INSERT OR REPLACE xử lý trùng lặp)
                 try:
                     with get_connection() as conn:
-                        save_data_upsert('daily_ohlcv', df, conn)
-                except Exception as e:
-                    logger.error(f"  [{idx}/{tong}] {symbol}: ❌ Lỗi ghi DB: {e}")
+                        save_data_upsert("daily_ohlcv", df, conn)
+                except Exception:  # noqa: BLE001 - DB write failure, non-blocking
                     that_bai += 1
                     blacklist[symbol] = time.time()
                     break
 
                 # Đếm dòng sau khi upsert
                 with get_connection() as conn:
-                    dong_sau = conn.execute(
-                        "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol = ?", (symbol,)
-                    ).fetchone()[0]
+                    dong_sau = conn.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE symbol = ?", (symbol,)).fetchone()[0]
                 dong_moi = dong_sau - dong_truoc
 
                 if dong_moi == 0:
                     if verbose:
                         print(f"\r  [{idx}/{tong}] {symbol}: ✅ Đã đầy đủ (giữ nguyên {dong_truoc} dòng)")
                     thanh_cong += 1
-                    src = src_info.get('source', 'unknown')
+                    src = src_info.get("source", "unknown")
                     source_counter[src] = source_counter.get(src, 0) + 1
                     break
 
                 tong_dong_moi += dong_moi
                 thanh_cong += 1
-                src = src_info.get('source', 'unknown')
+                src = src_info.get("source", "unknown")
                 source_counter[src] = source_counter.get(src, 0) + 1
                 if verbose:
                     print(f"\r  [{idx}/{tong}] {symbol}: ✅ +{dong_moi} dòng ({dong_truoc}→{dong_sau}) [src={src}]")
                 break
 
-            except Exception as e:
-                logger.warning(f"  [{idx}/{tong}] {symbol}: ⚠ Lỗi lần {lan_thu+1}/{TOI_DA_THU_LAI}: {e}")
+            except Exception as e:  # noqa: BLE001 - retry boundary, logged below
+                logger.warning(f"  [{idx}/{tong}] {symbol}: ⚠ Lỗi lần {lan_thu + 1}/{TOI_DA_THU_LAI}: {e}")
                 if lan_thu < TOI_DA_THU_LAI - 1:
-                    thoi_gian_cho = COOLDOWN_LOI * (2 ** lan_thu)
+                    thoi_gian_cho = COOLDOWN_LOI * (2**lan_thu)
                     time.sleep(thoi_gian_cho)
                 else:
                     logger.error(f"  [{idx}/{tong}] {symbol}: ❌ Thất bại sau {TOI_DA_THU_LAI} lần thử.")
@@ -416,15 +477,14 @@ def backfill(symbols: list = None,
                 jitter = random.uniform(0, backoff * 0.3)
                 total_delay = backoff + jitter
                 logger.info(
-                    f"  [{idx}/{tong}] Backoff delay: {total_delay:.1f}s "
-                    f"(base={base_delay:.1f}s, failures={that_bai})"
+                    f"  [{idx}/{tong}] Backoff delay: {total_delay:.1f}s (base={base_delay:.1f}s, failures={that_bai})"
                 )
             else:
                 total_delay = base_delay
             time.sleep(total_delay)
 
     # 3. KẾT QUẢ
-        # Xóa dòng status cũ
+    # Xóa dòng status cũ
     thoi_gian = time.time() - bat_dau
 
     print()
@@ -435,7 +495,7 @@ def backfill(symbols: list = None,
     print(f"  ❌ Thất bại:   {that_bai}")
     print(f"  ⏭ Bỏ qua:     {bo_qua}")
     print(f"  📦 Dòng mới:   {tong_dong_moi}")
-    print(f"  ⏱  Thời gian:  {thoi_gian:.1f}s ({thoi_gian/60:.1f} phút)")
+    print(f"  ⏱  Thời gian:  {thoi_gian:.1f}s ({thoi_gian / 60:.1f} phút)")
     if blacklist:
         print(f"  🚫 Blacklist:  {len(blacklist)} mã bị tạm khóa")
 
@@ -453,7 +513,6 @@ def backfill(symbols: list = None,
         # Rate-limit = VCI timed out (server throttling us) → need higher timeout or fallback.
         # Not-found = VCI returned empty data (stock simply not on VCI) → expected for UPCoM.
         # Silent Throttle = VCI returned empty data for HOSE/VN30 blue-chip → likely rate-limit masked as 200 OK.
-        vci_total = source_counter.get('vci', 0)
         vci_rate_pct = (vci_rate_limit_count / total_success * 100) if total_success > 0 else 0
         vci_nf_pct = (vci_not_found_count / total_success * 100) if total_success > 0 else 0
         vci_st_pct = (vci_silent_throttle_count / total_success * 100) if total_success > 0 else 0
@@ -483,18 +542,19 @@ def backfill(symbols: list = None,
     if thanh_cong > 0:
         print("  📊 Đang cập nhật báo cáo chất lượng dữ liệu...")
         from src.engine.data_quality import xuat_bao_cao as xbc
+
         xbc()
 
     print("=" * 70)
 
     return {
-        'total': tong,
-        'success': thanh_cong,
-        'failed': that_bai,
-        'skipped': bo_qua,
-        'new_rows': tong_dong_moi,
-        'execution_time': thoi_gian,
-        'dry_run': dry_run,
+        "total": tong,
+        "success": thanh_cong,
+        "failed": that_bai,
+        "skipped": bo_qua,
+        "new_rows": tong_dong_moi,
+        "execution_time": thoi_gian,
+        "dry_run": dry_run,
     }
 
 
