@@ -1,4 +1,5 @@
-﻿"""Prediction Registry — append-only log of RS audit predictions + outcome tracking."""
+"""Prediction Registry — append-only log of RS audit predictions + outcome tracking."""
+
 import json
 import logging
 import sys
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -23,6 +24,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
@@ -37,7 +39,7 @@ HORIZONS = [5, 20, 60]
 def _ensure_log_file():
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     if not LOG_PATH.exists():
-        with open(LOG_PATH, 'w', encoding='utf-8') as f:
+        with open(LOG_PATH, "w", encoding="utf-8"):
             pass
 
 
@@ -45,14 +47,14 @@ def _read_lines() -> list[dict]:
     _ensure_log_file()
     if LOG_PATH.stat().st_size == 0:
         return []
-    with open(LOG_PATH, 'r', encoding='utf-8') as f:
+    with open(LOG_PATH, "r", encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
 
 def _append_line(entry: dict):
     _ensure_log_file()
-    with open(LOG_PATH, 'a', encoding='utf-8') as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    with open(LOG_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def _classification_key(vi_label: str) -> str:
@@ -68,13 +70,10 @@ def _classification_key(vi_label: str) -> str:
 def _get_price_at_date(symbol: str, target_date: str) -> Optional[float]:
     try:
         with get_connection() as conn:
-            row = conn.execute(
-                "SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?",
-                (symbol, target_date)
-            ).fetchone()
-            if row:
+            row = conn.execute("SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?", (symbol, target_date)).fetchone()
+            if row and row[0] is not None:
                 return float(row[0])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort lookup, caller handles None
         logger.warning("[PR] Price lookup fail %s @ %s: %s", symbol, target_date, e)
     return None
 
@@ -86,11 +85,11 @@ def _get_nearest_price(symbol: str, target_date: str, before: bool = True) -> Op
             order = "DESC" if before else "ASC"
             row = conn.execute(
                 f"SELECT close FROM daily_ohlcv WHERE symbol = ? AND date {op} ? ORDER BY date {order} LIMIT 1",
-                (symbol, target_date)
+                (symbol, target_date),
             ).fetchone()
-            if row:
+            if row and row[0] is not None:
                 return float(row[0])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort lookup, caller handles None
         logger.warning("[PR] Nearest price lookup fail %s @ %s: %s", symbol, target_date, e)
     return None
 
@@ -101,6 +100,7 @@ def log_predictions(target_date: Optional[str] = None) -> int:
         target_date = datetime.now().strftime("%Y-%m-%d")
 
     from src.engine.rs_audit import run_rs_audit
+
     results = run_rs_audit(top_n=9999)
     if not results:
         logger.warning("[PR] No RS audit results to log.")
@@ -243,6 +243,7 @@ def run_registry_update(target_date: Optional[str] = None):
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Prediction Registry")
     parser.add_argument("action", choices=["log", "update", "stats", "list"], default="stats", nargs="?")
     parser.add_argument("--date", help="Target date (YYYY-MM-DD)")
@@ -277,7 +278,11 @@ if __name__ == "__main__":
         print("=" * 100)
         for e in reversed(entries):
             if e.get("event") == "prediction":
-                print(f"  PREDICT {e['date']} {e['symbol']:6s} | RS={e['rs']:3d} score={e['diem_xac_nhan']:.2f} {e['phan_loai']:<20s} price={e['price_t0']:>8.1f}")
+                print(
+                    f"  PREDICT {e['date']} {e['symbol']:6s} | RS={e['rs']:3d} score={e['diem_xac_nhan']:.2f} {e['phan_loai']:<20s} price={e['price_t0']:>8.1f}"  # noqa: E501
+                )
             elif e.get("event") == "outcome":
-                print(f"  OUTCOME {e['date']} {e['symbol']:6s} | {e['horizon']:2d}ngày return={e['return_pct']:+.2f}% exit={e['exit_price']:>8.1f}")
+                print(
+                    f"  OUTCOME {e['date']} {e['symbol']:6s} | {e['horizon']:2d}ngày return={e['return_pct']:+.2f}% exit={e['exit_price']:>8.1f}"  # noqa: E501
+                )
         print("=" * 100)

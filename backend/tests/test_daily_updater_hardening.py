@@ -243,3 +243,57 @@ class TestCsiHistoryDedupe:
         assert len(fpt_today) == 1 and fpt_today[0]["p_gain"] == 0.38, (
             "Dedupe phải giữ bản ghi MỚI nhất khi trùng (symbol,date)."
         )
+
+
+# ============================================================
+# BUG 7: Per-symbol absorption NoneType .get() (EOD 06/08/2026)
+# ============================================================
+class TestPerSymbolAbsorptionNullGuard:
+    """WHY: 06/08/2026 EOD crash — `ar.get(...)` trên NoneType khi
+    PerSymbolAbsorption.analyze() trả None (symbol chưa đủ dữ liệu hấp thụ).
+    Absorption result phải được null-safe trước khi gọi .get()."""
+
+    def test_abs_block_guards_none_result(self):
+        src = _src(DAILY_UPDATER)
+        assert "if not ar:" in src, "Thiếu null-guard cho ar — `ar.get()` trên NoneType crash EOD 06/08/2026."
+
+    def test_abs_block_uses_get_not_subscript(self):
+        """Truy cập phase/hdr/sdi/vqa qua .get() để không KeyError khi default result
+        thiếu key (VD `_default_result` không có vqa)."""
+        src = _src(DAILY_UPDATER)
+        assert 'ar.get("phase")' in src, "dùng ar['phase'] — KeyError nếu result thiếu key."
+        assert 'ar.get("vqa", {}).get("classification")' in src
+
+    def test_abs_block_keeps_governor_lock_default(self):
+        src = _src(DAILY_UPDATER)
+        assert 'ar.get("governor_lock", False)' in src, "Mất default False cho governor_lock — NoneType leak vào báo cáo."
+
+
+# ============================================================
+# BUG 8: Prediction Registry price lookup NoneType (BVB 2026-07-16)
+# ============================================================
+class TestPredictionRegistryPriceLookup:
+    """WHY: `[PR] Price lookup fail BVB @ 2026-07-16: float() argument must be a
+    string or a real number, not 'NoneType'` — row tồn tại nhưng close = NULL.
+    Guard phải kiểm tra row[0] is not None trước float()."""
+
+    PRED_REG = PROJECT_ROOT / "backend" / "src" / "telemetry" / "prediction_registry.py"
+
+    def test_price_lookup_guards_null_close(self):
+        src = _src(self.PRED_REG)
+        assert "if row and row[0] is not None:" in src, (
+            "Mất null-guard cho close NULL — float(None) crash khi BVB chưa có close."
+        )
+
+    def test_nearest_price_lookup_guards_null_close(self):
+        src = _src(self.PRED_REG)
+        assert src.count("if row and row[0] is not None:") == 2, (
+            "Cả _get_price_at_date VÀ _get_nearest_price phải guard null close."
+        )
+
+    def test_price_lookup_returns_none_on_missing(self):
+        """Contract: không có giá -> trả None (không raise), caller phải handle."""
+        import src.telemetry.prediction_registry as pr
+
+        assert pr._get_price_at_date("SỐ-KHÔNG-TỒN-TẠI", "2099-01-01") is None
+        assert pr._get_nearest_price("SỐ-KHÔNG-TỒN-TẠI", "2099-01-01", before=True) is None
