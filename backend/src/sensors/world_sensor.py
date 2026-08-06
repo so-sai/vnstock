@@ -5,7 +5,7 @@ Three signal blocks:
 
 1. Fed Target Rate & FOMC Decision (CME FedWatch 30-Day FF):
    - Current target rate, next-meeting implied probability of hike/hold/cut.
-   
+
 2. FOMC Dissent Tracker:
    - Number of dissenting votes at last meeting (dissent = hawkish/dovish divergence).
    - Higher dissent → higher FED_UNCERTAINTY score.
@@ -53,10 +53,7 @@ logger = logging.getLogger(__name__)
 # 1. CME FEDWATCH TOOL (30-day Fed Funds Futures Probability)
 #    Used for: implied Fed rate, next meeting hike/cut probabilities
 #    Fallback: hardcoded DEFAULT_FED_RATE if scrape fails
-CME_FEDWATCH_URL = (
-    "https://www.cmegroup.com/markets/interest-rates/"
-    "cme-fedwatch-tool.html"
-)
+CME_FEDWATCH_URL = "https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html"
 
 # 2. FEDERAL RESERVE BOARD (FOMC Statements & Dissent Voting)
 #    Used for: dissenting vote count at last FOMC meeting
@@ -72,10 +69,10 @@ FOMC_HISTORY_URL = "https://www.federalreserve.gov/monetarypolicy/fomc_historica
 #    Fallback chain: FRED API → yFinance tickers → CACHE → defaults
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 FRED_SERIES_MAP = {
-    "FED_ASSETS": "WALCL",        # Total Assets of Federal Reserve (QT/QE)
-    "RESERVES": "WRESBAL",        # Reserve Balances with Federal Reserve Banks
-    "US10Y": "DGS10",             # 10-Year Treasury Constant Maturity Rate
-    "USD_INDEX": "DTWEXBGS",      # Nominal Broad U.S. Dollar Index
+    "FED_ASSETS": "WALCL",  # Total Assets of Federal Reserve (QT/QE)
+    "RESERVES": "WRESBAL",  # Reserve Balances with Federal Reserve Banks
+    "US10Y": "DGS10",  # 10-Year Treasury Constant Maturity Rate
+    "USD_INDEX": "DTWEXBGS",  # Nominal Broad U.S. Dollar Index
 }
 
 # 4. YAHOO FINANCE (Backup Realtime Tickers)
@@ -116,7 +113,7 @@ def _read_cache() -> Optional[dict]:
             age = time.time() - data.get("cached_at", 0)
             if age < CACHE_TTL_SECONDS:
                 return data
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cache miss/expired = trạng thái bình thường, fallback defaults
         pass
     return None
 
@@ -125,10 +122,8 @@ def _write_cache(data: dict):
     try:
         _ensure_cache_dir()
         data["cached_at"] = time.time()
-        CACHE_FILE.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except Exception as e:
+        CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
         logger.warning(f"World cache write failed: {e}")
 
 
@@ -137,6 +132,11 @@ def _write_cache(data: dict):
 
 def _fetch_cme_fedwatch() -> tuple[float, float, str]:
     """Parse CME FedWatch 30-Day FF probability for next meeting.
+
+    Two-tier strategy (WHY: CME 403 WAF since 2026-08):
+      1. cheap `requests` + __NEXT_DATA__ JSON parse (fast path)
+      2. Playwright headless crawl (`.cmeTable`) when requests 403/blocked
+    On total failure: (default, 0.0, "unknown") — never blocks EOD.
 
     Returns:
         (implied_rate, probability_of_hike, next_meeting_label)
@@ -155,34 +155,27 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
         # If CME changes their frontend framework, the cache TTL (1h) gives
         # us time to detect breakage without blocking the EOD pipeline.
         import re
+
         match = re.search(
             r'<script id="__NEXT_DATA__"[^>]*type="application/json"[^>]*>'
             r"(.*?)</script>",
-            html, re.DOTALL,
+            html,
+            re.DOTALL,
         )
         if not match:
             logger.warning("CME FedWatch: __NEXT_DATA__ script not found")
-            return (DEFAULT_FED_RATE, 0.0, "unknown")
+            return _cme_fedwatch_playwright_fallback()
 
         payload = json.loads(match.group(1))
         props = payload.get("props", {})
         page_props = props.get("pageProps", {})
-        data = (
-            page_props.get("initialState")
-            or page_props.get("dehydratedState")
-            or page_props.get("__NEXT_DATA__")
-            or {}
-        )
+        data = page_props.get("initialState") or page_props.get("dehydratedState") or page_props.get("__NEXT_DATA__") or {}
         implied_rate = DEFAULT_FED_RATE
         hike_prob = 0.0
         meeting_label = "unknown"
 
         try:
-            contracts = (
-                data.get("quotes", {}).get("quotes", [])
-            ) or (
-                data.get("contracts", [])
-            ) or []
+            contracts = (data.get("quotes", {}).get("quotes", [])) or (data.get("contracts", [])) or []
             if not contracts:
                 products = data.get("products", [])
                 for p in products:
@@ -191,20 +184,40 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
                         break
 
             if contracts:
-                sorted_cts = sorted(
-                    contracts, key=lambda c: c.get("expiration", "ZZZZ")
-                )
+                sorted_cts = sorted(contracts, key=lambda c: c.get("expiration", "ZZZZ"))
                 nearest = sorted_cts[0]
                 implied_rate = float(nearest.get("last", implied_rate))
                 hike_prob = float(nearest.get("probability", 0.0))
                 meeting_label = nearest.get("tradeDate", "unknown")
-        except Exception as inner:
+        except Exception as inner:  # noqa: BLE001 - pre-existing defensive catch
             logger.debug(f"CME contract parse: {inner}")
 
         return (implied_rate, hike_prob, meeting_label)
 
-    except Exception as e:
-        logger.warning(f"CME FedWatch fetch failed: {e}")
+    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
+        logger.warning(f"CME FedWatch requests failed: {e}")
+        return _cme_fedwatch_playwright_fallback()
+
+
+def _cme_fedwatch_playwright_fallback() -> tuple[float, float, str]:
+    """Fallback tier: Playwright headless crawl of `.cmeTable`.
+
+    WHY fallback exists: since 2026-08 CME returns HTTP 403 to plain requests
+    (WAF TLS fingerprint + JS challenge). Playwright drives real Chromium so
+    the WAF serves the DOM. Kept in a separate function so world_sensor stays
+    import-light; the Playwright module is only imported lazily here.
+    """
+    try:
+        from src.sensors.cme_fedwatch_playwright import fetch_cme_fedwatch
+
+        rate, prob, meeting, source = fetch_cme_fedwatch()
+        if source == "cme_pw":
+            logger.info("CME FedWatch via Playwright (cme_pw)")
+            return (rate, prob, meeting)
+        logger.warning("CME FedWatch Playwright returned defaults")
+        return (DEFAULT_FED_RATE, 0.0, "unknown")
+    except Exception as e:  # noqa: BLE001 - crawl failure must never block EOD
+        logger.warning(f"CME FedWatch Playwright fallback failed: {e}")
         return (DEFAULT_FED_RATE, 0.0, "unknown")
 
 
@@ -212,9 +225,7 @@ def _browser_headers() -> dict:
     """Standard browser-like headers for HTML scraping endpoints."""
     return {
         "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         ),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
@@ -243,9 +254,11 @@ def _fetch_fomc_dissent() -> int:
         html = resp.text
 
         import re
+
         rows = re.findall(
             r"<tr[^>]*>.*?<td[^>]*>(.*?)</td>.*?</tr>",
-            html, re.DOTALL,
+            html,
+            re.DOTALL,
         )
         dissent_count = 0
         for row in rows[:10]:
@@ -258,7 +271,7 @@ def _fetch_fomc_dissent() -> int:
 
         return dissent_count
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
         logger.warning(f"FOMC dissent fetch failed: {e}")
         return DEFAULT_DISSENT
 
@@ -284,10 +297,7 @@ def _fetch_fred_series(series_id: str) -> Optional[float]:
         return None
 
     try:
-        url = (
-            f"{FRED_BASE_URL}?series_id={series_id}"
-            f"&sort_order=desc&limit=1&file_type=json&api_key={FRED_API_KEY}"
-        )
+        url = f"{FRED_BASE_URL}?series_id={series_id}&sort_order=desc&limit=1&file_type=json&api_key={FRED_API_KEY}"
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
@@ -297,7 +307,7 @@ def _fetch_fred_series(series_id: str) -> Optional[float]:
             if val and val != ".":
                 return float(val)
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
         logger.warning(f"FRED series {series_id} fetch failed: {e}")
         return None
 
@@ -313,15 +323,12 @@ def _fetch_fred_all() -> dict:
 
     results: dict[str, Optional[float]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        future_map = {
-            pool.submit(_fetch_fred_series, sid): name
-            for name, sid in FRED_SERIES_MAP.items()
-        }
+        future_map = {pool.submit(_fetch_fred_series, sid): name for name, sid in FRED_SERIES_MAP.items()}
         for future in concurrent.futures.as_completed(future_map):
             name = future_map[future]
             try:
                 results[name] = future.result()
-            except Exception:
+            except Exception:  # noqa: BLE001 - pre-existing defensive catch
                 results[name] = None
     return results
 
@@ -365,13 +372,13 @@ def _fetch_yfinance_fallback() -> dict:
                     results[name] = val if not (val != val) else 0.0
                 else:
                     results[name] = 0.0
-            except Exception:
+            except Exception:  # noqa: BLE001 - pre-existing defensive catch
                 results[name] = 0.0
     except ImportError:
         logger.debug("yfinance not installed — skipping Yahoo fallback")
         for name in YFINANCE_WORLD_TICKERS:
             results[name] = 0.0
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
         logger.warning(f"yFinance bulk fetch failed: {e}")
         for name in YFINANCE_WORLD_TICKERS:
             results[name] = 0.0
@@ -468,9 +475,7 @@ class WorldSensor:
         max_historical_dissent = 4
         dissent_factor = dissent / (max_historical_dissent + 1)
         qt_surprise = max(0.0, (8.0 - qt_balance) / 8.0) if qt_balance > 0 else 0.0
-        fed_uncertainty = round(
-            min(1.0, dissent_factor * 0.6 + qt_surprise * 0.4), 4
-        )
+        fed_uncertainty = round(min(1.0, dissent_factor * 0.6 + qt_surprise * 0.4), 4)
 
         raw = {
             "fed_target_rate": fed_rate,
@@ -509,15 +514,17 @@ class WorldSensor:
         cached = _read_cache()
         if cached:
             return self._enrich(cached)
-        return self._enrich({
-            "fed_target_rate": DEFAULT_FED_RATE,
-            "fomc_dissent": DEFAULT_DISSENT,
-            "qt_balance_tr": DEFAULT_FRED_VALUE,
-            "reserves_tr": DEFAULT_FRED_VALUE,
-            "us10y_yield": DEFAULT_FRED_VALUE,
-            "usd_index": DEFAULT_FRED_VALUE,
-            "brent_oil": DEFAULT_FRED_VALUE,
-            "implied_hike_prob": 0.0,
-            "next_meeting": "unknown",
-            "fed_uncertainty": 0.0,
-        })
+        return self._enrich(
+            {
+                "fed_target_rate": DEFAULT_FED_RATE,
+                "fomc_dissent": DEFAULT_DISSENT,
+                "qt_balance_tr": DEFAULT_FRED_VALUE,
+                "reserves_tr": DEFAULT_FRED_VALUE,
+                "us10y_yield": DEFAULT_FRED_VALUE,
+                "usd_index": DEFAULT_FRED_VALUE,
+                "brent_oil": DEFAULT_FRED_VALUE,
+                "implied_hike_prob": 0.0,
+                "next_meeting": "unknown",
+                "fed_uncertainty": 0.0,
+            }
+        )
