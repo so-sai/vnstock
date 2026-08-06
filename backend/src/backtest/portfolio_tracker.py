@@ -44,15 +44,28 @@ class PortfolioTracker:
         """Position sizing: FIXED at initial_capital, never grows with NAV."""
         return self.initial_capital * (1 - self.cash_reserve) / self.max_positions
 
-    def buy(self, symbol: str, price: float, score: float, prices: Dict[str, float]) -> bool:
-        """Execute BUY. Returns True if executed."""
+    def buy(
+        self,
+        symbol: str,
+        price: float,
+        score: float,
+        prices: Dict[str, float],
+        alloc_multiplier: float = 1.0,
+    ) -> bool:
+        """Execute BUY. Returns True if executed.
+
+        Args:
+            alloc_multiplier: Scale factor for position sizing (0.0-1.0).
+                Used by DecisionGuard he_so_giam_ty_trong (dimmer scaling).
+                1.0 = full allocation, 0.5 = half, 0.0 = no position.
+        """
         if symbol in self.positions:
             return False
         if len(self.positions) >= self.max_positions:
             return False
 
         cps = self.capital_per_stock(prices)
-        alloc = min(cps, self.cash * 0.95)
+        alloc = min(cps, self.cash * 0.95) * max(0.0, min(1.0, alloc_multiplier))
         exec_price = price * 1.002  # slippage
         shares = int(alloc / exec_price)
         if shares <= 0:

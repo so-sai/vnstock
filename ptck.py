@@ -4247,6 +4247,20 @@ def cmd_financial_search(args):
     print("=" * 60)
 
 
+# ── grid-search ───────────────────────────────────────────────────
+def cmd_grid_search(args):
+    """Grid Search V2: Multi-factor weight optimization with DecisionGuard integration."""
+    from src.backtest.grid_search_v2 import main as grid_main
+    grid_main(
+        start=getattr(args, "start", "2021-04-01"),
+        end=getattr(args, "end", "2026-08-04"),
+        step=getattr(args, "step", 0.05),
+        top_n=getattr(args, "top_n", 15),
+        workers=getattr(args, "workers", 1),
+        sample_every=getattr(args, "sample_every", 5),
+    )
+
+
 # Module-level language mode — set by main() before dispatching
 _VERBOSE_LANG: str = "full"
 
@@ -5071,6 +5085,18 @@ def build_parser():
     p_fs.add_argument("--max-value", type=float, default=None, dest="max_value",
                       help="Giá trị tối đa")
     p_fs.set_defaults(func=cmd_financial_search)
+
+    # grid-search (DecisionGuard-integrated weight optimization)
+    p_gs = sub.add_parser("grid-search", parents=[lang_parent],
+                          help="Grid Search V2 — tối ưu trọng số multi-factor + DecisionGuard (LRI + EmergencyExit)")
+    p_gs.add_argument("--start", default="2021-04-01", help="Ngày bắt đầu (YYYY-MM-DD)")
+    p_gs.add_argument("--end", default="2026-08-04", help="Ngày kết thúc (YYYY-MM-DD)")
+    p_gs.add_argument("--step", type=float, default=0.05, help="Bước weight grid (mặc định 0.05)")
+    p_gs.add_argument("--top-n", type=int, default=15, dest="top_n", help="Số kết quả top (mặc định 15)")
+    p_gs.add_argument("--workers", type=int, default=1, help="Số process song song (mặc định 1)")
+    p_gs.add_argument("--sample-every", type=int, default=5, dest="sample_every",
+                      help="Lấy mẫu mỗi N phiên (mặc định 5)")
+    p_gs.set_defaults(func=cmd_grid_search)
 
     return parser
 
