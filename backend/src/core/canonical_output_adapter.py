@@ -1,4 +1,4 @@
-﻿"""
+"""
 canonical_output_adapter.py — Final Output Gate Contract v1.0
 
 SINGLE EXIT RULE:
@@ -19,6 +19,7 @@ Contract:
     4. Unknown values → pass through unchanged
     5. Non-string values → pass through unchanged
 """
+
 from __future__ import annotations
 
 import re
@@ -51,7 +52,6 @@ from .cognitive_schema import (
 _EXTRA_MAP: dict[str, str] = {
     # Trust / CAO
     "PROMOTABLE": "Có thể kích hoạt",
-    "BLOCKED": "Bị chặn",
     "NO_DATA": "Không có dữ liệu",
     # Gold regime
     "BULLISH": "Tăng",
@@ -79,7 +79,6 @@ _EXTRA_MAP: dict[str, str] = {
     # Constraint
     "ALLOWED": "Được phép",
     "PARTIAL": "Một phần",
-    "BLOCKED": "Bị chặn",
     # Opportunity bias
     "BULLISH_BIAS": "Thiên hướng tăng",
     "BEARISH_BIAS": "Thiên hướng giảm",
@@ -110,7 +109,6 @@ _EXTRA_MAP: dict[str, str] = {
     "crisis": "Khủng hoảng",
     # Driver keys (reputation ledger output, matching cognitive_schema)
     "VOLATILITY": "Biến động",
-
     # ============================================================
     # DECISION ACTIONS — mapped from decision_tensor
     # ============================================================
@@ -125,7 +123,17 @@ _EXTRA_MAP: dict[str, str] = {
     "STAND_DOWN": "Đứng ngoài",
     "WATCH": "Theo dõi",
     "OBSERVE": "Quan sát",
-
+    # ============================================================
+    # VERDICT FAMILY — final-decision verdict tokens (Governor)
+    # Vietnamese-first bilingual (EN). Icons handled separately by
+    # the CLI icon maps so no emoji lives here.
+    # ============================================================
+    "THAM GIA FULL": "THAM GIA FULL (FULL PARTICIPATION)",
+    "THAM GIA DO": "THAM GIA DÒ (PROBE PARTICIPATION)",
+    "THAM GIA": "THAM GIA (PARTICIPATE)",
+    "QUAN SAT": "QUAN SÁT (WATCH / OBSERVE)",
+    "GIAM RUI RO": "GIẢM RỦI RO (REDUCE RISK)",
+    "DUNG NGOAI": "ĐỨNG NGOÀI (STAND ASIDE - 100% CASH)",
     # ============================================================
     # RISK STATES — mapped from decision_tensor risk_state
     # ============================================================
@@ -133,7 +141,6 @@ _EXTRA_MAP: dict[str, str] = {
     "CAUTION": "Thận trọng",
     "STRESS": "Căng thẳng",
     "LOCKED": "Khóa",
-
     # ============================================================
     # COACH TONE — mapped from portfolio coach tone
     # ============================================================
@@ -141,19 +148,16 @@ _EXTRA_MAP: dict[str, str] = {
     "CRITICAL": "Nghiêm trọng",
     "OPPORTUNITY": "Cơ hội",
     "BALANCED": "Cân bằng",
-
     # ============================================================
     # MARKET PRESSURE — mapped from foreign flow
     # ============================================================
     "ACCUMULATING": "Tích lũy",
     "DISTRIBUTING": "Phân phối",
-
     # ============================================================
     # RETAIL CHASE LABELS — mapped from liquidity wave
     # ============================================================
     "EXTREME": "Cực đoan",
     "MODERATE": "Vừa phải",
-
     # ============================================================
     # REPLAY EVENT CODES — mapped from replay timeline
     # ============================================================
@@ -170,7 +174,6 @@ _EXTRA_MAP: dict[str, str] = {
     "Pullback recovery setup": "Thiết lập phục hồi sau điều chỉnh",
     "Momentum continuation": "Tiếp diễn đà tăng",
     "Recovery detector activated": "Bộ phát hiện phục hồi đã kích hoạt",
-
     # ============================================================
     # OPPORTUNITY REASON STRINGS — mapped from scanner
     # ============================================================
@@ -179,7 +182,6 @@ _EXTRA_MAP: dict[str, str] = {
     "moderate inflow": "dòng tiền vào vừa phải",
     "high continuation probability": "xác suất tiếp diễn cao",
     "Monitoring": "Đang theo dõi",
-
     # ============================================================
     # ============================================================
     # FLOW MAP (CrossMarketFlowMap) — Bản đồ dòng vốn 4 tầng
@@ -190,8 +192,7 @@ _EXTRA_MAP: dict[str, str] = {
     "TRANSITION_STATE": "Luân chuyển ngầm",
     "HIGH_CONFIDENCE": "Độ tin cậy cao",
     "LOW_CONFIDENCE_MACRO_VN": "Độ tin cậy vĩ mô trong nước thấp",
-    "LATE-CYCLE OBSERVABILITY GAP: ADX spike trong regime RANGING": "Khoảng cách quan sát cuối chu kỳ: ADX tăng đột biến trong khi regime vẫn ở trạng thái đi ngang",
-
+    "LATE-CYCLE OBSERVABILITY GAP: ADX spike trong regime RANGING": "Khoảng cách quan sát cuối chu kỳ: ADX tăng đột biến trong khi regime vẫn ở trạng thái đi ngang",  # noqa: E501
     # ============================================================
     # MIXED-CASE FIXES — catch non-uppercase variants
     # ============================================================
@@ -203,14 +204,22 @@ _EXTRA_MAP: dict[str, str] = {
 def _build_master_map() -> dict[str, str]:
     merged: dict[str, str] = {}
     sources = [
-        REGIME_LABEL_VI, REGIME_VI, REGIME_NOUN_VI,
-        DRIVER_VI, DRIVER_VI_LOWER,
-        DRIFT_SOURCE_VI, DRIFT_STATUS_VI,
-        FLOW_STATE_VI, FLOW_ROTATION_VI,
-        CONVICTION_VI, SECTOR_VI,
-        STATUS_VI, SEVERITY_LABEL_VI,
+        REGIME_LABEL_VI,
+        REGIME_VI,
+        REGIME_NOUN_VI,
+        DRIVER_VI,
+        DRIVER_VI_LOWER,
+        DRIFT_SOURCE_VI,
+        DRIFT_STATUS_VI,
+        FLOW_STATE_VI,
+        FLOW_ROTATION_VI,
+        CONVICTION_VI,
+        SECTOR_VI,
+        STATUS_VI,
+        SEVERITY_LABEL_VI,
         FIELD_LABELS,
-        EARLY_WARNING_VI, DRIFT_TREND_VI,
+        EARLY_WARNING_VI,
+        DRIFT_TREND_VI,
         ETS_STATUS_VI,
         _EXTRA_MAP,
     ]
@@ -223,13 +232,8 @@ _MASTER_MAP: dict[str, str] = _build_master_map()
 
 # Pre-compile word-boundary regex for UPPERCASE tokens (kernel enum convention)
 # This handles embedded English tokens in narrative text without false positives
-_UPPER_TOKENS: dict[str, str] = {
-    k: v for k, v in _MASTER_MAP.items()
-    if k.isupper() and len(k) > 1
-}
-_NARRATIVE_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(rf'\b{re.escape(k)}\b'), v) for k, v in _UPPER_TOKENS.items()
-]
+_UPPER_TOKENS: dict[str, str] = {k: v for k, v in _MASTER_MAP.items() if k.isupper() and len(k) > 1}
+_NARRATIVE_PATTERNS: list[tuple[re.Pattern, str]] = [(re.compile(rf"\b{re.escape(k)}\b"), v) for k, v in _UPPER_TOKENS.items()]
 
 
 # ====================================================================
@@ -237,16 +241,17 @@ _NARRATIVE_PATTERNS: list[tuple[re.Pattern, str]] = [
 # ====================================================================
 
 _HYBRID_GUARD = re.compile(
-    r'^(?:\d+(?:\.\d+)?%?'          # pure number, optional trailing %
-    r'|[-+]?\d+\.?\d*'              # signed float
-    r'|\d{4}-\d{2}-\d{2}'           # date YYYY-MM-DD
-    r'|[\d.]+ \([^)]+\)'            # "16.4 (yếu)" pattern
-    r')$'
+    r"^(?:\d+(?:\.\d+)?%?"  # pure number, optional trailing %
+    r"|[-+]?\d+\.?\d*"  # signed float
+    r"|\d{4}-\d{2}-\d{2}"  # date YYYY-MM-DD
+    r"|[\d.]+ \([^)]+\)"  # "16.4 (yếu)" pattern
+    r")$"
 )
 
 # ====================================================================
 # RECURSIVE LOCALIZER
 # ====================================================================
+
 
 def _localize_value(value: Any) -> Any:
     if isinstance(value, str):
@@ -269,6 +274,7 @@ def _localize_value(value: Any) -> Any:
 # ====================================================================
 # PUBLIC API — Single Exit Gate
 # ====================================================================
+
 
 def localize_output(data: dict) -> dict:
     """Final Output Gate — localize ALL string values in a report dict.
@@ -309,7 +315,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     # ── Engine & Regime ──
     "Regime": "Trạng thái vĩ mô",
     "ADX": "Xung lực",
-    "Entropy": "Mức độ nhiễu",
     "B-Score": "Điểm độ rộng",
     "ATR ratio": "Tỷ lệ biến động",
     "Độ rộng": "Số mã tham gia",
@@ -321,9 +326,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "MOMENTUM": "Đà",
     "VOLATILITY": "Biến động",
     "STRUCTURE": "Cấu trúc",
-    "MACRO": "Vĩ mô",
     "Trạng thái": "Pha thị trường",
-    "Score": "Điểm số",
     "Độ rộng:": "Tỷ lệ tham gia:",
     "B-Score (continuous)": "Điểm Độ rộng (liên tục)",
     "T-Score": "Điểm Xu hướng",
@@ -339,7 +342,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "[LOCK 2] ATR SHOCK DETECTED": "[KHÓA 2] PHÁT HIỆN ĐỘT BIẾN ATR",
     "Today:": "Hôm nay:",
     "vs Avg:": "so với TB:",
-
     # ── Phase Classification ──
     "Phase Classification": "Phân loại Pha Thị trường",
     "RANGING": "ĐI NGANG (BIÊN ĐỘ HẸP)",
@@ -364,14 +366,12 @@ CLI_LABEL_MAP: dict[str, str] = {
     "BEARISH": "GIẢM",
     "NEUTRAL": "TRUNG TÍNH",
     "Label": "Nhãn",
-    "Confidence": "Độ tin cậy",
     "BÌNH_THƯỜNG": "BÌNH THƯỜNG",
     "CẢNH_BÁO": "CẢNH BÁO",
     "KÍCH_HOẠT": "KÍCH HOẠT",
     "KHẨN_CẤP": "KHẨN CẤP",
     "RỦI_RO_HỆ_THỐNG": "RỦI RO HỆ THỐNG",
     "CHUYỂN_PHA_MẠNH": "CHUYỂN PHA MẠNH",
-
     # ── Execution Layer: TWAP + Circuit Breaker ──
     "PENDING": "CHỜ XỬ LÝ",
     "CANCELED": "ĐÃ HỦY LỆNH (AN TOÀN)",
@@ -384,20 +384,24 @@ CLI_LABEL_MAP: dict[str, str] = {
     "ASIA_TIER2_NO_VN": "CHÂU Á — THIẾU DỮ LIỆU VN",
     "TWAP plan": "CHIẾN DỊCH TWAP",
     "slice": "lát cắt",
-
     # ── Governor Report ──
     "GOVERNOR REPORT": "BÁO CÁO GOVERNOR",
     "Contribution Breakdown": "Phân rã Đóng góp",
     "Position Level": "Mức vị thế",
     "Position Label": "Nhãn vị thế",
-
+    # ── Verdict Family (final-decision) ──
+    "THAM GIA FULL": "THAM GIA FULL (FULL PARTICIPATION)",
+    "THAM GIA DO": "THAM GIA DÒ (PROBE PARTICIPATION)",
+    "THAM GIA": "THAM GIA (PARTICIPATE)",
+    "QUAN SAT": "QUAN SÁT (WATCH / OBSERVE)",
+    "GIAM RUI RO": "GIẢM RỦI RO (REDUCE RISK)",
+    "DUNG NGOAI": "ĐỨNG NGOÀI (STAND ASIDE - 100% CASH)",
     # ── Macro Fingerprint (LAW-009) ──
     "MACRO STATE VECTOR (M):": "VECTOR TRẠNG THÁI VĨ MÔ (M):",
     "SECTOR MACRO SCORES (M · W_i) + LAG-ADJUSTED (LAW-009):": "ĐIỂM VĨ MÔ NGÀNH (M · W_i) + ĐIỀU CHỈNH TRUYỀN DẪN (LAW-009):",
     "raw": "thô",
     "eff": "hiệu quả",
     "deficit": "điều chỉnh",
-    "HL": "Half-life (Bán rã)",
     "Blocking Model": "Mô hình chặn",
     "Decision": "Quyết định",
     "Blocked": "Bị chặn",
@@ -405,7 +409,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "MACRO": "VĨ MÔ",
     "QUANT": "ĐỊNH LƯỢNG",
     "REGIME": "THỊ TRƯỜNG",
-    "VETO": "PHỦ QUYẾT",
     "WARNING": "CẢNH BÁO",
     "DEGRADED": "SUY GIẢM",
     "NORMAL": "BÌNH THƯỜNG",
@@ -419,8 +422,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Recovery Gov": "Bộ phục hồi",
     "warmup": "khởi động",
     "impact": "mức ảnh hưởng",
-    "weight": "trọng số",
-    "active": "kích hoạt",
     "none": "không có",
     "broker order": "lệnh sàn",
     "CANCEL_FAILED": "HỦY LỆNH THẤT BẠI",
@@ -437,7 +438,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Order Book": "SỔ LỆNH",
     "TWAP Executor": "BỘ THỰC THI TWAP",
     "StalePositionManager": "QUẢN LÝ VỐN KẸT",
-
     # ── DB / System ──
     "Python": "Python",
     "Project root": "Thư mục gốc",
@@ -455,9 +455,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Driver": "Trình điều khiển",
     "Used": "Đã dùng",
     "Free": "Còn trống",
-
     # ── OHLCV ──
-    "Symbol": "Mã CK",
     "Date": "Ngày",
     "Open": "Mở cửa",
     "High": "Cao nhất",
@@ -465,7 +463,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Close": "Đóng cửa",
     "Volume": "Khối lượng",
     "Time": "Thời gian",
-
     # ── QuantStats ──
     "Live Sharpe": "Sharpe Thực tế",
     "Sharpe": "Sharpe",
@@ -482,7 +479,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Information Gain": "Lượng thông tin",
     "DOC Index": "Chỉ số DOC",
     "n_observations": "số quan sát",
-
     # ── Rejected Signals ──
     "Rejected Signals": "Tín hiệu Bị từ chối",
     "Rejection Stats": "Thống kê Từ chối",
@@ -495,20 +491,16 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Simulated Exit 5d": "Mô phỏng 5n",
     "Simulated Exit 10d": "Mô phỏng 10n",
     "Simulated Exit 20d": "Mô phỏng 20n",
-
     # ── Telemetry ──
     "Reputation Score": "Điểm Uy tín",
     "Reliability": "Độ Tin cậy",
-    "Accuracy": "Độ Chính xác",
     "Precision": "Độ Chuẩn xác",
     "Recall": "Độ Bao phủ",
     "F1 Score": "Điểm F1",
-    "Latency": "Độ trễ",
     "Downtime": "Thời gian ngừng",
     "Uptime": "Thời gian hoạt động",
     "Driver Reputation": "Uy tín Động cơ",
     "Shadow Metrics": "Chỉ số Bóng",
-
     # ── Gold / Silver ──
     "Gold": "Vàng",
     "Silver": "Bạc",
@@ -518,7 +510,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "BTMC": "Vàng BTMC",
     "Gold Price": "Giá Vàng",
     "Silver Price": "Giá Bạc",
-
     # ── Paper Trading ──
     "FILLED": "KHỚP",
     "REJECTED": "TỪ CHỐI",
@@ -536,24 +527,20 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Slippage": "Trượt giá",
     "Latency": "Độ trễ",
     "Settlement": "Thanh toán",
-
     # ── Stale Positions ──
     "Stale Layer": "Lớp vốn kẹt",
     "Campaign": "Chiến dịch",
     "Escrow": "Ký quỹ",
     "Write-off": "Xóa sổ",
     "Reclaim": "Thu hồi",
-
     # ── Break-Glass ──
     "Ticket": "Phiếu",
     "Challenge": "Thử thách",
     "Passphrase": "Mật khẩu",
-    "Override": "Ghi đè",
     "Request": "Yêu cầu",
     "Verify": "Xác thực",
     "Cancel": "Hủy",
     "Time-delay": "Trễ thời gian",
-
     # ── DDI / Rotation ──
     "Rotation Angle": "Góc xoay",
     "Lambda_max": "Lambda cực đại",
@@ -561,17 +548,13 @@ CLI_LABEL_MAP: dict[str, str] = {
     "dS/dt": "dS/dt",
     "Asia Supply Chain": "Chuỗi cung ứng Châu Á",
     "Index Reality": "Thực tế Chỉ số",
-
     # ── Prediction Registry ──
     "Prediction ID": "Mã dự báo",
     "Hypothesis": "Giả thuyết",
-    "Outcome": "Kết quả",
     "Hit": "Đúng",
     "Miss": "Sai",
-    "Pending": "Chờ",
     "Accuracy Rate": "Tỷ lệ Chính xác",
     "Total Predictions": "Tổng Dự báo",
-
     # ── Statistics ──
     "Total": "Tổng",
     "Mean": "Trung bình",
@@ -583,7 +566,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Sum": "Tổng",
     "Rate": "Tỷ lệ",
     "Ratio": "Tỷ số",
-
     # ── Cleanup / Maintenance ──
     "cleaned": "đã dọn",
     "removed": "đã xóa",
@@ -591,7 +573,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "archived": "đã lưu trữ",
     "restored": "đã phục hồi",
     "backed up": "đã sao lưu",
-
     # ── Macro ──
     "DXY": "Chỉ số USD",
     "US10Y": "Lợi suất 10 năm Mỹ",
@@ -601,7 +582,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "REAL YIELD": "Lợi suất thực",
     "SBV": "Ngân hàng Nhà nước",
     "World Bank": "Ngân hàng Thế giới",
-
     # ── Scheduler / EOD ──
     "EOD RUNNER": "BỘ CHẠY CUỐI NGÀY",
     "Catch-up": "Bù ngày",
@@ -609,35 +589,28 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Retry": "Thử lại",
     "Sleep": "Ngủ",
     "Scheduler": "Bộ lập lịch",
-
     # ── Scanner ──
     "Deep Scan": "Quét sâu",
     "Quick Scan": "Quét nhanh",
     "Elite Scanner": "Máy quét Tinh hoa",
     "Screener": "Bộ sàng lọc",
     "Signal": "Tín hiệu",
-
     # ─── Absorption ──
     "Absorption Detector": "Bộ phát hiện Hấp thụ",
     "SDI": "Chỉ số Phân kỳ Cấu trúc",
     "PCA": "Phân tích Thành phần Chính",
     "Volume Profile": "Hồ sơ Khối lượng",
-
     # ── Structure Evolution ──
     "W1": "W1 Wasserstein",
     "Survival Mode": "Chế độ bảo toàn",
     "Structure Evolution": "Tiến hóa Cấu trúc",
     "HDR": "Tỷ lệ Giảm thiểu Rủi ro",
-
     # ── P4 Calibration ──
     "Calibration": "Hiệu chỉnh",
     "Log-Loss": "Mất mát Log",
     "ECE": "Sai số hiệu chuẩn",
     "MCE": "Sai số tối đa",
     "Brier Score": "Điểm Brier",
-    "Reliability Curve": "Đường cong tin cậy",
-    "Bin": "Nhóm",
-    "Conf": "Tin cậy",
     "Acc": "Chính xác",
     "Gap": "Chênh lệch",
     "Prediction Log": "Nhật ký dự báo",
@@ -658,10 +631,8 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Beta": "Beta",
     "Entry Price": "Giá vào",
     "Exit Price": "Giá ra",
-
     # ── Circuit Breaker ──
     "Circuit Breaker": "Bộ ngắt mạch",
-
     # ── P5 Counterfactual ──
     "Counterfactual": "Phản thực nghiệm",
     "Scenario": "Kịch bản",
@@ -669,11 +640,8 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Leverage": "Đòn bẩy",
     "Override": "Ghi đè",
     "Delta": "Chênh lệch",
-
     # ── Governor v2 ──
-    "P3 GOVERNOR v3": "P3 GOVERNOR v3",
     "BAYESIAN EXPECTED UTILITY": "KỲ VỌNG HỮU ÍCH BAYES [DỰ BÁO T+30 PHIÊN]",
-    "Macro": "Vĩ mô",
     "Macro LR": "LR Vĩ mô",
     "Cap.Alloc": "Phân bổ Vốn",
     "Prior Archetype": "Tiên nghiệm DNA",
@@ -696,8 +664,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "L3 Valuation": "L3 Định giá",
     "L4 Behavior": "L4 Hành vi",
     "CIRCUIT BREAKER": "BỘ NGẮT MẠCH",
-    "DECISION DISTRIBUTION": "Phân bổ Quyết định",
-    "PER-SYMBOL DETAIL": "Chi tiết từng mã",
     "REDUCE": "Giảm vị thế",
     "VETO": "Cấm tuyệt đối",
     "AVOID": "Tránh xa",
@@ -705,10 +671,8 @@ CLI_LABEL_MAP: dict[str, str] = {
     "HOLD": "Nắm giữ",
     "SCALE_IN": "Tích lũy",
     "OPEN": "Mở vị thế",
-
     # ── Counterfactual field labels ──
     "Prior": "Tiên nghiệm",
-    "Macro": "Vĩ mô",
     "Transmission": "Lan truyền",
     "Sector": "Ngành",
     "Health": "Sức khỏe",
@@ -719,7 +683,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Action": "Hành động",
     "Reasoning": "Lập luận",
     "avg": "tb",
-
     # ── P4 eval labels ──
     "CALIBRATION EVALUATION": "ĐÁNH GIÁ HIỆU CHỈNH",
     "N predictions": "Số dự báo",
@@ -728,19 +691,13 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Mean Brier": "Brier trung bình",
     "Reliability Curve": "Đường cong tin cậy",
     "Bin": "Nhóm",
-
     # ── P4 LR status labels ──
     "CALIBRATED LIKELIHOOD RATIOS": "TỶ SỐ KHẢ NĂNG ĐÃ HIỆU CHỈNH",
-
     # ── P4 Prediction Log Status ──
     "PREDICTION LOG STATUS": "TRẠNG THÁI NHẬT KÝ DỰ BÁO",
     "Pending": "Đang chờ",
-
     # ── P0 MacroState ──
     "MACRO STATE REPORT": "BÁO CÁO TRẠNG THÁI VĨ MÔ",
-    "State": "Trạng thái",
-    "Posterior": "Hậu nghiệm",
-    "Entropy": "Mức nhiễu",
     "Phase": "Pha",
     "Novelty": "Tính mới",
     "DETECTED": "PHÁT HIỆN",
@@ -752,14 +709,12 @@ CLI_LABEL_MAP: dict[str, str] = {
     "General": "Tổng quát",
     "Risk-On": "Chấp nhận RR",
     "Defensive": "Phòng thủ",
-
     # ── P1 Transmission ──
     "TRANSMISSION REPORT": "BÁO CÁO LAN TRUYỀN",
     "Latent State": "Trạng thái tiềm ẩn",
     "Liquidity": "Thanh khoản",
     "Credit": "Tín dụng",
     "Confidence": "Tin cậy",
-
     # ── P1 Sector ──
     "SECTOR ROTATION REPORT": "BÁO CÁO LUÂN CHUYỂN NGÀNH",
     "Top": "Dẫn đầu",
@@ -771,23 +726,19 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Flow": "Dòng tiền",
     "Val": "ĐG",
     "ROTATION CHAIN": "CHUỖI LUÂN CHUYỂN",
-
     # ── P2 Health ──
     "COMPANY HEALTH v2": "SỨC KHỎE DOANH NGHIỆP v2",
     "5-ORGAN LATENT STATE": "TRẠNG THÁI 5 CƠ QUAN",
-    "Symbol": "Mã CK",
     "Type": "Phân loại",
     "Prof": "LN",
     "Cash": "Tiền",
     "Bal": "Bảng",
     "Eff": "HQ",
     "Moat": "Hào",
-    "Archetype": "DNA",
     "NO DATA": "KHÔNG CÓ DỮ LIỆU",
     "Profitability": "Khả năng sinh lời",
     "Balance Sheet": "Bảng cân đối",
     "Efficiency": "Hiệu quả",
-
     # ── LAW-004 Evidence Engine ──
     "EVIDENCE REGISTRY": "SỔ ĐĂNG KÝ BẰNG CHỨNG",
     "Dynamic Weighting": "Trọng số Động",
@@ -809,7 +760,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "drift": "trôi dạt",
     "weight": "trọng số",
     "Weight": "Trọng số",
-    "Use calibrate resolve, then evidence update for real outcomes": "Dùng calibrate resolve, sau đó evidence update để nạp outcome thực tế",
+    "Use calibrate resolve, then evidence update for real outcomes": "Dùng calibrate resolve, sau đó evidence update để nạp outcome thực tế",  # noqa: E501
     "SIMULATION DRY-RUN": "MÔ PHỎNG THỬ NGHIỆM",
     "predictions": "dự báo",
     "Actual gains": "Kết quả thực tế",
@@ -830,7 +781,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "CAUSAL EDGE REGISTRY": "SỔ ĐĂNG KÝ CẠNH NHÂN QUẢ",
     "Sprint 3": "Chặng 3",
     "CausalEdge": "Cạnh Nhân quả",
-    "Archetype": "DNA",
     "Total nodes reached": "Tổng số nút đã đến",
     "edges": "cạnh",
     "Nodes": "Nút",
@@ -861,7 +811,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "lag": "trễ",
     "atten": "mm",
     "cx": "pvd",
-
     # ── Sprint 4: ModelRegistry ──
     "MODEL REGISTRY": "SỔ ĐĂNG KÝ MÔ HÌNH",
     "Sprint 4": "Chặng 4",
@@ -873,7 +822,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "WinRate": "Tỉ lệ Thắng",
     "Trades": "Giao dịch",
     "Focus": "Trọng tâm",
-    "BMA Weights": "Trọng số BMA",
     "Best model for context": "Mô hình tốt nhất",
     "MODEL SELECTION": "TUYỂN CHỌN MÔ HÌNH",
     "Primary model": "Mô hình chính",
@@ -897,7 +845,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "ACTIVE": "HOẠT ĐỘNG",
     "DORMANT": "TẠM NGƯNG",
     "RETIRED": "ĐÀO THẢI",
-
     # Giai đoạn 7: Governor BMA
     "BMA": "BMA (Tổng hợp Mô hình)",
     "Dominant": "Chi phối",
@@ -908,7 +855,6 @@ CLI_LABEL_MAP: dict[str, str] = {
     "DECISION DISTRIBUTION": "Phân bổ Quyết định",
     "PER-SYMBOL DETAIL": "Chi tiết từng mã",
     "Symbol": "Mã CK",
-
     # Tầng 1: kết luận chính
     "INVESTMENT DECISION REPORT": "BÁO CÁO QUYẾT ĐỊNH ĐẦU TƯ",
     "OVERALL VERDICT": "KẾT LUẬN CHÍNH",
@@ -924,11 +870,9 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Dominant Model": "Mô hình chi phối",
     "BMA weight": "trọng số BMA",
     "Veto micro buy signals": "Phủ quyết tín hiệu mua vi mô",
-
     # Tầng 2: bảng hành động
     "ACTION RANKING": "BẢNG XẾP HẠNG HÀNH ĐỘNG",
     "SORTED BY P(Gain) DESC": "XẾP THEO P(Gain) GIẢM DẦN",
-
     # Tầng 3: kiểm toán
     "TECHNICAL AUDIT TRAIL": "TẦNG KIỂM TOÁN THUẬT TOÁN",
     "BMA Weights": "Trọng số BMA",
@@ -938,14 +882,12 @@ CLI_LABEL_MAP: dict[str, str] = {
     "Most Common Action": "Hành động phổ biến",
     "symbol": "mã CK",
     "Alloc": "Vốn",
-
     # ── Valuation Zone (L3) ──
     "ULTRA_CHEAP": "RẤT RẺ",
     "CHEAP": "RẺ",
     "FAIR": "TRUNG BÌNH",
     "EXPENSIVE": "ĐẮT",
     "ULTRA_EXPENSIVE": "RẤT ĐẮT",
-
     # ── Financial Crawler ──
     "BCTC CRAWLER": "BCTC CRAWLER",
     "BCTC Crawler": "BCTC Crawler",
@@ -983,29 +925,29 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
     "Sharpe": {
         "vi": "Sharpe",
         "en": "Sharpe",
-        "detail_vi": "Tỷ lệ Sharpe: đo lợi nhuận điều chỉnh theo rủi ro. Sharpe > 1.0 = tốt, > 2.0 = xuất sắc. Công thức: (Lợi nhuận - Risk-free rate) / Độ lệch chuẩn.",
+        "detail_vi": "Tỷ lệ Sharpe: đo lợi nhuận điều chỉnh theo rủi ro. Sharpe > 1.0 = tốt, > 2.0 = xuất sắc. Công thức: (Lợi nhuận - Risk-free rate) / Độ lệch chuẩn.",  # noqa: E501
         "detail_en": "Sharpe Ratio: risk-adjusted return. Sharpe > 1.0 = good, > 2.0 = excellent.",
         "category": "international",
     },
     "Sortino": {
         "vi": "Sortino",
         "en": "Sortino",
-        "detail_vi": "Tỷ lệ Sortino: giống Sharpe nhưng chỉ tính downside deviation (lỗ). Phù hợp hơn cho chiến lược asymmetric return.",
+        "detail_vi": "Tỷ lệ Sortino: giống Sharpe nhưng chỉ tính downside deviation (lỗ). Phù hợp hơn cho chiến lược asymmetric return.",  # noqa: E501
         "detail_en": "Sortino Ratio: like Sharpe but only counts downside deviation.",
         "category": "international",
     },
     "ADX": {
         "vi": "ADX",
         "en": "ADX",
-        "detail_vi": "Average Directional Index: chỉ số xu hướng từ 0-100. ADX > 25 = thị trường có xu hướng rõ ràng. ADX < 20 = thị trường sideway.",
+        "detail_vi": "Average Directional Index: chỉ số xu hướng từ 0-100. ADX > 25 = thị trường có xu hướng rõ ràng. ADX < 20 = thị trường sideway.",  # noqa: E501
         "detail_en": "Average Directional Index: trend strength 0-100. ADX > 25 = clear trend, ADX < 20 = sideways.",
         "category": "international",
     },
     "ATR": {
         "vi": "ATR",
         "en": "ATR",
-        "detail_vi": "Average True Range: đo lường biến động thực tế của giá. Dùng để tính stop-loss, take-profit, và sizing vị thế.",
-        "detail_en": "Average True Range: measures actual price volatility. Used for stop-loss, take-profit, and position sizing.",
+        "detail_vi": "Average True Range: đo lường biến động thực tế của giá. Dùng để tính stop-loss, take-profit, và sizing vị thế.",  # noqa: E501
+        "detail_en": "Average True Range: measures actual price volatility. Used for stop-loss, take-profit, and position sizing.",  # noqa: E501
         "category": "international",
     },
     "OHLCV": {
@@ -1018,35 +960,35 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
     "TWAP": {
         "vi": "TWAP",
         "en": "TWAP",
-        "detail_vi": "Time-Weighted Average Price: chiến lược chia lệnh lớn thành nhiều lệnh nhỏ theo thời gian để giảm thiểu market impact.",
+        "detail_vi": "Time-Weighted Average Price: chiến lược chia lệnh lớn thành nhiều lệnh nhỏ theo thời gian để giảm thiểu market impact.",  # noqa: E501
         "detail_en": "Time-Weighted Average Price: split large orders over time to minimize market impact.",
         "category": "international",
     },
     "MDD": {
         "vi": "MDD",
         "en": "MDD",
-        "detail_vi": "Maximum Drawdown: sự sụt giảm lớn nhất từ đỉnh đến đáy. Đo lường worst-case scenario. MDD < 20% thường được chấp nhận.",
+        "detail_vi": "Maximum Drawdown: sự sụt giảm lớn nhất từ đỉnh đến đáy. Đo lường worst-case scenario. MDD < 20% thường được chấp nhận.",  # noqa: E501
         "detail_en": "Maximum Drawdown: largest peak-to-trough decline. Measures worst-case scenario.",
         "category": "international",
     },
     "CUSUM": {
         "vi": "CUSUM",
         "en": "CUSUM",
-        "detail_vi": "Cumulative Sum: phương pháp thống kê detect thay đổi dần dần trong chuỗi thời gian. Dùng để phát hiện regime shift sớm.",
+        "detail_vi": "Cumulative Sum: phương pháp thống kê detect thay đổi dần dần trong chuỗi thời gian. Dùng để phát hiện regime shift sớm.",  # noqa: E501
         "detail_en": "Cumulative Sum: statistical method to detect gradual shifts in time series.",
         "category": "international",
     },
     "RS": {
         "vi": "RS",
         "en": "RS",
-        "detail_vi": "Relative Strength: so sánh hiệu suất của một cổ phiếu với toàn thị trường hoặc nhóm ngành. RS cao = cổ phiếu mạnh hơn thị trường.",
+        "detail_vi": "Relative Strength: so sánh hiệu suất của một cổ phiếu với toàn thị trường hoặc nhóm ngành. RS cao = cổ phiếu mạnh hơn thị trường.",  # noqa: E501
         "detail_en": "Relative Strength: compares stock performance vs market or sector. High RS = outperforms.",
         "category": "international",
     },
     "VNINDEX": {
         "vi": "VNINDEX",
         "en": "VNINDEX",
-        "detail_vi": "Chỉ số VN-Index (HoSE): weighted market cap của tất cả cổ phiếu niêm yết. Benchmark cho toàn thị trường.",
+        "detail_vi": "Chỉ số VN-Index (HoSE): weighted market cap của tất cả cổ phiếu niêm yết. Benchmark cho toàn thị trường.",  # noqa: E501
         "detail_en": "VN-Index (HoSE): weighted market cap of all listed stocks. Market benchmark.",
         "category": "international",
     },
@@ -1060,7 +1002,7 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
     "DXY": {
         "vi": "DXY",
         "en": "DXY",
-        "detail_vi": "US Dollar Index: đo lường sức mạnh USD so với 6 đồng tiền chính. Ảnh hưởng đến capital flow vào/ra thị trường mới nổi.",
+        "detail_vi": "US Dollar Index: đo lường sức mạnh USD so với 6 đồng tiền chính. Ảnh hưởng đến capital flow vào/ra thị trường mới nổi.",  # noqa: E501
         "detail_en": "US Dollar Index: measures USD strength vs 6 major currencies.",
         "category": "international",
     },
@@ -1085,46 +1027,44 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
         "detail_en": "Mark-to-Market: revalue all positions to current market prices.",
         "category": "international",
     },
-
     # ══════════════════════════════════════════════════════════════════
     # INTERNAL — Khái niệm mô hình nội bộ (cần dịch chuẩn tiếng Việt)
     # ══════════════════════════════════════════════════════════════════
     "HDR": {
         "vi": "Hệ số Phân bổ Rủi ro",
         "en": "Risk Allocation Ratio",
-        "detail_vi": "Tỷ lệ phần trăm portfolio được phép Exposure vào một vị thế. Được tính bởi Bộ phân bổ Rủi ro dựa trên regime, volatility, và conviction. Ví dụ: HDR=15% nghĩa là chỉ 15% vốn được phép vào lệnh.",
-        "detail_en": "Percentage of portfolio allowed for exposure to a position. Computed by Risk Allocator based on regime, volatility, and conviction.",
+        "detail_vi": "Tỷ lệ phần trăm portfolio được phép Exposure vào một vị thế. Được tính bởi Bộ phân bổ Rủi ro dựa trên regime, volatility, và conviction. Ví dụ: HDR=15% nghĩa là chỉ 15% vốn được phép vào lệnh.",  # noqa: E501
+        "detail_en": "Percentage of portfolio allowed for exposure to a position. Computed by Risk Allocator based on regime, volatility, and conviction.",  # noqa: E501
         "category": "internal",
     },
     "DOC": {
         "vi": "Chi phí Cơ hội Ra quyết định",
         "en": "Decision Opportunity Cost",
-        "detail_vi": "Đo lường chi phí cơ hội khi từ chối một tín hiệu. So sánh lợi nhuận của tín hiệu bị từ chối với tín hiệu được chấp nhận thay thế. DOC < 0 nghĩa là hệ thống đang bỏ lỡ cơ hội.",
-        "detail_en": "Measures opportunity cost when rejecting a signal. Compares rejected signal returns vs accepted alternative returns.",
+        "detail_vi": "Đo lường chi phí cơ hội khi từ chối một tín hiệu. So sánh lợi nhuận của tín hiệu bị từ chối với tín hiệu được chấp nhận thay thế. DOC < 0 nghĩa là hệ thống đang bỏ lỡ cơ hội.",  # noqa: E501
+        "detail_en": "Measures opportunity cost when rejecting a signal. Compares rejected signal returns vs accepted alternative returns.",  # noqa: E501
         "category": "internal",
     },
     "IG": {
         "vi": "Lượng Thông tin Nhận được",
         "en": "Information Gain",
-        "detail_vi": "Đo lường lượng thông tin mới mà một quan sát mang lại cho mô hình. IG = Surprise × Prior Belief. IG cao nghĩa là mô hình học được nhiều.",
-        "detail_en": "Information Gain: measures new information an observation brings to the model. IG = Surprise × Prior Belief.",
+        "detail_vi": "Đo lường lượng thông tin mới mà một quan sát mang lại cho mô hình. IG = Surprise × Prior Belief. IG cao nghĩa là mô hình học được nhiều.",  # noqa: E501
+        "detail_en": "Information Gain: measures new information an observation brings to the model. IG = Surprise × Prior Belief.",  # noqa: E501
         "category": "internal",
     },
     "W1": {
         "vi": "Khoảng cách Wasserstein",
         "en": "Wasserstein Distance",
-        "detail_vi": "Khoảng cách thống kê giữa hai phân bố. Dùng để đo sự khác biệt giữa regime hiện tại và lịch sử. W1 cao = cấu trúc thị trường thay đổi mạnh.",
+        "detail_vi": "Khoảng cách thống kê giữa hai phân bố. Dùng để đo sự khác biệt giữa regime hiện tại và lịch sử. W1 cao = cấu trúc thị trường thay đổi mạnh.",  # noqa: E501
         "detail_en": "Statistical distance between two distributions. Measures regime structural change.",
         "category": "internal",
     },
     "B-Score": {
         "vi": "Điểm Độ rộng",
         "en": "Breadth Score",
-        "detail_vi": "Composite score của market breadth indicators: Advance-Decline, New Highs-Lows, Volume breadth. B-Score cao = thị trường lành mạnh.",
+        "detail_vi": "Composite score của market breadth indicators: Advance-Decline, New Highs-Lows, Volume breadth. B-Score cao = thị trường lành mạnh.",  # noqa: E501
         "detail_en": "Composite breadth score: Advance-Decline, New Highs-Lows, Volume breadth.",
         "category": "internal",
     },
-
     # ══════════════════════════════════════════════════════════════════
     # SYSTEM — Thuật ngữ hệ thống/phụ trợ
     # ══════════════════════════════════════════════════════════════════
@@ -1161,7 +1101,7 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
 
 def _detect_lang_mode(mode: str) -> str:
     """Auto-detect mode from terminal width.
-    
+
     Rules:
         - Non-auto modes → passed through unchanged
         - Non-TTY output (pipe/file) → 'annotated' (preserve EN+VI for logs)
@@ -1173,11 +1113,12 @@ def _detect_lang_mode(mode: str) -> str:
     try:
         import shutil
         import sys
+
         if not sys.stdout.isatty():
             return "annotated"
         cols = shutil.get_terminal_size().columns
         return "annotated" if cols >= 120 else "compact"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort terminal detection
         return "annotated"
 
 
@@ -1206,6 +1147,7 @@ def localize_label(label: str, mode: str = "annotated") -> str:
 # ASSERT — Verify the contract at import time
 # ====================================================================
 
+
 def assert_no_english_tokens(data: dict, path: str = "") -> None:
     """Recursively assert that no known English tokens remain in data.
 
@@ -1215,9 +1157,7 @@ def assert_no_english_tokens(data: dict, path: str = "") -> None:
     for key, value in data.items():
         current = f"{path}.{key}" if path else key
         if isinstance(value, str) and value in _MASTER_MAP:
-            raise AssertionError(
-                f"EN token leak at {current!r}: {value!r} → should be {_MASTER_MAP[value]!r}"
-            )
+            raise AssertionError(f"EN token leak at {current!r}: {value!r} → should be {_MASTER_MAP[value]!r}")
         if isinstance(value, dict):
             assert_no_english_tokens(value, current)
         if isinstance(value, list):
@@ -1225,6 +1165,4 @@ def assert_no_english_tokens(data: dict, path: str = "") -> None:
                 if isinstance(item, dict):
                     assert_no_english_tokens(item, f"{current}[{i}]")
                 elif isinstance(item, str) and item in _MASTER_MAP:
-                    raise AssertionError(
-                        f"EN token leak at {current}[{i}]: {item!r} → should be {_MASTER_MAP[item]!r}"
-                    )
+                    raise AssertionError(f"EN token leak at {current}[{i}]: {item!r} → should be {_MASTER_MAP[item]!r}")

@@ -645,10 +645,17 @@ def in_bao_cao(kq: dict):
         "DUNG NGOAI": "🔴",
     }
     icon = icons.get(kq.get("quyet_dinh", ""), "⚪")
+    verdict_label = kq.get("quyet_dinh", "N/A")
+    try:
+        from src.core.canonical_output_adapter import localize_label
+
+        verdict_label = localize_label(verdict_label, "full")
+    except Exception as e:  # noqa: BLE001 — display-only, keep raw token
+        logger.debug("[ORCH] verdict localize failed: %s", e)
     print("\n" + "=" * 60)
     print("  BỘ QUYẾT ĐỊNH CUỐI CÙNG")
     print("=" * 60)
-    print(f"  {icon} Quyết định: {kq.get('quyet_dinh', 'N/A')}")
+    print(f"  {icon} Quyết định: {verdict_label}")
     if kq.get("bi_chặn_bởi_bảo_vệ"):
         print("      ↳ Bị chặn bởi lớp bảo vệ")
     print()
