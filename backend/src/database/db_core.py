@@ -68,7 +68,7 @@ class NumpyEncoder(json.JSONEncoder):
         # Lazy import numpy — db_core không hard-depend numpy lúc import.
         try:
             import numpy as np
-        except Exception:  # pragma: no cover
+        except Exception:  # pragma: no cover  # noqa: BLE001 - numpy optional dep
             np = None
 
         if np is not None:
@@ -98,14 +98,14 @@ class NumpyEncoder(json.JSONEncoder):
         if callable(to_dict):
             try:
                 return to_dict()
-            except Exception:  # pragma: no cover
+            except Exception:  # pragma: no cover  # noqa: BLE001, S110 - best-effort serialization
                 pass
         # pydantic BaseModel (model_dump)
         model_dump = getattr(obj, "model_dump", None)
         if callable(model_dump):
             try:
                 return model_dump()
-            except Exception:  # pragma: no cover
+            except Exception:  # pragma: no cover  # noqa: BLE001, S110 - best-effort serialization
                 pass
         return super().default(obj)
 
@@ -241,13 +241,13 @@ def optimize_sqlite_engine():
         # Migration: add is_stale column to macro_history if missing
         try:
             cursor.execute("ALTER TABLE macro_history ADD COLUMN is_stale INTEGER DEFAULT 0")
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - idempotent migration (col exists)
             pass
 
         # Migration: add is_stale to daily_ohlcv (needed by EliteArmor stale detection)
         try:
             cursor.execute("ALTER TABLE daily_ohlcv ADD COLUMN is_stale INTEGER DEFAULT 0")
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - idempotent migration (col exists)
             pass
 
         # 6b. TẠO BẢNG SỨC KHỎE HỆ THỐNG (System Health Ledger cho Governor Engine)
@@ -391,6 +391,13 @@ def save_data_upsert(table_name, df, conn):
     df_save = df.copy()
     if "date" in df_save.columns:
         df_save["date"] = df_save["date"].astype(str)
+        # WRITE-TIME GUARD (fix 06/08/2026): pandas datetime64[ns] .astype(str)
+        # sinh 'YYYY-MM-DD 07:00:00' -> phá PRIMARY KEY (symbol,date) vì khác khóa
+        # plain, tạo 59,219 dòng datetime vô hình với exact-match nhưng ô nhiễm
+        # range-query. Chuẩn hóa mọi date về dạng 'YYYY-MM-DD'.
+        df_save["date"] = [
+            d[:10] if isinstance(d, str) and len(d) > 10 and d[4] == "-" and d[7] == "-" else d for d in df_save["date"]
+        ]
 
     cursor = conn.cursor()
     columns = df_save.columns.tolist()

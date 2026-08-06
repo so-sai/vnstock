@@ -134,3 +134,122 @@ def test_all_synthetic_quarters_flagged_missing(tmp_path):
 
     assert "2026Q2" in res.missing_quarters
     assert res.status == "SEVERE_GAP"
+
+
+# ── Crawl-time date-format-drift guard (fix 06/08/2026) ─────────────────────
+# WHY: 59,219 dòng daily_ohlcv từng bị lưu date 'YYYY-MM-DD 07:00:00' (nguồn kbs) vì
+# `save_data_upsert` chạy .astype(str) trên cột pandas datetime64[ns]. Bất kỳ crawler mới
+# nào tương lai cũng đi qua save_data_upsert — nếu guard phá, lỗi datetime tái sinh ngay.
+def _make_ohlcv_tmp_db(tmp_path):
+    db = tmp_path / "ohlcv_drift.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS daily_ohlcv (
+            symbol TEXT NOT NULL,
+            date TEXT NOT NULL,
+            open REAL, high REAL, low REAL, close REAL, adj_close REAL,
+            volume INTEGER CHECK(volume >= 0),
+            source TEXT,
+            PRIMARY KEY (symbol, date)
+        );
+    """)
+    conn.commit()
+    return db, conn
+
+
+def test_save_data_upsert_normalizes_datetime_dates(tmp_path):
+    """Crawler mới đẩy cột datetime64[ns] → save_data_upsert phải lưu 'YYYY-MM-DD'."""
+    import pandas as pd
+
+    from src.database.db_core import save_data_upsert
+
+    _, conn = _make_ohlcv_tmp_db(tmp_path)
+    df = pd.DataFrame(
+        {
+            "symbol": ["__CRAWLER1__", "__CRAWLER1__"],
+            "date": pd.to_datetime(["2026-04-08 07:00:00", "2026-04-09 07:00:00"]),
+            "open": [10000.0, 10100.0],
+            "high": [10200.0, 10300.0],
+            "low": [9900.0, 10000.0],
+            "close": [10100.0, 10200.0],
+            "adj_close": [10100.0, 10200.0],
+            "volume": [1_000_000, 1_100_000],
+            "source": ["NEWCRAWLER", "NEWCRAWLER"],
+        }
+    )
+    save_data_upsert("daily_ohlcv", df, conn)
+    dates = {r[0] for r in conn.execute("SELECT date FROM daily_ohlcv WHERE symbol='__CRAWLER1__'").fetchall()}
+    assert dates == {"2026-04-08", "2026-04-09"}
+
+
+def test_crawl_with_datetime_cannot_create_duplicate_keys(tmp_path):
+    """Crawl lặp với datetime không được tạo nhóm (symbol,date) trùng (PRIMARY KEY)."""
+    import pandas as pd
+
+    from src.database.db_core import save_data_upsert
+
+    _, conn = _make_ohlcv_tmp_db(tmp_path)
+    for _ in range(2):  # crawl 2 lần
+        df = pd.DataFrame(
+            {
+                "symbol": ["__CRAWLER2__"],
+                "date": pd.to_datetime(["2026-04-08 07:00:00"]),
+                "open": [10000.0],
+                "high": [10200.0],
+                "low": [9900.0],
+                "close": [10100.0],
+                "adj_close": [10100.0],
+                "volume": [1_000_000],
+                "source": ["NEWCRAWLER"],
+            }
+        )
+        save_data_upsert("daily_ohlcv", df, conn)
+    dup = conn.execute(
+        "SELECT COUNT(*) FROM (SELECT symbol, date FROM daily_ohlcv GROUP BY symbol, date HAVING COUNT(*)>1)"
+    ).fetchone()[0]
+    assert dup == 0
+
+
+def test_detect_datetime_rows_flags_drift(tmp_path):
+    """Guard quét phải bắt được dòng date lệch định dạng (drift từ crawler tương lai)."""
+    from src.database.data_integrity import detect_datetime_rows
+
+    _, conn = _make_ohlcv_tmp_db(tmp_path)
+    conn.execute(
+        "INSERT INTO daily_ohlcv VALUES (?,?,?,?,?,?,?,?,?)",
+        ("__CRAWLER3__", "2026-04-08 07:00:00", 10000.0, 10200.0, 9900.0, 10100.0, 10100.0, 1_000_000, "kbs"),
+    )
+    conn.commit()
+    res = detect_datetime_rows(conn)
+    assert res["count"] == 1
+    conn.close()
+
+
+def test_sanitize_fixes_drift_preserving_gapfill(tmp_path):
+    """Sanitize: xóa datetime trùng plain, cắt giờ giữ gapfill — không rescale."""
+    from src.database.data_integrity import sanitize_datetime_rows
+
+    _, conn = _make_ohlcv_tmp_db(tmp_path)
+    # dup datetime (cùng bản plain tồn tại)
+    conn.execute(
+        "INSERT INTO daily_ohlcv VALUES (?,?,?,?,?,?,?,?,?)",
+        ("__CRAWLER4__", "2026-04-08", 10000.0, 10200.0, 9900.0, 10100.0, 10100.0, 1_000_000, "kbs"),
+    )
+    conn.execute(
+        "INSERT INTO daily_ohlcv VALUES (?,?,?,?,?,?,?,?,?)",
+        ("__CRAWLER4__", "2026-04-08 07:00:00", 10000.0, 10200.0, 9900.0, 10100.0, 10100.0, 1_000_000, "kbs"),
+    )
+    # gapfill độc bản
+    conn.execute(
+        "INSERT INTO daily_ohlcv VALUES (?,?,?,?,?,?,?,?,?)",
+        ("__CRAWLER4__", "2026-04-13 07:00:00", 3200.0, 3400.0, 3100.0, 3300.0, 3300.0, 50_000, "kbs"),
+    )
+    conn.commit()
+
+    res = sanitize_datetime_rows(conn, dry_run=False)
+    assert res["removed_duplicates"] == 1
+    assert res["preserved_gapfills"] == 1
+    assert res["remaining_datetime_rows"] == 0
+    close = conn.execute("SELECT close FROM daily_ohlcv WHERE symbol='__CRAWLER4__' AND date='2026-04-13'").fetchone()[0]
+    assert close == 3300.0  # không rescale
+    conn.close()
