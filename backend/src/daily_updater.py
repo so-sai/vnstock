@@ -746,8 +746,13 @@ def seed_real_yield():
                     "confidence": rec.confidence,
                 }
             )
-        except ValueError, CanonicalValidationError:
-            pass
+        except (ValueError, CanonicalValidationError) as e:
+            logger.debug(
+                "⚠️ Macro row skip (unnormalizable): var=%s date=%s err=%s",
+                row.get("variable"),
+                row.get("date"),
+                e,
+            )
 
     if v2_records:
         df_v2 = pd.DataFrame(v2_records)
