@@ -47,13 +47,15 @@ if str(SRC_DIR) not in sys.path:
 
 
 # ═══════════════════════════════════════════════════════════
-# Default Fusion Weights (Grid Search optimized, 2021-2026, Sharpe=0.59)
+# Default Fusion Weights (Grid Search V2 optimized, 2021-2026, Sharpe=+0.819)
+# V2 commit ecfaa64: M2=0.45, M1=0.15, Alpha=0.20, M3=0.20
+# (Kills the pre-V2 M3=0.70 behavioral bias — composite now anchored on M2.)
 # ═══════════════════════════════════════════════════════════
 DEFAULT_FUSION_WEIGHTS = {
-    "M2_FUNDAMENTAL": 0.20,
-    "M1_MACRO": 0.00,
-    "ALPHA_MOMENTUM": 0.10,
-    "M3_BEHAVIORAL": 0.70,
+    "M2_FUNDAMENTAL": 0.45,
+    "M1_MACRO": 0.15,
+    "ALPHA_MOMENTUM": 0.20,
+    "M3_BEHAVIORAL": 0.20,
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -63,8 +65,14 @@ MAX_POSITION_WEIGHT = 0.15  # 15% max per symbol
 MAX_SECTOR_WEIGHT = 0.30  # 30% max per sector
 MIN_CASH_RESERVE = 0.05  # 5% cash always reserved
 TRANSACTION_COST = 0.0045  # 0.45% per round-trip (fee + tax + slippage)
-TRAILING_STOP_PCT = 0.05  # 5% trailing stop loss (Grid Search optimal)
-TRAILING_TAKE_PCT = 0.20  # 20% trailing take profit (Grid Search optimal)
+
+# ── Grid Search V2 optimal thresholds (commit ecfaa64) ──
+# Entry=0.55 Exit=0.30 Stop=7% Take=25% Hold=15 days
+ENTRY_THRESHOLD = 0.55  # BUY gate (composite score)
+EXIT_THRESHOLD = 0.30  # HOLD floor (composite score)
+TRAILING_STOP_PCT = 0.07  # 7% trailing stop loss (Grid Search V2 optimal)
+TRAILING_TAKE_PCT = 0.25  # 25% trailing take profit (Grid Search V2 optimal)
+MIN_HOLD_DAYS = 15  # min hold period in days (Grid Search V2 optimal)
 
 
 @dataclass
@@ -213,8 +221,8 @@ class MultiFactorFusion:
         """Decide BUY/SELL/HOLD for one symbol."""
         if current_pos is None:
             # No position: BUY if composite > threshold
-            if composite > 0.55:
-                return "BUY", self.max_position, f"Composite {composite:.2f} > 0.55 threshold"
+            if composite > ENTRY_THRESHOLD:
+                return "BUY", self.max_position, f"Composite {composite:.2f} > {ENTRY_THRESHOLD:.2f} threshold"
             return "HOLD", 0.0, f"Composite {composite:.2f} below BUY threshold"
 
         # Has position: check trailing stop/take
@@ -227,7 +235,7 @@ class MultiFactorFusion:
             return "SELL", 0.0, f"Trailing TAKE at {pnl:.1%} (limit +{self.trailing_take:.0%})"
 
         # Hold if composite still decent
-        if composite > 0.35:
+        if composite > EXIT_THRESHOLD:
             return "HOLD", self.max_position, f"Composite {composite:.2f} still healthy"
 
         # Composite degraded — reduce or exit
