@@ -4128,7 +4128,8 @@ def cmd_cafef_crawl(args):
     use_pw = getattr(args, 'playwright', False)
     source = getattr(args, 'source', 'vci')
     delay = getattr(args, 'delay', 0)
-    crawler = CafeFCrawler(db, use_playwright=use_pw, delay=delay)
+    incremental = not getattr(args, 'full', False)
+    crawler = CafeFCrawler(db, use_playwright=use_pw, delay=delay, incremental=incremental)
     if args.symbols:
         entity_type = args.type or "STANDARD"
         targets = [(s.upper(), entity_type) for s in args.symbols]
@@ -4137,9 +4138,11 @@ def cmd_cafef_crawl(args):
             ("FPT", "STANDARD"), ("ACB", "BANK"), ("HDB", "BANK"),
             ("MBB", "BANK"), ("VCB", "BANK"),
         ]
+    mode = "INCREMENTAL" if incremental else "FULL"
     print("=" * 60)
     print(f"  {_ll('BCTC CRAWLER')} — {_ll('Symbols')}: {len(targets)}, 20 {_ll('Quarters')} {_ll('each')}")
     print(f"  {_ll('Source')}: {source} | {_ll('Playwright')}: {_ll('ON') if use_pw else _ll('OFF')}")
+    print(f"  {_ll('Mode')}: {mode}")
     if delay > 0:
         print(f"  {_ll('Delay')}: {delay}s {_ll('giữa các request')}")
     print("=" * 60)
@@ -5042,6 +5045,8 @@ def build_parser():
                       help="Force Playwright cho CafeF (bỏ qua requests)")
     p_cc.add_argument("--delay", type=float, default=0,
                       help="Độ trễ (giây) giữa các request, tránh IP ban (mặc định: 0)")
+    p_cc.add_argument("--full", action="store_true",
+                      help="Crawl tất cả 20 quý (bỏ qua incremental check)")
     p_cc.set_defaults(func=cmd_cafef_crawl)
 
     # hooks-install

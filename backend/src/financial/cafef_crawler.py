@@ -496,11 +496,14 @@ CAFEF_MAP_BANK = {
 class CafeFCrawler:
     """Crawl 20 quarters BCTC from CafeF into financial_facts.db."""
 
-    def __init__(self, db: Optional[FinancialFactsDB] = None, use_playwright: bool = False, delay: float = 0):
+    def __init__(
+        self, db: Optional[FinancialFactsDB] = None, use_playwright: bool = False, delay: float = 0, incremental: bool = True
+    ):
         self.db = db or FinancialFactsDB()
         self.batch_id = f"cafef_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.use_playwright = use_playwright
         self.delay = delay
+        self.incremental = incremental
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -525,6 +528,66 @@ class CafeFCrawler:
                     break
                 quarters.append((year, q))
         return quarters
+
+    def _get_existing_periods(self, symbol: str) -> set:
+        """Query SQLite for periods that already have data for a symbol."""
+        try:
+            conn = self.db.connect()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT DISTINCT period FROM financial_facts WHERE symbol = ?",
+                (symbol.upper(),),
+            )
+            return {row[0] for row in cursor.fetchall()}
+        except AttributeError:
+            # FakeDB / mock without connect() — treat as no existing data
+            return set()
+
+    def get_missing_or_active_quarters(
+        self,
+        symbol: str,
+        target_quarters: list = None,
+    ) -> list:
+        """Determine which quarters need crawling (incremental mode).
+
+        Logic:
+        - Full mode (--full): always return all 20 quarters.
+        - Incremental mode (--incremental): skip quarters already in SQLite,
+          but always include active-season quarters (current quarter ± 1).
+
+        Returns:
+            List of (year, quarter) tuples that need to be crawled.
+            Empty list if all quarters already exist.
+        """
+        if target_quarters is None:
+            target_quarters = self.generate_20_quarters()
+
+        if not self.incremental:
+            return target_quarters
+
+        existing = self._get_existing_periods(symbol)
+        now = datetime.now()
+
+        # Active season: current quarter and previous quarter always re-crawl
+        # WHY: during publication season (Apr=Q1, Jul=Q2, Oct=Q3, Jan=Q4),
+        # numbers may be updated with audited figures.
+        active_season = set()
+        current_q = (now.month - 1) // 3 + 1
+        current_y = now.year
+        active_season.add(f"{current_y}Q{current_q}")
+        # Previous quarter (may still be updated during audit window)
+        if current_q == 1:
+            active_season.add(f"{current_y - 1}Q4")
+        else:
+            active_season.add(f"{current_y}Q{current_q - 1}")
+
+        missing = []
+        for year, q in target_quarters:
+            period = f"{year}Q{q}"
+            if period not in existing or period in active_season:
+                missing.append((year, q))
+
+        return missing
 
     def _parse_cafef_value(self, raw: str) -> Optional[float]:
         """Parse CafeF number: '1.234.567.890' or '(1.234)' (negative) → float."""
@@ -578,7 +641,7 @@ class CafeFCrawler:
                     resp = self.session.get(url, timeout=12)
                     if resp.status_code == 200:
                         html_raw = resp.text
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
                     logger.debug(f"Requests failed {url}: {e}")
 
             # ── Tầng 2: Playwright (fallback khi requests 404, hoặc force) ──
@@ -622,7 +685,7 @@ class CafeFCrawler:
                 if result:
                     return result
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — HTML parse, any exception is safe to catch
                 logger.debug(f"Parse failed {url}: {e}")
                 continue
 
@@ -1012,7 +1075,7 @@ class CafeFCrawler:
                 logger.warning(f"CafeF Bank API: {symbol} HTTP {r.status_code}")
                 return []
             html = r.text
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
             logger.warning(f"CafeF Bank API: {symbol} — requests thất bại: {e}")
             html = None
 
@@ -1123,7 +1186,7 @@ class CafeFCrawler:
             logger.info(f"CafeF Bank API: {symbol} — {len(result)} quarters, {len(result[0]) if result else 0} metrics")
             return result
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
             logger.warning(f"CafeF Bank API: {symbol} — {e}")
             return []
 
@@ -1170,7 +1233,7 @@ class CafeFCrawler:
                         quarters[key] = data
                 if periods:
                     logger.info(f"CafeF CF: {symbol} {year}Q{qtr} → {len(periods)} quý")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
                 logger.warning(f"CafeF CF: {symbol} {year}Q{qtr} — {e}")
 
         if not quarters:
@@ -1376,7 +1439,7 @@ class CafeFCrawler:
         try:
             crawler = VnstockCrawler(db=self.db, source="VCI")
             periods = crawler.fetch_financials_vnstock(symbol, limit=30)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
             logger.warning(f"VCI bridge: VCI API thất bại cho {symbol} — {e}")
             return []
 
@@ -1427,7 +1490,7 @@ class CafeFCrawler:
                 logger.warning(f"VNDirect Fininfo: {symbol} HTTP {r.status_code}")
                 return []
             payload = r.json()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
             logger.warning(f"VNDirect Fininfo: {symbol} — {e}")
             return []
 
@@ -1561,7 +1624,7 @@ class CafeFCrawler:
                     logger.warning(f"TCBS FinAPI {tcbs_type}: {symbol} HTTP {r.status_code}")
                     continue
                 payload = r.json()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
                 logger.warning(f"TCBS FinAPI {tcbs_type}: {symbol} — {e}")
                 continue
 
@@ -1804,7 +1867,7 @@ class CafeFCrawler:
             logger.info(f"NoteIndicator: {symbol} — {len(output)} years, {len(output[0]) if output else 0} metrics")
             return output
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
             logger.warning(f"NoteIndicator: {symbol} — {e}")
             return []
 
@@ -1899,7 +1962,7 @@ class CafeFCrawler:
 
                 return html_raw
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
             logger.warning(f"CafeF PW thất bại: {e}")
             return None
 
@@ -1955,6 +2018,28 @@ class CafeFCrawler:
         logger.info(f"=== Crawling {symbol} ({actual_type}) 20 quarters, source={source} ===")
 
         quarters = self.generate_20_quarters()
+
+        # ── Incremental filter: skip quarters already in SQLite ──
+        # WHY: BCTC quarters are static after publication (Q1=Apr, Q2=Jul, Q3=Oct, Q4=Jan).
+        # Only "active season" quarters (current quarter ± 1) may change during audit window.
+        # Historical quarters only change during annual audit (Mar-Apr).
+        missing_quarters = self.get_missing_or_active_quarters(symbol, quarters)
+        if not missing_quarters:
+            logger.info(f"  {symbol}: all {len(quarters)} quarters exist in SQLite — SKIP (incremental)")
+            return {
+                "symbol": symbol,
+                "entity_type": actual_type,
+                "total_quarters": 0,
+                "success": 0,
+                "empty": 0,
+                "total_metrics": 0,
+                "skipped_incremental": True,
+            }
+        logger.info(
+            f"  {symbol}: incremental — {len(missing_quarters)}/{len(quarters)} quarters to crawl: "
+            f"{[f'{y}Q{q}' for y, q in missing_quarters]}"
+        )
+
         all_periods = None
         use_synthetic = False
         # Provenance guard: dấu vết nguồn gốc dữ liệu cuối cùng (No Provenance = No Trust).
@@ -2097,12 +2182,18 @@ class CafeFCrawler:
         empty = 0
         total_metrics = 0
 
+        missing_set = {(y, q) for y, q in missing_quarters}
+
         for period_data in all_periods:
             year = period_data.get("_fiscal_year")
             q = period_data.get("_fiscal_quarter")
             if not year or not q:
                 continue
             period = f"{year}Q{q}"
+
+            # Incremental: skip writing quarters that are not in the missing set
+            if self.incremental and (year, q) not in missing_set:
+                continue
 
             metrics_count = sum(1 for k in period_data if not k.startswith("_") and period_data[k] is not None)
             if metrics_count == 0:
