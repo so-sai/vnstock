@@ -140,7 +140,9 @@ class RegionalInfluenceEngine:
         crawled by VnstockProvider, not yfinance. All other macro variables
         live in macro_history. This fallback bridges the two tables.
         """
-        from src.governor.schemas import validate_finite_float
+        # WHY: relative import (Rule 2, namespace hygiene) — see the
+        # NOTE in _fetch_latest above; absolute `src.*` import is CWD-dependent.
+        from .schemas import validate_finite_float
 
         conn = sqlite3.connect(self.db_path)
         try:
@@ -183,7 +185,9 @@ class RegionalInfluenceEngine:
 
     def _fetch_rolling_avg(self, variable: str, window: int = 20, target_date: Optional[str] = None) -> Optional[float]:
         """Fetch rolling average for a macro variable."""
-        from src.governor.schemas import validate_finite_float
+        # WHY: relative import (Rule 2, namespace hygiene) — see the
+        # NOTE in _fetch_latest above; absolute `src.*` import is CWD-dependent.
+        from .schemas import validate_finite_float
 
         conn = sqlite3.connect(self.db_path)
         try:

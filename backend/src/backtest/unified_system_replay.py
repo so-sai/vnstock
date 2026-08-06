@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -47,8 +47,17 @@ REPORTS_DIR = DATA_DIR / "reports" / "ablation_studies"
 CACHE_DIR = DATA_DIR / "cache"
 CACHE_FILE = CACHE_DIR / "macro_preload.parquet"
 
+# NOTE: BOTH backend/ and backend/src must be on sys.path.
+#   - backend/src  → `from governor.*` / `from backtest.*` imports
+#   - backend/     → `from src.governor.*` imports (lazy imports inside
+#                    RegionalInfluenceEngine._fetch_latest, etc.)
+# Without backend/, running `python -m backend.src.backtest.unified_system_replay`
+# from project root raises ModuleNotFoundError inside macro_engine.compute(),
+# which is swallowed by `except Exception: pass` → 0 trades silently.
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
 from backtest.portfolio_tracker import PortfolioTracker
 from governor.interaction_engine import InteractionEngine
@@ -166,7 +175,7 @@ def _compute_scores_for_date(conn, target_date, macro_engine, lag_engine, ix_eng
     else:
         try:
             macro_result = macro_engine.compute(target_date)
-        except Exception:
+        except Exception:  # noqa: BLE001
             macro_result = None
         macro_cache = {"date": target_date, "result": macro_result}
 
@@ -187,19 +196,19 @@ def _compute_scores_for_date(conn, target_date, macro_engine, lag_engine, ix_eng
         try:
             r = matrix.compute_sector_macro_score(sec, M)
             scores_a[sec] = r.macro_score
-        except Exception:
+        except Exception:  # noqa: BLE001
             scores_a[sec] = 0.5
 
         try:
             lr = lag_engine.compute(sec, target_date)
             scores_b[sec] = lr.effective_score
-        except Exception:
+        except Exception:  # noqa: BLE001
             scores_b[sec] = scores_a.get(sec, 0.5)
 
         try:
             ix_r = ix_engine.compute(M, sec)
             scores_c[sec] = scores_b.get(sec, 0.5) * ix_r.multiplier
-        except Exception:
+        except Exception:  # noqa: BLE001
             scores_c[sec] = scores_b.get(sec, 0.5)
 
     return {"A": scores_a, "B": scores_b, "C": scores_c}, macro_cache
@@ -335,11 +344,11 @@ def _macro_cache_valid(cache_path: Path, db_path: str, start_date: str) -> bool:
             cached_version = meta.metadata.get(b"engine_version", b"").decode()
             if cached_version != current_version:
                 return False
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -544,7 +553,7 @@ def run_unified_replay(
         for d in scored_dates:
             try:
                 macro_cache[d] = macro_engine.compute(d).macro_vector
-            except Exception:
+            except Exception:  # noqa: BLE001
                 macro_cache[d] = None
 
         # Pre-compute lag scores for all scored days × all sectors (batch)
@@ -555,7 +564,7 @@ def run_unified_replay(
                 lag_results = lag_engine.compute_all_sectors(d)
                 for sec, lr in lag_results.items():
                     lag_cache[d][sec] = lr.effective_score
-            except Exception:
+            except Exception:  # noqa: BLE001
                 for sec in set(sym_sector.values()):
                     lag_cache[d][sec] = 0.5
 
@@ -572,7 +581,7 @@ def run_unified_replay(
                 ix_results = ix_engine.compute_all_sectors(M)
                 for sec, ix_r in ix_results.items():
                     ix_cache[d][sec] = ix_r.multiplier
-            except Exception:
+            except Exception:  # noqa: BLE001
                 for sec in set(sym_sector.values()):
                     ix_cache[d][sec] = 1.0
 
@@ -580,7 +589,7 @@ def run_unified_replay(
         try:
             _save_macro_cache(macro_cache, lag_cache, ix_cache, CACHE_FILE)
             print(f"  [Phase 1] Cache saved to {CACHE_FILE}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning("[REPLAY] Failed to save Parquet cache: %s", e)
 
     print(f"  [Phase 1] Done in {time.time() - t0:.1f}s ({len(scored_dates)} days × {len(set(sym_sector.values()))} sectors)")
@@ -621,7 +630,7 @@ def run_unified_replay(
             try:
                 r = matrix.compute_sector_macro_score(sec, M)
                 scores_a[sec] = r.macro_score
-            except Exception:
+            except Exception:  # noqa: BLE001
                 scores_a[sec] = 0.5
             scores_b[sec] = lag_cache.get(target_date, {}).get(sec, 0.5)
             ix_mult = ix_cache.get(target_date, {}).get(sec, 1.0)
@@ -903,7 +912,7 @@ def _get_financial_score(conn, symbol, target_date, metric_names, weights=None):
         if total_w == 0:
             return 0.5
         return sum(normalized[m] * weights.get(m, 0) for m in normalized) / total_w
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 0.5
 
 
@@ -915,7 +924,7 @@ def _date_to_period(target_date):
         d = datetime.strptime(target_date, "%Y-%m-%d")
         q = (d.month - 1) // 3 + 1
         return f"{d.year}Q{q}"
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "2025Q2"
 
 
@@ -948,7 +957,7 @@ def _get_behavioral_score(conn, symbol, target_date):
         vol_chg = vol_ratio - 1.0
         score = 0.5 + price_chg * 0.3 + vol_chg * 0.2
         return max(0.0, min(1.0, score))
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 0.5
 
 
@@ -967,7 +976,7 @@ def _get_momentum_score(conn, symbol, target_date):
         ret_20d = (prices[0] - prices[19]) / prices[19] if prices[19] else 0
         score = 0.5 + ret_5d * 0.4 + ret_10d * 0.3 + ret_20d * 0.2
         return max(0.0, min(1.0, score))
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 0.5
 
 
@@ -984,23 +993,28 @@ def _vn20_gate(conn, symbol, target_date):
     try:
         period = _date_to_period(target_date)
         roe_row = conn.execute(
-            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='ROE' AND period<=? ORDER BY period DESC LIMIT 1",
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
+            " AND ratio_name='ROE' AND period<=? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         de_row = conn.execute(
-            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='DEBT_TO_EQUITY' AND period<=? ORDER BY period DESC LIMIT 1",
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
+            " AND ratio_name='DEBT_TO_EQUITY' AND period<=? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         cap_row = conn.execute(
-            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='CAPITAL_RATIO' AND period<=? ORDER BY period DESC LIMIT 1",
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
+            " AND ratio_name='CAPITAL_RATIO' AND period<=? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         nim_row = conn.execute(
-            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='NIM' AND period<=? ORDER BY period DESC LIMIT 1",
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
+            " AND ratio_name='NIM' AND period<=? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         npl_row = conn.execute(
-            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=? AND ratio_name='NPL_RATIO' AND period<=? ORDER BY period DESC LIMIT 1",
+            "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
+            " AND ratio_name='NPL_RATIO' AND period<=? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         vol_row = conn.execute(
@@ -1029,7 +1043,7 @@ def _vn20_gate(conn, symbol, target_date):
             leverage_ok = True
 
         return roe_annual > 0.10 and leverage_ok and (vol or 0) > 50000
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -1191,7 +1205,7 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
             df = pd.read_parquet(CACHE_FILE)
             cached_days = len(df)
             print(f"  [Phase 1] Loaded {cached_days} days from Parquet cache in {time.time() - preload_start:.1f}s")
-    except Exception:
+    except Exception:  # noqa: S110, BLE001
         pass
     print(f"  [Phase 1] Done in {time.time() - preload_start:.1f}s")
 
@@ -1210,8 +1224,11 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
             macro_result = None
             try:
                 macro_result = macro_engine.compute(date)
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - replay must not abort on one bad day
+                # NEVER silently swallow: log the failure so a wiring bug like
+                # the sys.path/ModuleNotFoundError issue surfaces instead of
+                # producing a silently-flat 0-trade backtest.
+                logger.warning("[REPLAY] macro_engine.compute(%s) failed: %r", date, exc)
 
             if macro_result:
                 M = macro_result.macro_vector
@@ -1287,7 +1304,9 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
 
         if (i + 1) % 200 == 0:
             print(
-                f"  Day {i + 1}/{len(dates)}: {date} | NAV={nav / 1e6:.1f}M | Positions={len(tracker.positions)} | Cash={tracker.cash / 1e6:.1f}M"
+                f"  Day {i + 1}/{len(dates)}: {date} | NAV={nav / 1e6:.1f}M"
+                f" | Positions={len(tracker.positions)}"
+                f" | Cash={tracker.cash / 1e6:.1f}M"
             )
 
     t2 = time.time() - t2

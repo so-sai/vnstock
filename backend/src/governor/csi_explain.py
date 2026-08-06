@@ -128,7 +128,7 @@ class CSIExplainEngine:
 
     def _get_perception(self) -> Any:
         if self._perception is None:
-            from src.governor.company_state import PerceptionLoader
+            from .company_state import PerceptionLoader
 
             self._perception = PerceptionLoader()
         return self._perception
@@ -366,7 +366,7 @@ class CSIExplainEngine:
 
         # P3 governor — CSI score + MoS + action.
         try:
-            from src.governor.company_state import BayesianGovernor
+            from .company_state import BayesianGovernor
 
             gov = BayesianGovernor()
             mandate = gov.assess(symbol)

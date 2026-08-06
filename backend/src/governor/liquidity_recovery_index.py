@@ -24,10 +24,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from src.governor.regime_classifier import (
+# WHY (Rule 2, namespace hygiene): RELATIVE imports — the absolute
+# `from src.governor.*` form only resolves when `backend/` is on sys.path.
+# Governor modules are invoked via multiple entry points (API, CLI replay,
+# orchestration) where that guarantee does not hold. Relative imports are
+# CWD-independent and cannot produce the silent ModuleNotFoundError that
+# previously flattened the multi-factor replay to 0 trades.
+from .regime_classifier import (
     REGIME_BOUNDS as HMM_REGIME_BOUNDS,
 )
-from src.governor.regime_classifier import (
+from .regime_classifier import (
     RegimeClassifier,
 )
 
@@ -137,6 +143,14 @@ class LiquidityRecoveryIndex:
 
     AGGRESSIVE_THRESHOLD = 0.8
     PROBE_THRESHOLD = 0.3
+
+    # ── Exponential Convex Penalty for S_Interbank (tail risk) ──────
+    # WHY: S_Interbank saturates at 0.0 when INTERBANK_ON > P90, making
+    #      the 30% interbank weight "dead weight" in LRI. The exponential
+    #      penalty re-activates this channel for tail risk events (>8%).
+    PENALTY_ACTIVATION_GAP = 2.0  # % above P90 to activate penalty
+    PENALTY_MAXIMUM_GAP = 4.0  # % above P90 for maximum penalty
+    MAX_PENALTY = 0.65  # Maximum negative S_Interbank (allows DEFENSIVE at ~10%)
 
     MA90_WINDOW = 90
     REGIME_WINDOW = 90  # 90-day rolling avg for regime detection
@@ -352,11 +366,25 @@ class LiquidityRecoveryIndex:
             usdvnd_dev_pct = abs(usd_vnd - usdvnd_ma90) / usdvnd_ma90
         s_usdvnd = _normalize(0.5 if usdvnd_dev_pct is None else usdvnd_dev_pct, 0.0, USDVND_DEVIATION_DENOM, invert=True)
 
-        # ── S_Interbank: Regime-Aware Bayesian Bound ─────────────────
+        # ── S_Interbank: Regime-Aware Bayesian Bound + Exp Penalty ──
         ib_values = self._fetch_interbank_values(target_date, limit=self.EPOCH_WINDOW)
         ib_regime, ib_regime_probs, ib_hmm_fitted = self._classify_regime_fuzzy(target_date)
         ib_p10, ib_p90, ib_alpha = self._compute_bayesian_bounds_fuzzy(ib_values, ib_regime_probs)
-        s_interbank = _normalize(0.5 if interbank_on is None else interbank_on, ib_p10, ib_p90, invert=True)
+
+        if interbank_on is not None and interbank_on > ib_p90:
+            # Exponential Convex Penalty zone: INTERBANK_ON > P90
+            penalty_activation = ib_p90 + self.PENALTY_ACTIVATION_GAP
+            penalty_maximum = ib_p90 + self.PENALTY_MAXIMUM_GAP
+
+            if interbank_on > penalty_activation:
+                t = min(1.0, (interbank_on - penalty_activation) / (penalty_maximum - penalty_activation))
+                penalty = self.MAX_PENALTY * t * t  # convex (quadratic)
+                s_interbank = -penalty
+            else:
+                # Dead zone: P90 < INTERBANK_ON <= activation
+                s_interbank = 0.0
+        else:
+            s_interbank = _normalize(0.5 if interbank_on is None else interbank_on, ib_p10, ib_p90, invert=True)
 
         # ── Remaining components ─────────────────────────────────────
         s_omo = _normalize(0.5 if omo_proxy is None else omo_proxy, OMO_LOW, OMO_HIGH)

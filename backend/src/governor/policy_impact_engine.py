@@ -187,7 +187,7 @@ class PolicyImpactEngine:
                 raw = json.load(f)
             skipped = 0
             for item in raw:
-                from src.governor.schemas import PolicyEventInputSchema, safe_validate
+                from .schemas import PolicyEventInputSchema, safe_validate
 
                 validated = safe_validate(PolicyEventInputSchema, item, label=f"policy_event:{item.get('id', '?')}")
                 if validated is None:

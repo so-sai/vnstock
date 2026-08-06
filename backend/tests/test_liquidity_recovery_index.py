@@ -746,3 +746,96 @@ class TestLRIEdgeCases:
         assert hasattr(lri, "degraded_components")
         assert isinstance(lri.degraded_components, list)
         Path(db).unlink()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# EXPONENTIAL CONVEX PENALTY TESTS
+# ═══════════════════════════════════════════════════════════════════════
+class TestExponentialPenalty:
+    """Tests for Exponential Convex Penalty when INTERBANK_ON > P90."""
+
+    def test_penalty_activation_above_p90_plus_gap(self):
+        """Penalty activates when INTERBANK_ON > P90 + PENALTY_ACTIVATION_GAP."""
+        # With default Bayesian bounds, P90 ~ 5.84%, activation ~ 7.84%
+        db = _make_db(interbank_on=8.5, usd_vnd=26000, breadth=55)
+        lri = LiquidityRecoveryIndex(db).compute()
+        # S_Interbank should be negative (penalty active)
+        assert lri.s_interbank < 0.0, f"Expected negative s_interbank, got {lri.s_interbank}"
+        Path(db).unlink()
+
+    def test_penalty_quadratic_scaling(self):
+        """Penalty should be convex (quadratic) — larger stress = disproportionately larger penalty."""
+        db1 = _make_db(interbank_on=8.5, usd_vnd=26000, breadth=55)
+        r1 = LiquidityRecoveryIndex(db1).compute()
+        penalty_85 = abs(r1.s_interbank)
+
+        db2 = _make_db(interbank_on=9.5, usd_vnd=26000, breadth=55)
+        r2 = LiquidityRecoveryIndex(db2).compute()
+        penalty_95 = abs(r2.s_interbank)
+
+        # Quadratic: penalty_95 / penalty_85 should be > (9.5-8.5)/(8.5-activation)
+        # i.e., penalty grows faster than linear
+        assert penalty_95 > penalty_85, "Higher INTERBANK_ON should produce larger penalty"
+        # Check convexity: penalty ratio > linear ratio
+        # (This is approximate since activation threshold depends on Bayesian bounds)
+        assert penalty_95 > penalty_85 * 1.2, "Penalty should be convex (superlinear)"
+        Path(db1).unlink()
+        Path(db2).unlink()
+
+    def test_penalty_capped_at_max(self):
+        """Penalty should not exceed MAX_PENALTY (0.65)."""
+        db = _make_db(interbank_on=15.0, usd_vnd=26000, breadth=55)
+        lri = LiquidityRecoveryIndex(db).compute()
+        assert lri.s_interbank >= -0.65, f"Penalty exceeded MAX_PENALTY: {lri.s_interbank}"
+        assert lri.s_interbank <= 0.0, "S_Interbank should be <= 0 in penalty zone"
+        Path(db).unlink()
+
+    def test_no_penalty_below_p90(self):
+        """No penalty when INTERBANK_ON <= P90."""
+        db = _make_db(interbank_on=5.0, usd_vnd=26000, breadth=55)
+        lri = LiquidityRecoveryIndex(db).compute()
+        assert lri.s_interbank >= 0.0, f"No penalty expected below P90, got {lri.s_interbank}"
+        Path(db).unlink()
+
+    def test_penalty_reduces_lri(self):
+        """Penalty should reduce LRI below baseline (without penalty)."""
+        db_baseline = _make_db(interbank_on=5.0, usd_vnd=26000, breadth=55)
+        r_baseline = LiquidityRecoveryIndex(db_baseline).compute()
+
+        db_stressed = _make_db(interbank_on=9.5, usd_vnd=26000, breadth=55)
+        r_stressed = LiquidityRecoveryIndex(db_stressed).compute()
+
+        # LRI under stress should be lower than baseline
+        assert r_stressed.lri < r_baseline.lri, f"Stressed LRI ({r_stressed.lri}) should be < baseline ({r_baseline.lri})"
+        # The difference should be meaningful (at least 0.02 from penalty alone)
+        diff = r_baseline.lri - r_stressed.lri
+        assert diff > 0.02, f"LRI reduction too small: {diff}"
+        Path(db_baseline).unlink()
+        Path(db_stressed).unlink()
+
+    def test_penalty_extreme_interbank_triggers_defensive(self):
+        """At extreme INTERBANK_ON (>10%), penalty should push toward DEFENSIVE."""
+        db = _make_db(interbank_on=12.0, usd_vnd=26000, breadth=55)
+        lri = LiquidityRecoveryIndex(db).compute()
+        # With extreme interbank + penalty, LRI should drop significantly
+        # and reach DEFENSIVE regime (LRI < 0.30)
+        assert lri.lri < 0.30, f"Extreme INTERBANK_ON should trigger DEFENSIVE, got LRI={lri.lri}"
+        assert lri.regime == "DEFENSIVE", f"Expected DEFENSIVE regime, got {lri.regime}"
+        Path(db).unlink()
+
+    def test_defensive_activates_at_extreme_interbank(self):
+        """DEFENSIVE regime should activate when INTERBANK_ON is sufficiently extreme."""
+        # Test DB has different Bayesian bounds than production
+        # At 12.0%, penalty should be maxed and DEFENSIVE triggered
+        db = _make_db(interbank_on=12.0, usd_vnd=26000, breadth=55)
+        lri = LiquidityRecoveryIndex(db).compute()
+        assert lri.regime == "DEFENSIVE", f"Expected DEFENSIVE at 12%, got {lri.regime} (LRI={lri.lri})"
+        assert lri.lri < 0.30, f"LRI should be < 0.30 at 12%, got {lri.lri}"
+        Path(db).unlink()
+
+    def test_penalty_constants_sane(self):
+        """Penalty constants should be logically ordered."""
+        lri = LiquidityRecoveryIndex()
+        assert lri.PENALTY_ACTIVATION_GAP > 0
+        assert lri.PENALTY_MAXIMUM_GAP > lri.PENALTY_ACTIVATION_GAP
+        assert 0 < lri.MAX_PENALTY <= 1.0

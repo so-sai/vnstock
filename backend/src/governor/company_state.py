@@ -544,7 +544,7 @@ class L2HealthLoader:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
     def get_latest_ratios(self, symbol: str) -> Dict:
-        from src.governor.schemas import validate_finite_float
+        from .schemas import validate_finite_float
 
         cur = self.conn.cursor()
         cur.execute(
@@ -1159,7 +1159,7 @@ class BayesianGovernor:
 
     def _get_fair_engine(self) -> Any:
         if self._fair_engine is None:
-            from src.governor.fair_multiple_engine import compute_fair_multiple
+            from .fair_multiple_engine import compute_fair_multiple
 
             self._fair_engine = compute_fair_multiple
         return self._fair_engine
@@ -1566,7 +1566,7 @@ class BayesianGovernor:
         policy_ctx: Dict = {}
         policy_cap_boost: float = 0.0
         try:
-            from src.governor.policy_impact_engine import PolicyImpactEngine
+            from .policy_impact_engine import PolicyImpactEngine
 
             _pie = PolicyImpactEngine()
             _pimp = _pie.compute_impact(symbol)
@@ -1858,7 +1858,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
     # TẦNG 2.5 — BẢNG ĐIỂM TỔNG HỢP COMPOSITE SCORE (0 – 100 SCALE)
     # ══════════════════════════════════════════════════════════════════
     try:
-        from src.governor.composite_score_projector import CompositeScoreProjector, print_composite_dashboard
+        from .composite_score_projector import CompositeScoreProjector, print_composite_dashboard
 
         projector = CompositeScoreProjector()
         comp_results = projector.project_batch(list(results.values()))
