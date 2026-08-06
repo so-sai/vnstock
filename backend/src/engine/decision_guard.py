@@ -102,7 +102,7 @@ def compute_policy_cap_boost(target_date: str | None = None) -> dict:
                     "cap_boost": round(boost, 4),
                 }
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — policy boost is non-blocking
         logger.warning("[GUARD] Policy cap boost error (non-blocking): %s", exc)
     return {"cap_boost": best_boost, "active_events": events, "beneficiary_cluster": best_cluster}
 
@@ -132,6 +132,7 @@ def kiem_tra_an_toan(
     anh_chup: dict | None = None,
     du_lieu_lien_ngan_hang: dict | None = None,
     chinh_sach: dict | None = None,
+    open_positions: dict | None = None,
 ) -> dict:
     """Kiểm tra an toàn trước khi cho phép quyết định đi vào thực tế.
 
@@ -145,6 +146,9 @@ def kiem_tra_an_toan(
         chinh_sach: Thông tin chính sách vĩ mô (PolicyImpactEngine).
             Truyền để tự động nâng trần tỷ trọng cho cụm hưởng lợi.
             Nếu None → tự tính qua compute_policy_cap_boost().
+        open_positions: Dict[symbol → {shares, entry_price, beta, mos_pct, volume_avg_20d}].
+            Truyền khi cần kích hoạt EmergencyExitEngine trong LRI DEFENSIVE.
+            Nếu None → EmergencyExitEngine chỉ đánh giá buy_locked, không tạo exit orders.
 
     Returns:
         dict: {
@@ -154,6 +158,8 @@ def kiem_tra_an_toan(
             "ly_do_chặn": "..." hoặc None,
             "he_so_giam_ty_trong": 0.0 ~ 1.0 (mặc định 1.0),
             "policy_impact": {cap_boost, active_events, beneficiary_cluster},
+            "emergency_exit": EmergencyExitResult.to_dict() hoặc None,
+            "buy_locked": True/False,
         }
     """
     quyet_dinh = quyet_dinh_de_xuat
@@ -257,7 +263,7 @@ def kiem_tra_an_toan(
                 f"terminal={stale_state['terminal_ratio']:.0%}"
             )
             logger.warning("[GUARD] Macro stale veto: %s", macro_veto_ly_do)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — StaleTracker is non-blocking
         logger.warning("[GUARD] StaleTracker error (non-blocking): %s", exc)
 
     # ── Recovery Governor (Dual CUSUM) ──
@@ -279,7 +285,7 @@ def kiem_tra_an_toan(
                 so_tru=so_tru,
                 breadth_momentum=float(breadth_momentum or 0),
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — RecoveryGovernor is non-blocking
         logger.warning("[GUARD] RecoveryGovernor error (non-blocking): %s", exc)
 
     # ── Bước 1: Kiểm tra Cấu trúc & Index Reality (hard override — veto bất chấp confidence) ──
@@ -342,6 +348,8 @@ def kiem_tra_an_toan(
     # đang tăng trưởng mạnh nhưng Thanh khoản Tài chính còn thắt chặt.
     # LRI cho phép giải ngân co giãn theo tỷ lệ LRI × allocation.
     lri_result = None
+    emergency_exit_result = None
+    buy_locked = False
     try:
         from src.governor.liquidity_recovery_index import compute_lri
 
@@ -349,15 +357,36 @@ def kiem_tra_an_toan(
         lri_score = lri_result.lri
 
         # LRI modulates he_so_giam_ty_trong:
-        # - If LRI < 0.3 (DEFENSIVE): force he_so = 0.0 (hard floor)
+        # - If LRI < 0.3 (DEFENSIVE): force he_so = 0.0 (hard floor) + activate EmergencyExitEngine
         # - If 0.3 <= LRI < 0.8 (PROBE): multiply he_so by LRI (graduated)
         # - If LRI >= 0.8 (AGGRESSIVE): no modulation (keep existing he_so)
         if lri_score < 0.3:
             he_so_giam_ty_trong = 0.0
+            buy_locked = True
             logger.warning(
-                "[GUARD] LRI=%.4f DEFENSIVE — he_so_giam_ty_trong forced to 0.0",
+                "[GUARD] LRI=%.4f DEFENSIVE — he_so_giam_ty_trong forced to 0.0, BUY LOCKED",
                 lri_score,
             )
+            # ── Emergency Exit Engine: managed liquidation protocol ──
+            # WHY: DEFENSIVE意味着thanh khoản tài chính suy yếu — kích hoạt
+            # quy trình thanh lý có quản trị: BUY LOCK + Tightened Stops + Beta/MoS ranking.
+            try:
+                from src.governor.emergency_exit_engine import EmergencyExitEngine
+
+                exit_engine = EmergencyExitEngine()
+                emergency_exit_result = exit_engine.evaluate(
+                    lri_score=lri_score,
+                    open_positions=open_positions,
+                )
+                if emergency_exit_result.exit_orders:
+                    logger.warning(
+                        "[GUARD] EmergencyExit: %d orders generated (%d CRITICAL, %d HIGH)",
+                        len(emergency_exit_result.exit_orders),
+                        emergency_exit_result.critical_count,
+                        emergency_exit_result.high_count,
+                    )
+            except Exception as exc:  # noqa: BLE001 — EmergencyExitEngine is non-blocking
+                logger.warning("[GUARD] EmergencyExitEngine error (non-blocking): %s", exc)
         elif lri_score < 0.8:
             he_so_giam_ty_trong *= lri_score
             logger.info(
@@ -371,7 +400,7 @@ def kiem_tra_an_toan(
                 lri_score,
                 he_so_giam_ty_trong,
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — LRI computation is non-blocking
         logger.warning("[GUARD] LRI computation error (non-blocking): %s", exc)
 
     # ── Policy Impact Integration: nâng trần tỷ trọng cho cụm hưởng lợi ──
@@ -408,6 +437,40 @@ def kiem_tra_an_toan(
         "bi_chặn": bi_chặn,
         "ly_do_chặn": ly_do_chặn,
         "he_so_giam_ty_trong": he_so_giam_ty_trong,
+        "buy_locked": buy_locked,
+        "emergency_exit": (
+            {
+                "is_defensive": emergency_exit_result.is_defensive,
+                "lri_score": emergency_exit_result.lri_score,
+                "buy_locked": emergency_exit_result.buy_locked,
+                "total_positions": emergency_exit_result.total_positions,
+                "critical_count": emergency_exit_result.critical_count,
+                "high_count": emergency_exit_result.high_count,
+                "medium_count": emergency_exit_result.medium_count,
+                "low_count": emergency_exit_result.low_count,
+                "sliced_count": emergency_exit_result.sliced_count,
+                "exit_orders": [
+                    {
+                        "symbol": o.symbol,
+                        "action": o.action,
+                        "priority": o.priority.value,
+                        "shares": o.shares,
+                        "tightened_stop_pct": o.tightened_stop_pct,
+                        "reason": o.reason,
+                        "beta": o.beta,
+                        "mos_pct": o.mos_pct,
+                        "is_sliced": o.is_sliced,
+                        "max_order_shares": o.max_order_shares,
+                        "estimated_days": o.estimated_days,
+                        "position_pct_of_adv": o.position_pct_of_adv,
+                    }
+                    for o in emergency_exit_result.exit_orders
+                ],
+                "tightened_stops": emergency_exit_result.tightened_stops,
+            }
+            if emergency_exit_result
+            else None
+        ),
         "lri": {
             "score": lri_result.lri if lri_result else None,
             "regime": lri_result.regime if lri_result else None,
