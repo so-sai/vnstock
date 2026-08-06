@@ -635,6 +635,129 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
     return ket_qua
 
 
+def _fmt_ti(d: float | None) -> str:
+    """Format tỷ đồng với dấu; None -> 'N/A'."""
+    if d is None:
+        return "N/A"
+    return f"{d:+,.0f}"
+
+
+def _print_executive_report(kq: dict):
+    """Render 5-Model Consolidated Executive Report từ dữ liệu THẬT.
+
+    M1 Macro/LRI:  kq['lri']
+    M2 Fundamental: vn20_quant_filter (query nhanh ~0.7s)
+    M3 Behavioral:  kq['delta_divergence'] + volume profile (~0.7s)
+    M4 Alpha/RS:    rs_ranker (chậm ~13s — chỉ render khi có dữ liệu sẵn)
+    M5 Governor:    kq['he_so_giam_ty_trong'] + độ_tin_cậy + guard flags
+
+    Zero-Hallucination: mọi section thiếu nguồn in rõ 'không có dữ liệu'.
+    """
+    vn20 = None
+    volume_profile = None
+    try:
+        from src.engine.absorption_detector import AbsorptionDetector
+        from src.quant.vn20_quant_filter import run_vn20_filter
+
+        vn20 = run_vn20_filter(top_n=None, verbose=False)
+        _target = kq.get("ngay", "")
+        if _target:
+            _abs = AbsorptionDetector()
+            _res = _abs.analyze(_target)
+            if isinstance(_res, dict):
+                volume_profile = _res.get("volume_profile")
+    except Exception as e:  # noqa: BLE001 — optional enrichment, never fatal
+        logger.debug("[ORCH] 5-model enrichment failed: %s", e)
+
+    rs = kq.get("rs_rating_table")
+
+    from src.core.executive_report import xay_dung_bao_cao_5_mo_hinh
+
+    report = xay_dung_bao_cao_5_mo_hinh(kq, vn20=vn20, volume_profile=volume_profile, rs=rs)
+
+    print("\n" + "=" * 60)
+    print("  BÁO CÁO PHÁN QUYẾT 5 MÔ HÌNH TỔNG HỢP (EXECUTIVE)")
+    print("=" * 60)
+
+    # M1 — MACRO & LRI
+    m1 = report.get("M1_MACRO", {})
+    print("  [M1] VĨ MÔ & LRI")
+    if m1.get("status") == "OK":
+        print(f"      LRI:        {m1.get('lri_score', 'N/A')} ({m1.get('lri_regime', 'N/A')})")
+        print(f"      Hạn mức:    {m1.get('max_allocation_pct', 'N/A')}% vốn tối đa")
+        print(f"      Interbank:  ON {m1.get('interbank_on', 'N/A')}% ({m1.get('interbank_regime', 'N/A')})")
+        print(f"      USD/VND:    {m1.get('usd_vnd', 'N/A'):,}" if m1.get("usd_vnd") is not None else "      USD/VND:    N/A")
+        print(f"      FII 10D:    {_fmt_ti(m1.get('fii_flow_10d'))} tỷ")
+        print(f"      Breadth:    {m1.get('breadth_pct', 'N/A')}%")
+    else:
+        print(f"      ⚠ {m1.get('reason', 'không có dữ liệu')}")
+
+    # M2 — FUNDAMENTAL / VN20
+    m2 = report.get("M2_FUNDAMENTAL", {})
+    print("  [M2] CƠ BẢN (VN20 GATE)")
+    if m2.get("status") == "OK":
+        st = m2.get("stage_counts", {})
+        print(
+            f"      {st.get('total_universe', '?')} mã → "
+            f"T1:{st.get('T1_pass', '?')} → T2:{st.get('T2_pass', '?')} → "
+            f"T3:{st.get('T3_pass', '?')} → T4:{st.get('T4_pass', '?')} "
+            f"→ {m2.get('n_qualified', 0)} qualified"
+        )
+        for i, row in enumerate(m2.get("top_mos", []), 1):
+            print(
+                f"      {i}. {row['symbol']:6s} MoS {row.get('mos', 0):.0%} "
+                f"({row.get('sector', '?')}, {row.get('phase', '?')})"
+            )
+    else:
+        print(f"      ⚠ {m2.get('reason', 'không có dữ liệu')}")
+
+    # M3 — BEHAVIORAL
+    m3 = report.get("M3_BEHAVIORAL", {})
+    print("  [M3] HÀNH VI (DDI + DÒNG TIỀN + VOL PROFILE)")
+    if m3.get("status") == "OK":
+        print(f"      DDI:        Δ_SA {m3.get('delta_sa', 'N/A')} (dS/dt {m3.get('dS_dt', 'N/A')})")
+        print(f"      Hành động:  {m3.get('action_filter', 'N/A')} | Healing illusion: {m3.get('healing_illusion', 'N/A')}")
+        print(f"      FII 10D:    {_fmt_ti(m3.get('fii_flow_10d'))} tỷ")
+        vp = m3.get("volume_profile")
+        if isinstance(vp, dict):
+            print(
+                f"      VolProf:    POC {vp.get('poc_price', 'N/A')} "
+                f"VA[{vp.get('val', 'N/A')}-{vp.get('vah', 'N/A')}] "
+                f"ratio {vp.get('volume_ratio', 'N/A')} "
+                f"converged={vp.get('volume_converged', 'N/A')}"
+            )
+        else:
+            print("      VolProf:    không có dữ liệu")
+    else:
+        print(f"      ⚠ {m3.get('reason', 'không có dữ liệu')}")
+
+    # M4 — ALPHA / RS
+    m4 = report.get("M4_ALPHA", {})
+    print("  [M4] ALPHA (RS RATING)")
+    if m4.get("status") == "OK":
+        for i, row in enumerate(m4.get("top_rs", []), 1):
+            print(f"      {i}. {row['symbol']:6s} RS {row.get('rs_rating', 'N/A')} giá {row.get('price', 'N/A')}")
+    else:
+        print(f"      ⚠ {m4.get('reason', 'không có dữ liệu')}")
+
+    # M5 — GOVERNOR & GUARD
+    m5 = report.get("M5_GOVERNOR", {})
+    print("  [M5] GOVERNOR & DECISION GUARD")
+    conf = m5.get("confidence")
+    conf_str = f"{conf:.0%} ({m5.get('confidence_level', 'N/A')})" if conf is not None else "N/A"
+    print(f"      Độ tin cậy: {conf_str}")
+    print(f"      Hệ số giảm: {m5.get('he_so_giam_ty_trong', 'N/A')}")
+    if m5.get("blocked"):
+        print(f"      🛑 Chặn:     {m5.get('block_reason', 'có')}")
+    else:
+        print("      Chặn:       không")
+    if m5.get("recovery_status"):
+        print(f"      Recovery:   {m5.get('recovery_status')}")
+    if m5.get("healing_status"):
+        print(f"      Lành:       {m5.get('healing_status')}")
+    print("=" * 60)
+
+
 def in_bao_cao(kq: dict):
     icons = {
         "THAM GIA FULL": "💎",
@@ -662,6 +785,12 @@ def in_bao_cao(kq: dict):
     for i, ld in enumerate(kq.get("ly_do", []), 1):
         print(f"    {i}. {ld}")
     print()
+
+    # ── 5-MODEL CONSOLIDATED EXECUTIVE REPORT (Zero-Hallucination) ──
+    try:
+        _print_executive_report(kq)
+    except Exception as e:  # noqa: BLE001 — executive report is display-only
+        logger.debug("[ORCH] Executive report failed: %s", e)
 
     # ── XAI Causal Override Trace (transparency: no silent override) ──
     try:
