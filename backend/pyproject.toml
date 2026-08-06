@@ -109,6 +109,7 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--disable-warnings",
+    "--timeout=300",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
@@ -122,7 +123,7 @@ filterwarnings = [
 markers = [
     "unit: Unit tests - fast, isolated tests",
     "integration: Integration tests - may call external services",
-    "slow: Slow tests - may take >5 seconds",
+    "slow: Slow tests - may take >60 seconds (deselect with '-m \"not slow\"')",
     "api: Tests for API layer",
     "explorer: Tests for explorer modules",
     "vci: Tests specific to VCI data source",

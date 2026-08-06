@@ -106,6 +106,7 @@ class TestCliPathWiring:
 class TestReplayProducesTrades:
     """Regression: replay must generate trades when data is available."""
 
+    @pytest.mark.slow
     @pytest.mark.integration
     def test_multifactor_replay_makes_trades(self):
         """A short replay window with abundant BUY signals must produce > 0 trades.
@@ -174,6 +175,7 @@ class TestReplayProducesTrades:
             "Check sys.path wiring (backend/ missing → src.governor imports fail silently)."
         )
 
+    @pytest.mark.slow
     @pytest.mark.integration
     def test_cli_backtest_returns_nonzero_trades(self):
         """Tier 2 — Entry Point Smoke TDD: run the real CLI from project root.
@@ -213,6 +215,7 @@ class TestReplayProducesTrades:
         else:
             pytest.fail("Total Trades line not found in output")
 
+    @pytest.mark.slow
     @pytest.mark.integration
     def test_cli_runs_with_clean_syspath(self):
         """Tier 2 — Entry Point Smoke TDD (namespace hygiene): CLI from project
