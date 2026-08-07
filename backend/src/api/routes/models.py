@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -36,5 +37,5 @@ async def get_dashboard():
     """
     try:
         return localize_output(get_dashboard_data())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Dashboard error: {str(e)}")

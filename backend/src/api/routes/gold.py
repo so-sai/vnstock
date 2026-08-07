@@ -1,6 +1,9 @@
+import logging
+import sqlite3
 import sys
 from pathlib import Path
 
+import requests
 from fastapi import APIRouter, HTTPException, Query
 
 
@@ -24,6 +27,8 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+logger = logging.getLogger(__name__)
+
 from src.core.canonical_output_adapter import localize_output
 from src.core.macro.gold_regime_engine import analyze_gold_regime, cross_reference_with_market
 from src.core.macro.gold_spread_engine import analyze_domestic_premium, get_premium_driver
@@ -39,7 +44,7 @@ async def get_gold_data():
     """Lấy dữ liệu giá vàng SJC + BTMC + spread."""
     try:
         return localize_output(get_gold_dashboard())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Gold service error: {str(e)}")
 
 
@@ -51,8 +56,8 @@ async def get_gold_regime():
         macro = {}
         try:
             macro = get_macro_status()
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
+            logger.warning(f"Macro status không lấy được (fallback rỗng): {e}")
         cognition = cross_reference_with_market(macro)
         return localize_output(
             {
@@ -60,7 +65,7 @@ async def get_gold_regime():
                 "cognition": cognition.get("gold_cognition", {}),
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Gold regime error: {str(e)}")
 
 
@@ -74,7 +79,7 @@ async def get_world_gold():
         return localize_output({"xau_usd": price, "timestamp": int(__import__("time").time())})
     except HTTPException:
         raise
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         raise HTTPException(status_code=500, detail=f"World gold error: {str(e)}")
 
 
@@ -83,7 +88,7 @@ async def get_gold_premium():
     """Lấy Domestic Premium: SJC - XAUUSD quy đổi."""
     try:
         return localize_output(analyze_domestic_premium())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Gold premium error: {str(e)}")
 
 
@@ -92,7 +97,7 @@ async def get_gold_premium_driver(lookback_days: int = Query(5, description="S�
     """Phân tích nguyên nhân premium thay đổi: XAUUSD, USD/VND, hay SJC."""
     try:
         return localize_output(get_premium_driver(lookback_days=lookback_days))
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Gold driver analysis error: {str(e)}")
 
 
@@ -101,7 +106,7 @@ async def get_gold_cognition():
     """Gold Cognition Layer — hợp nhất VN + Global + Premium."""
     try:
         return localize_output(get_gold_cognition_layer())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Gold cognition error: {str(e)}")
 
 
@@ -111,5 +116,5 @@ async def seed_world_gold():
     try:
         ok = seed_world_gold_to_db()
         return localize_output({"seeded": ok})
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Gold seed error: {str(e)}")

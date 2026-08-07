@@ -8,6 +8,7 @@ với localization song ngữ EN/VI cho mọi tín hiệu.
 # client mới cần định dạng HCI chuẩn hóa (metric array + to_hci) và localization song ngữ
 # ngay tại API. Tách route giúp v1 tiến hóa schema độc lập không phá vỡ client cũ đang
 # đọc JSON flat từ macro.py.
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -72,7 +73,7 @@ async def get_macro_status_v1(target_date: str | None = Query(None, description=
         # để client biết đây là tạm thời (retry), còn lỗi khác là 500 — phân biệt giúp
         # monitoring không gắn cờ nhầm một nguồn dữ liệu nghỉ lễ thành sự cố hệ thống.
         raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Macro engine error: {str(e)}")
 
     regime_score = data.get("regime_score", data.get("score"))

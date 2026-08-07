@@ -4,9 +4,21 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from src.core.errors import (
+    AnalysisError,
+    ConvergenceError,
+    DataAccessError,
+    DataIntegrityError,
+    GovernorDecisionError,
+    NaNArrayError,
+    ProvenanceError,
+    ProviderError,
+    PTCKError,
+    RateLimitError,
+)
 from starlette.responses import JSONResponse
 
 
@@ -39,6 +51,33 @@ def _canonicalize_json(obj):
     if isinstance(obj, np.bool_):
         return bool(obj)
     return obj
+
+
+# ── Centralized Domain Exception → HTTP Status Mapping ─────────────────
+# WHY: Error Discipline (Skill: code-py-314) — domain exceptions from
+# governor/engine/core/services propagate to the API boundary and are
+# converted here ONCE into a standard XAI JSON envelope. Routes should
+# NOT re-wrap exceptions; they raise PTCKError subclasses and this handler
+# maps them. This keeps status semantics consistent across the whole API.
+_PTCK_STATUS_MAP: dict[type[PTCKError], int] = {
+    RateLimitError: 429,
+    ProviderError: 503,
+    DataAccessError: 503,
+    DataIntegrityError: 422,
+    AnalysisError: 422,
+    ConvergenceError: 422,
+    NaNArrayError: 422,
+    GovernorDecisionError: 409,
+    ProvenanceError: 400,
+}
+
+
+def _status_for_error(exc: PTCKError) -> int:
+    """Map a PTCKError subclass to an HTTP status, walking the MRO."""
+    for cls in type(exc).__mro__:
+        if cls in _PTCK_STATUS_MAP:
+            return _PTCK_STATUS_MAP[cls]
+    return 500
 
 
 def _hydrate_path():
@@ -107,6 +146,26 @@ from src.core.canonical_output_adapter import localize_output
 app = FastAPI(title="PTCK VNSTOCK API", version="1.5.2", default_response_class=_NanSafeJSONResponse)
 
 
+@app.exception_handler(PTCKError)
+async def ptck_error_handler(request: Request, exc: PTCKError) -> JSONResponse:
+    """Chuyển mọi domain exception sang HTTP JSON chuẩn XAI.
+
+    WHY (Error Discipline — Skill: code-py-314): governor/engine/core/
+    services raise PTCKError subclasses with semantic payload; chúng
+    propagate qua API boundary và được map sang HTTP status TẬP TRUNG tại
+    đây. Route KHÔNG re-wrap — chỉ raise PTCKError và handler này lo.
+    """
+    return JSONResponse(
+        status_code=_status_for_error(exc),
+        content={
+            "status": "error",
+            "error_type": type(exc).__name__,
+            "message": exc.message,
+            "payload": exc.payload,
+        },
+    )
+
+
 def get_frontend_dist_path() -> Path:
     # ==============================================================================
     # WHY: Nuitka does NOT set sys._MEIPASS (PyInstaller-specific). Use
@@ -162,9 +221,6 @@ app.include_router(sandbox.router, prefix="/api/sandbox", tags=["Phase 5 - Paper
 
 import time
 from collections import deque
-
-from fastapi import Request
-from starlette.responses import JSONResponse
 
 # ── SYNC GATE: 2FA Cooldown + 60s Window ──
 # Chỉ cho phép mở van sau 12h, và chỉ mở trong 60 giây.

@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -41,7 +42,7 @@ async def get_pins():
     try:
         pins = manager.get_pins()
         return localize_output({"symbols": pins, "count": len(pins)})
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -54,7 +55,7 @@ async def add_pin(data: PinSymbolInput):
         if ok:
             _store_pin_history(symbol, "PIN")
         return localize_output({"symbol": symbol, "pinned": ok, "pins": manager.get_pins()})
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -67,7 +68,7 @@ async def remove_pin(symbol: str):
         if ok:
             _store_pin_history(sym, "UNPIN")
         return localize_output({"symbol": sym, "unpinned": ok, "pins": manager.get_pins()})
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -76,7 +77,7 @@ async def check_pinned(symbol: str):
     """Kiểm tra mã đã được ghim chưa."""
     try:
         return localize_output({"symbol": symbol.upper(), "pinned": manager.is_pinned(symbol.upper())})
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -102,7 +103,7 @@ async def get_recommendations():
                 "summary": result.get("summary", {}),
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -131,5 +132,5 @@ async def get_combined():
                 "summary": result.get("summary", {}),
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))

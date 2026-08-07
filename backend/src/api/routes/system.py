@@ -7,6 +7,8 @@ Dùng cho: hiển thị "Phiên tác chiến: DD/MM/YYYY - HH:MM" trên Header.
 """
 
 import io
+import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,8 +19,8 @@ if isinstance(sys.stdout, io.TextIOWrapper):
     if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
             sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (OSError, AttributeError, ValueError) as e:
+            logging.getLogger(__name__).debug(f"stdout reconfigure utf-8 không được (bỏ qua): {e}")
 elif hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -96,7 +98,7 @@ async def get_session_info():
                 "server_now": server_now.strftime("%Y-%m-%d %H:%M:%S"),
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, OverflowError, KeyError, IndexError) as e:
         # KHÔNG throw 500 — Frontend cần luôn có data để hiển thị
         return localize_output(
             {

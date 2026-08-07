@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -37,5 +38,5 @@ async def replay_timeline_endpoint(limit: int = Query(365, ge=30, le=1000)):
     try:
         data = get_replay_timeline(limit=limit)
         return localize_output(data)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Replay timeline error: {str(e)}")

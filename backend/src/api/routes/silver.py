@@ -3,9 +3,11 @@ Silver API Router — /api/v1/silver/
 Cung cấp: giá bạc nội địa (BTMC), thế giới (XAGUSD), Gold/Silver Ratio.
 """
 
+import sqlite3
 import sys
 from pathlib import Path
 
+import requests
 from fastapi import APIRouter, HTTPException
 
 
@@ -65,7 +67,7 @@ async def silver_dashboard():
                 "timestamp": int(__import__("time").time()),
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Silver dashboard error: {str(e)}")
 
 
@@ -79,7 +81,7 @@ async def get_world_silver():
         return localize_output({"xag_usd": price, "timestamp": int(__import__("time").time())})
     except HTTPException:
         raise
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         raise HTTPException(status_code=500, detail=f"World silver error: {str(e)}")
 
 
@@ -88,7 +90,7 @@ async def get_gold_silver_ratio():
     """Lấy Gold/Silver Ratio + regime classification."""
     try:
         return localize_output(get_gs_ratio_from_db())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"GS ratio error: {str(e)}")
 
 
@@ -98,5 +100,5 @@ async def seed_world_silver():
     try:
         ok = seed_world_silver_to_db()
         return localize_output({"seeded": ok})
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Silver seed error: {str(e)}")

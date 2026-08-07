@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -51,13 +52,13 @@ async def get_liquidity_flow():
     """Channel 1: Liquidity Wave — volume acceleration, turnover shock, retail chase."""
     try:
         health = get_market_liquidity_health()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Liquidity health failed: {e}")
         health = {}
 
     try:
         waves = scan_liquidity_waves(top_n=20)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Liquidity wave scan failed: {e}")
         waves = []
 
@@ -89,7 +90,7 @@ async def get_sector_flow():
     """Channel 2: Sector Rotation — inter-sector momentum, leader/follower graph."""
     try:
         rotation = get_sector_rotation_map()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Sector rotation failed: {e}")
         rotation = {}
 
@@ -135,9 +136,9 @@ async def get_foreign_flow():
                 acc = engine.get_accumulation(sym, 10)
                 accumulations[sym] = round(acc, 2)
                 total_net += acc
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception:  # noqa: BLE001 - batch isolation: 1 mã lỗi không dừng toàn bộ loop
                 accumulations[sym] = 0.0
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Foreign flow engine failed: {e}")
         accumulations = {}
         total_net = 0.0
@@ -160,7 +161,7 @@ async def get_decayed_flow():
     try:
         summary = get_decayed_flow_summary()
         return localize_output(summary)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Decayed flow summary failed: {e}")
         return localize_output({"status": "ERROR", "detail": str(e)})
 
@@ -171,7 +172,7 @@ async def get_decayed_liquidity():
     try:
         health = get_decayed_liquidity_health()
         return localize_output(health)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Decayed liquidity failed: {e}")
         return localize_output({"status": "ERROR", "detail": str(e)})
 
@@ -182,7 +183,7 @@ async def get_decayed_sector():
     try:
         beta = get_decayed_rotation_beta()
         return localize_output(beta)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Decayed sector failed: {e}")
         return localize_output({"status": "ERROR", "detail": str(e)})
 
@@ -193,7 +194,7 @@ async def get_decayed_foreign():
     try:
         summary = get_decayed_foreign_summary()
         return localize_output(summary)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Decayed foreign failed: {e}")
         return localize_output({"status": "ERROR", "detail": str(e)})
 
@@ -203,17 +204,20 @@ async def get_flow_banner():
     """Predictive macro flow banner — synthesized from all 3 channels without merging raw data."""
     try:
         health = get_market_liquidity_health()
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
+        logger.error(f"Liquidity health failed: {e}")
         health = {}
 
     try:
         rotation = get_sector_rotation_map()
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
+        logger.error(f"Sector rotation failed: {e}")
         rotation = {}
 
     try:
         waves = scan_liquidity_waves(top_n=10)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
+        logger.error(f"Liquidity wave scan failed: {e}")
         waves = []
 
     liquidity_phase = health.get("liquidity_phase", "NEUTRAL")
@@ -260,7 +264,7 @@ async def get_flow_banner_decayed():
     try:
         banner_data = synthesize_decayed_banner()
         return localize_output(banner_data)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"Decayed banner failed: {e}")
         return localize_output(
             {
@@ -284,7 +288,7 @@ async def get_liquidity_concentration_index():
     try:
         lci = get_lci_dashboard()
         return localize_output(lci)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.error(f"LCI failed: {e}")
         return localize_output(
             {
@@ -299,7 +303,8 @@ def _build_chains_from_waves() -> dict:
     chains = {}
     try:
         waves = scan_liquidity_waves(top_n=30)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
+        logger.error(f"Liquidity wave scan failed: {e}")
         return chains
     sector_stocks = {}
     for w in waves:

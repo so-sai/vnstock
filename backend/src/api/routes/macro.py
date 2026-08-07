@@ -2,6 +2,7 @@
 # localize (qua localize_output) thay vì metric array như v1_macro.py. Đây là tầng "không
 # có logic" chỉ chuyển dữ liệu từ macro_service lên HTTP: tách route khỏi service để lớp
 # tính toán macro có thể test/backtest độc lập mà không cần chạy web server.
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -51,7 +52,7 @@ async def get_macro_data(target_date: str | None = Query(None, description="YYYY
         # WHY: 503 cho RuntimeError (nguồn dữ liệu chưa có, nghỉ lễ) để client retry sau;
         # 500 chỉ cho lỗi thật sự — tránh alert giả khi dữ liệu macro tạm thời vắng.
         raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Macro engine error: {str(e)}")
 
 
@@ -64,7 +65,7 @@ async def get_macro_history(limit: int = Query(90, ge=1, le=365)):
     """
     try:
         return localize_output(get_regime_history(limit=limit))
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -97,5 +98,5 @@ async def get_sensor_status(sensor_id: str):
         )
     except HTTPException:
         raise
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Sensor status error: {str(e)}")

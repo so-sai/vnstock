@@ -5,6 +5,7 @@ Phase: DDI Gate (Delta Divergence Index + Atomic Parameter Identity)
 
 import json
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -46,7 +47,7 @@ async def get_ddi():
         ddi = anh_chup.get("delta_divergence", {})
         ddi["params_hash"] = anh_chup.get("params_hash", "unresolved")
         return localize_output(ddi)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, ValueError, KeyError, sqlite3.Error) as e:
         logger.warning("[SNAPSHOT] DDI computation failed: %s", e)
         return localize_output({"error": str(e)})
 
@@ -60,7 +61,7 @@ async def get_snapshot_index():
     try:
         data = json.loads(idx_path.read_text(encoding="utf-8"))
         return localize_output({"entries": data, "count": len(data)})
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         return localize_output({"error": str(e)})
 
 
@@ -78,5 +79,5 @@ async def get_params_registry():
                 "params_hash": make_params_hash(registry),
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, ValueError, KeyError) as e:
         return localize_output({"error": str(e)})

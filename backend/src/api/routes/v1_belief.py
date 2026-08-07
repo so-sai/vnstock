@@ -5,6 +5,7 @@ Tuân thủ CLI-First Law: không nhúng logic, chỉ gọi backend module.
 """
 
 import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -80,7 +81,7 @@ async def get_sentinel_status():
             "overall_fallback": any(r["fallback"] for r in results),
             "calibration_vector": cv,
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.warning(f"[API] sentinel/status error: {e}")
         return {
             "timestamp": datetime.now().isoformat(),
@@ -106,7 +107,7 @@ async def get_data_freshness():
             "stale_count": len(stale),
             "max_stale_hours": 48.0,
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         return {"date": datetime.now().strftime("%Y-%m-%d"), "error": str(e)}
 
 
@@ -139,7 +140,7 @@ async def get_quantstats_belief(window: int = Query(30, ge=5, le=120)):
             "rejected": report.get("rejected", {}),
             "random_baseline": report.get("random_baseline", {}),
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.warning(f"[API] belief/quantstats error: {e}")
         return {
             "error": str(e),
@@ -170,7 +171,7 @@ async def get_belief_meta():
             "timestamp": datetime.now().isoformat(),
             "symbols": results,
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         return {"error": str(e), "symbols": {}}
 
 
@@ -237,6 +238,6 @@ async def get_rejected_archive(
             "cumulative_information_gain": round(cum_ig, 4),
             "doc_summary": doc_summary,
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         logger.warning(f"[API] rejected/archive error: {e}")
         return {"entries": [], "error": str(e)}

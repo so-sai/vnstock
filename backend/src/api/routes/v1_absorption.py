@@ -5,6 +5,7 @@ Tuân thủ:
   - Decoupled Architecture: gọi engine qua wrapper, không nhúng logic.
 """
 
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -52,7 +53,7 @@ async def get_symbol_absorption(ticker: str):
         ticker = ticker.upper()
         detector = PerSymbolAbsorption(ticker)
         raw = detector.analyze()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     if raw.get("status") not in ("OK", "LOW_DATA"):

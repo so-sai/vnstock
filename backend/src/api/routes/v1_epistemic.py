@@ -8,6 +8,7 @@ WHY:
 
 import asyncio
 import json
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -102,7 +103,7 @@ async def get_composite_dashboard(
                 "data": data,
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         return localize_output(
             {
                 "status": "error",
@@ -145,7 +146,7 @@ async def get_data_density_audit(
                 "data": data,
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         return localize_output(
             {
                 "status": "error",
@@ -179,7 +180,7 @@ async def get_vn20_index():
                 "timestamp": datetime.now().isoformat(),
             }
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         return localize_output(
             {
                 "status": "error",

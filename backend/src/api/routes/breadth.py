@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -34,7 +35,7 @@ async def get_breadth():
     """Lấy phân tích độ rộng thị trường hiện tại."""
     try:
         return localize_output(get_breadth_analysis())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -43,7 +44,7 @@ async def get_breadth_history_endpoint(limit: int = Query(60, ge=1, le=365)):
     """Lấy lịch sử breadth_pct để vẽ biểu đồ."""
     try:
         return localize_output(get_breadth_history(limit=limit))
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -55,5 +56,5 @@ async def get_breadth_stacked_endpoint(limit: int = Query(60, ge=5, le=365)):
     """
     try:
         return localize_output(get_breadth_stacked_history(limit=limit))
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -40,7 +41,7 @@ async def get_holdings_view():
     try:
         view = build_holdings_view()
         return localize_output(view.model_dump())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"HoldingsView error: {str(e)}")
 
 
@@ -49,5 +50,5 @@ async def get_holdings_exposure():
     """Raw exposure metrics for advanced users."""
     try:
         return localize_output(compute_exposure_summary())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"Exposure error: {str(e)}")

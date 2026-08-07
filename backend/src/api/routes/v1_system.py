@@ -10,6 +10,7 @@ Tuân thủ:
 
 import asyncio
 import json
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -98,7 +99,7 @@ async def trigger_eod_run(
                 },
             },
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
         raise HTTPException(status_code=500, detail=f"EOD run failed: {str(e)}")
 
     status = result.get("status", "FAILED")
@@ -219,7 +220,7 @@ async def trigger_eod_run_stream(body: EODRunRequest):
                             "message": str(e),
                         },
                     )
-                except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+                except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error) as e:
                     loop.call_soon_threadsafe(
                         queue.put_nowait,
                         {
@@ -230,7 +231,7 @@ async def trigger_eod_run_stream(body: EODRunRequest):
                     )
 
             await loop.run_in_executor(None, _run_eod_in_thread)
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (TypeError, ValueError, KeyError, AttributeError, sqlite3.Error, OSError) as e:
             await queue.put(
                 {
                     "progress": -1,
