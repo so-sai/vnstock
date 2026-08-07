@@ -1,4 +1,3 @@
-
 import io
 import json
 import logging
@@ -11,7 +10,7 @@ from pathlib import Path
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -24,6 +23,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import DB_PATH, get_connection
@@ -39,14 +39,15 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.FileHandler(LOG_DIR / f"db_maintenance_{datetime.now().strftime('%Y%m%d')}.log", encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 if sys.platform == "win32":
     for h in logging.getLogger().handlers:
         if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
-            h.stream = io.TextIOWrapper(h.stream.buffer, encoding='utf-8', line_buffering=True)
+            h.stream = io.TextIOWrapper(h.stream.buffer, encoding="utf-8", line_buffering=True)
 logger = logging.getLogger("PTCK_DB_MAINTENANCE")
+
 
 # ============================================================
 # MAINTENANCE TASKS
@@ -55,6 +56,7 @@ def get_db_size_mb() -> float:
     if os.path.exists(DB_PATH):
         return os.path.getsize(DB_PATH) / (1024 * 1024)
     return 0.0
+
 
 def vacuum_database():
     """Reclaim unused space from SQLite WAL + free pages."""
@@ -68,6 +70,7 @@ def vacuum_database():
     logger.info(f"✅ VACUUM hoàn tất. {size_before:.1f}MB -> {size_after:.1f}MB (Tiết kiệm {saved:.1f}MB)")
     return {"before_mb": round(size_before, 2), "after_mb": round(size_after, 2), "saved_mb": round(saved, 2)}
 
+
 def compact_foreign_history(retention_days=730):
     """Xóa dữ liệu Foreign History cũ hơn retention_days (mặc định 2 năm)."""
     cutoff_date = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%d")
@@ -75,12 +78,13 @@ def compact_foreign_history(retention_days=730):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM market_foreign_history WHERE date < ?", (cutoff_date,))
-        count_before = cursor.fetchone()[0]
+        cursor.fetchone()[0]
         cursor.execute("DELETE FROM market_foreign_history WHERE date < ?", (cutoff_date,))
         deleted = cursor.rowcount
         conn.commit()
     logger.info(f"✅ Đã xóa {deleted} dòng foreign history cũ.")
     return {"table": "market_foreign_history", "deleted_rows": deleted}
+
 
 def compact_regime_history(retention_days=1095):
     """Giữ lại regime_history 3 năm (đủ cho backtest)."""
@@ -94,6 +98,7 @@ def compact_regime_history(retention_days=1095):
     logger.info(f"✅ Đã xóa {deleted} dòng regime history cũ.")
     return {"table": "regime_history", "deleted_rows": deleted}
 
+
 def analyze_tables():
     """Update query planner statistics."""
     logger.info("📊 ANALYZE: Cập nhật thống kê query planner...")
@@ -101,6 +106,7 @@ def analyze_tables():
         conn.execute("ANALYZE;")
         conn.commit()
     logger.info("✅ ANALYZE hoàn tất.")
+
 
 def wal_checkpoint():
     """Truncate WAL file để tránh phình to."""
@@ -114,6 +120,7 @@ def wal_checkpoint():
     logger.info(f"✅ WAL: {wal_size} bytes -> {wal_size_after} bytes")
     return {"wal_before": wal_size, "wal_after": wal_size_after}
 
+
 def get_table_stats() -> dict:
     """Thống kê hiện tại của các bảng."""
     stats = {}
@@ -124,6 +131,7 @@ def get_table_stats() -> dict:
             count = cursor.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
             stats[table_name] = count
     return stats
+
 
 def run_full_maintenance():
     """Chạy toàn bộ quy trình bảo trì DB."""
@@ -141,7 +149,7 @@ def run_full_maintenance():
         "compact_results": [],
         "wal_result": {},
         "db_size_mb_after": 0,
-        "duration_seconds": 0
+        "duration_seconds": 0,
     }
 
     try:
@@ -185,6 +193,7 @@ def run_full_maintenance():
 
     return report
 
+
 if __name__ == "__main__":
     import argparse
     import io
@@ -193,13 +202,13 @@ if __name__ == "__main__":
     # Fix Windows console encoding
     if sys.platform == "win32":
         if isinstance(sys.stdout, io.TextIOWrapper):
-            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
-                    sys.stdout.reconfigure(encoding='utf-8')
+                    sys.stdout.reconfigure(encoding="utf-8")
                 except Exception:
                     pass
-        elif hasattr(sys.stdout, 'buffer'):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        elif hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     parser = argparse.ArgumentParser(description="PTCK Database Maintenance Tool")
     parser.add_argument("--full", action="store_true", help="Run full maintenance (VACUUM + Compact + ANALYZE)")
     parser.add_argument("--vacuum", action="store_true", help="Only run VACUUM")

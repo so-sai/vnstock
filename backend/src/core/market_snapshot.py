@@ -17,11 +17,10 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -38,20 +37,21 @@ def _hydrate_path():
 
 
 DUONG_DAN_GOC = _hydrate_path()
-if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
+if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
     import io
+
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import src.config
 
 
-def _doc(ten_file: str) -> Optional[dict]:
+def _doc(ten_file: str) -> dict | None:
     paths = [
         Path(src.config.DATA_DIR) / "output" / ten_file,
         Path(src.config.DATA_DIR) / ten_file,
@@ -65,7 +65,7 @@ def _doc(ten_file: str) -> Optional[dict]:
     return None
 
 
-def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") -> dict:
+def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> dict:
     """Tạo ảnh chụp thị trường duy nhất trong lần chạy này.
 
     Trả về dict gồm:
@@ -80,6 +80,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
 
     # ── Bước 1: Regime (live, 1 lần) ──
     from src.engine.regime_engine import detect_regime
+
     regime_data = detect_regime(target_date=target_date, lang_mode=lang_mode)
 
     # ── Bước 2: Cấu trúc ──
@@ -88,6 +89,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
         struct_data = _doc("structural_state.json") or {}
     else:
         from src.engine.structural_detector import detect_cau_truc
+
         struct_data = detect_cau_truc(target_date=target_date)
     trang_thai_cau_truc = struct_data.get("trang_thai", "N/A")
     so_tru_ok = struct_data.get("so_tru_ok", 0)
@@ -95,6 +97,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
 
     # ── Bước 3: Cảnh báo sớm (live, dùng regime vừa tính) ──
     from src.services.early_warning_engine import build_early_warning
+
     try:
         ew = build_early_warning(regime_data=regime_data)
         ew_cap_do = ew.get("cap_do_ma", "BÌNH_THƯỜNG")
@@ -108,6 +111,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
 
     # ── Bước 4: Phân tích chỉ số (Index Reality Unifier) ──
     from src.engine.index_reality_unifier import phan_tich_chi_so
+
     try:
         reality = phan_tich_chi_so(target_date=target_date)
     except Exception:
@@ -115,12 +119,12 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
 
     # ── Bước 4b: Ảnh hưởng nhóm trụ (Group Influence) ──
     from src.engine.group_influence_engine import tinh_anh_huong_nhom
+
     try:
         gi = tinh_anh_huong_nhom(target_date=target_date)
-        gi_top = gi.group_contributions[0] if gi.group_contributions else None
+        gi.group_contributions[0] if gi.group_contributions else None
     except Exception:
         gi = None
-        gi_top = None
 
     # ── Bước 5: Các chỉ số thành phần ──
     details = regime_data.get("details", {})
@@ -175,8 +179,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
             "total_change_pct": gi.total_change_pct if gi else None,
             "artificial_market": gi.artificial_market if gi else False,
             "top_contribution_pts": (
-                round(gi.vnindex_actual - gi.vnindex_ex_top10, 2)
-                if gi and gi.vnindex_ex_top10 else None
+                round(gi.vnindex_actual - gi.vnindex_ex_top10, 2) if gi and gi.vnindex_ex_top10 else None
             ),
         },
         "metadata": {
@@ -191,6 +194,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
     # ── Bước 6: Asia Supply-chain Rotation (Layer 2 Reference Frame) ──
     try:
         from src.services.macro.time_series_aligner import compute_asia_rotation
+
         asia_rot = compute_asia_rotation()
         if asia_rot.get("status") == "OK":
             anh_chup["asia_rotation"] = {
@@ -207,6 +211,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
             if asia_rot.get("covariance_inflated"):
                 try:
                     from src.services.macro.market_macro_coordinator import MarketMacroCoordinator
+
                     coordinator = MarketMacroCoordinator()
                     coordinator.set_governor_confidence(0.0)
                     anh_chup["governor_confidence"] = 0.0
@@ -227,6 +232,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
 
     # ── Bước 7: Delta Divergence Index (DDI) ──
     from src.alpha.delta_divergence import DeltaDivergenceIndex
+
     try:
         ddi = DeltaDivergenceIndex().calculate(anh_chup)
     except Exception:
@@ -236,6 +242,7 @@ def tao_anh_chup(target_date: Optional[str] = None, lang_mode: str = "compact") 
     # ── Bước 7: Atomic Parameter Identity (params_hash) ──
     from src.alpha.delta_divergence import build_params_registry
     from src.utils.params_hash import make_params_hash
+
     try:
         params_reg = build_params_registry()
         p_hash = make_params_hash(params_reg)
@@ -276,6 +283,7 @@ def _ll(label: str, lang_mode: str = "annotated") -> str:
     """Localize a CLI label. Import is lazy to avoid circular imports at module level."""
     try:
         from src.core.canonical_output_adapter import localize_label
+
         return localize_label(label, lang_mode)
     except Exception:
         return label
@@ -297,17 +305,19 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     print(f"  Ngày: {anh_chup.get('ngay', 'N/A')}")
     print(f"  Tạo lúc: {anh_chup.get('thoi_gian_tao', 'N/A')}")
     print()
-    regime_raw = r.get('trang_thai', 'N/A')
+    regime_raw = r.get("trang_thai", "N/A")
     print(f"  {_ll('Regime', lang_mode):{max_w}s} {_ll(regime_raw, lang_mode)} ({r.get('diem_so', 0):.2f})")
     print(f"  {_ll('ADX', lang_mode):{max_w}s} {r.get('adx', 'N/A')}")
-    do_rong_raw = r.get('do_rong')
+    do_rong_raw = r.get("do_rong")
     if do_rong_raw is not None:
         print(f"  {_ll('Độ rộng', lang_mode):{max_w}s} {do_rong_raw}%")
     else:
         print(f"  {_ll('Độ rộng', lang_mode):{max_w}s} BREADTH_SUSPENDED (đang cập nhật)")
     print(f"  {_ll('ATR ratio', lang_mode):{max_w}s} {r.get('ty_le_atr', 'N/A')}")
     print()
-    print(f"  {_ll('Cấu trúc', lang_mode):{max_w}s} {_ll(c.get('trang_thai', 'N/A'), lang_mode)} ({c.get('so_tru', '?')}/3 trụ)")
+    print(
+        f"  {_ll('Cấu trúc', lang_mode):{max_w}s} {_ll(c.get('trang_thai', 'N/A'), lang_mode)} ({c.get('so_tru', '?')}/3 trụ)"
+    )
     print(f"  {_ll('Entropy', lang_mode):{max_w}s} {c.get('entropy', 'N/A')}")
 
     # Asia supply-chain rotation (Layer 2 reference frame)
@@ -320,7 +330,7 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
 
     print()
 
-    ew_raw = ew.get('cap_do', 'N/A')
+    ew_raw = ew.get("cap_do", "N/A")
     print(f"  {_ll('Cảnh báo sớm', lang_mode):{max_w}s} {_ll(ew_raw, lang_mode)} ({ew.get('diem', 0)}đ)")
     for cb in ew.get("canh_bao", []):
         print(f"    • {cb}")
@@ -328,6 +338,7 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     # Breadth Trap (từ decision_guard singleton, nếu đã warmup)
     try:
         from src.engine.decision_guard import get_trap_detector
+
         td = get_trap_detector()
         if td.steps > td.window:
             bt_label = _ll("Breadth Trap", lang_mode)
@@ -347,13 +358,13 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
     if ddi:
         ddi_icon = {"pass": "🟢", "caution": "🟡", "block": "🔴"}.get(ddi.get("action_filter"), "⚪")
         print()
-        ddi_label = _ll('DDI', lang_mode)
-        print(f"  {ddi_label:{max_w}s} {ddi_icon} Δ_SA={ddi.get('delta_sa', 'N/A')}  "
-              f"({ddi.get('action_filter', 'N/A')})")
-        print(f"    dS/dt={ddi.get('dS_dt', 'N/A')}  AC_lat={ddi.get('ac_latency', 'N/A')}  "
-              f"α={ddi.get('alpha_regime', 'N/A')}")
+        ddi_label = _ll("DDI", lang_mode)
+        print(f"  {ddi_label:{max_w}s} {ddi_icon} Δ_SA={ddi.get('delta_sa', 'N/A')}  ({ddi.get('action_filter', 'N/A')})")
+        print(
+            f"    dS/dt={ddi.get('dS_dt', 'N/A')}  AC_lat={ddi.get('ac_latency', 'N/A')}  α={ddi.get('alpha_regime', 'N/A')}"
+        )
         if ddi.get("healing_illusion"):
-            hi_label = _ll('HEALING ILLUSION', lang_mode)
+            hi_label = _ll("HEALING ILLUSION", lang_mode)
             print(f"    ⚠ {hi_label} — stress vượt adaptation")
 
     # params_hash

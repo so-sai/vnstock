@@ -1,4 +1,4 @@
-﻿"""
+"""
 cognitive_schema.py — Vietnamese Cognitive Schema Layer v1.0
 
 Single source of truth for ALL English→Vietnamese UI mappings.
@@ -16,7 +16,6 @@ Rule:
     - api/*, frontend/   → receives only Vietnamese
 """
 
-from typing import Optional
 
 # ====================================================================
 # 1. DRIFT — Cognitive Drift Mapping
@@ -49,9 +48,9 @@ FLOW_ROTATION_VI: dict[str, str] = {
 }
 
 DRIFT_GAP_TEMPLATES: dict[str, str] = {
-    "DOMINANCE_MISMATCH": 'narrative cho rằng {explained} dẫn dắt nhưng thực tế {correct} đang chi phối',
-    "RISK_TONE_MISMATCH": 'narrative đánh giá rủi ro trái ngược với tín hiệu hazard/thị trường',
-    "FLOW_ROTATION_BLIND": 'narrative không nhận diện được luân chuyển dòng tiền: {rotation}',
+    "DOMINANCE_MISMATCH": "narrative cho rằng {explained} dẫn dắt nhưng thực tế {correct} đang chi phối",
+    "RISK_TONE_MISMATCH": "narrative đánh giá rủi ro trái ngược với tín hiệu hazard/thị trường",
+    "FLOW_ROTATION_BLIND": "narrative không nhận diện được luân chuyển dòng tiền: {rotation}",
 }
 
 
@@ -317,7 +316,7 @@ SAFETY_KEYWORDS: list[str] = ["ổn định", "thoải mái", "tăng trưởng",
 # ====================================================================
 
 
-def translate(term: str, mapping: Optional[dict[str, str]] = None) -> str:
+def translate(term: str, mapping: dict[str, str] | None = None) -> str:
     """Translate a single English term to Vietnamese using given or default mappings.
 
     Tries DRIFT_SOURCE_VI → DRIFT_STATUS_VI → REGIME_VI → STATUS_VI → FIELD_LABELS → original.
@@ -325,8 +324,7 @@ def translate(term: str, mapping: Optional[dict[str, str]] = None) -> str:
     if mapping is not None:
         return mapping.get(term, term)
 
-    for m in (DRIFT_SOURCE_VI, DRIFT_STATUS_VI, FLOW_ROTATION_VI,
-              REGIME_VI, STATUS_VI, FIELD_LABELS):
+    for m in (DRIFT_SOURCE_VI, DRIFT_STATUS_VI, FLOW_ROTATION_VI, REGIME_VI, STATUS_VI, FIELD_LABELS):
         if term in m:
             return m[term]
     return term
@@ -368,7 +366,7 @@ def drift_status_to_vi(status: str) -> str:
     return DRIFT_STATUS_VI.get(status, status)
 
 
-def flow_rotation_to_vi(rotation: Optional[str]) -> Optional[str]:
+def flow_rotation_to_vi(rotation: str | None) -> str | None:
     """Map a kernel flow rotation pattern to Vietnamese description.
 
     Returns None if rotation is None or unmapped.

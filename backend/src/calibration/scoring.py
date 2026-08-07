@@ -8,7 +8,6 @@ Conventions:
 """
 
 import math
-from typing import List, Tuple
 
 
 def log_loss(p: float, y: float) -> float:
@@ -27,7 +26,7 @@ def brier_score(p: float, y: float) -> float:
     return (p - y) ** 2
 
 
-def _make_bins(ps: List[float], ys: List[float], n_bins: int = 10) -> List[dict]:
+def _make_bins(ps: list[float], ys: list[float], n_bins: int = 10) -> list[dict]:
     """Bin predictions by confidence decile."""
     paired = sorted(zip(ps, ys), key=lambda x: x[0])
     n = len(paired)
@@ -44,7 +43,7 @@ def _make_bins(ps: List[float], ys: List[float], n_bins: int = 10) -> List[dict]
     return bins
 
 
-def ece(ps: List[float], ys: List[float], n_bins: int = 10) -> float:
+def ece(ps: list[float], ys: list[float], n_bins: int = 10) -> float:
     """Expected Calibration Error — weighted |acc - conf|."""
     bins = _make_bins(ps, ys, n_bins)
     if not bins:
@@ -53,7 +52,7 @@ def ece(ps: List[float], ys: List[float], n_bins: int = 10) -> float:
     return sum(b["n"] / total * abs(b["acc"] - b["conf"]) for b in bins)
 
 
-def mce(ps: List[float], ys: List[float], n_bins: int = 10) -> float:
+def mce(ps: list[float], ys: list[float], n_bins: int = 10) -> float:
     """Maximum Calibration Error — worst-case |acc - conf|."""
     bins = _make_bins(ps, ys, n_bins)
     if not bins:
@@ -61,7 +60,7 @@ def mce(ps: List[float], ys: List[float], n_bins: int = 10) -> float:
     return max(abs(b["acc"] - b["conf"]) for b in bins)
 
 
-def reliability_curve(ps: List[float], ys: List[float], n_bins: int = 10) -> List[dict]:
+def reliability_curve(ps: list[float], ys: list[float], n_bins: int = 10) -> list[dict]:
     """Return reliability diagram data: bin, conf, acc, count."""
     bins = _make_bins(ps, ys, n_bins)
     return [

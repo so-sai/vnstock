@@ -16,9 +16,8 @@ for _par in [Path(__file__).resolve().parent.parent.parent] + list(Path(__file__
 BACKEND_DIR = PROJECT_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
-import pytest
 
-from src.services.daily_market_report import _bi, _resolve_lang_mode, in_bao_cao
+from src.services.daily_market_report import _bi, in_bao_cao
 
 
 class TestBi:

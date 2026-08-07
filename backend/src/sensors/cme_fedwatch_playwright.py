@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 cme_fedwatch_playwright.py — CME FedWatch crawler using Playwright headless.
 
@@ -28,7 +27,6 @@ matching world_sensor contract; on any failure returns DEFAULT tuple.
 
 import asyncio
 import logging
-from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +56,7 @@ NAVIGATION_TIMEOUT_MS = 30_000
 TABLE_WAIT_TIMEOUT_MS = 20_000
 
 
-def _extract_fedwatch_from_table(table_el) -> Tuple[float, float, str]:
+def _extract_fedwatch_from_table(table_el) -> tuple[float, float, str]:
     """Parse implied rate + hike prob from the first `.cmeTable` body row.
 
     CME FedWatch table layout (as of 2026-08):
@@ -120,12 +118,12 @@ def _extract_fedwatch_from_table(table_el) -> Tuple[float, float, str]:
             implied_rate = float(rate_match.group(2))
 
         return (implied_rate, hike_prob, meeting_label)
-    except Exception as e:  # noqa: BLE001 - parse failures are non-blocking, return defaults
+    except Exception as e:
         logger.debug(f"CME FedWatch table parse failed: {e}")
         return (DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING)
 
 
-async def _fetch_cme_fedwatch_async() -> Tuple[float, float, str]:
+async def _fetch_cme_fedwatch_async() -> tuple[float, float, str]:
     """Async core: launch headless Chromium, block junk resources, scrape `.cmeTable`."""
     try:
         from playwright.async_api import async_playwright
@@ -171,7 +169,7 @@ async def _fetch_cme_fedwatch_async() -> Tuple[float, float, str]:
             # Wait for the probabilities table to render (JS SPA).
             try:
                 await page.wait_for_selector(".cmeTable", timeout=TABLE_WAIT_TIMEOUT_MS)
-            except Exception:  # noqa: BLE001 - no table -> non-blocking default
+            except Exception:
                 logger.warning("CME FedWatch: .cmeTable not found after render wait")
                 return (DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING)
 
@@ -179,21 +177,21 @@ async def _fetch_cme_fedwatch_async() -> Tuple[float, float, str]:
             result = _extract_fedwatch_from_table(table)
             logger.info(f"CME FedWatch (Playwright): {result}")
             return result
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("CME FedWatch PW: navigation timeout")
         return (DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING)
-    except Exception as e:  # noqa: BLE001 - WAF/crawl failures are non-blocking
+    except Exception as e:
         logger.warning(f"CME FedWatch PW fetch failed: {e}")
         return (DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING)
     finally:
         if browser is not None:
             try:
                 await browser.close()
-            except Exception:  # noqa: BLE001, S110 - best-effort cleanup, browser may already be gone
+            except Exception:
                 pass
 
 
-def fetch_cme_fedwatch() -> Tuple[float, float, str, str]:
+def fetch_cme_fedwatch() -> tuple[float, float, str, str]:
     """Sync entry point used by world_sensor + tests.
 
     Returns:

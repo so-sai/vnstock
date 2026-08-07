@@ -25,14 +25,11 @@ Schema (bảng sensor_validation trong screener_cache.db):
     PRIMARY KEY (sensor, signal_date, signal_type)
 """
 
-import json
-import sqlite3
 import sys
 from dataclasses import dataclass, field
-from datetime import date
 from pathlib import Path
 from statistics import median
-from typing import Dict, List, Optional
+
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ─────────────────────────────────
 def _hydrate_path():
@@ -64,7 +61,7 @@ DEFAULT_HORIZON_DAYS = 20  # ~1 tháng giao dịch — cửa sổ kiểm định
 #   - DXY 106/108 trùng STRESS/CRISIS của MacroGovernor → một nguồn chân lý.
 #   - KOSPI/SOX DROP_5D >5% = đổ vỡ chuỗi cung chip vòng 5 phiên — tín hiệu
 #     đủ mạnh để đo, nhưng việc đo P(Crisis|Signal) mới quyết định có dùng hay không.
-SENSOR_SIGNAL_DEFS: Dict[str, Dict] = {
+SENSOR_SIGNAL_DEFS: dict[str, dict] = {
     "DXY": {
         "type": "LEVEL",
         "stress": 106.0,
@@ -72,7 +69,7 @@ SENSOR_SIGNAL_DEFS: Dict[str, Dict] = {
     },
     "KOSPI": {
         "type": "DROP_5D",
-        "threshold_pct": 0.05,   # giảm >5% trong 5 phiên
+        "threshold_pct": 0.05,  # giảm >5% trong 5 phiên
     },
     "SOX": {
         "type": "DROP_5D",
@@ -80,7 +77,7 @@ SENSOR_SIGNAL_DEFS: Dict[str, Dict] = {
     },
     "KRW": {
         "type": "LEVEL",
-        "stress": 1350.0,        # USDKRW stress mức (tính tương đối theo từng kỳ)
+        "stress": 1350.0,  # USDKRW stress mức (tính tương đối theo từng kỳ)
         "crisis": 1400.0,
     },
 }
@@ -88,21 +85,27 @@ SENSOR_SIGNAL_DEFS: Dict[str, Dict] = {
 
 # ── Row container ─────────────────────────────────────────────────────
 
+
 @dataclass
 class SensorSignal:
     """Một quan sát tín hiệu → outcome (crisis VN hay không)."""
+
     sensor: str
     signal_date: str
     signal_type: str
     signal_value: float
     crisis_flag: int = 0
-    lead_days: Optional[int] = None
+    lead_days: int | None = None
     horizon_days: int = DEFAULT_HORIZON_DAYS
 
     def to_row(self) -> tuple:
         return (
-            self.sensor, self.signal_date, self.signal_type,
-            self.signal_value, self.crisis_flag, self.lead_days,
+            self.sensor,
+            self.signal_date,
+            self.signal_type,
+            self.signal_value,
+            self.crisis_flag,
+            self.lead_days,
             self.horizon_days,
         )
 
@@ -110,16 +113,17 @@ class SensorSignal:
 @dataclass
 class SensorProfile:
     """Hồ sơ xác suất của một cảm biến — đầu ra chính của Validation Layer."""
+
     sensor: str
     n: int = 0
     n_crisis: int = 0
     p_crisis: float = 0.0
     false_alarm_rate: float = 1.0
-    lead_days_mean: Optional[float] = None
-    lead_days_median: Optional[float] = None
-    lead_days_min: Optional[int] = None
-    lead_days_max: Optional[int] = None
-    by_type: Dict[str, dict] = field(default_factory=dict)
+    lead_days_mean: float | None = None
+    lead_days_median: float | None = None
+    lead_days_min: int | None = None
+    lead_days_max: int | None = None
+    by_type: dict[str, dict] = field(default_factory=dict)
     horizon_days: int = DEFAULT_HORIZON_DAYS
 
     def to_dict(self) -> dict:
@@ -177,9 +181,9 @@ def record_signal(row: SensorSignal) -> None:
 
 def load_records(
     sensor: str,
-    signal_type: Optional[str] = None,
-    horizon_days: Optional[int] = None,
-) -> List[SensorSignal]:
+    signal_type: str | None = None,
+    horizon_days: int | None = None,
+) -> list[SensorSignal]:
     """Đọc các quan sát của một cảm biến (tùy chọn lọc theo type/horizon)."""
     ensure_schema()
     sql = (
@@ -213,12 +217,13 @@ def load_records(
 
 # ── Statistics ─────────────────────────────────────────────────────────
 
-def _type_stats(records: List[SensorSignal]) -> Dict[str, dict]:
+
+def _type_stats(records: list[SensorSignal]) -> dict[str, dict]:
     """Thống kê P(Crisis|Signal) theo từng signal_type."""
-    by_type: Dict[str, List[SensorSignal]] = {}
+    by_type: dict[str, list[SensorSignal]] = {}
     for r in records:
         by_type.setdefault(r.signal_type, []).append(r)
-    out: Dict[str, dict] = {}
+    out: dict[str, dict] = {}
     for t, recs in sorted(by_type.items()):
         n_c = sum(1 for r in recs if r.crisis_flag)
         p = n_c / len(recs) if recs else 0.0
@@ -236,8 +241,8 @@ def _type_stats(records: List[SensorSignal]) -> Dict[str, dict]:
 
 def compute_profile(
     sensor: str,
-    signal_type: Optional[str] = None,
-    horizon_days: Optional[int] = None,
+    signal_type: str | None = None,
+    horizon_days: int | None = None,
 ) -> SensorProfile:
     """Tính P(Crisis | Signal) và thống kê lead time cho một cảm biến.
 
@@ -259,10 +264,7 @@ def compute_profile(
     profile.p_crisis = profile.n_crisis / profile.n
     profile.false_alarm_rate = 1.0 - profile.p_crisis
 
-    leads = [
-        r.lead_days for r in records
-        if r.crisis_flag and r.lead_days is not None
-    ]
+    leads = [r.lead_days for r in records if r.crisis_flag and r.lead_days is not None]
     if leads:
         profile.lead_days_mean = round(sum(leads) / len(leads), 2)
         profile.lead_days_median = round(median(leads), 2)
@@ -273,24 +275,23 @@ def compute_profile(
     return profile
 
 
-def list_sensors() -> List[str]:
+def list_sensors() -> list[str]:
     """Danh sách cảm biến đã có hồ sơ trong DB."""
     ensure_schema()
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT sensor FROM sensor_validation ORDER BY sensor"
-        ).fetchall()
+        rows = conn.execute("SELECT DISTINCT sensor FROM sensor_validation ORDER BY sensor").fetchall()
     return [r["sensor"] for r in rows]
 
 
 # ── Signal detection (Upstream Evidence → observations) ───────────────
 
+
 def detect_signal_events(
     sensor: str,
-    dates: List[str],
-    values: List[float],
+    dates: list[str],
+    values: list[float],
     horizon_days: int = DEFAULT_HORIZON_DAYS,
-) -> List[SensorSignal]:
+) -> list[SensorSignal]:
     """Nhận diện các sự kiện tín hiệu từ chuỗi giá lịch sử của cảm biến.
 
     WHY: Đây là lớp tách tín hiệu KHỎI việc gán outcome. Hàm này chỉ đánh dấu
@@ -314,22 +315,32 @@ def detect_signal_events(
 
     cfg = SENSOR_SIGNAL_DEFS[sensor]
     sig_type = cfg["type"]
-    events: List[SensorSignal] = []
+    events: list[SensorSignal] = []
 
     if sig_type == "LEVEL":
         stress = cfg.get("stress")
         crisis = cfg.get("crisis")
         for d, v in zip(dates, values):
             if crisis is not None and v >= crisis:
-                events.append(SensorSignal(
-                    sensor=sensor, signal_date=d, signal_type="CRISIS_LEVEL",
-                    signal_value=v, horizon_days=horizon_days,
-                ))
+                events.append(
+                    SensorSignal(
+                        sensor=sensor,
+                        signal_date=d,
+                        signal_type="CRISIS_LEVEL",
+                        signal_value=v,
+                        horizon_days=horizon_days,
+                    )
+                )
             elif stress is not None and v >= stress:
-                events.append(SensorSignal(
-                    sensor=sensor, signal_date=d, signal_type="STRESS_LEVEL",
-                    signal_value=v, horizon_days=horizon_days,
-                ))
+                events.append(
+                    SensorSignal(
+                        sensor=sensor,
+                        signal_date=d,
+                        signal_type="STRESS_LEVEL",
+                        signal_value=v,
+                        horizon_days=horizon_days,
+                    )
+                )
     elif sig_type == "DROP_5D":
         threshold = cfg.get("threshold_pct", 0.05)
         for i in range(5, len(values)):
@@ -337,18 +348,22 @@ def detect_signal_events(
             if prev5 > 0:
                 drop = (values[i] - prev5) / prev5
                 if drop <= -threshold:
-                    events.append(SensorSignal(
-                        sensor=sensor, signal_date=dates[i],
-                        signal_type="DROP_5D", signal_value=drop,
-                        horizon_days=horizon_days,
-                    ))
+                    events.append(
+                        SensorSignal(
+                            sensor=sensor,
+                            signal_date=dates[i],
+                            signal_type="DROP_5D",
+                            signal_value=drop,
+                            horizon_days=horizon_days,
+                        )
+                    )
     return events
 
 
 def label_outcomes(
-    events: List[SensorSignal],
-    crisis_dates: List[str],
-) -> List[SensorSignal]:
+    events: list[SensorSignal],
+    crisis_dates: list[str],
+) -> list[SensorSignal]:
     """Gán crisis_flag + lead_days cho từng tín hiệu dựa trên lịch crisis VN.
 
     WHY: lead_days = số phiên từ signal đến ngày crisis ĐẦU TIÊN trong cửa sổ
@@ -363,14 +378,14 @@ def label_outcomes(
     Returns:
         Các SensorSignal đã gán outcome (crisis_flag, lead_days).
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
-    crisis_set = set(crisis_dates)
+    set(crisis_dates)
     crisis_sorted = sorted(crisis_dates)
-    out: List[SensorSignal] = []
+    out: list[SensorSignal] = []
     for ev in events:
         # Tìm ngày crisis đầu tiên >= signal_date và <= signal_date + horizon
-        first_crisis: Optional[str] = None
+        first_crisis: str | None = None
         for cd in crisis_sorted:
             if cd < ev.signal_date:
                 continue
@@ -403,7 +418,8 @@ def label_outcomes(
 
 # ── Ingest from real macro_history + regime_history ───────────────────
 
-def _load_macro_series(variable: str) -> List[tuple]:
+
+def _load_macro_series(variable: str) -> list[tuple]:
     """Đọc chuỗi (date, value) của một biến từ macro_history, de-dup.
 
     WHY: macro_history có thể chứa nhiều dòng cùng ngày (cập nhật lại giá trị).
@@ -412,30 +428,28 @@ def _load_macro_series(variable: str) -> List[tuple]:
     """
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT date, value FROM macro_history WHERE variable = ? "
-            "ORDER BY date",
+            "SELECT date, value FROM macro_history WHERE variable = ? ORDER BY date",
             (variable,),
         ).fetchall()
-    dedup: Dict[str, float] = {}
+    dedup: dict[str, float] = {}
     for r in rows:
         dedup[r["date"]] = r["value"]  # dòng sau ghi đè dòng trước → keep last
     items = [(d, float(v)) for d, v in sorted(dedup.items()) if v is not None]
     return items
 
 
-def _load_crisis_dates() -> List[str]:
+def _load_crisis_dates() -> list[str]:
     """Lấy ngày VN được đánh dấu CRISIS/CRISIS_WARNING từ regime_history."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT date FROM regime_history "
-            "WHERE status IN ('CRISIS', 'CRISIS_WARNING') ORDER BY date"
+            "SELECT date FROM regime_history WHERE status IN ('CRISIS', 'CRISIS_WARNING') ORDER BY date"
         ).fetchall()
     return [r["date"] for r in rows]
 
 
 def ingest_from_macro_history(
     sensor: str,
-    variable: Optional[str] = None,
+    variable: str | None = None,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     require_full_horizon: bool = True,
 ) -> int:
@@ -476,7 +490,8 @@ def ingest_from_macro_history(
     # Lọc tín hiệu đã đóng cửa sổ
     max_known = crisis_dates[-1]
     from datetime import datetime, timedelta
-    closed: List[SensorSignal] = []
+
+    closed: list[SensorSignal] = []
     for ev in labeled:
         if not require_full_horizon:
             closed.append(ev)
@@ -495,9 +510,10 @@ def ingest_from_macro_history(
 
 # ── Reporting ─────────────────────────────────────────────────────────
 
+
 def format_profile(profile: SensorProfile, lang_mode: str = "annotated") -> str:
     """Render hồ sơ cảm biến thành text cho CLI."""
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("=" * 62)
     lines.append(f"  SENSOR PROFILE — {profile.sensor}")
     lines.append(f"  Horizon: {profile.horizon_days} phiên")
@@ -513,19 +529,13 @@ def format_profile(profile: SensorProfile, lang_mode: str = "annotated") -> str:
     if profile.lead_days_mean is not None:
         lines.append(f"  Lead time trung bình      : {profile.lead_days_mean:.1f} phiên")
         lines.append(f"  Lead time trung vị        : {profile.lead_days_median:.1f} phiên")
-        lines.append(
-            f"  Lead time min..max        : {profile.lead_days_min}..{profile.lead_days_max}"
-        )
+        lines.append(f"  Lead time min..max        : {profile.lead_days_min}..{profile.lead_days_max}")
     else:
         lines.append("  Lead time                 : N/A (chưa có crisis nào)")
 
     lines.append("  -- Theo signal_type --")
     for t, st in profile.by_type.items():
-        lead_txt = (f"{st['lead_days_median']:.1f}" if st["lead_days_median"] is not None
-                    else "N/A")
-        lines.append(
-            f"    {t:<14s} n={st['n']:<4d} P(C|S)={st['p_crisis']:.1%} "
-            f"lead={lead_txt}"
-        )
+        lead_txt = f"{st['lead_days_median']:.1f}" if st["lead_days_median"] is not None else "N/A"
+        lines.append(f"    {t:<14s} n={st['n']:<4d} P(C|S)={st['p_crisis']:.1%} lead={lead_txt}")
     lines.append("=" * 62)
     return "\n".join(lines)

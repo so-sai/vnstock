@@ -1,7 +1,6 @@
-﻿from typing import Optional
-
 import numpy as np
 import pandas as pd
+
 from backend.src.engine.drift_prevention import assess_drift
 from backend.src.engine.driver_normalizer import driver_state_from_engine_outputs
 from backend.src.engine.explain_layer import explain_snapshot
@@ -50,7 +49,7 @@ class RegimeROM:
         trending_threshold: float = 0.48,
         crisis_threshold: float = 0.35,
     ):
-        self.prev_regime: Optional[str] = None
+        self.prev_regime: str | None = None
         self.momentum: float = 0.45
         self.smoothing = smoothing
         self.trending_bias = trending_bias
@@ -63,7 +62,7 @@ class RegimeROM:
         breadth_score: float,
         flow_score: float,
         recovery_score: float,
-        driver_state: Optional[dict] = None,
+        driver_state: dict | None = None,
     ) -> dict:
         raw = max(0.0, min(1.0, 0.5 * breadth_score + 0.35 * flow_score + 0.15 * recovery_score))
 
@@ -115,7 +114,7 @@ class HSRBatchRunner:
 
     def __init__(self, lattice_df: pd.DataFrame):
         self._lattice = lattice_df
-        self._by_date: Optional[dict[str, pd.DataFrame]] = None
+        self._by_date: dict[str, pd.DataFrame] | None = None
 
     # ── Lattice access ────────────────────────────────────────────────
 
@@ -299,7 +298,7 @@ class HSRBatchRunner:
         cache = self._index()
         rom = RegimeROM()
 
-        prev_ets: Optional[float] = None
+        prev_ets: float | None = None
         for d in dates:
             day_df = cache.get(d)
             if day_df is None or len(day_df) == 0:
@@ -372,8 +371,8 @@ class HSRBatchRunner:
     def run_hazard(
         self,
         dates: list[str],
-        weights: Optional[dict[str, float]] = None,
-        seed: Optional[int] = None,
+        weights: dict[str, float] | None = None,
+        seed: int | None = None,
     ) -> list[dict]:
         """
         Run batch with HazardTransitionEngine instead of deterministic ROM.
@@ -390,7 +389,7 @@ class HSRBatchRunner:
         dbe_history = []
         cache = self._index()
         engine = HazardTransitionEngine(weights=weights, seed=seed)
-        prev_ets: Optional[float] = None
+        prev_ets: float | None = None
 
         for d in dates:
             day_df = cache.get(d)
@@ -465,10 +464,10 @@ class HazardBatchRunner(HSRBatchRunner):
         snapshots = runner.run(dates)  # uses hazard engine internally
     """
 
-    def __init__(self, lattice_df: pd.DataFrame, seed: Optional[int] = None):
+    def __init__(self, lattice_df: pd.DataFrame, seed: int | None = None):
         super().__init__(lattice_df)
         self._hazard_seed = seed
-        self._hazard_weights: Optional[dict[str, float]] = None
+        self._hazard_weights: dict[str, float] | None = None
 
     def set_weights(self, weights: dict[str, float]):
         self._hazard_weights = weights

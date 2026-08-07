@@ -1,4 +1,4 @@
-﻿"""data_quality_failover.py — Lớp kiểm soát chất lượng dữ liệu và cơ chế chuyển dịch nguồn cấp tự động.
+"""data_quality_failover.py — Lớp kiểm soát chất lượng dữ liệu và cơ chế chuyển dịch nguồn cấp tự động.
 
 Kiến trúc:
   - DataQualityNormalizer: Chuẩn hóa schema, hiệu chỉnh tỷ lệ chia tách (Ex-dividend Adjustment)
@@ -10,11 +10,11 @@ Usage:
   adapter = FailoverMultiSourceAdapter()
   df, source, is_stale = await adapter.fetch_historical_ohlcv_safe("ACB")
 """
+
 import asyncio
 import datetime
 import logging
 import sqlite3
-from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -39,20 +39,32 @@ class DataQualityNormalizer:
 
         mappings = {
             "vietcap": {
-                "date": "date", "symbol": "symbol",
-                "open": "open", "high": "high",
-                "low": "low", "close": "close", "volume": "volume"
+                "date": "date",
+                "symbol": "symbol",
+                "open": "open",
+                "high": "high",
+                "low": "low",
+                "close": "close",
+                "volume": "volume",
             },
             "ssi": {
-                "Date": "date", "Ticker": "symbol",
-                "Open": "open", "High": "high",
-                "Low": "low", "Close": "close", "Volume": "volume"
+                "Date": "date",
+                "Ticker": "symbol",
+                "Open": "open",
+                "High": "high",
+                "Low": "low",
+                "Close": "close",
+                "Volume": "volume",
             },
             "tcbs": {
-                "ngay": "date", "ma_cp": "symbol",
-                "mo_cua": "open", "cao_nhat": "high",
-                "thap_nhat": "low", "dong_cua": "close", "khoi_luong": "volume"
-            }
+                "ngay": "date",
+                "ma_cp": "symbol",
+                "mo_cua": "open",
+                "cao_nhat": "high",
+                "thap_nhat": "low",
+                "dong_cua": "close",
+                "khoi_luong": "volume",
+            },
         }
 
         mapping = mappings.get(source.lower())
@@ -83,9 +95,7 @@ class DataQualityNormalizer:
 
     @staticmethod
     def enforce_mathematical_continuity(
-        primary_series: pd.DataFrame,
-        failover_series: pd.DataFrame,
-        adaptive_threshold: float | None = None
+        primary_series: pd.DataFrame, failover_series: pd.DataFrame, adaptive_threshold: float | None = None
     ) -> pd.DataFrame:
         """
         Giao thức hiệu chỉnh tỷ lệ chia tách (Ex-dividend Adjustment Protocol).
@@ -160,12 +170,12 @@ class FailoverMultiSourceAdapter:
         self.db_path = db_path
         self.normalizer = DataQualityNormalizer()
 
-    async def _execute_with_timeout(self, sync_func, *args, timeout_sec: float) -> Optional[pd.DataFrame]:
+    async def _execute_with_timeout(self, sync_func, *args, timeout_sec: float) -> pd.DataFrame | None:
         """Bọc một hàm chặn luồng đồng bộ vào luồng phụ và kiểm soát bằng Timeout cứng."""
         try:
             df = await asyncio.to_thread(sync_func, *args)
             return df
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"[TIMEOUT_GATE] Tác vụ gọi API vượt ngưỡng kiểm soát {timeout_sec} giây.")
             return None
         except Exception as e:
@@ -182,8 +192,11 @@ class FailoverMultiSourceAdapter:
         data = {
             "Date": [datetime.date.today().isoformat()],
             "Ticker": [symbol],
-            "Open": [45.5], "High": [46.2], "Low": [45.0],
-            "Close": [45.8], "Volume": [1500000]
+            "Open": [45.5],
+            "High": [46.2],
+            "Low": [45.0],
+            "Close": [45.8],
+            "Volume": [1500000],
         }
         return pd.DataFrame(data)
 
@@ -203,7 +216,7 @@ class FailoverMultiSourceAdapter:
             logger.error(f"[DB_READ_ERROR] Thất bại khi truy xuất lịch sử cho {symbol}: {str(e)}")
             return pd.DataFrame()
 
-    async def fetch_historical_ohlcv_safe(self, symbol: str) -> Tuple[Optional[pd.DataFrame], str, bool]:
+    async def fetch_historical_ohlcv_safe(self, symbol: str) -> tuple[pd.DataFrame | None, str, bool]:
         """
         Luồng thực thi tích hợp an toàn:
         Vietcap (10s) → SSI (5s) → Chuẩn hóa & ghép chuỗi.
@@ -211,8 +224,7 @@ class FailoverMultiSourceAdapter:
         try:
             logger.info(f"📡 Đang tải dữ liệu sơ cấp cho {symbol} từ Vietcap...")
             df_raw = await asyncio.wait_for(
-                self._execute_with_timeout(self._fetch_vietcap_raw, symbol, timeout_sec=10.0),
-                timeout=10.0
+                self._execute_with_timeout(self._fetch_vietcap_raw, symbol, timeout_sec=10.0), timeout=10.0
             )
             if df_raw is not None and not df_raw.empty:
                 df_clean = self.normalizer.align_schema(df_raw, "vietcap")
@@ -222,15 +234,13 @@ class FailoverMultiSourceAdapter:
 
         try:
             df_fallback_raw = await asyncio.wait_for(
-                self._execute_with_timeout(self._fetch_ssi_fallback, symbol, timeout_sec=5.0),
-                timeout=5.0
+                self._execute_with_timeout(self._fetch_ssi_fallback, symbol, timeout_sec=5.0), timeout=5.0
             )
             if df_fallback_raw is not None and not df_fallback_raw.empty:
                 df_fallback_aligned = self.normalizer.align_schema(df_fallback_raw, "ssi")
                 df_history = self._get_historical_series_from_db(symbol)
                 df_fallback_final = self.normalizer.enforce_mathematical_continuity(
-                    primary_series=df_history,
-                    failover_series=df_fallback_aligned
+                    primary_series=df_history, failover_series=df_fallback_aligned
                 )
                 return df_fallback_final, "ssi", False
         except Exception as e:

@@ -1,11 +1,11 @@
-﻿import json
+import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -18,6 +18,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 backend_dir = PROJECT_ROOT / "backend"
@@ -56,9 +57,7 @@ class GapAnalyzer:
     def _get_cutoff(self):
         if self._cutoff is not None:
             return self._cutoff
-        max_date = self.conn.execute(
-            "SELECT MAX(date) FROM daily_ohlcv"
-        ).fetchone()[0]
+        max_date = self.conn.execute("SELECT MAX(date) FROM daily_ohlcv").fetchone()[0]
         if max_date is None:
             return datetime.now().strftime("%Y-%m-%d")
         max_dt = datetime.strptime(max_date, "%Y-%m-%d")
@@ -71,8 +70,7 @@ class GapAnalyzer:
             return self._trading_dates
         cutoff = self._get_cutoff()
         rows = self.conn.execute(
-            "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date >= ? ORDER BY date",
-            (cutoff,)
+            "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date >= ? ORDER BY date", (cutoff,)
         ).fetchall()
         self._trading_dates = [r[0] for r in rows]
         return self._trading_dates
@@ -83,8 +81,7 @@ class GapAnalyzer:
         cutoff = self._get_cutoff()
         from_db = set()
         rows = self.conn.execute(
-            "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30') AND date >= ?",
-            (cutoff,)
+            "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30') AND date >= ?", (cutoff,)
         ).fetchall()
         for r in rows:
             from_db.add(r[0])
@@ -101,8 +98,7 @@ class GapAnalyzer:
 
     def get_actual_symbols(self, target_date):
         rows = self.conn.execute(
-            "SELECT DISTINCT symbol FROM daily_ohlcv WHERE date=? AND symbol NOT IN ('VNINDEX', 'VN30')",
-            (target_date,)
+            "SELECT DISTINCT symbol FROM daily_ohlcv WHERE date=? AND symbol NOT IN ('VNINDEX', 'VN30')", (target_date,)
         ).fetchall()
         return set(r[0] for r in rows)
 
@@ -181,6 +177,7 @@ def run_gap_analyzer(output_path=None, lookback_months=3):
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="PTCK Gap Analyzer")
     parser.add_argument("--output", type=str, default=None, help="Output path for manifest JSON")
     parser.add_argument("--lookback-months", type=int, default=3, help="Number of months to analyze (default: 3)")

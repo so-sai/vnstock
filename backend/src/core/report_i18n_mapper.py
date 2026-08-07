@@ -1,8 +1,9 @@
-﻿"""Vietnamese semantic mapping layer for system reports.
+"""Vietnamese semantic mapping layer for system reports.
 
 Translates PSR / CAGL / CAO raw output into Vietnamese.
 Zero architecture change — presentation only.
 """
+
 from __future__ import annotations
 
 TERMS: dict[str, str] = {
@@ -20,17 +21,10 @@ TERMS: dict[str, str] = {
     "failed": "không đạt",
     "healthy": "bình thường",
     "degraded": "suy giảm",
-
     # Regime
-    "RANGING": "đi ngang",
-    "TRENDING": "xu hướng rõ",
-    "CRISIS": "khủng hoảng",
     "SIDEWAYS": "đi ngang",
-    "BULL": "tăng",
-    "BEAR": "giảm",
     "neutral": "trung tính",
     "UNKNOWN": "không xác định",
-
     # Flow State
     "THU_HẸP": "Thu hẹp",
     "THU_HEP": "Thu hẹp",
@@ -41,32 +35,26 @@ TERMS: dict[str, str] = {
     "CONCENTRATING": "Tập trung",
     "DISPERSING": "Phân tán",
     "ROTATING": "Luân chuyển",
-
     # Conviction / Confidence
     "HIGH": "Cao",
     "MEDIUM": "Trung bình",
     "LOW": "Thấp",
     "VERY_HIGH": "Rất cao",
     "VERY_LOW": "Rất thấp",
-
     # Leading / Lagging
     "LEADING": "Dẫn dắt",
     "LAGGING": "Tụt lại",
     "leading": "dẫn dắt",
     "lagging": "tụt lại",
-
     # Sector Performance
     "ACCELERATION": "Tăng tốc",
     "DECELERATION": "Chậm lại",
     "CONTINUATION": "Tiếp diễn",
     "STABLE": "Ổn định",
-    "NEUTRAL": "Trung tính",
-
     # Capital Displacement
     "MODERATE_TOP1_10%": "Trung bình, Top1 tập trung ~10%",
     "BANK_DOMINANT_40%": "Ngân hàng chi phối ~40%",
     "SECTOR_BREADTH_82%_POSITIVE": "Độ rộng ngành 82% tăng",
-
     # Fields
     "regime": "trạng thái thị trường",
     "market_state": "trạng thái thị trường",
@@ -75,7 +63,6 @@ TERMS: dict[str, str] = {
     "api_routes": "API",
     "data_quality": "chất lượng dữ liệu",
     "api_contract": "hợp đồng API",
-
     # System
     "snapshot": "bản ghi trạng thái",
     "routes": "endpoint",
@@ -84,7 +71,6 @@ TERMS: dict[str, str] = {
     "semantic_contract_hash": "mã băm hợp đồng ngữ nghĩa",
     "git_commit": "commit git",
     "timestamp": "thời gian",
-
     # CAGL
     "prefix_dup": "tiền tố trùng lặp",
     "phantom": "endpoint ảo",
@@ -92,27 +78,21 @@ TERMS: dict[str, str] = {
     "unregistered": "chưa đăng ký",
     "undocumented": "không có tài liệu",
     "prefix_mismatch": "sai lệch tiền tố",
-
     # General
     "error": "lỗi",
     "warning": "cảnh báo",
     "info": "thông tin",
     "none": "không có",
     "total": "tổng cộng",
-
     # Governor: Health Grades
     "HEALTHY": "Khỏe mạnh",
-    "FAIR": "Trung bình",
     "WEAK": "Yếu",
     "NO_DATA": "Ko dữ liệu",
-
     # Governor: Valuation Zones
     "ULTRA_CHEAP": "Cực rẻ",
     "CHEAP": "Rẻ",
-    "FAIR": "Trung bình",
     "EXPENSIVE": "Đắt",
     "ULTRA_EXPENSIVE": "Cực đắt",
-
     # Governor: Behavior Positions
     "IN_VA": "Trong VA",
     "BELOW_VA": "Dưới VA",
@@ -120,7 +100,6 @@ TERMS: dict[str, str] = {
     "IN_VA_DEMAND": "VA+cầu",
     "BELOW_VA_DEMAND": "Dưới VA+cầu",
     "ABOVE_VA_DEMAND": "Trên VA+cầu",
-
     # Governor: Mandates
     "VETO": "PHỦ QUYỀN",
     "OPEN": "MỞ VỊ THẾ",
@@ -129,18 +108,14 @@ TERMS: dict[str, str] = {
     "WAIT": "CHỜ",
     "REDUCE": "GIẢM",
     "AVOID": "TRÁNH XA",
-
     # Governor: Behavior Grades
     "STRONG": "Mạnh",
-    "NEUTRAL": "Trung tính",
-
     # Governor: Regime
     "RANGING": "Đi ngang",
     "TRENDING": "Xu hướng",
     "CRISIS": "Khủng hoảng",
     "BULL": "Tăng",
     "BEAR": "Giảm",
-
     # Reason phrases
     "VALUE_TRAP: Cheap due to asset quality risk (Receivables/Revenue high)": "BẪY GIÁ TRỊ: Rẻ do chất lượng TS kém (Phải thu/DT cao)",
     "WEAK fundamentals across all health metrics": "NỀN TẢNG YẾU trên mọi chỉ số sức khỏe",
@@ -150,7 +125,6 @@ TERMS: dict[str, str] = {
     "Chua du dieu kien, cho them tinhieu xac nhan": "Chưa đủ điều kiện, chờ thêm tín hiệu xác nhận",
     "Giam vi the, dinh gia dat (z=": "Giảm vị thế, định giá đắt (z=",
     "Tranh xa: dat + yeu": "Tránh xa: đắt + yếu",
-
     # Logic rule descriptions
     "L2_RED_FLAG + L3_CHEAP = VALUE_TRAP": "L2_RED_FLAG + L3_RẺ = BẪY GIÁ TRỊ",
     "L2_WEAK = VETO": "L2_YẾU = PHỦ QUYỀN",
@@ -172,7 +146,6 @@ FIELD_LABELS: dict[str, str] = {
     "api_routes": "API",
     "api_contract": "Hợp đồng API",
     "weekly_report": "Báo cáo tuần",
-
     # Flow State
     "flow_state": "Trạng thái dòng tiền",
     "flow_velocity": "Tốc độ dòng tiền",
@@ -184,7 +157,6 @@ FIELD_LABELS: dict[str, str] = {
     "lagging_sectors": "Ngành tụt lại",
     "sector_share": "Phân bổ dòng tiền theo ngành",
     "sector_performance": "Hiệu suất ngành hôm nay",
-
     # Breadth
     "health_score": "Điểm sức khỏe thị trường",
     "advancers": "Số mã tăng",
@@ -192,7 +164,6 @@ FIELD_LABELS: dict[str, str] = {
     "unchanged": "Số mã đứng giá",
     "total_active": "Tổng mã hoạt động",
     "nh10_count": "Số mã phá MA10",
-
     # Capital Displacement
     "classification_capital": "Phân loại dịch chuyển vốn",
     "conviction": "Độ tin cậy",
@@ -200,13 +171,11 @@ FIELD_LABELS: dict[str, str] = {
     "top1_concentration": "Mức tập trung Top1",
     "top3_concentration": "Mức tập trung Top3",
     "sector_breadth": "Độ rộng ngành",
-
     # Market Overview
     "market_regime": "Trạng thái thị trường",
     "status_vi": "Diễn giải",
     "active_model": "Model hoạt động",
     "consensus": "Đồng thuận",
-
     # RSI
     "bull_count": "S mã tăng (RSI)",
     "bear_count": "S mã giảm (RSI)",

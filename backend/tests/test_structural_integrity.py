@@ -6,9 +6,10 @@ regime_engine, gold routes, presentation layer) must resolve at both dev-time
 (Python) and build-time (Nuitka frozen). A missing import causes silent binary
 failure. Do NOT delete or rename exported symbols without adding a new test here.
 """
+import pathlib
 import sqlite3
 import sys
-import pathlib
+
 import pytest
 
 

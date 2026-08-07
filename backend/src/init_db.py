@@ -350,9 +350,7 @@ def check_schema(db_path: str) -> bool:
         return False
     try:
         conn = sqlite3.connect(str(path))
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         conn.close()
         return len(tables) > 0
     except Exception:

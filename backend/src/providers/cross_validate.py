@@ -21,8 +21,9 @@ cross-validatable, and the primary data still stands.
 """
 
 import logging
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -35,7 +36,7 @@ FLAG_DISCREPANCY = "FLAG_DISCREPANCY"
 FLAG_NO_SECONDARY = "NO_SECONDARY"
 
 # Core metrics that matter most for audit (aligned with financial_facts).
-CORE_METRICS: Dict[str, tuple] = {
+CORE_METRICS: dict[str, tuple] = {
     "income_statement": ("NET_REVENUE", "COGS", "NET_PROFIT", "OPERATING_PROFIT"),
     "balance_sheet": ("TOTAL_ASSETS", "TOTAL_LIABILITIES", "EQUITY"),
     "cashflow": ("CFO", "CFI", "CFF", "NET_CHANGE_IN_CASH"),
@@ -69,7 +70,7 @@ def _normalize(df: pd.DataFrame, source: str, method: str) -> pd.DataFrame:
                 continue
             try:
                 long_rows.append((metric, period, float(val)))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
     out = pd.DataFrame(long_rows, columns=["metric", "period", "value"])
     return out if not out.empty else pd.DataFrame(columns=["metric", "period", "value"])
@@ -90,7 +91,7 @@ def compare_statements(
     secondary_source: str,
     method: str,
     threshold: float = DEFAULT_THRESHOLD,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compare two statements; return {status, max_error, metrics, ...}."""
     p = _normalize(primary, source, method)
     s = _normalize(secondary, secondary_source, method)
@@ -101,7 +102,7 @@ def compare_statements(
     sv = s.pivot_table(index="period", columns="metric", values="value", aggfunc="first")
 
     core = CORE_METRICS.get(method, ())
-    metric_errors: Dict[str, float] = {}
+    metric_errors: dict[str, float] = {}
     compared = 0
     for metric in core:
         if metric not in pv.columns or metric not in sv.columns:
@@ -134,7 +135,7 @@ def compare_statements(
 
 
 def cross_validate(
-    method_name: Optional[str] = None,
+    method_name: str | None = None,
     secondary_source: str = "KBS",
     threshold: float = DEFAULT_THRESHOLD,
 ) -> Callable:
@@ -147,6 +148,7 @@ def cross_validate(
         @cross_validate(secondary_source="KBS")
         def income_statement(self, symbol, **kwargs): ...
     """
+
     def _decorate(fn: Callable) -> Callable:
         name = method_name or fn.__name__
 
@@ -167,7 +169,7 @@ def cross_validate(
                     method=name,
                     threshold=threshold,
                 )
-            except Exception as e:  # noqa: BLE001 - secondary failures never break primary
+            except Exception as e:
                 logger.debug("Cross-validation failed for %s/%s: %s", symbol, name, e)
                 report = {"status": FLAG_NO_SECONDARY, "max_error": 0.0, "metrics": {}}
 

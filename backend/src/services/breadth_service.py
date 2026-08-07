@@ -1,14 +1,15 @@
-﻿"""
+"""
 Breadth Service Layer v1.0
 Độ rộng thị trường chi tiết — Market Pulse.
 """
+
 import logging
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -21,6 +22,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -41,7 +43,7 @@ def get_breadth_analysis() -> dict:
         if not result:
             return {"error": "No breadth data available"}
 
-        health = result.get('health_score_ma20', 0)
+        health = result.get("health_score_ma20", 0)
         if health > 70:
             trend = "Bullish"
         elif health < 30:
@@ -50,14 +52,14 @@ def get_breadth_analysis() -> dict:
             trend = "Neutral"
 
         return {
-            "date": result.get('date', ''),
-            "totalActive": result.get('total_active', 0),
-            "advancers": result.get('advancers', 0),
-            "decliners": result.get('decliners', 0),
-            "unchanged": result.get('unchanged', 0),
+            "date": result.get("date", ""),
+            "totalActive": result.get("total_active", 0),
+            "advancers": result.get("advancers", 0),
+            "decliners": result.get("decliners", 0),
+            "unchanged": result.get("unchanged", 0),
             "healthScoreMa20": health,
-            "nh10Count": result.get('nh10_count', 0),
-            "nh10Consistency3d": result.get('nh10_consistency_3d', 0),
+            "nh10Count": result.get("nh10_count", 0),
+            "nh10Consistency3d": result.get("nh10_consistency_3d", 0),
             "trend": trend,
         }
     except Exception as e:
@@ -71,19 +73,22 @@ def get_breadth_history(limit: int = 60) -> list:
     """
     try:
         with get_connection() as conn:
-            df = pd.read_sql(f"""
+            df = pd.read_sql(
+                f"""
                 SELECT date, breadth_pct, breadth_velocity, status
                 FROM regime_history
                 WHERE breadth_pct IS NOT NULL
                 ORDER BY date DESC
                 LIMIT {limit}
-            """, conn)
+            """,
+                conn,
+            )
 
         if df.empty:
             return []
 
-        df['date'] = pd.to_datetime(df['date'], format='mixed').dt.strftime('%Y-%m-%d')
-        return df.to_dict(orient='records')
+        df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
+        return df.to_dict(orient="records")
     except Exception as e:
         logger.error(f"Breadth history failed: {e}")
         return []

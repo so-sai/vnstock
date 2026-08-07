@@ -1,11 +1,11 @@
-﻿import os
+import os
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
     """Path Hydrator v2.1: Auto-locate Project Root"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -18,6 +18,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 import glob
@@ -54,29 +55,29 @@ def generate_dashboard() -> str:
         print("⚠️ Không tìm thấy file template dashboard_v2.html.")
         return ""
 
-    with open(template_path, 'r', encoding='utf-8') as f:
+    with open(template_path, encoding="utf-8") as f:
         html_template = f.read()
 
     # 3. Chuẩn bị Dữ liệu Meta (Nấc 0 & 1)
-    market_phase = df['Market Phase'].iloc[0] if not df.empty else "N/A"
-    breadth = df['Breadth'].iloc[0] if not df.empty else "N/A"
-    buy_count = len(df[df['Action'].str.contains("BUY|ACCUMULATE")])
+    market_phase = df["Market Phase"].iloc[0] if not df.empty else "N/A"
+    breadth = df["Breadth"].iloc[0] if not df.empty else "N/A"
+    buy_count = len(df[df["Action"].str.contains("BUY|ACCUMULATE")])
 
     # 4. Render Table Body (Sử dụng logic thay thế đơn giản thay cho Jinja2 để tương thích 100%)
     # Lưu ý: Ở đây tôi build chuỗi HTML thô để nhúng vào template
     table_rows = ""
     for _, row in df.iterrows():
-        rs_class = "rs-high" if float(row['RS Score']) > 90 else ""
-        action_class = "buy" if "BUY" in str(row['Action']) else ("watch" if "WATCH" in str(row['Action']) else "hold")
+        rs_class = "rs-high" if float(row["RS Score"]) > 90 else ""
+        action_class = "buy" if "BUY" in str(row["Action"]) else ("watch" if "WATCH" in str(row["Action"]) else "hold")
 
         row_html = f"""
         <tr>
-            <td class="symbol-cell">{row['Symbol']}</td>
-            <td><span class="rs-badge {rs_class}">{row['RS Score']}</span></td>
-            <td>{row['RVOL']:.2f}</td>
-            <td class="f-acc">{row['Foreign 10D Acc (Bn)']}</td>
-            <td><span class="sector-tag">{row['Sector']}</span></td>
-            <td><span class="action-chip {action_class}">{row['Action']}</span></td>
+            <td class="symbol-cell">{row["Symbol"]}</td>
+            <td><span class="rs-badge {rs_class}">{row["RS Score"]}</span></td>
+            <td>{row["RVOL"]:.2f}</td>
+            <td class="f-acc">{row["Foreign 10D Acc (Bn)"]}</td>
+            <td><span class="sector-tag">{row["Sector"]}</span></td>
+            <td><span class="action-chip {action_class}">{row["Action"]}</span></td>
         </tr>
         """
         table_rows += row_html
@@ -98,12 +99,12 @@ def generate_dashboard() -> str:
 
     # 6. Xuất bản Dashboard
     output_path = os.path.join(src.config.DATA_DIR, "output", "dashboard_v2.html")
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(final_html)
 
     print(f"✨ Dashboard v2.0 đã sẵn sàng: {output_path}")
     return output_path
 
+
 if __name__ == "__main__":
     generate_dashboard()
-

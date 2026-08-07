@@ -1,4 +1,4 @@
-﻿import random
+import random
 import sys
 import time
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,6 +19,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import get_connection
@@ -35,7 +36,7 @@ def run_background_sweep():
     all_symbols = set(listing.symbols() or [])
 
     with get_connection() as conn:
-        ohlcv_symbols = set([r[0] for r in conn.execute('SELECT DISTINCT symbol FROM daily_ohlcv').fetchall()])
+        ohlcv_symbols = set([r[0] for r in conn.execute("SELECT DISTINCT symbol FROM daily_ohlcv").fetchall()])
 
     missing_symbols = sorted(list(all_symbols - ohlcv_symbols))
     print(f"📊 Tổng số mã thị trường: {len(all_symbols)}")
@@ -52,32 +53,33 @@ def run_background_sweep():
     start_time = time.time()
 
     for i in range(0, len(missing_symbols), batch_size):
-        batch = missing_symbols[i:i+batch_size]
-        print(f"\n📦 Đang xử lý Batch {i//batch_size + 1}/{len(missing_symbols)//batch_size + 1} ({len(batch)} mã)...")
+        batch = missing_symbols[i : i + batch_size]
+        print(f"\n📦 Đang xử lý Batch {i // batch_size + 1}/{len(missing_symbols) // batch_size + 1} ({len(batch)} mã)...")
 
         for symbol in batch:
             try:
                 # Bỏ qua các chỉ số
-                if symbol in ['VNINDEX', 'VN30', 'HNXINDEX', 'UPINDEX']: continue
+                if symbol in ["VNINDEX", "VN30", "HNXINDEX", "UPINDEX"]:
+                    continue
 
-                print(f"📡 Fetching {symbol}...", end=' ', flush=True)
-                provider = VnstockProvider(source='kbs')
-                df_hist = provider.history(symbol, length='135', interval='1D')  # 135 → 125 (6M) after drops
+                print(f"📡 Fetching {symbol}...", end=" ", flush=True)
+                provider = VnstockProvider(source="kbs")
+                df_hist = provider.history(symbol, length="135", interval="1D")  # 135 → 125 (6M) after drops
 
                 if df_hist is not None and not df_hist.empty:
-                    df_hist = df_hist.rename(columns={'time': 'date'})
-                    df_hist['symbol'] = symbol
-                    df_hist['source'] = 'kbs'
-                    if 'adj_close' not in df_hist.columns:
-                        df_hist['adj_close'] = df_hist['close']
+                    df_hist = df_hist.rename(columns={"time": "date"})
+                    df_hist["symbol"] = symbol
+                    df_hist["source"] = "kbs"
+                    if "adj_close" not in df_hist.columns:
+                        df_hist["adj_close"] = df_hist["close"]
 
                     # Mapping columns for DB
-                    cols = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
+                    cols = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
                     df_hist = df_hist[cols]
 
                     # Persistence
                     with get_connection() as conn:
-                        df_hist.to_sql('daily_ohlcv', conn, if_exists='append', index=False)
+                        df_hist.to_sql("daily_ohlcv", conn, if_exists="append", index=False)
 
                     success_count += 1
                     print("✅", flush=True)
@@ -98,11 +100,12 @@ def run_background_sweep():
         time.sleep(5)
 
     total_runtime = time.time() - start_time
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("🏁 HOÀN TẤT BACKGROUND SWEEP")
     print(f"📊 Số mã đã nạp thành công: {success_count}")
-    print(f"⏱️ Tổng thời gian: {total_runtime/60:.1f} phút")
-    print("="*50)
+    print(f"⏱️ Tổng thời gian: {total_runtime / 60:.1f} phút")
+    print("=" * 50)
+
 
 if __name__ == "__main__":
     run_background_sweep()

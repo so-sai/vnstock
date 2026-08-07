@@ -1,4 +1,4 @@
-﻿"""
+"""
 erl_worker.py — One-shot ERL Scan Worker for Tauri Desktop Sidecar.
 
 Kiến trúc 3 lớp chống ban IP:
@@ -10,21 +10,21 @@ Chế độ hoạt động:
   - CLI:  python ptck.py erl-scan
   - Tauri Sidecar: Gọi one-shot, không background loop.
 """
+
 import json
 import logging
-import os
 import sqlite3
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, date
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 # ── Config ──
-LIQUIDITY_MIN_BN = 1.0          # Thanh khoản tối thiểu (tỷ VND)
-RS_RANK_MIN = 50                 # RS Rating percentile tối thiểu
-TOP_CANDIDATES = 100             # Số candidate sau Phase 1
-WHITELIST_SIZE = 30              # Số mã trong whitelist cuối
+LIQUIDITY_MIN_BN = 1.0  # Thanh khoản tối thiểu (tỷ VND)
+RS_RANK_MIN = 50  # RS Rating percentile tối thiểu
+TOP_CANDIDATES = 100  # Số candidate sau Phase 1
+WHITELIST_SIZE = 30  # Số mã trong whitelist cuối
 CRISIS_HARD_LIQUIDITY_GATE_PCT = 0.005  # % tổng giá trị giao dịch toàn thị trường
 CRISIS_HARD_LIQUIDITY_GATE_FLOOR = 50.0  # tỷ VND — ngưỡng tối thiểu
 WHITELIST_FILENAME = "erl_whitelist.json"
@@ -37,10 +37,10 @@ MARKET_CLOSE_MINUTE = 5
 class ERLStock:
     symbol: str
     rs_rating: float
-    avg_value_20d: float       # tỷ VND
+    avg_value_20d: float  # tỷ VND
     avg_vol_20d: float
     price: float
-    p_survive: float = 0.5     # P(Survive) from proxy
+    p_survive: float = 0.5  # P(Survive) from proxy
     volume_penalty: float = 1.0
     volatility_proxy: float = 1.0
     anomaly_streak: int = 0
@@ -80,9 +80,11 @@ def _is_holiday(d: date) -> bool:
         return True
     try:
         from src.config import PROJECT_ROOT
+
         cal_path = PROJECT_ROOT / "backend" / "src" / "config" / "weekend_holidays.json"
         if cal_path.exists():
             import json
+
             data = json.loads(cal_path.read_text(encoding="utf-8"))
             return d.isoformat() in data.get("holidays", [])
     except Exception:
@@ -112,8 +114,7 @@ def _compute_dynamic_gate(data_dir: Path) -> tuple[float, float]:
     try:
         conn = sqlite3.connect(str(db_path))
         cursor = conn.execute(
-            "SELECT SUM(close * volume / 1e9) FROM daily_ohlcv "
-            "WHERE date = (SELECT MAX(date) FROM daily_ohlcv)"
+            "SELECT SUM(close * volume / 1e9) FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv)"
         )
         row = cursor.fetchone()
         conn.close()
@@ -140,9 +141,7 @@ def latest_closed_session(now: datetime | None = None) -> date:
     today = now.date()
 
     # Đã qua 15:05?
-    if now.hour > MARKET_CLOSE_HOUR or (
-        now.hour == MARKET_CLOSE_HOUR and now.minute >= MARKET_CLOSE_MINUTE
-    ):
+    if now.hour > MARKET_CLOSE_HOUR or (now.hour == MARKET_CLOSE_HOUR and now.minute >= MARKET_CLOSE_MINUTE):
         if not _is_holiday(today):
             return today
 
@@ -153,6 +152,7 @@ def latest_closed_session(now: datetime | None = None) -> date:
 def _find_data_dir() -> Path:
     """Locate backend/data directory."""
     from src.config import DATA_DIR
+
     return Path(DATA_DIR)
 
 
@@ -162,7 +162,7 @@ def _load_rs_data(data_dir: Path) -> list[dict]:
     if not rs_path.exists():
         logger.error("market_rs.json not found. Run rs_ranker first.")
         return []
-    with open(rs_path, "r", encoding="utf-8") as f:
+    with open(rs_path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -171,7 +171,7 @@ def _load_regime_snapshot(data_dir: Path) -> dict:
     idx_path = data_dir / "output" / "snapshot_index.json"
     if idx_path.exists():
         try:
-            with open(idx_path, "r", encoding="utf-8") as f:
+            with open(idx_path, encoding="utf-8") as f:
                 idx = json.load(f)
             if idx:
                 latest = idx[-1]
@@ -179,7 +179,7 @@ def _load_regime_snapshot(data_dir: Path) -> dict:
                     "regime": latest.get("regime", "UNKNOWN"),
                     "delta_sa": latest.get("delta_sa", 0),
                 }
-        except (json.JSONDecodeError, IndexError):
+        except json.JSONDecodeError, IndexError:
             pass
     return {"regime": "UNKNOWN", "delta_sa": 0}
 
@@ -201,19 +201,24 @@ def phase1_coarse_filter(data_dir: Path) -> list[ERLStock]:
         val = float(row.get("avg_value_20d", 0) or 0)
         rs = float(row.get("rs_rating", 0) or 0)
         if val >= LIQUIDITY_MIN_BN and rs >= RS_RANK_MIN:
-            candidates.append(ERLStock(
-                symbol=row["symbol"],
-                rs_rating=rs,
-                avg_value_20d=val,
-                avg_vol_20d=float(row.get("avg_vol_20d", 0) or 0),
-                price=float(row.get("price", 0) or 0),
-            ))
+            candidates.append(
+                ERLStock(
+                    symbol=row["symbol"],
+                    rs_rating=rs,
+                    avg_value_20d=val,
+                    avg_vol_20d=float(row.get("avg_vol_20d", 0) or 0),
+                    price=float(row.get("price", 0) or 0),
+                )
+            )
 
     candidates.sort(key=lambda x: x.rs_rating, reverse=True)
     top = candidates[:TOP_CANDIDATES]
     logger.info(
         "[Phase 1] Đã lọc %d/%d mã từ local RS data (≥%.0f tỷ, RS≥%.0f).",
-        len(top), len(rs_data), LIQUIDITY_MIN_BN, RS_RANK_MIN,
+        len(top),
+        len(rs_data),
+        LIQUIDITY_MIN_BN,
+        RS_RANK_MIN,
     )
     return top
 
@@ -302,7 +307,9 @@ def build_whitelist(
         if removed:
             logger.info(
                 "[Hard Gate] CRISIS regime: loại %d mã Small-cap <%.0f tỷ (%.2f%% tổng TT).",
-                removed, gate_value, CRISIS_HARD_LIQUIDITY_GATE_PCT * 100,
+                removed,
+                gate_value,
+                CRISIS_HARD_LIQUIDITY_GATE_PCT * 100,
             )
     else:
         gate_value = 0.0
@@ -342,7 +349,8 @@ def build_whitelist(
 
     logger.info(
         "[Whitelist] Đã ghi %d mã vào %s",
-        len(top30), out_path,
+        len(top30),
+        out_path,
     )
     return whitelist
 
@@ -406,7 +414,8 @@ def needs_catchup(data_dir: Path | None = None) -> bool:
         if last_scan != expected.isoformat():
             logger.info(
                 "Catch-up needed: last_scan=%s, expected=%s (latest closed session).",
-                last_scan, expected,
+                last_scan,
+                expected,
             )
             return True
         return False
@@ -422,9 +431,9 @@ def get_whitelist(data_dir: Path | None = None) -> dict:
     if not path.exists():
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
+    except json.JSONDecodeError, FileNotFoundError:
         return {}
 
 

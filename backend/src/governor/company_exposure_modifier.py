@@ -37,7 +37,6 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +101,7 @@ class ModifierProfile:
 # ── Stock profiles ────────────────────────────────────────────────────
 # Format: symbol → ModifierProfile
 
-STOCK_PROFILES: Dict[str, ModifierProfile] = {
+STOCK_PROFILES: dict[str, ModifierProfile] = {
     # ── STEEL ────────────────────────────────────────────────────────
     # HPG: Vertical integration, MIXED contracts, NORMAL inventory
     "HPG": ModifierProfile(
@@ -308,7 +307,7 @@ class CompanyExposureModifier:
       # result.effective_half_life = 18.0
     """
 
-    def __init__(self, custom_profiles: Optional[Dict[str, ModifierProfile]] = None):
+    def __init__(self, custom_profiles: dict[str, ModifierProfile] | None = None):
         self.profiles = custom_profiles or STOCK_PROFILES
 
     def get_profile(self, symbol: str) -> ModifierProfile:

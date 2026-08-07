@@ -22,7 +22,6 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 # WHY (Rule 2, namespace hygiene): RELATIVE imports — the absolute
 # `from src.governor.*` form only resolves when `backend/` is on sys.path.
@@ -156,7 +155,7 @@ class LiquidityRecoveryIndex:
     REGIME_WINDOW = 90  # 90-day rolling avg for regime detection
     EPOCH_WINDOW = 1250  # 5-year window for epoch baseline
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -164,7 +163,7 @@ class LiquidityRecoveryIndex:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def _fetch_latest_macro(self, variable: str, target_date: Optional[str] = None) -> Optional[float]:
+    def _fetch_latest_macro(self, variable: str, target_date: str | None = None) -> float | None:
         """Fetch latest value for a macro variable, optionally bounded by target_date."""
         conn = self._get_conn()
         try:
@@ -184,7 +183,7 @@ class LiquidityRecoveryIndex:
         finally:
             conn.close()
 
-    def _fetch_ma90_usdvnd(self, target_date: Optional[str] = None) -> Optional[float]:
+    def _fetch_ma90_usdvnd(self, target_date: str | None = None) -> float | None:
         """Fetch 90-day MA of USD/VND ending at target_date."""
         conn = self._get_conn()
         try:
@@ -206,7 +205,7 @@ class LiquidityRecoveryIndex:
         finally:
             conn.close()
 
-    def _fetch_interbank_values(self, target_date: Optional[str] = None, limit: int = 1250) -> list:
+    def _fetch_interbank_values(self, target_date: str | None = None, limit: int = 1250) -> list:
         """Fetch interbank values for analysis."""
         conn = self._get_conn()
         try:
@@ -226,7 +225,7 @@ class LiquidityRecoveryIndex:
         finally:
             conn.close()
 
-    def _classify_regime_fuzzy(self, target_date: Optional[str] = None) -> tuple:
+    def _classify_regime_fuzzy(self, target_date: str | None = None) -> tuple:
         """Classify regime using HMM and return fuzzy probabilities.
 
         Returns (regime_label, regime_probs_dict, hmm_fitted).
@@ -275,7 +274,7 @@ class LiquidityRecoveryIndex:
 
         return round(p10, 2), round(p90, 2), alpha
 
-    def _fetch_latest_foreign_flow(self, target_date: Optional[str] = None) -> Optional[float]:
+    def _fetch_latest_foreign_flow(self, target_date: str | None = None) -> float | None:
         """Fetch latest 10-day cumulative foreign net flow (billion VND)."""
         conn = self._get_conn()
         try:
@@ -315,7 +314,7 @@ class LiquidityRecoveryIndex:
         finally:
             conn.close()
 
-    def _fetch_latest_breadth(self, target_date: Optional[str] = None) -> Optional[float]:
+    def _fetch_latest_breadth(self, target_date: str | None = None) -> float | None:
         """Fetch latest market breadth from regime_history."""
         conn = self._get_conn()
         try:
@@ -332,7 +331,7 @@ class LiquidityRecoveryIndex:
         finally:
             conn.close()
 
-    def compute(self, target_date: Optional[str] = None) -> LRIResult:
+    def compute(self, target_date: str | None = None) -> LRIResult:
         """Compute LRI from latest available data.
 
         Args:
@@ -447,7 +446,7 @@ class LiquidityRecoveryIndex:
         )
 
 
-def compute_lri(db_path: Optional[str] = None, target_date: Optional[str] = None) -> LRIResult:
+def compute_lri(db_path: str | None = None, target_date: str | None = None) -> LRIResult:
     """Convenience function to compute LRI."""
     return LiquidityRecoveryIndex(db_path).compute(target_date)
 

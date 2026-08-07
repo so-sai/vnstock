@@ -18,7 +18,6 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -103,8 +102,8 @@ class RegionalMacroResult:
     component_scores: dict  # Raw indicator scores
     data_quality: dict  # Which indicators had data
     node_details: dict  # Per-node decomposition
-    momentum: Optional[dict] = None  # {node: Δscore over lookback} — direction of change
-    confidence: Optional[dict] = None  # {node: data completeness ratio [0,1]}
+    momentum: dict | None = None  # {node: Δscore over lookback} — direction of change
+    confidence: dict | None = None  # {node: data completeness ratio [0,1]}
 
     def __post_init__(self) -> None:
         if self.momentum is None:
@@ -130,10 +129,10 @@ class RegionalInfluenceEngine:
       #  'Commodity_Cycle': 0.58, 'Domestic_Liquidity': 0.61}
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
 
-    def _fetch_latest(self, variable: str, target_date: Optional[str] = None) -> Optional[float]:
+    def _fetch_latest(self, variable: str, target_date: str | None = None) -> float | None:
         """Fetch latest value for a macro variable.
 
         WHY: VNINDEX lives in daily_ohlcv (not macro_history) because it's
@@ -183,7 +182,7 @@ class RegionalInfluenceEngine:
         finally:
             conn.close()
 
-    def _fetch_rolling_avg(self, variable: str, window: int = 20, target_date: Optional[str] = None) -> Optional[float]:
+    def _fetch_rolling_avg(self, variable: str, window: int = 20, target_date: str | None = None) -> float | None:
         """Fetch rolling average for a macro variable."""
         # WHY: relative import (Rule 2, namespace hygiene) — see the
         # NOTE in _fetch_latest above; absolute `src.*` import is CWD-dependent.
@@ -213,7 +212,7 @@ class RegionalInfluenceEngine:
         finally:
             conn.close()
 
-    def _normalize_indicator(self, variable: str, value: Optional[float], invert: bool = False) -> Optional[float]:
+    def _normalize_indicator(self, variable: str, value: float | None, invert: bool = False) -> float | None:
         """Normalize a macro indicator to [0, 1]."""
         if value is None:
             return None
@@ -244,7 +243,7 @@ class RegionalInfluenceEngine:
             return weighted_sum / total_weight
         return 0.5  # neutral when no data
 
-    def compute(self, target_date: Optional[str] = None) -> RegionalMacroResult:
+    def compute(self, target_date: str | None = None) -> RegionalMacroResult:
         """Compute Macro State Vector M.
 
         Returns:
@@ -337,9 +336,7 @@ class RegionalInfluenceEngine:
             confidence=confidence,
         )
 
-    def _compute_historical_node_score(
-        self, node_name: str, target_date: Optional[str], lookback_days: int = 30
-    ) -> Optional[float]:
+    def _compute_historical_node_score(self, node_name: str, target_date: str | None, lookback_days: int = 30) -> float | None:
         """Compute node score at a historical date for momentum comparison."""
         if not target_date:
             return None
@@ -377,7 +374,7 @@ class RegionalInfluenceEngine:
         return self._compute_node_score(node_name, indicator_scores, data_quality)
 
 
-def compute_macro_vector(target_date: Optional[str] = None, db_path: Optional[str] = None) -> dict:
+def compute_macro_vector(target_date: str | None = None, db_path: str | None = None) -> dict:
     """Convenience function: returns just the M vector dict."""
     engine = RegionalInfluenceEngine(db_path)
     result = engine.compute(target_date)

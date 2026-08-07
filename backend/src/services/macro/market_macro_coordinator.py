@@ -1,4 +1,4 @@
-﻿"""
+"""
 market_macro_coordinator.py — Phase Classification via 4 Spectral Indicators.
 
 Architecture: PTD Layer 2.5 (Coordinator Context)
@@ -16,7 +16,6 @@ Architecture: PTD Layer 2.5 (Coordinator Context)
 
 import logging
 from collections import deque
-from typing import Optional
 
 import numpy as np
 
@@ -26,20 +25,20 @@ logger = logging.getLogger(__name__)
 
 # Eigenvalue spread
 LAMBDA_RATIO_BOTTOM_UPPER = 3.5  # ratio <= this + converging → bottom
-LAMBDA_RATIO_DIST_LOWER = 5.0    # ratio >= this → distribution
-LAMBDA_MAX_SURGE = 0.5           # λ₁ rising above this → distribution signal
+LAMBDA_RATIO_DIST_LOWER = 5.0  # ratio >= this → distribution
+LAMBDA_MAX_SURGE = 0.5  # λ₁ rising above this → distribution signal
 
 # Spectral entropy slope (per session, over 20-window)
-ENTROPY_SLOPE_BOTTOM = -0.005   # d(entropy)/dt < this → structure reforming
-ENTROPY_SLOPE_DIST = 0.005      # d(entropy)/dt > this → fragmenting
+ENTROPY_SLOPE_BOTTOM = -0.005  # d(entropy)/dt < this → structure reforming
+ENTROPY_SLOPE_DIST = 0.005  # d(entropy)/dt > this → fragmenting
 
 # Cross-asset rotation (degrees)
-ROTATION_ANGLE_DIST = 45.0      # angle > this → distribution
-ROTATION_ANGLE_BOTTOM = 30.0    # angle < this → accumulation
+ROTATION_ANGLE_DIST = 45.0  # angle > this → distribution
+ROTATION_ANGLE_BOTTOM = 30.0  # angle < this → accumulation
 
 # KL divergence
-KL_CONVERGING = 1.0             # max_kl < this → regimes converging
-KL_DIVERGING = 2.0              # max_kl > this → regimes diverging
+KL_CONVERGING = 1.0  # max_kl < this → regimes converging
+KL_DIVERGING = 2.0  # max_kl > this → regimes diverging
 
 # Weighted voting
 VOTE_WEIGHTS = {
@@ -48,7 +47,7 @@ VOTE_WEIGHTS = {
     "cross_asset_rotation": 0.25,
     "kl_divergence": 0.20,
 }
-CLASSIFY_THRESHOLD = 0.60       # min weighted vote share to classify
+CLASSIFY_THRESHOLD = 0.60  # min weighted vote share to classify
 
 
 class MarketMacroCoordinator:
@@ -74,12 +73,14 @@ class MarketMacroCoordinator:
 
     # ── Public API ───────────────────────────────────────────────────
 
-    def update(self,
-               eigenvalue_data: Optional[dict] = None,
-               cross_asset_angle: Optional[float] = None,
-               kl_max: Optional[float] = None,
-               covariance_inflated: bool = False,
-               governor_confidence_override: Optional[float] = None) -> dict:
+    def update(
+        self,
+        eigenvalue_data: dict | None = None,
+        cross_asset_angle: float | None = None,
+        kl_max: float | None = None,
+        covariance_inflated: bool = False,
+        governor_confidence_override: float | None = None,
+    ) -> dict:
         """Compute 4 spectral indicators and classify phase.
 
         Parameters
@@ -198,7 +199,7 @@ class MarketMacroCoordinator:
 
         lambda_max_now = current.get("lambda_max", 0.0)
         lambda_ratio_now = current.get("lambda_ratio", 1.0)
-        lambda_ratio_prev = prev.get("lambda_ratio", 1.0)
+        prev.get("lambda_ratio", 1.0)
         lambda_ratio_start = first.get("lambda_ratio", 1.0)
 
         # λ₁ velocity: first difference of lambda_max
@@ -217,9 +218,7 @@ class MarketMacroCoordinator:
 
         # Bottom signals
         ratio_trend = lambda_ratio_now - lambda_ratio_start
-        if (lambda_ratio_now <= LAMBDA_RATIO_BOTTOM_UPPER
-                and ratio_trend < -0.1
-                and lambda_velocity < 0.01):
+        if lambda_ratio_now <= LAMBDA_RATIO_BOTTOM_UPPER and ratio_trend < -0.1 and lambda_velocity < 0.01:
             vote += 1
             reasons.append(f"ratio={lambda_ratio_now:.1f} converging (Δ={ratio_trend:+.2f})")
         elif lambda_ratio_now <= LAMBDA_RATIO_BOTTOM_UPPER:
@@ -269,8 +268,7 @@ class MarketMacroCoordinator:
     # ── Indicator 3: Cross-asset Eigenvector Rotation ───────────────
 
     @staticmethod
-    def compute_cross_asset_rotation(vn_corr: np.ndarray,
-                                     combined_corr: np.ndarray) -> float:
+    def compute_cross_asset_rotation(vn_corr: np.ndarray, combined_corr: np.ndarray) -> float:
         """Compute angle between leading eigenvectors of VN-only vs VN+ES=F.
 
         Parameters

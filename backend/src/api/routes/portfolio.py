@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,6 +19,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -76,12 +77,14 @@ async def get_portfolio():
 async def add_new_position(pos: PositionInput):
     """Thêm vị thế mới."""
     try:
-        return localize_output(add_position(
-            symbol=pos.symbol,
-            quantity=pos.quantity,
-            entry_price=pos.entry_price,
-            fee_paid=pos.fee_paid,
-        ))
+        return localize_output(
+            add_position(
+                symbol=pos.symbol,
+                quantity=pos.quantity,
+                entry_price=pos.entry_price,
+                fee_paid=pos.fee_paid,
+            )
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -108,11 +111,13 @@ async def update_portfolio_cash(cash: CashInput):
 async def update_portfolio_position(symbol: str, data: PositionUpdate):
     """Cập nhật vị thế (số lượng hoặc giá vốn)."""
     try:
-        return localize_output(update_position(
-            symbol=symbol,
-            quantity=data.quantity,
-            entry_price=data.entry_price,
-        ))
+        return localize_output(
+            update_position(
+                symbol=symbol,
+                quantity=data.quantity,
+                entry_price=data.entry_price,
+            )
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -127,34 +132,34 @@ async def observatory_summary():
         holdings = get_open_positions()
         heat = get_portfolio_heat()
         nav = summary.get("latest_snapshot", {}).get("total_nav", 0)
-        return localize_output({
-            "open_positions": summary.get("open_positions", 0),
-            "total_shares": summary.get("total_shares", 0),
-            "market_value_vnd": round(summary.get("market_value_vnd", 0), 0),
-            "portfolio_heat_pct": round(heat, 2),
-            "net_exposure_pct": round(
-                (summary.get("market_value_vnd", 0) / nav * 100) if nav else 0, 2
-            ),
-            "total_nav": round(nav, 0),
-            "telemetry": summary.get("latest_snapshot", {}),
-            "holdings": [
-                {
-                    "id": h["id"],
-                    "symbol": h["symbol"],
-                    "status": h["status"],
-                    "regime_at_entry": h.get("regime_at_entry", ""),
-                    "entry_date": h.get("entry_date", ""),
-                    "avg_cost": round(h.get("avg_cost", 0), 0),
-                    "current_size": h.get("current_size", 0),
-                    "stop_loss_price": round(h.get("stop_loss_price", 0), 0),
-                    "conviction_score": round(h.get("conviction_score", 0.0), 2),
-                    "initial_risk_pct": round(h.get("initial_risk_pct", 0.0), 2),
-                    "thesis_source": h.get("thesis_source", ""),
-                    "thesis_notes": h.get("thesis_notes", ""),
-                }
-                for h in holdings
-            ],
-        })
+        return localize_output(
+            {
+                "open_positions": summary.get("open_positions", 0),
+                "total_shares": summary.get("total_shares", 0),
+                "market_value_vnd": round(summary.get("market_value_vnd", 0), 0),
+                "portfolio_heat_pct": round(heat, 2),
+                "net_exposure_pct": round((summary.get("market_value_vnd", 0) / nav * 100) if nav else 0, 2),
+                "total_nav": round(nav, 0),
+                "telemetry": summary.get("latest_snapshot", {}),
+                "holdings": [
+                    {
+                        "id": h["id"],
+                        "symbol": h["symbol"],
+                        "status": h["status"],
+                        "regime_at_entry": h.get("regime_at_entry", ""),
+                        "entry_date": h.get("entry_date", ""),
+                        "avg_cost": round(h.get("avg_cost", 0), 0),
+                        "current_size": h.get("current_size", 0),
+                        "stop_loss_price": round(h.get("stop_loss_price", 0), 0),
+                        "conviction_score": round(h.get("conviction_score", 0.0), 2),
+                        "initial_risk_pct": round(h.get("initial_risk_pct", 0.0), 2),
+                        "thesis_source": h.get("thesis_source", ""),
+                        "thesis_notes": h.get("thesis_notes", ""),
+                    }
+                    for h in holdings
+                ],
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

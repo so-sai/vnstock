@@ -1,4 +1,4 @@
-﻿"""PaperBroker — Sandbox API cho Phase 5 UAT & Paper Trading Simulation.
+"""PaperBroker — Sandbox API cho Phase 5 UAT & Paper Trading Simulation.
 
 Mô hình fill Depth-Weighted + Slippage Almgren-Chriss (square-root impact).
 Streaming L1/L2, network failure injection, empty book scenarios.
@@ -8,14 +8,13 @@ import math
 import random
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from math import sqrt
-from typing import Optional
 
 from src.execution.twap_executor import BrokerAPI
 
-
 # ── Order Book ─────────────────────────────────────────────
+
 
 @dataclass
 class Level:
@@ -30,6 +29,7 @@ class OrderBook:
     bids: sorted descending (highest bid first)
     asks: sorted ascending (lowest ask first)
     """
+
     symbol: str
     bids: list = field(default_factory=list)
     asks: list = field(default_factory=list)
@@ -37,22 +37,25 @@ class OrderBook:
     volatility: float = 0.02
 
     @classmethod
-    def build(cls, symbol: str, mid: float = 100.0, spread: float = 0.5,
-              depth_per_level: float = 5000, n_levels: int = 5,
-              volatility: float = 0.02):
+    def build(
+        cls,
+        symbol: str,
+        mid: float = 100.0,
+        spread: float = 0.5,
+        depth_per_level: float = 5000,
+        n_levels: int = 5,
+        volatility: float = 0.02,
+    ):
         """Build a symmetric order book."""
         bids = []
         asks = []
         for i in range(n_levels):
             offset = spread / 2 + i * 0.1
-            bids.append(Level(price=round(mid - offset - i * 0.05, 2),
-                              volume=depth_per_level * (1 - i * 0.1)))
-            asks.append(Level(price=round(mid + offset + i * 0.05, 2),
-                              volume=depth_per_level * (1 - i * 0.1)))
+            bids.append(Level(price=round(mid - offset - i * 0.05, 2), volume=depth_per_level * (1 - i * 0.1)))
+            asks.append(Level(price=round(mid + offset + i * 0.05, 2), volume=depth_per_level * (1 - i * 0.1)))
         bids.sort(key=lambda x: x.price, reverse=True)
         asks.sort(key=lambda x: x.price)
-        return cls(symbol=symbol, bids=bids, asks=asks,
-                   last_price=mid, volatility=volatility)
+        return cls(symbol=symbol, bids=bids, asks=asks, last_price=mid, volatility=volatility)
 
     def best_bid(self) -> float:
         return self.bids[0].price if self.bids else 0.0
@@ -76,11 +79,11 @@ class OrderBook:
 
     def depth_for_sell(self, limit_price: float) -> list:
         """All bid levels at or above limit_price (available to hit)."""
-        return [l for l in self.bids if l.price >= limit_price]
+        return [lvl for lvl in self.bids if lvl.price >= limit_price]
 
     def depth_for_buy(self, limit_price: float) -> list:
         """All ask levels at or below limit_price (available to lift)."""
-        return [l for l in self.asks if l.price <= limit_price]
+        return [lvl for lvl in self.asks if lvl.price <= limit_price]
 
     def consume(self, side: str, limit_price: float, qty: float) -> dict:
         """Destructively consume depth — Order Book Thinning simulation.
@@ -91,13 +94,13 @@ class OrderBook:
         """
         mid = self.mid_price()
         if side.upper() == "SELL":
-            levels = [l for l in self.bids if l.price >= limit_price]
+            levels = [lvl for lvl in self.bids if lvl.price >= limit_price]
             levels.sort(key=lambda x: x.price, reverse=True)
         else:
-            levels = [l for l in self.asks if l.price <= limit_price]
+            levels = [lvl for lvl in self.asks if lvl.price <= limit_price]
             levels.sort(key=lambda x: x.price)
 
-        if not levels or sum(l.volume for l in levels) <= 0:
+        if not levels or sum(lvl.volume for lvl in levels) <= 0:
             return {"filled_qty": 0, "status": "PENDING"}
 
         running_qty = 0.0
@@ -120,13 +123,13 @@ class OrderBook:
             "status": "FILLED" if is_full else "PARTIAL_FILLED",
         }
 
-    def random_walk(self, sigma: Optional[float] = None) -> None:
+    def random_walk(self, sigma: float | None = None) -> None:
         """Advance one tick: geometric Brownian motion with spread refresh."""
         s = sigma or self.volatility
         ret = random.gauss(0, s / sqrt(252 * 6.5 * 60))
         shift = self.last_price * ret
         new_mid = self.last_price + shift
-        spread = self.spread() or 0.5
+        self.spread() or 0.5
         self.last_price = new_mid
         # Shift all levels
         bid_shift = new_mid - (self.bids[0].price + self.asks[0].price) / 2 if self.bids and self.asks else 0
@@ -140,32 +143,32 @@ class OrderBook:
 
     def drain_bids(self) -> None:
         """Set all bid volumes to 0 — simulate Buyer Strike."""
-        for l in self.bids:
-            l.volume = 0
+        for lvl in self.bids:
+            lvl.volume = 0
 
     def drain_asks(self) -> None:
         """Set all ask volumes to 0 — simulate Seller Strike."""
-        for l in self.asks:
-            l.volume = 0
+        for lvl in self.asks:
+            lvl.volume = 0
 
     def restore_depth(self, vol: float = 5000) -> None:
         """Restore depth after drain."""
-        for i, l in enumerate(self.bids):
-            l.volume = vol * (1 - i * 0.1)
-        for i, l in enumerate(self.asks):
-            l.volume = vol * (1 - i * 0.1)
+        for i, lvl in enumerate(self.bids):
+            lvl.volume = vol * (1 - i * 0.1)
+        for i, lvl in enumerate(self.asks):
+            lvl.volume = vol * (1 - i * 0.1)
 
     def freeze(self) -> dict:
         """Snapshot and clear book — Trading Halt."""
         snapshot = {
-            "bids": [(l.price, l.volume) for l in self.bids],
-            "asks": [(l.price, l.volume) for l in self.asks],
+            "bids": [(lvl.price, lvl.volume) for lvl in self.bids],
+            "asks": [(lvl.price, lvl.volume) for lvl in self.asks],
             "last_price": self.last_price,
         }
-        for l in self.bids:
-            l.volume = 0
-        for l in self.asks:
-            l.volume = 0
+        for lvl in self.bids:
+            lvl.volume = 0
+        for lvl in self.asks:
+            lvl.volume = 0
         return snapshot
 
     def unfreeze(self, snapshot: dict) -> None:
@@ -183,6 +186,7 @@ class OrderBook:
 
 # ── Paper Broker ───────────────────────────────────────────
 
+
 class PaperBroker(BrokerAPI):
     """Sandbox broker with depth-weighted fill + slippage model.
 
@@ -192,16 +196,14 @@ class PaperBroker(BrokerAPI):
       - Slippage = |fill_price - mid_price| / mid_price
     """
 
-    def __init__(self, book: Optional[OrderBook] = None,
-                 impact_coeff: float = 0.3,
-                 hourly_volume: float = 500_000):
+    def __init__(self, book: OrderBook | None = None, impact_coeff: float = 0.3, hourly_volume: float = 500_000):
         super().__init__()
         self.book = book or OrderBook.build("SANDBOX")
         self.impact_coeff = impact_coeff
         self.hourly_volume = hourly_volume
         self._network_down: bool = False
         self._trading_halt: bool = False
-        self._freeze_snapshot: Optional[dict] = None
+        self._freeze_snapshot: dict | None = None
         self._slippage_log: list[dict] = []
 
     # ── Network & Halt simulation ──────────────────────────
@@ -240,47 +242,56 @@ class PaperBroker(BrokerAPI):
 
     # ── Order placement with fill simulation ──────────────
 
-    def place_limit_order(self, symbol: str, side: str,
-                          quantity: float, price: float) -> str:
+    def place_limit_order(self, symbol: str, side: str, quantity: float, price: float) -> str:
         oid = f"PAPER_{self._next_id + 1:06d}"
         self._next_id += 1
 
         if self._trading_halt:
             order = {
-                "order_id": oid, "symbol": symbol, "side": side,
-                "quantity": quantity, "filled_qty": 0.0,
-                "price": price, "fill_price": None,
+                "order_id": oid,
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantity,
+                "filled_qty": 0.0,
+                "price": price,
+                "fill_price": None,
                 "status": "HALTED",
                 "slippage": 0.0,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             }
             self._orders[oid] = order
             return oid
 
         fill = self._simulate_fill(side, quantity, price)
         order = {
-            "order_id": oid, "symbol": symbol, "side": side,
-            "quantity": quantity, "filled_qty": fill.get("filled_qty", 0.0),
-            "price": price, "fill_price": fill.get("fill_price"),
+            "order_id": oid,
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "filled_qty": fill.get("filled_qty", 0.0),
+            "price": price,
+            "fill_price": fill.get("fill_price"),
             "status": fill["status"],
             "slippage": fill.get("slippage", 0.0),
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         self._orders[oid] = order
 
         if fill.get("slippage", 0) > 0:
-            self._slippage_log.append({
-                "oid": oid, "side": side,
-                "qty": fill.get("filled_qty", 0),
-                "slippage": fill["slippage"],
-                "fill_price": fill.get("fill_price"),
-                "mid": self.book.mid_price(),
-            })
+            self._slippage_log.append(
+                {
+                    "oid": oid,
+                    "side": side,
+                    "qty": fill.get("filled_qty", 0),
+                    "slippage": fill["slippage"],
+                    "fill_price": fill.get("fill_price"),
+                    "mid": self.book.mid_price(),
+                }
+            )
 
         return oid
 
-    def _simulate_fill(self, side: str, qty: float,
-                       limit_price: float) -> dict:
+    def _simulate_fill(self, side: str, qty: float, limit_price: float) -> dict:
         """Depth-weighted fill with destructive Order Book Thinning.
 
         Consumes depth from live OrderBook — subsequent orders see
@@ -320,16 +331,19 @@ class StreamingFeed:
     Tự động phát hiện Trading Halt khi không có tick > HALT_DETECTION_INTERVAL_S.
     """
 
-    def __init__(self, symbol: str = "SANDBOX",
-                 base_price: float = 100.0,
-                 volatility: float = 0.02,
-                 halt_timeout: float = HALT_DETECTION_INTERVAL_S):
+    def __init__(
+        self,
+        symbol: str = "SANDBOX",
+        base_price: float = 100.0,
+        volatility: float = 0.02,
+        halt_timeout: float = HALT_DETECTION_INTERVAL_S,
+    ):
         self.book = OrderBook.build(symbol, mid=base_price, volatility=volatility)
         self.tick_count = 0
         self._last_tick_time: float = 0.0
         self._halt_timeout = halt_timeout
         self._halted: bool = False
-        self._halt_start: Optional[float] = None
+        self._halt_start: float | None = None
 
     def tick(self) -> OrderBook:
         """Advance one tick (random walk)."""
@@ -341,7 +355,7 @@ class StreamingFeed:
             self._halt_start = None
         return self.book
 
-    def check_halt(self, now: Optional[float] = None) -> bool:
+    def check_halt(self, now: float | None = None) -> bool:
         """Auto-detect trading halt: no ticks for > halt_timeout seconds."""
         if self.tick_count == 0:
             return False

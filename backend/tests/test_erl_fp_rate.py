@@ -7,7 +7,6 @@ Do luong TPR va FPR de tinh chinh bo tham so (VR, RS_Z).
 Run: python -m pytest backend/tests/test_erl_fp_rate.py -v
 """
 import random
-import pytest
 
 # Default params from entity_resilience_layer.py
 DEFAULT_VR = 2.0

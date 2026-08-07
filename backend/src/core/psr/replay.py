@@ -1,4 +1,4 @@
-﻿"""DeterministicReplayEngine — load snapshot → reproduce → compare.
+"""DeterministicReplayEngine — load snapshot → reproduce → compare.
 
 The core of PSR reproducibility: given the same input snapshot
 (regime state, gold state, trust state, DQ state), does the system
@@ -7,11 +7,11 @@ produce the identical output?
 Only as deterministic as the underlying engines — but captures any
 non-determinism (time-based seeds, external API calls, mutable globals).
 """
+
 from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
 
 from src.core.psr.models import (
     PSRDiff,
@@ -34,7 +34,7 @@ class DeterministicReplayEngine:
     def __init__(self):
         self._snapper = SystemStateSnapshotter()
 
-    def replay(self, snapshot_id: str) -> Optional[PSRReplayResult]:
+    def replay(self, snapshot_id: str) -> PSRReplayResult | None:
         """Load and replay a single snapshot.
 
         Returns:
@@ -84,12 +84,14 @@ class DeterministicReplayEngine:
             orig_val = getattr(original, field, {}) or {}
             replay_val = getattr(replayed, field, {}) or {}
             match = self._dicts_match(orig_val, replay_val)
-            diffs.append(PSRDiff(
-                field=field,
-                original=orig_val,
-                replayed=replay_val,
-                match=match,
-            ))
+            diffs.append(
+                PSRDiff(
+                    field=field,
+                    original=orig_val,
+                    replayed=replay_val,
+                    match=match,
+                )
+            )
         return diffs
 
     @staticmethod
@@ -98,7 +100,7 @@ class DeterministicReplayEngine:
         if key_a != key_b:
             return False
         for k in key_a:
-            if type(a[k]) != type(b[k]):
+            if type(a[k]) is not type(b[k]):
                 return False
             if isinstance(a[k], float):
                 if abs(a[k] - b[k]) > 0.001:

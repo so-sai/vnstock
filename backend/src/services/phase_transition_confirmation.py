@@ -1,13 +1,12 @@
-﻿import logging
+import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -47,10 +46,12 @@ _KET_LUAN_MAP = {
 }
 
 
-def xac_nhan_chuyen_pha(regime_data: Optional[dict] = None,
-                         market_state: Optional[dict] = None,
-                         gold_premium_pct: Optional[float] = None,
-                         gold_premium_regime: Optional[str] = None) -> dict:
+def xac_nhan_chuyen_pha(
+    regime_data: dict | None = None,
+    market_state: dict | None = None,
+    gold_premium_pct: float | None = None,
+    gold_premium_regime: str | None = None,
+) -> dict:
     nhom_dat = 0
     nhom_ket_qua = {}
 

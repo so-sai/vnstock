@@ -1,4 +1,4 @@
-﻿"""LiveFeed — Real Data Pipeline Adapter (Phase 5 UAT).
+"""LiveFeed — Real Data Pipeline Adapter (Phase 5 UAT).
 
 Kết nối StreamingFeed trực tiếp với API VNSTOCK hoặc nguồn dữ liệu tương đương.
 Xử lý latency jitter: timestamp alignment, out-of-order packets, data gaps.
@@ -9,11 +9,9 @@ Interface:
   - disconnect()
 """
 
-import time
 from dataclasses import dataclass
-from typing import Optional
 
-from src.execution.paper_broker import OrderBook, Level
+from src.execution.paper_broker import OrderBook
 
 
 @dataclass
@@ -38,7 +36,7 @@ class LiveFeed:
     def disconnect(self) -> None:
         self._connected = False
 
-    def read_tick(self) -> Optional[OrderBook]:
+    def read_tick(self) -> OrderBook | None:
         """Đọc một tick từ nguồn thực.
 
         Returns None nếu không có dữ liệu mới (data gap) hoặc mất kết nối.

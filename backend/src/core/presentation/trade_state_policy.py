@@ -1,5 +1,4 @@
-
-from .models import TradeStatePolicy, TradeStateLevel, ActionConstraint
+from .models import ActionConstraint, TradeStateLevel, TradeStatePolicy
 
 _TRADE_STATE_DEFS: dict[TradeStateLevel, TradeStatePolicy] = {
     "PROHIBITED": TradeStatePolicy(
@@ -23,7 +22,9 @@ _TRADE_STATE_DEFS: dict[TradeStateLevel, TradeStatePolicy] = {
         max_position_pct=5.0,
         allowed_actions=["HOLD", "REDUCE", "EXIT"],
         require_confirmation=True,
-        narrative_vi="Thị trường yếu nền, dòng tiền tập trung hẹp. Chỉ giữ hoặc giảm vị thế, không mua mới nếu không có xác nhận mạnh.",
+        narrative_vi=(
+            "Thị trường yếu nền, dòng tiền tập trung hẹp. Chỉ giữ hoặc giảm vị thế, không mua mới nếu không có xác nhận mạnh."
+        ),
         action_rule_vi="Không mua mới. Giảm vị thế yếu. Chỉ giữ leader thực sự nếu MSM=MANH + RS mạnh.",
     ),
     "SELECTIVE": TradeStatePolicy(
@@ -172,14 +173,7 @@ def compute_trade_state(
     s_risk = _score_risk(risk_governor)
     s_bdi = _score_bdi(bdi_signal)
 
-    total = (
-        w_regime * s_regime
-        + w_breadth * s_breadth
-        + w_lcr * s_lcr
-        + w_flow * s_flow
-        + w_risk * s_risk
-        + w_bdi * s_bdi
-    )
+    total = w_regime * s_regime + w_breadth * s_breadth + w_lcr * s_lcr + w_flow * s_flow + w_risk * s_risk + w_bdi * s_bdi
 
     veto = risk_governor == "LOCKDOWN"
     veto_reason = None

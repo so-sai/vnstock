@@ -1,4 +1,4 @@
-﻿"""
+"""
 RS Audit — Bộ phân tích nguồn gốc sức mạnh Top RS
 
 PHÁC THẢO KIẾN TRÚC MODULE 4 TRỤ
@@ -42,15 +42,15 @@ Lưu ý:
   - Dùng để quan sát, chưa để ra quyết định.
   - Cần ít nhất 3 tháng dữ liệu để kiểm định giá trị dự báo.
 """
+
 import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent
@@ -65,17 +65,19 @@ def _hydrate_path():
             sys.path.insert(0, str(p))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
-if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
+if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
     import io
+
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import pandas as pd
 
 import src.config
@@ -84,16 +86,31 @@ from src.engine.universe import SECTOR_MAP
 
 # ── Mapping ICB → tên ngành rút gọn ──────────────────────────
 ICB_ALIAS = {
-    "Ngân hàng": "BANK", "Chứng khoán": "SEC", "Bất động sản": "RE",
-    "Dầu khí": "OIL", "Xây dựng & Vật liệu": "CONST", "Xây dựng": "CONST",
-    "Công nghệ Thông tin": "TECH", "Công nghệ": "TECH",
-    "Thực phẩm & Đồ uống": "FOOD", "Thực phẩm": "FOOD", "Đồ uống": "FOOD",
-    "Du lịch & Giải trí": "TRAVEL", "Vận tải": "TRANS",
-    "Bán lẻ": "RETAIL", "Bảo hiểm": "INSUR", "Hóa chất": "CHEM",
-    "Tài nguyên Cơ bản": "RESOURCE", "Điện, nước & xăng dầu": "UTIL",
-    "Hàng & Dịch vụ Công nghiệp": "INDUST", "Dịch vụ tài chính": "FIN_SVC",
-    "Ô tô & Phụ tùng": "AUTO", "Y tế": "HEALTH", "Viễn thông": "TELCO",
-    "Truyền thông": "MEDIA", "Hàng cá nhân & Gia dụng": "PERSONAL",
+    "Ngân hàng": "BANK",
+    "Chứng khoán": "SEC",
+    "Bất động sản": "RE",
+    "Dầu khí": "OIL",
+    "Xây dựng & Vật liệu": "CONST",
+    "Xây dựng": "CONST",
+    "Công nghệ Thông tin": "TECH",
+    "Công nghệ": "TECH",
+    "Thực phẩm & Đồ uống": "FOOD",
+    "Thực phẩm": "FOOD",
+    "Đồ uống": "FOOD",
+    "Du lịch & Giải trí": "TRAVEL",
+    "Vận tải": "TRANS",
+    "Bán lẻ": "RETAIL",
+    "Bảo hiểm": "INSUR",
+    "Hóa chất": "CHEM",
+    "Tài nguyên Cơ bản": "RESOURCE",
+    "Điện, nước & xăng dầu": "UTIL",
+    "Hàng & Dịch vụ Công nghiệp": "INDUST",
+    "Dịch vụ tài chính": "FIN_SVC",
+    "Ô tô & Phụ tùng": "AUTO",
+    "Y tế": "HEALTH",
+    "Viễn thông": "TELCO",
+    "Truyền thông": "MEDIA",
+    "Hàng cá nhân & Gia dụng": "PERSONAL",
 }
 
 # ── Hệ số cho điểm xác nhận thị trường ────────────────────────
@@ -113,11 +130,11 @@ NGUONG = {
 }
 
 
-def _load_rs_data() -> List[dict]:
+def _load_rs_data() -> list[dict]:
     path = os.path.join(src.config.DATA_DIR, "market_rs.json")
     if not os.path.exists(path):
         return []
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -125,15 +142,15 @@ def _load_group_influence() -> dict:
     path = os.path.join(src.config.DATA_DIR, "group_influence_report.json")
     if not os.path.exists(path):
         return {}
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _load_icb_sectors() -> Dict[str, str]:
+def _load_icb_sectors() -> dict[str, str]:
     try:
         with get_connection() as conn:
             df = pd.read_sql("SELECT symbol, icb_name2 FROM symbol_industry", conn)
-        return dict(zip(df['symbol'], df['icb_name2']))
+        return dict(zip(df["symbol"], df["icb_name2"]))
     except Exception:
         return {}
 
@@ -149,30 +166,28 @@ def _resolve_sector(symbol: str, icb_map: dict) -> str:
     return icb[:12] if icb != "OTHER" else "OTHER"
 
 
-def _compute_sector_breadth(icb_map: dict) -> Dict[str, float]:
+def _compute_sector_breadth(icb_map: dict) -> dict[str, float]:
     with get_connection() as conn:
         latest = pd.read_sql("SELECT MAX(date) as d FROM daily_ohlcv WHERE symbol='VNINDEX'", conn)
-        if latest.empty or latest.iloc[0]['d'] is None:
+        if latest.empty or latest.iloc[0]["d"] is None:
             return {}
-        target_date = latest.iloc[0]['d']
+        target_date = latest.iloc[0]["d"]
 
         prev = pd.read_sql(
             "SELECT symbol, close FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv WHERE date < ?)",
-            conn, params=(target_date,)
+            conn,
+            params=(target_date,),
         )
-        curr = pd.read_sql(
-            "SELECT symbol, close FROM daily_ohlcv WHERE date = ?",
-            conn, params=(target_date,)
-        )
+        curr = pd.read_sql("SELECT symbol, close FROM daily_ohlcv WHERE date = ?", conn, params=(target_date,))
 
-    merged = curr.merge(prev, on='symbol', how='inner', suffixes=('', '_prev'))
+    merged = curr.merge(prev, on="symbol", how="inner", suffixes=("", "_prev"))
     merged = merged.copy()
-    merged.loc[:, 'change_pct'] = ((merged['close'] - merged['close_prev']) / merged['close_prev']) * 100
-    merged.loc[:, 'nganh'] = merged['symbol'].map(lambda s: _resolve_sector(s, icb_map))
+    merged.loc[:, "change_pct"] = ((merged["close"] - merged["close_prev"]) / merged["close_prev"]) * 100
+    merged.loc[:, "nganh"] = merged["symbol"].map(lambda s: _resolve_sector(s, icb_map))
 
     results = {}
-    for nganh, group in merged.groupby('nganh'):
-        up_count = (group['change_pct'] > 0.5).sum()
+    for nganh, group in merged.groupby("nganh"):
+        up_count = (group["change_pct"] > 0.5).sum()
         results[nganh] = round(up_count / len(group) * 100, 1)
 
     return results
@@ -226,14 +241,13 @@ def _score_tru_nganh(sector_breadth: float) -> float:
 
 def _diem_xac_nhan(tru_gia: float, tru_thanh_khoan: float, tru_nganh: float) -> float:
     """Điểm xác nhận thị trường tổng hợp (0-1)."""
-    raw = (tru_gia * TRONG_SO["gia"]
-           + tru_thanh_khoan * TRONG_SO["thanh_khoan"]
-           + tru_nganh * TRONG_SO["nganh"])
+    raw = tru_gia * TRONG_SO["gia"] + tru_thanh_khoan * TRONG_SO["thanh_khoan"] + tru_nganh * TRONG_SO["nganh"]
     return round(raw / sum(TRONG_SO.values()), 2)
 
 
-def _phan_loai(tru_gia: float, tru_thanh_khoan: float, tru_nganh: float,
-               diem: float, group_tag: str | None, is_large_cap: bool) -> str:
+def _phan_loai(
+    tru_gia: float, tru_thanh_khoan: float, tru_nganh: float, diem: float, group_tag: str | None, is_large_cap: bool
+) -> str:
     """Phân loại nguồn gốc sức mạnh."""
     if tru_thanh_khoan < 0.2:
         return "CHƯA ĐỦ DỮ LIỆU"
@@ -256,7 +270,7 @@ def _phan_loai(tru_gia: float, tru_thanh_khoan: float, tru_nganh: float,
     return "CHƯA ĐỦ DỮ LIỆU"
 
 
-def run_rs_audit(top_n: int = 20) -> List[dict]:
+def run_rs_audit(top_n: int = 20) -> list[dict]:
     rs_data = _load_rs_data()
     if not rs_data:
         print("  Chưa có dữ liệu RS. Chạy 'python ptck.py scan' trước.")
@@ -294,21 +308,23 @@ def run_rs_audit(top_n: int = 20) -> List[dict]:
         is_large_cap = (price * avg_vol * 1_000_000) > 10_000_000_000_000
         ket_luan = _phan_loai(tru_gia, tru_thanh_khoan, tru_nganh, diem, group_tag, is_large_cap)
 
-        results.append({
-            "symbol": sym,
-            "rs_rating": rs_rating,
-            "price": price,
-            "avg_vol_20d": int(avg_vol),
-            "avg_value_20d_bn": round(avg_value, 2),
-            "change_1y_pct": round(change_1y, 1),
-            "rvol": rvol,
-            "sector": sector,
-            "sector_breadth_pct": sec_breadth,
-            "liquidity": liq,
-            "group_influence": group_tag or "—",
-            "diem_xac_nhan": diem,
-            "ket_luan": ket_luan,
-        })
+        results.append(
+            {
+                "symbol": sym,
+                "rs_rating": rs_rating,
+                "price": price,
+                "avg_vol_20d": int(avg_vol),
+                "avg_value_20d_bn": round(avg_value, 2),
+                "change_1y_pct": round(change_1y, 1),
+                "rvol": rvol,
+                "sector": sector,
+                "sector_breadth_pct": sec_breadth,
+                "liquidity": liq,
+                "group_influence": group_tag or "—",
+                "diem_xac_nhan": diem,
+                "ket_luan": ket_luan,
+            }
+        )
 
         if len(results) >= top_n:
             break
@@ -316,7 +332,7 @@ def run_rs_audit(top_n: int = 20) -> List[dict]:
     return results
 
 
-def in_bao_cao(results: List[dict]):
+def in_bao_cao(results: list[dict]):
     if not results:
         print("  Không có dữ liệu.")
         return
@@ -345,7 +361,7 @@ def in_bao_cao(results: List[dict]):
 
     for i, r in enumerate(results, 1):
         color = colors.get(r["ket_luan"], "")
-        vol_str = f"{r['avg_vol_20d']/1000:.0f}K" if r['avg_vol_20d'] < 1_000_000 else f"{r['avg_vol_20d']/1_000_000:.1f}M"
+        vol_str = f"{r['avg_vol_20d'] / 1000:.0f}K" if r["avg_vol_20d"] < 1_000_000 else f"{r['avg_vol_20d'] / 1_000_000:.1f}M"
         kl = r["ket_luan"]
         line = (
             f"  {i:<3} {r['symbol']:<6} {r['rs_rating']:>3} {r['price']:>7.1f} "

@@ -68,7 +68,7 @@ class NumpyEncoder(json.JSONEncoder):
         # Lazy import numpy — db_core không hard-depend numpy lúc import.
         try:
             import numpy as np
-        except Exception:  # pragma: no cover  # noqa: BLE001 - numpy optional dep
+        except Exception:  # pragma: no cover
             np = None
 
         if np is not None:
@@ -98,14 +98,14 @@ class NumpyEncoder(json.JSONEncoder):
         if callable(to_dict):
             try:
                 return to_dict()
-            except Exception:  # pragma: no cover  # noqa: BLE001, S110 - best-effort serialization
+            except Exception:  # pragma: no cover
                 pass
         # pydantic BaseModel (model_dump)
         model_dump = getattr(obj, "model_dump", None)
         if callable(model_dump):
             try:
                 return model_dump()
-            except Exception:  # pragma: no cover  # noqa: BLE001, S110 - best-effort serialization
+            except Exception:  # pragma: no cover
                 pass
         return super().default(obj)
 
@@ -241,13 +241,13 @@ def optimize_sqlite_engine():
         # Migration: add is_stale column to macro_history if missing
         try:
             cursor.execute("ALTER TABLE macro_history ADD COLUMN is_stale INTEGER DEFAULT 0")
-        except Exception:  # noqa: BLE001, S110 - idempotent migration (col exists)
+        except Exception:
             pass
 
         # Migration: add is_stale to daily_ohlcv (needed by EliteArmor stale detection)
         try:
             cursor.execute("ALTER TABLE daily_ohlcv ADD COLUMN is_stale INTEGER DEFAULT 0")
-        except Exception:  # noqa: BLE001, S110 - idempotent migration (col exists)
+        except Exception:
             pass
 
         # 6b. TẠO BẢNG SỨC KHỎE HỆ THỐNG (System Health Ledger cho Governor Engine)

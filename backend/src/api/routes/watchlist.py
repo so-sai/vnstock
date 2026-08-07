@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,6 +19,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -84,21 +85,23 @@ async def get_recommendations():
     """Layer 2: Đề xuất AI động hôm nay (3-tier)."""
     try:
         result = generate_recommendations()
-        recs = result.get('recommendations', {})
+        recs = result.get("recommendations", {})
         tiers = {}
-        for tier_key in ['core', 'rotation', 'opportunity']:
+        for tier_key in ["core", "rotation", "opportunity"]:
             items = recs.get(tier_key, [])
             tiers[tier_key] = {
-                'label': TIER_LABELS.get(tier_key, tier_key.upper()),
-                'symbols': [r['symbol'] for r in items[:8]],
-                'details': items[:8],
+                "label": TIER_LABELS.get(tier_key, tier_key.upper()),
+                "symbols": [r["symbol"] for r in items[:8]],
+                "details": items[:8],
             }
-        return localize_output({
-            'date': result['date'],
-            'regime': result.get('regime', {}),
-            'recommendations': tiers,
-            'summary': result.get('summary', {}),
-        })
+        return localize_output(
+            {
+                "date": result["date"],
+                "regime": result.get("regime", {}),
+                "recommendations": tiers,
+                "summary": result.get("summary", {}),
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -109,22 +112,24 @@ async def get_combined():
     try:
         pins = manager.get_pins()
         result = generate_recommendations()
-        recs = result.get('recommendations', {})
+        recs = result.get("recommendations", {})
         tiers = {}
-        for tier_key in ['core', 'rotation', 'opportunity']:
+        for tier_key in ["core", "rotation", "opportunity"]:
             items = recs.get(tier_key, [])
             tiers[tier_key] = {
-                'label': TIER_LABELS.get(tier_key, tier_key.upper()),
-                'symbols': [r['symbol'] for r in items[:8]],
-                'details': items[:8],
+                "label": TIER_LABELS.get(tier_key, tier_key.upper()),
+                "symbols": [r["symbol"] for r in items[:8]],
+                "details": items[:8],
             }
-        return localize_output({
-            'date': result['date'],
-            'user_pins': pins,
-            'user_pin_count': len(pins),
-            'recommendations': tiers,
-            'regime': result.get('regime', {}),
-            'summary': result.get('summary', {}),
-        })
+        return localize_output(
+            {
+                "date": result["date"],
+                "user_pins": pins,
+                "user_pin_count": len(pins),
+                "recommendations": tiers,
+                "regime": result.get("regime", {}),
+                "summary": result.get("summary", {}),
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

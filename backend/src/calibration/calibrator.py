@@ -9,20 +9,21 @@ LR = [alpha/(alpha+beta)] / [1 - alpha/(alpha+beta)] / prior_odds
 The new LRs can be reloaded into P3 Governor to replace hard-coded LR_MACRO etc.
 """
 
-import math
 import sqlite3
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
-from calibration.prediction_log import (get_outcomes_for_calibration,
-                                         get_beta_posteriors, upsert_beta,
-                                         get_unresolved_predictions,
-                                         resolve_outcome,
-                                         insert_calibration_snapshot,
-                                         init_calibration_history)
-from calibration.scoring import log_loss, brier_score, ece, mce
+from calibration.prediction_log import (
+    get_beta_posteriors,
+    get_outcomes_for_calibration,
+    get_unresolved_predictions,
+    init_calibration_history,
+    insert_calibration_snapshot,
+    resolve_outcome,
+    upsert_beta,
+)
+from calibration.scoring import brier_score, ece, log_loss, mce
 
 # Prior odds from P3 Governor (must match company_state.PRIOR_ODDS)
 PRIOR_ODDS = 0.53 / (1.0 - 0.53)
@@ -41,6 +42,7 @@ EVIDENCE_COLUMNS = [
 # ═══════════════════════════════════════════════════════════════
 # OUTCOME RESOLUTION — gán nhãn thực tế từ dữ liệu giá
 # ═══════════════════════════════════════════════════════════════
+
 
 def _get_price_db() -> sqlite3.Connection:
     """Kết nối đến screener_cache.db để tra cứu giá."""
@@ -61,7 +63,7 @@ def resolve_pending_outcomes(
     lookback_days: int = 90,
     hold_days: int = 30,
     dry_run: bool = False,
-) -> Dict:
+) -> dict:
     """Resolve unresolved predictions when future price data is available.
 
     Logic:
@@ -132,7 +134,7 @@ def resolve_pending_outcomes(
 
         # Exit price: close at pred_date + hold_days
         exit_dt = pred_dt + timedelta(days=hold_days)
-        exit_date = exit_dt.strftime("%Y-%m-%d")
+        exit_dt.strftime("%Y-%m-%d")
 
         # Find closest available trading day (look forward up to 10 days)
         exit_price = None
@@ -145,7 +147,6 @@ def resolve_pending_outcomes(
             ).fetchone()
             if row:
                 exit_price = row["close"]
-                exit_date = check_date
                 break
 
         if exit_price is None or entry_price is None or entry_price == 0:
@@ -229,18 +230,22 @@ def resolve_pending_outcomes(
     }
 
 
-def print_resolve_report(result: Dict, lang_mode: str = "full"):
+def print_resolve_report(result: dict, lang_mode: str = "full"):
     """In báo cáo outcome resolution ra console (song ngữ)."""
     try:
         from src.core.canonical_output_adapter import localize_label
     except Exception:
-        def localize_label(l, m="full"): return l
-    _ = lambda x: localize_label(x, lang_mode)
-    
+
+        def localize_label(label, m="full"):
+            return label
+
+    def _(x):
+        return localize_label(x, lang_mode)
+
     status = result.get("status", "UNKNOWN")
-    print(f"\n  {'='*60}")
+    print(f"\n  {'=' * 60}")
     print(f"  P4 {_('Outcome')} {_('Resolution')} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  {'='*60}")
+    print(f"  {'=' * 60}")
     if status == "NO_ELIGIBLE":
         print(f"  ⏳ {_('Chưa có prediction nào đủ')} {result.get('n_unresolved', 0)} {_('Hold Days')}.")
         print(f"     {_('Unresolved')}: {result['n_unresolved']} | {_('Eligible')}: {result['n_eligible']}")
@@ -271,7 +276,7 @@ def update_beta_posteriors(days_back: int = 90):
         return
 
     # Accumulate gains/losses per evidence level
-    counts: Dict[str, Tuple[float, float]] = {}
+    counts: dict[str, tuple[float, float]] = {}
     for row in outcomes:
         y = row["outcome"]
         for col in EVIDENCE_COLUMNS:
@@ -305,7 +310,7 @@ def compute_lr_from_beta(alpha: float, beta: float) -> float:
     return round(lr, 4)
 
 
-def get_calibrated_lrs() -> Dict[str, float]:
+def get_calibrated_lrs() -> dict[str, float]:
     """Return dict of evidence_key → calibrated LR."""
     posteriors = get_beta_posteriors()
     lrs = {}
@@ -314,13 +319,14 @@ def get_calibrated_lrs() -> Dict[str, float]:
     return lrs
 
 
-def calibration_trend_report(days: int = 90) -> Dict:
+def calibration_trend_report(days: int = 90) -> dict:
     """Return time-series trend of calibration metrics.
 
     Phát hiện degradation: nếu mean_log_loss tăng dần qua các tuần,
     đó là tín hiệu mô hình đang mất calibration.
     """
     from calibration.prediction_log import get_calibration_history
+
     history = get_calibration_history(days)
     if not history:
         return {"status": "NO_DATA", "n_snapshots": 0}
@@ -359,17 +365,21 @@ def calibration_trend_report(days: int = 90) -> Dict:
     }
 
 
-def print_trend_report(report: Dict, lang_mode: str = "full"):
+def print_trend_report(report: dict, lang_mode: str = "full"):
     """In báo cáo xu hướng calibration (song ngữ)."""
     try:
         from src.core.canonical_output_adapter import localize_label
     except Exception:
-        def localize_label(l, m="full"): return l
-    _ = lambda x: localize_label(x, lang_mode)
 
-    print(f"\n  {'='*60}")
+        def localize_label(label, m="full"):
+            return label
+
+    def _(x):
+        return localize_label(x, lang_mode)
+
+    print(f"\n  {'=' * 60}")
     print(f"  P4 {_('Calibration')} {_('Trend')} — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"  {'='*60}")
+    print(f"  {'=' * 60}")
     if report["status"] == "NO_DATA":
         print(f"  {_('Chưa có dữ liệu calibration history')}.")
         print(f"  {_('Chạy')} 'calibrate resolve' {_('để tạo snapshot đầu tiên')}.")
@@ -379,15 +389,15 @@ def print_trend_report(report: Dict, lang_mode: str = "full"):
     lat = report["latest"]
     print(f"    Date:      {lat['date']}")
     print(f"    {_('Resolved')}:  {lat['n_resolved']} predictions")
-    print(f"    {_('Log-Loss')}:  {lat['mean_log_loss']:.4f}" if lat['mean_log_loss'] else f"    {_('Log-Loss')}:  N/A")
-    print(f"    {_('ECE')}:       {lat['ece']:.4f}" if lat['ece'] else f"    {_('ECE')}:       N/A")
-    print(f"    {_('Accuracy')}:  {lat['accuracy']:.2%}" if lat['accuracy'] else f"    {_('Accuracy')}:  N/A")
+    print(f"    {_('Log-Loss')}:  {lat['mean_log_loss']:.4f}" if lat["mean_log_loss"] else f"    {_('Log-Loss')}:  N/A")
+    print(f"    {_('ECE')}:       {lat['ece']:.4f}" if lat["ece"] else f"    {_('ECE')}:       N/A")
+    print(f"    {_('Accuracy')}:  {lat['accuracy']:.2%}" if lat["accuracy"] else f"    {_('Accuracy')}:  N/A")
     print(f"\n  {_('Trend')} ({len(report.get('snapshots', []))} {_('snapshots gần nhất')}):")
     tr = report.get("trend", {})
     if tr:
         print(f"    Recent avg {_('Log-Loss')}: {tr.get('recent_avg_log_loss', 'N/A')}")
         print(f"    Older avg {_('Log-Loss')}:  {tr.get('older_avg_log_loss', 'N/A')}")
-        flag = "🔴 " + _("Degradation") if tr.get('degradation_detected') else "🟢 STABLE"
+        flag = "🔴 " + _("Degradation") if tr.get("degradation_detected") else "🟢 STABLE"
         print(f"    {_('Xu hướng')}: {flag}")
 
 
@@ -398,7 +408,7 @@ def calibration_summary(days_back: int = 90) -> dict:
         return {"status": "NO_DATA", "n_outcomes": 0}
 
     # Group by evidence column
-    groups: Dict[str, Dict[str, dict]] = {}
+    groups: dict[str, dict[str, dict]] = {}
     for col in EVIDENCE_COLUMNS:
         groups[col] = {}
 
@@ -421,15 +431,17 @@ def calibration_summary(days_back: int = 90) -> dict:
             alpha, beta = posteriors.get(key, (1.0, 1.0))
             lr = compute_lr_from_beta(alpha, beta)
             accuracy = cnt["gains"] / cnt["n"] if cnt["n"] > 0 else 0.5
-            entries.append({
-                "value": val,
-                "n": cnt["n"],
-                "gains": cnt["gains"],
-                "accuracy": round(accuracy, 4),
-                "alpha": alpha,
-                "beta": beta,
-                "lr_calibrated": lr,
-            })
+            entries.append(
+                {
+                    "value": val,
+                    "n": cnt["n"],
+                    "gains": cnt["gains"],
+                    "accuracy": round(accuracy, 4),
+                    "alpha": alpha,
+                    "beta": beta,
+                    "lr_calibrated": lr,
+                }
+            )
         details[col] = entries
 
     return {

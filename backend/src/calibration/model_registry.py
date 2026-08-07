@@ -42,7 +42,6 @@ import math
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 # ── 3 Competing Hypotheses ──────────────────────────────────────────────
 
@@ -52,41 +51,68 @@ MODEL_DEFINITIONS = {
         "hypothesis_en": "Top-Down Macro Causal — markets move on macro + interbank liquidity",
         "focus_nodes": ["macro", "transmission", "sector"],
         "regime_fit": {
-            "CREDIT_STRESS": 0.85, "LIQUIDITY_EXPANSION": 0.90,
-            "INFLATION_SHOCK": 0.80, "RISK_OFF": 0.85,
-            "RECOVERY": 0.60, "STABLE": 0.40,
-            "AI_BOOM": 0.50, "PRE_CREDIT_EXPANSION": 0.75,
+            "CREDIT_STRESS": 0.85,
+            "LIQUIDITY_EXPANSION": 0.90,
+            "INFLATION_SHOCK": 0.80,
+            "RISK_OFF": 0.85,
+            "RECOVERY": 0.60,
+            "STABLE": 0.40,
+            "AI_BOOM": 0.50,
+            "PRE_CREDIT_EXPANSION": 0.75,
         },
-        "archetype_bias": {"COMPOUNDER": 0.50, "CYCLICAL_HEAVY": 0.85, "FRANCHISE_BANK": 0.90,
-                           "REAL_ESTATE_DEVELOPER": 0.75, "EXPORT_MANUFACTURER": 0.70,
-                           "REIT_COMMERCIAL": 0.70},
+        "archetype_bias": {
+            "COMPOUNDER": 0.50,
+            "CYCLICAL_HEAVY": 0.85,
+            "FRANCHISE_BANK": 0.90,
+            "REAL_ESTATE_DEVELOPER": 0.75,
+            "EXPORT_MANUFACTURER": 0.70,
+            "REIT_COMMERCIAL": 0.70,
+        },
     },
     "M2_FUNDAMENTAL": {
         "hypothesis": "Bottom-Up Quality & Capital — doanh nghiệp tốt tự vượt qua chu kỳ vĩ mô",
         "hypothesis_en": "Bottom-Up Quality & Capital — quality companies overcome macro cycles",
         "focus_nodes": ["health", "capital_allocation", "valuation"],
         "regime_fit": {
-            "CREDIT_STRESS": 0.20, "LIQUIDITY_EXPANSION": 0.50,
-            "INFLATION_SHOCK": 0.30, "RISK_OFF": 0.15,
-            "RECOVERY": 0.80, "STABLE": 0.85,
-            "AI_BOOM": 0.75, "PRE_CREDIT_EXPANSION": 0.55,
+            "CREDIT_STRESS": 0.20,
+            "LIQUIDITY_EXPANSION": 0.50,
+            "INFLATION_SHOCK": 0.30,
+            "RISK_OFF": 0.15,
+            "RECOVERY": 0.80,
+            "STABLE": 0.85,
+            "AI_BOOM": 0.75,
+            "PRE_CREDIT_EXPANSION": 0.55,
         },
-        "archetype_bias": {"COMPOUNDER": 0.90, "CYCLICAL_HEAVY": 0.40, "FRANCHISE_BANK": 0.70,
-                           "RETAIL_PLATFORM": 0.80, "REGULATED_UTILITY": 0.60,
-                           "REIT_COMMERCIAL": 0.75},
+        "archetype_bias": {
+            "COMPOUNDER": 0.90,
+            "CYCLICAL_HEAVY": 0.40,
+            "FRANCHISE_BANK": 0.70,
+            "RETAIL_PLATFORM": 0.80,
+            "REGULATED_UTILITY": 0.60,
+            "REIT_COMMERCIAL": 0.75,
+        },
     },
     "M3_BEHAVIORAL": {
         "hypothesis": "Microstructure & Flow — dòng tiền và hành vi nhà đầu tư quyết định giá ngắn hạn",
         "hypothesis_en": "Microstructure & Flow — order flow + investor behavior drive short-term price",
         "focus_nodes": ["behavior", "entropy"],
         "regime_fit": {
-            "CREDIT_STRESS": 0.65, "LIQUIDITY_EXPANSION": 0.60,
-            "INFLATION_SHOCK": 0.55, "RISK_OFF": 0.80,
-            "RECOVERY": 0.45, "STABLE": 0.35,
-            "AI_BOOM": 0.40, "PRE_CREDIT_EXPANSION": 0.50,
+            "CREDIT_STRESS": 0.65,
+            "LIQUIDITY_EXPANSION": 0.60,
+            "INFLATION_SHOCK": 0.55,
+            "RISK_OFF": 0.80,
+            "RECOVERY": 0.45,
+            "STABLE": 0.35,
+            "AI_BOOM": 0.40,
+            "PRE_CREDIT_EXPANSION": 0.50,
         },
-        "archetype_bias": {"COMPOUNDER": 0.40, "CYCLICAL_HEAVY": 0.55, "FRANCHISE_BANK": 0.60,
-                           "RETAIL_PLATFORM": 0.65, "EXPORT_MANUFACTURER": 0.50},
+        "archetype_bias": {
+            "COMPOUNDER": 0.40,
+            "CYCLICAL_HEAVY": 0.55,
+            "FRANCHISE_BANK": 0.60,
+            "RETAIL_PLATFORM": 0.65,
+            "EXPORT_MANUFACTURER": 0.50,
+        },
     },
 }
 
@@ -103,10 +129,11 @@ PRIOR_DEFAULT = 1.0 / 3.0
 # ModelRegistry
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class ModelRegistry:
     """Competing Hypotheses Engine — manages 3 models with Bayesian Model Averaging."""
 
-    def __init__(self, conn: Optional[sqlite3.Connection] = None):
+    def __init__(self, conn: sqlite3.Connection | None = None):
         self._conn = conn
         self._init_schema()
         self._seed_defaults()
@@ -170,16 +197,23 @@ class ModelRegistry:
                     n_trades, n_wins, sharpe, max_drawdown, brier_accum,
                     log_loss_accum, counter_signals, last_active, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0.0, 0.0, 0.0, 0.0, 0, ?, ?, ?)""",
-                (mid, cfg["hypothesis"], PRIOR_DEFAULT, PRIOR_DEFAULT,
-                 STATE_ACTIVE, json.dumps(cfg["regime_fit"]),
-                 now, now, now),
+                (
+                    mid,
+                    cfg["hypothesis"],
+                    PRIOR_DEFAULT,
+                    PRIOR_DEFAULT,
+                    STATE_ACTIVE,
+                    json.dumps(cfg["regime_fit"]),
+                    now,
+                    now,
+                    now,
+                ),
             )
         conn.commit()
 
     # ── Core: Regime Fit ────────────────────────────────────────────────
 
-    def regime_fit_score(self, model_id: str, macro_state: str,
-                         archetype: Optional[str] = None) -> float:
+    def regime_fit_score(self, model_id: str, macro_state: str, archetype: str | None = None) -> float:
         """Compute contextual fit score from regime + archetype.
 
         Returns score ∈ [0, 1] combining regime_fit and (optionally) archetype_bias.
@@ -193,15 +227,12 @@ class ModelRegistry:
             base = 0.6 * base + 0.4 * arch_bias
         return max(0.0, min(1.0, base))
 
-    def select_best(self, macro_state: str,
-                    archetype: Optional[str] = None) -> Dict:
+    def select_best(self, macro_state: str, archetype: str | None = None) -> dict:
         """Select best model for current context.
 
         Returns model dict with regime_fit_score, ordered by fit desc.
         """
-        rows = self._get_conn().execute(
-            "SELECT model_id, state FROM model_registry"
-        ).fetchall()
+        rows = self._get_conn().execute("SELECT model_id, state FROM model_registry").fetchall()
         candidates = []
         for r in rows:
             if r["state"] != STATE_ACTIVE:
@@ -213,16 +244,14 @@ class ModelRegistry:
 
     # ── Core: Bayesian Model Averaging ─────────────────────────────────
 
-    def bma_posterior(self, macro_state: str, archetype: Optional[str] = None) -> Dict[str, float]:
+    def bma_posterior(self, macro_state: str, archetype: str | None = None) -> dict[str, float]:
         """Compute BMA-weighted posterior probabilities P(M_k | D, context).
 
         P(M_k | D) ∝ P(M_k) × exp(regime_fit_score_k / temperature)
         Normalized to sum = 1.0 across ACTIVE models.
         """
         temperature = 0.33  # softmax temperature
-        rows = self._get_conn().execute(
-            "SELECT model_id, posterior, state FROM model_registry"
-        ).fetchall()
+        rows = self._get_conn().execute("SELECT model_id, posterior, state FROM model_registry").fetchall()
         active = [r for r in rows if r["state"] == STATE_ACTIVE]
         if not active:
             active = rows  # fallback: all models
@@ -235,9 +264,7 @@ class ModelRegistry:
         total = sum(raw.values()) or 1.0
         return {k: v / total for k, v in raw.items()}
 
-    def bma_ensemble_prediction(self, predictions: Dict[str, float],
-                                macro_state: str,
-                                archetype: Optional[str] = None) -> float:
+    def bma_ensemble_prediction(self, predictions: dict[str, float], macro_state: str, archetype: str | None = None) -> float:
         """Weighted average of per-model predictions using BMA posteriors.
 
         Args:
@@ -266,8 +293,8 @@ class ModelRegistry:
         """
         conn = self._get_conn()
         row = conn.execute(
-            "SELECT posterior, n_trades, n_wins, brier_accum, log_loss_accum, state "
-            "FROM model_registry WHERE model_id=?", (model_id,)
+            "SELECT posterior, n_trades, n_wins, brier_accum, log_loss_accum, state FROM model_registry WHERE model_id=?",
+            (model_id,),
         ).fetchone()
         if not row:
             return
@@ -286,9 +313,7 @@ class ModelRegistry:
 
         # Evidence = Σ P(D | M_k) × P(M_k) across all models
         evidence = 0.0
-        all_rows = conn.execute(
-            "SELECT model_id, posterior FROM model_registry"
-        ).fetchall()
+        all_rows = conn.execute("SELECT model_id, posterior FROM model_registry").fetchall()
         for ar in all_rows:
             other_mid = ar["model_id"]
             other_prior = ar["posterior"]
@@ -306,8 +331,7 @@ class ModelRegistry:
 
         # Performance tracking
         brier = (p_gain - y_true) ** 2
-        log_loss = -(y_true * math.log(max(p_gain, 0.001))
-                     + (1 - y_true) * math.log(max(1 - p_gain, 0.001)))
+        log_loss = -(y_true * math.log(max(p_gain, 0.001)) + (1 - y_true) * math.log(max(1 - p_gain, 0.001)))
 
         n_trades += 1
         if (y_true >= 0.5 and p_gain >= 0.5) or (y_true < 0.5 and p_gain < 0.5):
@@ -326,16 +350,16 @@ class ModelRegistry:
 
         # Log transition if state changed
         if new_state != state:
-            self._log_transition(model_id, new_state, new_posterior,
-                                 f"auto:{state}->{new_state} (posterior={new_posterior:.3f})")
+            self._log_transition(
+                model_id, new_state, new_posterior, f"auto:{state}->{new_state} (posterior={new_posterior:.3f})"
+            )
 
         now = datetime.now().isoformat()
         conn.execute(
             """UPDATE model_registry SET posterior=?, state=?, n_trades=?, n_wins=?,
                brier_accum=?, log_loss_accum=?, last_active=?, updated_at=?
                WHERE model_id=?""",
-            (new_posterior, new_state, n_trades, n_wins,
-             brier_accum, ll_accum, now, now, model_id),
+            (new_posterior, new_state, n_trades, n_wins, brier_accum, ll_accum, now, now, model_id),
         )
         conn.commit()
 
@@ -345,9 +369,7 @@ class ModelRegistry:
     def _renormalize_posteriors(self) -> None:
         """Ensure all model posteriors sum to 1.0."""
         conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT model_id, posterior, state FROM model_registry"
-        ).fetchall()
+        rows = conn.execute("SELECT model_id, posterior, state FROM model_registry").fetchall()
         # Only normalize across ACTIVE models
         active = [r for r in rows if r["state"] != STATE_RETIRED]
         total = sum(r["posterior"] for r in active) or 1.0
@@ -419,32 +441,32 @@ class ModelRegistry:
 
     # ── Query ──────────────────────────────────────────────────────────
 
-    def get_all_models(self) -> List[Dict]:
+    def get_all_models(self) -> list[dict]:
         conn = self._get_conn()
         rows = conn.execute("SELECT * FROM model_registry").fetchall()
         result = []
         for r in rows:
             row = dict(r)
             row["regime_fit_dict"] = json.loads(r["regime_fit"] or "{}")
-            row["win_rate"] = (row["n_wins"] / max(row["n_trades"], 1))
-            row["avg_brier"] = (row["brier_accum"] / max(row["n_trades"], 1))
-            row["avg_log_loss"] = (row["log_loss_accum"] / max(row["n_trades"], 1))
+            row["win_rate"] = row["n_wins"] / max(row["n_trades"], 1)
+            row["avg_brier"] = row["brier_accum"] / max(row["n_trades"], 1)
+            row["avg_log_loss"] = row["log_loss_accum"] / max(row["n_trades"], 1)
             result.append(row)
         return result
 
-    def get_model(self, model_id: str) -> Optional[Dict]:
+    def get_model(self, model_id: str) -> dict | None:
         conn = self._get_conn()
         row = conn.execute("SELECT * FROM model_registry WHERE model_id=?", (model_id,)).fetchone()
         if not row:
             return None
         d = dict(row)
         d["regime_fit_dict"] = json.loads(row["regime_fit"] or "{}")
-        d["win_rate"] = (d["n_wins"] / max(d["n_trades"], 1))
-        d["avg_brier"] = (d["brier_accum"] / max(d["n_trades"], 1))
-        d["avg_log_loss"] = (d["log_loss_accum"] / max(d["n_trades"], 1))
+        d["win_rate"] = d["n_wins"] / max(d["n_trades"], 1)
+        d["avg_brier"] = d["brier_accum"] / max(d["n_trades"], 1)
+        d["avg_log_loss"] = d["log_loss_accum"] / max(d["n_trades"], 1)
         return d
 
-    def get_history(self, model_id: str, limit: int = 20) -> List[Dict]:
+    def get_history(self, model_id: str, limit: int = 20) -> list[dict]:
         """Return last N state transitions from model_registry_history if table exists."""
         conn = self._get_conn()
         try:
@@ -458,7 +480,7 @@ class ModelRegistry:
 
     # ── Stats ──────────────────────────────────────────────────────────
 
-    def stats(self) -> Dict:
+    def stats(self) -> dict:
         rows = self.get_all_models()
         active = sum(1 for r in rows if r["state"] == STATE_ACTIVE)
         dormant = sum(1 for r in rows if r["state"] == STATE_DORMANT)
@@ -478,29 +500,40 @@ class ModelRegistry:
 # Report helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def print_registry_report(registry: ModelRegistry, macro_state: str = "STABLE",
-                          archetype: Optional[str] = None,
-                          lang_mode: str = "full"):
+
+def print_registry_report(
+    registry: ModelRegistry, macro_state: str = "STABLE", archetype: str | None = None, lang_mode: str = "full"
+):
     """Print full model registry report."""
     try:
         from src.core.canonical_output_adapter import localize_label
     except Exception:
-        def localize_label(l, m="full"): return l
-    _ = lambda x: localize_label(x, lang_mode)
+
+        def localize_label(label, m="full"):
+            return label
+
+    def _(x):
+        return localize_label(x, lang_mode)
 
     models = registry.get_all_models()
     stats = registry.stats()
 
-    print(f"\n  {'='*100}")
-    print(f"  {_('MODEL REGISTRY')} — {_('Sprint 4')} | {_('Macro')}: {macro_state}"
-          + (f" | {_('Archetype')}: {archetype}" if archetype else ""))
-    print(f"  {_('Bayesian Model Averaging')} — {stats['active']} {_('active')}, "
-          f"{stats['dormant']} {_('dormant')}, {stats['retired']} {_('retired')}")
-    print(f"  {'='*100}")
-    print(f"  {_('Model ID'):<16} {_('Posterior'):>10} {_('State'):>10}"
-          f" {_('Regime Fit'):>11} {_('Brier'):>8} {_('LogLoss'):>8}"
-          f" {_('WinRate'):>8} {_('Trades'):>7} {_('Focus')}")
-    print(f"  {'─'*100}")
+    print(f"\n  {'=' * 100}")
+    print(
+        f"  {_('MODEL REGISTRY')} — {_('Sprint 4')} | {_('Macro')}: {macro_state}"
+        + (f" | {_('Archetype')}: {archetype}" if archetype else "")
+    )
+    print(
+        f"  {_('Bayesian Model Averaging')} — {stats['active']} {_('active')}, "
+        f"{stats['dormant']} {_('dormant')}, {stats['retired']} {_('retired')}"
+    )
+    print(f"  {'=' * 100}")
+    print(
+        f"  {_('Model ID'):<16} {_('Posterior'):>10} {_('State'):>10}"
+        f" {_('Regime Fit'):>11} {_('Brier'):>8} {_('LogLoss'):>8}"
+        f" {_('WinRate'):>8} {_('Trades'):>7} {_('Focus')}"
+    )
+    print(f"  {'─' * 100}")
 
     for m in models:
         mid = m["model_id"]
@@ -510,9 +543,11 @@ def print_registry_report(registry: ModelRegistry, macro_state: str = "STABLE",
         ll_s = f"{m['avg_log_loss']:.4f}" if m["n_trades"] > 0 else "N/A"
         wr_s = f"{m['win_rate']:.1%}" if m["n_trades"] > 0 else "N/A"
         state_icon = {"ACTIVE": "🟢", "DORMANT": "🟡", "RETIRED": "🔴"}.get(m["state"], "⚪")
-        print(f"  {mid:<16} {m['posterior']:>9.3f} {state_icon}{m['state']:>9}"
-              f" {fit:>10.2f} {brier_s:>8} {ll_s:>8}"
-              f" {wr_s:>8} {m['n_trades']:>7} {focus}")
+        print(
+            f"  {mid:<16} {m['posterior']:>9.3f} {state_icon}{m['state']:>9}"
+            f" {fit:>10.2f} {brier_s:>8} {ll_s:>8}"
+            f" {wr_s:>8} {m['n_trades']:>7} {focus}"
+        )
 
     # BMA weights for current context
     bma_w = registry.bma_posterior(macro_state, archetype)
@@ -523,27 +558,27 @@ def print_registry_report(registry: ModelRegistry, macro_state: str = "STABLE",
         print(f"    {mid:<16} {w:>6.1%} {bar}  ({_('fit')}={fit:.2f})")
 
     best = registry.select_best(macro_state, archetype)
-    print(f"\n  {_('Best model for context')}: {best['model_id']} "
-          f"({_('fit')}={best['regime_fit_score']:.2f})")
+    print(f"\n  {_('Best model for context')}: {best['model_id']} ({_('fit')}={best['regime_fit_score']:.2f})")
 
 
-def print_selection_report(registry: ModelRegistry, macro_state: str,
-                           archetype: Optional[str] = None,
-                           lang_mode: str = "full"):
+def print_selection_report(registry: ModelRegistry, macro_state: str, archetype: str | None = None, lang_mode: str = "full"):
     """Print model selection details."""
     try:
         from src.core.canonical_output_adapter import localize_label
     except Exception:
-        def localize_label(l, m="full"): return l
-    _ = lambda x: localize_label(x, lang_mode)
+
+        def localize_label(label, m="full"):
+            return label
+
+    def _(x):
+        return localize_label(x, lang_mode)
 
     bma_w = registry.bma_posterior(macro_state, archetype)
     best = registry.select_best(macro_state, archetype)
 
-    print(f"\n  {'='*60}")
-    print(f"  {_('MODEL SELECTION')} — {macro_state}"
-          + (f" | {archetype}" if archetype else ""))
-    print(f"  {'='*60}")
+    print(f"\n  {'=' * 60}")
+    print(f"  {_('MODEL SELECTION')} — {macro_state}" + (f" | {archetype}" if archetype else ""))
+    print(f"  {'=' * 60}")
     print(f"  {_('Primary model')}: {best['model_id']} ({_('fit')}={best['regime_fit_score']:.2f})")
     print(f"  {_('BMA Ensemble')}:")
     for mid, w in sorted(bma_w.items(), key=lambda x: x[1], reverse=True):

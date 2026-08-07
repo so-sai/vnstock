@@ -7,15 +7,14 @@ Phase 3: Rank by Sharpe, validate top candidates
 
 Usage: python -m backend.src.backtest.grid_search
 """
+
 from __future__ import annotations
 
-import itertools
 import json
 import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -32,14 +31,13 @@ if str(SRC_DIR) not in sys.path:
 from backtest.portfolio_tracker import PortfolioTracker
 from backtest.unified_system_replay import (
     UNIVERSE,
+    _get_behavioral_score,
     _get_close,
     _get_fundamental_score,
-    _get_behavioral_score,
     _get_momentum_score,
     _get_sector,
     _get_trading_days,
     _vn20_gate,
-    _date_to_period,
 )
 from governor.interaction_engine import InteractionEngine
 from governor.macro_lag_engine import MacroLagEngine
@@ -67,7 +65,7 @@ def precompute_scores(conn, dates, score_days):
             elapsed = time.time() - t0
             rate = (idx + 1) / elapsed if elapsed > 0 else 0
             eta = (total - idx - 1) / rate if rate > 0 else 0
-            print(f"  Precompute {idx+1}/{total} ({elapsed:.0f}s elapsed, ~{eta:.0f}s remaining)")
+            print(f"  Precompute {idx + 1}/{total} ({elapsed:.0f}s elapsed, ~{eta:.0f}s remaining)")
 
         day_scores = {}
 
@@ -188,10 +186,7 @@ def run_backtest_with_params(scores, dates, score_days, params, db_path=None):
                     continue
 
                 composite = (
-                    w_fund * data["fund"]
-                    + w_macro * data["macro_eff"]
-                    + w_alpha * data["alpha"]
-                    + w_behav * data["behav"]
+                    w_fund * data["fund"] + w_macro * data["macro_eff"] + w_alpha * data["alpha"] + w_behav * data["behav"]
                 )
 
                 if composite > entry_thresh:
@@ -290,12 +285,14 @@ def generate_weight_grid(step=0.10):
             for w3 in vals:
                 w4 = 1.0 - w1 - w2 - w3
                 if -0.01 <= w4 <= 1.01:
-                    weights.append({
-                        "w_fund": round(w1, 2),
-                        "w_macro": round(w2, 2),
-                        "w_alpha": round(w3, 2),
-                        "w_behav": round(max(0, min(1, w4)), 2),
-                    })
+                    weights.append(
+                        {
+                            "w_fund": round(w1, 2),
+                            "w_macro": round(w2, 2),
+                            "w_alpha": round(w3, 2),
+                            "w_behav": round(max(0, min(1, w4)), 2),
+                        }
+                    )
     return weights
 
 
@@ -340,7 +337,7 @@ def main():
     trailing_takes = [0.10, 0.15, 0.20, 0.25]
 
     # Stage 1: coarse — fixed thresholds, vary weights
-    print(f"\n  [Stage 1] Weights only (entry=0.55, exit=0.35, stop=-5%, take=+15%)")
+    print("\n  [Stage 1] Weights only (entry=0.55, exit=0.35, stop=-5%, take=+15%)")
     results = []
     t0 = time.time()
 
@@ -358,16 +355,16 @@ def main():
 
         if (i + 1) % 20 == 0:
             best = max(results, key=lambda x: x["sharpe"])
-            print(f"    {i+1}/{len(weight_combos)} | Best Sharpe={best['sharpe']:.4f} | Ret={best['total_return']:.1f}%")
+            print(f"    {i + 1}/{len(weight_combos)} | Best Sharpe={best['sharpe']:.4f} | Ret={best['total_return']:.1f}%")
 
     elapsed = time.time() - t0
-    print(f"  Stage 1 done: {len(results)} runs in {elapsed:.0f}s ({elapsed/len(results):.1f}s/run)")
+    print(f"  Stage 1 done: {len(results)} runs in {elapsed:.0f}s ({elapsed / len(results):.1f}s/run)")
 
     # Stage 2: vary thresholds using top 10 weight combos
     results.sort(key=lambda x: x["sharpe"], reverse=True)
     top_weights = [r["params"] for r in results[:10]]
 
-    print(f"\n  [Stage 2] Thresholds x Top 10 weights")
+    print("\n  [Stage 2] Thresholds x Top 10 weights")
     stage2_results = list(results)  # keep stage 1 results
     t0 = time.time()
     count = 0
@@ -397,7 +394,7 @@ def main():
     stage2_results.sort(key=lambda x: x["sharpe"], reverse=True)
     top_params = [r["params"] for r in stage2_results[:5]]
 
-    print(f"\n  [Stage 3] Stop/Take x Top 5 params")
+    print("\n  [Stage 3] Stop/Take x Top 5 params")
     final_results = list(stage2_results)
     t0 = time.time()
     count = 0
@@ -420,11 +417,14 @@ def main():
     # Sort by Sharpe
     final_results.sort(key=lambda x: x["sharpe"], reverse=True)
 
-    print(f"\n{'='*90}")
-    print(f"  TOP 15 PARAMETER COMBINATIONS (by Sharpe Ratio)")
-    print(f"{'='*90}")
-    print(f"  {'Rank':<5} {'Sharpe':>8} {'Return%':>10} {'MaxDD%':>8} {'WinRate':>8} {'Trades':>7} | Weights (F/M/A/B) | Entry Exit Stop  Take")
-    print(f"  {'-'*85}")
+    print(f"\n{'=' * 90}")
+    print("  TOP 15 PARAMETER COMBINATIONS (by Sharpe Ratio)")
+    print(f"{'=' * 90}")
+    print(
+        f"  {'Rank':<5} {'Sharpe':>8} {'Return%':>10} {'MaxDD%':>8} "
+        f"{'WinRate':>8} {'Trades':>7} | Weights (F/M/A/B) | Entry Exit Stop  Take"
+    )
+    print(f"  {'-' * 85}")
 
     for rank, r in enumerate(final_results[:15], 1):
         p = r["params"]
@@ -436,9 +436,9 @@ def main():
         )
 
     # Also sort by return
-    print(f"\n{'='*90}")
-    print(f"  TOP 10 BY TOTAL RETURN")
-    print(f"{'='*90}")
+    print(f"\n{'=' * 90}")
+    print("  TOP 10 BY TOTAL RETURN")
+    print(f"{'=' * 90}")
     by_return = sorted(final_results, key=lambda x: x["total_return"], reverse=True)
     for rank, r in enumerate(by_return[:10], 1):
         p = r["params"]
@@ -464,11 +464,13 @@ def main():
 
     # Print best summary
     bp = best["params"]
-    print(f"\n{'='*70}")
-    print(f"  OPTIMAL PARAMETERS")
-    print(f"{'='*70}")
-    print(f"  Weights:  M2(Fund)={bp['w_fund']:.2f}  M1(Macro)={bp['w_macro']:.2f}  "
-          f"Alpha={bp['w_alpha']:.2f}  M3(Behav)={bp['w_behav']:.2f}")
+    print(f"\n{'=' * 70}")
+    print("  OPTIMAL PARAMETERS")
+    print(f"{'=' * 70}")
+    print(
+        f"  Weights:  M2(Fund)={bp['w_fund']:.2f}  M1(Macro)={bp['w_macro']:.2f}  "
+        f"Alpha={bp['w_alpha']:.2f}  M3(Behav)={bp['w_behav']:.2f}"
+    )
     print(f"  Entry:    {bp['entry_thresh']:.2f}")
     print(f"  Exit:     {bp['exit_thresh']:.2f}")
     print(f"  Stop:     {bp['trailing_stop']:.0%}")
@@ -477,7 +479,7 @@ def main():
     print(f"  Return:   {best['total_return']:.1f}%")
     print(f"  MaxDD:    {best['max_drawdown']:.1f}%")
     print(f"  WinRate:  {best['win_rate']:.1f}%")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
 
 if __name__ == "__main__":

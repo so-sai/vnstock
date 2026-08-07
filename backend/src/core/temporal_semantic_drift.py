@@ -1,4 +1,4 @@
-﻿"""
+"""
 temporal_semantic_drift.py — Temperal Semantic Drift Index + Early Warning.
 
 Tracks how "meaning" changes across time windows of snapshots.
@@ -17,18 +17,17 @@ Early warning reads 3 leading indicators from the same history:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 # ── In-memory window (ephemeral — resets on restart) ────────────────────
 # In production this would persist to .kit/local_brain.db or equivalent.
 
 _history: list[dict] = []
-MAX_HISTORY = 30   # snapshots kept
-WINDOW_SIZE = 5    # consecutive snapshots for trend
+MAX_HISTORY = 30  # snapshots kept
+WINDOW_SIZE = 5  # consecutive snapshots for trend
 MIN_WARNING_HISTORY = 3  # minimum snapshots before early warning is valid
 
 
-def push_snapshot(result: dict, kernel_drift_score: Optional[float] = None) -> None:
+def push_snapshot(result: dict, kernel_drift_score: float | None = None) -> None:
     """Push a semantic consistency result into the history window.
 
     Args:
@@ -39,15 +38,17 @@ def push_snapshot(result: dict, kernel_drift_score: Optional[float] = None) -> N
     violations = list(result.get("violations", []))
     label_count = sum(1 for v in violations if v.get("type") == "LABEL_MISMATCH")
 
-    _history.append({
-        "timestamp": datetime.now().isoformat(),
-        "consistency_score": result.get("semantic_consistency_score", 1.0),
-        "violations": violations,
-        "drift_in_meaning": result.get("drift_in_meaning", False),
-        "mismatched_concepts": list(result.get("mismatched_concepts", [])),
-        "kernel_drift_score": kernel_drift_score,
-        "label_mismatch_count": label_count,
-    })
+    _history.append(
+        {
+            "timestamp": datetime.now().isoformat(),
+            "consistency_score": result.get("semantic_consistency_score", 1.0),
+            "violations": violations,
+            "drift_in_meaning": result.get("drift_in_meaning", False),
+            "mismatched_concepts": list(result.get("mismatched_concepts", [])),
+            "kernel_drift_score": kernel_drift_score,
+            "label_mismatch_count": label_count,
+        }
+    )
     if len(_history) > MAX_HISTORY:
         _history.pop(0)
 
@@ -63,7 +64,7 @@ def get_history() -> list[dict]:
 # ── Signal 1: DRIVER_SHIFT ─────────────────────────────────────────────
 
 
-def _driver_shift() -> Optional[dict]:
+def _driver_shift() -> dict | None:
     """Check if the kernel's dominant driver has changed across the window.
 
     Returns shift info if a change is detected, None otherwise.
@@ -96,7 +97,7 @@ def _driver_shift() -> Optional[dict]:
 # ── Signal 2: TREND_DRIFT ──────────────────────────────────────────────
 
 
-def _trend_drift() -> Optional[dict]:
+def _trend_drift() -> dict | None:
     """Check if consistency score is trending downward over the window.
 
     Also checks if kernel drift_score is trending upward.
@@ -117,8 +118,7 @@ def _trend_drift() -> Optional[dict]:
             "signal": "TREND_DRIFT",
             "severity": 0.5,
             "detail": (
-                f"consistency_score giảm từ {first_half:.2f} → {second_half:.2f} "
-                f"trong {WINDOW_SIZE} snapshot gần nhất"
+                f"consistency_score giảm từ {first_half:.2f} → {second_half:.2f} trong {WINDOW_SIZE} snapshot gần nhất"
             ),
             "first_half_avg": round(first_half, 4),
             "second_half_avg": round(second_half, 4),
@@ -129,7 +129,7 @@ def _trend_drift() -> Optional[dict]:
 # ── Signal 3: NOVELTY_ALERT ────────────────────────────────────────────
 
 
-def _novelty_alert() -> Optional[dict]:
+def _novelty_alert() -> dict | None:
     """Check if new violation types have appeared that never existed before."""
     if len(_history) < 2:
         return None
@@ -245,13 +245,9 @@ def _safe_slope(values: list[float]) -> float:
     return num / den
 
 
-def _drift_slope() -> Optional[dict]:
+def _drift_slope() -> dict | None:
     """Signal 1: Is kernel drift_score trending upward?"""
-    scores = [
-        e["kernel_drift_score"]
-        for e in _history[-WINDOW_SIZE:]
-        if e["kernel_drift_score"] is not None
-    ]
+    scores = [e["kernel_drift_score"] for e in _history[-WINDOW_SIZE:] if e["kernel_drift_score"] is not None]
     if len(scores) < MIN_WARNING_HISTORY:
         return None
 
@@ -265,18 +261,14 @@ def _drift_slope() -> Optional[dict]:
     return None
 
 
-def _acceleration() -> Optional[dict]:
+def _acceleration() -> dict | None:
     """Signal 2: Is the drift acceleration positive? (slope of the slope)"""
-    scores = [
-        e["kernel_drift_score"]
-        for e in _history[-WINDOW_SIZE:]
-        if e["kernel_drift_score"] is not None
-    ]
+    scores = [e["kernel_drift_score"] for e in _history[-WINDOW_SIZE:] if e["kernel_drift_score"] is not None]
     if len(scores) < MIN_WARNING_HISTORY + 1:
         return None
 
     # First differences (velocity)
-    diffs = [scores[i+1] - scores[i] for i in range(len(scores) - 1)]
+    diffs = [scores[i + 1] - scores[i] for i in range(len(scores) - 1)]
     # Slope of differences (acceleration)
     accel = _safe_slope(diffs)
     if accel > 0.02:
@@ -288,7 +280,7 @@ def _acceleration() -> Optional[dict]:
     return None
 
 
-def _label_density() -> Optional[dict]:
+def _label_density() -> dict | None:
     """Signal 3: Is LABEL_MISMATCH density rising in the window?"""
     recent = _history[-WINDOW_SIZE:]
     total = len(recent)
@@ -303,8 +295,7 @@ def _label_density() -> Optional[dict]:
             "indicator": "LABEL_DENSITY",
             "value": round(density, 2),
             "detail": (
-                f"mật độ LABEL_MISMATCH = {density:.1f}/snapshot trong {total} gần nhất "
-                f"— ontology đang bị bào mòn dần"
+                f"mật độ LABEL_MISMATCH = {density:.1f}/snapshot trong {total} gần nhất — ontology đang bị bào mòn dần"
             ),
         }
     return None
@@ -365,11 +356,7 @@ def compute_early_warning() -> dict:
         level = "clean"
 
     # ── Trend ───────────────────────────────────────────────────
-    scores = [
-        e["kernel_drift_score"]
-        for e in _history[-WINDOW_SIZE:]
-        if e["kernel_drift_score"] is not None
-    ]
+    scores = [e["kernel_drift_score"] for e in _history[-WINDOW_SIZE:] if e["kernel_drift_score"] is not None]
     if len(scores) >= 2:
         slope = _safe_slope(scores)
         if slope > 0.02:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 shadow_metrics_schema.py — Shadow Deploy Metrics Store.
 
 Log-only comparator. Never affects the main pipeline.
@@ -20,7 +20,6 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
@@ -57,7 +56,6 @@ def build_shadow_entry(
     entry = {
         "date": date_label,
         "timestamp": datetime.now().isoformat(),
-
         # ── Prediction snapshot ────────────────────────────────────
         "prediction": {
             "dominant_driver": driver_state.get("dominant", "UNKNOWN"),
@@ -66,17 +64,12 @@ def build_shadow_entry(
             "drift_status": drift_result.get("drift_status", "NONE"),
             "regime_status": snapshot.get("regime_status", "UNKNOWN"),
         },
-
         # ── Semantic health ─────────────────────────────────────────
         "semantic": {
             "consistency_score": consistency_result.get("semantic_consistency_score", 1.0),
             "drift_in_meaning": consistency_result.get("drift_in_meaning", False),
-            "violations": [
-                {"type": v["type"], "severity": v["severity"]}
-                for v in consistency_result.get("violations", [])
-            ],
+            "violations": [{"type": v["type"], "severity": v["severity"]} for v in consistency_result.get("violations", [])],
         },
-
         # ── Temporal / early warning ────────────────────────────────
         "stability": {
             "early_warning": early_warning.get("early_warning", "clean"),
@@ -85,7 +78,6 @@ def build_shadow_entry(
             "temporal_drift_score": temporal_drift.get("temporal_drift_score", 0.0),
             "meaning_is_drifting": temporal_drift.get("meaning_is_drifting", False),
         },
-
         # ── Placeholder: filled by compare_next_day() ───────────────
         "realized": None,
     }
@@ -101,10 +93,10 @@ def compare_next_day(
     date_label: str,
     *,
     actual_dominant_driver: str,
-    actual_driver_proxy: Optional[dict] = None,
-    actual_regime: Optional[str] = None,
-    market_direction: Optional[float] = None,
-) -> Optional[dict]:
+    actual_driver_proxy: dict | None = None,
+    actual_regime: str | None = None,
+    market_direction: float | None = None,
+) -> dict | None:
     """Attach realized next-day data to a shadow entry.
 
     Args:
@@ -208,8 +200,13 @@ def export_shadow_log(path: Path) -> None:
     """Persist shadow log to JSON file for dashboard or review."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({
-            "exported_at": datetime.now().isoformat(),
-            "total_entries": len(_SHADOW_LOG),
-            "entries": _SHADOW_LOG,
-        }, f, indent=2, ensure_ascii=False)
+        json.dump(
+            {
+                "exported_at": datetime.now().isoformat(),
+                "total_entries": len(_SHADOW_LOG),
+                "entries": _SHADOW_LOG,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )

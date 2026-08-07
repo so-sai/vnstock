@@ -32,7 +32,6 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -186,7 +185,7 @@ class CompanyHealthV2:
             missing.append("balance_sheet")
         return missing
 
-    def analyze(self, symbol: str, target_date: Optional[str] = None) -> Optional[HealthLatentState]:
+    def analyze(self, symbol: str, target_date: str | None = None) -> HealthLatentState | None:
         """Compute 5-organ health state for a single symbol.
 
         Point-in-time: when target_date is provided, only financial periods
@@ -258,13 +257,13 @@ class CompanyHealthV2:
             no_data_organs=no_data_organs,
         )
 
-    def analyze_many(self, symbols: list[str]) -> dict[str, Optional[HealthLatentState]]:
+    def analyze_many(self, symbols: list[str]) -> dict[str, HealthLatentState | None]:
         return {s: self.analyze(s) for s in symbols}
 
     # ── Data Loading ─────────────────────────────────────────────
 
     @staticmethod
-    def _load_ratios(conn, symbol: str, target_date: Optional[str] = None) -> dict:
+    def _load_ratios(conn, symbol: str, target_date: str | None = None) -> dict:
         """Load historical ratios for a symbol (optionally point-in-time).
 
         Returns: {ratio_name: [(period, value), ...]}
@@ -289,7 +288,7 @@ class CompanyHealthV2:
         return dict(result)
 
     @staticmethod
-    def _load_facts(conn, symbol: str, target_date: Optional[str] = None) -> dict:
+    def _load_facts(conn, symbol: str, target_date: str | None = None) -> dict:
         """Load financial facts for a symbol (optionally point-in-time).
 
         Returns: {metric: [(period, value), ...]}
@@ -597,7 +596,7 @@ class CompanyHealthV2:
     # ── Archetype Classification ─────────────────────────────────
 
     @staticmethod
-    def _classify_archetype(organs: OrganScores, no_data: list[str] = None) -> tuple[str, float]:
+    def _classify_archetype(organs: OrganScores, no_data: list[str] | None = None) -> tuple[str, float]:
         """Map 5-organ vector to latent archetype.
 
         no_data: danh sách organ THIẾU dữ liệu (score 0.0 giả tạo). Các organ
@@ -686,7 +685,7 @@ class CompanyHealthV2:
 # ── CLI Helper ───────────────────────────────────────────────────
 
 
-def print_health_report(states: dict[str, Optional[HealthLatentState]]) -> None:
+def print_health_report(states: dict[str, HealthLatentState | None]) -> None:
     """Print human-readable health latent state report."""
     print(f"\n  {'=' * 70}")
     print("  COMPANY HEALTH v2 — 5-ORGAN LATENT STATE")

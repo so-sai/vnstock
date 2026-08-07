@@ -1,4 +1,4 @@
-﻿"""Shadow CAO — Engine Ablation Simulator.
+"""Shadow CAO — Engine Ablation Simulator.
 
 ABLATION = remove one engine's signal, recompute decision distribution.
 This is NOT synthetic data generation. Market outcome is NEVER perturbed.
@@ -7,6 +7,7 @@ Principle:
     Data is fixed (market truth is frozen)
     Only attribution is perturbed
 """
+
 import logging
 import sys
 from pathlib import Path
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -29,6 +30,7 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 from src.shadow_cao.models import AblationResult, ShadowDecisionLog
@@ -36,9 +38,14 @@ from src.shadow_cao.models import AblationResult, ShadowDecisionLog
 CANONICAL_ENGINES = ["regime", "liquidity", "sector", "breakout", "heat", "signal", "memory", "dampener"]
 
 DEFAULT_WEIGHTS = {
-    "regime": 0.25, "heat": 0.20, "signal": 0.15,
-    "dampener": 0.10, "memory": 0.08, "liquidity": 0.12,
-    "sector": 0.05, "breakout": 0.05,
+    "regime": 0.25,
+    "heat": 0.20,
+    "signal": 0.15,
+    "dampener": 0.10,
+    "memory": 0.08,
+    "liquidity": 0.12,
+    "sector": 0.05,
+    "breakout": 0.05,
 }
 
 ALL_ACTIONS = ["ENTER", "SCALE_IN", "HOLD", "REDUCE", "EXIT", "STAND_DOWN"]
@@ -46,7 +53,7 @@ ALL_ACTIONS = ["ENTER", "SCALE_IN", "HOLD", "REDUCE", "EXIT", "STAND_DOWN"]
 
 def _compute_action_and_confidence(
     scores: dict[str, float],
-    weights: dict[str, float] = None,
+    weights: dict[str, float] | None = None,
 ) -> tuple[str, float]:
     """Compute action and confidence from weighted engine scores.
 
@@ -82,8 +89,8 @@ def _compute_action_and_confidence(
 
 def run_decision_ablation(
     entry: ShadowDecisionLog,
-    weights: dict[str, float] = None,
-    engine_names: list[str] = None,
+    weights: dict[str, float] | None = None,
+    engine_names: list[str] | None = None,
 ) -> list[AblationResult]:
     """Run ablation on a single decision.
 
@@ -111,16 +118,18 @@ def run_decision_ablation(
         action_changed = baseline_action != ablated_action
         confidence_delta = round(abs(baseline_conf - ablated_conf), 4)
         decision_flip = _is_decision_flip(baseline_action, ablated_action)
-        results.append(AblationResult(
-            engine_removed=engine,
-            baseline_action=baseline_action,
-            baseline_confidence=baseline_conf,
-            ablated_action=ablated_action,
-            ablated_confidence=ablated_conf,
-            action_changed=action_changed,
-            confidence_delta=confidence_delta,
-            decision_flip=decision_flip,
-        ))
+        results.append(
+            AblationResult(
+                engine_removed=engine,
+                baseline_action=baseline_action,
+                baseline_confidence=baseline_conf,
+                ablated_action=ablated_action,
+                ablated_confidence=ablated_conf,
+                action_changed=action_changed,
+                confidence_delta=confidence_delta,
+                decision_flip=decision_flip,
+            )
+        )
     return results
 
 
@@ -128,14 +137,12 @@ def _is_decision_flip(baseline: str, ablated: str) -> bool:
     """A 'flip' is a binary change: ENTER/SCALE_IN ↔ EXIT/STAND_DOWN or vice versa."""
     offensive = {"ENTER", "SCALE_IN"}
     defensive = {"EXIT", "STAND_DOWN"}
-    return (baseline in offensive and ablated in defensive) or (
-        baseline in defensive and ablated in offensive
-    )
+    return (baseline in offensive and ablated in defensive) or (baseline in defensive and ablated in offensive)
 
 
 def run_batch_ablation(
     entries: list[ShadowDecisionLog],
-    weights: dict[str, float] = None,
+    weights: dict[str, float] | None = None,
 ) -> dict[str, list[AblationResult]]:
     """Run ablation on multiple decisions. Returns {decision_id: [ablation_results]}."""
     results = {}

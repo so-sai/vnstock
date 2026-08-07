@@ -8,6 +8,8 @@
 # ==============================================================================
 from ..cognitive_schema import SECTOR_VI as SECTOR_LABELS
 
+__all__ = ["SECTOR_LABELS"]
+
 _TRADE_STATE_VI: dict[str, str] = {
     "PROHIBITED": "Cấm giao dịch",
     "RESTRICTED": "Hạn chế giao dịch",
@@ -382,9 +384,7 @@ def localize_market_state(state: dict) -> dict:
             axis = ss.get(axis_key)
             if axis and isinstance(axis, dict):
                 axis["label_vi"] = localize_ssi(
-                    "HIGH" if axis.get("score", 0) >= 0.65
-                    else "MEDIUM" if axis.get("score", 0) >= 0.35
-                    else "LOW"
+                    "HIGH" if axis.get("score", 0) >= 0.65 else "MEDIUM" if axis.get("score", 0) >= 0.35 else "LOW"
                 )
         result["state_stability"] = ss
 
@@ -565,9 +565,7 @@ def localize_cognitive_snapshot(snapshot: dict) -> dict:
     da = snapshot.get("drift_assessment", {})
     if da:
         da_vi = dict(da)
-        da_vi["drift_status_vi"] = DRIFT_STATUS_VI.get(
-            da.get("drift_status", "NONE"), da.get("drift_status", "NONE")
-        )
+        da_vi["drift_status_vi"] = DRIFT_STATUS_VI.get(da.get("drift_status", "NONE"), da.get("drift_status", "NONE"))
         sources = da.get("drift_sources", [])
         da_vi["drift_sources_vi"] = [DRIFT_SOURCE_VI.get(s, s) for s in sources]
         rotation = da.get("flow_rotation")
@@ -588,18 +586,14 @@ def localize_cognitive_snapshot(snapshot: dict) -> dict:
         stab_vi["early_warning_vi"] = EARLY_WARNING_VI.get(
             stab.get("early_warning", "clean"), stab.get("early_warning", "clean")
         )
-        stab_vi["drift_trend_vi"] = DRIFT_TREND_VI.get(
-            stab.get("drift_trend", "stable"), stab.get("drift_trend", "stable")
-        )
+        stab_vi["drift_trend_vi"] = DRIFT_TREND_VI.get(stab.get("drift_trend", "stable"), stab.get("drift_trend", "stable"))
         result["stability"] = stab_vi
 
     cm = snapshot.get("cognitive_modulation", {})
     if cm:
         cm_vi = dict(cm)
         cm_vi["driver_confidence_vi"] = _confidence_label(cm.get("driver_confidence", 0.5))
-        cm_vi["drift_status_vi"] = DRIFT_STATUS_VI.get(
-            cm.get("drift_status", "NONE"), cm.get("drift_status", "NONE")
-        )
+        cm_vi["drift_status_vi"] = DRIFT_STATUS_VI.get(cm.get("drift_status", "NONE"), cm.get("drift_status", "NONE"))
         cm_vi["ets_label_vi"] = _ets_label(cm.get("ets_score", 0.5))
         result["cognitive_modulation"] = cm_vi
 

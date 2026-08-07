@@ -18,7 +18,7 @@ Outputs: fair_pe, fair_pb, margin_of_safety_pb, margin_of_safety_pe
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -151,7 +151,7 @@ def _get_payout(archetype: str) -> float:
     return PAYOUT_BY_ARCHETYPE.get(archetype, 0.30)
 
 
-def _get_current_price(symbol: str) -> Optional[float]:
+def _get_current_price(symbol: str) -> float | None:
     """Get latest close price from screener cache."""
     try:
         conn = sqlite3.connect(str(SCREENER_DB))
@@ -172,11 +172,11 @@ def compute_fair_multiple(
     roe: float,
     pe_current: float,
     pb_current: float,
-    payoff_ratio: Optional[float] = None,
+    payoff_ratio: float | None = None,
     archetype: str = "UNKNOWN",
     rf: float = DEFAULT_RF,
     erp: float = DEFAULT_ERP,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute fair PE/PB and margin of safety via Gordon Growth Model.
 
     Parameters
@@ -210,7 +210,7 @@ def compute_fair_multiple(
         sector: sector name
         status: "OK" or error message
     """
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "fair_pe": None,
         "fair_pb": None,
         "margin_of_safety_pct": None,

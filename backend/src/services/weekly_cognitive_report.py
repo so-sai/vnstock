@@ -1,4 +1,4 @@
-﻿"""Weekly Cognitive Report — READ-ONLY aggregation layer.
+"""Weekly Cognitive Report — READ-ONLY aggregation layer.
 
 Not an engine. Not a learning layer. Not a scoring layer.
 
@@ -10,6 +10,7 @@ Aggregates:
 Builds 1 narrative summary_vi. Never overrides CAO verdict.
 Never modifies telemetry. Never writes to production tables.
 """
+
 import logging
 import sys
 from datetime import datetime
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -33,6 +34,7 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 from src.cao_validation.activation_gate import run_full_validation
@@ -45,6 +47,7 @@ from src.shadow_cao.storage import get_shadow_stats
 # ====================================================================
 # 1. MARKET AGGREGATION
 # ====================================================================
+
 
 def aggregate_market() -> dict:
     """Read market state: regime, LCI, opportunity bias.
@@ -77,6 +80,7 @@ def aggregate_market() -> dict:
         logger.warning("[WEEKLY] Market state read failed: %s", e)
     try:
         from src.services.actionable_intelligence_service import get_opportunity_queue
+
         opps = get_opportunity_queue(top_n=5)
         if isinstance(opps, list):
             result["opportunity_count"] = len(opps)
@@ -96,6 +100,7 @@ def aggregate_market() -> dict:
         logger.warning("[WEEKLY] Opportunity read failed: %s", e)
         try:
             from src.engine.elite_scanner import get_elite_scan
+
             scan = get_elite_scan()
             if isinstance(scan, list):
                 result["opportunity_count"] = len(scan)
@@ -107,6 +112,7 @@ def aggregate_market() -> dict:
 # ====================================================================
 # 2. GOLD AGGREGATION
 # ====================================================================
+
 
 def aggregate_gold() -> dict:
     """Read gold state: VN + global + premium regime.
@@ -121,6 +127,7 @@ def aggregate_gold() -> dict:
     }
     try:
         from core.macro.gold_regime_engine import analyze_gold_regime
+
         regime = analyze_gold_regime()
         if isinstance(regime, dict):
             result["regime"] = regime.get("regime", "UNKNOWN")
@@ -129,6 +136,7 @@ def aggregate_gold() -> dict:
         logger.warning("[WEEKLY] Gold regime read failed: %s", e)
     try:
         from core.macro.gold_spread_engine import analyze_domestic_premium
+
         premium = analyze_domestic_premium()
         if isinstance(premium, dict):
             result["premium_regime"] = premium.get("regime", "NORMAL")
@@ -138,6 +146,7 @@ def aggregate_gold() -> dict:
         logger.warning("[WEEKLY] Gold premium read failed: %s", e)
     try:
         from src.services.macro.gold_world_service import fetch_world_gold_live
+
         world = fetch_world_gold_live()
         if isinstance(world, dict):
             result["xau_usd"] = world.get("price")
@@ -150,6 +159,7 @@ def aggregate_gold() -> dict:
 # ====================================================================
 # 3. CAO TRUST AGGREGATION
 # ====================================================================
+
 
 def aggregate_trust() -> dict:
     """Read CAO validation + shadow state.
@@ -167,8 +177,7 @@ def aggregate_trust() -> dict:
         report = run_full_validation()
         result["status"] = "PROMOTABLE" if report.overall_promotable else "BLOCKED"
         result["verdicts"] = [
-            {"regime": v.regime, "can_promote": v.can_promote, "failures": v.failures}
-            for v in report.promotion_verdicts
+            {"regime": v.regime, "can_promote": v.can_promote, "failures": v.failures} for v in report.promotion_verdicts
         ]
         for v in report.promotion_verdicts:
             result.setdefault("regime_states", {})[v.regime] = {
@@ -201,6 +210,7 @@ def aggregate_trust() -> dict:
         logger.warning("[WEEKLY] Shadow stats read failed: %s", e)
     try:
         from src.core.data_quality import QualityScoreEngine
+
         dq = QualityScoreEngine().compute_report()
         result["data_integrity"] = {
             "dis": dq.integrity_score,
@@ -308,7 +318,7 @@ def _trust_semantic(trust: dict) -> dict:
     status = trust.get("status", "NO_DATA")
     dis = trust.get("data_integrity", {}).get("dis", 1.0)
     divi = trust.get("data_integrity", {}).get("divi", 0.0)
-    dq_rec = trust.get("data_integrity", {}).get("recommendation", "clean")
+    trust.get("data_integrity", {}).get("recommendation", "clean")
 
     if status == "PROMOTABLE":
         return {
@@ -361,6 +371,7 @@ def _overall_label(sev: float) -> str:
 # 5. NARRATIVE BUILDER
 # ====================================================================
 
+
 def _risk_label(regime: str, lci: str, risk_appetite: str) -> str:
     if "CRISIS" in regime or "ĐÓNG" in risk_appetite:
         return "CAO"
@@ -404,6 +415,7 @@ def build_narrative(market: dict, gold: dict, trust: dict) -> str:
 # ====================================================================
 # 5. FULL WEEKLY REPORT
 # ====================================================================
+
 
 def build_weekly_report() -> dict:
     """Build the complete weekly cognitive report.
@@ -452,6 +464,7 @@ def _psr_audit(report: dict, trust: dict) -> None:
     try:
         from src.core.psr.audit import DecisionAuditTrail
         from src.core.psr.snapshot import SystemStateSnapshotter
+
         snapper = SystemStateSnapshotter()
         snap = snapper.capture()
         snapper.persist(snap)

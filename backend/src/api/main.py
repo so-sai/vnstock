@@ -1,4 +1,4 @@
-﻿import json
+import json
 import math
 import sys
 from pathlib import Path
@@ -12,12 +12,13 @@ from starlette.responses import JSONResponse
 
 class _NanSafeJSONResponse(JSONResponse):
     """JSONResponse that converts NaN/Infinity to null before serialization."""
+
     def render(self, content) -> bytes:
         return json.dumps(
             _canonicalize_json(content),
             ensure_ascii=False,
             allow_nan=False,
-        ).encode('utf-8')
+        ).encode("utf-8")
 
 
 def _canonicalize_json(obj):
@@ -66,14 +67,15 @@ def _hydrate_path():
         sys.path.append(str(src_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 from src.api import ipo_signal_api
 from src.api.routes import (
-    gold,
-    breadth,
     backtest,
+    breadth,
     flow,
+    gold,
     holdings,
     intelligence,
     macro,
@@ -116,6 +118,7 @@ def get_frontend_dist_path() -> Path:
         if candidate.exists():
             return candidate
     return PROJECT_ROOT / "frontend" / "dist"
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -209,14 +212,14 @@ async def circuit_breaker(request: Request, call_next):
     path = request.url.path
 
     # Whitelist: luôn cho phép health + gate endpoints
-    if path in ('/health', '/api', '/api/system/gate', '/api/system/gate/open', '/api/system/gate/close'):
+    if path in ("/health", "/api", "/api/system/gate", "/api/system/gate/open", "/api/system/gate/close"):
         return await call_next(request)
 
     # Nếu cửa sổ sync chưa mở, chặn mọi /api/* (trừ operations đã được xác nhận thủ công)
-    if not _is_window_open() and path.startswith('/api/') and not path.startswith('/api/operations/'):
+    if not _is_window_open() and path.startswith("/api/") and not path.startswith("/api/operations/"):
         return JSONResponse(
             status_code=503,
-            content={"error": "OFFLINE", "message": "Hệ thống đang ở chế độ Offline. Bấm CHỐT DỮ LIỆU để mở van 60 giây."}
+            content={"error": "OFFLINE", "message": "Hệ thống đang ở chế độ Offline. Bấm CHỐT DỮ LIỆU để mở van 60 giây."},
         )
 
     # Rate limit trong cửa sổ mở: tối đa 15 req/phút
@@ -225,7 +228,7 @@ async def circuit_breaker(request: Request, call_next):
     if recent > 15:
         return JSONResponse(
             status_code=429,
-            content={"error": "RATE_LIMITED", "message": "Hệ thống đang bảo vệ IP — quá nhiều request. Đợi 60 giây."}
+            content={"error": "RATE_LIMITED", "message": "Hệ thống đang bảo vệ IP — quá nhiều request. Đợi 60 giây."},
         )
 
     return await call_next(request)
@@ -251,7 +254,11 @@ async def open_sync_window():
     if not can_sync:
         return JSONResponse(
             status_code=403,
-            content={"error": "COOLDOWN", "message": f"Chưa đủ 12 giờ. Còn {int(remaining)} giây.", "remaining": int(remaining)}
+            content={
+                "error": "COOLDOWN",
+                "message": f"Chưa đủ 12 giờ. Còn {int(remaining)} giây.",
+                "remaining": int(remaining),
+            },
         )
     state = _read_sync_state()
     now = time.time()
@@ -271,59 +278,62 @@ async def close_sync_window():
     _write_sync_state(state)
     return {"status": "CLOSED", "message": "Van đã đóng"}
 
+
 @app.get("/api")
 async def root():
-    return localize_output({
-        "message": "PTCK VNSTOCK API v1.5.2 - Diamond Shield Trading System",
-        "docs": "/docs",
-        "endpoints": [
-            "/api/macro/",
-            "/api/macro/history",
-            "/api/screener/",
-            "/api/screener/rankings",
-            "/api/models/dashboard",
-            "/api/breadth/",
-            "/api/breadth/history",
-            "/api/portfolio/",
-            "/api/backtest/",
-            "/api/backtest/stress-test",
-            "/api/xray/{symbol}",
-            "/api/replay/timeline",
-            "/api/intelligence/live-summary",
-            "/api/intelligence/coach",
-            "/api/intelligence/opportunities",
-            "/api/intelligence/scenario",
-            "/api/intelligence/position-narrative/{symbol}",
-            "/api/intelligence/ipo-signal/",
-            "/api/intelligence/ipo-signal/history/",
-            "/api/v1/flow/banner",
-            "/api/watchlist/pins",
-            "/api/watchlist/pin",
-            "/api/watchlist/pin/{symbol}",
-            "/api/watchlist/is-pinned/{symbol}",
-            "/api/watchlist/recommendations",
-            "/api/watchlist/combined",
-            "/api/v1/market-state/",
-            "/api/v1/market-state/meta",
-            "/api/v1/market-state/regime",
-            "/api/v1/gold/",
-            "/api/v1/gold/regime",
-            "/api/v1/holdings/",
-            "/api/v1/holdings/exposure",
-            "/api/v1/telemetry/",
-            "/api/v1/telemetry/stats",
-            "/api/v1/telemetry/{decision_id}",
-            "/api/v1/telemetry/{decision_id}/evaluate",
-            "/api/v1/telemetry/attribution/{decision_id}",
-            "/api/v1/telemetry/attribution/{decision_id}/summary-vi",
-            "/api/v1/telemetry/engines",
-            "/api/v1/telemetry/engines/refresh",
-            "/api/v1/weekly/",
-            "/api/v1/snapshot/ddi",
-            "/api/v1/snapshot/index",
-            "/api/v1/snapshot/params",
-        ],
-    })
+    return localize_output(
+        {
+            "message": "PTCK VNSTOCK API v1.5.2 - Diamond Shield Trading System",
+            "docs": "/docs",
+            "endpoints": [
+                "/api/macro/",
+                "/api/macro/history",
+                "/api/screener/",
+                "/api/screener/rankings",
+                "/api/models/dashboard",
+                "/api/breadth/",
+                "/api/breadth/history",
+                "/api/portfolio/",
+                "/api/backtest/",
+                "/api/backtest/stress-test",
+                "/api/xray/{symbol}",
+                "/api/replay/timeline",
+                "/api/intelligence/live-summary",
+                "/api/intelligence/coach",
+                "/api/intelligence/opportunities",
+                "/api/intelligence/scenario",
+                "/api/intelligence/position-narrative/{symbol}",
+                "/api/intelligence/ipo-signal/",
+                "/api/intelligence/ipo-signal/history/",
+                "/api/v1/flow/banner",
+                "/api/watchlist/pins",
+                "/api/watchlist/pin",
+                "/api/watchlist/pin/{symbol}",
+                "/api/watchlist/is-pinned/{symbol}",
+                "/api/watchlist/recommendations",
+                "/api/watchlist/combined",
+                "/api/v1/market-state/",
+                "/api/v1/market-state/meta",
+                "/api/v1/market-state/regime",
+                "/api/v1/gold/",
+                "/api/v1/gold/regime",
+                "/api/v1/holdings/",
+                "/api/v1/holdings/exposure",
+                "/api/v1/telemetry/",
+                "/api/v1/telemetry/stats",
+                "/api/v1/telemetry/{decision_id}",
+                "/api/v1/telemetry/{decision_id}/evaluate",
+                "/api/v1/telemetry/attribution/{decision_id}",
+                "/api/v1/telemetry/attribution/{decision_id}/summary-vi",
+                "/api/v1/telemetry/engines",
+                "/api/v1/telemetry/engines/refresh",
+                "/api/v1/weekly/",
+                "/api/v1/snapshot/ddi",
+                "/api/v1/snapshot/index",
+                "/api/v1/snapshot/params",
+            ],
+        }
+    )
 
 
 @app.get("/health")
@@ -342,7 +352,9 @@ _cagl_mode = _os.environ.get("CAGL_MODE", "").upper()
 if _cagl_mode in ("SHADOW", "WARN", "STRICT"):
     try:
         from src.core.cagl import verify_cagl
+
         verify_cagl(app, mode=_cagl_mode)
     except Exception as _exc:
         import logging as _logging
+
         _logging.getLogger(__name__).warning("[CAGL] Verification skipped: %s", _exc)

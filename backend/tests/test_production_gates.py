@@ -13,9 +13,7 @@ import warnings
 
 import numpy as np
 import pytest
-
-from conftest import (TEST_DATES, TEST_PORTFOLIO, TEST_SYMBOL,
-                      TEST_MACRO_PREFIX)
+from conftest import TEST_DATES, TEST_MACRO_PREFIX, TEST_PORTFOLIO, TEST_SYMBOL
 
 
 # ============================================================ CHỐT 1: EMD
@@ -131,7 +129,6 @@ class TestAntiLookahead:
         Đây là bằng chứng cốt lõi chống rò rỉ nhìn trước: thống kê chuẩn hóa
         của ngày T chỉ phụ thuộc quá khứ, KHÔNG đổi khi tương lai xuất hiện.
         """
-        from src.database.db_core import get_connection
         from src.engine.structure_evolution import SpaceNormalizationLayer
 
         # Dữ liệu lịch sử < T (10 điểm)

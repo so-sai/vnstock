@@ -14,8 +14,7 @@ Bao phủ:
 Run: python -m pytest backend/tests/test_catchup.py -v
 """
 import pytest
-
-from conftest import TEST_PORTFOLIO, TEST_SYMBOL, TEST_DATES
+from conftest import TEST_DATES, TEST_PORTFOLIO, TEST_SYMBOL
 
 
 @pytest.fixture
@@ -34,24 +33,21 @@ def seeded(seed_test_ohlcv):
 # ==================================================== LEDGER
 class TestLedger:
     def test_record_and_read_status(self, seeded):
-        from src.engine.eod_runner import (_record_ledger, _ledger_succeeded,
-                                           STATUS_SUCCESS, STATUS_FAILED)
+        from src.engine.eod_runner import STATUS_SUCCESS, _ledger_succeeded, _record_ledger
         d = TEST_DATES[0]
         assert _ledger_succeeded(d, TEST_PORTFOLIO) is False
         _record_ledger(d, TEST_PORTFOLIO, STATUS_SUCCESS)
         assert _ledger_succeeded(d, TEST_PORTFOLIO) is True
 
     def test_failed_status_not_counted_as_done(self, seeded):
-        from src.engine.eod_runner import (_record_ledger, _ledger_succeeded,
-                                           STATUS_FAILED)
+        from src.engine.eod_runner import STATUS_FAILED, _ledger_succeeded, _record_ledger
         d = TEST_DATES[1]
         _record_ledger(d, TEST_PORTFOLIO, STATUS_FAILED, last_error="net down")
         assert _ledger_succeeded(d, TEST_PORTFOLIO) is False
 
     def test_upsert_updates_status(self, seeded):
         from src.database.db_core import get_connection
-        from src.engine.eod_runner import (_record_ledger, STATUS_FAILED,
-                                           STATUS_SUCCESS)
+        from src.engine.eod_runner import STATUS_FAILED, STATUS_SUCCESS, _record_ledger
         d = TEST_DATES[2]
         _record_ledger(d, TEST_PORTFOLIO, STATUS_FAILED, attempts=3)
         _record_ledger(d, TEST_PORTFOLIO, STATUS_SUCCESS, attempts=1)
@@ -88,8 +84,7 @@ class TestGapDetection:
 
     def test_succeeded_day_not_a_gap(self, seeded):
         """Ngày đã ghi SUCCESS trong ledger KHÔNG còn là gap."""
-        from src.engine.eod_runner import (detect_gap_days, _record_ledger,
-                                           STATUS_SUCCESS)
+        from src.engine.eod_runner import STATUS_SUCCESS, _record_ledger, detect_gap_days
         d = TEST_DATES[1]
         _record_ledger(d, TEST_PORTFOLIO, STATUS_SUCCESS)
         gaps = detect_gap_days(TEST_DATES[4], TEST_PORTFOLIO, scan_limit=100)
@@ -98,7 +93,7 @@ class TestGapDetection:
     def test_legacy_trades_backfill_ledger(self, seeded):
         """Ngày có trade nhưng ledger trống → tự đồng bộ ledger, không là gap."""
         from src.database.db_core import get_connection
-        from src.engine.eod_runner import (detect_gap_days, _ledger_succeeded)
+        from src.engine.eod_runner import _ledger_succeeded, detect_gap_days
         from src.engine.paper_trading_engine import PaperTradingEngine
         PaperTradingEngine(portfolio_id=TEST_PORTFOLIO)
         d = TEST_DATES[0]
@@ -129,8 +124,7 @@ class TestStaleSignalGuard:
 
     def test_recent_gap_full_catchup(self, seeded):
         """Ngày nợ TRONG cửa sổ MAX_CATCHUP_DAYS → CATCHUP_FULL."""
-        from src.engine.eod_runner import (_catchup_gap_days, MAX_CATCHUP_DAYS)
-        from src.database.db_core import get_connection
+        from src.engine.eod_runner import MAX_CATCHUP_DAYS, _catchup_gap_days
         # as_of = phiên cuối; các phiên ngay trước nằm trong cửa sổ tươi
         as_of = TEST_DATES[-1]
         report = _catchup_gap_days(as_of, TEST_PORTFOLIO, offline=True)
@@ -140,7 +134,7 @@ class TestStaleSignalGuard:
 
     def test_old_gap_mtm_only(self, seeded):
         """Ngày nợ QUÁ CŨ (ngoài cửa sổ) → CATCHUP_MTM_ONLY, không phát lệnh."""
-        from src.engine.eod_runner import _catchup_gap_days, MAX_CATCHUP_DAYS
+        from src.engine.eod_runner import MAX_CATCHUP_DAYS, _catchup_gap_days
         as_of = TEST_DATES[-1]
         report = _catchup_gap_days(as_of, TEST_PORTFOLIO, offline=True)
         # Phiên đầu tiên (xa nhất) phải nằm trong nhóm mtm_only
@@ -169,8 +163,7 @@ class TestStaleSignalGuard:
 class TestSequentialBackfill:
     def test_all_gaps_recorded_in_ledger(self, seeded):
         """Sau catch-up, mọi ngày nợ đều có bản ghi 'done' trong ledger."""
-        from src.database.db_core import get_connection
-        from src.engine.eod_runner import (_catchup_gap_days, detect_gap_days)
+        from src.engine.eod_runner import _catchup_gap_days, detect_gap_days
         as_of = TEST_DATES[-1]
         _catchup_gap_days(as_of, TEST_PORTFOLIO, offline=True)
         # Không còn gap test nào sau khi bù
@@ -198,7 +191,7 @@ class TestCatchupAntiLookahead:
         as_of (ngày mới) thay vì giá ngày nợ → fill price sẽ cao hơn thực tế.
         """
         from src.database.db_core import get_connection
-        from src.engine.eod_runner import _catchup_gap_days, MAX_CATCHUP_DAYS
+        from src.engine.eod_runner import MAX_CATCHUP_DAYS, _catchup_gap_days
         closes = seeded  # {date: close}
         as_of = TEST_DATES[-1]
         _catchup_gap_days(as_of, TEST_PORTFOLIO, offline=True)

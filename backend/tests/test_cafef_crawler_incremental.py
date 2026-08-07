@@ -231,3 +231,182 @@ class TestCLIArgs:
         )
         incremental = not getattr(args, "full", False)
         assert incremental is True
+
+
+# ── Test: Metric-Level Upsert (chống mất dữ liệu khi crawl nhiều nguồn) ─
+class TestMetricLevelUpsert:
+    """write_batch KHÔNG được purge cả (symbol, period) khi nguồn mới chỉ trả subset.
+
+    WHY: purge-before-write DELETE (symbol, period) trong write_batch khiến crawl VCI
+    (chỉ trả CF metrics cho quý gần) xóa sạch BS/IS của CafeF/vietstock đã ghi trước —
+    regression FPT/VCB 06/08/2026. PRIMARY KEY (symbol, period, metric) đã có sẵn nên
+    INSERT OR REPLACE vốn upsert metric-level — chỉ cần bỏ DELETE purge là giữ nguyên
+    các metric cũ mà nguồn mới không cung cấp.
+    """
+
+    def _full_batch(self):
+        return {
+            "_fiscal_year": 2026,
+            "_fiscal_quarter": 2,
+            "REVENUE": 4_000_000_000,
+            "NET_INCOME": 600_000_000,
+            "TOTAL_ASSETS": 15_000_000_000,
+            "TOTAL_EQUITY": 7_000_000_000,
+            "CFO": 1_500_000_000,
+            "EPS": 5000.0,
+        }
+
+    def test_metric_upsert_keeps_bs_is_from_previous_source(self, db):
+        """Nguồn mới (VCI) chỉ trả CFO → BS/IS cũ vẫn còn, CFO được ghi đè."""
+        r1 = db.write_batch("TEST", self._full_batch(), "STANDARD", source="vietstock")
+        assert r1["facts_written"] == 6
+
+        r2 = db.write_batch(
+            "TEST",
+            {"_fiscal_year": 2026, "_fiscal_quarter": 2, "CFO": 1_200_000_000},
+            "STANDARD",
+            source="vci",
+        )
+        assert r2["facts_written"] == 1
+
+        facts = db.get_facts("TEST")
+        assert "2026Q2" in facts
+        q = facts["2026Q2"]
+        assert q.get("REVENUE") == 4_000_000_000
+        assert q.get("TOTAL_EQUITY") == 7_000_000_000
+        assert q.get("CFO") == 1_200_000_000
+
+    def test_write_batch_empty_subset_does_not_purge_existing(self, db):
+        """Batch chỉ có meta (không fact hợp lệ) → dữ liệu cũ không bị xóa."""
+        db.write_batch("TEST", self._full_batch(), "STANDARD", source="vietstock")
+
+        r = db.write_batch(
+            "TEST",
+            {"_fiscal_year": 2026, "_fiscal_quarter": 2},
+            "STANDARD",
+            source="vci",
+        )
+        assert r["facts_written"] == 0
+
+        facts = db.get_facts("TEST")
+        assert "2026Q2" in facts
+        assert len(facts["2026Q2"]) == 6
+
+
+# ── Test: Period-Level Missing-Metric Fallback + Cooldown Gate ────
+class TestPeriodLevelFallback:
+    """Fallback cấp Quý: tự cào bù quý thiếu >= 3 core metrics (REVENUE/
+    TOTAL_ASSETS/NET_PROFIT/CFO) từ nguồn phụ, kèm Cooldown 24h chống spam.
+
+    WHY: tháp fallback cấp Symbol (len(all_periods)==0) bỏ sót quý lẻ bị
+    khuyết (VD VCB 2026Q2 chỉ có BOOK_VALUE_PS) — nguồn chính trả OK 19 quý
+    nên không kích hoạt fallback. Phát hiện quý partially-missing để cào bù.
+    """
+
+    CORE = ("REVENUE", "TOTAL_ASSETS", "NET_PROFIT", "CFO")
+
+    def test_detects_quarter_missing_3_core_metrics(self, crawler):
+        """Quý chỉ có 1 core metric (VD VCB 2026Q2: BOOK_VALUE_PS) → MISSING."""
+        periods = [
+            {"_fiscal_year": 2026, "_fiscal_quarter": 2, "BOOK_VALUE_PS": 29739.13},
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 1,
+                "REVENUE": 1e12,
+                "TOTAL_ASSETS": 2e12,
+                "NET_PROFIT": 5e11,
+                "CFO": 1e12,
+            },
+        ]
+        missing = crawler._detect_missing_periods(periods, [(2026, 1), (2026, 2)], self.CORE)
+        assert missing == [(2026, 2)], f"expected Q2 missing, got {missing}"
+
+    def test_complete_quarter_not_detected(self, crawler):
+        """Quý đủ 4 core metrics → không bị đánh dấu missing."""
+        periods = [
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 2,
+                "REVENUE": 1e12,
+                "TOTAL_ASSETS": 2e12,
+                "NET_PROFIT": 5e11,
+                "CFO": 1e12,
+            },
+        ]
+        missing = crawler._detect_missing_periods(periods, [(2026, 2)], self.CORE)
+        assert missing == []
+
+    def test_old_quarter_not_scanned(self, crawler):
+        """Chỉ quét 4 quý gần nhất — quý cũ (2018Q1) thiếu nhưng ngoài cửa sổ."""
+        periods = [
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 1,
+                "REVENUE": 1e12,
+                "TOTAL_ASSETS": 2e12,
+                "NET_PROFIT": 5e11,
+                "CFO": 1e12,
+            },
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 2,
+                "REVENUE": 1e12,
+                "TOTAL_ASSETS": 2e12,
+                "NET_PROFIT": 5e11,
+                "CFO": 1e12,
+            },
+            {"_fiscal_year": 2018, "_fiscal_quarter": 1, "BOOK_VALUE_PS": 100.0},
+        ]
+        missing = crawler._detect_missing_periods(periods, [(2026, 1), (2026, 2)], self.CORE)
+        assert missing == []
+
+    def test_merge_fills_missing_metrics_without_purge(self, crawler):
+        """Merge dữ liệu nguồn phụ vào quý thiếu — giữ metric cũ, điền metric mới."""
+        target = {"_fiscal_year": 2026, "_fiscal_quarter": 2, "BOOK_VALUE_PS": 29739.13}
+        fallback = {
+            "_fiscal_year": 2026,
+            "_fiscal_quarter": 2,
+            "REVENUE": 1e12,
+            "TOTAL_ASSETS": 2e12,
+            "NET_PROFIT": 5e11,
+            "CFO": 1e12,
+        }
+        merged = crawler._merge_fallback_periods(target, fallback)
+        assert merged["BOOK_VALUE_PS"] == 29739.13
+        assert merged["REVENUE"] == 1e12
+        assert merged["TOTAL_ASSETS"] == 2e12
+        assert merged["CFO"] == 1e12
+        assert len([k for k in merged if not k.startswith("_")]) == 5
+
+    def test_bank_uses_bank_core_metrics(self, crawler):
+        """Bank thiếu REVENUE/CFO (không tồn tại ở BCTC ngân hàng) → không fallback.
+
+        WHY: bank core metrics là NET_PROFIT/TOTAL_ASSETS/CUSTOMER_DEPOSITS/
+        CUSTOMER_LOANS. Bank có đủ chúng nhưng thiếu REVENUE theo chuẩn STANDARD
+        thì KHÔNG bị đánh dấu missing — tránh fallback vô ích mỗi chu kỳ."""
+        periods = [
+            {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 2,
+                "NET_PROFIT": 5e11,
+                "TOTAL_ASSETS": 2e12,
+                "CUSTOMER_DEPOSITS": 1.5e12,
+                "CUSTOMER_LOANS": 1.2e12,
+                "BOOK_VALUE_PS": 29739.13,
+            },
+        ]
+        missing = crawler._detect_missing_periods(periods, [(2026, 2)], crawler.FALLBACK_CORE_METRICS_BANK)
+        assert missing == [], f"Bank with full bank-core must not be missing, got {missing}"
+
+    def test_cooldown_blocks_repeated_fallback(self, db):
+        """Sau khi fallback không ra dữ liệu, cooldown 24h chặn thử lại."""
+        db.set_fallback_cooldown("VCB", "2026Q2")
+        assert db.get_fallback_cooldown("VCB", "2026Q2") is not None
+
+    def test_cooldown_expires_after_24h(self, db):
+        """Cooldown hết hạn sau 24h → cho phép thử lại."""
+
+        db.set_fallback_cooldown("VCB", "2026Q2")
+        assert db.is_fallback_cooldown_active("VCB", "2026Q2")
+        db.expire_fallback_cooldown("VCB", "2026Q2")
+        assert not db.is_fallback_cooldown_active("VCB", "2026Q2")

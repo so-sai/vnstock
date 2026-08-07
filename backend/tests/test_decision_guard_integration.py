@@ -6,7 +6,8 @@ BOUNDARY: Validates full chain (StaleTracker -> RecoveryGovernor -> BreadthTrapD
 "AN TOAN" verdicts during CRISIS or false "KHONG AN TOAN" during TRENDING.
 Both are equally catastrophic. Do NOT short-circuit or mock individual steps.
 """
-import sys, io
+import io
+import sys
 from pathlib import Path
 
 # Hydrate path
@@ -26,10 +27,10 @@ if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 import pytest
-from src.engine.decision_guard import kiem_tra_an_toan, reset_trap_detector, get_trap_detector
-from src.engine.recovery_governor import RecoveryGovernor
-from src.engine.macro_stale_tracker import StaleTracker
 from src.core.market_snapshot import tao_anh_chup
+from src.engine.decision_guard import kiem_tra_an_toan, reset_trap_detector
+from src.engine.macro_stale_tracker import StaleTracker
+from src.engine.recovery_governor import RecoveryGovernor
 
 
 @pytest.fixture(autouse=True)
@@ -76,6 +77,7 @@ class TestDecisionGuardIntegration:
         phu thuoc trang thai stale dung DB rieng de khong phu thuoc vao ngay chay.
         """
         import sqlite3
+
         from src.engine.macro_stale_tracker import MACRO_BASE_WEIGHTS
         db = str(tmp_path / "stale_macro.db")
         conn = sqlite3.connect(db)
@@ -142,7 +144,7 @@ class TestDecisionGuardIntegration:
 
     def test_recovery_governor_uses_calibrated_params(self):
         """Governor dung tham so calibrated (k=0.04, h1=0.05, h2=0.15, h3=0.35)."""
-        from src.engine.recovery_governor import DEFAULT_K, DEFAULT_H1, DEFAULT_H2, DEFAULT_H3, DEFAULT_H
+        from src.engine.recovery_governor import DEFAULT_H, DEFAULT_H1, DEFAULT_H2, DEFAULT_H3, DEFAULT_K
         assert DEFAULT_K == 0.04, f"k={DEFAULT_K} != 0.04"
         assert DEFAULT_H1 == 0.05, f"h1={DEFAULT_H1} != 0.05"
         assert DEFAULT_H2 == 0.15, f"h2={DEFAULT_H2} != 0.15"

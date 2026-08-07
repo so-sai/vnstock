@@ -12,7 +12,6 @@ Percentile Gate.
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
 
 BACKEND = Path(__file__).resolve().parent.parent.parent  # scripts/ → src/ → backend/
 sys.path.insert(0, str(BACKEND))
@@ -21,7 +20,7 @@ FIN_DB = BACKEND / "data" / "financial_facts.db"
 SCREEN_DB = BACKEND / "data" / "screener_cache.db"
 
 
-def _quarters_between(start: str, end: str) -> List[str]:
+def _quarters_between(start: str, end: str) -> list[str]:
     """Generate quarter strings from start to end inclusive. '2022Q1' -> ['2022Q1', ...]"""
     quarters = []
     y, q = int(start[:4]), int(start[5])
@@ -35,7 +34,7 @@ def _quarters_between(start: str, end: str) -> List[str]:
     return quarters
 
 
-def _load_fin_data(db_path: Path, symbol: str, max_period: str) -> Dict[str, Dict[str, float]]:
+def _load_fin_data(db_path: Path, symbol: str, max_period: str) -> dict[str, dict[str, float]]:
     """Load financial_facts for symbol, only periods <= max_period (PIT)."""
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -44,14 +43,14 @@ def _load_fin_data(db_path: Path, symbol: str, max_period: str) -> Dict[str, Dic
         (symbol,),
     ).fetchall()
     conn.close()
-    data: Dict[str, Dict[str, float]] = {}
+    data: dict[str, dict[str, float]] = {}
     for r in rows:
         if r["period"] <= max_period:
             data.setdefault(r["period"], {})[r["metric"]] = float(r["value"])
     return data
 
 
-def _compute_receivables_ratio(fin_data: Dict[str, Dict[str, float]], last_n: int = 4) -> Optional[float]:
+def _compute_receivables_ratio(fin_data: dict[str, dict[str, float]], last_n: int = 4) -> float | None:
     """Compute RECEIVABLES/REVENUE from latest N periods."""
     periods = sorted(fin_data.keys())[-last_n:]
     rec_vals, rev_vals = [], []
@@ -67,10 +66,10 @@ def _compute_receivables_ratio(fin_data: Dict[str, Dict[str, float]], last_n: in
 
 
 def _compute_sector_pct75(
-    fin_data_all: Dict[str, Dict[str, Dict]], symbols: List[str], max_period: str, sector_map: Dict[str, str]
-) -> Dict[str, Optional[float]]:
+    fin_data_all: dict[str, dict[str, dict]], symbols: list[str], max_period: str, sector_map: dict[str, str]
+) -> dict[str, float | None]:
     """Compute sector P75 of receivables ratio across symbols."""
-    sector_ratios: Dict[str, List[float]] = {}
+    sector_ratios: dict[str, list[float]] = {}
     for sym in symbols:
         sector = sector_map.get(sym, "UNKNOWN")
         fin_data = fin_data_all.get(sym, {})
@@ -92,14 +91,14 @@ def _compute_sector_pct75(
     return result
 
 
-def _pass_t2_static(ratio: Optional[float]) -> bool:
+def _pass_t2_static(ratio: float | None) -> bool:
     """Old gate: ratio <= 25%."""
     if ratio is None:
         return True  # missing data → skip gate
     return ratio <= 0.25
 
 
-def _pass_t2_percentile(ratio: Optional[float], sector_pct75: Optional[float]) -> bool:
+def _pass_t2_percentile(ratio: float | None, sector_pct75: float | None) -> bool:
     """New gate: ratio <= 25% OR ratio <= sector_pct75."""
     if ratio is None:
         return True
@@ -110,7 +109,7 @@ def _pass_t2_percentile(ratio: Optional[float], sector_pct75: Optional[float]) -
     return False
 
 
-def _get_price_data(db_path: Path, symbol: str, start: str, end: str) -> Dict[str, float]:
+def _get_price_data(db_path: Path, symbol: str, start: str, end: str) -> dict[str, float]:
     """Get daily close prices for date range."""
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -148,7 +147,7 @@ def run_backtest(start_q: str = "2022Q1", end_q: str = "2026Q2"):
 
     # Load ALL fin data upfront (PIT filtering done later)
     print(f"Loading financial data for {len(universe)} symbols...")
-    fin_data_all: Dict[str, Dict[str, Dict]] = {}
+    fin_data_all: dict[str, dict[str, dict]] = {}
     for sym in universe:
         rows = fin.execute(
             "SELECT period, metric, value FROM financial_facts WHERE symbol=? AND value IS NOT NULL ORDER BY period",
@@ -221,7 +220,7 @@ def run_backtest(start_q: str = "2022Q1", end_q: str = "2026Q2"):
                 pass_b.append(sym)
 
         # Compute returns for next quarter
-        def portfolio_return(symbols: List[str]) -> float:
+        def portfolio_return(symbols: list[str]) -> float:
             if not symbols:
                 return 0.0
             rets = []
@@ -232,7 +231,7 @@ def run_backtest(start_q: str = "2022Q1", end_q: str = "2026Q2"):
                 p_start = list(prices.values())[0]
                 p_end = list(prices.values())[-1]
                 if p_start > 0:
-                    rets.append((p_end / p_start - 1.0))
+                    rets.append(p_end / p_start - 1.0)
             return sum(rets) / len(rets) if rets else 0.0
 
         ret_a = portfolio_return(pass_a)
@@ -263,7 +262,7 @@ def run_backtest(start_q: str = "2022Q1", end_q: str = "2026Q2"):
         bench_returns.append({"quarter": q, "return": bench_ret})
 
     # Summary metrics
-    def compute_metrics(returns: List[float], label: str):
+    def compute_metrics(returns: list[float], label: str):
         if not returns:
             return {}
         cum = 1.0

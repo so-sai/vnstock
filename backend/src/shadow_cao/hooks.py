@@ -1,4 +1,4 @@
-﻿"""Shadow CAO — Integration hooks into Telemetry and Decision Tensor.
+"""Shadow CAO — Integration hooks into Telemetry and Decision Tensor.
 
 These hooks are called from the production pipeline but NEVER write to production tables.
 Shadow CAO operates in a separate DB namespace (shadow_cao.db).
@@ -9,6 +9,7 @@ Hardening guarantees (see hardening.py):
     - Timestamp validation: temporal alignment enforced
     - Replay engine: historical validation available
 """
+
 import logging
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -30,6 +31,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -76,6 +78,7 @@ _register_event_handlers()
 # RAW HOOKS (wrapped with safe_hook for crash protection)
 # ====================================================================
 
+
 @safe_hook("on_decision_recorded")
 def _raw_on_decision_recorded(snapshot: dict) -> bool:
     """Core hook: called after a decision is recorded in telemetry.
@@ -84,11 +87,11 @@ def _raw_on_decision_recorded(snapshot: dict) -> bool:
     Runs engine ablation (decision-space perturbation only).
     """
     from src.shadow_cao.storage import initialize_shadow_database
+
     initialize_shadow_database()
     entry = record_from_snapshot(snapshot)
     if entry is None:
-        logger.warning("[SHADOW_CAO] Failed to capture decision %s",
-                       snapshot.get("decision_id", "unknown"))
+        logger.warning("[SHADOW_CAO] Failed to capture decision %s", snapshot.get("decision_id", "unknown"))
         return False
     return True
 
@@ -111,32 +114,37 @@ def _raw_on_outcome_evaluated(
         initialize_shadow_database,
         save_outcome_log,
     )
+
     initialize_shadow_database()
     save_outcome_log(decision_id, horizon_days, realized_return, success)
     ablations_raw = get_ablations_for_decision(decision_id)
     from src.shadow_cao.models import AblationResult
-    ablations = [
-        AblationResult(
-            engine_removed=a["engine_removed"],
-            baseline_action=a["baseline_action"],
-            baseline_confidence=a["baseline_confidence"],
-            ablated_action=a["ablated_action"],
-            ablated_confidence=a["ablated_confidence"],
-            action_changed=bool(a["action_changed"]),
-            confidence_delta=a["confidence_delta"],
-            decision_flip=bool(a["decision_flip"]),
-        )
-        for a in ablations_raw
-    ] if ablations_raw else None
-    run_dry_run_attribution(
-        decision_id, horizon_days, engine_scores, realized_return, ablations
+
+    ablations = (
+        [
+            AblationResult(
+                engine_removed=a["engine_removed"],
+                baseline_action=a["baseline_action"],
+                baseline_confidence=a["baseline_confidence"],
+                ablated_action=a["ablated_action"],
+                ablated_confidence=a["ablated_confidence"],
+                action_changed=bool(a["action_changed"]),
+                confidence_delta=a["confidence_delta"],
+                decision_flip=bool(a["decision_flip"]),
+            )
+            for a in ablations_raw
+        ]
+        if ablations_raw
+        else None
     )
+    run_dry_run_attribution(decision_id, horizon_days, engine_scores, realized_return, ablations)
     return True
 
 
 # ====================================================================
 # PUBLIC HOOK API (production-safe entry points)
 # ====================================================================
+
 
 def on_decision_recorded(snapshot: dict) -> bool:
     """ASYNC: called after a decision is recorded in telemetry.
@@ -163,7 +171,11 @@ def on_outcome_evaluated(
     NEVER propagates exceptions.
     """
     _safe_hook.post_outcome(
-        decision_id, horizon_days, realized_return, success, engine_scores,
+        decision_id,
+        horizon_days,
+        realized_return,
+        success,
+        engine_scores,
     )
     return True
 
@@ -179,6 +191,7 @@ def on_attribution_complete(decision_id: str, horizon_days: int):
 # ====================================================================
 # DAILY BATCH (runs in its own context, not via event bus)
 # ====================================================================
+
 
 def daily_shadow_tick() -> dict:
     """Daily shadow CAO processing.
@@ -202,11 +215,16 @@ def daily_shadow_tick() -> dict:
         current_entropy = None
     persist_stability_trace(stability, current_entropy)
     from src.cao_readiness import run_readiness_check
+
     try:
         verdict = run_readiness_check(verbose=False)
-        logger.info("[SHADOW_CAO] Readiness re-check: overall_pass=%s | A=%s B=%s C=%s",
-                     verdict.overall_pass,
-                     verdict.gates[0].status, verdict.gates[1].status, verdict.gates[2].status)
+        logger.info(
+            "[SHADOW_CAO] Readiness re-check: overall_pass=%s | A=%s B=%s C=%s",
+            verdict.overall_pass,
+            verdict.gates[0].status,
+            verdict.gates[1].status,
+            verdict.gates[2].status,
+        )
     except Exception as e:
         logger.warning("[SHADOW_CAO] Readiness re-check failed: %s", e)
         verdict = None
@@ -224,6 +242,7 @@ def daily_shadow_tick() -> dict:
 # ====================================================================
 # REPLAY (historical validation, not production path)
 # ====================================================================
+
 
 def run_replay(limit: int = 200) -> list[dict]:
     """Replay historical snapshots through Shadow CAO for validation.

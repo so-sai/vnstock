@@ -11,13 +11,11 @@ Usage:
     print(pos.moat_score, pos.market_share_rank)
 """
 
-import sqlite3
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
-from src.business.archetype import ArchetypeEngine, ARCHETYPE_REGISTRY, BusinessArchetype
+from src.business.archetype import ArchetypeEngine, BusinessArchetype
 
 _candidate = Path(sys.executable).resolve().parent
 if Path(sys.executable).stem.lower().startswith("python"):
@@ -35,19 +33,22 @@ FINANCIAL_DB = DATA_DIR / "financial_facts.db"
 # 1. COMPETITIVE POSITION SCHEMA
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class MoatAssessment:
     """Đánh giá từng loại hào kinh tế."""
+
     type: str
     label: str
-    score: float      # 0.0 – 1.0
-    evidence: str     # ngắn gọn, định tính
-    confidence: float # 0.0 – 1.0
+    score: float  # 0.0 – 1.0
+    evidence: str  # ngắn gọn, định tính
+    confidence: float  # 0.0 – 1.0
 
 
 @dataclass
 class CompetitivePosition:
     """Vị thế cạnh tranh tổng thể của doanh nghiệp trong hệ sinh thái."""
+
     symbol: str
     archetype: str
 
@@ -61,15 +62,15 @@ class CompetitivePosition:
     location_moat: MoatAssessment
 
     # ── Market position ──
-    market_share_rank: int         # 1 = leader
-    market_share_pct: float        # ước lượng thị phần
-    customer_concentration: str    # LOW / MEDIUM / HIGH
-    geographic_diversification: str # LOCAL / REGIONAL / NATIONAL / GLOBAL
+    market_share_rank: int  # 1 = leader
+    market_share_pct: float  # ước lượng thị phần
+    customer_concentration: str  # LOW / MEDIUM / HIGH
+    geographic_diversification: str  # LOCAL / REGIONAL / NATIONAL / GLOBAL
 
     # ── Quality scores ──
-    moat_score: float              # 0.0 – 1.0 tổng hợp
-    pricing_power_score: float     # 0.0 – 1.0
-    competitive_stability: str     # STABLE / IMPROVING / DECLINING / UNCLEAR
+    moat_score: float  # 0.0 – 1.0 tổng hợp
+    pricing_power_score: float  # 0.0 – 1.0
+    competitive_stability: str  # STABLE / IMPROVING / DECLINING / UNCLEAR
 
     # ── Raw data ──
     evidence_summary: str = ""
@@ -80,10 +81,16 @@ class CompetitivePosition:
 # ═══════════════════════════════════════════════════════════════
 
 # Baseline assessment for 10 Core + 10 Satellite symbols (human-validated expert judgment)
-BASELINE_POSITIONS: Dict[str, dict] = {
+BASELINE_POSITIONS: dict[str, dict] = {
     "FPT": {
-        "switching_cost": (0.95, "Chi phí chuyển đổi nhà cung cấp CNTT rất cao (hợp đồng 3-5 năm, tích hợp sâu vào vận hành KH)"),
-        "cost_advantage": (0.60, "Quy mô nhân sự >40,000 cho phép đấu thầu cạnh tranh với Accenture, nhưng chi phí lao động tăng"),
+        "switching_cost": (
+            0.95,
+            "Chi phí chuyển đổi nhà cung cấp CNTT rất cao (hợp đồng 3-5 năm, tích hợp sâu vào vận hành KH)",
+        ),
+        "cost_advantage": (
+            0.60,
+            "Quy mô nhân sự >40,000 cho phép đấu thầu cạnh tranh với Accenture, nhưng chi phí lao động tăng",
+        ),
         "scale_advantage": (0.75, "Mạng lưới 60+ văn phòng tại 30+ quốc gia, quy mô top 3 Đông Nam Á"),
         "brand_moat": (0.80, "Thương hiệu CNTT số 1 Việt Nam, uy tín với khách hàng Nhật Bản, châu Âu"),
         "regulatory_moat": (0.30, "Không có rào cản pháp lý đặc biệt"),
@@ -231,7 +238,6 @@ BASELINE_POSITIONS: Dict[str, dict] = {
         "pricing_power_score": 0.90,
         "competitive_stability": "STABLE",
     },
-
     # ── Satellite Universe (10 mã chờ, thêm 2026-07-30) ──
     "TCB": {
         "switching_cost": (0.65, "Khách hàng doanh nghiệp có chi phí chuyển đổi tài khoản; SME switching cost thấp hơn"),
@@ -398,36 +404,36 @@ class CompetitiveEngine:
         row = BASELINE_POSITIONS.get(sym, self._fallback_position(sym, arch))
 
         moats = {
-            "switching_cost": MoatAssessment("SWITCHING_COST", "Chi phí chuyển đổi",
-                                               row["switching_cost"][0], row["switching_cost"][1], 0.7),
-            "cost_advantage": MoatAssessment("COST_ADVANTAGE", "Lợi thế chi phí",
-                                              row["cost_advantage"][0], row["cost_advantage"][1], 0.7),
-            "scale_advantage": MoatAssessment("SCALE", "Quy mô",
-                                               row["scale_advantage"][0], row["scale_advantage"][1], 0.7),
-            "brand_moat": MoatAssessment("BRAND", "Thương hiệu",
-                                          row["brand_moat"][0], row["brand_moat"][1], 0.6),
-            "regulatory_moat": MoatAssessment("REGULATORY", "Rào cản pháp lý",
-                                               row["regulatory_moat"][0], row["regulatory_moat"][1], 0.6),
-            "network_moat": MoatAssessment("NETWORK", "Hệ sinh thái",
-                                            row["network_moat"][0], row["network_moat"][1], 0.5),
-            "location_moat": MoatAssessment("LOCATION", "Vị trí địa lý",
-                                             row["location_moat"][0], row["location_moat"][1], 0.7),
+            "switching_cost": MoatAssessment(
+                "SWITCHING_COST", "Chi phí chuyển đổi", row["switching_cost"][0], row["switching_cost"][1], 0.7
+            ),
+            "cost_advantage": MoatAssessment(
+                "COST_ADVANTAGE", "Lợi thế chi phí", row["cost_advantage"][0], row["cost_advantage"][1], 0.7
+            ),
+            "scale_advantage": MoatAssessment("SCALE", "Quy mô", row["scale_advantage"][0], row["scale_advantage"][1], 0.7),
+            "brand_moat": MoatAssessment("BRAND", "Thương hiệu", row["brand_moat"][0], row["brand_moat"][1], 0.6),
+            "regulatory_moat": MoatAssessment(
+                "REGULATORY", "Rào cản pháp lý", row["regulatory_moat"][0], row["regulatory_moat"][1], 0.6
+            ),
+            "network_moat": MoatAssessment("NETWORK", "Hệ sinh thái", row["network_moat"][0], row["network_moat"][1], 0.5),
+            "location_moat": MoatAssessment(
+                "LOCATION", "Vị trí địa lý", row["location_moat"][0], row["location_moat"][1], 0.7
+            ),
         }
 
         # Composite moat score (weighted)
         moat_weights = {
-            "switching_cost": 0.20, "cost_advantage": 0.15, "scale_advantage": 0.12,
-            "brand_moat": 0.12, "regulatory_moat": 0.12, "network_moat": 0.14,
+            "switching_cost": 0.20,
+            "cost_advantage": 0.15,
+            "scale_advantage": 0.12,
+            "brand_moat": 0.12,
+            "regulatory_moat": 0.12,
+            "network_moat": 0.14,
             "location_moat": 0.15,
         }
-        moat_score = sum(
-            moats[k].score * moat_weights.get(k, 0.1) * moats[k].confidence
-            for k in moat_weights
-        )
+        moat_score = sum(moats[k].score * moat_weights.get(k, 0.1) * moats[k].confidence for k in moat_weights)
 
-        evidence_parts = [
-            f"Chi phí chuyển đổi: {moats['switching_cost'].evidence}"
-        ]
+        evidence_parts = [f"Chi phí chuyển đổi: {moats['switching_cost'].evidence}"]
         if moats["cost_advantage"].score > 0.7:
             evidence_parts.append(f"Lợi thế chi phí: {moats['cost_advantage'].evidence}")
         if moats["regulatory_moat"].score > 0.7:
@@ -447,7 +453,7 @@ class CompetitiveEngine:
             evidence_summary=" | ".join(evidence_parts),
         )
 
-    def assess_many(self, symbols: List[str]) -> Dict[str, CompetitivePosition]:
+    def assess_many(self, symbols: list[str]) -> dict[str, CompetitivePosition]:
         return {s: self.assess(s) for s in symbols}
 
     def _fallback_position(self, symbol: str, arch: BusinessArchetype) -> dict:
@@ -477,38 +483,63 @@ class CompetitiveEngine:
 # ═══════════════════════════════════════════════════════════════
 
 MOAT_ICON = {
-    "SWITCHING_COST": "🔗", "COST_ADVANTAGE": "💰", "SCALE": "📐",
-    "BRAND": "🏷️", "REGULATORY": "⚖️", "NETWORK": "🕸️", "LOCATION": "📍",
+    "SWITCHING_COST": "🔗",
+    "COST_ADVANTAGE": "💰",
+    "SCALE": "📐",
+    "BRAND": "🏷️",
+    "REGULATORY": "⚖️",
+    "NETWORK": "🕸️",
+    "LOCATION": "📍",
 }
 
 
-def print_competitive_report(results: Dict[str, CompetitivePosition]):
-    print(f"\n  {'='*80}")
-    print(f"  COMPETITIVE POSITION — MOAT & MARKET POWER")
-    print(f"  {'='*80}")
-    print(f"  {'Mã':<6} {'Archetype':<18} {'Moat Score':>10} {'Pricing Power':>13} "
-          f"{'Rank':>5} {'Stability':<12} {'Primary Moat'}")
-    print(f"  {'-'*80}")
+def print_competitive_report(results: dict[str, CompetitivePosition]):
+    print(f"\n  {'=' * 80}")
+    print("  COMPETITIVE POSITION — MOAT & MARKET POWER")
+    print(f"  {'=' * 80}")
+    print(
+        f"  {'Mã':<6} {'Archetype':<18} {'Moat Score':>10} {'Pricing Power':>13} "
+        f"{'Rank':>5} {'Stability':<12} {'Primary Moat'}"
+    )
+    print(f"  {'-' * 80}")
     for sym, p in sorted(results.items()):
         primary = max(
-            [(k, getattr(p, k)) for k in
-             ["switching_cost", "cost_advantage", "scale_advantage",
-              "brand_moat", "regulatory_moat", "network_moat", "location_moat"]],
-            key=lambda x: x[1].score * x[1].confidence
+            [
+                (k, getattr(p, k))
+                for k in [
+                    "switching_cost",
+                    "cost_advantage",
+                    "scale_advantage",
+                    "brand_moat",
+                    "regulatory_moat",
+                    "network_moat",
+                    "location_moat",
+                ]
+            ],
+            key=lambda x: x[1].score * x[1].confidence,
         )
         icon = MOAT_ICON.get(primary[1].type, "")
-        print(f"  {sym:<6} {p.archetype:<18} {p.moat_score:>10.3f} {p.pricing_power_score:>12.2f} "
-              f"{p.market_share_rank:>4}  {p.competitive_stability:<12} {icon}{primary[1].label}")
+        print(
+            f"  {sym:<6} {p.archetype:<18} {p.moat_score:>10.3f} {p.pricing_power_score:>12.2f} "
+            f"{p.market_share_rank:>4}  {p.competitive_stability:<12} {icon}{primary[1].label}"
+        )
 
-    print(f"\n  {'='*80}")
-    print(f"  CHI TIẾT MOAT")
-    print(f"  {'='*80}")
+    print(f"\n  {'=' * 80}")
+    print("  CHI TIẾT MOAT")
+    print(f"  {'=' * 80}")
     for sym, p in sorted(results.items()):
-        print(f"\n  {'─'*60}")
+        print(f"\n  {'─' * 60}")
         print(f"  {sym} — Moat Score: {p.moat_score:.3f}")
-        print(f"  {'─'*60}")
-        for m in ["switching_cost", "cost_advantage", "scale_advantage",
-                   "brand_moat", "regulatory_moat", "network_moat", "location_moat"]:
+        print(f"  {'─' * 60}")
+        for m in [
+            "switching_cost",
+            "cost_advantage",
+            "scale_advantage",
+            "brand_moat",
+            "regulatory_moat",
+            "network_moat",
+            "location_moat",
+        ]:
             m_obj: MoatAssessment = getattr(p, m)
             bar = "▓" * int(m_obj.score * 20) + "░" * (20 - int(m_obj.score * 20))
             icon = MOAT_ICON.get(m_obj.type, " ")
@@ -517,11 +548,25 @@ def print_competitive_report(results: Dict[str, CompetitivePosition]):
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Competitive Position — Moat & Ecosystem Strength")
-    parser.add_argument("--symbols", nargs="+", default=[
-        "FPT", "ACB", "HDB", "MBB", "VCB",
-        "HPG", "VHM", "DGC", "MWG", "GAS",
-    ], help="Danh sách mã")
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=[
+            "FPT",
+            "ACB",
+            "HDB",
+            "MBB",
+            "VCB",
+            "HPG",
+            "VHM",
+            "DGC",
+            "MWG",
+            "GAS",
+        ],
+        help="Danh sách mã",
+    )
     args = parser.parse_args()
 
     engine = CompetitiveEngine()

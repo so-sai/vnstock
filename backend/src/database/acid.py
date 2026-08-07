@@ -1,4 +1,4 @@
-﻿"""acid.py — Giao thức ACID cho luồng hạch toán EOD PTCK.
+"""acid.py — Giao thức ACID cho luồng hạch toán EOD PTCK.
 
 THIẾT KẾ PHÂN MẢNH LƯU TRỮ (Bifurcated Storage Architecture):
 
@@ -34,10 +34,9 @@ Correlation ID: mã định danh động gắn xuyên suốt 1 phiên EOD, xuấ
 trong telemetry .jsonl VÀ ledger fallback → người vận hành đối chiếu được
 sự cố Rollback ở CSDL với luồng chẩn đoán VQA tương ứng trong log rời rạc.
 """
+
 import gc
-import json
 import logging
-import os
 import sqlite3
 import sys
 import threading
@@ -45,21 +44,19 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 PROJECT_ROOT = None
-for p in [Path(__file__).resolve().parent.parent.parent,
-          Path(__file__).resolve().parent.parent]:
+for p in [Path(__file__).resolve().parent.parent.parent, Path(__file__).resolve().parent.parent]:
     if (p / "AGENTS.md").exists():
         PROJECT_ROOT = p
         break
 if PROJECT_ROOT is None:
     PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-from src.database.db_core import get_connection, safe_json_dumps  # noqa: E402
+from src.database.db_core import get_connection, safe_json_dumps
 
 logger = logging.getLogger("PTCK_SYSTEM")
 
@@ -69,13 +66,13 @@ TELEMETRY_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Hằng số Error Code SQLite (Primary Codes, chuẩn https://sqlite.org/rescode.html) ---
 # & 0xFF để lọc Extended Code về Primary Code
-SQLITE_BUSY = 5       # database is locked (timeout)
-SQLITE_LOCKED = 6     # database table is locked
-SQLITE_IOERR = 10     # disk I/O error
-SQLITE_CORRUPT = 11   # database disk image is malformed
-SQLITE_FULL = 13      # database or disk is full
+SQLITE_BUSY = 5  # database is locked (timeout)
+SQLITE_LOCKED = 6  # database table is locked
+SQLITE_IOERR = 10  # disk I/O error
+SQLITE_CORRUPT = 11  # database disk image is malformed
+SQLITE_FULL = 13  # database or disk is full
 SQLITE_CANTOPEN = 14  # unable to open database file
-SQLITE_NOTADB = 26    # file is not a database
+SQLITE_NOTADB = 26  # file is not a database
 
 LOCKED_CODES = {SQLITE_BUSY, SQLITE_LOCKED}
 CRITICAL_CODES = {SQLITE_IOERR, SQLITE_CORRUPT, SQLITE_FULL, SQLITE_CANTOPEN, SQLITE_NOTADB}
@@ -100,11 +97,13 @@ def _drop_legacy_lock_table():
 
 class ResourceLockedException(Exception):
     """Tiến trình EOD khác đang chiếm khóa CSDL (concurrency guard). Không phải lỗi hệ thống."""
+
     pass
 
 
 class TransactionTimeout(Exception):
     """Giao dịch vượt quá SLA thời gian cho phép → conn.interrupt() đã kích hoạt."""
+
     pass
 
 
@@ -130,15 +129,15 @@ class CorrelationContext:
 
 
 # Context động — set bởi run_eod_pipeline, đọc bởi telemetry logger.
-_ACTIVE_CORRELATION: Optional[CorrelationContext] = None
+_ACTIVE_CORRELATION: CorrelationContext | None = None
 
 
-def set_correlation(ctx: Optional[CorrelationContext]):
+def set_correlation(ctx: CorrelationContext | None):
     global _ACTIVE_CORRELATION
     _ACTIVE_CORRELATION = ctx
 
 
-def get_correlation() -> Optional[CorrelationContext]:
+def get_correlation() -> CorrelationContext | None:
     return _ACTIVE_CORRELATION
 
 
@@ -177,7 +176,9 @@ class TelemetryLogger:
             rec["payload"] = payload
             self._fh.write(safe_json_dumps(rec) + "\n")
             self._fh.flush()
-        except Exception as e:  # telemetry tuyệt đối không làm sập luồng chính
+        except (
+            Exception
+        ) as e:  # telemetry tuyệt đối không làm sập luồng chính
             logger.warning(f"[TELEMETRY] emit thất bại ({self.component}): {e}")
 
     def close(self):
@@ -200,8 +201,7 @@ exception_telemetry = TelemetryLogger("eod_exceptions")
 
 
 @contextmanager
-def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1",
-                       timeout_sec: float = DEFAULT_TXN_TIMEOUT):
+def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1", timeout_sec: float = DEFAULT_TXN_TIMEOUT):
     """Global Transaction Boundary — 1 kết nối, BEGIN IMMEDIATE, share cursor.
 
     Concurrency Guard dùng khóa vật lý SQLite (BEGIN IMMEDIATE), KHÔNG dùng
@@ -247,7 +247,8 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1",
             def _kill_txn():
                 logger.warning(
                     f"[ACID] KILL-SWITCH as_of={as_of_date} corr={corr.correlation_id}: "
-                    f"quá {timeout_sec}s — gọi conn.interrupt().")
+                    f"quá {timeout_sec}s — gọi conn.interrupt()."
+                )
                 conn.interrupt()
 
             timer = threading.Timer(timeout_sec, _kill_txn)
@@ -270,18 +271,19 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1",
             err_str = str(e).lower()
             if "interrupted" in err_str:
                 logger.error(
-                    f"[ACID] TIMEOUT as_of={as_of_date} corr={corr.correlation_id}: "
-                    f"giao dịch vượt quá {timeout_sec}s.")
-                exception_telemetry.emit("eod_timeout", {
-                    "timeout_sec": timeout_sec,
-                    "as_of_date": as_of_date,
-                })
+                    f"[ACID] TIMEOUT as_of={as_of_date} corr={corr.correlation_id}: giao dịch vượt quá {timeout_sec}s."
+                )
+                exception_telemetry.emit(
+                    "eod_timeout",
+                    {
+                        "timeout_sec": timeout_sec,
+                        "as_of_date": as_of_date,
+                    },
+                )
                 gc.collect()  # Cưỡng chế dọn dẹp DataFrames/Numpy arrays rác sau kill-switch
-                raise TransactionTimeout(
-                    f"Giao dịch vượt quá SLA {timeout_sec}s — đã ngắt bởi kill-switch."
-                ) from e
+                raise TransactionTimeout(f"Giao dịch vượt quá SLA {timeout_sec}s — đã ngắt bởi kill-switch.") from e
             # Phân loại lỗi qua bitmask (8 bit cuối = Primary Error Code)
-            raw_code = getattr(e, 'sqlite_errorcode', -1)
+            raw_code = getattr(e, "sqlite_errorcode", -1)
             primary_code = raw_code & 0xFF if raw_code != -1 else -1
 
             if primary_code in LOCKED_CODES:
@@ -290,31 +292,32 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1",
                     f"Tiến trình EOD khác đang chiếm khóa CSDL."
                 )
                 telemetry_logger = TelemetryLogger("eod_exceptions")
-                telemetry_logger.emit("concurrency_guard", {
-                    "error_code": primary_code,
-                    "raw_code": raw_code,
-                    "message": str(e),
-                    "as_of_date": as_of_date,
-                })
-                raise ResourceLockedException(
-                    "Tiến trình EOD khác đang chiếm khóa CSDL."
-                ) from e
+                telemetry_logger.emit(
+                    "concurrency_guard",
+                    {
+                        "error_code": primary_code,
+                        "raw_code": raw_code,
+                        "message": str(e),
+                        "as_of_date": as_of_date,
+                    },
+                )
+                raise ResourceLockedException("Tiến trình EOD khác đang chiếm khóa CSDL.") from e
             elif primary_code in CRITICAL_CODES:
                 logger.critical(
                     f"[ACID] FATAL I/O as_of={as_of_date} corr={corr.correlation_id}: "
                     f"PrimaryCode={primary_code} RawCode={raw_code}: {e}"
                 )
                 telemetry_logger = TelemetryLogger("eod_exceptions")
-                telemetry_logger.emit("fatal_io_error", {
-                    "error_code": primary_code,
-                    "raw_code": raw_code,
-                    "message": str(e),
-                    "as_of_date": as_of_date,
-                })
-                raise SystemError(
-                    f"FATAL I/O ERROR: Không thể tiếp tục vận hành. "
-                    f"SQLite code={primary_code}: {e}"
-                ) from e
+                telemetry_logger.emit(
+                    "fatal_io_error",
+                    {
+                        "error_code": primary_code,
+                        "raw_code": raw_code,
+                        "message": str(e),
+                        "as_of_date": as_of_date,
+                    },
+                )
+                raise SystemError(f"FATAL I/O ERROR: Không thể tiếp tục vận hành. SQLite code={primary_code}: {e}") from e
             else:
                 logger.error(
                     f"[ACID] UNCLASSIFIED SQLITE ERROR as_of={as_of_date} "
@@ -327,13 +330,15 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1",
                     conn.execute("ROLLBACK")
             except Exception:
                 pass
-            logger.error(
-                f"[ACID] ROLLBACK as_of={as_of_date} corr={corr.correlation_id}: {e}")
-            exception_telemetry.emit("eod_rollback", {
-                "error": str(e),
-                "error_type": type(e).__name__,
-                "as_of_date": as_of_date,
-            })
+            logger.error(f"[ACID] ROLLBACK as_of={as_of_date} corr={corr.correlation_id}: {e}")
+            exception_telemetry.emit(
+                "eod_rollback",
+                {
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "as_of_date": as_of_date,
+                },
+            )
             raise
         finally:
             if timer is not None:

@@ -22,7 +22,6 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -38,23 +37,24 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 
-COVERAGE_MAX = 0.90             # LAW-008: Max coverage capped at 90% (10% reserved for Unknown Unknowns)
-OPEN_WORLD_DISCOUNT = 0.90      # LAW-008: Open world discount multiplier
+COVERAGE_MAX = 0.90  # LAW-008: Max coverage capped at 90% (10% reserved for Unknown Unknowns)
+OPEN_WORLD_DISCOUNT = 0.90  # LAW-008: Open world discount multiplier
 
 
 @dataclass
 class SurpriseResult:
     """Output DTO of Surprise Engine."""
+
     surprise_bits: float
     p_outcome: float
     is_high_surprise: bool
-    status: str                 # HIGH_SURPRISE_ANOMALY / NORMAL_SURPRISE
+    status: str  # HIGH_SURPRISE_ANOMALY / NORMAL_SURPRISE
 
 
 class EpistemicEngine:
     """Epistemic authority, causal coherence, and surprise engine."""
 
-    def compute_coverage(self, nodes_data: Dict[str, Dict]) -> float:
+    def compute_coverage(self, nodes_data: dict[str, dict]) -> float:
         """LAW-004 & LAW-008: Dynamic Coverage capped at COVERAGE_MAX (0.90)."""
         total_importance = 0.0
         effective_coverage = 0.0
@@ -76,7 +76,7 @@ class EpistemicEngine:
         # LAW-008: Hard cap at COVERAGE_MAX = 0.90 (10% for Unknown Unknowns)
         return max(0.0, min(COVERAGE_MAX, raw_coverage))
 
-    def compute_causal_coherence(self, causal_chain: List[Dict]) -> float:
+    def compute_causal_coherence(self, causal_chain: list[dict]) -> float:
         """LAW-006: Causal Coherence along the DAG (Macro -> Sector -> Health -> Behavior)."""
         if not causal_chain or len(causal_chain) < 2:
             return 1.0
@@ -122,7 +122,7 @@ class EpistemicEngine:
             status=status,
         )
 
-    def compute_alloc_factor(self, nodes_data: Dict[str, Dict], causal_chain: List[Dict]) -> float:
+    def compute_alloc_factor(self, nodes_data: dict[str, dict], causal_chain: list[dict]) -> float:
         """LAW-004 + LAW-006 + LAW-008: Epistemic Alloc Factor = Coverage * Coherence * OpenWorldDiscount."""
         cov = self.compute_coverage(nodes_data)
         coh = self.compute_causal_coherence(causal_chain)

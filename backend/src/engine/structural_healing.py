@@ -1,4 +1,4 @@
-﻿"""
+"""
 structural_healing.py — Máy dò chuyển trạng thái cấu trúc (Temporal Transition)
 
 So sánh trạng thái cấu trúc giữa T-1 và T-0 để xác định:
@@ -16,14 +16,13 @@ def _truoc_do(current_date: str) -> str | None:
     """Truy vấn DB lấy ngày giao dịch liền trước (bỏ T7/CN/lễ)."""
     try:
         with get_connection() as conn:
-            df = __import__('pandas').read_sql(
-                "SELECT DISTINCT date FROM daily_ohlcv "
-                "WHERE date < ? AND symbol='VNINDEX' "
-                "ORDER BY date DESC LIMIT 1",
-                conn, params=(current_date,)
+            df = __import__("pandas").read_sql(
+                "SELECT DISTINCT date FROM daily_ohlcv WHERE date < ? AND symbol='VNINDEX' ORDER BY date DESC LIMIT 1",
+                conn,
+                params=(current_date,),
             )
             if not df.empty:
-                return str(df.iloc[0]['date'])
+                return str(df.iloc[0]["date"])
     except Exception:
         pass
     return None

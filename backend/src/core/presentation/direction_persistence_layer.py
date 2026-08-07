@@ -1,8 +1,8 @@
 from .models import (
-    DirectionPersistenceReport,
     DirectionalBiasReport,
-    TrendQualityCode,
+    DirectionPersistenceReport,
     FlickerRiskCode,
+    TrendQualityCode,
 )
 
 _DBE_SIGN_MAP: dict[str, float] = {
@@ -35,11 +35,13 @@ _dbe_history: list[dict] = []
 
 
 def _push_history(dbe: DirectionalBiasReport) -> int:
-    _dbe_history.append({
-        "bias_code": dbe.bias_code,
-        "bias_strength": dbe.bias_strength,
-        "dominant_force": dbe.dominant_force,
-    })
+    _dbe_history.append(
+        {
+            "bias_code": dbe.bias_code,
+            "bias_strength": dbe.bias_strength,
+            "dominant_force": dbe.dominant_force,
+        }
+    )
     while len(_dbe_history) > MAX_HISTORY:
         _dbe_history.pop(0)
     return len(_dbe_history)
@@ -70,8 +72,8 @@ def _strength_persistence(strengths: list[float]) -> float:
         return 0.5
     w = _weights(n)
     total_w = sum(w)
-    ema = sum(s * wt for s, wt in zip(strengths, w)) / total_w
-    recent = strengths[-min(3, n):]
+    sum(s * wt for s, wt in zip(strengths, w)) / total_w
+    recent = strengths[-min(3, n) :]
     recent_avg = sum(recent) / len(recent)
     overall_avg = sum(strengths) / n
     if overall_avg == 0:
@@ -92,8 +94,9 @@ def _strength_stability(strengths: list[float]) -> float:
     return max(0.0, 1.0 - min(1.0, cv))
 
 
-def _classify_trend(persistence_score: float, flips: float,
-                    max_possible: float, n: int) -> tuple[TrendQualityCode, FlickerRiskCode]:
+def _classify_trend(
+    persistence_score: float, flips: float, max_possible: float, n: int
+) -> tuple[TrendQualityCode, FlickerRiskCode]:
     entropy = flips / max_possible if max_possible > 0 else 0.0
 
     if entropy > ENTROPY_HIGH:
@@ -131,15 +134,11 @@ def compute_direction_persistence(
     stability = _strength_stability(strengths)
 
     persistence_score = (
-        (1.0 - min(1.0, weighted_flips / max_possible)) * W_PERSISTENCE
-        + persistence * W_STRENGTH
-        + stability * W_STABILITY
+        (1.0 - min(1.0, weighted_flips / max_possible)) * W_PERSISTENCE + persistence * W_STRENGTH + stability * W_STABILITY
     )
     persistence_score = round(min(1.0, max(0.0, persistence_score)), 3)
 
-    trend_code, flicker_code = _classify_trend(
-        persistence_score, weighted_flips, max_possible, n
-    )
+    trend_code, flicker_code = _classify_trend(persistence_score, weighted_flips, max_possible, n)
 
     return DirectionPersistenceReport(
         trend_quality_code=trend_code,

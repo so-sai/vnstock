@@ -20,15 +20,13 @@ TCBS is intentionally absent: the current adapter returns no data for
 it and vnstock's tcbs explorer does not emit `item_id` in this schema.
 """
 
-from typing import Dict, List
-
 VCI = "VCI"
 KBS = "KBS"
 TCBS = "TCBS"
 
 # ── Canonical key → per-source item_id aliases ─────────────────────────
 # Canonical keys mirror the identifiers used in financial_facts.db.
-ITEM_ALIASES: Dict[str, Dict[str, List[str]]] = {
+ITEM_ALIASES: dict[str, dict[str, list[str]]] = {
     # Income statement
     "NET_REVENUE": {VCI: ["net_sales"], KBS: ["revenue"]},
     "COGS": {VCI: ["cost_of_sales"], KBS: ["cost_of_goods_sold"]},
@@ -102,7 +100,7 @@ ITEM_ALIASES: Dict[str, Dict[str, List[str]]] = {
 }
 
 # ── Reverse index: (source, item_id) → canonical key ───────────────────
-_REVERSE: Dict[str, Dict[str, str]] = {}
+_REVERSE: dict[str, dict[str, str]] = {}
 for _canonical, _source_map in ITEM_ALIASES.items():
     for _source, _ids in _source_map.items():
         _by_source = _REVERSE.setdefault(_source, {})
@@ -115,11 +113,11 @@ def canonical_key(source: str, item_id: str) -> str:
     return _REVERSE.get(source, {}).get(item_id, item_id)
 
 
-def canonical_keys(source: str) -> Dict[str, str]:
+def canonical_keys(source: str) -> dict[str, str]:
     """All item_id → canonical mappings known for a source."""
     return dict(_REVERSE.get(source, {}))
 
 
-def canonical_metrics() -> List[str]:
+def canonical_metrics() -> list[str]:
     """Sorted list of every canonical metric name."""
     return sorted(ITEM_ALIASES.keys())

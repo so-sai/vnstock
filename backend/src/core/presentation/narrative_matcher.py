@@ -9,7 +9,10 @@ NARRATIVE_CATALOG: list[NarrativeTemplate] = [
     NarrativeTemplate(
         template_id="risk_lockdown",
         conditions={"risk_state": ["LOCKDOWN"]},
-        template_vi="Thị trường đang trong trạng thái phòng thủ tuyệt đối. Rủi ro hệ thống ở mức cao nhất, khuyến nghị giảm toàn bộ vị thế rủi ro.",
+        template_vi=(
+            "Thị trường đang trong trạng thái phòng thủ tuyệt đối. "
+            "Rủi ro hệ thống ở mức cao nhất, khuyến nghị giảm toàn bộ vị thế rủi ro."
+        ),
         priority=100,
         required_context=["risk_state"],
     ),
@@ -84,7 +87,9 @@ NARRATIVE_CATALOG: list[NarrativeTemplate] = [
     NarrativeTemplate(
         template_id="lci_extreme_concentration",
         conditions={"lci_quality": ["CO_CUM_CUC_DOAN"]},
-        template_vi="Cảnh báo: thanh khoản đang co cụm cực đoan vào nhóm dẫn dắt. Độ lan tỏa thị trường suy giảm nghiêm trọng.",
+        template_vi=(
+            "Cảnh báo: thanh khoản đang co cụm cực đoan vào nhóm dẫn dắt. Độ lan tỏa thị trường suy giảm nghiêm trọng."
+        ),
         priority=85,
         required_context=["lci_quality"],
     ),
@@ -121,10 +126,7 @@ def match_templates(state: dict[str, str], horizon: TimeHorizon = "NGẮN_HẠN"
     for tmpl in NARRATIVE_CATALOG:
         if tmpl.time_horizon != horizon and tmpl.conditions:
             continue
-        all_match = all(
-            state.get(key) in allowed_values
-            for key, allowed_values in tmpl.conditions.items()
-        )
+        all_match = all(state.get(key) in allowed_values for key, allowed_values in tmpl.conditions.items())
         if all_match:
             matches.append(tmpl)
     matches.sort(key=lambda t: t.priority, reverse=True)

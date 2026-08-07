@@ -11,20 +11,20 @@ WHY (context 2026-07-31):
 Run:  python -m pytest tests/test_vietstock_crawler.py -q   (từ backend/)
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BACKEND / "libs"))
 
-from src.financial.vietstock_crawler import (
-    VietstockCrawler,
-    VIETSTOCK_METRIC_MAP,
-    VIETSTOCK_BASE_URL,
-)
 from src.financial.cafef_crawler import CafeFCrawler
+from src.financial.vietstock_crawler import (
+    VIETSTOCK_BASE_URL,
+    VIETSTOCK_METRIC_MAP,
+    VietstockCrawler,
+)
 
 
 # ── Fixture: payload thật capture từ /data/financeinfo (BCM, free 4 quý) ──

@@ -37,18 +37,15 @@ from __future__ import annotations
 import math
 import sqlite3
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from calibration.prediction_log import get_conn
 
-
 # ── Constants ──
 
-FORGETTING_DECAY = 0.995       # Half-life ~138 phiên (~6.6 tháng)
-DRIFT_LAMBDA = 2.0             # Drift penalty coefficient: e^(-λ·D)
-PRIOR_ALPHA = 10.0             # Prior success count (uninformative)
-PRIOR_BETA = 10.0              # Prior failure count
+FORGETTING_DECAY = 0.995  # Half-life ~138 phiên (~6.6 tháng)
+DRIFT_LAMBDA = 2.0  # Drift penalty coefficient: e^(-λ·D)
+PRIOR_ALPHA = 10.0  # Prior success count (uninformative)
+PRIOR_BETA = 10.0  # Prior failure count
 
 EVIDENCE_NODE_IDS = [
     "macro",
@@ -82,6 +79,7 @@ CREATE TABLE IF NOT EXISTS evidence_registry (
 # EVIDENCE ENGINE
 # ====================================================================
 
+
 class EvidenceEngine:
     """Atomic unit manager for all evidence nodes.
 
@@ -89,7 +87,7 @@ class EvidenceEngine:
     own connection (lightweight SQLite).
     """
 
-    def __init__(self, conn: Optional[sqlite3.Connection] = None):
+    def __init__(self, conn: sqlite3.Connection | None = None):
         self._conn = conn
 
     # ── Schema ──────────────────────────────────────────────────────
@@ -103,8 +101,7 @@ class EvidenceEngine:
             now = datetime.now().isoformat()
             for nid in EVIDENCE_NODE_IDS:
                 conn.execute(
-                    "INSERT INTO evidence_registry (node_id, alpha, beta, "
-                    "reliability, last_updated) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO evidence_registry (node_id, alpha, beta, reliability, last_updated) VALUES (?, ?, ?, ?, ?)",
                     (nid, PRIOR_ALPHA, PRIOR_BETA, 0.5, now),
                 )
             conn.commit()
@@ -116,7 +113,7 @@ class EvidenceEngine:
         node_id: str,
         p_gain: float,
         y_true: float,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Record one prediction outcome for an evidence node.
 
         Steps:
@@ -140,8 +137,8 @@ class EvidenceEngine:
         node_id: str,
         p_gain: float,
         y_true: float,
-        conn: Optional[sqlite3.Connection] = None,
-    ) -> Dict[str, float]:
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[str, float]:
         """Apply one outcome using a caller-provided connection (batch-safe).
 
         WHY refactor (Bước 2 — Outcome Feed): `batch_update_from_resolved`
@@ -203,10 +200,10 @@ class EvidenceEngine:
 
     def get_dynamic_weights(
         self,
-        macro_state: Optional[str] = None,
-        sector_phase: Optional[str] = None,
+        macro_state: str | None = None,
+        sector_phase: str | None = None,
         entropy: float = 0.0,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Compute normalized dynamic weights for all evidence nodes.
 
         Sprint 2: accepts optional macro/sector/entropy context for
@@ -225,6 +222,7 @@ class EvidenceEngine:
         if macro_state is not None and sector_phase is not None:
             try:
                 from calibration.applicability_engine import compute_applicability
+
                 app_map = compute_applicability(macro_state, sector_phase, entropy)
                 # Write to DB so it persists for caching
                 now = datetime.now().isoformat()
@@ -239,9 +237,7 @@ class EvidenceEngine:
                 pass
 
         conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT node_id, reliability, drift_score, applicability FROM evidence_registry"
-        ).fetchall()
+        rows = conn.execute("SELECT node_id, reliability, drift_score, applicability FROM evidence_registry").fetchall()
         if not rows:
             return {}
 
@@ -261,9 +257,7 @@ class EvidenceEngine:
 
     def get_reliability(self, node_id: str) -> float:
         """Quick lookup: reliability = alpha/(alpha+beta)."""
-        row = self._get_conn().execute(
-            "SELECT reliability FROM evidence_registry WHERE node_id=?", (node_id,)
-        ).fetchone()
+        row = self._get_conn().execute("SELECT reliability FROM evidence_registry WHERE node_id=?", (node_id,)).fetchone()
         return row["reliability"] if row else 0.5
 
     # ── Batch update from resolved predictions (Bước 2 — Outcome Feed) ──
@@ -278,7 +272,7 @@ class EvidenceEngine:
         "M3_BEHAVIORAL": ["behavior"],
     }
 
-    def batch_update_from_resolved(self, days_back: int = 90) -> Dict[str, int]:
+    def batch_update_from_resolved(self, days_back: int = 90) -> dict[str, int]:
         """Feed resolved outcomes from prediction_log into evidence nodes.
 
         Với mỗi model (M1/M2/M3), lấy các predictions đã resolve, rồi
@@ -292,9 +286,10 @@ class EvidenceEngine:
             from calibration.prediction_log import get_resolved_by_model
         except Exception:
             from calibration.prediction_log import get_outcomes_for_calibration as _fallback
+
             # fallback: dùng resolved outcomes tổng, lọc theo model_id
             rows_all = _fallback(days_back=days_back)
-            by_model: Dict[str, list] = {}
+            by_model: dict[str, list] = {}
             for r in rows_all:
                 mid = r.get("model_id")
                 if mid:
@@ -306,7 +301,7 @@ class EvidenceEngine:
             get_resolved_by_model = _get_resolved
 
         conn = self._get_conn()
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         try:
             for mid, nodes in self.MODEL_NODE_MAP.items():
                 resolved = get_resolved_by_model(mid, days=days_back)
@@ -344,7 +339,7 @@ class EvidenceEngine:
 
     # ── Report ─────────────────────────────────────────────────────
 
-    def get_all_nodes(self) -> List[Dict]:
+    def get_all_nodes(self) -> list[dict]:
         conn = self._get_conn()
         rows = conn.execute(
             "SELECT node_id, alpha, beta, brier_accum, n_updates, "
@@ -354,10 +349,7 @@ class EvidenceEngine:
         result = []
         for r in rows:
             row = dict(r)
-            row["avg_brier"] = (
-                round(row["brier_accum"] / max(row["n_updates"], 1), 4)
-                if row["n_updates"] > 0 else None
-            )
+            row["avg_brier"] = round(row["brier_accum"] / max(row["n_updates"], 1), 4) if row["n_updates"] > 0 else None
             result.append(row)
         return result
 
@@ -382,11 +374,12 @@ class EvidenceEngine:
 # MODULE-LEVEL HELPERS (no instance needed)
 # ====================================================================
 
+
 def get_dynamic_evidence_weights(
-    macro_state: Optional[str] = None,
-    sector_phase: Optional[str] = None,
+    macro_state: str | None = None,
+    sector_phase: str | None = None,
     entropy: float = 0.0,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Quick-shot: returns dynamic weights dict, fallback to uniform if no data.
 
     Sprint 2: accepts macro/sector/entropy context for Applicability Engine.
@@ -403,25 +396,27 @@ def get_dynamic_evidence_weights(
     return {nid: 1.0 / len(EVIDENCE_NODE_IDS) for nid in EVIDENCE_NODE_IDS}
 
 
-def print_evidence_report(nodes: List[Dict], weights: Dict[str, float], lang_mode: str = "full"):
+def print_evidence_report(nodes: list[dict], weights: dict[str, float], lang_mode: str = "full"):
     """Print evidence registry report to console."""
     try:
         from src.core.canonical_output_adapter import localize_label
     except Exception:
-        def localize_label(l, m="full"): return l
-    _ = lambda x: localize_label(x, lang_mode)
+
+        def localize_label(label, m="full"):
+            return label
+
+    def _(x):
+        return localize_label(x, lang_mode)
 
     # Check if applicability varies from default
-    has_applicability = any(
-        abs(n.get("applicability", 1.0) - 1.0) > 0.01 for n in nodes
-    )
+    has_applicability = any(abs(n.get("applicability", 1.0) - 1.0) > 0.01 for n in nodes)
 
-    print(f"\n  {'='*95}")
+    print(f"\n  {'=' * 95}")
     if has_applicability:
         print(f"  {_('EVIDENCE REGISTRY')} — {_('Dynamic Weighting')} (LAW-004) | {_('A_i ACTIVE')}")
     else:
         print(f"  {_('EVIDENCE REGISTRY')} — {_('Dynamic Weighting')} (LAW-004)")
-    print(f"  {'='*95}")
+    print(f"  {'=' * 95}")
 
     # Table header
     hdr = f"  {_('Node'):<20} {_('Reliability'):>12} {_('Drift'):>8} {_('Brier'):>8} {'N':>4}"
@@ -429,7 +424,7 @@ def print_evidence_report(nodes: List[Dict], weights: Dict[str, float], lang_mod
         hdr += f" {_('A_i'):>6}"
     hdr += f" {_('Weight'):>8} {_('Status'):>10}"
     print(hdr)
-    print(f"  {'─'*90}")
+    print(f"  {'─' * 90}")
 
     for node in nodes:
         nid = node["node_id"]
@@ -461,11 +456,10 @@ def print_evidence_report(nodes: List[Dict], weights: Dict[str, float], lang_mod
     if has_applicability:
         max_ai = max(nodes, key=lambda n: n.get("applicability", 0))
         min_ai = min(nodes, key=lambda n: n.get("applicability", 0))
-        print(f"  {_('A_i ACTIVE')} — max: {max_ai['node_id']} ({max_ai.get('applicability', 0):.3f}), "
-              f"min: {min_ai['node_id']} ({min_ai.get('applicability', 0):.3f})")
+        print(
+            f"  {_('A_i ACTIVE')} — max: {max_ai['node_id']} ({max_ai.get('applicability', 0):.3f}), "
+            f"min: {min_ai['node_id']} ({min_ai.get('applicability', 0):.3f})"
+        )
     if weights:
         dominant = max(weights, key=weights.get)
         print(f"  {_('Dominant node')}: {dominant} ({weights[dominant]:.3f})")
-
-
-

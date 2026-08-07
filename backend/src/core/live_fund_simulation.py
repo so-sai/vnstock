@@ -1,4 +1,4 @@
-﻿"""
+"""
 live_fund_simulation.py — Live Fund Simulation Layer.
 
 Reads shadow log entries and simulates PnL as if the system drove
@@ -32,7 +32,7 @@ def _position_size(entry: dict) -> float:
     pred = entry.get("prediction", {})
     stability = entry.get("stability", {})
     semantic = entry.get("semantic", {})
-    realized = entry.get("realized")
+    entry.get("realized")
 
     driver = pred.get("dominant_driver", "UNKNOWN")
     drift_score = pred.get("drift_score", 0.0)
@@ -164,7 +164,7 @@ def simulate_pnl(
     # Daily returns for volatility
     daily_returns = []
     for i in range(1, len(equity_curve)):
-        dr = (equity_curve[i] - equity_curve[i-1]) / equity_curve[i-1]
+        dr = (equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1]
         daily_returns.append(dr)
 
     if daily_returns:

@@ -2,7 +2,11 @@
    Implements Dynamic Path Resolution — data lives outside the temp dir
    so that daily-close commits survive sidecar shutdown.
 """
-import sys, os, shutil, io
+import io
+import os
+import shutil
+import sys
+
 # Set UTF-8 encoding for stdout/stderr to prevent Windows charmap encoding crashes
 if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -20,7 +24,7 @@ TARGET_DB_PATH = APP_DATA_DIR / DB_FILE_NAME
 
 if getattr(sys, 'frozen', False):
     meipass = Path(sys._MEIPASS)
-    
+
     # ── Seed ALL bundled databases to permanent user data dir ──
     bundled_data_dir = meipass / "data"
     if bundled_data_dir.exists():
@@ -58,10 +62,10 @@ else:
 # ── Initialize schemas for any missing tables ─────────────────────────
 # Must run after sys.path is set so init_db can be imported
 try:
-    from src.init_db import init_all, DATABASES
+    from src.init_db import DATABASES, init_all
     init_all(APP_DATA_DIR)
     print(f"[api_server] Database schemas initialized at {APP_DATA_DIR}")
-    
+
     # ── Pre-flight validation: đảm bảo 6 DB đều tồn tại và có schema ──
     missing = []
     for filename, _schema, _desc in DATABASES:

@@ -1,14 +1,14 @@
-﻿import datetime
+import datetime
 import logging
-from typing import Dict, Any, Tuple, Optional
+import sqlite3
+from typing import Any
 
 import pandas as pd
 import requests
-import sqlite3
+import yfinance as yf
 from requests import Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import yfinance as yf
 
 logger = logging.getLogger("PTK_SYSTEM")
 
@@ -41,7 +41,7 @@ class MacroSensorEngine:
         session.mount("http://", adapter)
         return session
 
-    def get_fresh_macro_data(self, sensor_name: str) -> Tuple[Optional[pd.DataFrame], bool]:
+    def get_fresh_macro_data(self, sensor_name: str) -> tuple[pd.DataFrame | None, bool]:
         """
         Lấy dữ liệu vĩ mô tươi (is_stale = 0) từ SQLite.
         Đây là SQL bắt buộc dùng cho RegimeEngine và các tầng tiêu thụ hạ lưu.
@@ -57,7 +57,7 @@ class MacroSensorEngine:
             logger.error(f"[CRITICAL_DB_ERROR] Không thể truy vấn sensor {sensor_name}: {str(e)}")
         return None, False
 
-    def _get_t_minus_one_fallback(self, sensor_name: str) -> Tuple[Optional[pd.DataFrame], bool]:
+    def _get_t_minus_one_fallback(self, sensor_name: str) -> tuple[pd.DataFrame | None, bool]:
         """
         Trích xuất dữ liệu lịch sử gần nhất (T-1) từ SQLite cache khi API sập.
         Trả về: (DataFrame dữ liệu, cờ stale=True)
@@ -80,7 +80,7 @@ class MacroSensorEngine:
 
         return None, True
 
-    def fetch_world_bank_data(self) -> Tuple[Optional[Dict[str, Any]], bool]:
+    def fetch_world_bank_data(self) -> tuple[dict[str, Any] | None, bool]:
         """Cập nhật dữ liệu từ World Bank với cơ chế chống nghẽn Timeout.
 
         Sử dụng Retry Adapter với exponential backoff để tránh spam API
@@ -97,7 +97,7 @@ class MacroSensorEngine:
             logger.error(f"[NETWORK_TIMEOUT] World Bank API không phản hồi: {str(e)}")
             return None, True
 
-    def fetch_yf_macro_sensor(self, ticker: str) -> Tuple[Optional[pd.DataFrame], bool]:
+    def fetch_yf_macro_sensor(self, ticker: str) -> tuple[pd.DataFrame | None, bool]:
         """Cập nhật cảm biến vĩ mô từ Yahoo Finance với cấu hình cô lập luồng.
 
         Tiêm trực tiếp session resilient (đã cấu hình Retry 5xx, loại trừ 429)

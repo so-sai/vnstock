@@ -42,7 +42,7 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
@@ -107,8 +107,8 @@ class RegimeResult:
     interbank_avg_90d: float  # 90-day rolling average
     confidence: float  # max probability (higher = more certain)
     hmm_fitted: bool  # whether HMM was actually fitted
-    features_used: Optional[List[str]] = None  # stationary features used
-    bic_score: Optional[float] = None  # BIC score for model quality
+    features_used: list[str] | None = None  # stationary features used
+    bic_score: float | None = None  # BIC score for model quality
 
 
 class RegimeClassifier:
@@ -124,12 +124,12 @@ class RegimeClassifier:
       Score(x) = F(x | P(Regime_k))
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
 
     # ── Data Fetching ─────────────────────────────────────────────────
 
-    def _fetch_macro_series(self, variable: str, target_date: Optional[str] = None, limit: int = 1250) -> np.ndarray:
+    def _fetch_macro_series(self, variable: str, target_date: str | None = None, limit: int = 1250) -> np.ndarray:
         """Fetch a macro variable time series as numpy array (oldest first)."""
         conn = sqlite3.connect(self.db_path)
         try:
@@ -150,11 +150,11 @@ class RegimeClassifier:
         finally:
             conn.close()
 
-    def _fetch_interbank_history(self, target_date: Optional[str] = None, limit: int = 1250) -> np.ndarray:
+    def _fetch_interbank_history(self, target_date: str | None = None, limit: int = 1250) -> np.ndarray:
         """Fetch interbank ON rates."""
         return self._fetch_macro_series("INTERBANK_ON", target_date, limit)
 
-    def _fetch_usdvnd_history(self, target_date: Optional[str] = None, limit: int = 1250) -> np.ndarray:
+    def _fetch_usdvnd_history(self, target_date: str | None = None, limit: int = 1250) -> np.ndarray:
         """Fetch USD/VND exchange rates."""
         return self._fetch_macro_series("USD_VND", target_date, limit)
 
@@ -218,7 +218,7 @@ class RegimeClassifier:
         deviations[:MA_WINDOW] = 0.0
         return deviations
 
-    def _extract_stationary_features(self, target_date: Optional[str] = None) -> Tuple[np.ndarray, List[str]]:
+    def _extract_stationary_features(self, target_date: str | None = None) -> tuple[np.ndarray, list[str]]:
         """Extract stationary features for HMM input.
 
         Returns:
@@ -272,7 +272,7 @@ class RegimeClassifier:
 
     # ── HMM Fitting ───────────────────────────────────────────────────
 
-    def _fit_hmm(self, X: np.ndarray) -> Tuple[Optional[object], Optional[np.ndarray], Optional[float]]:
+    def _fit_hmm(self, X: np.ndarray) -> tuple[object | None, np.ndarray | None, float | None]:
         """Fit 3-state Gaussian HMM on stationary features.
 
         Returns:
@@ -319,7 +319,7 @@ class RegimeClassifier:
 
             return model, means[order], bic
 
-        except Exception as e:  # noqa: BLE001 — external HMM engine
+        except Exception as e:
             logger.warning("[REGIME_CLASSIFIER] HMM fit failed: %s", e)
             return None, None, None
 
@@ -339,7 +339,7 @@ class RegimeClassifier:
         scaled = np.exp(logits)
         return cast(np.ndarray, scaled / np.sum(scaled))
 
-    def _smooth_probability_vector(self, current_probs: np.ndarray, history: Optional[List[np.ndarray]] = None) -> np.ndarray:
+    def _smooth_probability_vector(self, current_probs: np.ndarray, history: list[np.ndarray] | None = None) -> np.ndarray:
         """Smooth probability vector using EMA and rolling average.
 
         Prevents abrupt jumps at regime boundaries.
@@ -372,8 +372,8 @@ class RegimeClassifier:
 
     def classify(
         self,
-        target_date: Optional[str] = None,
-        prob_history: Optional[List[np.ndarray]] = None,
+        target_date: str | None = None,
+        prob_history: list[np.ndarray] | None = None,
     ) -> RegimeResult:
         """Classify current regime and return fuzzy probabilities.
 
@@ -457,7 +457,7 @@ class RegimeClassifier:
                 bic_score=bic,
             )
 
-        except Exception as e:  # noqa: BLE001 — external HMM engine
+        except Exception as e:
             logger.warning("[REGIME_CLASSIFIER] HMM predict failed: %s", e)
             regime_probs = _heuristic_classify(avg_90d)
             regime = max(regime_probs, key=lambda k: regime_probs.get(k, 0.0))
@@ -504,9 +504,9 @@ def _heuristic_classify(avg_90d: float) -> dict:
 
 
 def classify_regime(
-    target_date: Optional[str] = None,
-    db_path: Optional[str] = None,
-    prob_history: Optional[List[np.ndarray]] = None,
+    target_date: str | None = None,
+    db_path: str | None = None,
+    prob_history: list[np.ndarray] | None = None,
 ) -> RegimeResult:
     """Convenience function."""
     return RegimeClassifier(db_path).classify(target_date, prob_history)

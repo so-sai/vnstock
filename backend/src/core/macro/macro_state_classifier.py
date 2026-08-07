@@ -18,7 +18,6 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -138,13 +137,13 @@ class MacroStateClassifier:
     ):
         self._dir = persistence_dir
         self._warmup = warmup_steps
-        self._engine: Optional[PTDEngine] = None
-        self._latest: Optional[ClassifiedMacroState] = None
+        self._engine: PTDEngine | None = None
+        self._latest: ClassifiedMacroState | None = None
         self._is_warm = False
 
     # ── Public API ────────────────────────────────────────────────
 
-    def classify(self, target_date: Optional[str] = None) -> ClassifiedMacroState:
+    def classify(self, target_date: str | None = None) -> ClassifiedMacroState:
         """Fetch latest macro data, run PTD pipeline, persist state.
 
         Args:
@@ -209,7 +208,7 @@ class MacroStateClassifier:
 
         return result
 
-    def get_latest_state(self) -> Optional[ClassifiedMacroState]:
+    def get_latest_state(self) -> ClassifiedMacroState | None:
         """Return cached state without recomputing."""
         if self._latest is not None:
             return self._latest
@@ -228,7 +227,7 @@ class MacroStateClassifier:
 
     # ── Driver Construction ───────────────────────────────────────
 
-    def _fetch_driver_vector(self, target_date: Optional[str] = None) -> tuple[np.ndarray, dict]:
+    def _fetch_driver_vector(self, target_date: str | None = None) -> tuple[np.ndarray, dict]:
         """Query macro_history and map to 7D driver vector.
 
         Returns:
@@ -411,7 +410,7 @@ class MacroStateClassifier:
 
         return obs_norm, raw_drivers
 
-    def _fetch_aligner_features(self, target_date: Optional[str] = None) -> Optional[dict]:
+    def _fetch_aligner_features(self, target_date: str | None = None) -> dict | None:
         """Fetch TimeSeriesAligner features for spectral stress computation."""
         try:
             from src.services.macro.time_series_aligner import TimeSeriesAligner
@@ -534,7 +533,7 @@ class MacroStateClassifier:
             records = records[-365:]
         path.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def _load_latest(self) -> Optional[ClassifiedMacroState]:
+    def _load_latest(self) -> ClassifiedMacroState | None:
         """Load most recent state from history file."""
         path = self._dir / "macro_state_history.json"
         if not path.exists():

@@ -5,7 +5,6 @@ import logging
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ def _read_lines() -> list[dict]:
     _ensure_log_file()
     if LOG_PATH.stat().st_size == 0:
         return []
-    with open(LOG_PATH, "r", encoding="utf-8") as f:
+    with open(LOG_PATH, encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
 
@@ -67,18 +66,18 @@ def _classification_key(vi_label: str) -> str:
     return mapping.get(vi_label, vi_label)
 
 
-def _get_price_at_date(symbol: str, target_date: str) -> Optional[float]:
+def _get_price_at_date(symbol: str, target_date: str) -> float | None:
     try:
         with get_connection() as conn:
             row = conn.execute("SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?", (symbol, target_date)).fetchone()
             if row and row[0] is not None:
                 return float(row[0])
-    except Exception as e:  # noqa: BLE001 - best-effort lookup, caller handles None
+    except Exception as e:
         logger.warning("[PR] Price lookup fail %s @ %s: %s", symbol, target_date, e)
     return None
 
 
-def _get_nearest_price(symbol: str, target_date: str, before: bool = True) -> Optional[float]:
+def _get_nearest_price(symbol: str, target_date: str, before: bool = True) -> float | None:
     try:
         op = "<=" if before else ">="
         with get_connection() as conn:
@@ -89,12 +88,12 @@ def _get_nearest_price(symbol: str, target_date: str, before: bool = True) -> Op
             ).fetchone()
             if row and row[0] is not None:
                 return float(row[0])
-    except Exception as e:  # noqa: BLE001 - best-effort lookup, caller handles None
+    except Exception as e:
         logger.warning("[PR] Nearest price lookup fail %s @ %s: %s", symbol, target_date, e)
     return None
 
 
-def log_predictions(target_date: Optional[str] = None) -> int:
+def log_predictions(target_date: str | None = None) -> int:
     """Run RS audit + log today's predictions to prediction_log.jsonl."""
     if target_date is None:
         target_date = datetime.now().strftime("%Y-%m-%d")
@@ -232,7 +231,7 @@ def get_raw_entries(limit: int = 50) -> list[dict]:
     return lines[-limit:]
 
 
-def run_registry_update(target_date: Optional[str] = None):
+def run_registry_update(target_date: str | None = None):
     """Full pipeline: log predictions + update outcomes. Called from daily_updater."""
     if target_date is None:
         target_date = datetime.now().strftime("%Y-%m-%d")
@@ -279,10 +278,10 @@ if __name__ == "__main__":
         for e in reversed(entries):
             if e.get("event") == "prediction":
                 print(
-                    f"  PREDICT {e['date']} {e['symbol']:6s} | RS={e['rs']:3d} score={e['diem_xac_nhan']:.2f} {e['phan_loai']:<20s} price={e['price_t0']:>8.1f}"  # noqa: E501
+                    f"  PREDICT {e['date']} {e['symbol']:6s} | RS={e['rs']:3d} score={e['diem_xac_nhan']:.2f} {e['phan_loai']:<20s} price={e['price_t0']:>8.1f}"
                 )
             elif e.get("event") == "outcome":
                 print(
-                    f"  OUTCOME {e['date']} {e['symbol']:6s} | {e['horizon']:2d}ngày return={e['return_pct']:+.2f}% exit={e['exit_price']:>8.1f}"  # noqa: E501
+                    f"  OUTCOME {e['date']} {e['symbol']:6s} | {e['horizon']:2d}ngày return={e['return_pct']:+.2f}% exit={e['exit_price']:>8.1f}"
                 )
         print("=" * 100)

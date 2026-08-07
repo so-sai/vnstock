@@ -50,7 +50,6 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from governor.sector_exposure_matrix import SectorExposureMatrix
 
@@ -108,7 +107,7 @@ class TransmissionParameters:
 # Each sector has UNIQUE lag characteristics because the transmission
 # mechanism (price discovery, contract repricing, inventory cycle) differs.
 
-SECTOR_TRANSMISSION: Dict[str, TransmissionParameters] = {
+SECTOR_TRANSMISSION: dict[str, TransmissionParameters] = {
     "STEEL": TransmissionParameters(
         sector="STEEL",
         lag_min=3,
@@ -220,12 +219,12 @@ class LagResult:
     effective_score: float  # Lag-adjusted macro score ∈ [0, 1]
     raw_score: float  # Latest M vector dot product (no lag)
     signal_deficit: float  # raw - effective (negative = still catching up)
-    effective_vector: Dict[str, float]  # Per-node effective scores
-    raw_vector: Dict[str, float]  # Per-node raw scores
+    effective_vector: dict[str, float]  # Per-node effective scores
+    raw_vector: dict[str, float]  # Per-node raw scores
     lookback_used: int  # Actual lookback window
     half_life: float  # Sector half_life used
     data_points: int  # Number of historical M vectors used
-    weights: Dict[int, float]  # Day→weight mapping (for diagnostics)
+    weights: dict[int, float]  # Day→weight mapping (for diagnostics)
 
 
 # ── Macro Lag Engine ──────────────────────────────────────────────────
@@ -247,14 +246,14 @@ class MacroLagEngine:
       # result.signal_deficit: how much the signal is "behind"
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
 
     def get_transmission(self, sector: str) -> TransmissionParameters:
         """Get transmission parameters for a sector."""
         return SECTOR_TRANSMISSION.get(sector, DEFAULT_TRANSMISSION)
 
-    def _fetch_macro_history(self, variable: str, lookback: int, target_date: Optional[str] = None) -> List[Tuple[str, float]]:
+    def _fetch_macro_history(self, variable: str, lookback: int, target_date: str | None = None) -> list[tuple[str, float]]:
         """Fetch recent history for a macro variable.
 
         Returns list of (date, value) tuples, most recent first.
@@ -276,13 +275,13 @@ class MacroLagEngine:
                     (variable, lookback),
                 ).fetchall()
             return [(r[0], r[1]) for r in rows if r[1] is not None]
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("[LAG] Failed to fetch %s: %s", variable, e)
             return []
         finally:
             conn.close()
 
-    def _fetch_vnindex_history(self, lookback: int, target_date: Optional[str] = None) -> List[Tuple[str, float]]:
+    def _fetch_vnindex_history(self, lookback: int, target_date: str | None = None) -> list[tuple[str, float]]:
         """Fetch VNINDEX from daily_ohlcv (fallback for macro_history)."""
         conn = sqlite3.connect(self.db_path)
         try:
@@ -301,13 +300,13 @@ class MacroLagEngine:
                     (lookback,),
                 ).fetchall()
             return [(r[0], r[1]) for r in rows if r[1] is not None]
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("[LAG] Failed to fetch VNINDEX: %s", e)
             return []
         finally:
             conn.close()
 
-    def _reconstruct_historical_vectors(self, lookback: int, target_date: Optional[str] = None) -> List[Dict[str, float]]:
+    def _reconstruct_historical_vectors(self, lookback: int, target_date: str | None = None) -> list[dict[str, float]]:
         """Reconstruct historical M vectors for the lookback window.
 
         Returns list of M vectors, most recent first.
@@ -336,7 +335,7 @@ class MacroLagEngine:
             "INTERBANK_ON": ("Domestic_Liquidity", "INTERBANK_ON", True),  # invert
         }
 
-        histories: Dict[str, List[Tuple[str, float]]] = {}
+        histories: dict[str, list[tuple[str, float]]] = {}
         for var in indicator_map:
             if var == "COPPER_HG":
                 raw = self._fetch_rolling_avg_history(var, lookback, target_date)
@@ -359,11 +358,11 @@ class MacroLagEngine:
         sorted_dates = sorted(all_dates, reverse=True)[:lookback]
 
         # ── Build M vectors per date ─────────────────────────────────
-        m_vectors: List[Dict[str, float]] = []
+        m_vectors: list[dict[str, float]] = []
 
         for date_str in sorted_dates:
-            indicator_scores: Dict[str, Optional[float]] = {}
-            data_quality: Dict[str, bool] = {}
+            indicator_scores: dict[str, float | None] = {}
+            data_quality: dict[str, bool] = {}
 
             for var, (node, norm_key, invert) in indicator_map.items():
                 # Find value for this date
@@ -409,8 +408,8 @@ class MacroLagEngine:
         return m_vectors
 
     def _fetch_rolling_avg_history(
-        self, variable: str, window: int, target_date: Optional[str] = None
-    ) -> List[Tuple[str, float]]:
+        self, variable: str, window: int, target_date: str | None = None
+    ) -> list[tuple[str, float]]:
         """Fetch raw values for rolling average computation."""
         conn = sqlite3.connect(self.db_path)
         try:
@@ -429,12 +428,12 @@ class MacroLagEngine:
                     (variable, window),
                 ).fetchall()
             return [(r[0], r[1]) for r in rows if r[1] is not None]
-        except Exception:  # noqa: BLE001
+        except Exception:
             return []
         finally:
             conn.close()
 
-    def _compute_decay_weights(self, lookback: int, half_life: float) -> Dict[int, float]:
+    def _compute_decay_weights(self, lookback: int, half_life: float) -> dict[int, float]:
         """Compute exponential decay weights for each day offset.
 
         Returns dict: day_offset → weight.
@@ -448,8 +447,8 @@ class MacroLagEngine:
     def compute(
         self,
         sector: str,
-        target_date: Optional[str] = None,
-        custom_transmission: Optional[TransmissionParameters] = None,
+        target_date: str | None = None,
+        custom_transmission: TransmissionParameters | None = None,
     ) -> LagResult:
         """Compute lag-adjusted macro signal for a sector.
 
@@ -490,8 +489,8 @@ class MacroLagEngine:
         decay_weights = self._compute_decay_weights(lookback, tx.half_life)
 
         # ── Compute effective score per node ─────────────────────────
-        effective_vector: Dict[str, float] = {}
-        weights_used: Dict[int, float] = {}
+        effective_vector: dict[str, float] = {}
+        weights_used: dict[int, float] = {}
 
         for node in MACRO_NODES:
             weighted_sum = 0.0
@@ -544,7 +543,7 @@ class MacroLagEngine:
             weights={d: round(w, 6) for d, w in sorted(weights_used.items())[:10]},
         )
 
-    def compute_all_sectors(self, target_date: Optional[str] = None) -> Dict[str, LagResult]:
+    def compute_all_sectors(self, target_date: str | None = None) -> dict[str, LagResult]:
         """Compute lag-adjusted signals for all sectors.
 
         Returns:
@@ -555,7 +554,7 @@ class MacroLagEngine:
             results[sector] = self.compute(sector, target_date)
         return results
 
-    def compute_persistence(self, sector: str, target_date: Optional[str] = None) -> float:
+    def compute_persistence(self, sector: str, target_date: str | None = None) -> float:
         """Compute signal persistence for a sector.
 
         Persistence measures how stable the macro signal direction has been
@@ -586,7 +585,7 @@ class MacroLagEngine:
                 vectors = self._reconstruct_historical_vectors(1, check_date)
                 if vectors:
                     m_vectors.append(vectors[0])
-            except Exception:  # noqa: BLE001 — external engine call
+            except Exception:
                 continue
 
         if len(m_vectors) < 3:

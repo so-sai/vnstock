@@ -35,9 +35,8 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -106,14 +105,14 @@ def _ensure_cache_dir():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _read_cache() -> Optional[dict]:
+def _read_cache() -> dict | None:
     try:
         if CACHE_FILE.exists():
             data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
             age = time.time() - data.get("cached_at", 0)
             if age < CACHE_TTL_SECONDS:
                 return data
-    except Exception:  # noqa: BLE001, S110 - cache miss/expired = trạng thái bình thường, fallback defaults
+    except Exception:
         pass
     return None
 
@@ -123,7 +122,7 @@ def _write_cache(data: dict):
         _ensure_cache_dir()
         data["cached_at"] = time.time()
         CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
+    except Exception as e:
         logger.warning(f"World cache write failed: {e}")
 
 
@@ -189,12 +188,12 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
                 implied_rate = float(nearest.get("last", implied_rate))
                 hike_prob = float(nearest.get("probability", 0.0))
                 meeting_label = nearest.get("tradeDate", "unknown")
-        except Exception as inner:  # noqa: BLE001 - pre-existing defensive catch
+        except Exception as inner:
             logger.debug(f"CME contract parse: {inner}")
 
         return (implied_rate, hike_prob, meeting_label)
 
-    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
+    except Exception as e:
         logger.warning(f"CME FedWatch requests failed: {e}")
         return _cme_fedwatch_playwright_fallback()
 
@@ -216,7 +215,7 @@ def _cme_fedwatch_playwright_fallback() -> tuple[float, float, str]:
             return (rate, prob, meeting)
         logger.warning("CME FedWatch Playwright returned defaults")
         return (DEFAULT_FED_RATE, 0.0, "unknown")
-    except Exception as e:  # noqa: BLE001 - crawl failure must never block EOD
+    except Exception as e:
         logger.warning(f"CME FedWatch Playwright fallback failed: {e}")
         return (DEFAULT_FED_RATE, 0.0, "unknown")
 
@@ -271,7 +270,7 @@ def _fetch_fomc_dissent() -> int:
 
         return dissent_count
 
-    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
+    except Exception as e:
         logger.warning(f"FOMC dissent fetch failed: {e}")
         return DEFAULT_DISSENT
 
@@ -279,7 +278,7 @@ def _fetch_fomc_dissent() -> int:
 # ── Block 3: FRED API (multi-series) ──────────────────────────────────
 
 
-def _fetch_fred_series(series_id: str) -> Optional[float]:
+def _fetch_fred_series(series_id: str) -> float | None:
     """Fetch the latest observation for a FRED series.
 
     WHY use FRED API instead of scraping FRED pages?
@@ -307,7 +306,7 @@ def _fetch_fred_series(series_id: str) -> Optional[float]:
             if val and val != ".":
                 return float(val)
         return None
-    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
+    except Exception as e:
         logger.warning(f"FRED series {series_id} fetch failed: {e}")
         return None
 
@@ -321,26 +320,26 @@ def _fetch_fred_all() -> dict:
     """
     import concurrent.futures
 
-    results: dict[str, Optional[float]] = {}
+    results: dict[str, float | None] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         future_map = {pool.submit(_fetch_fred_series, sid): name for name, sid in FRED_SERIES_MAP.items()}
         for future in concurrent.futures.as_completed(future_map):
             name = future_map[future]
             try:
                 results[name] = future.result()
-            except Exception:  # noqa: BLE001 - pre-existing defensive catch
+            except Exception:
                 results[name] = None
     return results
 
 
-def _scale_fred_asset(value: Optional[float]) -> float:
+def _scale_fred_asset(value: float | None) -> float:
     """Scale WALCL (millions) → trillions. Returns 0.0 on None."""
     if value is None:
         return DEFAULT_FRED_VALUE
     return round(value / 1_000_000_000, 2)
 
 
-def _scale_fred_reserves(value: Optional[float]) -> float:
+def _scale_fred_reserves(value: float | None) -> float:
     """Scale WRESBAL (billions) → trillions. Returns 0.0 on None."""
     if value is None:
         return DEFAULT_FRED_VALUE
@@ -372,13 +371,13 @@ def _fetch_yfinance_fallback() -> dict:
                     results[name] = val if not (val != val) else 0.0
                 else:
                     results[name] = 0.0
-            except Exception:  # noqa: BLE001 - pre-existing defensive catch
+            except Exception:
                 results[name] = 0.0
     except ImportError:
         logger.debug("yfinance not installed — skipping Yahoo fallback")
         for name in YFINANCE_WORLD_TICKERS:
             results[name] = 0.0
-    except Exception as e:  # noqa: BLE001 - pre-existing defensive catch
+    except Exception as e:
         logger.warning(f"yFinance bulk fetch failed: {e}")
         for name in YFINANCE_WORLD_TICKERS:
             results[name] = 0.0
@@ -496,7 +495,7 @@ class WorldSensor:
     @staticmethod
     def _enrich(raw: dict) -> dict:
         """Add timestamp and ensure field presence."""
-        raw["timestamp"] = datetime.now(timezone.utc).isoformat()
+        raw["timestamp"] = datetime.now(UTC).isoformat()
         raw.setdefault("fed_target_rate", DEFAULT_FED_RATE)
         raw.setdefault("fomc_dissent", DEFAULT_DISSENT)
         raw.setdefault("qt_balance_tr", DEFAULT_FRED_VALUE)

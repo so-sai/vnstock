@@ -27,7 +27,7 @@ is not persisted as a separate metric in the fact store.
 # kết luận vi phạm.
 
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -76,7 +76,7 @@ class ForensicEngine:
     """Rule-based forensic screener over financial_facts.db."""
 
     # Canonical metric -> accepted source metric names (alias resolution).
-    metric_aliases: Dict[str, List[str]] = {
+    metric_aliases: dict[str, list[str]] = {
         "REVENUE": ["REVENUE", "NET_REVENUE"],
         "NET_INCOME": ["NET_INCOME", "NET_PROFIT"],
         "CFO": ["CFO"],
@@ -91,9 +91,9 @@ class ForensicEngine:
         "ADMIN_EXPENSES": ["ADMIN_EXPENSES", "OPERATING_EXPENSE"],
     }
 
-    _numeric_metrics: List[str] = list(metric_aliases.keys())
+    _numeric_metrics: list[str] = list(metric_aliases.keys())
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or str(FINANCIAL_DB_PATH)
 
     # ── Data load (single bulk query + pivot) ───────────────────────────
@@ -268,7 +268,7 @@ class ForensicEngine:
         return df[OUTPUT_COLUMNS]
 
     # ── Entry point ─────────────────────────────────────────────────────
-    def run(self, conn: Optional[sqlite3.Connection] = None) -> pd.DataFrame:
+    def run(self, conn: sqlite3.Connection | None = None) -> pd.DataFrame:
         """Screen every symbol in the store; return the forensic frame.
 
         Pass `conn` to reuse an existing connection (dependency injection —
@@ -308,7 +308,7 @@ class ForensicScoreCache:
         );
     """
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or str(FINANCIAL_DB_PATH)
 
     def _connect(self) -> sqlite3.Connection:
@@ -321,7 +321,7 @@ class ForensicScoreCache:
             conn.execute(self._SCHEMA)
             conn.commit()
 
-    def refresh(self, frame: pd.DataFrame, conn: Optional[sqlite3.Connection] = None) -> int:
+    def refresh(self, frame: pd.DataFrame, conn: sqlite3.Connection | None = None) -> int:
         """Upsert the latest period per symbol from a forensic frame.
 
         Keeps the newest row (by fiscal ordinal) per symbol so the O(1) lookup
@@ -363,7 +363,7 @@ class ForensicScoreCache:
                 conn.close()
         return len(rows)
 
-    def get(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get(self, symbol: str) -> dict[str, Any] | None:
         """O(1) PRIMARY KEY lookup — returns the latest score for one symbol."""
         try:
             with self._connect() as conn:

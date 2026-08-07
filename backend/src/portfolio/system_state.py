@@ -1,7 +1,7 @@
-﻿"""Persistence State Lock — reboot-safe system_state.json + TWAP context."""
+"""Persistence State Lock — reboot-safe system_state.json + TWAP context."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 _STATE_PATH = Path(__file__).resolve().parents[3] / "backend" / "data" / "system_state.json"
@@ -39,12 +39,12 @@ def _read() -> dict:
             for k, v in _DEFAULT["twap_execution_context"].items():
                 data["twap_execution_context"].setdefault(k, v)
         return data
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError, json.JSONDecodeError:
         return dict(_DEFAULT)
 
 
 def _write(state: dict):
-    state["last_updated"] = datetime.now(timezone.utc).isoformat()
+    state["last_updated"] = datetime.now(UTC).isoformat()
     _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     _STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -80,6 +80,7 @@ def update_escrow(balance: float):
 
 
 # ── TWAP Context ────────────────────────────────────────
+
 
 def update_twap_context(ctx: dict):
     s = _read()

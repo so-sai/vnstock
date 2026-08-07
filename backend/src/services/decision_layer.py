@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import sys
 from pathlib import Path
 
@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -71,7 +71,7 @@ def quyet_dinh_cuoi_cung(report: dict) -> dict:
 
     cap_do_canh_bao = canh_bao.get("cap_do_ma", "BÌNH_THƯỜNG")
     ket_luan_xac_nhan = xac_nhan.get("ket_luan", "NHIỄU")
-    so_nhom_xac_nhan = xac_nhan.get("so_nhom_dat", 0)
+    xac_nhan.get("so_nhom_dat", 0)
     xep_loai_rui_ro = rui_ro.get("xep_loai", "thấp")
 
     diem = 0

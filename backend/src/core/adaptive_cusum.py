@@ -1,4 +1,4 @@
-﻿"""adaptive_cusum.py — Online Structural Break Detection with Robust Statistics.
+"""adaptive_cusum.py — Online Structural Break Detection with Robust Statistics.
 
 Phát hiện gãy cấu trúc thời gian thực (Online Structural Break) cho chuỗi
 Regime Score. Dùng CUSUM (Cumulative Sum Control Chart) với:
@@ -18,23 +18,22 @@ References:
   - Page (1954). "Continuous Inspection Schemes"
   - Hawkins & Olwell (1998). "Cumulative Sum Charts and Charting for Quality Improvement"
 """
-import math
+
 from collections import deque
-from typing import Optional
 
 import numpy as np
 
-
 # ── Hằng số ---------------------------------------------------------
 
-DEFAULT_WINDOW = 20       # rolling window cho MAD
-K_FACTOR = 0.5            # k = K_FACTOR × sigma_estimate
-H_FACTOR = 5.0            # h = H_FACTOR × sigma_estimate (fat-tail safe)
-EMA_SPAN = 3              # smoothing cho delta (chống noise 1 phiên)
-SIGMA_FLOOR = 2.0         # sigma tối thiểu cho RS [0, 100] scale
+DEFAULT_WINDOW = 20  # rolling window cho MAD
+K_FACTOR = 0.5  # k = K_FACTOR × sigma_estimate
+H_FACTOR = 5.0  # h = H_FACTOR × sigma_estimate (fat-tail safe)
+EMA_SPAN = 3  # smoothing cho delta (chống noise 1 phiên)
+SIGMA_FLOOR = 2.0  # sigma tối thiểu cho RS [0, 100] scale
 
 
 # ── Rolling MAD (Robust Scale) ─────────────────────────────────────
+
 
 class RollingMAD:
     """Độ lệch tuyệt đối trung vị cuộn (Rolling Median Absolute Deviation).
@@ -74,12 +73,13 @@ class RollingMAD:
 
 # ── Online EMA ─────────────────────────────────────────────────────
 
+
 class OnlineEMA:
     """Exponential Moving Average — O(1) memory."""
 
     def __init__(self, span: int = EMA_SPAN):
         self.alpha = 2.0 / (span + 1)
-        self.value: Optional[float] = None
+        self.value: float | None = None
 
     def push(self, x: float) -> float:
         if self.value is None:
@@ -93,6 +93,7 @@ class OnlineEMA:
 
 
 # ── Adaptive CUSUM ─────────────────────────────────────────────────
+
 
 class AdaptiveCUSUM:
     """CUSUM thích nghi với rolling MAD và adaptive parameters.
@@ -123,7 +124,7 @@ class AdaptiveCUSUM:
         self.k: float = 0.0
         self.h: float = 0.0
         self.steps_since_reset: int = 0
-        self.break_point: Optional[int] = None
+        self.break_point: int | None = None
 
         # Historical sigma estimates (for diagnostics)
         self.sigma_history: deque[float] = deque(maxlen=window)

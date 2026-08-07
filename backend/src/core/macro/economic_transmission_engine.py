@@ -22,10 +22,9 @@ Usage:
 import json
 import logging
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -57,7 +56,6 @@ TRANSMISSION_DIR = DATA_DIR / "macro"
 TRANSMISSION_DIR.mkdir(parents=True, exist_ok=True)
 
 from src.database.db_core import get_connection
-
 
 # ── Transmission phase labels ─────────────────────────────────────
 
@@ -150,19 +148,20 @@ class EconomicTransmissionEngine:
         # Gold: very high gold = risk-off = low confidence
         gold_score = float(np.clip(100 - (max(gold - 2000, 0) / 3000.0) * 100, 0, 100))
 
-        confidence = float(np.clip(
-            dxy_score * 0.30 + vix_score * 0.30 + vnd_score * 0.25 + gold_score * 0.15,
-            0, 100,
-        ))
+        confidence = float(
+            np.clip(
+                dxy_score * 0.30 + vix_score * 0.30 + vnd_score * 0.25 + gold_score * 0.15,
+                0,
+                100,
+            )
+        )
 
         # 4. Transmission phase
         phase, desc = self._classify_phase(liquidity, credit, confidence)
 
         # 5. Composite transmission score (geometric mean)
         eps = 1e-6
-        transmission_score = round(float(np.cbrt(
-            max(liquidity, eps) * max(credit, eps) * max(confidence, eps)
-        )), 2)
+        transmission_score = round(float(np.cbrt(max(liquidity, eps) * max(credit, eps) * max(confidence, eps))), 2)
 
         dt_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -186,24 +185,24 @@ class EconomicTransmissionEngine:
         self._save_state(state)
         return state
 
-    def get_latest(self) -> Optional[TransmissionState]:
+    def get_latest(self) -> TransmissionState | None:
         """Load most recent state from persistence."""
         return self._load_latest()
 
     # ── Classification ─────────────────────────────────────────────
 
     @staticmethod
-    def _classify_phase(l: float, c: float, conf: float) -> tuple[str, str]:
+    def _classify_phase(liq: float, c: float, conf: float) -> tuple[str, str]:
         """Classify the transmission phase from 3 latent scores."""
-        if l > 60 and c < 40:
+        if liq > 60 and c < 40:
             return "LIQUIDITY_TRAP", TRANSMISSION_PHASES["LIQUIDITY_TRAP"]
-        if l < 30 and c < 30 and conf < 40:
+        if liq < 30 and c < 30 and conf < 40:
             return "CREDIT_CRUNCH", TRANSMISSION_PHASES["CREDIT_CRUNCH"]
-        if l > 60 and c > 60 and conf > 60:
+        if liq > 60 and c > 60 and conf > 60:
             return "HEALTHY_TRANSMISSION", TRANSMISSION_PHASES["HEALTHY_TRANSMISSION"]
         if c > 80 and conf > 80:
             return "OVERHEATING", TRANSMISSION_PHASES["OVERHEATING"]
-        if l < 40 and conf < 40:
+        if liq < 40 and conf < 40:
             return "RISK_OFF_FLIGHT", TRANSMISSION_PHASES["RISK_OFF_FLIGHT"]
         return "FRAGILE_STABILITY", TRANSMISSION_PHASES["FRAGILE_STABILITY"]
 
@@ -239,14 +238,14 @@ class EconomicTransmissionEngine:
         if path.exists():
             try:
                 records = json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, ValueError):
+            except json.JSONDecodeError, ValueError:
                 records = []
         records.append(asdict(state))
         if len(records) > 365:
             records = records[-365:]
         path.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def _load_latest(self) -> Optional[TransmissionState]:
+    def _load_latest(self) -> TransmissionState | None:
         path = self._dir / "transmission_history.json"
         if not path.exists():
             return None
@@ -260,16 +259,17 @@ class EconomicTransmissionEngine:
 
 # ── CLI Helper ────────────────────────────────────────────────────
 
+
 def print_transmission_report(state: TransmissionState) -> None:
     """Human-readable transmission report."""
-    print(f"\n  {'='*60}")
+    print(f"\n  {'=' * 60}")
     print(f"  ECONOMIC TRANSMISSION REPORT — {state.date}")
-    print(f"  {'='*60}")
+    print(f"  {'=' * 60}")
     print(f"  Transmission Phase: {state.transmission_phase}")
     print(f"  Description:        {state.transmission_phase_desc}")
     print(f"  Composite Score:    {state.transmission_score:.1f}/100")
-    print(f"  {'─'*60}")
-    print(f"  LATENT STATES:")
+    print(f"  {'─' * 60}")
+    print("  LATENT STATES:")
     for label, val, color in [
         ("Liquidity", state.liquidity, "🟢" if state.liquidity > 60 else "🟡" if state.liquidity > 35 else "🔴"),
         ("Credit   ", state.credit, "🟢" if state.credit > 60 else "🟡" if state.credit > 35 else "🔴"),
@@ -277,10 +277,10 @@ def print_transmission_report(state: TransmissionState) -> None:
     ]:
         bar = "▓" * int(val // 5) + "░" * (20 - int(val // 5))
         print(f"    {label}: {val:5.1f} {color} |{bar}|")
-    print(f"  {'─'*60}")
-    print(f"  RAW INPUTS:")
+    print(f"  {'─' * 60}")
+    print("  RAW INPUTS:")
     print(f"    INTERBANK_ON:  {state.interbank_on:.2f}%   INTERBANK_3M: {state.interbank_3m:.2f}%")
     print(f"    Spread 3M-ON:  {state.interbank_spread:.2f}%")
     print(f"    DXY:           {state.dxy:.2f}      VIX: {state.vix:.2f}")
     print(f"    USD_VND:       {state.usd_vnd:.0f}    GOLD_XAU: {state.gold_xau:.0f}")
-    print(f"  {'='*60}\n")
+    print(f"  {'=' * 60}\n")

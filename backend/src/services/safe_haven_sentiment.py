@@ -1,13 +1,12 @@
-﻿import logging
+import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -52,10 +51,12 @@ _ZONE_MAP = {
 }
 
 
-def phan_vung_tam_ly(gold_premium_pct: Optional[float] = None,
-                     gold_premium_regime: Optional[str] = None,
-                     market_state: Optional[dict] = None,
-                     regime_data: Optional[dict] = None) -> dict:
+def phan_vung_tam_ly(
+    gold_premium_pct: float | None = None,
+    gold_premium_regime: str | None = None,
+    market_state: dict | None = None,
+    regime_data: dict | None = None,
+) -> dict:
     diem = 0.0
     ly_do = []
 

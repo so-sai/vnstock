@@ -1,4 +1,5 @@
-﻿"""Contract validation rules — enforce API routing conventions."""
+"""Contract validation rules — enforce API routing conventions."""
+
 from __future__ import annotations
 
 import logging
@@ -72,22 +73,29 @@ class ContractValidator:
         """Detect double-prefix patterns like ``/api/v1/flow/api/v1/flow/...``."""
         for prefix in KNOWN_PREFIXES:
             if prefix in spec.path and spec.path.count(prefix) > 1:
-                findings.append(ValidationFinding(
-                    severity="error",
-                    category="prefix_dup",
-                    path=spec.path,
-                    message=f"Route path contains duplicate prefix '{prefix}' ({spec.method} {spec.path})",
-                    detail=f"Expected: single occurrence of prefix, got {spec.path.count(prefix)}",
-                ))
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        category="prefix_dup",
+                        path=spec.path,
+                        message=f"Route path contains duplicate prefix '{prefix}' ({spec.method} {spec.path})",
+                        detail=f"Expected: single occurrence of prefix, got {spec.path.count(prefix)}",
+                    )
+                )
 
     @staticmethod
     def _check_prefix_alignment(spec: EndpointSpec, findings: list[ValidationFinding]) -> None:
         """Ensure route paths that start with a known prefix are in the correct module."""
         for prefix, expected_module in KNOWN_PREFIXES.items():
             if spec.path.startswith(prefix) and spec.module != expected_module:
-                findings.append(ValidationFinding(
-                    severity="warning",
-                    category="prefix_mismatch",
-                    path=spec.path,
-                    message=f"Route {spec.method} {spec.path} has module='{spec.module}' but prefix '{prefix}' suggests module='{expected_module}'",
-                ))
+                findings.append(
+                    ValidationFinding(
+                        severity="warning",
+                        category="prefix_mismatch",
+                        path=spec.path,
+                        message=(
+                            f"Route {spec.method} {spec.path} has module='{spec.module}' "
+                            f"but prefix '{prefix}' suggests module='{expected_module}'"
+                        ),
+                    )
+                )

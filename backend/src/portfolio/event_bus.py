@@ -1,7 +1,7 @@
-﻿"""Lightweight in-process Event Bus cho Hard Shutdown IPC."""
+"""Lightweight in-process Event Bus cho Hard Shutdown IPC."""
 
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 _HANDLERS: dict[str, list[Callable]] = {}
 

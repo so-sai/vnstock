@@ -1,13 +1,12 @@
-﻿"""Sandbox API — Phase 5 Paper Trading Dashboard endpoints."""
+"""Sandbox API — Phase 5 Paper Trading Dashboard endpoints."""
 
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from fastapi import APIRouter, Query
-from src.execution.paper_broker import PaperBroker, OrderBook, StreamingFeed, Level
+from src.execution.paper_broker import Level, OrderBook, PaperBroker, StreamingFeed
 from src.execution.twap_executor import TWAPExecutor
 from src.portfolio.stale_manager import StalePositionManager
 
@@ -42,8 +41,8 @@ def get_orderbook():
     _ensure()
     return {
         "symbol": _book.symbol,
-        "bids": [_dict_level(l) for l in _book.bids],
-        "asks": [_dict_level(l) for l in _book.asks],
+        "bids": [_dict_level(lvl) for lvl in _book.bids],
+        "asks": [_dict_level(lvl) for lvl in _book.asks],
         "mid_price": _book.mid_price(),
         "spread": _book.spread(),
         "last_price": _book.last_price,
@@ -59,15 +58,17 @@ def get_twap_status():
     slices = []
     if _exe.plan:
         for sl in _exe.plan.slices:
-            slices.append({
-                "index": sl.index,
-                "amount": sl.amount,
-                "status": sl.status,
-                "fill_price": sl.fill_price,
-                "filled_qty": sl.filled_qty,
-                "slippage": sl.slippage,
-                "broker_order_id": sl.broker_order_id,
-            })
+            slices.append(
+                {
+                    "index": sl.index,
+                    "amount": sl.amount,
+                    "status": sl.status,
+                    "fill_price": sl.fill_price,
+                    "filled_qty": sl.filled_qty,
+                    "slippage": sl.slippage,
+                    "broker_order_id": sl.broker_order_id,
+                }
+            )
     return {
         "stale_campaign_id": _exe.plan.stale_campaign_id if _exe.plan else "",
         "total_amount": _exe.plan.total_amount if _exe.plan else 0,
@@ -106,7 +107,7 @@ def get_halt_status():
 @router.get("/thinning")
 def get_thinning():
     _ensure()
-    remaining = sum(l.volume for l in _book.bids)
+    remaining = sum(lvl.volume for lvl in _book.bids)
     initial = 5000 * 5 * 0.8
     return {
         "remaining": remaining,

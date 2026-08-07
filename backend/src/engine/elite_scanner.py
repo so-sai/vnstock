@@ -1,11 +1,11 @@
-﻿import os
+import os
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
     """Path Hydrator v2.1: Auto-locate Project Root"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -20,11 +20,11 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import argparse
 from datetime import datetime
-from typing import Dict, List
 
 import pandas as pd
 
@@ -48,7 +48,7 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
     # 1. Khởi tạo các Engine Chỉ huy (Strict Typing)
     commander: StrategyCommander = StrategyCommander(show_log=False)
     money_flow: MoneyFlowEngine = MoneyFlowEngine(show_log=True)
-    norm: UnitNormalizer = UnitNormalizer(show_log=True)
+    UnitNormalizer(show_log=True)
 
     # 0. CẬP NHẬT DỮ LIỆU TỨ THỜI
     print("\n📡 Đang cập nhật cảm biến Ngoại lực & Vĩ mô...")
@@ -63,10 +63,10 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
 
     # Ở chế độ Deep Scan, chúng ta quét TOÀN BỘ mã có trong RS Engine
     if deep_scan:
-        top_candidates: List[str] = rs_df['symbol'].tolist()
+        top_candidates: list[str] = rs_df["symbol"].tolist()
         print(f"🕵️ Deep Scan: Nhận diện {len(top_candidates)} mã mục tiêu.")
     else:
-        top_candidates: List[str] = rs_df.head(50)['symbol'].tolist()
+        top_candidates: list[str] = rs_df.head(50)["symbol"].tolist()
         print(f"⚡ Quick Scan: Nhận diện {len(top_candidates)} mã Top đầu.")
 
     # Cập nhật Foreign Flow (Snapshot Accumulation)
@@ -78,10 +78,10 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
 
     # 4. TRUY XUẤT NGÀNH DẪN DẮT (Heatmap)
     heatmap_path: str = os.path.join(src.config.DATA_DIR, "output", "sector_heatmap.json")
-    top_3_sectors: List[str] = []
+    top_3_sectors: list[str] = []
     if os.path.exists(heatmap_path):
         heatmap_df: pd.DataFrame = pd.read_json(heatmap_path)
-        top_3_sectors = heatmap_df.head(3)['sector'].tolist()
+        top_3_sectors = heatmap_df.head(3)["sector"].tolist()
         print(f"🔥 Nhóm ngành dẫn dắt mục tiêu: {', '.join(top_3_sectors)}")
 
     # 5. HỢP NHẤT DỮ LIỆU CUỐI CÙNG (Deduplicated & Cleaned)
@@ -89,11 +89,11 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
         industry_map: pd.DataFrame = pd.read_sql("SELECT symbol, icb_name3 as sector FROM symbol_industry", conn)
 
     # Merge chuẩn snake_case
-    final_df: pd.DataFrame = pd.merge(battle_report, industry_map, on='symbol', how='left')
+    final_df: pd.DataFrame = pd.merge(battle_report, industry_map, on="symbol", how="left")
 
     # 6. MASKING LAYER (Presentation Layer)
     # Tách biệt Dữ liệu (Internal) và Hiển thị (External) - Python 3.14 Decoupling
-    display_map: Dict[str, str] = {
+    display_map: dict[str, str] = {
         "symbol": "Symbol",
         "rs_score": "RS Score",
         "rvol": "RVOL",
@@ -101,7 +101,7 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
         "market_phase": "Market Phase",
         "breadth_pct": "Breadth",
         "action": "Action",
-        "sector": "Sector"
+        "sector": "Sector",
     }
 
     # 7. HIỂN THỊ BÁO CÁO ALPHA BRAIN
@@ -110,14 +110,14 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
     print("💎" * 40)
 
     # Lọc chỉ lấy các mã có Action tích cực hoặc mạnh
-    buy_list = final_df[final_df['action'].str.contains("BUY|ACCUMULATE")].copy()
+    buy_list = final_df[final_df["action"].str.contains("BUY|ACCUMULATE")].copy()
 
     if buy_list.empty:
         print("⚠️ Không tìm thấy tín hiệu BẮN (BUY) đạt chuẩn Alpha Brain trong đợt quét này.")
     else:
         # Làm nổi bật các mã thuộc ngành dẫn dắt (Top 3)
-        buy_list['In_Top_Sector'] = buy_list['sector'].isin(top_3_sectors)
-        buy_list = buy_list.sort_values(['In_Top_Sector', 'rs_score'], ascending=[False, False])
+        buy_list["In_Top_Sector"] = buy_list["sector"].isin(top_3_sectors)
+        buy_list = buy_list.sort_values(["In_Top_Sector", "rs_score"], ascending=[False, False])
 
         # Áp dụng Mapping Lớp Hiển thị cho Báo cáo
         presentation_df = buy_list.copy()
@@ -127,8 +127,10 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
         print(f"{'SYMBOL':<8} | {'RS':<3} | {'RVOL':<5} | {'FOR-10D':<8} | {'SECTOR':<20} | {'ACTION'}")
         print("-" * 115)
         for _, row in buy_list.iterrows():
-            marker = "🔥" if row['In_Top_Sector'] else "  "
-            print(f"{marker} {row['symbol']:<6} | {int(row['rs_score']):>2} | {row['rvol']:>5.2f} | {row['foreign_10d_acc']:>8.2f} | {str(row['sector'])[:20]:<20} | {row['action']}")
+            marker = "🔥" if row["In_Top_Sector"] else "  "
+            print(
+                f"{marker} {row['symbol']:<6} | {int(row['rs_score']):>2} | {row['rvol']:>5.2f} | {row['foreign_10d_acc']:>8.2f} | {str(row['sector'])[:20]:<20} | {row['action']}"
+            )
         print("-" * 115)
 
         # 8. Lưu báo cáo Supreme Alpha (Dùng Mapping cho Header CSV)
@@ -147,10 +149,10 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
 
     return final_df
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Alpha Brain Elite Scanner v2.0")
     parser.add_argument("--deep", action="store_true", help="Kích hoạt chế độ Deep Scan toàn thị trường")
     args = parser.parse_args()
 
     run_elite_scanner(deep_scan=args.deep)
-

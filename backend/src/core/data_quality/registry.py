@@ -1,14 +1,14 @@
-﻿"""Thread-safe in-memory event registry with optional DB persistence.
+"""Thread-safe in-memory event registry with optional DB persistence.
 
 Events are ALWAYS accepted (never block).  Registry maintains a sliding
 window of the last N minutes for score computation.
 """
+
 from __future__ import annotations
 
 import logging
 import threading
 from datetime import datetime, timedelta
-from typing import Optional
 
 from src.core.data_quality.models import (
     DataQualityEvent,
@@ -39,22 +39,23 @@ class EventRegistry:
 
     def get_events(
         self,
-        source: Optional[str] = None,
-        event_type: Optional[str] = None,
-        since: Optional[datetime] = None,
+        source: str | None = None,
+        event_type: str | None = None,
+        since: datetime | None = None,
     ) -> list[DataQualityEvent]:
         """Return matching events within the sliding window, newest first."""
         cutoff = since or (datetime.now() - self._window)
         with self._lock:
             matches = [
-                e for e in self._events
+                e
+                for e in self._events
                 if e.timestamp >= cutoff
                 and (source is None or e.source == source)
                 and (event_type is None or e.event_type.value == event_type)
             ]
         return sorted(matches, key=lambda e: e.timestamp, reverse=True)
 
-    def snapshot(self, source: Optional[str] = None) -> DataQualitySnapshot:
+    def snapshot(self, source: str | None = None) -> DataQualitySnapshot:
         """Aggregate events for a source into a single snapshot."""
         events = self.get_events(source=source)
         if not events:
@@ -78,7 +79,7 @@ class EventRegistry:
             sources = {e.source for e in self._events}
         return {s: self.snapshot(source=s) for s in sources}
 
-    def clear(self, older_than_minutes: Optional[int] = None) -> int:
+    def clear(self, older_than_minutes: int | None = None) -> int:
         """Evict old events.  Returns count removed."""
         cutoff = datetime.now() - timedelta(minutes=older_than_minutes or 120)
         with self._lock:
@@ -88,7 +89,7 @@ class EventRegistry:
 
 
 # module-level singleton
-_registry: Optional[EventRegistry] = None
+_registry: EventRegistry | None = None
 _registry_lock = threading.Lock()
 
 

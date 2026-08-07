@@ -13,14 +13,9 @@ Concurrency Guard dùng khóa vật lý SQLite, không dùng bảng khóa ứng 
 
 Run: python -m pytest backend/tests/test_scheduler.py -v
 """
-import concurrent.futures
 import sqlite3
-import threading
-import time
 
-import pytest
-
-from conftest import TEST_PORTFOLIO, TEST_SYMBOL, TEST_DATES
+from conftest import TEST_DATES, TEST_PORTFOLIO, TEST_SYMBOL
 
 
 # ==================================================== CONCURRENCY GUARD
@@ -30,7 +25,6 @@ class TestConcurrencyGuard:
     def test_global_transaction_acquires_lock(self, clean_db):
         """global_transaction mở được BEGIN IMMEDIATE → yield conn."""
         from src.database.acid import global_transaction
-        from src.database.db_core import get_connection
 
         with global_transaction(TEST_DATES[0], TEST_PORTFOLIO) as (conn, corr):
             assert conn is not None
@@ -46,7 +40,7 @@ class TestConcurrencyGuard:
         ngăn connection 2 thực hiện BEGIN IMMEDIATE. global_transaction() dựa
         vào cơ chế này để chống race — không cần bảng khóa ứng dụng.
         """
-        from src.database.db_core import get_connection, DB_PATH
+        from src.database.db_core import DB_PATH
 
         conn1 = sqlite3.connect(DB_PATH, timeout=0.1, check_same_thread=False)
         conn1.execute("PRAGMA busy_timeout=100")
@@ -139,9 +133,7 @@ class TestErrorCodeClassification:
 
     def test_critical_codes_contain_io_corrupt_full(self):
         """CRITICAL_CODES = {10, 11, 13, 14, 26}."""
-        from src.database.acid import (CRITICAL_CODES, SQLITE_IOERR,
-                                        SQLITE_CORRUPT, SQLITE_FULL,
-                                        SQLITE_CANTOPEN, SQLITE_NOTADB)
+        from src.database.acid import CRITICAL_CODES, SQLITE_CANTOPEN, SQLITE_CORRUPT, SQLITE_FULL, SQLITE_IOERR, SQLITE_NOTADB
         assert SQLITE_IOERR in CRITICAL_CODES
         assert SQLITE_CORRUPT in CRITICAL_CODES
         assert SQLITE_FULL in CRITICAL_CODES
@@ -199,6 +191,7 @@ class TestIdempotency:
     def _seed_trade(self, date):
         """Bơm 1 paper trade + equity curve cho ngày date (namespace test)."""
         from src.database.db_core import get_connection
+
         # Đảm bảo schema tồn tại
         from src.engine.paper_trading_engine import PaperTradingEngine
         PaperTradingEngine(portfolio_id=TEST_PORTFOLIO)
@@ -249,8 +242,8 @@ class TestIdempotency:
 
     def test_lock_released_after_skip(self, clean_db):
         """Sau SKIP, không có lock nào bị kẹt (scheduler_locks table đã xóa)."""
-        from src.engine.eod_runner import run_eod_pipeline
         from src.database.db_core import get_connection
+        from src.engine.eod_runner import run_eod_pipeline
         date = TEST_DATES[0]
         self._seed_trade(date)
         run_eod_pipeline(as_of_date=date, portfolio_id=TEST_PORTFOLIO)

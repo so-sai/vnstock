@@ -1,11 +1,11 @@
-﻿import logging
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -22,6 +22,7 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import pandas as pd
@@ -31,10 +32,7 @@ from src.database.db_core import get_connection, save_data_upsert
 
 logger = logging.getLogger(__name__)
 
-WORLD_BANK_URL = (
-    "https://api.worldbank.org/v2/country/VN/indicator/FR.INR.LNDP"
-    "?format=json&per_page=5&sort=desc"
-)
+WORLD_BANK_URL = "https://api.worldbank.org/v2/country/VN/indicator/FR.INR.LNDP?format=json&per_page=5&sort=desc"
 FALLBACK_MULTIPLIER = 0.65
 
 
@@ -48,7 +46,7 @@ def _parse_world_bank_vgb10y(data: list) -> float | None:
         if not valid:
             return None
         return float(valid[0]["value"])
-    except (IndexError, TypeError, ValueError):
+    except IndexError, TypeError, ValueError:
         return None
 
 
@@ -88,10 +86,12 @@ def seed_vgb10y() -> bool:
         logger.info("Không lấy được VGB10Y thực tế, giữ fallback ESTIMATED.")
         return False
 
-    df = pd.DataFrame([
-        {"variable": "VGB10Y", "date": today, "value": real_yield},
-        {"variable": "VGB10Y_STATUS", "date": today, "value": "REAL"},
-    ])
+    df = pd.DataFrame(
+        [
+            {"variable": "VGB10Y", "date": today, "value": real_yield},
+            {"variable": "VGB10Y_STATUS", "date": today, "value": "REAL"},
+        ]
+    )
 
     try:
         with get_connection() as conn:

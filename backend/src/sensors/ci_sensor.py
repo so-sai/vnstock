@@ -1,4 +1,4 @@
-﻿"""
+"""
 ci_sensor.py — Crowding Index Sensor v3 (Layer 3: Positioning).
 
 Three processing blocks:
@@ -22,8 +22,7 @@ Three processing blocks:
 
 import logging
 from collections import deque
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -32,10 +31,10 @@ logger = logging.getLogger(__name__)
 # ── Default Parameters ─────────────────────────────────────────────────
 
 # ECDF windows (periods)
-COT_WINDOW = 52          # ~1 year weekly
-OI_WINDOW = 252          # ~1 year daily
-FR_WINDOW = 90           # ~30 days 8-hourly
-ETF_WINDOW = 252         # ~1 year daily
+COT_WINDOW = 52  # ~1 year weekly
+OI_WINDOW = 252  # ~1 year daily
+FR_WINDOW = 90  # ~30 days 8-hourly
+ETF_WINDOW = 252  # ~1 year daily
 
 # ── WEIGHT MATRIX REVERSAL (2026-07-10) ──
 # Weights proportional to STRUCTURAL DEPTH, NOT sampling frequency.
@@ -52,16 +51,16 @@ ETF_WEIGHT_BASE = 0.4
 # COT decay anchored on valid_from (Friday 15:30 ET), NOT snapshot_date.
 # Plateau: weight = COT_WEIGHT_BASE for 3 days after release.
 # Linear decay: from day 4 to day 7, weight drops 15% → 0.85 of base.
-COT_PLATEAU_DAYS = 3        # weight = base for first 3 days
-COT_LINEAR_DECAY_DAYS = 4   # days 4-7: linear decay
-COT_DECAY_FLOOR = 0.70      # minimum weight as fraction of base
+COT_PLATEAU_DAYS = 3  # weight = base for first 3 days
+COT_LINEAR_DECAY_DAYS = 4  # days 4-7: linear decay
+COT_DECAY_FLOOR = 0.70  # minimum weight as fraction of base
 
 # Dual-EWMA for COT smoothing
-COT_EWMA_FAST = 0.30    # responsive to new COT print
-COT_EWMA_SLOW = 0.05    # long-term trajectory
+COT_EWMA_FAST = 0.30  # responsive to new COT print
+COT_EWMA_SLOW = 0.05  # long-term trajectory
 
 # Divergence-triggered lag adjustment
-DIVERGENCE_THRESHOLD = 0.20     # |CI_fast - CI_slow| trigger
+DIVERGENCE_THRESHOLD = 0.20  # |CI_fast - CI_slow| trigger
 
 # ── Block 1: ECDF Normalizer ──────────────────────────────────────────
 
@@ -118,9 +117,9 @@ class DualEWMA:
         assert 0 < alpha_slow < alpha_fast < 1, "fast must be > slow"
         self._alpha_fast = alpha_fast
         self._alpha_slow = alpha_slow
-        self._fast: Optional[float] = None
-        self._slow: Optional[float] = None
-        self._last_update: Optional[datetime] = None
+        self._fast: float | None = None
+        self._slow: float | None = None
+        self._last_update: datetime | None = None
 
     def update(self, value: float, timestamp: datetime) -> float:
         """Ingest a new observation and return the smoothed value."""
@@ -200,12 +199,12 @@ class CrowdingIndexSensor:
         self._cot_ewma = DualEWMA(COT_EWMA_FAST, COT_EWMA_SLOW)
 
         # Raw stores
-        self._cot_raw: Optional[float] = None
-        self._cot_snap: Optional[datetime] = None   # Tuesday snapshot
-        self._cot_valid_from: Optional[datetime] = None  # Friday 15:30 ET
-        self._oi_raw: Optional[float] = None
-        self._fr_raw: Optional[float] = None
-        self._etf_raw: Optional[float] = None
+        self._cot_raw: float | None = None
+        self._cot_snap: datetime | None = None  # Tuesday snapshot
+        self._cot_valid_from: datetime | None = None  # Friday 15:30 ET
+        self._oi_raw: float | None = None
+        self._fr_raw: float | None = None
+        self._etf_raw: float | None = None
 
         # Normalized CIs per source (value ∈ [0, 1])
         self._cot_ci: float = 0.5
@@ -218,8 +217,7 @@ class CrowdingIndexSensor:
 
     # ── Ingest Methods ─────────────────────────────────────────────────
 
-    def ingest_cot(self, value: float, snapshot_date: datetime,
-                   valid_from: Optional[datetime] = None) -> None:
+    def ingest_cot(self, value: float, snapshot_date: datetime, valid_from: datetime | None = None) -> None:
         """Ingest a COT data point with Dual-Timestamp Protocol.
 
         Parameters
@@ -264,7 +262,7 @@ class CrowdingIndexSensor:
 
     # ── CI Computation ─────────────────────────────────────────────────
 
-    def compute_ci(self, current_date: Optional[datetime] = None) -> dict:
+    def compute_ci(self, current_date: datetime | None = None) -> dict:
         """Full CI computation with lag adjustment + output schema.
 
         Returns
@@ -282,15 +280,13 @@ class CrowdingIndexSensor:
             now = now.replace(tzinfo=None)
 
         # Component CIs via ECDF
-        cot_ci = self._cot_ci
         oi_ci = self._oi_ci
         fr_ci = self._fr_ci
         etf_ci = self._etf_ci
 
         # Fast CI (real-time sources: FR + ETF + OI)
-        w_fast = (OI_WEIGHT_BASE + FR_WEIGHT_BASE + ETF_WEIGHT_BASE)
-        ci_fast = (OI_WEIGHT_BASE * oi_ci + FR_WEIGHT_BASE * fr_ci
-                   + ETF_WEIGHT_BASE * etf_ci) / w_fast if w_fast > 0 else 0.5
+        w_fast = OI_WEIGHT_BASE + FR_WEIGHT_BASE + ETF_WEIGHT_BASE
+        ci_fast = (OI_WEIGHT_BASE * oi_ci + FR_WEIGHT_BASE * fr_ci + ETF_WEIGHT_BASE * etf_ci) / w_fast if w_fast > 0 else 0.5
 
         # Slow CI (COT only, with Dual-EWMA smoothing + decay)
         cot_smoothed = self._cot_ewma.decay(now)
@@ -341,7 +337,7 @@ class CrowdingIndexSensor:
                 round(p_short, 4),
                 round(p_flat, 4),
             ],
-            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "components": {
                 "cot": {
                     "ci": round(ci_slow, 4),
@@ -381,8 +377,7 @@ class CrowdingIndexSensor:
             },
         }
 
-    def _cot_weight(self, now: datetime,
-                     plateau_days: int = COT_PLATEAU_DAYS) -> float:
+    def _cot_weight(self, now: datetime, plateau_days: int = COT_PLATEAU_DAYS) -> float:
         """Plateau decay function anchored on valid_from (Friday 15:30 ET).
 
         Phase 1 — Plateau (days 0-3): weight = COT_WEIGHT_BASE.
@@ -396,7 +391,7 @@ class CrowdingIndexSensor:
         if self._cot_valid_from is None or self._cot_norm.n < 1:
             return 0.0
         vf = self._cot_valid_from.replace(tzinfo=None) if self._cot_valid_from.tzinfo else self._cot_valid_from
-        n = now.replace(tzinfo=None) if now.tzinfo and hasattr(now, 'tzinfo') else now
+        n = now.replace(tzinfo=None) if now.tzinfo and hasattr(now, "tzinfo") else now
         days = max(0.0, (n - vf).total_seconds() / 86400.0)
 
         if days <= plateau_days:

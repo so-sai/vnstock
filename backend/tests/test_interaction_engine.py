@@ -32,7 +32,6 @@ from src.governor.interaction_engine import (
     InteractionResult,
 )
 
-
 # ── Test: Rule Definitions ────────────────────────────────────────────
 
 

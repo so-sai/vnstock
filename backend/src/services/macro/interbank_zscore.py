@@ -7,8 +7,9 @@ import pandas as pd
 
 logger = logging.getLogger("interbank_zscore")
 
+
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -25,13 +26,14 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import get_connection
 
 
 def _fetch_interbank_data(variable: str, min_rows: int = 30) -> pd.DataFrame:
     """Fetch interbank time series from macro_history.
-    
+
     Returns DataFrame with ['date', 'value'] sorted ascending.
     If insufficient data, returns empty DataFrame.
     """
@@ -54,11 +56,11 @@ def compute_dual_ewma_z(
     seed_window: int = 30,
 ) -> dict:
     """Dual-Z EWMA with PREDICTIVE Z-Score calculation.
-    
+
     Uses PRIOR state (μ_{t-1}, σ_{t-1}) to compute Z before updating,
     so a spike is measured against what was expected, not diluted by
     the spike itself.
-    
+
     INITIALIZATION STRATEGY:
         - μ₀ = mean of first seed_window values
         - σ₀ = std of first seed_window values (clamped >= 0.01)
@@ -137,7 +139,7 @@ def assess_term_structure() -> dict:
     """
     with get_connection() as conn:
         df = pd.read_sql(
-            """SELECT variable, value FROM macro_history 
+            """SELECT variable, value FROM macro_history
                WHERE variable IN ('INTERBANK_ON','INTERBANK_1W','INTERBANK_2W',
                                   'INTERBANK_1M','INTERBANK_3M','INTERBANK_6M','INTERBANK_9M')
                AND date = (SELECT MAX(date) FROM macro_history WHERE variable LIKE 'INTERBANK_%')
@@ -156,8 +158,7 @@ def assess_term_structure() -> dict:
         return {"status": "INSUFFICIENT_DATA", "inversion_count": 0}
 
     rates = dict(zip(df["variable"], df["value"]))
-    tenors = ["INTERBANK_ON", "INTERBANK_1W", "INTERBANK_2W",
-              "INTERBANK_1M", "INTERBANK_3M", "INTERBANK_6M", "INTERBANK_9M"]
+    tenors = ["INTERBANK_ON", "INTERBANK_1W", "INTERBANK_2W", "INTERBANK_1M", "INTERBANK_3M", "INTERBANK_6M", "INTERBANK_9M"]
     labels = ["ON", "1W", "2W", "1M", "3M", "6M", "9M"]
     values = [rates.get(t) for t in tenors]
 
@@ -204,6 +205,7 @@ def _check_sbv_alert() -> bool:
     """Kiểm tra file alert SBV structure change."""
     try:
         from src.services.macro.interbank_seeder import _is_sbv_alert_active
+
         return _is_sbv_alert_active()
     except Exception:
         return False
@@ -211,7 +213,7 @@ def _check_sbv_alert() -> bool:
 
 def assess_interbank_risk() -> dict:
     """Full interbank risk assessment: fetch data + compute Dual-Z + Recovery Gate.
-    
+
     Returns:
         dict with:
           - zscore: computed Dual-Z values
@@ -257,6 +259,7 @@ def assess_interbank_risk() -> dict:
     hours_stale = 999
     try:
         from datetime import datetime
+
         last_dt = datetime.strptime(last_date, "%Y-%m-%d")
         hours_stale = (datetime.now() - last_dt).total_seconds() / 3600
     except Exception:
@@ -339,15 +342,16 @@ def assess_interbank_risk() -> dict:
 if __name__ == "__main__":
     import io
     import sys
+
     if sys.platform == "win32":
         if isinstance(sys.stdout, io.TextIOWrapper):
-            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
-                    sys.stdout.reconfigure(encoding='utf-8')
+                    sys.stdout.reconfigure(encoding="utf-8")
                 except Exception:
                     pass
-        elif hasattr(sys.stdout, 'buffer'):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        elif hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     result = assess_interbank_risk()
     print("\n=== INTERBANK RISK ASSESSMENT ===")

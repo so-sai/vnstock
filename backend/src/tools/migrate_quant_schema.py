@@ -5,6 +5,7 @@ Kiểm tra shadow_cao.db có dữ liệu quant bị ghi nhầm không và khôi 
 Usage:
     python backend/src/tools/migrate_quant_schema.py [--dry-run] [--force]
 """
+
 import argparse
 import sqlite3
 import sys
@@ -12,7 +13,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent
@@ -37,9 +38,7 @@ def get_tables(db_path: Path) -> list[str]:
     if not db_path.exists():
         return []
     conn = sqlite3.connect(str(db_path))
-    tables = [r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ).fetchall()]
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
     conn.close()
     return tables
 
@@ -93,14 +92,14 @@ def run_migration(shadow_path: Path, dry_run: bool = False) -> bool:
     vì không thể tự động xác định bản ghi nào thuộc quant hay shadow.
     Người dùng cần kiểm tra thủ công nếu cần tách.
     """
-    from src.init_db import init_one, SCHEMA_QUANT
+    from src.init_db import SCHEMA_QUANT, init_one
 
     if not QUANT_DB.exists():
         print(f"  [INFO] {QUANT_DB.name} chưa tồn tại — sẽ tạo mới.")
 
     if dry_run:
         print(f"  [DRY-RUN] Sẽ tạo lại {QUANT_DB.name} với SCHEMA_QUANT")
-        print(f"  [DRY-RUN] Các bảng mới: quant_rs_scores, factor_backtests")
+        print("  [DRY-RUN] Các bảng mới: quant_rs_scores, factor_backtests")
         return True
 
     ok = init_one(str(QUANT_DB), SCHEMA_QUANT)
@@ -132,12 +131,12 @@ def main():
 
     report = check_shadow_for_quant_data(shadow_path)
 
-    print(f"\n  📊 Bảng trong shadow_cao.db:")
+    print("\n  📊 Bảng trong shadow_cao.db:")
     for t, c in report["shadow_tables"].items():
         status = f"{c} rows" if c > 0 else "0 rows"
         print(f"    - {t}: {status}")
 
-    print(f"\n  📊 Bảng trong quant.db (schema cũ SCHEMA_SHADOW):")
+    print("\n  📊 Bảng trong quant.db (schema cũ SCHEMA_SHADOW):")
     for t, c in report["quant_tables"].items():
         status = f"{c} rows" if c > 0 else "0 rows"
         print(f"    - {t}: {status}")
@@ -146,27 +145,27 @@ def main():
         print(f"\n  ⚠ Thiếu bảng mới: {', '.join(report['missing_new_tables'])}")
 
     if report["needs_migration"]:
-        print(f"\n  ⚠ Phát hiện: shadow_cao.db có dữ liệu nhưng quant.db trống.")
-        print(f"  → Có thể dữ liệu quant đã bị ghi nhầm vào shadow_cao.db trước đây.")
-        print(f"  → Không thể tự động tách — cần kiểm tra thủ công nội dung shadow tables.")
+        print("\n  ⚠ Phát hiện: shadow_cao.db có dữ liệu nhưng quant.db trống.")
+        print("  → Có thể dữ liệu quant đã bị ghi nhầm vào shadow_cao.db trước đây.")
+        print("  → Không thể tự động tách — cần kiểm tra thủ công nội dung shadow tables.")
     else:
-        print(f"\n  ✅ Không phát hiện dữ liệu bị ghi nhầm.")
+        print("\n  ✅ Không phát hiện dữ liệu bị ghi nhầm.")
 
     # Bước 2: Thực hiện migration
     print()
     if args.dry_run or (not args.force and report.get("missing_new_tables")):
         run_migration(shadow_path, dry_run=True)
         if not args.force:
-            print(f"\n  Dùng --force để ghi đè schema quant.db")
+            print("\n  Dùng --force để ghi đè schema quant.db")
     else:
         run_migration(shadow_path)
 
     print(f"\n  {'=' * 50}")
-    print(f"  Kết luận:")
-    print(f"  - quant.db hiện dùng: SCHEMA_QUANT ✅")
-    print(f"  - shadow_cao.db giữ nguyên: SCHEMA_SHADOW ✅")
-    print(f"  - Nếu cần trích xuất dữ liệu cũ từ shadow_cao.db sang quant.db,")
-    print(f"    dùng: python -c \"import sqlite3; ...\" để SELECT/INSERT thủ công.")
+    print("  Kết luận:")
+    print("  - quant.db hiện dùng: SCHEMA_QUANT ✅")
+    print("  - shadow_cao.db giữ nguyên: SCHEMA_SHADOW ✅")
+    print("  - Nếu cần trích xuất dữ liệu cũ từ shadow_cao.db sang quant.db,")
+    print('    dùng: python -c "import sqlite3; ..." để SELECT/INSERT thủ công.')
     print(f"  {'=' * 50}")
 
 

@@ -1,10 +1,11 @@
-﻿"""db_optimize.py — Một lần duy nhất: tối ưu hóa toàn bộ 6 database về cấu hình hiệu năng tối đa.
+"""db_optimize.py — Một lần duy nhất: tối ưu hóa toàn bộ 6 database về cấu hình hiệu năng tối đa.
 
 Chạy: python ptck.py db optimize
 - Ép STRICT tables cho bảng lõi
 - Chuyển cột JSON text → JSONB (SQLite 3.45+)
 - VACUUM + reindex sau migration
 """
+
 import shutil
 import sqlite3
 import sys
@@ -15,7 +16,7 @@ BACKUP_SUFFIX = ".pre_optimize.bak"
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -111,11 +112,26 @@ def optimize_database(db_name: str):
             continue
         cols = conn.execute(f"PRAGMA table_info({tname})").fetchall()
         json_cols = [
-            c[1] for c in cols
-            if c[1].lower() in ("signals", "projection_summary", "sector_forecasts",
-                                "leading_sectors", "lagging_sectors", "habitat_distribution",
-                                "report_json", "details", "metadata", "config", "payload",
-                                "thesis_notes", "notes", "engine_scores", "features")
+            c[1]
+            for c in cols
+            if c[1].lower()
+            in (
+                "signals",
+                "projection_summary",
+                "sector_forecasts",
+                "leading_sectors",
+                "lagging_sectors",
+                "habitat_distribution",
+                "report_json",
+                "details",
+                "metadata",
+                "config",
+                "payload",
+                "thesis_notes",
+                "notes",
+                "engine_scores",
+                "features",
+            )
         ]
         if json_cols:
             migrate_json_to_jsonb(conn, tname, json_cols)
@@ -128,8 +144,10 @@ def optimize_database(db_name: str):
     conn.close()
 
     size_after = db_path.stat().st_size / 1024
-    print(f"[{db_name}] DONE: {size_before:.0f} KB → {size_after:.0f} KB "
-          f"({'+' if size_after > size_before else ''}{size_after - size_before:+.0f} KB)")
+    print(
+        f"[{db_name}] DONE: {size_before:.0f} KB → {size_after:.0f} KB "
+        f"({'+' if size_after > size_before else ''}{size_after - size_before:+.0f} KB)"
+    )
 
 
 def run_all():
@@ -153,7 +171,7 @@ def run_all():
     print()
     print("=" * 60)
     print("  OPTIMIZATION COMPLETE.")
-    print(f"  Backups saved as *.db{ BACKUP_SUFFIX } in {DATA_DIR}")
+    print(f"  Backups saved as *.db{BACKUP_SUFFIX} in {DATA_DIR}")
     print("  Run 'python ptck.py db stats' to verify.")
     print("=" * 60)
 

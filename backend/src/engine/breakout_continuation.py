@@ -1,14 +1,15 @@
-﻿"""
+"""
 Breakout Continuation Engine v1 (Phase 11 — Asia Adaptation Layer).
 Model C for VN market: breakout continuation + liquidity confirmation.
 VN does NOT mean revert cleanly — it trends with liquidity waves.
 """
+
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -24,6 +25,7 @@ def _hydrate_path():
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -42,7 +44,7 @@ def _load_universe(min_value_bn: float = 5, min_price: float = 5) -> pd.DataFram
         df = pd.read_sql(
             "SELECT symbol, date, close, volume, high, low FROM daily_ohlcv "
             "WHERE date >= date('now', '-200 days') ORDER BY date",
-            conn
+            conn,
         )
     if df.empty:
         return pd.DataFrame()
@@ -58,7 +60,8 @@ def compute_breakout_score(symbol: str, df: pd.DataFrame = None) -> dict:
             df_stock = pd.read_sql(
                 "SELECT date, close, volume, high, low FROM daily_ohlcv "
                 "WHERE symbol = ? AND date >= date('now', '-200 days') ORDER BY date",
-                conn, params=(symbol,)
+                conn,
+                params=(symbol,),
             )
     else:
         df_stock = df[df["symbol"] == symbol].copy()
@@ -80,7 +83,7 @@ def compute_breakout_score(symbol: str, df: pd.DataFrame = None) -> dict:
     )
 
     latest = df_stock.iloc[-1]
-    prev = df_stock.iloc[-2] if len(df_stock) >= 2 else latest
+    df_stock.iloc[-2] if len(df_stock) >= 2 else latest
 
     bo20 = latest["close"] > latest["high_20"] if pd.notna(latest["high_20"]) else False
     bo50 = latest["close"] > latest["high_50"] if pd.notna(latest["high_50"]) else False
@@ -125,9 +128,8 @@ def compute_breakout_score(symbol: str, df: pd.DataFrame = None) -> dict:
 
     total_score = max(0, min(100, base_score + tf_bonus + liq_bonus + mom_bonus + trend_bonus - pullback_penalty))
 
-    all_above_ma = (
-        (pd.notna(latest["close_ma20"]) and latest["close"] > latest["close_ma20"])
-        and (pd.notna(latest["close_ma50"]) and latest["close"] > latest["close_ma50"])
+    all_above_ma = (pd.notna(latest["close_ma20"]) and latest["close"] > latest["close_ma20"]) and (
+        pd.notna(latest["close_ma50"]) and latest["close"] > latest["close_ma50"]
     )
 
     continuation_prob = 0.5
@@ -221,7 +223,7 @@ def get_continuation_signal(symbol: str) -> str:
     bsl = score["breakout_level"]
     bs = score["breakout_score"]
     vc = score["volume_confirm"]
-    cp = score["continuation_prob"]
+    score["continuation_prob"]
     all_ma = score["all_above_ma50"]
 
     if bsl == "200D" and vc and bs >= 70:
@@ -240,6 +242,7 @@ def get_continuation_signal(symbol: str) -> str:
 
 if __name__ == "__main__":
     import json
+
     context = get_breakout_market_context()
     print(f"Breakout Context: {json.dumps(context, ensure_ascii=False, indent=2)}")
     opps = scan_breakout_opportunities(5)

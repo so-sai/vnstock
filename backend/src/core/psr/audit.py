@@ -1,4 +1,4 @@
-﻿"""DecisionAuditTrail — append-only JSONL audit log.
+"""DecisionAuditTrail — append-only JSONL audit log.
 
 Every significant system output (weekly report, gold scan, CAO gate verdict,
 trust update) creates one append-only entry.  The log is:
@@ -6,6 +6,7 @@ trust update) creates one append-only entry.  The log is:
   - Sequential (time-ordered)
   - Replayable (can rebuild state up to any point)
 """
+
 from __future__ import annotations
 
 import json
@@ -13,7 +14,6 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from src.core.psr.models import PSRAuditEntry
 
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from src.config import DATA_DIR as _BASE
+
     AUDIT_DIR = _BASE / "psr"
 except ImportError:
     AUDIT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
@@ -48,7 +49,7 @@ class DecisionAuditTrail:
         entries = audit.replay(since="2026-05-01")
     """
 
-    def __init__(self, path: Optional[Path] = None):
+    def __init__(self, path: Path | None = None):
         self._path = path or AUDIT_FILE
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -63,7 +64,7 @@ class DecisionAuditTrail:
         divi: float,
         trust_status: str,
         snapshot_id: str = "",
-        extra: dict = None,
+        extra: dict | None = None,
     ) -> PSRAuditEntry:
         """Create and append a single audit entry."""
         entry = PSRAuditEntry(
@@ -90,9 +91,9 @@ class DecisionAuditTrail:
 
     def replay(
         self,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        source: Optional[str] = None,
+        since: str | None = None,
+        until: str | None = None,
+        source: str | None = None,
         limit: int = 1000,
     ) -> list[PSRAuditEntry]:
         """Read audit entries, newest first, with optional filters."""
@@ -126,7 +127,7 @@ class DecisionAuditTrail:
         """Total number of audit entries."""
         try:
             lines = self._path.read_text(encoding="utf-8").strip().split("\n")
-            return sum(1 for l in lines if l.strip())
+            return sum(1 for ln in lines if ln.strip())
         except FileNotFoundError:
             return 0
 
@@ -139,6 +140,7 @@ class DecisionAuditTrail:
     def _get_version() -> str:
         try:
             from src.core.psr.version import get_current_version
+
             return get_current_version()
         except Exception:
             return "dev"

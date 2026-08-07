@@ -17,14 +17,15 @@ Reference: Lopez de Prado (2018), "Advances in Financial Machine Learning", Ch. 
 
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("PTCK_SYSTEM")
 
 # ── Hằng số ─────────────────────────────────────────────────────────
 
-ADX_BUCKETS: Dict[str, tuple[float, float]] = {
+ADX_BUCKETS: dict[str, tuple[float, float]] = {
     "ADX_LT20": (0.0, 20.0),
     "ADX_20_30": (20.0, 30.0),
     "ADX_GT30": (30.0, 100.0),
@@ -69,10 +70,10 @@ class RegimeAwareConfusion:
         self.prior_beta = prior_beta
 
         # Confusion matrix: {bucket: {"wins": n, "losses": n}}
-        self.matrix: Dict[str, Dict[str, int]] = {b: {"wins": 0, "losses": 0} for b in ADX_BUCKETS}
+        self.matrix: dict[str, dict[str, int]] = {b: {"wins": 0, "losses": 0} for b in ADX_BUCKETS}
 
         # Unresolved queue: {signal_id: signal_dict}
-        self.unresolved: Dict[int, Dict[str, Any]] = {}
+        self.unresolved: dict[int, dict[str, Any]] = {}
         self._next_id: int = 0
 
     # ── Queue Management ────────────────────────────────────────────
@@ -84,7 +85,7 @@ class RegimeAwareConfusion:
         entry_price: float,
         stop_loss: float,
         take_profit: float,
-        expected_return: Optional[float] = None,
+        expected_return: float | None = None,
     ) -> int:
         """Đẩy tín hiệu vào unresolved queue, tag ADX bucket tại entry.
 
@@ -121,7 +122,7 @@ class RegimeAwareConfusion:
             Số lượng tín hiệu đã resolve
         """
         resolved = 0
-        to_remove: List[int] = []
+        to_remove: list[int] = []
 
         for sid, signal in list(self.unresolved.items()):
             entry_date = signal["entry_date"]
@@ -155,7 +156,7 @@ class RegimeAwareConfusion:
         return resolved
 
     @staticmethod
-    def _classify_outcome(signal: Dict[str, Any], current_price: float) -> str:
+    def _classify_outcome(signal: dict[str, Any], current_price: float) -> str:
         """Phân loại kết quả: win / loss / expired."""
         entry = signal["entry_price"]
         sl = signal.get("stop_loss")
@@ -228,7 +229,7 @@ class RegimeAwareConfusion:
 
     # ── Persistence ─────────────────────────────────────────────────
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialization cho DB persistence."""
         return {
             "strategy": self.strategy,
@@ -238,7 +239,7 @@ class RegimeAwareConfusion:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RegimeAwareConfusion":
+    def from_dict(cls, data: dict[str, Any]) -> RegimeAwareConfusion:
         """Deserialize từ DB."""
         obj = cls(strategy=data.get("strategy", "screener_v1"))
         obj.matrix = data.get("matrix", {b: {"wins": 0, "losses": 0} for b in ADX_BUCKETS})
@@ -248,7 +249,7 @@ class RegimeAwareConfusion:
 
     # ── Diagnostics ─────────────────────────────────────────────────
 
-    def diagnose(self, adx: Optional[float] = None) -> Dict[str, Any]:
+    def diagnose(self, adx: float | None = None) -> dict[str, Any]:
         """Trả về thông tin chẩn đoán."""
         result = {
             "strategy": self.strategy,
@@ -305,7 +306,7 @@ def save_confusion_to_db(confusion: RegimeAwareConfusion):
         conn.commit()
 
 
-def load_confusion_from_db(strategy: str = "screener_v1") -> Optional[RegimeAwareConfusion]:
+def load_confusion_from_db(strategy: str = "screener_v1") -> RegimeAwareConfusion | None:
     """Đọc confusion matrix từ DB (auto-create table nếu chưa có)."""
     from src.database.db_core import get_connection
 

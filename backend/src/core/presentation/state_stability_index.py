@@ -1,9 +1,7 @@
+from .models import AxisScore, SSILevel, SSIReport
 
-from .models import SSIReport, AxisScore, SSILevel
 
-
-def _score_consistency(regime_status: str, regime_score: float,
-                       breadth_health: float, bdi_signal: str) -> tuple[float, str]:
+def _score_consistency(regime_status: str, regime_score: float, breadth_health: float, bdi_signal: str) -> tuple[float, str]:
     contradictions = 0
     if regime_status == "TRENDING" and breadth_health < 30:
         contradictions += 1
@@ -50,8 +48,7 @@ def _score_drift_alignment(drift_label: str, regime_status: str) -> tuple[float,
     return 0.4, f"Drift đang hoạt động ('{drift_label}') — state cần kiểm chứng thêm"
 
 
-def _score_flow_stability(flow_status: str, flow_velocity: float,
-                          rotation_velocity: float) -> tuple[float, str]:
+def _score_flow_stability(flow_status: str, flow_velocity: float, rotation_velocity: float) -> tuple[float, str]:
     if flow_status in ("MỞ_RỘNG", "DUY_TRÌ") and rotation_velocity < 0.5:
         return 0.85, "Dòng tiền ổn định, không xoay vòng đột ngột"
     elif flow_status == "PHÂN_HÓA" and rotation_velocity >= 0.5:
@@ -83,12 +80,7 @@ def compute_ssi(
     s_drift, d_drift = _score_drift_alignment(drift_label, regime_status)
     s_flow, d_flow = _score_flow_stability(flow_status, flow_velocity, rotation_velocity)
 
-    total = (
-        w_consistency * s_consistency
-        + w_breadth * s_breadth
-        + w_drift * s_drift
-        + w_flow * s_flow
-    )
+    total = w_consistency * s_consistency + w_breadth * s_breadth + w_drift * s_drift + w_flow * s_flow
 
     if total >= 0.65:
         level: SSILevel = "HIGH"

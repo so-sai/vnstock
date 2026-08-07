@@ -1,4 +1,4 @@
-﻿"""paper_trading_engine.py — Phân hệ Giả lập Thời gian thực (Paper Trading)
+"""paper_trading_engine.py — Phân hệ Giả lập Thời gian thực (Paper Trading)
 
 Mục tiêu (Production Readiness Gate):
   Chạy Cronjob EOD 16:00 hàng ngày, sinh lệnh từ tín hiệu SEL/Macro/Absorption,
@@ -17,21 +17,20 @@ Mục tiêu (Production Readiness Gate):
 
 Nguyên tắc offline: engine CHỈ đọc daily_ohlcv/macro cục bộ, KHÔNG gọi API.
 """
+
 import hashlib
-import json
 import logging
 import math
 import sys
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -47,8 +46,7 @@ def _hydrate_path():
 
 
 PROJECT_ROOT = _hydrate_path()
-import src.config  # noqa: E402
-from src.database.db_core import get_connection  # noqa: E402
+from src.database.db_core import get_connection
 
 logger = logging.getLogger("PTCK_SYSTEM")
 
@@ -68,18 +66,19 @@ def _conn_or(conn):
             yield c
             c.commit()
 
+
 # --- Constants: Simulation Parameters -----------------------------------------
 # HOSE price band (biên độ dao động) — dùng cho rejection khi giá vượt band.
 HOSE_PRICE_BAND = 0.07
 # Latency model (mô phỏng độ trễ end-to-end decision→fill, đơn vị ms).
-BASE_LATENCY_MS = 180.0        # median round-trip API Vietcap giả định
-LATENCY_JITTER_MS = 120.0      # dao động ngẫu nhiên (network/queue)
+BASE_LATENCY_MS = 180.0  # median round-trip API Vietcap giả định
+LATENCY_JITTER_MS = 120.0  # dao động ngẫu nhiên (network/queue)
 # Market impact: slippage ~ eta * sqrt(order_notional / ADV_notional).
-IMPACT_ETA = 0.10              # hệ số tác động thị trường (10 bps @ 1x ADV)
+IMPACT_ETA = 0.10  # hệ số tác động thị trường (10 bps @ 1x ADV)
 # Base rejection probability (rate limit / transient API errors).
 BASE_REJECT_PROB = 0.02
 # Fixed transaction cost (phí giao dịch + thuế bán, xấp xỉ), bps.
-FEE_BPS = 15.0                 # ~0.15% mua; bán cộng thêm thuế 0.1%
+FEE_BPS = 15.0  # ~0.15% mua; bán cộng thêm thuế 0.1%
 SELL_TAX_BPS = 10.0
 
 PAPER_PORTFOLIO_ID = "SEL_PAPER_V1"
@@ -88,7 +87,7 @@ PAPER_PORTFOLIO_ID = "SEL_PAPER_V1"
 # Kill-switch trượt giá: nếu open_{T+k} lệch quá ngưỡng này so với giá mục tiêu
 # (close_T), lệnh bù bị HỦY do tín hiệu đã biến chất (Signal Decay). Tuyệt đối
 # không truy đuổi giá (chasing). Có thể override qua tham số hàm.
-CATCHUP_MAX_SLIPPAGE_PCT = 3.0   # 3.0% = 0.03
+CATCHUP_MAX_SLIPPAGE_PCT = 3.0  # 3.0% = 0.03
 
 
 class PaperTradingEngine:
@@ -98,17 +97,15 @@ class PaperTradingEngine:
     seed = hash(symbol|date|portfolio) → tái lập 100% khi audit.
     """
 
-    def __init__(self, portfolio_id: str = PAPER_PORTFOLIO_ID,
-                 offline: bool = True,
-                 initial_capital: float = 1_000_000_000.0):
+    def __init__(self, portfolio_id: str = PAPER_PORTFOLIO_ID, offline: bool = True, initial_capital: float = 1_000_000_000.0):
         self.portfolio_id = portfolio_id
         self.offline = offline
         self.initial_capital = initial_capital
         self._ensure_schema()
         # Sổ cái Mark-to-Market (cost basis, T+2.5 settlement, corporate actions)
         from src.engine.paper_mtm import PaperMtM
-        self.mtm = PaperMtM(portfolio_id=portfolio_id,
-                            initial_capital=initial_capital)
+
+        self.mtm = PaperMtM(portfolio_id=portfolio_id, initial_capital=initial_capital)
 
     # ------------------------------------------------------------------ schema
     def _ensure_schema(self):
@@ -223,40 +220,33 @@ class PaperTradingEngine:
         return np.random.default_rng(seed)
 
     # ------------------------------------------------------------- price lookup
-    def _get_ohlcv(self, symbol: str, date: str) -> Dict | None:
+    def _get_ohlcv(self, symbol: str, date: str) -> dict | None:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT open, high, low, close, volume FROM daily_ohlcv "
-                "WHERE symbol = ? AND date = ?",
-                (symbol, date)
+                "SELECT open, high, low, close, volume FROM daily_ohlcv WHERE symbol = ? AND date = ?", (symbol, date)
             ).fetchone()
         if not row:
             return None
-        return {"open": row[0], "high": row[1], "low": row[2],
-                "close": row[3], "volume": row[4]}
+        return {"open": row[0], "high": row[1], "low": row[2], "close": row[3], "volume": row[4]}
 
-    def _get_next_trading_ohlcv(self, symbol: str, decision_date: str
-                                ) -> Tuple[str | None, Dict | None]:
+    def _get_next_trading_ohlcv(self, symbol: str, decision_date: str) -> tuple[str | None, dict | None]:
         """OHLCV của phiên giao dịch KẾ TIẾP sau decision_date (T+1)."""
         with get_connection() as conn:
             row = conn.execute(
                 "SELECT date, open, high, low, close, volume FROM daily_ohlcv "
                 "WHERE symbol = ? AND date > ? ORDER BY date ASC LIMIT 1",
-                (symbol, decision_date)
+                (symbol, decision_date),
             ).fetchone()
         if not row:
             return None, None
-        return row[0], {"open": row[1], "high": row[2], "low": row[3],
-                        "close": row[4], "volume": row[5]}
+        return row[0], {"open": row[1], "high": row[2], "low": row[3], "close": row[4], "volume": row[5]}
 
-    def _get_adv_notional(self, symbol: str, date: str, lookback: int = 20
-                          ) -> float:
+    def _get_adv_notional(self, symbol: str, date: str, lookback: int = 20) -> float:
         """Average Daily Value (thanh khoản) — dùng cho market impact model."""
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT close, volume FROM daily_ohlcv "
-                "WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT ?",
-                (symbol, date, lookback)
+                "SELECT close, volume FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT ?",
+                (symbol, date, lookback),
             ).fetchall()
         if not rows:
             return 0.0
@@ -264,10 +254,17 @@ class PaperTradingEngine:
         return float(np.mean(notionals)) if notionals else 0.0
 
     # --------------------------------------------------------- core simulation
-    def simulate_fill(self, symbol: str, side: str, quantity: int,
-                      decision_date: str, signal_source: str = "SEL",
-                      hdr: float | None = None, w1: float | None = None,
-                      macro_state: str = "UNKNOWN") -> Dict:
+    def simulate_fill(
+        self,
+        symbol: str,
+        side: str,
+        quantity: int,
+        decision_date: str,
+        signal_source: str = "SEL",
+        hdr: float | None = None,
+        w1: float | None = None,
+        macro_state: str = "UNKNOWN",
+    ) -> dict:
         """Giả lập vòng đời một lệnh: decision(T) → order → fill(T+1).
 
         Trả về dict đầy đủ latency/slippage/rejection/tracking_error.
@@ -308,10 +305,7 @@ class PaperTradingEngine:
         result["latency_ms"] = round(float(latency), 1)
 
         # --- 2. REJECTION giả lập (API Vietcap) ---
-        reject_reason = self._check_rejection(
-            symbol, side, quantity, decision_date, decision_price,
-            fill_bar, rng
-        )
+        reject_reason = self._check_rejection(symbol, side, quantity, decision_date, decision_price, fill_bar, rng)
         if reject_reason:
             result["is_rejected"] = 1
             result["reject_reason"] = reject_reason
@@ -319,6 +313,7 @@ class PaperTradingEngine:
             try:
                 from src.database.rejected_signals import record_rejected_signal
                 from src.engine.regime_engine import detect_regime
+
                 reg = detect_regime(target_date=decision_date, lang_mode="compact")
                 record_rejected_signal(
                     ticker=symbol,
@@ -327,9 +322,12 @@ class PaperTradingEngine:
                     regime_score=reg.get("regime_score", 0.5),
                     adx_value=reg.get("details", {}).get("adx", 0),
                     feature_vector={
-                        "side": side, "quantity": quantity,
+                        "side": side,
+                        "quantity": quantity,
                         "decision_price": result.get("decision_price"),
-                        "hdr": hdr, "w1": w1, "macro_state": macro_state,
+                        "hdr": hdr,
+                        "w1": w1,
+                        "macro_state": macro_state,
                     },
                     prior_belief=hdr if hdr is not None else 0.5,
                     posterior_belief=0.0,
@@ -370,15 +368,14 @@ class PaperTradingEngine:
 
         return result
 
-    def _check_rejection(self, symbol, side, quantity, decision_date,
-                         decision_price, fill_bar, rng) -> str | None:
+    def _check_rejection(self, symbol, side, quantity, decision_date, decision_price, fill_bar, rng) -> str | None:
         """Mô phỏng cơ chế từ chối lệnh của API Vietcap."""
         # (a) Price band: nếu open T+1 vượt biên ±7% so với close T → limit up/down,
         #     lệnh thị trường có thể không khớp.
         fill_open = float(fill_bar["open"])
         move = (fill_open - decision_price) / decision_price
         if side.upper() == "BUY" and move >= HOSE_PRICE_BAND * 0.99:
-            return "PRICE_BAND_LIMIT_UP"   # trần, không mua được
+            return "PRICE_BAND_LIMIT_UP"  # trần, không mua được
         if side.upper() == "SELL" and move <= -HOSE_PRICE_BAND * 0.99:
             return "PRICE_BAND_LIMIT_DOWN"  # sàn, không bán được
 
@@ -402,31 +399,51 @@ class PaperTradingEngine:
         return hashlib.sha256(raw).hexdigest()[:16]
 
     # ---------------------------------------------------------------- persist
-    def record_trade(self, fill: Dict, conn=None):
+    def record_trade(self, fill: dict, conn=None):
         cols = [
-            "trade_id", "portfolio_id", "decision_date", "fill_date", "symbol",
-            "side", "signal_source", "quantity", "decision_price",
-            "backtest_fill_price", "paper_fill_price", "latency_ms",
-            "slippage_bps", "market_impact_bps", "is_rejected", "reject_reason",
-            "tracking_error_bps", "fee_bps", "hdr_at_decision", "w1_at_decision",
-            "macro_state", "notes", "created_at",
+            "trade_id",
+            "portfolio_id",
+            "decision_date",
+            "fill_date",
+            "symbol",
+            "side",
+            "signal_source",
+            "quantity",
+            "decision_price",
+            "backtest_fill_price",
+            "paper_fill_price",
+            "latency_ms",
+            "slippage_bps",
+            "market_impact_bps",
+            "is_rejected",
+            "reject_reason",
+            "tracking_error_bps",
+            "fee_bps",
+            "hdr_at_decision",
+            "w1_at_decision",
+            "macro_state",
+            "notes",
+            "created_at",
         ]
         vals = [fill.get(c) for c in cols]
         placeholders = ",".join("?" * len(cols))
         with _conn_or(conn) as __c:
-            __c.execute(
-                f"INSERT OR REPLACE INTO paper_trades_log ({','.join(cols)}) "
-                f"VALUES ({placeholders})",
-                vals
-            )
+            __c.execute(f"INSERT OR REPLACE INTO paper_trades_log ({','.join(cols)}) VALUES ({placeholders})", vals)
 
     # ==================================================== CATCH-UP QUEUE
-    def _enqueue_catchup_order(self, symbol: str, side: str, target_qty: int,
-                                target_price: float, decision_date: str,
-                                signal_source: str = "SEL_MACRO",
-                                hdr: float | None = None,
-                                w1: float | None = None,
-                                macro_state: str = "UNKNOWN", conn=None) -> Dict:
+    def _enqueue_catchup_order(
+        self,
+        symbol: str,
+        side: str,
+        target_qty: int,
+        target_price: float,
+        decision_date: str,
+        signal_source: str = "SEL_MACRO",
+        hdr: float | None = None,
+        w1: float | None = None,
+        macro_state: str = "UNKNOWN",
+        conn=None,
+    ) -> dict:
         """Nạp một lệnh bù vào hàng đợi bền vững (KHÔNG khớp, KHÔNG khóa tiền).
 
         Idempotent: dùng trade_id = hash(pf|decision_date|symbol|side) làm PK →
@@ -443,17 +460,33 @@ class PaperTradingEngine:
                 "target_price, signal_source, hdr_at_decision, w1_at_decision, "
                 "macro_state, status, created_at, updated_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?, 'PENDING', ?, ?)",
-                (trade_id, self.portfolio_id, decision_date, symbol, side.upper(),
-                 int(target_qty), float(target_price), signal_source, hdr, w1,
-                 macro_state, now, now)
+                (
+                    trade_id,
+                    self.portfolio_id,
+                    decision_date,
+                    symbol,
+                    side.upper(),
+                    int(target_qty),
+                    float(target_price),
+                    signal_source,
+                    hdr,
+                    w1,
+                    macro_state,
+                    now,
+                    now,
+                ),
             )
-        return {"trade_id": trade_id, "symbol": symbol, "side": side.upper(),
-                "target_qty": int(target_qty), "target_price": round(target_price, 4),
-                "decision_date": decision_date, "status": "QUEUED_CATCHUP"}
+        return {
+            "trade_id": trade_id,
+            "symbol": symbol,
+            "side": side.upper(),
+            "target_qty": int(target_qty),
+            "target_price": round(target_price, 4),
+            "decision_date": decision_date,
+            "status": "QUEUED_CATCHUP",
+        }
 
-    def process_catchup_queue(self, recovery_date: str,
-                               max_slippage_pct: float = CATCHUP_MAX_SLIPPAGE_PCT,
-                               conn=None) -> Dict:
+    def process_catchup_queue(self, recovery_date: str, max_slippage_pct: float = CATCHUP_MAX_SLIPPAGE_PCT, conn=None) -> dict:
         """Xử lý hàng đợi lệnh bù tại ngày phục hồi T+k. GỌI TRƯỚC khi sinh
         tín hiệu mới của T+k (để buying_power của T+k phản ánh đúng phần vốn
         đã tiêu cho lệnh bù — bảo toàn tính nhất quán tiền mặt).
@@ -478,21 +511,18 @@ class PaperTradingEngine:
                 "target_price, hdr_at_decision FROM paper_catchup_queue "
                 "WHERE portfolio_id=? AND status='PENDING' "
                 "ORDER BY decision_date ASC",
-                (self.portfolio_id,)
+                (self.portfolio_id,),
             ).fetchall()
 
-            report = {"recovery_date": recovery_date, "processed": 0,
-                      "filled": [], "rejected_decay": [], "rejected_other": []}
+            report = {"recovery_date": recovery_date, "processed": 0, "filled": [], "rejected_decay": [], "rejected_other": []}
             if not pending:
                 return report
 
-            for (trade_id, dec_date, symbol, side, target_qty, target_price,
-                 hdr_at_dec) in pending:
+            for trade_id, dec_date, symbol, side, target_qty, target_price, hdr_at_dec in pending:
                 report["processed"] += 1
                 bar = self._get_ohlcv(symbol, recovery_date)
                 if not bar or not bar.get("open"):
-                    logger.warning(f"[CATCHUP-Q] {symbol}: thiếu open @ {recovery_date} "
-                                   f"— giữ PENDING.")
+                    logger.warning(f"[CATCHUP-Q] {symbol}: thiếu open @ {recovery_date} — giữ PENDING.")
                     continue
                 open_tk = float(bar["open"])
 
@@ -500,107 +530,182 @@ class PaperTradingEngine:
                 decay_pct = decay * 100.0
                 if decay_pct > max_slippage_pct:
                     self._update_catchup_status(
-                        trade_id, "REJECTED_SIGNAL_DECAY", recovery_date=recovery_date,
-                        exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
+                        trade_id,
+                        "REJECTED_SIGNAL_DECAY",
+                        recovery_date=recovery_date,
+                        exec_price=open_tk,
+                        decay_pct=decay_pct,
+                        filled_qty=0,
                         notes=f"Decay {decay_pct:.2f}% > {max_slippage_pct}% — không truy giá.",
-                        conn=c)
+                        conn=c,
+                    )
                     report["rejected_decay"].append(
-                        {"symbol": symbol, "decision_date": dec_date,
-                         "target_price": round(target_price, 2),
-                         "open_tk": round(open_tk, 2), "decay_pct": round(decay_pct, 2)})
+                        {
+                            "symbol": symbol,
+                            "decision_date": dec_date,
+                            "target_price": round(target_price, 2),
+                            "open_tk": round(open_tk, 2),
+                            "decay_pct": round(decay_pct, 2),
+                        }
+                    )
                     logger.warning(
                         f"[CATCHUP-Q] {symbol} {dec_date}: KILL-SWITCH — decay "
-                        f"{decay_pct:.2f}% > {max_slippage_pct}% → hủy (signal decay).")
+                        f"{decay_pct:.2f}% > {max_slippage_pct}% → hủy (signal decay)."
+                    )
                     continue
 
                 eff_hdr = hdr_at_dec if hdr_at_dec is not None else 0.0
                 bp = self.mtm.get_buying_power(recovery_date, eff_hdr)
                 from src.engine.paper_mtm import BUY_FEE_BPS
+
                 unit_cost = open_tk * (1.0 + BUY_FEE_BPS / 10000.0)
                 max_affordable = int((bp // unit_cost) // 100 * 100) if unit_cost > 0 else 0
                 exec_qty = min(int(target_qty), max_affordable)
 
                 if exec_qty < 100:
                     self._update_catchup_status(
-                        trade_id, "REJECTED_INSUFFICIENT_BP", recovery_date=recovery_date,
-                        exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
+                        trade_id,
+                        "REJECTED_INSUFFICIENT_BP",
+                        recovery_date=recovery_date,
+                        exec_price=open_tk,
+                        decay_pct=decay_pct,
+                        filled_qty=0,
                         notes=f"Sức mua {bp:,.0f} không đủ 1 lô @ {open_tk:.0f}.",
-                        conn=c)
+                        conn=c,
+                    )
                     report["rejected_other"].append(
-                        {"symbol": symbol, "decision_date": dec_date,
-                         "reason": "INSUFFICIENT_BP", "buying_power": round(bp, 0)})
+                        {
+                            "symbol": symbol,
+                            "decision_date": dec_date,
+                            "reason": "INSUFFICIENT_BP",
+                            "buying_power": round(bp, 0),
+                        }
+                    )
                     continue
 
-                book = self.mtm.book_buy(symbol=symbol, quantity=exec_qty,
-                                         fill_price=open_tk, fill_date=recovery_date,
-                                         hdr_limit=eff_hdr, conn=c)
+                book = self.mtm.book_buy(
+                    symbol=symbol, quantity=exec_qty, fill_price=open_tk, fill_date=recovery_date, hdr_limit=eff_hdr, conn=c
+                )
                 if book["status"] != "FILLED":
                     self._update_catchup_status(
-                        trade_id, "REJECTED_" + book["status"], recovery_date=recovery_date,
-                        exec_price=open_tk, decay_pct=decay_pct, filled_qty=0,
-                        notes=f"book_buy: {book['status']}", conn=c)
-                    report["rejected_other"].append(
-                        {"symbol": symbol, "decision_date": dec_date,
-                         "reason": book["status"]})
+                        trade_id,
+                        "REJECTED_" + book["status"],
+                        recovery_date=recovery_date,
+                        exec_price=open_tk,
+                        decay_pct=decay_pct,
+                        filled_qty=0,
+                        notes=f"book_buy: {book['status']}",
+                        conn=c,
+                    )
+                    report["rejected_other"].append({"symbol": symbol, "decision_date": dec_date, "reason": book["status"]})
                     continue
 
                 self._update_catchup_status(
-                    trade_id, "FILLED", recovery_date=recovery_date,
-                    exec_price=open_tk, decay_pct=decay_pct, filled_qty=exec_qty,
-                    notes=f"Transposed fill @ open_{recovery_date}={open_tk:.0f} "
-                          f"(target close_{dec_date}={target_price:.0f})", conn=c)
+                    trade_id,
+                    "FILLED",
+                    recovery_date=recovery_date,
+                    exec_price=open_tk,
+                    decay_pct=decay_pct,
+                    filled_qty=exec_qty,
+                    notes=f"Transposed fill @ open_{recovery_date}={open_tk:.0f} (target close_{dec_date}={target_price:.0f})",
+                    conn=c,
+                )
                 self._record_catchup_trade(
-                    trade_id, dec_date, recovery_date, symbol, side, exec_qty,
-                    target_price, open_tk, decay_pct, book, hdr_at_dec, conn=c)
+                    trade_id,
+                    dec_date,
+                    recovery_date,
+                    symbol,
+                    side,
+                    exec_qty,
+                    target_price,
+                    open_tk,
+                    decay_pct,
+                    book,
+                    hdr_at_dec,
+                    conn=c,
+                )
                 report["filled"].append(
-                    {"symbol": symbol, "decision_date": dec_date,
-                     "recovery_date": recovery_date, "exec_price": round(open_tk, 2),
-                     "qty": exec_qty, "decay_pct": round(decay_pct, 2),
-                     "target_qty": int(target_qty)})
+                    {
+                        "symbol": symbol,
+                        "decision_date": dec_date,
+                        "recovery_date": recovery_date,
+                        "exec_price": round(open_tk, 2),
+                        "qty": exec_qty,
+                        "decay_pct": round(decay_pct, 2),
+                        "target_qty": int(target_qty),
+                    }
+                )
                 logger.info(
                     f"[CATCHUP-Q] {symbol} {dec_date}: FILLED @ open_{recovery_date}="
-                    f"{open_tk:.0f} qty={exec_qty} (decay {decay_pct:.2f}%).")
+                    f"{open_tk:.0f} qty={exec_qty} (decay {decay_pct:.2f}%)."
+                )
         return report
 
-    def _update_catchup_status(self, trade_id: str, status: str,
-                                recovery_date: str = None, exec_price: float = None,
-                                decay_pct: float = None, filled_qty: int = None,
-                                notes: str = None, conn=None):
+    def _update_catchup_status(
+        self,
+        trade_id: str,
+        status: str,
+        recovery_date: str | None = None,
+        exec_price: float | None = None,
+        decay_pct: float | None = None,
+        filled_qty: int | None = None,
+        notes: str | None = None,
+        conn=None,
+    ):
         with _conn_or(conn) as c:
             c.execute(
                 "UPDATE paper_catchup_queue SET status=?, recovery_date=?, "
                 "exec_price=?, decay_pct=?, filled_qty=?, notes=?, updated_at=? "
                 "WHERE trade_id=?",
-                (status, recovery_date, exec_price, decay_pct, filled_qty, notes,
-                 datetime.now().isoformat(), trade_id)
+                (status, recovery_date, exec_price, decay_pct, filled_qty, notes, datetime.now().isoformat(), trade_id),
             )
 
-    def _record_catchup_trade(self, trade_id, decision_date, recovery_date,
-                               symbol, side, qty, target_price, exec_price,
-                               decay_pct, book, hdr, conn=None):
+    def _record_catchup_trade(
+        self,
+        trade_id,
+        decision_date,
+        recovery_date,
+        symbol,
+        side,
+        qty,
+        target_price,
+        exec_price,
+        decay_pct,
+        book,
+        hdr,
+        conn=None,
+    ):
         """Ghi lệnh bù đã khớp vào paper_trades_log (audit trail)."""
-        slippage_bps = (exec_price - target_price) / target_price * 10000.0 \
-            if target_price else 0.0
+        slippage_bps = (exec_price - target_price) / target_price * 10000.0 if target_price else 0.0
         fill = {
-            "trade_id": trade_id, "portfolio_id": self.portfolio_id,
-            "decision_date": decision_date, "fill_date": recovery_date,
-            "symbol": symbol, "side": side.upper(), "signal_source": "SEL_MACRO_CATCHUP",
-            "quantity": int(qty), "decision_price": round(target_price, 4),
+            "trade_id": trade_id,
+            "portfolio_id": self.portfolio_id,
+            "decision_date": decision_date,
+            "fill_date": recovery_date,
+            "symbol": symbol,
+            "side": side.upper(),
+            "signal_source": "SEL_MACRO_CATCHUP",
+            "quantity": int(qty),
+            "decision_price": round(target_price, 4),
             "backtest_fill_price": round(target_price, 4),
             "paper_fill_price": round(exec_price, 4),
-            "latency_ms": None, "slippage_bps": round(slippage_bps, 2),
-            "market_impact_bps": None, "is_rejected": 0, "reject_reason": None,
-            "tracking_error_bps": round(abs(slippage_bps), 2), "fee_bps": FEE_BPS,
-            "hdr_at_decision": hdr, "w1_at_decision": None,
+            "latency_ms": None,
+            "slippage_bps": round(slippage_bps, 2),
+            "market_impact_bps": None,
+            "is_rejected": 0,
+            "reject_reason": None,
+            "tracking_error_bps": round(abs(slippage_bps), 2),
+            "fee_bps": FEE_BPS,
+            "hdr_at_decision": hdr,
+            "w1_at_decision": None,
             "macro_state": "CATCHUP_TRANSPOSED",
             "notes": f"Catch-up transposed fill; decay={decay_pct:.2f}%; "
-                     f"cost_basis={book.get('cost_basis')}; settle={book.get('settle_date')}",
+            f"cost_basis={book.get('cost_basis')}; settle={book.get('settle_date')}",
             "created_at": datetime.now().isoformat(),
         }
         self.record_trade(fill, conn=conn)
 
-    def summarize_daily(self, date: str, w1: float | None = None,
-                        macro_state: str = "UNKNOWN", conn=None) -> Dict:
+    def summarize_daily(self, date: str, w1: float | None = None, macro_state: str = "UNKNOWN", conn=None) -> dict:
         """Tổng hợp hiệu suất phiên → paper_performance_daily.
 
         ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
@@ -611,7 +716,7 @@ class PaperTradingEngine:
                 "tracking_error_bps, hdr_at_decision "
                 "FROM paper_trades_log "
                 "WHERE portfolio_id = ? AND decision_date = ?",
-                (self.portfolio_id, date)
+                (self.portfolio_id, date),
             ).fetchall()
 
             n_orders = len(rows)
@@ -651,22 +756,35 @@ class PaperTradingEngine:
                 "avg_tracking_err_bps, realized_pnl_bps, w1, avg_hdr, "
                 "macro_state, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (summary["portfolio_id"], summary["date"], summary["n_orders"],
-                 summary["n_filled"], summary["n_rejected"],
-                 summary["rejection_rate"], summary["avg_latency_ms"],
-                 summary["avg_slippage_bps"], summary["avg_tracking_err_bps"],
-                 summary["realized_pnl_bps"], summary["w1"], summary["avg_hdr"],
-                 summary["macro_state"], summary["created_at"])
+                (
+                    summary["portfolio_id"],
+                    summary["date"],
+                    summary["n_orders"],
+                    summary["n_filled"],
+                    summary["n_rejected"],
+                    summary["rejection_rate"],
+                    summary["avg_latency_ms"],
+                    summary["avg_slippage_bps"],
+                    summary["avg_tracking_err_bps"],
+                    summary["realized_pnl_bps"],
+                    summary["w1"],
+                    summary["avg_hdr"],
+                    summary["macro_state"],
+                    summary["created_at"],
+                ),
             )
         return summary
 
     # --------------------------------------------------------- signal → orders
-    def generate_orders_from_signals(self, decision_date: str,
-                                     watchlist: List[str] | None = None,
-                                     capital: float = 1_000_000_000.0,
-                                     mtm_only: bool = False,
-                                     catchup_enqueue: bool = False,
-                                     conn=None) -> Dict:
+    def generate_orders_from_signals(
+        self,
+        decision_date: str,
+        watchlist: list[str] | None = None,
+        capital: float = 1_000_000_000.0,
+        mtm_only: bool = False,
+        catchup_enqueue: bool = False,
+        conn=None,
+    ) -> dict:
         """Sinh lệnh giả lập từ SEL + Macro Governor, hạch toán qua MtM.
 
         Quy trình EOD (đúng thứ tự kế toán):
@@ -695,7 +813,7 @@ class PaperTradingEngine:
             thích ngược cho lệnh `paper run` thủ công / unit test).
         """
         if watchlist is None:
-            watchlist = ['FPT', 'VCB', 'HPG', 'VNM', 'TCB']
+            watchlist = ["FPT", "VCB", "HPG", "VNM", "TCB"]
 
         # --- 1. Đầu phiên: settle T+2 + áp dụng sự kiện doanh nghiệp trong đêm ---
         self.mtm.process_settlements(decision_date, conn=conn)
@@ -703,22 +821,23 @@ class PaperTradingEngine:
 
         # --- STALE-SIGNAL GUARD: bù ngày cũ chỉ hạch toán, không phát lệnh mới ---
         if mtm_only:
-            summary = self.summarize_daily(decision_date, w1=None,
-                                           macro_state="CATCHUP_MTM_ONLY",
-                                           conn=conn)
-            mtm_res = self.mtm.mark_to_market(decision_date, hdr_limit=0.0,
-                                              conn=conn)
-            return {"decision_date": decision_date, "orders": [],
-                    "mtm_only": True, "note": "Stale-signal guard: chỉ MtM/settle.",
-                    "summary": summary, "mtm": mtm_res}
+            summary = self.summarize_daily(decision_date, w1=None, macro_state="CATCHUP_MTM_ONLY", conn=conn)
+            mtm_res = self.mtm.mark_to_market(decision_date, hdr_limit=0.0, conn=conn)
+            return {
+                "decision_date": decision_date,
+                "orders": [],
+                "mtm_only": True,
+                "note": "Stale-signal guard: chỉ MtM/settle.",
+                "summary": summary,
+                "mtm": mtm_res,
+            }
 
         # --- 2. Governor context (offline) ---
         from src.engine.macro_governor import MacroGovernor
         from src.engine.structure_evolution import StructureEvolutionLayer
 
         try:
-            sel = StructureEvolutionLayer.assess_global(
-                as_of=decision_date, offline=self.offline)
+            sel = StructureEvolutionLayer.assess_global(as_of=decision_date, offline=self.offline)
             w1 = sel.get("w1")
             sel_hdr = sel.get("hdr_limit")
         except Exception as e:
@@ -737,8 +856,7 @@ class PaperTradingEngine:
         hdr_candidates = [h for h in (sel_hdr, macro_hdr) if h is not None]
         effective_hdr = max(hdr_candidates) if hdr_candidates else 0.0
 
-        results = {"decision_date": decision_date, "orders": [],
-                   "w1": w1, "hdr": effective_hdr, "macro_state": macro_state}
+        results = {"decision_date": decision_date, "orders": [], "w1": w1, "hdr": effective_hdr, "macro_state": macro_state}
 
         # --- 3. Sức mua thực tế từ MtM (đã tôn trọng HDR + tiền đã settle) ---
         buying_power = self.mtm.get_buying_power(decision_date, effective_hdr)
@@ -746,15 +864,15 @@ class PaperTradingEngine:
 
         # HDR=1.0 hoặc hết sức mua → cash-only
         if effective_hdr >= 0.999 or buying_power < 1e6:
-            results["note"] = ("HDR=1.0 CASH_ONLY" if effective_hdr >= 0.999
-                               else "Sức mua < 1tr — không mua thêm.")
+            results["note"] = "HDR=1.0 CASH_ONLY" if effective_hdr >= 0.999 else "Sức mua < 1tr — không mua thêm."
             # LAW-001: ghi toàn bộ watchlist vào rejected_signals_archive
             try:
                 from src.database.rejected_signals import record_rejected_signal
                 from src.engine.regime_engine import detect_regime
+
                 reg = detect_regime(target_date=decision_date, lang_mode="compact")
                 reject_reason = "GOVERNOR_LOCK_HDR" if effective_hdr >= 0.999 else "BUYING_POWER_INSUFFICIENT"
-                for sym in (watchlist or []):
+                for sym in watchlist or []:
                     record_rejected_signal(
                         ticker=sym,
                         signal_type="MACRO_ORDER",
@@ -765,18 +883,17 @@ class PaperTradingEngine:
                             "decision_date": decision_date,
                             "effective_hdr": effective_hdr,
                             "buying_power": buying_power,
-                            "w1": w1, "macro_state": macro_state,
+                            "w1": w1,
+                            "macro_state": macro_state,
                         },
                         prior_belief=w1 if w1 is not None else 0.5,
                         posterior_belief=0.0,
-                        accepted_alternative='CASH',
+                        accepted_alternative="CASH",
                     )
             except Exception:
                 pass
-            self.summarize_daily(decision_date, w1=w1, macro_state=macro_state,
-                                 conn=conn)
-            results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr,
-                                                     conn=conn)
+            self.summarize_daily(decision_date, w1=w1, macro_state=macro_state, conn=conn)
+            results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr, conn=conn)
             return results
 
         per_symbol = buying_power / max(len(watchlist), 1)
@@ -794,16 +911,24 @@ class PaperTradingEngine:
             # --- CATCH-UP: nạp lệnh vào hàng đợi, KHÔNG khớp tại giá lịch sử ---
             if catchup_enqueue:
                 enq = self._enqueue_catchup_order(
-                    symbol=sym, side="BUY", target_qty=qty, target_price=price,
-                    decision_date=decision_date, signal_source="SEL_MACRO",
-                    hdr=effective_hdr, w1=w1, macro_state=macro_state, conn=conn)
+                    symbol=sym,
+                    side="BUY",
+                    target_qty=qty,
+                    target_price=price,
+                    decision_date=decision_date,
+                    signal_source="SEL_MACRO",
+                    hdr=effective_hdr,
+                    w1=w1,
+                    macro_state=macro_state,
+                    conn=conn,
+                )
                 results["orders"].append(enq)
                 continue
 
             # Giả lập vi mô thực thi (latency/slippage/rejection)
             fill = self.simulate_fill(
-                sym, "BUY", qty, decision_date, signal_source="SEL_MACRO",
-                hdr=effective_hdr, w1=w1, macro_state=macro_state)
+                sym, "BUY", qty, decision_date, signal_source="SEL_MACRO", hdr=effective_hdr, w1=w1, macro_state=macro_state
+            )
 
             # Nếu API reject → chỉ ghi log, không hạch toán MtM
             if fill.get("is_rejected"):
@@ -813,10 +938,13 @@ class PaperTradingEngine:
 
             # --- 4. Hạch toán MtM: book_buy tại giá paper fill (T+1) ---
             book = self.mtm.book_buy(
-                symbol=sym, quantity=qty,
+                symbol=sym,
+                quantity=qty,
                 fill_price=fill["paper_fill_price"],
                 fill_date=fill.get("fill_date") or decision_date,
-                hdr_limit=effective_hdr, conn=conn)
+                hdr_limit=effective_hdr,
+                conn=conn,
+            )
             fill["mtm_status"] = book["status"]
             if book["status"] != "FILLED":
                 # MtM từ chối (hết buying power thực) → đánh dấu reject
@@ -835,27 +963,26 @@ class PaperTradingEngine:
             best_alt = accepted_symbols[0]
             try:
                 from src.database.rejected_signals import ensure_table
+
                 ensure_table()
                 with get_connection() as conn2:
                     conn2.execute(
-                        f"UPDATE rejected_signals_archive "
-                        f"SET accepted_alternative = ? "
-                        f"WHERE timestamp LIKE ? AND accepted_alternative IS NULL",
+                        "UPDATE rejected_signals_archive "
+                        "SET accepted_alternative = ? "
+                        "WHERE timestamp LIKE ? AND accepted_alternative IS NULL",
                         (best_alt, f"{decision_date}%"),
                     )
             except Exception:
                 pass
 
-        summary = self.summarize_daily(decision_date, w1=w1,
-                                       macro_state=macro_state, conn=conn)
+        summary = self.summarize_daily(decision_date, w1=w1, macro_state=macro_state, conn=conn)
         results["summary"] = summary
         # --- 5. Cuối phiên: mark-to-market ---
-        results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr,
-                                                 conn=conn)
+        results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr, conn=conn)
         return results
 
     # ------------------------------------------------------------- reporting
-    def get_stability_report(self, lookback_sessions: int = 45) -> Dict:
+    def get_stability_report(self, lookback_sessions: int = 45) -> dict:
         """Báo cáo ổn định W1/AQ/HDR + latency/slippage/rejection qua N phiên."""
         with get_connection() as conn:
             rows = conn.execute(
@@ -864,7 +991,7 @@ class PaperTradingEngine:
                 "w1, avg_hdr, macro_state "
                 "FROM paper_performance_daily WHERE portfolio_id = ? "
                 "ORDER BY date DESC LIMIT ?",
-                (self.portfolio_id, lookback_sessions)
+                (self.portfolio_id, lookback_sessions),
             ).fetchall()
 
         if not rows:
@@ -880,10 +1007,12 @@ class PaperTradingEngine:
             if not s:
                 return {"mean": 0, "std": 0, "min": 0, "max": 0}
             a = np.array(s, dtype=float)
-            return {"mean": round(float(a.mean()), 4),
-                    "std": round(float(a.std()), 4),
-                    "min": round(float(a.min()), 4),
-                    "max": round(float(a.max()), 4)}
+            return {
+                "mean": round(float(a.mean()), 4),
+                "std": round(float(a.std()), 4),
+                "min": round(float(a.min()), 4),
+                "max": round(float(a.max()), 4),
+            }
 
         return {
             "status": "OK",
@@ -896,20 +1025,31 @@ class PaperTradingEngine:
             "slippage_bps": _stats(slip_series),
             "latency_ms": _stats(lat_series),
             "daily": [
-                {"date": r[0], "orders": r[1], "filled": r[2],
-                 "rejected": r[3], "rej_rate": r[4], "latency": r[5],
-                 "slippage": r[6], "w1": r[8], "hdr": r[9], "macro": r[10]}
+                {
+                    "date": r[0],
+                    "orders": r[1],
+                    "filled": r[2],
+                    "rejected": r[3],
+                    "rej_rate": r[4],
+                    "latency": r[5],
+                    "slippage": r[6],
+                    "w1": r[8],
+                    "hdr": r[9],
+                    "macro": r[10],
+                }
                 for r in arr
             ],
         }
 
     # ----------------------------------------------------------------- static
     @staticmethod
-    def run_daily(decision_date: str | None = None,
-                  offline: bool = True,
-                  mtm_only: bool = False,
-                  catchup_enqueue: bool = False,
-                  conn=None) -> Dict:
+    def run_daily(
+        decision_date: str | None = None,
+        offline: bool = True,
+        mtm_only: bool = False,
+        catchup_enqueue: bool = False,
+        conn=None,
+    ) -> dict:
         """Entry point cho cronjob EOD.
 
         Args:
@@ -921,18 +1061,17 @@ class PaperTradingEngine:
         if decision_date is None:
             with get_connection() as c:
                 row = c.execute("SELECT MAX(date) FROM daily_ohlcv").fetchone()
-            decision_date = row[0] if row and row[0] else \
-                datetime.now().strftime("%Y-%m-%d")
+            decision_date = row[0] if row and row[0] else datetime.now().strftime("%Y-%m-%d")
         engine = PaperTradingEngine(offline=offline)
         return engine.generate_orders_from_signals(
-            decision_date, mtm_only=mtm_only, catchup_enqueue=catchup_enqueue,
-            conn=conn)
+            decision_date, mtm_only=mtm_only, catchup_enqueue=catchup_enqueue, conn=conn
+        )
 
     @staticmethod
-    def print_report(result: Dict, lang: str = "vi"):
+    def print_report(result: dict, lang: str = "vi"):
         """In báo cáo Paper Trading CLI."""
         print(f"\n{'=' * 65}")
-        print(f"  PAPER TRADING ENGINE — Giả lập Thời gian thực")
+        print("  PAPER TRADING ENGINE — Giả lập Thời gian thực")
         print(f"{'=' * 65}")
         if result.get("status") == "NO_DATA":
             print("  Chưa có dữ liệu paper trading. Chạy: python ptck.py paper run")
@@ -950,30 +1089,32 @@ class PaperTradingEngine:
             print(f"\n  -- Lệnh sinh ({len(result['orders'])}) --")
             for o in result["orders"]:
                 status = "REJECTED" if o.get("is_rejected") else "FILLED"
-                print(f"  {o['symbol']:6s} {o['side']:4s} x{o['quantity']:>7,} "
-                      f"[{status}]")
+                print(f"  {o['symbol']:6s} {o['side']:4s} x{o['quantity']:>7,} [{status}]")
                 if o.get("is_rejected"):
                     print(f"         reject: {o.get('reject_reason')}")
                 else:
-                    print(f"         backtest={o.get('backtest_fill_price')} "
-                          f"paper={o.get('paper_fill_price')} "
-                          f"slip={o.get('slippage_bps')}bps "
-                          f"lat={o.get('latency_ms')}ms")
+                    print(
+                        f"         backtest={o.get('backtest_fill_price')} "
+                        f"paper={o.get('paper_fill_price')} "
+                        f"slip={o.get('slippage_bps')}bps "
+                        f"lat={o.get('latency_ms')}ms"
+                    )
             s = result.get("summary", {})
             if s and s.get("n_orders"):
-                print(f"\n  -- Tổng hợp phiên --")
-                print(f"  Lệnh: {s['n_orders']}  Khớp: {s['n_filled']}  "
-                      f"Từ chối: {s['n_rejected']} "
-                      f"({s['rejection_rate']:.1%})")
-                print(f"  Latency TB: {s['avg_latency_ms']}ms  "
-                      f"Slippage TB: {s['avg_slippage_bps']}bps  "
-                      f"Tracking err: {s['avg_tracking_err_bps']}bps")
+                print("\n  -- Tổng hợp phiên --")
+                print(
+                    f"  Lệnh: {s['n_orders']}  Khớp: {s['n_filled']}  Từ chối: {s['n_rejected']} ({s['rejection_rate']:.1%})"
+                )
+                print(
+                    f"  Latency TB: {s['avg_latency_ms']}ms  "
+                    f"Slippage TB: {s['avg_slippage_bps']}bps  "
+                    f"Tracking err: {s['avg_tracking_err_bps']}bps"
+                )
             # MtM snapshot (nếu có)
             m = result.get("mtm")
             if m:
-                print(f"\n  -- Mark-to-Market --")
-                print(f"  Tổng vốn (Equity) : {m['total_equity']:>16,.0f}  "
-                      f"({m['total_return_pct']:+.2f}%)")
+                print("\n  -- Mark-to-Market --")
+                print(f"  Tổng vốn (Equity) : {m['total_equity']:>16,.0f}  ({m['total_return_pct']:+.2f}%)")
                 print(f"  Sức mua khả dụng  : {m['buying_power']:>16,.0f}")
                 print(f"  Unrealized (net)  : {m['unrealized_pnl_net']:>16,.0f}")
                 print(f"  Realized (luỹ kế) : {m['realized_pnl_cum']:>16,.0f}")
@@ -984,20 +1125,18 @@ class PaperTradingEngine:
 
         # Báo cáo stability
         print(f"  Portfolio         : {result['portfolio_id']}")
-        print(f"  Phiên thu thập    : {result['sessions']} / "
-              f"{result['sessions_target']}")
+        print(f"  Phiên thu thập    : {result['sessions']} / {result['sessions_target']}")
         print(f"  Trạng thái        : {result['readiness']}")
-        print(f"\n  -- Ổn định W1 (Wasserstein) --")
+        print("\n  -- Ổn định W1 (Wasserstein) --")
         w = result["w1_stability"]
-        print(f"  mean={w['mean']}  std={w['std']}  "
-              f"min={w['min']}  max={w['max']}")
-        print(f"\n  -- Tỷ lệ Từ chối --")
+        print(f"  mean={w['mean']}  std={w['std']}  min={w['min']}  max={w['max']}")
+        print("\n  -- Tỷ lệ Từ chối --")
         r = result["rejection_rate"]
         print(f"  mean={r['mean']:.1%}  std={r['std']:.4f}  max={r['max']:.1%}")
-        print(f"\n  -- Slippage (bps) --")
+        print("\n  -- Slippage (bps) --")
         sl = result["slippage_bps"]
         print(f"  mean={sl['mean']}  std={sl['std']}  max={sl['max']}")
-        print(f"\n  -- Latency (ms) --")
+        print("\n  -- Latency (ms) --")
         la = result["latency_ms"]
         print(f"  mean={la['mean']}  std={la['std']}  max={la['max']}")
         print(f"{'=' * 65}\n")

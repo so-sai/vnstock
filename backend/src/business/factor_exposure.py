@@ -16,96 +16,118 @@ Usage:
     print(matrix.exposures["CREDIT"]["score"])
 """
 
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
 
-from src.business.archetype import ArchetypeEngine, ARCHETYPE_REGISTRY
-from src.business.economic_engine import EconomicEngine, PROPAGATION_CHAINS
+from src.business.archetype import ArchetypeEngine
 from src.business.competitive_position import CompetitiveEngine
-
+from src.business.economic_engine import EconomicEngine
 
 # ═══════════════════════════════════════════════════════════════
 # 1. FACTOR TAXONOMY — 7 macro factor groups
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class FactorDef:
     """Định nghĩa một yếu tố vĩ mô."""
+
     id: str
     label: str
     group: str  # liquidity / credit / risk / energy / growth / sector / trust
     description: str
-    measurement: str         # nguồn dữ liệu
-    default_direction: int   # +1 = tăng factor → tốt cho nền kinh tế, -1 = ngược
+    measurement: str  # nguồn dữ liệu
+    default_direction: int  # +1 = tăng factor → tốt cho nền kinh tế, -1 = ngược
     is_cyclical: bool = True
 
 
-FACTOR_REGISTRY: Dict[str, FactorDef] = {
+FACTOR_REGISTRY: dict[str, FactorDef] = {
     # ── Liquidity ────────────────────────
-    "INTEREST_RATE": FactorDef("INTEREST_RATE", "Lãi suất điều hành", "liquidity",
-                                "Lãi suất chính sách của SBV (refinancing rate)", "SBV policy rate", -1),
-    "INTERBANK_ON": FactorDef("INTERBANK_ON", "Lãi suất liên ngân hàng ON", "liquidity",
-                               "Thanh khoản ngắn hạn hệ thống ngân hàng", "Interbank ON", -1),
-    "INTERBANK_3M": FactorDef("INTERBANK_3M", "Lãi suất liên ngân hàng 3M", "liquidity",
-                               "Thanh khoản trung hạn hệ thống", "Interbank 3M", -1),
-    "LIQUIDITY": FactorDef("LIQUIDITY", "Thanh khoản tổng thể", "liquidity",
-                            "Chỉ số tổng hợp thanh khoản (P1)", "Transmission Engine", 1),
-
+    "INTEREST_RATE": FactorDef(
+        "INTEREST_RATE",
+        "Lãi suất điều hành",
+        "liquidity",
+        "Lãi suất chính sách của SBV (refinancing rate)",
+        "SBV policy rate",
+        -1,
+    ),
+    "INTERBANK_ON": FactorDef(
+        "INTERBANK_ON",
+        "Lãi suất liên ngân hàng ON",
+        "liquidity",
+        "Thanh khoản ngắn hạn hệ thống ngân hàng",
+        "Interbank ON",
+        -1,
+    ),
+    "INTERBANK_3M": FactorDef(
+        "INTERBANK_3M", "Lãi suất liên ngân hàng 3M", "liquidity", "Thanh khoản trung hạn hệ thống", "Interbank 3M", -1
+    ),
+    "LIQUIDITY": FactorDef(
+        "LIQUIDITY", "Thanh khoản tổng thể", "liquidity", "Chỉ số tổng hợp thanh khoản (P1)", "Transmission Engine", 1
+    ),
     # ── Credit ───────────────────────────
-    "CREDIT_GROWTH": FactorDef("CREDIT_GROWTH", "Tăng trưởng tín dụng", "credit",
-                                "Tăng trưởng dư nợ tín dụng toàn hệ thống (% YoY)", "SBV credit data", 1),
-    "NPL_CYCLE": FactorDef("NPL_CYCLE", "Chu kỳ nợ xấu", "credit",
-                            "Áp lực nợ xấu hệ thống ngân hàng", "NPL ratio trend", -1),
-    "CASA_RATIO": FactorDef("CASA_RATIO", "Tỷ lệ CASA hệ thống", "credit",
-                             "Tỷ lệ tiền gửi không kỳ hạn hệ thống", "Bank financials", 1),
-
+    "CREDIT_GROWTH": FactorDef(
+        "CREDIT_GROWTH",
+        "Tăng trưởng tín dụng",
+        "credit",
+        "Tăng trưởng dư nợ tín dụng toàn hệ thống (% YoY)",
+        "SBV credit data",
+        1,
+    ),
+    "NPL_CYCLE": FactorDef("NPL_CYCLE", "Chu kỳ nợ xấu", "credit", "Áp lực nợ xấu hệ thống ngân hàng", "NPL ratio trend", -1),
+    "CASA_RATIO": FactorDef(
+        "CASA_RATIO", "Tỷ lệ CASA hệ thống", "credit", "Tỷ lệ tiền gửi không kỳ hạn hệ thống", "Bank financials", 1
+    ),
     # ── Risk ─────────────────────────────
-    "DXY": FactorDef("DXY", "Chỉ số USD Index", "risk",
-                      "Sức mạnh đồng USD toàn cầu", "DXY index", -1),
-    "VIX": FactorDef("VIX", "Chỉ số VIX (Fear Index)", "risk",
-                      "Biến động thị trường chứng khoán Mỹ", "CBOE VIX", -1),
-    "USD_VND": FactorDef("USD_VND", "Tỷ giá USD/VND", "risk",
-                          "Áp lực tỷ giá lên VND", "SBV central rate", -1),
-
+    "DXY": FactorDef("DXY", "Chỉ số USD Index", "risk", "Sức mạnh đồng USD toàn cầu", "DXY index", -1),
+    "VIX": FactorDef("VIX", "Chỉ số VIX (Fear Index)", "risk", "Biến động thị trường chứng khoán Mỹ", "CBOE VIX", -1),
+    "USD_VND": FactorDef("USD_VND", "Tỷ giá USD/VND", "risk", "Áp lực tỷ giá lên VND", "SBV central rate", -1),
     # ── Energy ───────────────────────────
-    "OIL_PRICE": FactorDef("OIL_PRICE", "Giá dầu Brent", "energy",
-                            "Giá dầu thô Brent (USD/thùng)", "Brent crude futures", 1),
-    "COAL_PRICE": FactorDef("COAL_PRICE", "Giá than", "energy",
-                             "Giá than nhiệt/than luyện kim", "Global coal index", 1),
-
+    "OIL_PRICE": FactorDef("OIL_PRICE", "Giá dầu Brent", "energy", "Giá dầu thô Brent (USD/thùng)", "Brent crude futures", 1),
+    "COAL_PRICE": FactorDef("COAL_PRICE", "Giá than", "energy", "Giá than nhiệt/than luyện kim", "Global coal index", 1),
     # ── Growth ───────────────────────────
-    "GDP_GROWTH": FactorDef("GDP_GROWTH", "Tăng trưởng GDP", "growth",
-                             "Tăng trưởng tổng sản phẩm quốc nội (% YoY)", "GSO data", 1),
-    "CONSTRUCTION": FactorDef("CONSTRUCTION", "Đầu tư xây dựng", "growth",
-                               "Hoạt động xây dựng và hạ tầng", "Construction index", 1),
-    "CONSUMER_SPENDING": FactorDef("CONSUMER_SPENDING", "Chi tiêu tiêu dùng", "growth",
-                                    "Sức mua của người tiêu dùng", "Retail sales", 1),
-    "CHINA_DEMAND": FactorDef("CHINA_DEMAND", "Cầu Trung Quốc", "growth",
-                               "Nhu cầu nhập khẩu từ Trung Quốc", "China PMI", 1),
-
+    "GDP_GROWTH": FactorDef(
+        "GDP_GROWTH", "Tăng trưởng GDP", "growth", "Tăng trưởng tổng sản phẩm quốc nội (% YoY)", "GSO data", 1
+    ),
+    "CONSTRUCTION": FactorDef(
+        "CONSTRUCTION", "Đầu tư xây dựng", "growth", "Hoạt động xây dựng và hạ tầng", "Construction index", 1
+    ),
+    "CONSUMER_SPENDING": FactorDef(
+        "CONSUMER_SPENDING", "Chi tiêu tiêu dùng", "growth", "Sức mua của người tiêu dùng", "Retail sales", 1
+    ),
+    "CHINA_DEMAND": FactorDef("CHINA_DEMAND", "Cầu Trung Quốc", "growth", "Nhu cầu nhập khẩu từ Trung Quốc", "China PMI", 1),
     # ── Sector-specific ──────────────────
-    "STEEL_PRICE": FactorDef("STEEL_PRICE", "Giá thép trong nước", "sector",
-                              "Giá thép xây dựng/thép cuộn cán nóng (HRC)", "Steel price index", 1),
-    "AI_CAPEX": FactorDef("AI_CAPEX", "Đầu tư AI toàn cầu", "sector",
-                           "Chi tiêu vốn cho AI và công nghệ", "Big Tech capex", 1),
-    "IT_SPENDING": FactorDef("IT_SPENDING", "Chi tiêu CNTT", "sector",
-                              "Tổng chi tiêu CNTT doanh nghiệp/chính phủ", "Gartner IDC", 1),
-    "HOUSING_POLICY": FactorDef("HOUSING_POLICY", "Chính sách nhà ở", "sector",
-                                 "Chính sách pháp lý BĐS và giải ngân đầu tư công", "Government policy", 1),
-    "GAS_VOLUME": FactorDef("GAS_VOLUME", "Sản lượng khí", "sector",
-                             "Sản lượng khí tiêu thụ nội địa", "Gas consumption", 1),
-    "RETAIL_SALES": FactorDef("RETAIL_SALES", "Doanh thu bán lẻ", "sector",
-                               "Tổng mức bán lẻ hàng hóa", "GSO retail", 1),
-
+    "STEEL_PRICE": FactorDef(
+        "STEEL_PRICE", "Giá thép trong nước", "sector", "Giá thép xây dựng/thép cuộn cán nóng (HRC)", "Steel price index", 1
+    ),
+    "AI_CAPEX": FactorDef("AI_CAPEX", "Đầu tư AI toàn cầu", "sector", "Chi tiêu vốn cho AI và công nghệ", "Big Tech capex", 1),
+    "IT_SPENDING": FactorDef(
+        "IT_SPENDING", "Chi tiêu CNTT", "sector", "Tổng chi tiêu CNTT doanh nghiệp/chính phủ", "Gartner IDC", 1
+    ),
+    "HOUSING_POLICY": FactorDef(
+        "HOUSING_POLICY",
+        "Chính sách nhà ở",
+        "sector",
+        "Chính sách pháp lý BĐS và giải ngân đầu tư công",
+        "Government policy",
+        1,
+    ),
+    "GAS_VOLUME": FactorDef("GAS_VOLUME", "Sản lượng khí", "sector", "Sản lượng khí tiêu thụ nội địa", "Gas consumption", 1),
+    "RETAIL_SALES": FactorDef("RETAIL_SALES", "Doanh thu bán lẻ", "sector", "Tổng mức bán lẻ hàng hóa", "GSO retail", 1),
     # ── Trust / Institutional ────────────
-    "REGULATORY_TARIFF": FactorDef("REGULATORY_TARIFF", "Điều tiết giá", "trust",
-                                    "Khả năng điều chỉnh giá của cơ quan quản lý", "Government decision", 1),
-    "GOV_IT_BUDGET": FactorDef("GOV_IT_BUDGET", "Ngân sách CNTT chính phủ", "trust",
-                                "Chi tiêu chính phủ cho chuyển đổi số", "State budget", 1),
-    "CORP_EARNINGS": FactorDef("CORP_EARNINGS", "Lợi nhuận doanh nghiệp", "trust",
-                                "Tăng trưởng lợi nhuận khối doanh nghiệp niêm yết", "Market earnings", 1),
+    "REGULATORY_TARIFF": FactorDef(
+        "REGULATORY_TARIFF", "Điều tiết giá", "trust", "Khả năng điều chỉnh giá của cơ quan quản lý", "Government decision", 1
+    ),
+    "GOV_IT_BUDGET": FactorDef(
+        "GOV_IT_BUDGET", "Ngân sách CNTT chính phủ", "trust", "Chi tiêu chính phủ cho chuyển đổi số", "State budget", 1
+    ),
+    "CORP_EARNINGS": FactorDef(
+        "CORP_EARNINGS",
+        "Lợi nhuận doanh nghiệp",
+        "trust",
+        "Tăng trưởng lợi nhuận khối doanh nghiệp niêm yết",
+        "Market earnings",
+        1,
+    ),
 }
 
 
@@ -113,37 +135,40 @@ FACTOR_REGISTRY: Dict[str, FactorDef] = {
 # 2. EXPOSURE MATRIX — Per-symbol sensitivity
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class FactorExposure:
     """Mức độ nhạy cảm của một doanh nghiệp với một yếu tố vĩ mô."""
+
     factor_id: str
     factor_label: str
     factor_group: str
 
-    exposure_score: float   # 0.0 (miễn nhiễm) → 1.0 (cực kỳ nhạy)
-    direction: int          # +1 = factor tăng → tốt cho DN, -1 = factor tăng → xấu cho DN, 0 = không rõ
-    confidence: float       # 0.0 → 1.0
-    decay: float            # 0.0 (tác động vĩnh viễn) → 1.0 (tác động biến mất sau 1 kỳ)
+    exposure_score: float  # 0.0 (miễn nhiễm) → 1.0 (cực kỳ nhạy)
+    direction: int  # +1 = factor tăng → tốt cho DN, -1 = factor tăng → xấu cho DN, 0 = không rõ
+    confidence: float  # 0.0 → 1.0
+    decay: float  # 0.0 (tác động vĩnh viễn) → 1.0 (tác động biến mất sau 1 kỳ)
 
-    source: str             # archetype / engine / expert
+    source: str  # archetype / engine / expert
     evidence: str = ""
 
 
 @dataclass
 class ExposureMatrix:
     """Ma trận nhạy cảm đầy đủ cho một doanh nghiệp."""
+
     symbol: str
     archetype: str
     moat_score: float
-    exposures: Dict[str, FactorExposure]  # factor_id → FactorExposure
+    exposures: dict[str, FactorExposure]  # factor_id → FactorExposure
 
-    def get_exposure(self, factor_id: str) -> Optional[FactorExposure]:
+    def get_exposure(self, factor_id: str) -> FactorExposure | None:
         return self.exposures.get(factor_id)
 
-    def get_group_exposure(self, group: str) -> List[FactorExposure]:
+    def get_group_exposure(self, group: str) -> list[FactorExposure]:
         return [e for e in self.exposures.values() if e.factor_group == group]
 
-    def summarized(self) -> Dict[str, float]:
+    def summarized(self) -> dict[str, float]:
         """Return {factor_id: exposure_score} for quick lookup."""
         return {fid: e.exposure_score for fid, e in self.exposures.items()}
 
@@ -154,7 +179,7 @@ class ExposureMatrix:
 
 # Expert-calibrated base exposures per archetype
 # Maps: archetype → {factor_id: (score, direction, confidence, decay)}
-ARCHETYPE_EXPOSURE_BASE: Dict[str, Dict[str, Tuple[float, int, float, float]]] = {
+ARCHETYPE_EXPOSURE_BASE: dict[str, dict[str, tuple[float, int, float, float]]] = {
     "COMPOUNDER": {
         "INTEREST_RATE": (0.10, -1, 0.6, 0.3),
         "LIQUIDITY": (0.15, 1, 0.5, 0.4),
@@ -300,7 +325,7 @@ class FactorExposureEngine:
                 confidence=round(confidence, 2),
                 decay=round(decay, 2),
                 source="engine",
-                evidence=f"Base={base_score}, Moat buffer={(moat_buffering*0.3):.2f} → adjusted={adjusted}",
+                evidence=f"Base={base_score}, Moat buffer={(moat_buffering * 0.3):.2f} → adjusted={adjusted}",
             )
 
         return ExposureMatrix(
@@ -310,15 +335,15 @@ class FactorExposureEngine:
             exposures=exposures,
         )
 
-    def compute_many(self, symbols: List[str]) -> Dict[str, ExposureMatrix]:
+    def compute_many(self, symbols: list[str]) -> dict[str, ExposureMatrix]:
         return {s: self.compute(s) for s in symbols}
 
-    def query(self, symbol: str, factor_id: str) -> Optional[FactorExposure]:
+    def query(self, symbol: str, factor_id: str) -> FactorExposure | None:
         """Query exposure của một symbol với một factor cụ thể."""
         matrix = self.compute(symbol)
         return matrix.get_exposure(factor_id.upper())
 
-    def top_exposures(self, symbol: str, n: int = 5) -> List[FactorExposure]:
+    def top_exposures(self, symbol: str, n: int = 5) -> list[FactorExposure]:
         """Top N exposures mạnh nhất (theo score)."""
         matrix = self.compute(symbol)
         sorted_exp = sorted(
@@ -336,6 +361,7 @@ class FactorExposureEngine:
 # ═══════════════════════════════════════════════════════════════
 # 4. GOVERNOR INTEGRATION — Lấy LR adjustment từ exposure
 # ═══════════════════════════════════════════════════════════════
+
 
 def compute_lr_adjustment(
     matrix: ExposureMatrix,
@@ -408,54 +434,65 @@ def compute_lr_adjustment(
 # 5. REPORTING
 # ═══════════════════════════════════════════════════════════════
 
-def print_exposure_report(results: Dict[str, ExposureMatrix], top_n: int = 5):
-    print(f"\n  {'='*80}")
-    print(f"  FACTOR EXPOSURE MATRIX — Giai đoạn 2")
-    print(f"  {'='*80}")
+
+def print_exposure_report(results: dict[str, ExposureMatrix], top_n: int = 5):
+    print(f"\n  {'=' * 80}")
+    print("  FACTOR EXPOSURE MATRIX — Giai đoạn 2")
+    print(f"  {'=' * 80}")
 
     for sym, matrix in sorted(results.items()):
         print(f"\n  📍 {sym} ({matrix.archetype}) | Moat={matrix.moat_score:.3f}")
-        print(f"  {'─'*60}")
+        print(f"  {'─' * 60}")
         sorted_exp = sorted(
             matrix.exposures.values(),
             key=lambda e: e.exposure_score * e.confidence,
             reverse=True,
         )[:top_n]
         print(f"  {'Factor':<24} {'Nhóm':<12} {'Score':>6} {'Hướng':>5} {'Tin cậy':>7} {'Suy giảm':>7}")
-        print(f"  {'─'*60}")
+        print(f"  {'─' * 60}")
         for e in sorted_exp:
             dir_str = "+" if e.direction > 0 else ("-" if e.direction < 0 else "=")
-            print(f"  {e.factor_label:<24} {e.factor_group:<12} {e.exposure_score:>6.3f} "
-                  f"{dir_str:>5} {e.confidence:>6.2f}  {e.decay:>6.2f}")
+            print(
+                f"  {e.factor_label:<24} {e.factor_group:<12} {e.exposure_score:>6.3f} "
+                f"{dir_str:>5} {e.confidence:>6.2f}  {e.decay:>6.2f}"
+            )
 
     # Group summary
-    print(f"\n  {'='*80}")
-    print(f"  TỔNG HỢP NHÓM YẾU TỐ")
-    print(f"  {'='*80}")
+    print(f"\n  {'=' * 80}")
+    print("  TỔNG HỢP NHÓM YẾU TỐ")
+    print(f"  {'=' * 80}")
     for sym, matrix in sorted(results.items()):
-        groups: Dict[str, List[FactorExposure]] = {}
+        groups: dict[str, list[FactorExposure]] = {}
         for e in matrix.exposures.values():
             groups.setdefault(e.factor_group, []).append(e)
-        avg_by_group = {
-            g: sum(x.exposure_score for x in lst) / len(lst)
-            for g, lst in groups.items()
-        }
-        print(f"  {sym:<6} | "
-              + " | ".join(f"{g}:{avg_by_group[g]:.2f}" for g in sorted(avg_by_group)))
+        avg_by_group = {g: sum(x.exposure_score for x in lst) / len(lst) for g, lst in groups.items()}
+        print(f"  {sym:<6} | " + " | ".join(f"{g}:{avg_by_group[g]:.2f}" for g in sorted(avg_by_group)))
 
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Factor Exposure Matrix — Giai đoạn 2")
-    parser.add_argument("--symbols", nargs="+", default=[
-        "FPT", "ACB", "HDB", "MBB", "VCB",
-        "HPG", "VHM", "DGC", "MWG", "GAS",
-    ], help="Danh sách mã")
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=[
+            "FPT",
+            "ACB",
+            "HDB",
+            "MBB",
+            "VCB",
+            "HPG",
+            "VHM",
+            "DGC",
+            "MWG",
+            "GAS",
+        ],
+        help="Danh sách mã",
+    )
     parser.add_argument("--top", type=int, default=5, help="Số factor hiển thị")
-    parser.add_argument("--query", type=str, default=None,
-                        help="Factor ID để query (VD: INTEREST_RATE)")
-    parser.add_argument("--lr-adjust", action="store_true",
-                        help="Tính LR adjustment cho macro state hiện tại")
+    parser.add_argument("--query", type=str, default=None, help="Factor ID để query (VD: INTEREST_RATE)")
+    parser.add_argument("--lr-adjust", action="store_true", help="Tính LR adjustment cho macro state hiện tại")
     args = parser.parse_args()
 
     engine = FactorExposureEngine()
@@ -474,6 +511,7 @@ def main():
         # Simulate current macro context
         try:
             from src.core.macro.macro_state_classifier import MacroStateClassifier
+
             ms = MacroStateClassifier()
             state = ms.classify()
             macro = state.macro_state
@@ -481,20 +519,21 @@ def main():
             macro = "CREDIT_STRESS"
         try:
             from src.core.macro.economic_transmission_engine import EconomicTransmissionEngine
+
             te = EconomicTransmissionEngine()
             ts = te.compute()
             trans = ts.transmission_phase
         except Exception:
             trans = "LIQUIDITY_TRAP"
-        print(f"\n  {'='*80}")
+        print(f"\n  {'=' * 80}")
         print(f"  LR ADJUSTMENT — Macro={macro} | Transmission={trans}")
-        print(f"  {'='*80}")
+        print(f"  {'=' * 80}")
         print(f"  {'Symbol':<6} {'Archetype':<20} {'Base LR':>8} {'Multiplier':>10} {'Adjusted LR':>12}")
-        print(f"  {'─'*60}")
+        print(f"  {'─' * 60}")
         for sym in args.symbols:
             matrix = engine.compute(sym)
             mult = compute_lr_adjustment(matrix, macro, trans)
-            print(f"  {sym:<6} {matrix.archetype:<20} {1.0:>8.2f} {mult:>10.3f} {1.0*mult:>11.3f}")
+            print(f"  {sym:<6} {matrix.archetype:<20} {1.0:>8.2f} {mult:>10.3f} {1.0 * mult:>11.3f}")
         engine.close()
         return
 

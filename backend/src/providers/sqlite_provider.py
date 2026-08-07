@@ -14,14 +14,14 @@ existing fetch pipeline does).
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
 from src.providers.base import FinancialProvider
 
 
-def _resolve_db_path() -> Optional[Path]:
+def _resolve_db_path() -> Path | None:
     root = Path(__file__).resolve().parents[3]  # PTCK_VNSTOCK/
     db = root / "backend" / "data" / "financial_facts.db"
     return db if db.exists() else None
@@ -35,22 +35,20 @@ class SqliteCacheProvider(FinancialProvider):
     # Offline tier: never circuit-broken (it is the guaranteed fallback).
     circuit_breakable: bool = False
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = Path(db_path) if db_path else _resolve_db_path()
 
     def is_available(self) -> bool:
         return self._db_path is not None and self._db_path.exists()
 
-    def _connect(self) -> Optional[sqlite3.Connection]:
+    def _connect(self) -> sqlite3.Connection | None:
         if not self.is_available():
             return None
         conn = sqlite3.connect(str(self._db_path))
         conn.row_factory = sqlite3.Row
         return conn
 
-    def _facts_df(
-        self, symbol: str, statement_type: Optional[str] = None
-    ) -> Optional[pd.DataFrame]:
+    def _facts_df(self, symbol: str, statement_type: str | None = None) -> pd.DataFrame | None:
         conn = self._connect()
         if conn is None:
             return None
@@ -61,7 +59,7 @@ class SqliteCacheProvider(FinancialProvider):
                 FROM financial_facts
                 WHERE symbol = ?
             """
-            params: List[Any] = [symbol.upper()]
+            params: list[Any] = [symbol.upper()]
             if statement_type:
                 query += " AND statement_type = ?"
                 params.append(statement_type.upper())
@@ -74,33 +72,34 @@ class SqliteCacheProvider(FinancialProvider):
             conn.close()
 
     # ── Financial statements (raw long-format facts) ───────────────────
-    def income_statement(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def income_statement(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         return self._facts_df(symbol, statement_type="IS")
 
-    def balance_sheet(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def balance_sheet(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         return self._facts_df(symbol, statement_type="BS")
 
-    def cashflow(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def cashflow(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         return self._facts_df(symbol, statement_type="CF")
 
     # ── Market data (not stored normalized here) ───────────────────────
     def history(
         self,
         symbol: str,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
         **kwargs: Any,
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         # daily_ohlcv lives in screener_cache.db; delegate via db_core
         try:
             from src.database.db_core import get_connection
+
             with get_connection() as conn:
                 query = """
                     SELECT date, open, high, low, close, adj_close, volume
                     FROM daily_ohlcv
                     WHERE symbol = ?
                 """
-                params: List[Any] = [symbol.upper()]
+                params: list[Any] = [symbol.upper()]
                 if start:
                     query += " AND date >= ?"
                     params.append(start)
@@ -114,7 +113,7 @@ class SqliteCacheProvider(FinancialProvider):
             return None
 
     # ── Audit ──────────────────────────────────────────────────────────
-    def describe(self) -> Dict[str, Any]:
+    def describe(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "db_path": str(self._db_path) if self._db_path else None,

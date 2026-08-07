@@ -102,7 +102,7 @@ def compute_policy_cap_boost(target_date: str | None = None) -> dict:
                     "cap_boost": round(boost, 4),
                 }
             )
-    except Exception as exc:  # noqa: BLE001 — policy boost is non-blocking
+    except Exception as exc:
         logger.warning("[GUARD] Policy cap boost error (non-blocking): %s", exc)
     return {"cap_boost": best_boost, "active_events": events, "beneficiary_cluster": best_cluster}
 
@@ -263,7 +263,7 @@ def kiem_tra_an_toan(
                 f"terminal={stale_state['terminal_ratio']:.0%}"
             )
             logger.warning("[GUARD] Macro stale veto: %s", macro_veto_ly_do)
-    except Exception as exc:  # noqa: BLE001 — StaleTracker is non-blocking
+    except Exception as exc:
         logger.warning("[GUARD] StaleTracker error (non-blocking): %s", exc)
 
     # ── Recovery Governor (Dual CUSUM) ──
@@ -285,7 +285,7 @@ def kiem_tra_an_toan(
                 so_tru=so_tru,
                 breadth_momentum=float(breadth_momentum or 0),
             )
-    except Exception as exc:  # noqa: BLE001 — RecoveryGovernor is non-blocking
+    except Exception as exc:
         logger.warning("[GUARD] RecoveryGovernor error (non-blocking): %s", exc)
 
     # ── Bước 1: Kiểm tra Cấu trúc & Index Reality (hard override — veto bất chấp confidence) ──
@@ -385,7 +385,7 @@ def kiem_tra_an_toan(
                         emergency_exit_result.critical_count,
                         emergency_exit_result.high_count,
                     )
-            except Exception as exc:  # noqa: BLE001 — EmergencyExitEngine is non-blocking
+            except Exception as exc:
                 logger.warning("[GUARD] EmergencyExitEngine error (non-blocking): %s", exc)
         elif lri_score < 0.8:
             he_so_giam_ty_trong *= lri_score
@@ -400,7 +400,7 @@ def kiem_tra_an_toan(
                 lri_score,
                 he_so_giam_ty_trong,
             )
-    except Exception as exc:  # noqa: BLE001 — LRI computation is non-blocking
+    except Exception as exc:
         logger.warning("[GUARD] LRI computation error (non-blocking): %s", exc)
 
     # ── Policy Impact Integration: nâng trần tỷ trọng cho cụm hưởng lợi ──

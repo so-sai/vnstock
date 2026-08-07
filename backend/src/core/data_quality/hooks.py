@@ -1,4 +1,4 @@
-﻿"""Boundary hooks — wrap external library calls with DQ signal capture.
+"""Boundary hooks — wrap external library calls with DQ signal capture.
 
 Each hook is a context manager or decorator that:
   - Calls the original function
@@ -10,13 +10,15 @@ Available hooks:
   - ``data_quality_boundary(source)`` — context manager that wraps a block
   - ``capture_upstream(source)`` — decorator for external fetch functions
 """
+
 from __future__ import annotations
 
 import contextlib
 import functools
 import logging
 import traceback
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
 
@@ -86,16 +88,17 @@ def capture_upstream(source: str):
         def sjc_gold_price(date=None):
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            with data_quality_boundary(
-                source=source, module=func.__name__, quiet=True
-            ):
+            with data_quality_boundary(source=source, module=func.__name__, quiet=True):
                 result = func(*args, **kwargs)
             _check_result(source, func.__name__, result)
             return result
+
         return wrapper
+
     return decorator
 
 
@@ -134,9 +137,7 @@ def _check_result(source: str, module: str, result: Any) -> None:
                         event_type=EventType.MISSING_DATA,
                         severity=EventSeverity.MODERATE,
                         message=f"null fraction {null_frac:.0%} > 50%",
-                        affected_fields=(
-                            result.columns[result.isnull().mean() > 0.5].tolist()
-                        ),
+                        affected_fields=(result.columns[result.isnull().mean() > 0.5].tolist()),
                     )
                 )
     except Exception:

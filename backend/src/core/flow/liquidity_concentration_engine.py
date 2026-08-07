@@ -2,13 +2,14 @@
 Liquidity Concentration Index (LCI) Engine v1.0
 Phát hiện "breadth illusion" — thanh khoản bị co cụm vào vài mã đầu.
 """
-import sys
+
 import logging
+import sys
 from pathlib import Path
-from typing import Optional
+
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent
@@ -25,10 +26,12 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 from src.database.db_core import get_connection
 
 logger = logging.getLogger(__name__)
@@ -70,6 +73,7 @@ BREADTH_QUALITY_LABELS = {
 #  Metric 1: Top-N Volume Ratio
 # ───────────────────────────────
 
+
 def compute_top_n_volume_ratio(df: pd.DataFrame, n: int = 10) -> float:
     total_vol = df["volume"].sum()
     if total_vol == 0:
@@ -81,6 +85,7 @@ def compute_top_n_volume_ratio(df: pd.DataFrame, n: int = 10) -> float:
 # ───────────────────────────────
 #  Metric 2: Weighted vs Median Return
 # ───────────────────────────────
+
 
 def compute_weighted_vs_median_return(df: pd.DataFrame) -> dict:
     if df.empty or "change_pct" not in df.columns:
@@ -102,6 +107,7 @@ def compute_weighted_vs_median_return(df: pd.DataFrame) -> dict:
 # ───────────────────────────────
 #  Metric 3: Sector Concentration Entropy
 # ───────────────────────────────
+
 
 def compute_sector_entropy(df: pd.DataFrame) -> dict:
     df_dedup = df.drop_duplicates(subset="symbol", keep="first")
@@ -149,7 +155,8 @@ def _load_sector_map() -> dict:
 #  Synthesis: LCI Score
 # ───────────────────────────────
 
-def compute_lci(target_date: Optional[str] = None) -> dict:
+
+def compute_lci(target_date: str | None = None) -> dict:
     latest_date, df, prev_df = _load_daily_data(target_date)
     if df.empty:
         return _default_lci()
@@ -195,9 +202,9 @@ def compute_lci(target_date: Optional[str] = None) -> dict:
     }
 
 
-def get_lci_dashboard(target_date: Optional[str] = None) -> dict:
+def get_lci_dashboard(target_date: str | None = None) -> dict:
     lci = compute_lci(target_date)
-    score = lci.get("lci_score", 0)
+    lci.get("lci_score", 0)
     quality = lci.get("market_breadth_quality", "LAN_TOA_THAT")
     label = LIQUIDITY_CONCENTRATION_LABELS.get(quality, {})
     return {
@@ -212,17 +219,20 @@ def get_lci_dashboard(target_date: Optional[str] = None) -> dict:
 #  Internal helpers
 # ───────────────────────────────
 
-def _load_daily_data(target_date: Optional[str] = None) -> tuple:
+
+def _load_daily_data(target_date: str | None = None) -> tuple:
     try:
         with get_connection() as conn:
             if target_date:
                 df = pd.read_sql(
                     "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date = ? AND symbol NOT LIKE '%INDEX%'",
-                    conn, params=(target_date,)
+                    conn,
+                    params=(target_date,),
                 )
                 prev = pd.read_sql(
                     "SELECT symbol, date, close FROM daily_ohlcv WHERE date < ? AND symbol NOT LIKE '%INDEX%' ORDER BY date DESC LIMIT 1",
-                    conn, params=(target_date,)
+                    conn,
+                    params=(target_date,),
                 )
                 return target_date, df, prev
             latest = pd.read_sql("SELECT MAX(date) as md FROM daily_ohlcv", conn)
@@ -231,11 +241,13 @@ def _load_daily_data(target_date: Optional[str] = None) -> tuple:
                 return "", pd.DataFrame(), pd.DataFrame()
             df = pd.read_sql(
                 "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date = ? AND symbol NOT LIKE '%INDEX%'",
-                conn, params=(latest_date,)
+                conn,
+                params=(latest_date,),
             )
             prev = pd.read_sql(
                 "SELECT symbol, date, close FROM daily_ohlcv WHERE date < ? AND symbol NOT LIKE '%INDEX%' ORDER BY date DESC LIMIT 1000",
-                conn, params=(latest_date,)
+                conn,
+                params=(latest_date,),
             )
             return latest_date, df, prev
     except Exception as e:
@@ -311,5 +323,6 @@ def _default_lci() -> dict:
 
 if __name__ == "__main__":
     import json
+
     lci = compute_lci()
     print(json.dumps(lci, ensure_ascii=False, indent=2, default=str))

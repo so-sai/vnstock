@@ -1,5 +1,7 @@
-from PIL import Image, ImageDraw
 import os
+
+from PIL import Image, ImageDraw
+
 
 def build_governor_icon(output_path: str = None):
     if output_path is None:
@@ -9,7 +11,7 @@ def build_governor_icon(output_path: str = None):
         output_path = os.path.join(project_root, "frontend", "src-tauri", "icons", "app-icon.png")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
+
     size = (1024, 1024)
     # Nền tối Dark Slate (#0F172A)
     img = Image.new("RGBA", size, (15, 23, 42, 255))
@@ -26,7 +28,7 @@ def build_governor_icon(output_path: str = None):
     ]
     # Viền khiên xanh Cyan (#0EA5E9) & Lõi Xanh Đậm
     draw.polygon(shield_points, fill=(30, 41, 59, 255), outline=(14, 165, 233, 255))
-    
+
     # 2. Vẽ Nến Nhật Định Lượng bên trong Khiên
     # Nến Xanh (Up Candle - Tăng trưởng)
     draw.line([(400, 320), (400, 700)], fill=(34, 197, 94, 255), width=12) # Bấc nến

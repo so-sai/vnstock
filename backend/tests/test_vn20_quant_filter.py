@@ -108,6 +108,145 @@ class TestTier1RoeAnnualization:
         assert r["pass"] is True, f"Bank should pass without D/E/GM, got {r['reasons']}"
 
 
+# ── T1 Dual-Branch: BANK (SBV metrics) vs STANDARD ──────────────────
+
+
+class TestTier1DualBranch:
+    """T1 Bank refactor 2026-08-06: bank quality dùng NPL/NIM/CAR thay CFO/GM.
+    Fix Type II Error — ngân hàng tốt bị loại vì CFO dao động/GM không tồn tại."""
+
+    def test_t1_bank_pass_with_low_cfo_if_npl_nim_ok(self):
+        """Bank CFO âm (mở rộng tín dụng) nhưng ROE > 15%, NPL < 2.5%,
+        NIM > 1.8%, CAR > 5% → PASS T1 (CFO không được dùng cho bank)."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "BANK1", "ROE", qs)
+        seed_health(conn, "BANK1", "NPL_RATIO", [("2026Q2", 0.015)])
+        seed_health(conn, "BANK1", "NIM", [("2026Q2", 0.035)])
+        seed_health(conn, "BANK1", "CAPITAL_RATIO", [("2026Q2", 0.12)])
+        # CFO âm liên tục — đáng lẽ rớt ở nhánh STANDARD nhưng bank được miễn
+        seed_fact(conn, "BANK1", "CFO", [(f"{y}Q{q}", -1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        r = vf.tier1_buffett_quality(conn, "BANK1", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is True, f"Bank should pass despite negative CFO, got {r['reasons']}"
+        assert r["is_bank"] is True
+
+    def test_t1_bank_fail_high_npl(self):
+        """Bank NPL 5% > 2.5% → FAIL T1."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "BADBK", "ROE", qs)
+        seed_health(conn, "BADBK", "NPL_RATIO", [("2026Q2", 0.05)])
+        seed_health(conn, "BADBK", "NIM", [("2026Q2", 0.035)])
+        seed_health(conn, "BADBK", "CAPITAL_RATIO", [("2026Q2", 0.12)])
+
+        r = vf.tier1_buffett_quality(conn, "BADBK", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False, "Bank with NPL 5% must fail Tier 1"
+        assert any("NPL" in x for x in r["reasons"])
+
+    def test_t1_bank_fail_low_nim(self):
+        """Bank NIM quarterly 0.004 (annual 1.6% < 1.8%) → FAIL T1.
+
+        Convention: health_ratios.NIM là quarterly (NII quarterly / loans),
+        annualize x4 trước khi so ngưỡng 1.8%/năm — như ROE."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "WEAK", "ROE", qs)
+        seed_health(conn, "WEAK", "NPL_RATIO", [("2026Q2", 0.015)])
+        seed_health(conn, "WEAK", "NIM", [("2026Q2", 0.004)])
+        seed_health(conn, "WEAK", "CAPITAL_RATIO", [("2026Q2", 0.12)])
+
+        r = vf.tier1_buffett_quality(conn, "WEAK", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False, "Bank with NIM annual 1.6% must fail Tier 1"
+        assert any("NIM" in x for x in r["reasons"])
+
+    def test_t1_bank_quarterly_nim_annualized_passes(self):
+        """Bank NIM quarterly 0.0097 (VCB thực) → annual 3.88% > 1.8% → PASS T1.
+
+        Regression cho bug 2026-08-06: VCB bị fail oan vì so NIM quarterly trực
+        tiếp với ngưỡng annual (0.97% < 1.8%), trong khi annualized là 3.88%."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "VCB", "ROE", qs)
+        seed_health(conn, "VCB", "NPL_RATIO", [("2026Q2", 0.015)])
+        seed_health(conn, "VCB", "NIM", [("2026Q2", 0.0097)])
+        seed_health(conn, "VCB", "CAPITAL_RATIO", [("2026Q2", 0.12)])
+
+        r = vf.tier1_buffett_quality(conn, "VCB", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is True, f"VCB NIM annualized 3.88% should pass T1, got {r['reasons']}"
+        assert r["nim"] == round(0.0097 * 4.0, 4)
+
+    def test_t1_bank_missing_metrics_pass_with_roe(self):
+        """Bank thiếu NPL/NIM/CAR (VCI không phát hành cho mọi mã) → KHÔNG fail;
+        chỉ ROE bắt buộc. (No Provenance → không chặn khi chỉ số SBV không tồn tại.)"""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "NOBANKMETRIC", "ROE", qs)
+
+        r = vf.tier1_buffett_quality(conn, "NOBANKMETRIC", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is True, f"Bank without NPL/NIM/CAR should pass on ROE alone, got {r['reasons']}"
+
+    def test_t1_standard_fails_low_gross_margin(self):
+        """Mã sản xuất (STANDARD) GM 19% < 25% → FAIL T1 dù ROE tốt."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "STEEL", "ROE", qs)
+        seed_health(conn, "STEEL", "GROSS_MARGIN", [("2026Q2", 0.19)])
+        seed_health(conn, "STEEL", "DEBT_TO_EQUITY", [("2026Q2", 0.5)])
+        seed_fact(conn, "STEEL", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        r = vf.tier1_buffett_quality(conn, "STEEL", "STANDARD", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False, "Standard GM 19% must fail Tier 1"
+        assert any("Gross margin" in x for x in r["reasons"])
+
+
+# ── T1 Steel Exception: GM >= 15% (thép là commodity, biên gộp thấp bẩm sinh) ─
+class TestTier1SteelException:
+    """Ngoại lệ ngành Thép: GROSS_MARGIN >= 15% thay vì 25% chung.
+
+    WHY: Thép (HPG/HSG/NKG) là ngành hàng hóa (commodity) — biên gộp thường
+    15-22%, dưới ngưỡng Buffett 25% nhưng vẫn là doanh nghiệp chất lượng.
+    Ngưỡng chung 25% gây Type II Error loại sạch toàn bộ ngành thép VN khỏi T1."""
+
+    def test_t1_steel_passes_with_gm_19pct(self):
+        """Thép GM 19% (dưới 25% chung nhưng trên 15% thép) → PASS T1."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "HPG", "ROE", qs)
+        seed_health(conn, "HPG", "GROSS_MARGIN", [("2026Q2", 0.19)])
+        seed_health(conn, "HPG", "DEBT_TO_EQUITY", [("2026Q2", 0.9)])
+        seed_fact(conn, "HPG", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        r = vf.tier1_buffett_quality(conn, "HPG", "STANDARD", vf._periods_n_years("2026Q2", 3), is_steel=True)
+        assert r["pass"] is True, f"Steel GM 19% must pass T1 with steel exception, got {r['reasons']}"
+
+    def test_t1_steel_fails_below_15pct(self):
+        """Thép GM 13% < 15% → vẫn FAIL (ngưỡng thép là sàn tuyệt đối)."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]
+        seed_health(conn, "NKG", "ROE", qs)
+        seed_health(conn, "NKG", "GROSS_MARGIN", [("2026Q2", 0.13)])
+        seed_health(conn, "NKG", "DEBT_TO_EQUITY", [("2026Q2", 0.8)])
+        seed_fact(conn, "NKG", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        r = vf.tier1_buffett_quality(conn, "NKG", "STANDARD", vf._periods_n_years("2026Q2", 3), is_steel=True)
+        assert r["pass"] is False, "Steel GM 13% must still fail T1"
+        assert any("Gross margin" in x for x in r["reasons"])
+
+    def test_t1_non_steel_uses_25pct_threshold(self):
+        """Symbol không phải thép (is_steel=False) vẫn dùng ngưỡng 25%."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]
+        seed_health(conn, "NONSTL", "ROE", qs)
+        seed_health(conn, "NONSTL", "GROSS_MARGIN", [("2026Q2", 0.19)])
+        seed_health(conn, "NONSTL", "DEBT_TO_EQUITY", [("2026Q2", 0.5)])
+        seed_fact(conn, "NONSTL", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        r = vf.tier1_buffett_quality(conn, "NONSTL", "STANDARD", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False, "Non-steel GM 19% must fail T1 at 25% threshold"
+        assert any("Gross margin" in x for x in r["reasons"])
+
+
 # ── Bug 2: Receivables derived from facts, not hardcoded 1.5 ─────────
 
 
@@ -358,3 +497,126 @@ class TestSectorConcentrationGate:
         assert alloc["sector_capped"] is False
         for sec, sw in alloc["sector_weights"].items():
             assert sw <= vf.T4_MAX_SECTOR_WEIGHT + 0.001
+
+
+# ── Dynamic MoS (Biên An Toàn Động) 2026-08-07 ──────────────────────
+
+
+class TestDynamicMosThreshold:
+    def test_crisis_regular_company_25pct(self):
+        """Regime CRISIS + ROE 15% (thường) → MoS min = 25%."""
+        assert vf.get_dynamic_mos_threshold("CRISIS", 0.15) == 0.25
+
+    def test_bearish_regular_company_25pct(self):
+        assert vf.get_dynamic_mos_threshold("BEARISH", 0.10) == 0.25
+
+    def test_ranging_regular_company_20pct(self):
+        """Regime RANGING + ROE 15% → MoS min = 20% (thay vì 25% tĩnh)."""
+        assert vf.get_dynamic_mos_threshold("RANGING", 0.15) == 0.20
+
+    def test_ranging_elite_company_15pct(self):
+        """Regime RANGING + ROE 22% (Siêu cổ phiếu) → MoS min = 15% (giải phóng VCB/FPT)."""
+        assert vf.get_dynamic_mos_threshold("RANGING", 0.22) == 0.15
+
+    def test_recovery_elite_company_15pct(self):
+        assert vf.get_dynamic_mos_threshold("RECOVERY", 0.20) == 0.15
+
+    def test_expansion_regular_company_15pct(self):
+        """Regime EXPANSION + ROE 15% → MoS min = 15%."""
+        assert vf.get_dynamic_mos_threshold("EXPANSION", 0.15) == 0.15
+
+    def test_expansion_elite_company_10pct(self):
+        """Regime EXPANSION + ROE 25% → MoS min = 10% (sàn tuyệt đối)."""
+        assert vf.get_dynamic_mos_threshold("EXPANSION", 0.25) == 0.10
+
+    def test_bull_elite_company_10pct(self):
+        assert vf.get_dynamic_mos_threshold("BULL", 0.30) == 0.10
+
+    def test_crisis_elite_company_20pct(self):
+        """CRISIS + Siêu cổ phiếu → 25% - 5% = 20% (vẫn giữ chiết khấu sâu)."""
+        assert vf.get_dynamic_mos_threshold("CRISIS", 0.30) == 0.20
+
+    def test_default_regime_ranging(self):
+        """Regime None/UNKNOWN → fallback RANGING = 20%."""
+        assert vf.get_dynamic_mos_threshold(None, 0.10) == 0.20
+        assert vf.get_dynamic_mos_threshold("", 0.10) == 0.20
+
+    def test_floor_never_below_10pct(self):
+        """Sàn tuyệt đối 10% — không bao giờ thấp hơn."""
+        assert vf.get_dynamic_mos_threshold("EXPANSION", 0.99) == 0.10
+        assert vf.get_dynamic_mos_threshold("CRISIS", 0.99) >= 0.10
+
+    def test_roe_boundary_20pct(self):
+        """ROE đúng 20% → đủ điều kiện ưu đãi; dưới 20% thì không."""
+        assert vf.get_dynamic_mos_threshold("RANGING", 0.20) == 0.15
+        assert vf.get_dynamic_mos_threshold("RANGING", 0.1999) == 0.20
+
+    def test_roe_none_no_discount(self):
+        """Thiếu ROE → không ưu đãi, giữ ngưỡng base."""
+        assert vf.get_dynamic_mos_threshold("RANGING", None) == 0.20
+        assert vf.get_dynamic_mos_threshold("CRISIS", None) == 0.25
+
+
+class TestLatestMarketRegime:
+    def test_reads_latest_regime_history(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE regime_history (date TEXT, status TEXT)")
+        conn.execute("INSERT INTO regime_history VALUES ('2026-08-06','RANGING')")
+        conn.execute("INSERT INTO regime_history VALUES ('2026-08-05','TRENDING')")
+        assert vf._latest_market_regime(conn) == "RANGING"
+
+    def test_trending_maps_to_expansion(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE regime_history (date TEXT, status TEXT)")
+        conn.execute("INSERT INTO regime_history VALUES ('2026-08-06','TRENDING')")
+        assert vf._latest_market_regime(conn) == "EXPANSION"
+
+    def test_crisis_passthrough(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE regime_history (date TEXT, status TEXT)")
+        conn.execute("INSERT INTO regime_history VALUES ('2026-08-06','CRISIS')")
+        assert vf._latest_market_regime(conn) == "CRISIS"
+
+    def test_empty_db_falls_back_ranging(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        assert vf._latest_market_regime(conn) == "RANGING"
+
+    def test_missing_table_falls_back_ranging(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        assert vf._latest_market_regime(conn) == "RANGING"
+
+
+class TestTier4DynamicMosIntegration:
+    def test_ranging_elite_low_mos_passes(self):
+        """RANGING + ROE 22% → ngưỡng 15%. MoS 18% (<25% tĩnh nhưng >=15% động) → PASS."""
+        conn = make_conn()
+        conn.execute("CREATE TABLE valuation_scores (symbol TEXT, period TEXT, ratio_name TEXT, z_score REAL)")
+        conn.execute("INSERT INTO valuation_scores VALUES ('ELITE','2026Q2','PE',0.9)")
+        conn.execute("INSERT INTO valuation_scores VALUES ('ELITE','2026Q2','PB',0.96)")
+        r = vf.tier4_valuation_mos(conn, "ELITE", regime="RANGING", roe_annual=0.22)
+        assert r["mos_threshold"] == 0.15
+        assert r["mos"] >= 0.15, f"mos={r['mos']}"
+        assert r["pass"] is True
+
+    def test_crisis_same_mos_fails(self):
+        """Cùng mã, cùng MoS nhưng CRISIS → ngưỡng 25% → FAIL (bảo vệ chiết khấu sâu)."""
+        conn = make_conn()
+        conn.execute("CREATE TABLE valuation_scores (symbol TEXT, period TEXT, ratio_name TEXT, z_score REAL)")
+        conn.execute("INSERT INTO valuation_scores VALUES ('ELITE','2026Q2','PE',0.9)")
+        conn.execute("INSERT INTO valuation_scores VALUES ('ELITE','2026Q2','PB',0.96)")
+        r = vf.tier4_valuation_mos(conn, "ELITE", regime="CRISIS", roe_annual=0.22)
+        assert r["mos_threshold"] == 0.20
+        assert r["mos"] < 0.20, f"mos={r['mos']}"
+        assert r["pass"] is False
+
+    def test_default_regime_ranging_threshold_in_result(self):
+        conn = make_conn()
+        conn.execute("CREATE TABLE valuation_scores (symbol TEXT, period TEXT, ratio_name TEXT, z_score REAL)")
+        conn.execute("INSERT INTO valuation_scores VALUES ('DGC','2026Q2','PE',-1.5)")
+        r = vf.tier4_valuation_mos(conn, "DGC")
+        assert r["mos_threshold"] == vf.get_dynamic_mos_threshold("RANGING", None)

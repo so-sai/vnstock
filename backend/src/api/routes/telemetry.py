@@ -1,7 +1,8 @@
-﻿"""
+"""
 /api/v1/telemetry — Decision Telemetry endpoints (Sprint 1 + 2).
 Provides snapshots, outcomes, attribution, and engine performance.
 """
+
 import logging
 import sys
 from pathlib import Path
@@ -14,7 +15,7 @@ router = APIRouter()
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -187,9 +188,12 @@ async def driver_reputation(
 ):
     """Per-driver reputation: accuracy, alpha, stability across regimes."""
     try:
-        return localize_output(_get_driver_reputation(
-            window_days=window_days, regime_tag=regime_tag,
-        ))
+        return localize_output(
+            _get_driver_reputation(
+                window_days=window_days,
+                regime_tag=regime_tag,
+            )
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

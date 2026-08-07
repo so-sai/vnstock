@@ -1,4 +1,4 @@
-from .models import DirectionalBiasReport, DirectionalBiasCode, BiasDriver
+from .models import BiasDriver, DirectionalBiasCode, DirectionalBiasReport
 
 FLOW_SCORE_MIN = 0.0
 FLOW_SCORE_MAX = 1.0

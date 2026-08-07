@@ -2,13 +2,15 @@
 Gold Provenance Registration — Đăng ký tín hiệu vàng vào Provenance Graph
 Cho phép Sentinel tracing root cause: SJC price → GOLD_XAU → gold_regime → decision
 """
-import sys
+
 import logging
+import sys
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, timezone
+
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent
@@ -22,11 +24,10 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
-from core.signal_provenance.models import (
-    SignalProvenanceNode, SignalValue, SignalQuality, SignalContext, EpistemicState
-)
+from core.signal_provenance.models import EpistemicState, SignalContext, SignalProvenanceNode, SignalQuality, SignalValue
 from core.signal_provenance.registry import ProvenanceRegistry
 
 logger = logging.getLogger(__name__)
@@ -232,7 +233,9 @@ def register_gold_nodes(registry: ProvenanceRegistry, xau_price: float = 0.0, ti
             edge_type="DERIVATION",
             attenuation={"noise_gain": 0.10, "information_loss": 0.08},
         )
-        logger.info("Gold provenance nodes registered: macro.gold.xau→regime | macro.gold.xau+macro.fx.usdvnd+macro.gold.sjc→premium")
+        logger.info(
+            "Gold provenance nodes registered: macro.gold.xau→regime | macro.gold.xau+macro.fx.usdvnd+macro.gold.sjc→premium"
+        )
         return True
     except ValueError as e:
         if "already registered" in str(e):

@@ -14,8 +14,7 @@ thanh khoản phải thuộc về hiện tại". Kiểm chứng:
 Run: python -m pytest backend/tests/test_catchup_execution.py -v
 """
 import pytest
-
-from conftest import TEST_PORTFOLIO, TEST_SYMBOL, TEST_DATES
+from conftest import TEST_DATES, TEST_PORTFOLIO, TEST_SYMBOL
 
 
 def _insert_ohlcv(symbol, date, open_, close):
@@ -34,8 +33,8 @@ def _insert_ohlcv(symbol, date, open_, close):
 @pytest.fixture
 def engine(seed_test_ohlcv):
     """PaperTradingEngine cách ly + queue sạch."""
-    from src.engine.paper_trading_engine import PaperTradingEngine
     from src.database.db_core import get_connection
+    from src.engine.paper_trading_engine import PaperTradingEngine
     eng = PaperTradingEngine(portfolio_id=TEST_PORTFOLIO,
                              initial_capital=1_000_000_000.0)
     with get_connection() as conn:
@@ -194,7 +193,6 @@ class TestSizingReconciliation:
     def test_qty_capped_by_buying_power_at_higher_price(self, engine):
         """Giá tăng tại T+k → qty khớp bị giảm để không vượt sức mua."""
         # Vốn nhỏ để ép ràng buộc sức mua rõ ràng
-        from src.engine.paper_trading_engine import PaperTradingEngine
         from src.database.db_core import get_connection
         small_pf = TEST_PORTFOLIO
         with get_connection() as conn:

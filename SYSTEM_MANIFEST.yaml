@@ -1,16 +1,9 @@
-# SYSTEM MANIFEST v1
-# ==================
-# Đây là nguồn chân lý duy nhất cho mọi entrypoint.
-# Mọi automation / Agent / Operator PHẢI đọc file này trước
-# và chỉ gọi CLI — không viết script tạm.
-#
-# Quy tắc:
-#   1. Tra manifest → tìm cli tương ứng
-#   2. Gọi CLI với đúng arguments
-#   3. Nếu CLI không tồn tại → mới fallback import trực tiếp
-#      và báo cáo vào .kit/friction để bổ sung manifest
+# SYSTEM MANIFEST v0.1.1 (UPDATED 2026-08-07)
+# ===========================================
+# Nguồn chân lý duy nhất cho mọi CLI Entrypoints.
+# Mọi automation / Agent / Operator PHẢI đọc file này trước.
 
-version: 1.0
+version: "0.1.1"
 project: PTCK_VNSTOCK
 
 entrypoints:
@@ -80,6 +73,11 @@ entrypoints:
     cli: "python ptck.py serve"
     category: server
 
+  mcp_server:
+    description: "FastMCP Server — Cung cấp Native MCP Tools & Resources (ptck://reports) cho IDE AI Assistants qua stdio"
+    cli: "python backend/src/mcp_server.py"
+    category: server
+
   # ── Database ─────────────────────────────────────────
   db_vacuum:
     description: "Bảo trì database (VACUUM, compact)"
@@ -112,8 +110,13 @@ entrypoints:
     category: decision
 
   final_decision:
-    description: "Bộ não quyết định cuối cùng (hợp nhất regime + cấu trúc + cảnh báo)"
-    cli: "python ptck.py final-decision [--date YYYY-MM-DD]"
+    description: "Bộ não quyết định cuối cùng — Báo cáo Phán quyết Tổng hợp 5 Mô hình (M1 Macro, M2 Fund, M3 Behav, M4 Alpha, M5 Governor/Guard) + XAI Trace"
+    cli: "python ptck.py final-decision [--date YYYY-MM-DD] [--verbose-lang full]"
+    category: decision
+
+  policy_impact:
+    description: "PolicyImpactEngine — Đánh giá tác động văn bản chính sách (QĐ 1743 LDR relief, SOCB_BIG4 boost, Lifecycle decay)"
+    cli: "python -m backend.src.governor.policy_impact_engine"
     category: decision
 
   # ── Hệ thống ─────────────────────────────────────────
@@ -633,6 +636,11 @@ entrypoints:
     cli: "python ptck.py erl-scan [--top N] [--vn30] [--date YYYY-MM-DD]"
     category: risk
 
+  emergency_exit:
+    description: "EmergencyExitEngine v2 — Quy trình thanh lý khẩn cấp (LRI < 0.30 -> BUY LOCK + TWAP Slicing theo ADV_20D)"
+    cli: "python -m backend.src.governor.emergency_exit_engine"
+    category: risk
+
   # ── Sprint 4: ModelRegistry ─────────────────────────────
   model_registry_status:
     description: "Sprint 4 ModelRegistry — xem trạng thái 3 mô hình cạnh tranh + BMA weights"
@@ -708,6 +716,17 @@ entrypoints:
     description: "Tra cứu dữ liệu tài chính từ financial_facts.db — filter theo symbol/metric/period/source"
     cli: "python ptck.py financial-search [--symbol VCB] [--metric REVENUE] [--period 2026Q1] [--source cafef] [--min-value 1000] [--max-value 100000]"
     category: data
+
+  # ── Backtest & Optimization ────────────────────────────
+  grid_search:
+    description: "Tối ưu hóa trọng số Đa nhân tố (Grid Search V2) — LRI + EmergencyExit + DecisionGuard (Sharpe +0.819)"
+    cli: "python ptck.py grid-search [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--step N] [--top-n N]"
+    category: backtest
+
+  unified_replay:
+    description: "Cỗ máy thời gian Replay 5 Mô hình — Parquet cache 111x speedup, Multi-factor mode 2021-2026"
+    cli: "python -m backend.src.backtest.unified_system_replay [--mode multi-factor] [--start YYYY-MM-DD]"
+    category: backtest
 
   # ── init-agent ────────────────────────────────────────
   init_agent:

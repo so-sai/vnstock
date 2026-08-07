@@ -1,4 +1,3 @@
-﻿
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -6,7 +5,7 @@ from pathlib import Path
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,6 +18,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from uuid import uuid4
@@ -46,17 +46,17 @@ def create_markdown_report(verdict, target_date):
         f.write(f"**Thời gian thực thi:** {datetime.now().strftime('%H:%M:%S')}\n")
 
         # Section 1: Institutional Decision
-        if 'decision' in verdict:
-            d = verdict['decision']
+        if "decision" in verdict:
+            d = verdict["decision"]
             f.write("## 🏛️ PHÁN QUYẾT BỘ CHỈ HUY (THE BOARDROOM)\n\n")
             f.write(f"- **TRẠNG THÁI THỊ TRƯỜNG:** `{d['market_status']}` (Score: {d['regime_score']})\n")
             f.write(f"- **MÔ HÌNH ƯU TIÊN:** `{d['active_model']}`\n")
             f.write(f"- **PHÁN QUYẾT CUỐI CÙNG:** **{d['consensus']}**\n")
             f.write(f"- **ĐỘ TIN CẬY (CONFIDENCE):** `{d['confidence'] * 100}%`\n\n")
 
-            if d['model_b']['top_picks']:
+            if d["model_b"]["top_picks"]:
                 f.write("### 🎯 Danh sách Quan tâm (Mean Reversion Selection)\n")
-                for pick in d['model_b']['top_picks']:
+                for pick in d["model_b"]["top_picks"]:
                     f.write(f"- {pick['symbol']} (Z-Score: {pick['z_score']}, RSI: {pick['rsi']})\n")
                 f.write("\n")
 
@@ -71,8 +71,8 @@ def create_markdown_report(verdict, target_date):
             f.write("\n")
 
         # Section 3: Ignition Switch (Recovery)
-        if 'decision' in verdict:
-            rec = verdict['decision']['recovery']
+        if "decision" in verdict:
+            rec = verdict["decision"]["recovery"]
             f.write("## 🚀 BỘ ĐÁNH LỬA (IGNITION SWITCH)\n\n")
             f.write(f"- **TRẠNG THÁI PHỤC HỒI:** `{rec['status']}`\n")
             f.write(f"- **GIA TỐC ĐỘ RỘNG (5D):** `{rec['details']['velocity_5d']:+.1f}%` (Ngưỡng: +15%)\n")
@@ -80,15 +80,19 @@ def create_markdown_report(verdict, target_date):
 
         # Section 4: Sentinel Details
         f.write("## 🔍 Chi tiết Trạng thái Sentinel (Model A)\n\n")
-        f.write(f"- **Momentum Expansion (Lớp 1):** {verdict['layer1_mom_expansion']['status']} ({verdict['layer1_mom_expansion']['value']}/{verdict['layer1_mom_expansion']['threshold']})\n")
-        f.write(f"- **NH10 Consistency (Lớp 2):** {verdict['layer2_nh10_consistency']['status']} ({verdict['layer2_nh10_consistency']['value']}/{verdict['layer2_nh10_consistency']['threshold']} ngày)\n")
+        f.write(
+            f"- **Momentum Expansion (Lớp 1):** {verdict['layer1_mom_expansion']['status']} ({verdict['layer1_mom_expansion']['value']}/{verdict['layer1_mom_expansion']['threshold']})\n"
+        )
+        f.write(
+            f"- **NH10 Consistency (Lớp 2):** {verdict['layer2_nh10_consistency']['status']} ({verdict['layer2_nh10_consistency']['value']}/{verdict['layer2_nh10_consistency']['threshold']} ngày)\n"
+        )
         f.write(f"- **Foreign Absorption (Lớp 3):** {verdict['layer3_foreign_absorption']['status']}\n\n")
 
         # Section 5: Cognitive journal (Vietnamese, from vi_localizer)
-        if 'decision' in verdict:
+        if "decision" in verdict:
             f.write("## 🧠 NHẬT KÝ NHẬN THỨC HỆ THỐNG\n\n")
             f.write("```\n")
-            f.write(render_cognitive_journal(verdict['decision']))
+            f.write(render_cognitive_journal(verdict["decision"]))
             f.write("\n```\n\n")
 
         f.write("---\n")
@@ -96,10 +100,11 @@ def create_markdown_report(verdict, target_date):
 
     return report_path
 
+
 def run_daily_closer():
     """Quy trình đóng phiên tự động (The Dragon Shield Automation)"""
     target_date = datetime.now().strftime("%Y-%m-%d")
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"🐉 THE DRAGON SHIELD: DAILY CLOSER - {target_date}")
     # Step 0: Optimize/Init DB
     optimize_sqlite_engine()
@@ -112,11 +117,12 @@ def run_daily_closer():
 
     # Step 3: Run Decision Engine (Consensus)
     decision = merge_decisions(verdict)
-    verdict['decision'] = decision
+    verdict["decision"] = decision
 
     # Step 3.1: Run Structural Detector
     try:
         from src.engine.structural_detector import detect_cau_truc
+
         struct = detect_cau_truc(target_date)
         print(f"  Cấu trúc: {struct.get('trang_thai', 'N/A')} ({struct.get('so_tru_ok', 0)}/3)")
     except Exception as e:
@@ -125,6 +131,7 @@ def run_daily_closer():
     # Step 3.2: Run Final Orchestrator
     try:
         from src.engine.orchestrator import quyet_dinh_cuoi
+
         final = quyet_dinh_cuoi(target_date)
         print(f"  {final.get('quyet_dinh', 'N/A')} — {', '.join(final.get('ly_do', []))}")
     except Exception as e:
@@ -147,6 +154,7 @@ def run_daily_closer():
     # Step 6: Update Driver Reputation Ledger (non-blocking)
     try:
         from src.telemetry.driver_reputation import update_reputation
+
         n = update_reputation()
         print(f"📊 Driver Reputation Ledger: {n} rows updated")
     except Exception as e:
@@ -155,15 +163,17 @@ def run_daily_closer():
     # Step 7: SSI iBoard Macro API Probe (đồng bộ, ~1-2s, không block pipeline đáng kể)
     try:
         from src.services.macro.ssi_probe import probe_ssi_macro_endpoint
+
         results = probe_ssi_macro_endpoint()
         matches = sum(1 for r in results if r.get("match"))
         print(f"📡 SSI iBoard probe: {len(results)} candidates, {matches} matches")
     except Exception as e:
         print(f"⚠️  SSI probe failed: {e}")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("🏁 CLOSER COMPLETE. SENTINEL STANDING BY.")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
+
 
 def _adapt_and_record_decision(board: dict):
     """Adapt boardroom decision dict to record_decision() format and persist."""

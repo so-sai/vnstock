@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gate C — Regime Stability Index
 ================================
 Measures regime entropy over a rolling window.
@@ -7,6 +7,7 @@ learn incorrect distribution shapes → run CAO in "soft mode" only.
 
 Uses two data sources (prefers regime_history table, falls back to snapshots).
 """
+
 import logging
 import math
 import sys
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -30,6 +31,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.cao_readiness.models import GateResult, RegimeEntropyPoint, RegimeStabilityReport
@@ -69,28 +71,24 @@ def _load_regime_from_history(window_days: int = DEFAULT_WINDOW) -> list[dict]:
         with get_connection() as conn:
             conn.row_factory = None
             rows = conn.execute(
-                "SELECT date, status, regime_score FROM regime_history "
-                "WHERE date >= date('now', ?) ORDER BY date ASC",
-                (f'-{window_days} days',)
+                "SELECT date, status, regime_score FROM regime_history WHERE date >= date('now', ?) ORDER BY date ASC",
+                (f"-{window_days} days",),
             ).fetchall()
-            result = [
-                {"date": r[0], "status": r[1], "regime_score": r[2]}
-                for r in rows if len(r) >= 3
-            ]
+            result = [{"date": r[0], "status": r[1], "regime_score": r[2]} for r in rows if len(r) >= 3]
             if len(result) >= 3:
                 return result
             fallback = conn.execute(
-                "SELECT date, status, regime_score FROM regime_history "
-                "ORDER BY date DESC LIMIT ?", (max(30, window_days),)
+                "SELECT date, status, regime_score FROM regime_history ORDER BY date DESC LIMIT ?", (max(30, window_days),)
             ).fetchall()
-            fallback_result = [
-                {"date": r[0], "status": r[1], "regime_score": r[2]}
-                for r in fallback if len(r) >= 3
-            ]
+            fallback_result = [{"date": r[0], "status": r[1], "regime_score": r[2]} for r in fallback if len(r) >= 3]
             fallback_result.reverse()
             if len(fallback_result) >= 3:
-                logger.info("[GATE_C] date window (%dd) returned %d rows, using last %d rows instead",
-                            window_days, len(result), len(fallback_result))
+                logger.info(
+                    "[GATE_C] date window (%dd) returned %d rows, using last %d rows instead",
+                    window_days,
+                    len(result),
+                    len(fallback_result),
+                )
                 return fallback_result
             return result
     except Exception as e:
@@ -104,11 +102,13 @@ def _load_regime_from_snapshots(limit: int = 200) -> list[dict]:
     for snap in snapshots:
         regime = snap.get("market_regime")
         if regime:
-            results.append({
-                "date": snap.get("timestamp", ""),
-                "status": regime,
-                "regime_score": 0.5,
-            })
+            results.append(
+                {
+                    "date": snap.get("timestamp", ""),
+                    "status": regime,
+                    "regime_score": 0.5,
+                }
+            )
     results.reverse()
     return results
 
@@ -146,20 +146,19 @@ def run_regime_stability_test(
         )
     min_window = min(window, len(all_regimes) // 2)
     for i in range(min_window, len(all_regimes) + 1):
-        chunk = all_regimes[i - min_window:i]
+        chunk = all_regimes[i - min_window : i]
         h_norm = _normalized_entropy(chunk)
-        entropy_points.append(RegimeEntropyPoint(
-            date=records[i - 1].get("date", str(i)),
-            regime=all_regimes[i - 1],
-            regime_score=records[i - 1].get("regime_score", 0.5),
-            entropy=h_norm,
-        ))
+        entropy_points.append(
+            RegimeEntropyPoint(
+                date=records[i - 1].get("date", str(i)),
+                regime=all_regimes[i - 1],
+                regime_score=records[i - 1].get("regime_score", 0.5),
+                entropy=h_norm,
+            )
+        )
     current_h = entropy_points[-1].entropy if entropy_points else 0.0
     max_h = max(p.entropy for p in entropy_points) if entropy_points else 0.0
-    transitions = sum(
-        1 for i in range(1, len(all_regimes))
-        if all_regimes[i] != all_regimes[i - 1]
-    )
+    transitions = sum(1 for i in range(1, len(all_regimes)) if all_regimes[i] != all_regimes[i - 1])
     stability = 1.0 - current_h
     passed = stability >= STABILITY_THRESHOLD and current_h < ENTROPY_THRESHOLD
     if passed:
@@ -183,8 +182,13 @@ def run_regime_stability_test(
             f"CAO posterior estimation would learn incorrect distribution shape. "
             f"Defer Phase 1 until regime stabilizes."
         )
-    logger.info("[GATE_C] %s | H=%.3f | stability=%.3f | transitions=%d",
-                "PASS" if passed else "FAIL", current_h, stability, transitions)
+    logger.info(
+        "[GATE_C] %s | H=%.3f | stability=%.3f | transitions=%d",
+        "PASS" if passed else "FAIL",
+        current_h,
+        stability,
+        transitions,
+    )
     return RegimeStabilityReport(
         passed=passed,
         entropy_series=entropy_points,
@@ -217,8 +221,6 @@ def gate_c_check() -> GateResult:
             "stability_index": report.stability_index,
             "regime_transitions": report.regime_transition_count,
             "window_days": report.window_days,
-            "regime_distribution": dict(
-                Counter(p.regime for p in report.entropy_series)
-            ) if report.entropy_series else {},
+            "regime_distribution": dict(Counter(p.regime for p in report.entropy_series)) if report.entropy_series else {},
         },
     )

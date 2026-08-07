@@ -1,5 +1,6 @@
-from .color_engine import ColorDecision, COLOR_MAP, ColorToken
 from typing import Any
+
+from .color_engine import COLOR_MAP, ColorDecision
 
 SAFE_MODE_ACTIVE_KEY = "safe_mode_active"
 

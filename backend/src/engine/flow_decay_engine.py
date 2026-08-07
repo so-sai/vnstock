@@ -1,4 +1,4 @@
-﻿"""
+"""
 Flow Decay Engine (Phase 12C — Time Kernel Layer).
 Overlay kernel — applies regime-modulated exponential decay to raw time series
 BEFORE signal computation. Does NOT modify existing engines.
@@ -15,12 +15,13 @@ Architecture:
         v
     decision_tensor (consumption layer)
 """
+
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -36,6 +37,7 @@ def _hydrate_path():
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -103,6 +105,7 @@ DEFAULT_REGIME = "RANGING"
 @dataclass
 class DecayedSeriesOutput:
     """Output of a decay kernel applied to a time series."""
+
     decayed_series: np.ndarray = field(repr=False)
     decayed_mean: float = 0.0
     decayed_volatility: float = 0.0
@@ -122,8 +125,7 @@ class FlowDecayKernel:
     score = Σ(value_i * w_i) / Σ(w_i)
     """
 
-    def __init__(self, half_life: float, channel: str = "liquidity",
-                 regime: str | None = None):
+    def __init__(self, half_life: float, channel: str = "liquidity", regime: str | None = None):
         self.base_tau = half_life / np.log(2)
         self.channel = channel
         self.regime = regime or DEFAULT_REGIME
@@ -151,13 +153,15 @@ class FlowDecayKernel:
         finite_mask = np.isfinite(series)
         if not finite_mask.any():
             return DecayedSeriesOutput(
-                decayed_series=np.array([]), n_observations=0,
+                decayed_series=np.array([]),
+                n_observations=0,
             )
         series = series[finite_mask]
         n = len(series)
         if n == 0:
             return DecayedSeriesOutput(
-                decayed_series=np.array([]), n_observations=0,
+                decayed_series=np.array([]),
+                n_observations=0,
             )
         w = self.weights(n)
         decayed = series * w[::-1]
@@ -167,7 +171,7 @@ class FlowDecayKernel:
         diff = series - decayed_mean
         finite_diff = diff[np.isfinite(diff)]
         if len(finite_diff) > 1:
-            variance = float(np.sum(w[:len(finite_diff)] * finite_diff ** 2))
+            variance = float(np.sum(w[: len(finite_diff)] * finite_diff**2))
             decayed_vol = float(np.sqrt(max(0, variance)))
         else:
             decayed_vol = 0.0
@@ -185,11 +189,7 @@ class FlowDecayKernel:
 
         # instability = CV of decayed series
         mean_abs = abs(np.mean(decayed))
-        instability = (
-            float(np.std(decayed) / mean_abs)
-            if mean_abs > 1e-10
-            else 0.0
-        )
+        instability = float(np.std(decayed) / mean_abs) if mean_abs > 1e-10 else 0.0
 
         return DecayedSeriesOutput(
             decayed_series=decayed,
@@ -209,6 +209,7 @@ class FlowDecayKernel:
 # decay kernel BEFORE computing derived signals.
 # ---------------------------------------------------------------------------
 
+
 def _resolve_current_regime() -> str:
     try:
         old_stdout = sys.stdout
@@ -223,17 +224,16 @@ def _resolve_current_regime() -> str:
         return DEFAULT_REGIME
 
 
-def build_liquidity_decay(symbol: str, lookback: int = 60,
-                          regime: str | None = None) -> dict:
+def build_liquidity_decay(symbol: str, lookback: int = 60, regime: str | None = None) -> dict:
     """
     Build a decay-augmented volume profile for a single symbol.
     Returns both classic engine fields AND decay awareness metrics.
     """
     with get_connection() as conn:
         df = pd.read_sql(
-            f"SELECT date, close, volume FROM daily_ohlcv "
-            f"WHERE symbol = ? ORDER BY date DESC LIMIT {lookback}",
-            conn, params=(symbol,)
+            f"SELECT date, close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT {lookback}",
+            conn,
+            params=(symbol,),
         )
     if df.empty or len(df) < 10:
         return {"symbol": symbol, "status": "INSUFFICIENT_DATA"}
@@ -245,12 +245,8 @@ def build_liquidity_decay(symbol: str, lookback: int = 60,
     effective_regime = regime or _resolve_current_regime()
 
     # --- Apply decay kernels to volume ---
-    retail_kernel = FlowDecayKernel(
-        HALF_LIVES["liquidity"]["retail_chase"], "liquidity", effective_regime
-    )
-    inst_kernel = FlowDecayKernel(
-        HALF_LIVES["liquidity"]["volume_profile"], "liquidity", effective_regime
-    )
+    retail_kernel = FlowDecayKernel(HALF_LIVES["liquidity"]["retail_chase"], "liquidity", effective_regime)
+    inst_kernel = FlowDecayKernel(HALF_LIVES["liquidity"]["volume_profile"], "liquidity", effective_regime)
 
     retail_decay = retail_kernel.apply(volume)
     inst_decay = inst_kernel.apply(volume)
@@ -270,9 +266,7 @@ def build_liquidity_decay(symbol: str, lookback: int = 60,
 
     # Decayed turnover shock
     value_series = close * volume * 1000 / 1e9
-    value_kernel = FlowDecayKernel(
-        HALF_LIVES["liquidity"]["volume_profile"], "liquidity", effective_regime
-    )
+    value_kernel = FlowDecayKernel(HALF_LIVES["liquidity"]["volume_profile"], "liquidity", effective_regime)
     value_decay = value_kernel.apply(value_series)
     value_decayed = value_decay.decayed_mean
     latest_value = float(value_series[-1])
@@ -297,14 +291,11 @@ def build_liquidity_decay(symbol: str, lookback: int = 60,
         "retail_persistence": retail_decay.persistence,
         "retail_surge": retail_decay.surge,
         "instability": inst_decay.instability,
-        "volume_signal_quality": _classify_signal_quality(
-            retail_decay.persistence, inst_decay.instability
-        ),
+        "volume_signal_quality": _classify_signal_quality(retail_decay.persistence, inst_decay.instability),
     }
 
 
-def build_sector_decay(sector: str, lookback: int = 60,
-                       regime: str | None = None) -> dict:
+def build_sector_decay(sector: str, lookback: int = 60, regime: str | None = None) -> dict:
     """
     Build a decay-augmented sector RS profile.
     Momentum computed from decay-weighted daily returns instead of SMA crossover.
@@ -319,7 +310,8 @@ def build_sector_decay(sector: str, lookback: int = 60,
             f"SELECT symbol, date, close FROM daily_ohlcv "
             f"WHERE symbol IN ({placeholders}) AND date >= date('now', '-{lookback + 10} days') "
             f"ORDER BY date",
-            conn, params=symbols
+            conn,
+            params=symbols,
         )
     if df.empty:
         return {"sector": sector, "status": "NO_DATA"}
@@ -333,9 +325,7 @@ def build_sector_decay(sector: str, lookback: int = 60,
     effective_regime = regime or _resolve_current_regime()
 
     # Apply decay kernel to daily returns
-    mom_kernel = FlowDecayKernel(
-        HALF_LIVES["sector"]["momentum"], "sector", effective_regime
-    )
+    mom_kernel = FlowDecayKernel(HALF_LIVES["sector"]["momentum"], "sector", effective_regime)
     mom_decay = mom_kernel.apply(returns)
 
     # Decayed momentum = decay-weighted mean of recent returns
@@ -343,9 +333,7 @@ def build_sector_decay(sector: str, lookback: int = 60,
 
     # Decayed cumulative return
     cum_return = (1 + returns).cumprod()
-    cum_kernel = FlowDecayKernel(
-        HALF_LIVES["sector"]["rotation_signal"], "sector", effective_regime
-    )
+    cum_kernel = FlowDecayKernel(HALF_LIVES["sector"]["rotation_signal"], "sector", effective_regime)
     cum_decay = cum_kernel.apply(cum_return)
     cum_return_decayed = cum_decay.decayed_mean
 
@@ -368,14 +356,11 @@ def build_sector_decay(sector: str, lookback: int = 60,
         "momentum_persistence": mom_decay.persistence,
         "momentum_surge": mom_decay.surge,
         "instability": mom_decay.instability,
-        "signal_quality": _classify_signal_quality(
-            mom_decay.persistence, mom_decay.instability
-        ),
+        "signal_quality": _classify_signal_quality(mom_decay.persistence, mom_decay.instability),
     }
 
 
-def build_foreign_decay(symbol: str, half_life_days: float = 10.0,
-                        regime: str | None = None) -> dict:
+def build_foreign_decay(symbol: str, half_life_days: float = 10.0, regime: str | None = None) -> dict:
     """
     Build decay-augmented foreign accumulation.
     Replaces the flat 10-day sum with a decay-weighted accumulation.
@@ -383,9 +368,9 @@ def build_foreign_decay(symbol: str, half_life_days: float = 10.0,
     with get_connection() as conn:
         n_days = int(max(30, half_life_days * 3))
         df = pd.read_sql(
-            f"SELECT date, net_value FROM market_foreign_history "
-            f"WHERE symbol = ? ORDER BY date DESC LIMIT {n_days}",
-            conn, params=(symbol,)
+            f"SELECT date, net_value FROM market_foreign_history WHERE symbol = ? ORDER BY date DESC LIMIT {n_days}",
+            conn,
+            params=(symbol,),
         )
     if df.empty:
         return {"symbol": symbol, "net_value_decayed": 0.0, "status": "NO_DATA"}
@@ -414,6 +399,7 @@ def build_foreign_decay(symbol: str, half_life_days: float = 10.0,
 # Aggregation wrappers (mirror engine interfaces but with decay)
 # ---------------------------------------------------------------------------
 
+
 def get_decayed_liquidity_health(regime: str | None = None) -> dict:
     """Market-level liquidity health from decay-weighted volume."""
     effective_regime = regime or _resolve_current_regime()
@@ -423,7 +409,7 @@ def get_decayed_liquidity_health(regime: str | None = None) -> dict:
             "AVG(close * volume * 1000 / 1e9) as avg_value_bn "
             "FROM daily_ohlcv WHERE date >= date('now', '-30 days') "
             "GROUP BY date ORDER BY date",
-            conn
+            conn,
         )
     if df.empty or len(df) < 5:
         return {"status": "INSUFFICIENT_DATA"}
@@ -431,9 +417,7 @@ def get_decayed_liquidity_health(regime: str | None = None) -> dict:
     vol_series = df["total_vol"].values
     value_series = df["avg_value_bn"].values
 
-    kernel = FlowDecayKernel(
-        HALF_LIVES["liquidity"]["volume_profile"], "liquidity", effective_regime
-    )
+    kernel = FlowDecayKernel(HALF_LIVES["liquidity"]["volume_profile"], "liquidity", effective_regime)
     vol_decay = kernel.apply(vol_series)
     value_decay = kernel.apply(value_series)
 
@@ -441,8 +425,10 @@ def get_decayed_liquidity_health(regime: str | None = None) -> dict:
     value_trend_decayed = (value_decay.decayed_mean / np.mean(value_series) - 1) * 100
 
     phase = (
-        "EXPANDING" if vol_trend_decayed > 5 and value_trend_decayed > 5
-        else "CONTRACTING" if vol_trend_decayed < -5 and value_trend_decayed < -5
+        "EXPANDING"
+        if vol_trend_decayed > 5 and value_trend_decayed > 5
+        else "CONTRACTING"
+        if vol_trend_decayed < -5 and value_trend_decayed < -5
         else "NEUTRAL"
     )
 
@@ -459,6 +445,7 @@ def get_decayed_rotation_beta(regime: str | None = None) -> dict:
     """Sector rotation regime from decay-weighted momentum across sectors."""
     results = []
     from src.engine.sector_rotation_graph import SECTOR_ORDER
+
     for sec in SECTOR_ORDER:
         rs = build_sector_decay(sec, 60, regime)
         if rs.get("status") in ("NO_SYMBOLS", "NO_DATA", "INSUFFICIENT_DATA"):
@@ -481,10 +468,11 @@ def get_decayed_rotation_beta(regime: str | None = None) -> dict:
         phase_counts[p] = phase_counts.get(p, 0) + 1
 
     score = (
-        (phase_counts.get("EARLY_ACCEL", 0) + phase_counts.get("MID_CYCLE", 0) * 0.7
-         + phase_counts.get("SUSTAINED", 0) * 0.4
-         - phase_counts.get("WEAKENING", 0) * 0.5) / max(1, len(results))
-    )
+        phase_counts.get("EARLY_ACCEL", 0)
+        + phase_counts.get("MID_CYCLE", 0) * 0.7
+        + phase_counts.get("SUSTAINED", 0) * 0.4
+        - phase_counts.get("WEAKENING", 0) * 0.5
+    ) / max(1, len(results))
 
     regime_mapped = "HEALTHY_ROTATION"
     if score < -0.2 and spread < 0:
@@ -505,8 +493,7 @@ def get_decayed_rotation_beta(regime: str | None = None) -> dict:
     }
 
 
-def get_decayed_foreign_summary(top_n: int = 10,
-                                regime: str | None = None) -> dict:
+def get_decayed_foreign_summary(top_n: int = 10, regime: str | None = None) -> dict:
     """
     Aggregate foreign flow summary using decay-weighted accumulation
     instead of flat 10-day sum.
@@ -530,20 +517,15 @@ def get_decayed_foreign_summary(top_n: int = 10,
     return {
         "total_net_decayed_bn_vnd": round(total_decayed, 2),
         "market_pressure_decayed": "ACCUMULATING" if total_decayed > 0 else "DISTRIBUTING",
-        "top_accumulated_decayed": [
-            {"symbol": s, "net_decayed_bn_vnd": v}
-            for s, v in top_accumulated[:5]
-        ],
-        "top_distributed_decayed": [
-            {"symbol": s, "net_decayed_bn_vnd": v}
-            for s, v in reversed(top_accumulated[-5:])
-        ],
+        "top_accumulated_decayed": [{"symbol": s, "net_decayed_bn_vnd": v} for s, v in top_accumulated[:5]],
+        "top_distributed_decayed": [{"symbol": s, "net_decayed_bn_vnd": v} for s, v in reversed(top_accumulated[-5:])],
     }
 
 
 # ---------------------------------------------------------------------------
 # Banner synthesis with uncertainty
 # ---------------------------------------------------------------------------
+
 
 def synthesize_decayed_banner(regime: str | None = None) -> dict:
     """
@@ -570,9 +552,7 @@ def synthesize_decayed_banner(regime: str | None = None) -> dict:
     liq_label = _phase_label_vn(liq_phase)
     rot_label = _rotation_label_vn(rot_regime)
     persistence_tag = _persistence_label(liq_persistence)
-    pressure_label = _pressure_label_vn(
-        foreign.get("market_pressure_decayed", "NEUTRAL")
-    )
+    pressure_label = _pressure_label_vn(foreign.get("market_pressure_decayed", "NEUTRAL"))
 
     parts = [f"THANH KHOẢN: {liq_label} ({persistence_tag})"]
     parts.append(f"XOAY VÒNG: {rot_label}")
@@ -602,6 +582,7 @@ def synthesize_decayed_banner(regime: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+
 
 def _load_sector_mapping() -> dict:
     with get_connection() as conn:
@@ -667,14 +648,13 @@ def _compute_signal_strength(liquidity: dict, rotation: dict, foreign: dict) -> 
     if abs(rot_score) > 0.1:
         rot_p = min(1.0, abs(rot_score) * 2)
 
-    vol_surge = abs(liquidity.get("volume_trend_decayed", 0)) / 100
+    abs(liquidity.get("volume_trend_decayed", 0)) / 100
     f_p = min(1.0, abs(foreign.get("total_net_decayed_bn_vnd", 0)) / 500)
 
     return round((liq_p * 0.4 + rot_p * 0.35 + f_p * 0.25), 3)
 
 
-def _detect_channel_conflict(liquidity: dict, rotation: dict,
-                              foreign: dict) -> dict:
+def _detect_channel_conflict(liquidity: dict, rotation: dict, foreign: dict) -> dict:
     """
     Detect conflicts between the 3 flow channels.
     Returns conflict flag + description.
@@ -702,8 +682,7 @@ def _detect_channel_conflict(liquidity: dict, rotation: dict,
     }
 
 
-def _confidence_band(persistence: float, instability: float,
-                     signal_strength: float) -> str:
+def _confidence_band(persistence: float, instability: float, signal_strength: float) -> str:
     """Map decay metrics to a confidence band label."""
     raw = persistence * 0.4 + (1 - min(instability / 2, 1)) * 0.3 + signal_strength * 0.3
     if raw >= 0.7:
@@ -716,6 +695,7 @@ def _confidence_band(persistence: float, instability: float,
 # ---------------------------------------------------------------------------
 # Entry point for flow.py middleware integration
 # ---------------------------------------------------------------------------
+
 
 def get_decayed_flow_summary(regime: str | None = None) -> dict:
     """
@@ -741,16 +721,17 @@ def get_decayed_flow_summary(regime: str | None = None) -> dict:
 
 if __name__ == "__main__":
     import json
+
     # Redirect stdout for Windows cp1252 compatibility
     if sys.platform == "win32":
         if isinstance(sys.stdout, io.TextIOWrapper):
-            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
-                    sys.stdout.reconfigure(encoding='utf-8')
+                    sys.stdout.reconfigure(encoding="utf-8")
                 except Exception:
                     pass
-        elif hasattr(sys.stdout, 'buffer'):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        elif hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     summary = get_decayed_flow_summary()
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
@@ -758,11 +739,17 @@ if __name__ == "__main__":
     kernel = FlowDecayKernel(5.0, "liquidity", "TRENDING")
     test = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     result = kernel.apply(test)
-    print(json.dumps({
-        "kernel_test": {
-            "mean": result.decayed_mean,
-            "persistence": result.persistence,
-            "surge": result.surge,
-            "instability": result.instability,
-        }
-    }, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "kernel_test": {
+                    "mean": result.decayed_mean,
+                    "persistence": result.persistence,
+                    "surge": result.surge,
+                    "instability": result.instability,
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )

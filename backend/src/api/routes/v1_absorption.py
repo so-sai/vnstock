@@ -1,9 +1,10 @@
-﻿"""v1_absorption.py — API endpoint: phân tích hấp thụ nội cho từng mã cổ phiếu.
+"""v1_absorption.py — API endpoint: phân tích hấp thụ nội cho từng mã cổ phiếu.
 
 Tuân thủ:
   - Quy tắc Song ngữ API (HCI format): KHÔNG trả chuỗi thuần, trả dict localization.
   - Decoupled Architecture: gọi engine qua wrapper, không nhúng logic.
 """
+
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -30,7 +31,9 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.core.bilingual_schema import (
-    VQA_CLASSES, ABSORPTION_PHASES, to_hci,
+    ABSORPTION_PHASES,
+    VQA_CLASSES,
+    to_hci,
 )
 
 router = APIRouter()
@@ -72,8 +75,14 @@ async def get_symbol_absorption(ticker: str):
         "sdi": {
             "value": sdi_value,
             "localization": {
-                "vi": {"name": "Spectral Dominance Index (SDI)", "tooltip": "Đo lường sự thống trị của thành phần chính trong ma trận thanh khoản. SDI cao = thị trường một chiều."},
-                "en": {"name": "Spectral Dominance Index (SDI)", "tooltip": "Measures dominance of the principal component in the liquidity matrix. High SDI = one-sided market."},
+                "vi": {
+                    "name": "Spectral Dominance Index (SDI)",
+                    "tooltip": "Đo lường sự thống trị của thành phần chính trong ma trận thanh khoản. SDI cao = thị trường một chiều.",
+                },
+                "en": {
+                    "name": "Spectral Dominance Index (SDI)",
+                    "tooltip": "Measures dominance of the principal component in the liquidity matrix. High SDI = one-sided market.",
+                },
             },
         },
         "phase": to_hci("PHASE", phase, phase, ABSORPTION_PHASES),
@@ -81,8 +90,14 @@ async def get_symbol_absorption(ticker: str):
             "current": hdr,
             "target": raw.get("hdr_progress", {}).get("target", 0.80),
             "localization": {
-                "vi": {"name": "Hệ số Giải ngân (HDR)", "tooltip": "Tỷ lệ vốn được phép giải ngân. 1.0 = cash-only, 0.20 = full deployment."},
-                "en": {"name": "HDR (Heuristic Deployment Ratio)", "tooltip": "Portion of capital allowed for deployment. 1.0 = cash-only, 0.20 = full deployment."},
+                "vi": {
+                    "name": "Hệ số Giải ngân (HDR)",
+                    "tooltip": "Tỷ lệ vốn được phép giải ngân. 1.0 = cash-only, 0.20 = full deployment.",
+                },
+                "en": {
+                    "name": "HDR (Heuristic Deployment Ratio)",
+                    "tooltip": "Portion of capital allowed for deployment. 1.0 = cash-only, 0.20 = full deployment.",
+                },
             },
         },
         "details": raw.get("details", {}),

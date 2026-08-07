@@ -1,4 +1,4 @@
-﻿"""
+"""
 IPO SIGNAL API ENDPOINT — Cung cấp dữ liệu cho Frontend HUD Widget
 ================================================================================
 
@@ -16,7 +16,6 @@ Tích hợp:
 """
 
 from datetime import datetime
-from typing import Dict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -33,7 +32,7 @@ router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 class IPOHUDResponse(BaseModel):
     """API Response cho IPO HUD Widget"""
 
-    ipo_signal: Dict
+    ipo_signal: dict
     updated_at: datetime
 
     class Config:
@@ -57,10 +56,10 @@ class IPOHUDResponse(BaseModel):
                         "riskLevel": "CAO",
                         "marginSetting": 0.5,
                         "sectorWatch": ["Midcap", "Smallcap"],
-                        "interpretation": "🔴 IPO nóng + Midcap/Smallcap chết liquidity. Kích hoạt phòng thủ."
-                    }
+                        "interpretation": "🔴 IPO nóng + Midcap/Smallcap chết liquidity. Kích hoạt phòng thủ.",
+                    },
                 },
-                "updated_at": "2026-05-25T16:30:00Z"
+                "updated_at": "2026-05-25T16:30:00Z",
             }
         }
 
@@ -68,22 +67,22 @@ class IPOHUDResponse(BaseModel):
 def calculate_days_until_decay(listing_date_str: str) -> int:
     """
     Tính số phiên từ ngày listing cho đến khi IPO áp lực hết
-    
+
     Logic:
       - Mỗi phiên = 1 ngày giao dịch
       - IPO mạnh nhất trong 3-5 phiên đầu
       - Sau 10 phiên, áp lực chỉ còn 15%, coi như hết
       - Công thức suy hao: factor = exp(-t / 3.0)
-    
+
     Args:
         listing_date_str: "2026-05-25" format
-    
+
     Returns:
         int: Số phiên còn lại trước khi áp lực hết (max 15)
     """
     try:
         listing_date = datetime.fromisoformat(listing_date_str)
-    except:
+    except Exception:
         return 0
 
     current_date = datetime.now()
@@ -107,10 +106,10 @@ def calculate_days_until_decay(listing_date_str: str) -> int:
 def transform_ipo_signal_for_hud(
     raw_ipo_signal,  # từ IpoMarketSignal (ipo_engine.py)
     ipo_service_package,  # từ IpoSignalPackage (ipo_signal_service.py)
-) -> Dict:
+) -> dict:
     """
     Chuyển đổi tín hiệu thô thành format API cho HUD Widget
-    
+
     Input: Raw IpoMarketSignal + IpoSignalPackage
     Output: Dict clean, camelCase, có cộng Time Decay
     """
@@ -118,29 +117,17 @@ def transform_ipo_signal_for_hud(
     # Tính Time Decay
     if raw_ipo_signal.active_ipo_list:
         latest_ipo = raw_ipo_signal.active_ipo_list[0]
-        days_until_decay = calculate_days_until_decay(
-            latest_ipo.listing_date.isoformat()
-        )
+        days_until_decay = calculate_days_until_decay(latest_ipo.listing_date.isoformat())
     else:
         days_until_decay = 0
 
     # Chuyển đổi tín hiệu
     hud_data = {
-        "symbol": (
-            raw_ipo_signal.active_ipo_list[0].symbol
-            if raw_ipo_signal.active_ipo_list
-            else "N/A"
-        ),
+        "symbol": (raw_ipo_signal.active_ipo_list[0].symbol if raw_ipo_signal.active_ipo_list else "N/A"),
         "listing_date": (
-            raw_ipo_signal.active_ipo_list[0].listing_date.isoformat()
-            if raw_ipo_signal.active_ipo_list
-            else None
+            raw_ipo_signal.active_ipo_list[0].listing_date.isoformat() if raw_ipo_signal.active_ipo_list else None
         ),
-        "market_cap_billion": (
-            raw_ipo_signal.active_ipo_list[0].market_cap_listing
-            if raw_ipo_signal.active_ipo_list
-            else 0
-        ),
+        "market_cap_billion": (raw_ipo_signal.active_ipo_list[0].market_cap_listing if raw_ipo_signal.active_ipo_list else 0),
         "traffic_light": raw_ipo_signal.traffic_light.value,  # "XANH" | "VANG" | "DO"
         "valuation_risk_score": round(raw_ipo_signal.valuation_risk_score, 1),
         "capital_absorption_trend": raw_ipo_signal.capital_absorption_trend.value,
@@ -162,10 +149,10 @@ async def get_ipo_hud_signal(
 ):
     """
     API Endpoint: Lấy tín hiệu IPO cho HUD Widget
-    
+
     Returns:
         IPOHUDResponse: 3 Khối chỉ báo + Action command
-    
+
     Responses:
         200: IPO signal found
         404: No active IPO
@@ -225,7 +212,7 @@ async def get_ipo_signal_history(
 ):
     """
     API Endpoint: Lấy lịch sử tín hiệu IPO (30 ngày gần đây)
-    
+
     Dùng cho charting / trend analysis
     """
     try:

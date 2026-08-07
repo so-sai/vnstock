@@ -12,7 +12,6 @@ WHY:
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -40,6 +39,7 @@ def init_terminal_colors():
     if sys.platform == "win32":
         try:
             import ctypes
+
             kernel32 = ctypes.windll.kernel32
             # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
             # STD_OUTPUT_HANDLE = -11
@@ -100,7 +100,7 @@ def badge(text: str, color_code: str) -> str:
     return f"{color_code}{text}{Color.RESET}"
 
 
-def color_mos(mos: Optional[float]) -> str:
+def color_mos(mos: float | None) -> str:
     """Format Margin of Safety with semantic color."""
     if mos is None:
         return c_dim("MoS: N/A")

@@ -1,4 +1,4 @@
-﻿"""DriverReputationLedger — per-driver performance archive.
+"""DriverReputationLedger — per-driver performance archive.
 
 Read-only reputation store. Never allocates capital.
 Logs what each cognitive driver (FLOW, BREADTH, STRUCTURE, ...) has achieved
@@ -26,6 +26,7 @@ Usage:
     # Read:
     rows = get_reputation(window_days=90)
 """
+
 from __future__ import annotations
 
 import json
@@ -33,7 +34,6 @@ import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +72,19 @@ CREATE TABLE IF NOT EXISTS driver_reputation (
 """
 
 DRIFT_COLUMNS = [
-    "accuracy_30d", "accuracy_90d", "accuracy_180d",
-    "performance_drift", "relative_drift", "half_life_days",
+    "accuracy_30d",
+    "accuracy_90d",
+    "accuracy_180d",
+    "performance_drift",
+    "relative_drift",
+    "half_life_days",
 ]
 
 
 # ====================================================================
 # INTERNAL: read shadow log & FAE attribution
 # ====================================================================
+
 
 def _compute_per_driver_accuracy(shadow_entries: list[dict]) -> dict[str, dict]:
     """From shadow log entries, compute per-driver accuracy metrics.
@@ -104,19 +109,23 @@ def _compute_per_driver_accuracy(shadow_entries: list[dict]) -> dict[str, dict]:
         driver = pred.get("dominant_driver", "UNKNOWN")
         if driver not in driver_data:
             continue
-        driver_data[driver].append({
-            "match": bool(realized.get("driver_match", False)),
-            "confidence": entry.get("prediction", {}).get("driver_distribution", {}).get(driver, 0),
-            "regime": pred.get("regime_status", "UNKNOWN"),
-            "market_dir": realized.get("market_direction", 0),
-        })
+        driver_data[driver].append(
+            {
+                "match": bool(realized.get("driver_match", False)),
+                "confidence": entry.get("prediction", {}).get("driver_distribution", {}).get(driver, 0),
+                "regime": pred.get("regime_status", "UNKNOWN"),
+                "market_dir": realized.get("market_direction", 0),
+            }
+        )
 
     result = {}
     for driver, samples in driver_data.items():
         if not samples:
             result[driver] = {
-                "accuracy": 0.0, "stability": 0.0,
-                "n_samples": 0, "regime_breakdown": {},
+                "accuracy": 0.0,
+                "stability": 0.0,
+                "n_samples": 0,
+                "regime_breakdown": {},
             }
             continue
         n = len(samples)
@@ -158,7 +167,7 @@ def _regime_tag(status: str) -> str:
     return "all"
 
 
-def _load_alpha_attribution(path: Optional[Path] = None) -> dict[str, dict]:
+def _load_alpha_attribution(path: Path | None = None) -> dict[str, dict]:
     """Load FAE alpha attribution from JSON output.
 
     Expected structure:
@@ -199,6 +208,7 @@ def _read_shadow_log_from_module() -> list[dict]:
     """Pull shadow entries from in-memory store or telemetry.db fallback."""
     try:
         from src.core.shadow_metrics_schema import get_shadow_log
+
         log = get_shadow_log()
         if log:
             return log
@@ -209,7 +219,7 @@ def _read_shadow_log_from_module() -> list[dict]:
 
 def extract_driver_state(engine_scores: dict):
     """Canonical adapter: any snapshot engine_scores → DriverState.
-    
+
     Handles all known schemas:
       - Legacy:   heat, liquidity, regime, signal, sector
       - Boardroom: breadth_pct, breadth_velocity, regime, t_score, v_score, recovery_active
@@ -275,11 +285,11 @@ def extract_driver_state(engine_scores: dict):
 
 def _build_shadow_from_telemetry_db() -> list[dict]:
     """Build shadow log entries from telemetry.db decision_snapshots + outcomes.
-    
+
     This bridges the gap between the existing decision pipeline (which records
     snapshots + evaluates outcomes) and the reputation system (which expects
     shadow log entries with dominant_driver + driver_match).
-    
+
     For each snapshot with engine_scores, we compute an approximate driver_state
     via the canonical extract_driver_state() adapter and match outcomes as realized data.
     """
@@ -298,16 +308,12 @@ def _build_shadow_from_telemetry_db() -> list[dict]:
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
 
-        snaps = conn.execute(
-            "SELECT * FROM decision_snapshots ORDER BY created_at"
-        ).fetchall()
+        snaps = conn.execute("SELECT * FROM decision_snapshots ORDER BY created_at").fetchall()
         if not snaps:
             conn.close()
             return []
 
-        outc_rows = conn.execute(
-            "SELECT * FROM outcome_records ORDER BY horizon_days"
-        ).fetchall()
+        outc_rows = conn.execute("SELECT * FROM outcome_records ORDER BY horizon_days").fetchall()
         outcomes_by_id: dict[str, list[dict]] = {}
         for o in outc_rows:
             od = dict(o)
@@ -322,7 +328,7 @@ def _build_shadow_from_telemetry_db() -> list[dict]:
             es = {}
             try:
                 es = json.loads(sd.get("engine_scores", "{}"))
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
 
             ds = extract_driver_state(es)
@@ -374,9 +380,7 @@ def _build_shadow_from_telemetry_db() -> list[dict]:
                 actual_driver = entry["prediction"]["dominant_driver"]
                 if not actual_success:
                     # Flip to next-best driver
-                    sorted_dist = sorted(
-                        ds.distribution.items(), key=lambda x: -x[1]
-                    )
+                    sorted_dist = sorted(ds.distribution.items(), key=lambda x: -x[1])
                     actual_driver = sorted_dist[1][0] if len(sorted_dist) > 1 else sorted_dist[0][0]
 
                 entry["realized"] = {
@@ -400,12 +404,13 @@ def _build_shadow_from_telemetry_db() -> list[dict]:
 # DRIFT COMPUTATION
 # ====================================================================
 
+
 def _compute_per_driver_accuracy_windowed(
     shadow_entries: list[dict],
     window_days: int,
 ) -> dict[str, dict]:
     """Compute per-driver accuracy using only entries within window_days.
-    
+
     Filters shadow entries by their date field relative to the most recent entry.
     Returns same structure as _compute_per_driver_accuracy().
     """
@@ -418,11 +423,12 @@ def _compute_per_driver_accuracy_windowed(
 
     reference = dates[-1]
     from datetime import datetime, timedelta
+
     try:
         ref_dt = datetime.strptime(reference, "%Y-%m-%d")
         cutoff = ref_dt - timedelta(days=window_days)
         cutoff_str = cutoff.strftime("%Y-%m-%d")
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return {d: {"accuracy": 0.0, "stability": 0.0, "n_samples": 0, "regime_breakdown": {}} for d in DRIVER_KEYS}
 
     filtered = [e for e in shadow_entries if e.get("date", "") >= cutoff_str]
@@ -435,7 +441,7 @@ def _compute_performance_drift(
     acc_180d: float | None,
 ) -> float | None:
     """Compute drift as linear slope across 3 time windows.
-    
+
     Fits y = ax + b where x = [180, 90, 30] (descending — oldest to newest),
     y = [acc_x].
     Returns slope * 180 (scaled to 180d range for interpretability).
@@ -450,6 +456,7 @@ def _compute_performance_drift(
     xs, ys = zip(*valid)
     try:
         import numpy as np
+
         slope = np.polyfit(xs, ys, 1)[0]
         return round(-slope * 180, 4)
     except Exception:
@@ -462,9 +469,9 @@ def _compute_half_life(
     window_gap_days: int,
 ) -> float | None:
     """Estimate half-life from accuracy decay.
-    
+
     half_life = window_gap * ln(0.5) / ln(acc_new / acc_old)
-    
+
     Returns None when:
       - acc_old or acc_new is None/<=0
       - acc_new >= acc_old (no decay)
@@ -480,6 +487,7 @@ def _compute_half_life(
     if ratio <= 0:
         return None
     import math
+
     hl = window_gap_days * math.log(0.5) / math.log(ratio)
     if hl <= 0 or not math.isfinite(hl):
         return None
@@ -492,7 +500,7 @@ def _compute_half_life_from_windows(
     acc_180d: float | None,
 ) -> float | None:
     """Compute half-life using the most reliable window pair.
-    
+
     Strategy: prefer longer baselines (180→30), fall back to shorter pairs.
     Returns None when insufficient data or no decay detected.
     """
@@ -513,12 +521,12 @@ def _compute_relative_drift(
     acc_30d_map: dict[str, float],
 ) -> dict[str, int | None]:
     """Compute rank-based relative drift.
-    
+
     relative_drift = rank_180d - rank_30d
         Positive: driver gained rank (improving vs peers)
         Negative: driver lost rank (decaying vs peers)
         None: insufficient peer data
-    
+
     Rank is by accuracy (lower rank number = better).
     """
     valid_180 = {d: v for d, v in acc_180d_map.items() if v is not None and v > 0}
@@ -566,9 +574,11 @@ def _format_half_life(hl: float | None) -> str:
 # DB OPERATIONS
 # ====================================================================
 
+
 def _get_db_path() -> Path:
     try:
         from src.config import DATA_DIR
+
         return Path(DATA_DIR) / "telemetry.db"
     except Exception:
         return Path(__file__).resolve().parent.parent / "data" / "telemetry.db"
@@ -597,6 +607,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
 # LOCALIZATION HELPERS
 # ====================================================================
 
+
 def _localize_regime_tag(tag: str) -> str:
     return REGIME_TAG_VI.get(tag, tag)
 
@@ -611,9 +622,10 @@ def _localize_reputation_row(row: dict) -> dict:
 # PUBLIC API
 # ====================================================================
 
+
 def update_reputation(
-    shadow_entries: Optional[list[dict]] = None,
-    alpha_path: Optional[Path] = None,
+    shadow_entries: list[dict] | None = None,
+    alpha_path: Path | None = None,
 ) -> int:
     """Compute per-driver reputation from shadow log + attribution data.
 
@@ -688,7 +700,8 @@ def update_reputation(
                 if tag == "all":
                     acc_windows[driver][window] = w_accuracy
 
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO driver_reputation
                         (driver, regime_tag, window_days, accuracy, alpha_pct,
                          sharpe, stability, coverage, flip_rate, n_samples,
@@ -708,19 +721,23 @@ def update_reputation(
                         accuracy_90d  = excluded.accuracy_90d,
                         accuracy_180d = excluded.accuracy_180d,
                         updated_at    = excluded.updated_at
-                """, (
-                    driver, tag, window,
-                    round(effective_acc, 4),
-                    round(alpha_val, 4),
-                    round(sharpe_val, 4),
-                    round(eff_stability, 4),
-                    round(coverage, 4),
-                    effective_n,
-                    round(acc_windows[driver].get(30, 0), 4),
-                    round(acc_windows[driver].get(90, 0), 4),
-                    round(acc_windows[driver].get(180, 0), 4),
-                    now,
-                ))
+                """,
+                    (
+                        driver,
+                        tag,
+                        window,
+                        round(effective_acc, 4),
+                        round(alpha_val, 4),
+                        round(sharpe_val, 4),
+                        round(eff_stability, 4),
+                        round(coverage, 4),
+                        effective_n,
+                        round(acc_windows[driver].get(30, 0), 4),
+                        round(acc_windows[driver].get(90, 0), 4),
+                        round(acc_windows[driver].get(180, 0), 4),
+                        now,
+                    ),
+                )
                 rows_written += 1
 
     # ── Compute drift metrics per driver (regime_tag=all) ────────────
@@ -739,13 +756,16 @@ def update_reputation(
         half_life = _compute_half_life_from_windows(pd_30, pd_90, pd_180)
         rel = relative_map.get(driver)
 
-        conn.execute("""
+        conn.execute(
+            """
             UPDATE driver_reputation
             SET performance_drift = ?,
                 relative_drift    = ?,
                 half_life_days    = ?
             WHERE driver = ?
-        """, (drift, rel, half_life, driver))
+        """,
+            (drift, rel, half_life, driver),
+        )
 
     conn.commit()
     conn.close()
@@ -754,7 +774,7 @@ def update_reputation(
 
 
 def get_reputation(
-    driver: Optional[str] = None,
+    driver: str | None = None,
     window_days: int = 90,
     regime_tag: str = "all",
 ) -> list[dict]:
@@ -769,17 +789,23 @@ def get_reputation(
     """
     conn = _get_connection()
     if driver:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT * FROM driver_reputation
             WHERE driver = ? AND window_days = ? AND regime_tag = ?
             ORDER BY alpha_pct DESC
-        """, (driver, window_days, regime_tag)).fetchall()
+        """,
+            (driver, window_days, regime_tag),
+        ).fetchall()
     else:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT * FROM driver_reputation
             WHERE window_days = ? AND regime_tag = ?
             ORDER BY alpha_pct DESC
-        """, (window_days, regime_tag)).fetchall()
+        """,
+            (window_days, regime_tag),
+        ).fetchall()
     conn.close()
     return [_localize_reputation_row(dict(r)) for r in rows]
 
@@ -798,11 +824,14 @@ def get_reputation_summary(window_days: int = 90) -> dict:
         }
     """
     conn = _get_connection()
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT * FROM driver_reputation
         WHERE window_days = ? AND regime_tag = 'all'
         ORDER BY alpha_pct DESC
-    """, (window_days,)).fetchall()
+    """,
+        (window_days,),
+    ).fetchall()
     drivers = [dict(r) for r in rows]
     conn.close()
 
@@ -811,13 +840,16 @@ def get_reputation_summary(window_days: int = 90) -> dict:
         if tag == "all":
             continue
         conn = _get_connection()
-        rr = conn.execute("""
+        rr = conn.execute(
+            """
             SELECT driver, accuracy, alpha_pct, n_samples,
                    performance_drift, relative_drift, half_life_days
             FROM driver_reputation
             WHERE window_days = ? AND regime_tag = ?
             ORDER BY accuracy DESC
-        """, (window_days, tag)).fetchall()
+        """,
+            (window_days, tag),
+        ).fetchall()
         conn.close()
         regime_rows[_localize_regime_tag(tag)] = [dict(r) for r in rr]
 

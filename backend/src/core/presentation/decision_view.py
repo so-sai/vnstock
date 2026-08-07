@@ -1,6 +1,6 @@
-from .models import DecisionView, TimeHorizon, EntropyState
-from .state_labels import get_label
+from .models import DecisionView, TimeHorizon
 from .narrative_matcher import render_best_template
+from .state_labels import get_label
 
 
 def build_decision_view(
@@ -17,7 +17,7 @@ def build_decision_view(
     risk_label = get_label("risk", risk_state)
     flow_label = get_label("liquidity", flow_state)
     epistemic_label = get_label("epistemic", truth_status)
-    entropy_label = get_label("entropy", entropy_state)
+    get_label("entropy", entropy_state)
     phase_label = get_label("market_phase", market_phase)
     lci_label = get_label("lci", lci_quality) if lci_quality else None
 
@@ -48,10 +48,7 @@ def build_decision_view(
     # ── Primary conflict ──
     primary_conflict_vi = None
     if truth_status == "CONFLICTED" and flow_label and risk_label:
-        primary_conflict_vi = (
-            f"Dòng tiền {flow_label.label_vi.lower()} "
-            f"nhưng rủi ro ở mức {risk_label.label_vi.lower()}."
-        )
+        primary_conflict_vi = f"Dòng tiền {flow_label.label_vi.lower()} nhưng rủi ro ở mức {risk_label.label_vi.lower()}."
 
     # ── Urgency ──
     urgency = max(

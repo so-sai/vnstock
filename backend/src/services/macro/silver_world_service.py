@@ -1,19 +1,19 @@
-﻿"""
+"""
 Silver World Service — Fetch XAGUSD via yfinance (SI=F)
 Bổ sung Global Silver vào Precious Metals Framework.
 Sanity guard: so sánh với rolling 30d median từ DB, cảnh báo nếu lệch >50%.
 """
+
 import logging
 import os
 import sys
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -29,6 +29,7 @@ def _hydrate_path():
     if str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 _LIBS = str(Path(PROJECT_ROOT) / "backend" / "libs")
@@ -70,7 +71,7 @@ HARD_UPPER = 100.0
 SOFT_DEVIATION = 0.50
 
 
-def _get_30d_median() -> Optional[float]:
+def _get_30d_median() -> float | None:
     """Lấy median XAGUSD 30 phiên gần nhất từ DB."""
     try:
         with get_connection() as conn:
@@ -100,7 +101,7 @@ def _check_flat_line() -> bool:
         return False
 
 
-def _silver_fallback_from_db() -> Optional[float]:
+def _silver_fallback_from_db() -> float | None:
     """Fallback: last known XAGUSD from DB when yfinance fails."""
     try:
         with get_connection() as conn:
@@ -121,7 +122,7 @@ def _silver_fallback_from_db() -> Optional[float]:
     return None
 
 
-def fetch_world_silver_live() -> Optional[float]:
+def fetch_world_silver_live() -> float | None:
     """Fetch XAGUSD (SI=F) latest close via yfinance. Falls back to DB on failure."""
     now = int(datetime.now().timestamp())
     if SILVER_CACHE["price"] is not None and now - SILVER_CACHE["timestamp"] < CACHE_TTL:
@@ -148,9 +149,7 @@ def fetch_world_silver_live() -> Optional[float]:
             deviation = abs(latest / median - 1)
             if deviation > SOFT_DEVIATION:
                 SILVER_CACHE["conflicted"] = True
-                logger.warning(
-                    f"XAGUSD {latest} deviates {deviation*100:.0f}% from 30d median {median:.2f} — CONFLICTED"
-                )
+                logger.warning(f"XAGUSD {latest} deviates {deviation * 100:.0f}% from 30d median {median:.2f} — CONFLICTED")
 
         return latest
     except Exception as e:
@@ -176,7 +175,7 @@ def fetch_world_silver_history(period: str = "1y") -> pd.DataFrame:
             return pd.DataFrame()
         df = data[["Close"]].reset_index()
         df.columns = [c.lower().strip() for c in df.columns]
-        df["date"] = pd.to_datetime(df["date"], format='mixed').dt.strftime("%Y-%m-%d")
+        df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
         return df[["date", "close"]]
     except Exception as e:
         logger.error(f"World silver history fetch failed: {e}")
@@ -200,14 +199,20 @@ def seed_world_silver_to_db(period: str = "1y") -> bool:
         for _, row in df.iterrows():
             try:
                 rec = _NORM.normalize("XAGUSD", row["date"], row["value"], "yahoo")
-                v2_records.append({
-                    "variable": rec.variable, "date": rec.date,
-                    "value": rec.value, "asset_class": rec.asset_class.value,
-                    "unit": rec.unit.value, "source": rec.source.value,
-                    "raw_value": rec.raw_value, "raw_unit": rec.raw_unit,
-                    "confidence": rec.confidence,
-                })
-            except (ValueError, CanonicalValidationError):
+                v2_records.append(
+                    {
+                        "variable": rec.variable,
+                        "date": rec.date,
+                        "value": rec.value,
+                        "asset_class": rec.asset_class.value,
+                        "unit": rec.unit.value,
+                        "source": rec.source.value,
+                        "raw_value": rec.raw_value,
+                        "raw_unit": rec.raw_unit,
+                        "confidence": rec.confidence,
+                    }
+                )
+            except ValueError, CanonicalValidationError:
                 rejects += 1
 
         if v2_records:

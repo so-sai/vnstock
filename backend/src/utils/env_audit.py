@@ -1,11 +1,11 @@
-﻿import os
+import os
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
     """Path Hydrator v2.1: Auto-locate Project Root"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,7 +19,9 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
+
 
 def audit_environment():
     print("🕵️  [Environment Audit] Starting health check...")
@@ -47,6 +49,7 @@ def audit_environment():
     print("\n🏛️ Checking Internal Modules:")
     try:
         import src.config
+
         print(f"   ✅ src.config      | OK (DATA_DIR: {src.config.DATA_DIR})")
         print("   ✅ src.database    | OK")
     except Exception as e:
@@ -61,6 +64,6 @@ def audit_environment():
     else:
         print(f"   ❌ DB Path         | MISSING ({db_path})")
 
+
 if __name__ == "__main__":
     audit_environment()
-

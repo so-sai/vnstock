@@ -1,11 +1,11 @@
-﻿"""Canonical API registry — single source of truth for expected endpoints."""
+"""Canonical API registry — single source of truth for expected endpoints."""
+
 from __future__ import annotations
 
 import json
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 from src.core.cagl.models import EndpointSpec, ValidationFinding
 
@@ -41,7 +41,7 @@ class APIRegistry:
       - from a ``RouteScanner`` result (adoption mode)
     """
 
-    def __init__(self, routes: Optional[list[EndpointSpec]] = None):
+    def __init__(self, routes: list[EndpointSpec] | None = None):
         self._routes: dict[str, EndpointSpec] = {}
         if routes:
             for r in routes:
@@ -51,7 +51,7 @@ class APIRegistry:
         key = f"{spec.method}:{spec.path}"
         self._routes[key] = spec
 
-    def get(self, method: str, path: str) -> Optional[EndpointSpec]:
+    def get(self, method: str, path: str) -> EndpointSpec | None:
         return self._routes.get(f"{method}:{path}")
 
     def all(self) -> list[EndpointSpec]:
@@ -76,21 +76,25 @@ class APIRegistry:
 
         for key in registry_keys - runtime_keys:
             spec = self._routes[key]
-            findings.append(ValidationFinding(
-                severity="error",
-                category="missing",
-                path=spec.path,
-                message=f"Expected endpoint {spec.method} {spec.path} ({spec.module}) not found at runtime",
-            ))
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    category="missing",
+                    path=spec.path,
+                    message=f"Expected endpoint {spec.method} {spec.path} ({spec.module}) not found at runtime",
+                )
+            )
 
         for key in runtime_keys - registry_keys:
             spec = next(r for r in runtime if f"{r.method}:{r.path}" == key)
-            findings.append(ValidationFinding(
-                severity="warning",
-                category="unregistered",
-                path=spec.path,
-                message=f"Runtime endpoint {spec.method} {spec.path} ({spec.module}) not declared in registry",
-            ))
+            findings.append(
+                ValidationFinding(
+                    severity="warning",
+                    category="unregistered",
+                    path=spec.path,
+                    message=f"Runtime endpoint {spec.method} {spec.path} ({spec.module}) not declared in registry",
+                )
+            )
 
         return findings
 

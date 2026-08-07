@@ -51,7 +51,6 @@ USAGE:
 
 import json
 import logging
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -83,54 +82,54 @@ VIETSTOCK_METRIC_MAP = {
 # ReportTypeCode: KQ (Kết quả kinh doanh), CD (Cân đối), CSTC (Chỉ số tài chính)
 BCTT_METRIC_MAP = {
     # KQ — Income Statement
-    2216: "REVENUE",         # Doanh thu thuần về bán hàng và cung cấp dịch vụ
-    2207: "COGS",            # Giá vốn hàng bán
-    2217: "GROSS_PROFIT",    # Lợi nhuận gộp về bán hàng và cung cấp dịch vụ
+    2216: "REVENUE",  # Doanh thu thuần về bán hàng và cung cấp dịch vụ
+    2207: "COGS",  # Giá vốn hàng bán
+    2217: "GROSS_PROFIT",  # Lợi nhuận gộp về bán hàng và cung cấp dịch vụ
     2221: "FINANCIAL_REVENUE",  # Doanh thu hoạt động tài chính (không map STANDARD)
-    2222: "FINANCIAL_COST",     # Chi phí tài chính (không map STANDARD)
-    2227: "SELLING_EXPENSE",    # Chi phí bán hàng (không map STANDARD)
-    2224: "ADMIN_EXPENSE",      # Chi phí quản lý doanh nghiệp (không map STANDARD)
-    2208: "EBIT",               # Lợi nhuận thuần từ hoạt động kinh doanh
-    2209: "OTHER_INCOME",       # Lợi nhuận khác (không map STANDARD)
+    2222: "FINANCIAL_COST",  # Chi phí tài chính (không map STANDARD)
+    2227: "SELLING_EXPENSE",  # Chi phí bán hàng (không map STANDARD)
+    2224: "ADMIN_EXPENSE",  # Chi phí quản lý doanh nghiệp (không map STANDARD)
+    2208: "EBIT",  # Lợi nhuận thuần từ hoạt động kinh doanh
+    2209: "OTHER_INCOME",  # Lợi nhuận khác (không map STANDARD)
     2210: "JOINT_VENTURE_INCOME",  # Phần lợi nhuận/lỗ từ công ty liên kết (không map STANDARD)
-    2211: "PRE_TAX_INCOME",     # Tổng lợi nhuận kế toán trước thuế (không map STANDARD)
-    2212: "NET_INCOME",         # Lợi nhuận sau thuế thu nhập doanh nghiệp
+    2211: "PRE_TAX_INCOME",  # Tổng lợi nhuận kế toán trước thuế (không map STANDARD)
+    2212: "NET_INCOME",  # Lợi nhuận sau thuế thu nhập doanh nghiệp
     2214: "NET_INCOME_PARENT",  # Lợi nhuận sau thuế của cổ đông Công ty mẹ (không map STANDARD)
-    2215: "EPS",                # Lãi cơ bản trên cổ phiếu (VNÐ)
+    2215: "EPS",  # Lãi cơ bản trên cổ phiếu (VNÐ)
     # CD — Balance Sheet
-    3000: "CURRENT_ASSETS",     # Tài sản ngắn hạn
-    3003: "CASH_EQUIV",         # Tiền và các khoản tương đương tiền
+    3000: "CURRENT_ASSETS",  # Tài sản ngắn hạn
+    3003: "CASH_EQUIV",  # Tiền và các khoản tương đương tiền
     3004: "SHORT_TERM_INVEST",  # Các khoản đầu tư tài chính ngắn hạn (không map STANDARD)
-    3005: "RECEIVABLES",        # Các khoản phải thu ngắn hạn
-    3006: "INVENTORY",          # Hàng tồn kho
+    3005: "RECEIVABLES",  # Các khoản phải thu ngắn hạn
+    3006: "INVENTORY",  # Hàng tồn kho
     3007: "SHORT_TERM_ASSET_OTHER",  # Tài sản ngắn hạn khác (không map STANDARD)
-    3001: "LONG_TERM_ASSET",    # Tài sản dài hạn (không map STANDARD)
-    3009: "FIXED_ASSET",        # Tài sản cố định (không map STANDARD)
+    3001: "LONG_TERM_ASSET",  # Tài sản dài hạn (không map STANDARD)
+    3009: "FIXED_ASSET",  # Tài sản cố định (không map STANDARD)
     3010: "INVESTMENT_REAL_ESTATE",  # Bất động sản đầu tư (không map STANDARD)
-    3011: "LONG_TERM_INVEST",   # Các khoản đầu tư tài chính dài hạn (không map STANDARD)
-    2996: "TOTAL_ASSETS",       # Tổng cộng tài sản
+    3011: "LONG_TERM_INVEST",  # Các khoản đầu tư tài chính dài hạn (không map STANDARD)
+    2996: "TOTAL_ASSETS",  # Tổng cộng tài sản
     2997: "TOTAL_LIABILITIES",  # Nợ phải trả
-    3014: "CURRENT_LIAB",       # Nợ ngắn hạn
-    3017: "LONG_TERM_DEBT",     # Nợ dài hạn
-    2998: "TOTAL_EQUITY",       # Vốn chủ sở hữu
-    3063: "PAID_IN_CAPITAL",    # Vốn đầu tư của chủ sở hữu (không map STANDARD)
-    3064: "SHARE_PREMIUM",      # Thặng dư vốn cổ phần (không map STANDARD)
+    3014: "CURRENT_LIAB",  # Nợ ngắn hạn
+    3017: "LONG_TERM_DEBT",  # Nợ dài hạn
+    2998: "TOTAL_EQUITY",  # Vốn chủ sở hữu
+    3063: "PAID_IN_CAPITAL",  # Vốn đầu tư của chủ sở hữu (không map STANDARD)
+    3064: "SHARE_PREMIUM",  # Thặng dư vốn cổ phần (không map STANDARD)
     3072: "UNALLOCATED_EARNINGS",  # Lợi nhuận sau thuế chưa phân phối (không map STANDARD)
     3002: "MINORITY_INTEREST",  # Lợi ích của cổ đông thiểu số (không map STANDARD)
-    2999: "TOTAL_SOURCE",       # Tổng cộng nguồn vốn (không map STANDARD)
+    2999: "TOTAL_SOURCE",  # Tổng cộng nguồn vốn (không map STANDARD)
     # CSTC — Financial Indicators
-    53: "EPS",                  # Thu nhập trên mỗi cổ phần của 4 quý gần nhất
-    54: "BOOK_VALUE_PS",        # Giá trị sổ sách của cổ phiếu
-    55: "PE_RATIO",             # Chỉ số giá thị trường trên thu nhập (P/E)
-    57: "PB_RATIO",             # Chỉ số giá thị trường trên giá trị sổ sách (P/B)
-    41: "GROSS_MARGIN",         # Tỷ suất lợi nhuận gộp biên
-    44: "NET_MARGIN",           # Tỷ suất sinh lợi trên doanh thu thuần
-    45: "ROEA",                 # Tỷ suất lợi nhuận trên vốn chủ sở hữu bình quân
-    47: "ROAA",                 # Tỷ suất sinh lợi trên tổng tài sản bình quân
-    4: "CURRENT_RATIO",         # Tỷ số thanh toán hiện hành (ngắn hạn)
-    5: "INTEREST_COVERAGE",     # Khả năng thanh toán lãi vay
-    8: "DEBT_TO_ASSET",         # Tỷ số Nợ trên Tổng tài sản
-    11: "DEBT_TO_EQUITY",       # Tỷ số Nợ vay trên Vốn chủ sở hữu
+    53: "EPS",  # Thu nhập trên mỗi cổ phần của 4 quý gần nhất
+    54: "BOOK_VALUE_PS",  # Giá trị sổ sách của cổ phiếu
+    55: "PE_RATIO",  # Chỉ số giá thị trường trên thu nhập (P/E)
+    57: "PB_RATIO",  # Chỉ số giá thị trường trên giá trị sổ sách (P/B)
+    41: "GROSS_MARGIN",  # Tỷ suất lợi nhuận gộp biên
+    44: "NET_MARGIN",  # Tỷ suất sinh lợi trên doanh thu thuần
+    45: "ROEA",  # Tỷ suất lợi nhuận trên vốn chủ sở hữu bình quân
+    47: "ROAA",  # Tỷ suất sinh lợi trên tổng tài sản bình quân
+    4: "CURRENT_RATIO",  # Tỷ số thanh toán hiện hành (ngắn hạn)
+    5: "INTEREST_COVERAGE",  # Khả năng thanh toán lãi vay
+    8: "DEBT_TO_ASSET",  # Tỷ số Nợ trên Tổng tài sản
+    11: "DEBT_TO_EQUITY",  # Tỷ số Nợ vay trên Vốn chủ sở hữu
 }
 
 # Subset of BCTT norms that map to STANDARD_METRICS (for quick lookup)
@@ -179,8 +178,7 @@ WINDOWS_LAUNCH_FLAGS = [
 BLOCKED_RESOURCE_TYPES = {"image", "stylesheet", "font", "media"}
 
 DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
 # BCTT endpoint params (must be exact for free access)
@@ -217,8 +215,7 @@ class VietstockCrawler:
         self.entity_type = entity_type.upper()
 
     # ── Playwright fetch ─────────────────────────────────────────────────
-    def fetch_summary(self, symbol: str, max_quarters: int = 4,
-                      timeout_ms: int = 60000) -> List[Dict]:
+    def fetch_summary(self, symbol: str, max_quarters: int = 4, timeout_ms: int = 60000) -> list[dict]:
         """Render trang tài chính Vietstock, merge financeinfo + BCTT.
 
         WHY: BCTT phủ financeinfo vì có 9 quý + 46 norms (chi tiết hơn), còn
@@ -241,17 +238,16 @@ class VietstockCrawler:
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(
-                    headless=True, channel="chrome", args=WINDOWS_LAUNCH_FLAGS,
+                    headless=True,
+                    channel="chrome",
+                    args=WINDOWS_LAUNCH_FLAGS,
                 )
                 ctx = browser.new_context(
                     viewport={"width": 1920, "height": 1080},
                     user_agent=DEFAULT_USER_AGENT,
                     locale="vi-VN",
                 )
-                ctx.add_init_script(
-                    "Object.defineProperty(navigator, 'webdriver', "
-                    "{ get: () => undefined });"
-                )
+                ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
                 page = ctx.new_page()
 
                 def _route(route):
@@ -264,29 +260,24 @@ class VietstockCrawler:
                 page.route("**/*", _route)
 
                 url = VIETSTOCK_REPORT_URL.format(
-                    base=VIETSTOCK_BASE_URL, sym=symbol,
+                    base=VIETSTOCK_BASE_URL,
+                    sym=symbol,
                 )
-                resp = page.goto(url, wait_until="domcontentloaded",
-                                 timeout=timeout_ms)
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 page.wait_for_timeout(3000)
                 if resp is None or resp.status != 200:
-                    logger.warning(f"Vietstock goto {url} → "
-                                   f"status {resp.status if resp else 'None'}")
+                    logger.warning(f"Vietstock goto {url} → status {resp.status if resp else 'None'}")
                     browser.close()
                     return []
 
-                token = page.evaluate(
-                    "document.querySelector('input[name=__RequestVerificationToken]')"
-                    "?.value || ''"
-                )
+                token = page.evaluate("document.querySelector('input[name=__RequestVerificationToken]')?.value || ''")
                 if not token:
                     logger.warning("Vietstock không tìm thấy CSRF token")
                     browser.close()
                     return []
 
                 # ── Source 1: /data/financeinfo BCTQ (4 quý) ──
-                periods = self._fetch_financeinfo(page, symbol, token,
-                                                  max_quarters)
+                periods = self._fetch_financeinfo(page, symbol, token, max_quarters)
 
                 # ── Source 2: BCTT tab (9 quý, 46 norms) ──
                 bctt_periods = self._fetch_bctt_summary(page, symbol, token)
@@ -298,8 +289,7 @@ class VietstockCrawler:
 
         # Merge: BCTT overrides financeinfo cho cùng period
         merged = self._merge_periods(periods, bctt_periods)
-        logger.info(f"Vietstock {symbol}: {len(merged)} periods merged "
-                    f"(financeinfo={len(periods)}, BCTT={len(bctt_periods)})")
+        logger.info(f"Vietstock {symbol}: {len(merged)} periods merged (financeinfo={len(periods)}, BCTT={len(bctt_periods)})")
         return merged
 
     def _fetch_financeinfo(self, page, symbol, token, max_quarters):
@@ -368,7 +358,7 @@ class VietstockCrawler:
             return []
         try:
             data = json.loads(body)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return []
         if isinstance(data, dict) and "error" in data:
             logger.warning(f"Vietstock BCTT_GetListReportData lỗi: {data['error']}")
@@ -414,7 +404,7 @@ class VietstockCrawler:
             return []
         try:
             vals = json.loads(body2)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return []
         if isinstance(vals, dict) and "error" in vals:
             logger.warning(f"Vietstock BCTT detail lỗi: {vals['error']}")
@@ -446,7 +436,7 @@ class VietstockCrawler:
 
     # ── Pure parser: financeinfo ─────────────────────────────────────────
     @staticmethod
-    def parse_financeinfo_payload(payload, entity_type: str = "STANDARD") -> List[Dict]:
+    def parse_financeinfo_payload(payload, entity_type: str = "STANDARD") -> list[dict]:
         """Parse response của POST /data/financeinfo.
 
         Structure:
@@ -473,7 +463,7 @@ class VietstockCrawler:
         # Index period theo Row
         # WHY: index theo Row vì Value{i} của metric ứng với period có Row == i
         # (Row=1 mới nhất) — không giả định thứ tự mảng trả về từ server.
-        period_by_row: Dict[int, Dict] = {}
+        period_by_row: dict[int, dict] = {}
         for p in periods:
             if not isinstance(p, dict):
                 continue
@@ -514,7 +504,7 @@ class VietstockCrawler:
                         continue
                     try:
                         period[metric] = float(val)
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         continue
 
         # Chỉ giữ period có ít nhất 1 metric thật
@@ -527,8 +517,7 @@ class VietstockCrawler:
 
     # ── Pure parser: BCTT detail ─────────────────────────────────────────
     @staticmethod
-    def parse_bctt_detail_payload(norm_rows, periods_desc,
-                                  entity_type: str = "STANDARD") -> List[Dict]:
+    def parse_bctt_detail_payload(norm_rows, periods_desc, entity_type: str = "STANDARD") -> list[dict]:
         """Parse response của GET /data/GetReportDataDetailValue_BCTT_ByReportDataIds.
 
         Structure:
@@ -553,7 +542,7 @@ class VietstockCrawler:
             return []
 
         # Index periods by index (0 = newest)
-        period_by_idx: Dict[int, Dict] = {}
+        period_by_idx: dict[int, dict] = {}
         for i, p in enumerate(periods_desc):
             if not isinstance(p, dict):
                 continue
@@ -592,7 +581,7 @@ class VietstockCrawler:
                     continue
                 try:
                     period[metric] = float(val)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
 
         # Chỉ giữ period có ít nhất 1 metric thật
@@ -605,7 +594,7 @@ class VietstockCrawler:
 
     # ── Convenience: chuyển list period sang dạng DB-ready ──────────────
     @staticmethod
-    def to_db_periods(periods: List[Dict], entity_type: str = "STANDARD") -> List[Dict]:
+    def to_db_periods(periods: list[dict], entity_type: str = "STANDARD") -> list[dict]:
         """Clone periods (tránh mutate), đảm bảo _entity_type nhất quán."""
         result = []
         for p in periods:

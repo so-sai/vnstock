@@ -9,12 +9,10 @@ WHY:
 import asyncio
 import json
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
@@ -35,14 +33,25 @@ from src.core.canonical_output_adapter import localize_output
 router = APIRouter()
 
 DEFAULT_TARGETS = [
-    "FPT", "ACB", "HDB", "MBB", "VCB",
-    "HPG", "VHM", "DGC", "MWG", "GAS", "IJC", "BCM", "VPB",
+    "FPT",
+    "ACB",
+    "HDB",
+    "MBB",
+    "VCB",
+    "HPG",
+    "VHM",
+    "DGC",
+    "MWG",
+    "GAS",
+    "IJC",
+    "BCM",
+    "VPB",
 ]
 
 
 @router.get("/composite", summary="Composite Score & Epistemic Dashboard JSON")
 async def get_composite_dashboard(
-    symbols: Optional[List[str]] = Query(None, description="Danh sách mã cổ phiếu"),
+    symbols: list[str] | None = Query(None, description="Danh sách mã cổ phiếu"),
     policy: str = Query("BALANCED", description="Chính sách vận hành: CONSERVATIVE, BALANCED, AGGRESSIVE"),
 ):
     """Truy xuất Bảng điểm Tổng hợp Epistemic Composite Score (0-100) cho REST API Frontend."""
@@ -84,29 +93,34 @@ async def get_composite_dashboard(
             for r in results
         ]
 
-        return localize_output({
-            "status": "success",
-            "policy": policy_obj.name,
-            "count": len(data),
-            "generated_at": datetime.now().isoformat(),
-            "data": data,
-        })
+        return localize_output(
+            {
+                "status": "success",
+                "policy": policy_obj.name,
+                "count": len(data),
+                "generated_at": datetime.now().isoformat(),
+                "data": data,
+            }
+        )
     except Exception as e:
-        return localize_output({
-            "status": "error",
-            "message": str(e),
-            "timestamp": datetime.now().isoformat(),
-        })
+        return localize_output(
+            {
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
 
 @router.get("/data-density", summary="Deep Data Density Audit Report")
 async def get_data_density_audit(
-    symbols: Optional[List[str]] = Query(None, description="Danh sách mã cổ phiếu"),
+    symbols: list[str] | None = Query(None, description="Danh sách mã cổ phiếu"),
 ):
     """Truy xuất Báo cáo Mật độ Dữ liệu BCTC Chuyên sâu 30 quý gần nhất (2019Q1-2026Q2)."""
     syms = symbols if symbols else DEFAULT_TARGETS
     try:
         from src.audit.data_integrity_auditor import DataIntegrityAuditor
+
         auditor = DataIntegrityAuditor()
         audit_results = auditor.audit_many(syms)
 
@@ -120,21 +134,25 @@ async def get_data_density_audit(
                 "status": r.status,
                 "healed": r.healed,
             }
-for r in audit_results.values()
-         ]
+            for r in audit_results.values()
+        ]
 
-        return localize_output({
-            "status": "success",
-            "count": len(data),
-            "generated_at": datetime.now().isoformat(),
-            "data": data,
-        })
+        return localize_output(
+            {
+                "status": "success",
+                "count": len(data),
+                "generated_at": datetime.now().isoformat(),
+                "data": data,
+            }
+        )
     except Exception as e:
-        return localize_output({
-            "status": "error",
-            "message": str(e),
-            "timestamp": datetime.now().isoformat(),
-        })
+        return localize_output(
+            {
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
 
 @router.get("/vn20", summary="PTCK_VN20 Dynamic Index (Top 20 Stocks)")
@@ -142,28 +160,33 @@ async def get_vn20_index():
     """Return the dynamically built PTCK_VN20 index with sector distribution,
     silent throttle status, and multi-source fallback pipeline info."""
     from src.ptck_vn20_builder import get_vn20_api_data
+
     try:
         data = get_vn20_api_data()
-        return localize_output({
-            "status": "success",
-            "index": data.get("index", "PTCK_VN20"),
-            "policy": "PTCK_VN20_DYNAMIC",
-            "count": data.get("count", 0),
-            "built_at": data.get("built_at", ""),
-            "generated_at": data.get("built_at", ""),
-            "data_density_avg": data.get("data_density_avg", 0),
-            "fallback_active_source": data.get("fallback_active_source", "VCI"),
-            "silent_throttle_status": data.get("silent_throttle_status", {}),
-            "sector_distribution": data.get("sector_distribution", {}),
-            "index_constituents": data.get("index_constituents", []),
-            "timestamp": datetime.now().isoformat(),
-        })
+        return localize_output(
+            {
+                "status": "success",
+                "index": data.get("index", "PTCK_VN20"),
+                "policy": "PTCK_VN20_DYNAMIC",
+                "count": data.get("count", 0),
+                "built_at": data.get("built_at", ""),
+                "generated_at": data.get("built_at", ""),
+                "data_density_avg": data.get("data_density_avg", 0),
+                "fallback_active_source": data.get("fallback_active_source", "VCI"),
+                "silent_throttle_status": data.get("silent_throttle_status", {}),
+                "sector_distribution": data.get("sector_distribution", {}),
+                "index_constituents": data.get("index_constituents", []),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
     except Exception as e:
-        return localize_output({
-            "status": "error",
-            "message": str(e),
-            "timestamp": datetime.now().isoformat(),
-        })
+        return localize_output(
+            {
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
 
 @router.get("/vn20/stream")

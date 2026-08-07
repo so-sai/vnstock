@@ -1,7 +1,8 @@
-﻿"""
+"""
 Data Baking Forge (Phase 12.5) — Backfill historical OHLCV for watchlist stocks.
 Ingests 2023→2025 data via KBS API, normalizes, and bakes into daily_ohlcv.
 """
+
 import logging
 import random
 import sys
@@ -10,7 +11,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -27,11 +28,11 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 
 import pandas as pd
-
 from src.database.db_core import get_connection, save_data_upsert
 from src.providers.vnstock_provider import VnstockProvider
 
@@ -39,40 +40,53 @@ logger = logging.getLogger("data_baking_forge")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 TICKERS = [
-    'HPG', 'MBB', 'STB', 'VTO', 'VNM', 'VTP', 'MWG',
-    'SSI', 'QNS', 'TLG', 'VGI', 'VIB', 'TCB',
+    "HPG",
+    "MBB",
+    "STB",
+    "VTO",
+    "VNM",
+    "VTP",
+    "MWG",
+    "SSI",
+    "QNS",
+    "TLG",
+    "VGI",
+    "VIB",
+    "TCB",
 ]
 START_DATE = "2023-01-01"
 END_DATE = "2025-12-02"
 
+
 def bake_ticker(symbol: str) -> int:
     logger.info(f"-> Baking {symbol} from {START_DATE} to {END_DATE}...")
     try:
-        q = VnstockProvider(source='kbs')
-        df = q.history(symbol, start=START_DATE, end=END_DATE, interval='1D')
+        q = VnstockProvider(source="kbs")
+        df = q.history(symbol, start=START_DATE, end=END_DATE, interval="1D")
         if df is None or df.empty:
             logger.warning(f"   {symbol}: No data returned from API.")
             return 0
-        df = df.rename(columns={'time': 'date'})
-        df['symbol'] = symbol
-        df['source'] = 'kbs'
-        if 'adj_close' not in df.columns:
-            df['adj_close'] = df['close']
-        df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce').dt.strftime('%Y-%m-%d')
-        df = df.dropna(subset=['date'])
+        df = df.rename(columns={"time": "date"})
+        df["symbol"] = symbol
+        df["source"] = "kbs"
+        if "adj_close" not in df.columns:
+            df["adj_close"] = df["close"]
+        df["date"] = pd.to_datetime(df["date"], format="mixed", errors="coerce").dt.strftime("%Y-%m-%d")
+        df = df.dropna(subset=["date"])
         # Quote.history returns prices ÷1000; multiply back to full VND
-        for c in ['open', 'high', 'low', 'close', 'adj_close']:
+        for c in ["open", "high", "low", "close", "adj_close"]:
             if c in df.columns:
                 df[c] = df[c] * 1000.0
-        cols = ['symbol', 'date', 'open', 'high', 'low', 'close', 'adj_close', 'volume', 'source']
+        cols = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
         df = df[[c for c in cols if c in df.columns]]
         with get_connection() as conn:
-            save_data_upsert('daily_ohlcv', df, conn)
+            save_data_upsert("daily_ohlcv", df, conn)
         logger.info(f"   {symbol}: {len(df)} rows baked successfully.")
         return len(df)
     except Exception as e:
         logger.error(f"   {symbol}: FAILED — {e}")
         return 0
+
 
 def verify_bake(symbols: list):
     logger.info("\n=== VERIFYING BAKE ===")
@@ -84,6 +98,7 @@ def verify_bake(symbols: list):
                 logger.info(f"  {sym}: {r[2]} rows  [{r[0]} → {r[1]}]")
             else:
                 logger.warning(f"  {sym}: NO DATA")
+
 
 def run():
     logger.info("=== DATA BAKING FORGE ===")
@@ -107,6 +122,7 @@ def run():
     logger.info(f"\n=== BAKE COMPLETE: {success}/{len(TICKERS)} tickers, {total_rows} total rows ===")
     verify_bake(TICKERS)
     logger.info("\n=== FORGE SHUTDOWN ===")
+
 
 if __name__ == "__main__":
     run()

@@ -9,8 +9,6 @@ Do NOT add new shell permissions without corresponding assertions here.
 """
 import json
 import pathlib
-import pytest
-
 
 TAURI_DIR = pathlib.Path(__file__).parents[2] / "frontend" / "src-tauri"
 

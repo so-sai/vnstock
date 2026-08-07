@@ -1,6 +1,9 @@
 from .models import (
-    TransitionTriggerReport, TransitionStateCode, TransitionTypeCode,
-    DirectionPersistenceReport, DirectionalBiasReport,
+    DirectionalBiasReport,
+    DirectionPersistenceReport,
+    TransitionStateCode,
+    TransitionTriggerReport,
+    TransitionTypeCode,
 )
 
 _DBE_SIGN_MAP: dict[str, float] = {
@@ -35,7 +38,7 @@ def compute_transition_trigger(
     transition_type: TransitionTypeCode = "NONE"
     trigger_confidence = 0.0
 
-    current_dbe_sign = _sign(dbe.bias_code)
+    _sign(dbe.bias_code)
     current_trend = dpl.trend_quality_code
     current_regime = regime_status
 
@@ -55,16 +58,17 @@ def compute_transition_trigger(
     _prev_regime = current_regime
     _prev_trend_quality = current_trend
 
-    _ttl_history.append({
-        "transition_type": transition_type,
-        "trigger_confidence": trigger_confidence,
-    })
+    _ttl_history.append(
+        {
+            "transition_type": transition_type,
+            "trigger_confidence": trigger_confidence,
+        }
+    )
     while len(_ttl_history) > MAX_TTL_HISTORY:
         _ttl_history.pop(0)
 
     transitions_24h = sum(
-        1 for h in _ttl_history[-min(TRANSITION_LOOKBACK, len(_ttl_history)):]
-        if h["transition_type"] != "NONE"
+        1 for h in _ttl_history[-min(TRANSITION_LOOKBACK, len(_ttl_history)) :] if h["transition_type"] != "NONE"
     )
 
     if transition_type != "NONE":

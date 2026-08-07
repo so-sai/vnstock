@@ -13,7 +13,6 @@ import sqlite3
 import numpy as np
 import pandas as pd
 import pytest
-
 from src.financial.forensic_engine import (
     BENEISH_THRESHOLD,
     OUTPUT_COLUMNS,

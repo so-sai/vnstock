@@ -1,4 +1,4 @@
-﻿"""
+"""
 bp_imm.py — Module 2: Bimodal-Preserving Interacting Multiple Model.
 
 Architecture: PTD Layer 2 (Driver Inference Engine)
@@ -13,7 +13,7 @@ Specification (frozen 2026-07-09):
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -33,17 +33,20 @@ REGIME_Q_FACTOR = [0.01, 0.05, 0.20, 0.03]
 DEFAULT_OBS_NOISE = 0.10
 
 # Default transition matrix (diagonally dominant)
-DEFAULT_TRANSITION = np.array([
-    [0.85, 0.10, 0.00, 0.05],
-    [0.10, 0.75, 0.10, 0.05],
-    [0.00, 0.05, 0.90, 0.05],
-    [0.10, 0.10, 0.05, 0.75],
-])
+DEFAULT_TRANSITION = np.array(
+    [
+        [0.85, 0.10, 0.00, 0.05],
+        [0.10, 0.75, 0.10, 0.05],
+        [0.00, 0.05, 0.90, 0.05],
+        [0.10, 0.10, 0.05, 0.75],
+    ]
+)
 
 
 @dataclass
 class GaussianComponent:
     """Single Gaussian component in the mixture."""
+
     weight: float
     mean: np.ndarray
     cov: np.ndarray
@@ -52,6 +55,7 @@ class GaussianComponent:
 @dataclass
 class BP_IMM_Output:
     """Complete output from BP-IMM update step."""
+
     mixture: list[GaussianComponent]
     entropy: float
     max_kl: float
@@ -77,8 +81,7 @@ class BPIMM:
     def __init__(self, n_drivers: int = 7, n_regimes: int = 4, kl_threshold: float = 2.5):
         if n_regimes > len(REGIME_LABELS):
             raise ValueError(
-                f"n_regimes ({n_regimes}) exceeds max {len(REGIME_LABELS)}. "
-                f"Add labels to REGIME_LABELS to extend."
+                f"n_regimes ({n_regimes}) exceeds max {len(REGIME_LABELS)}. Add labels to REGIME_LABELS to extend."
             )
 
         self.n = n_drivers
@@ -101,11 +104,7 @@ class BPIMM:
 
         # ── Initial states: equal weights, zero mean, identity cov ──
         w0 = 1.0 / n_regimes
-        self.states = [
-            GaussianComponent(weight=w0, mean=np.zeros(n_drivers),
-                              cov=np.eye(n_drivers))
-            for _ in range(n_regimes)
-        ]
+        self.states = [GaussianComponent(weight=w0, mean=np.zeros(n_drivers), cov=np.eye(n_drivers)) for _ in range(n_regimes)]
 
         # ── Tracking ──
         self.entropy_history: list[float] = []
@@ -130,9 +129,7 @@ class BPIMM:
         BP_IMM_Output with mixture, entropy, max_kl, regime weights.
         """
         obs = np.asarray(observation, dtype=float).ravel()
-        assert obs.shape[0] == self.n, (
-            f"Observation dim {obs.shape[0]} != n_drivers {self.n}"
-        )
+        assert obs.shape[0] == self.n, f"Observation dim {obs.shape[0]} != n_drivers {self.n}"
 
         # 1. Mix initial conditions (IMM standard)
         mixed = self._mix_initial_conditions()
@@ -181,11 +178,7 @@ class BPIMM:
     def reset(self) -> None:
         """Reset filter to initial state."""
         w0 = 1.0 / self.M
-        self.states = [
-            GaussianComponent(weight=w0, mean=np.zeros(self.n),
-                              cov=np.eye(self.n))
-            for _ in range(self.M)
-        ]
+        self.states = [GaussianComponent(weight=w0, mean=np.zeros(self.n), cov=np.eye(self.n)) for _ in range(self.M)]
         self.entropy_history.clear()
         self.convergence_count = 0
 
@@ -195,8 +188,7 @@ class BPIMM:
         weights /= weights.sum()
         overall_mean = sum(w * s.mean for w, s in zip(weights, self.states))
         overall_cov = sum(
-            w * (s.cov + np.outer(s.mean - overall_mean, s.mean - overall_mean))
-            for w, s in zip(weights, self.states)
+            w * (s.cov + np.outer(s.mean - overall_mean, s.mean - overall_mean)) for w, s in zip(weights, self.states)
         )
         return {"mean": overall_mean, "cov": overall_cov, "n_components": len(self.states)}
 
@@ -216,17 +208,16 @@ class BPIMM:
         for j in range(self.M):
             norm = sum(self.T[i, j] * self.states[i].weight for i in range(self.M))
             if norm < 1e-10:
-                mixed.append(GaussianComponent(
-                    weight=norm,
-                    mean=np.zeros(self.n),
-                    cov=np.eye(self.n),
-                ))
+                mixed.append(
+                    GaussianComponent(
+                        weight=norm,
+                        mean=np.zeros(self.n),
+                        cov=np.eye(self.n),
+                    )
+                )
                 continue
 
-            mean_mix = sum(
-                self.T[i, j] * self.states[i].weight * self.states[i].mean
-                for i in range(self.M)
-            ) / norm
+            mean_mix = sum(self.T[i, j] * self.states[i].weight * self.states[i].mean for i in range(self.M)) / norm
 
             cov_mix = np.zeros((self.n, self.n))
             for i in range(self.M):
@@ -234,11 +225,13 @@ class BPIMM:
                 diff = self.states[i].mean - mean_mix
                 cov_mix += w * (self.states[i].cov + np.outer(diff, diff))
 
-            mixed.append(GaussianComponent(
-                weight=norm,
-                mean=mean_mix,
-                cov=(cov_mix + cov_mix.T) / 2 + 1e-6 * np.eye(self.n),
-            ))
+            mixed.append(
+                GaussianComponent(
+                    weight=norm,
+                    mean=mean_mix,
+                    cov=(cov_mix + cov_mix.T) / 2 + 1e-6 * np.eye(self.n),
+                )
+            )
 
         return mixed
 
@@ -252,11 +245,13 @@ class BPIMM:
             cov_pred = self.F[i] @ mixed[i].cov @ self.F[i].T + self.Q[i]
             # Mode probability prediction: μ_j(t|t-1) = Σ_i T_{i,j} · μ_i(t-1)
             mu_pred = mixed[i].weight
-            predictions.append(GaussianComponent(
-                weight=max(mu_pred, 1e-10),
-                mean=mean_pred,
-                cov=(cov_pred + cov_pred.T) / 2,
-            ))
+            predictions.append(
+                GaussianComponent(
+                    weight=max(mu_pred, 1e-10),
+                    mean=mean_pred,
+                    cov=(cov_pred + cov_pred.T) / 2,
+                )
+            )
         return predictions
 
     # ── Private: KL Divergence ────────────────────────────────────────
@@ -291,21 +286,16 @@ class BPIMM:
         """Collapse mixture to single Gaussian (moment-preserving)."""
         w_sum = sum(s.weight for s in states)
         if w_sum < 1e-10:
-            return GaussianComponent(weight=1.0, mean=np.zeros_like(states[0].mean),
-                                     cov=np.eye(len(states[0].mean)))
+            return GaussianComponent(weight=1.0, mean=np.zeros_like(states[0].mean), cov=np.eye(len(states[0].mean)))
 
         mixed_mean = sum(s.weight * s.mean for s in states) / w_sum
-        mixed_cov = sum(
-            s.weight * (s.cov + np.outer(s.mean - mixed_mean, s.mean - mixed_mean))
-            for s in states
-        ) / w_sum
+        mixed_cov = sum(s.weight * (s.cov + np.outer(s.mean - mixed_mean, s.mean - mixed_mean)) for s in states) / w_sum
         mixed_cov = (mixed_cov + mixed_cov.T) / 2 + 1e-6 * np.eye(len(mixed_mean))
         return GaussianComponent(weight=1.0, mean=mixed_mean, cov=mixed_cov)
 
     # ── Private: Update ───────────────────────────────────────────────
 
-    def _update_step(self, states: list[GaussianComponent],
-                     obs: np.ndarray) -> list[GaussianComponent]:
+    def _update_step(self, states: list[GaussianComponent], obs: np.ndarray) -> list[GaussianComponent]:
         """Kalman update for each component."""
         updated = []
         for s in states:
@@ -331,8 +321,7 @@ class BPIMM:
         return updated
 
     @staticmethod
-    def _gaussian_loglik(z: np.ndarray, mean: np.ndarray,
-                         cov: np.ndarray) -> float:
+    def _gaussian_loglik(z: np.ndarray, mean: np.ndarray, cov: np.ndarray) -> float:
         """Log-likelihood under multivariate Gaussian."""
         k = len(z)
         delta = z - mean
@@ -344,14 +333,13 @@ class BPIMM:
             return -0.5 * (k * np.log(2 * np.pi) + log_det + quad)
         except np.linalg.LinAlgError:
             diag_cov = np.diag(cov) + 1e-10
-            quad = float(np.sum(delta ** 2 / diag_cov))
+            quad = float(np.sum(delta**2 / diag_cov))
             log_det = float(np.sum(np.log(diag_cov)))
             return -0.5 * (k * np.log(2 * np.pi) + log_det + quad)
 
     # ── Private: Adaptive Pruning ─────────────────────────────────────
 
-    def _adaptive_prune(self, states: list[GaussianComponent],
-                        entropy: float, n_before_mix: int) -> list[GaussianComponent]:
+    def _adaptive_prune(self, states: list[GaussianComponent], entropy: float, n_before_mix: int) -> list[GaussianComponent]:
         """
         Entropy-based pruning:
           entropy < 0.5 → collapse to single component
@@ -377,19 +365,23 @@ class BPIMM:
         """
         if len(states) == 1:
             current = states[0]
-            expanded = [GaussianComponent(
-                weight=current.weight * 0.7,
-                mean=current.mean.copy(),
-                cov=current.cov.copy(),
-            )]
+            expanded = [
+                GaussianComponent(
+                    weight=current.weight * 0.7,
+                    mean=current.mean.copy(),
+                    cov=current.cov.copy(),
+                )
+            ]
             diag = np.sqrt(np.maximum(np.diag(current.cov), 1e-3))
             for i in range(1, self.M):
                 offset = np.random.randn(self.n) * diag * 2.0
-                expanded.append(GaussianComponent(
-                    weight=current.weight * 0.3 / (self.M - 1),
-                    mean=current.mean + offset,
-                    cov=current.cov * 3.0,
-                ))
+                expanded.append(
+                    GaussianComponent(
+                        weight=current.weight * 0.3 / (self.M - 1),
+                        mean=current.mean + offset,
+                        cov=current.cov * 3.0,
+                    )
+                )
             return expanded
 
         # If M > current, pad with zero-weight components from prior
@@ -397,15 +389,16 @@ class BPIMM:
         remaining = self.M - len(expanded)
         w_remain = 0.1 / remaining
         for _ in range(remaining):
-            expanded.append(GaussianComponent(
-                weight=w_remain,
-                mean=np.zeros(self.n),
-                cov=3.0 * np.eye(self.n),
-            ))
+            expanded.append(
+                GaussianComponent(
+                    weight=w_remain,
+                    mean=np.zeros(self.n),
+                    cov=3.0 * np.eye(self.n),
+                )
+            )
         return expanded
 
     def _normalize_weights(self, states: list[GaussianComponent]) -> list[GaussianComponent]:
         """Ensure weights sum to 1."""
         w_sum = max(sum(s.weight for s in states), 1e-15)
-        return [GaussianComponent(weight=s.weight / w_sum, mean=s.mean, cov=s.cov)
-                for s in states]
+        return [GaussianComponent(weight=s.weight / w_sum, mean=s.mean, cov=s.cov) for s in states]

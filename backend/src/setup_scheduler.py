@@ -32,15 +32,17 @@ import sys
 from pathlib import Path
 
 if isinstance(sys.stdout, io.TextIOWrapper):
-    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+    if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
-elif hasattr(sys.stdout, 'buffer'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+elif hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -53,6 +55,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -183,19 +186,19 @@ TASKS = [
     },
 ]
 
+
 def _build_args(task: dict) -> list:
     """Mảng tham số chuẩn cho subprocess.run — KHÔNG có /SC trùng lặp.
 
     LƯU Ý: /COMMENT bị schtasks.exe trên hệ thống này từ chối
     ("Invalid argument/option"), nên không dùng — task name đã mô tả đủ.
     """
-    args = ["schtasks", "/Create", "/TN", task["name"],
-            "/TR", task["action"],
-            "/SC", task["frequency"]]
+    args = ["schtasks", "/Create", "/TN", task["name"], "/TR", task["action"], "/SC", task["frequency"]]
     if task.get("schedule"):
         args += shlex.split(task["schedule"])
     args += ["/RL", task["run_level"], "/F"]
     return args
+
 
 def setup_tasks():
     print("\n" + "=" * 60)
@@ -212,9 +215,7 @@ def setup_tasks():
         print(f"   🔧 Lệnh: {task['action']}")
         print(f"   ⏰ Lịch: /SC {task['frequency']} {task['schedule']}")
 
-        result = subprocess.run(
-            cmd_args, capture_output=True, text=True,
-            encoding="utf-8", errors="replace")
+        result = subprocess.run(cmd_args, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode == 0:
             print("   ✅ THÀNH CÔNG\n")
         else:
@@ -229,6 +230,7 @@ def setup_tasks():
         print(f'   schtasks /Delete /TN "{task["name"]}" /F')
     print("=" * 60)
 
+
 def remove_tasks():
     print("\n🗑️ Xóa tất cả PTCK tasks...")
     for task in TASKS:
@@ -237,8 +239,10 @@ def remove_tasks():
         print(f"   ✅ Đã xóa: {task['name']}")
     print("✅ Hoàn tất.")
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="PTCK Task Scheduler Manager")
     parser.add_argument("--setup", action="store_true", help="Tạo Windows Scheduled Tasks")
     parser.add_argument("--remove", action="store_true", help="Xóa tất cả PTCK tasks")

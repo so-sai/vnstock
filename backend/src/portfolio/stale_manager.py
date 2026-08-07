@@ -1,4 +1,4 @@
-﻿"""StalePositionManager — Quản lý vốn kẹt (Double Signal) với FIFO hạch toán.
+"""StalePositionManager — Quản lý vốn kẹt (Double Signal) với FIFO hạch toán.
 
 FIFO: Mỗi campaign cũ là một lớp chi phí riêng, không gộp giá vốn.
 Write-off LIFO: Campaign mới nhất thanh lý trước.
@@ -16,12 +16,13 @@ SUB-LEDGER ACCOUNTING SEPARATION (2026-07-09):
 """
 
 import json
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
-from src.portfolio.system_state import lock as _lock_state, unlock as _unlock_state, update_escrow
+from src.portfolio.system_state import lock as _lock_state
+from src.portfolio.system_state import unlock as _unlock_state
+from src.portfolio.system_state import update_escrow
 
 _DATA_DIR = Path(__file__).resolve().parents[3] / "backend" / "data"
 _STALE_PATH: Path = _DATA_DIR / "stale_positions.json"
@@ -35,6 +36,7 @@ def _set_stale_path(path: Path):
 @dataclass
 class StaleLayer:
     """Một lớp vốn kẹt từ một chiến dịch cũ (FIFO layer)."""
+
     campaign_id: str
     stale_pct: float
     entry_price: float = 0.0
@@ -46,7 +48,7 @@ class StaleLayer:
 
 @dataclass
 class EscrowEntry:
-    source: str       # "writeoff" | "dividend" | "rights" | "PTD_RISK_ON_SURPLUS"
+    source: str  # "writeoff" | "dividend" | "rights" | "PTD_RISK_ON_SURPLUS"
     campaign_id: str
     amount: float
     description: str = ""
@@ -71,9 +73,9 @@ class StalePositionManager:
     def _load(self):
         try:
             data = json.loads(_STALE_PATH.read_text(encoding="utf-8"))
-            self._layers: list[StaleLayer] = [StaleLayer(**l) for l in data.get("layers", [])]
+            self._layers: list[StaleLayer] = [StaleLayer(**lyr) for lyr in data.get("layers", [])]
             self._escrow: list[EscrowEntry] = [EscrowEntry(**e) for e in data.get("escrow", [])]
-        except (FileNotFoundError, json.JSONDecodeError):
+        except FileNotFoundError, json.JSONDecodeError:
             self._layers: list[StaleLayer] = []
             self._escrow: list[EscrowEntry] = []
 
@@ -81,19 +83,28 @@ class StalePositionManager:
         _STALE_PATH.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "layers": [
-                {"campaign_id": l.campaign_id, "stale_pct": l.stale_pct,
-                 "entry_price": l.entry_price, "quantity": l.quantity,
-                 "current_price": l.current_price, "realized_pnl": l.realized_pnl,
-                 "status": l.status}
-                for l in self._layers
+                {
+                    "campaign_id": lyr.campaign_id,
+                    "stale_pct": lyr.stale_pct,
+                    "entry_price": lyr.entry_price,
+                    "quantity": lyr.quantity,
+                    "current_price": lyr.current_price,
+                    "realized_pnl": lyr.realized_pnl,
+                    "status": lyr.status,
+                }
+                for lyr in self._layers
             ],
             "escrow": [
-                {"source": e.source, "campaign_id": e.campaign_id,
-                 "amount": e.amount, "description": e.description,
-                 "frozen": e.frozen}
+                {
+                    "source": e.source,
+                    "campaign_id": e.campaign_id,
+                    "amount": e.amount,
+                    "description": e.description,
+                    "frozen": e.frozen,
+                }
                 for e in self._escrow
             ],
-            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "last_updated": datetime.now(UTC).isoformat(),
         }
         _STALE_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -120,7 +131,7 @@ class StalePositionManager:
 
     def writeoff_lifo(self) -> dict:
         """Thanh lý campaign mới nhất trước (LIFO = đảo ngược FIFO)."""
-        stale = [l for l in self._layers if l.status == "STALE"]
+        stale = [lyr for lyr in self._layers if lyr.status == "STALE"]
         if not stale:
             return {"written": [], "total_proceeds": 0.0}
 
@@ -129,12 +140,14 @@ class StalePositionManager:
         layer.realized_pnl = proceeds - (layer.entry_price * layer.quantity)
         layer.status = "WRITTEN_OFF"
 
-        self._escrow.append(EscrowEntry(
-            source="writeoff",
-            campaign_id=layer.campaign_id,
-            amount=proceeds,
-            description=f"LIFO write-off {layer.campaign_id}",
-        ))
+        self._escrow.append(
+            EscrowEntry(
+                source="writeoff",
+                campaign_id=layer.campaign_id,
+                amount=proceeds,
+                description=f"LIFO write-off {layer.campaign_id}",
+            )
+        )
         update_escrow(self.escrow_balance)
         self._save()
 
@@ -143,8 +156,14 @@ class StalePositionManager:
             _unlock_state()
 
         return {
-            "written": [{"campaign_id": layer.campaign_id, "stale_pct": layer.stale_pct,
-                         "proceeds": round(proceeds, 2), "realized_pnl": round(layer.realized_pnl, 2)}],
+            "written": [
+                {
+                    "campaign_id": layer.campaign_id,
+                    "stale_pct": layer.stale_pct,
+                    "proceeds": round(proceeds, 2),
+                    "realized_pnl": round(layer.realized_pnl, 2),
+                }
+            ],
             "total_proceeds": round(proceeds, 2),
             "remaining_stale_pct": self.total_stale_pct,
             "escrow_balance": self.escrow_balance,
@@ -165,17 +184,23 @@ class StalePositionManager:
                 layer.realized_pnl = (layer.current_price - layer.entry_price) * layer.quantity
                 layer.status = "RECLAIMED"
 
-                self._escrow.append(EscrowEntry(
-                    source="reclaim",
-                    campaign_id=campaign_id,
-                    amount=0.0,
-                    description=f"Reclaim {campaign_id} — closed old position",
-                ))
+                self._escrow.append(
+                    EscrowEntry(
+                        source="reclaim",
+                        campaign_id=campaign_id,
+                        amount=0.0,
+                        description=f"Reclaim {campaign_id} — closed old position",
+                    )
+                )
                 self._save()
                 if self.total_stale_pct < self.max_drawdown_pct:
                     _unlock_state()
-                return {"success": True, "campaign_id": campaign_id, "status": "RECLAIMED",
-                        "realized_pnl": round(layer.realized_pnl, 2)}
+                return {
+                    "success": True,
+                    "campaign_id": campaign_id,
+                    "status": "RECLAIMED",
+                    "realized_pnl": round(layer.realized_pnl, 2),
+                }
         return {"success": False, "reason": "LAYER_NOT_FOUND"}
 
     # ── Corporate Actions ─────────────────────────────────
@@ -183,10 +208,14 @@ class StalePositionManager:
     def record_corporate_action(self, campaign_id: str, source: str, amount: float) -> dict:
         """Ghi nhận dividend / rights → Escrow Cache."""
         amount = max(0.0, amount)
-        self._escrow.append(EscrowEntry(
-            source=source, campaign_id=campaign_id, amount=amount,
-            description=f"Corporate action: {source} on {campaign_id}",
-        ))
+        self._escrow.append(
+            EscrowEntry(
+                source=source,
+                campaign_id=campaign_id,
+                amount=amount,
+                description=f"Corporate action: {source} on {campaign_id}",
+            )
+        )
         update_escrow(self.escrow_balance)
         self._save()
         return {"source": source, "amount": round(amount, 2), "escrow_balance": self.escrow_balance}
@@ -199,17 +228,18 @@ class StalePositionManager:
         if amount < 1e-6:
             return {"source": "PTD_RISK_ON_SURPLUS", "amount": 0.0}
 
-        self._escrow.append(EscrowEntry(
-            source="PTD_RISK_ON_SURPLUS",
-            campaign_id=f"PTD_{len(self._escrow) + 1:04d}",
-            amount=amount,
-            description="Surplus frozen by PTD risk_on_scalar penalty",
-            frozen=True,
-        ))
+        self._escrow.append(
+            EscrowEntry(
+                source="PTD_RISK_ON_SURPLUS",
+                campaign_id=f"PTD_{len(self._escrow) + 1:04d}",
+                amount=amount,
+                description="Surplus frozen by PTD risk_on_scalar penalty",
+                frozen=True,
+            )
+        )
         update_escrow(self.escrow_balance)
         self._save()
-        return {"source": "PTD_RISK_ON_SURPLUS", "amount": round(amount, 2),
-                "total_frozen": self.ptd_frozen_surplus}
+        return {"source": "PTD_RISK_ON_SURPLUS", "amount": round(amount, 2), "total_frozen": self.ptd_frozen_surplus}
 
     def release_ptd_escrow(self) -> float:
         """Release all frozen PTD surplus when governor confirms safety.
@@ -228,13 +258,11 @@ class StalePositionManager:
 
     @property
     def ptd_frozen_surplus(self) -> float:
-        return round(sum(e.amount for e in self._escrow
-                         if e.source == "PTD_RISK_ON_SURPLUS" and e.frozen), 2)
+        return round(sum(e.amount for e in self._escrow if e.source == "PTD_RISK_ON_SURPLUS" and e.frozen), 2)
 
     @property
     def ptd_releasable(self) -> float:
-        return round(sum(e.amount for e in self._escrow
-                         if e.source == "PTD_RISK_ON_SURPLUS" and not e.frozen), 2)
+        return round(sum(e.amount for e in self._escrow if e.source == "PTD_RISK_ON_SURPLUS" and not e.frozen), 2)
 
     # ── Properties ────────────────────────────────────────
 
@@ -246,7 +274,7 @@ class StalePositionManager:
 
     @property
     def total_stale_pct(self) -> float:
-        return round(sum(l.stale_pct for l in self._layers if l.status == "STALE"), 4)
+        return round(sum(lyr.stale_pct for lyr in self._layers if lyr.status == "STALE"), 4)
 
     @property
     def hard_shutdown(self) -> bool:
@@ -258,7 +286,7 @@ class StalePositionManager:
 
     @property
     def stale_pcts(self) -> list[float]:
-        return [l.stale_pct for l in self._layers if l.status == "STALE"]
+        return [lyr.stale_pct for lyr in self._layers if lyr.status == "STALE"]
 
     @property
     def sub_ledger_ptd(self) -> dict:
@@ -272,7 +300,7 @@ class StalePositionManager:
     def status(self) -> dict:
         return {
             "total_layers": len(self._layers),
-            "stale_layers": len([l for l in self._layers if l.status == "STALE"]),
+            "stale_layers": len([lyr for lyr in self._layers if lyr.status == "STALE"]),
             "stale_pcts": self.stale_pcts,
             "total_stale_pct": self.total_stale_pct,
             "escrow_balance": self.escrow_balance,

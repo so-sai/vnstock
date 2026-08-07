@@ -54,7 +54,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -84,7 +84,7 @@ PROJECT_ROOT = _hydrate_path()
 #   kind (booming vs friction): POSITIVE_BOOM (amplifying) or NEGATIVE_FRICTION (dampening)
 #   scale:      Excess scaling factor (default 4.0)
 
-INTERACTION_RULES: List[Dict[str, Any]] = [
+INTERACTION_RULES: list[dict[str, Any]] = [
     {
         "name": "CHINA_COMMODITY_SUPER_CYCLE",
         "pair": ("China_Economy", "Commodity_Cycle"),
@@ -150,7 +150,7 @@ class InteractionResult:
     sector: str
     multiplier: float  # Clamped to [0.70, 1.35]
     raw_multiplier: float  # Before clamping
-    active_synergies: List[Dict[str, Any]]  # List of triggered rules
+    active_synergies: list[dict[str, Any]]  # List of triggered rules
     n_positive: int  # Count of positive synergies
     n_negative: int  # Count of negative frictions
     description: str  # Human-readable summary
@@ -179,10 +179,10 @@ class InteractionEngine:
       adjusted_score = raw_score * result.multiplier
     """
 
-    def __init__(self, custom_rules: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, custom_rules: list[dict[str, Any]] | None = None):
         self.rules = custom_rules or INTERACTION_RULES
 
-    def compute(self, macro_vector: Dict[str, float], sector: str) -> InteractionResult:
+    def compute(self, macro_vector: dict[str, float], sector: str) -> InteractionResult:
         """Compute non-linear interaction multiplier for a sector.
 
         Args:
@@ -261,7 +261,7 @@ class InteractionEngine:
             description=summary,
         )
 
-    def compute_all_sectors(self, macro_vector: Dict[str, float]) -> Dict[str, InteractionResult]:
+    def compute_all_sectors(self, macro_vector: dict[str, float]) -> dict[str, InteractionResult]:
         """Compute interaction multipliers for all defined sectors.
 
         Args:

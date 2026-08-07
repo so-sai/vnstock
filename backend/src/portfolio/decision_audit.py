@@ -1,4 +1,4 @@
-﻿"""
+"""
 decision_audit.py — Append-only JSONL Audit Trail
 
 Ghi mọi chuyển trạng thái quyết định kèm params_hash (chữ ký config).
@@ -9,9 +9,8 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ ALLOWED_STATES = {"THAM GIA FULL", "THAM GIA", "THAM GIA DO", "QUAN SAT", "GIAM 
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -63,15 +62,22 @@ def _valid_entry(entry: dict) -> bool:
     return True
 
 
-def log_transition(prev_state: str, new_state: str, decision_id: str,
-                   params_hash: str, confidence: float, delta_sa: float,
-                   regime: str, trigger: str = "machine") -> None:
+def log_transition(
+    prev_state: str,
+    new_state: str,
+    decision_id: str,
+    params_hash: str,
+    confidence: float,
+    delta_sa: float,
+    regime: str,
+    trigger: str = "machine",
+) -> None:
     """Ghi 1 dòng JSONL — fire-and-forget."""
     if prev_state == new_state:
         return  # không log nếu không có transition
 
     entry = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "id": decision_id,
         "from": prev_state,
         "to": new_state,
@@ -95,13 +101,13 @@ def log_transition(prev_state: str, new_state: str, decision_id: str,
         logger.warning("[AUDIT] Write failed: %s", e)
 
 
-def read_entries(limit: Optional[int] = None) -> list[dict]:
+def read_entries(limit: int | None = None) -> list[dict]:
     """Đọc các entry hợp lệ từ file audit."""
     if not AUDIT_PATH.exists():
         return []
     valid = []
     try:
-        with open(str(AUDIT_PATH), "r", encoding="utf-8") as f:
+        with open(str(AUDIT_PATH), encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -110,7 +116,7 @@ def read_entries(limit: Optional[int] = None) -> list[dict]:
                     entry = json.loads(line)
                     if _valid_entry(entry):
                         valid.append(entry)
-                except (json.JSONDecodeError, ValueError):
+                except json.JSONDecodeError, ValueError:
                     continue
     except Exception as e:
         logger.warning("[AUDIT] Read failed: %s", e)
@@ -129,7 +135,7 @@ def integrity_check() -> tuple[int, int]:
     total = 0
     corrupt = 0
     try:
-        with open(str(AUDIT_PATH), "r", encoding="utf-8") as f:
+        with open(str(AUDIT_PATH), encoding="utf-8") as f:
             pos = 0
             for line in f:
                 total += 1
@@ -143,7 +149,7 @@ def integrity_check() -> tuple[int, int]:
                         last_valid_pos = f.tell()
                     else:
                         corrupt += 1
-                except (json.JSONDecodeError, ValueError):
+                except json.JSONDecodeError, ValueError:
                     corrupt += 1
                     last_valid_pos = pos  # pos at start of corrupt line
                     break  # corruption only at end

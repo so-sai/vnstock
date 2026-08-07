@@ -1,4 +1,4 @@
-﻿"""structure_evolution.py — Tầng Tiến hóa Cấu trúc (SEL)
+"""structure_evolution.py — Tầng Tiến hóa Cấu trúc (SEL)
 
 Kiến trúc:
   1. SpaceNormalizationLayer — Robust Scaler + Whitening (PCA chéo)
@@ -12,16 +12,15 @@ Usage:
   sel = StructureEvolutionLayer()
   result = sel.assess(current_state_vector)
 """
+
 import json
 import logging
 import sys
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
-import pandas as pd
 import ot
 
 # Statsmodels ADF có thể phát RuntimeWarning trên chuỗi ngắn — vô hại.
@@ -31,7 +30,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="statsmodels")
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -48,7 +47,6 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
-
 from src.database.db_core import get_connection
 
 DATA_DIR = src.config.DATA_DIR
@@ -65,22 +63,26 @@ STATE_DIR = Path(str(DATA_DIR)) / "probe_cache"
 # Default reference regimes (seed data — will be updated dynamically)
 INITIAL_REFERENCE_REGIMES = {
     "stable_ranging": {
-        "label": "DAO ĐỘNG ỔN ĐỊNH", "source": "seed",
+        "label": "DAO ĐỘNG ỔN ĐỊNH",
+        "source": "seed",
         "feature_mean": [0.20, 0.30, 0.10, 0.50, 0.30, 0.01, 0.30],
         "feature_std": [0.05, 0.10, 0.05, 0.10, 0.10, 0.02, 0.15],
     },
     "moderate_bull": {
-        "label": "TĂNG TRƯỞNG VỪA", "source": "seed",
+        "label": "TĂNG TRƯỞNG VỪA",
+        "source": "seed",
         "feature_mean": [0.15, 0.20, 0.05, 0.70, 0.50, -0.02, 0.10],
         "feature_std": [0.05, 0.08, 0.03, 0.10, 0.15, 0.03, 0.10],
     },
     "liquidity_stress": {
-        "label": "CĂNG THẲNG THANH KHOẢN", "source": "seed",
+        "label": "CĂNG THẲNG THANH KHOẢN",
+        "source": "seed",
         "feature_mean": [0.60, 0.80, 0.60, 0.30, 0.40, 0.05, 0.80],
         "feature_std": [0.10, 0.15, 0.15, 0.10, 0.15, 0.04, 0.15],
     },
     "extreme_panic": {
-        "label": "HOẢNG LOẠN CỰC ĐỘ", "source": "seed",
+        "label": "HOẢNG LOẠN CỰC ĐỘ",
+        "source": "seed",
         "feature_mean": [0.90, 1.20, 0.90, 0.15, 0.60, 0.10, 1.00],
         "feature_std": [0.10, 0.20, 0.20, 0.08, 0.20, 0.05, 0.00],
     },
@@ -152,12 +154,12 @@ class WassersteinEngine:
 
     def __init__(self, reg: float = 0.01):
         self.reg = reg
-        self._w1_history: List[float] = []
+        self._w1_history: list[float] = []
         # Chẩn đoán độ ổn định số học (audit trail)
         self.numerical_diagnostics = {
-            "emd2_exact": 0,          # Primary success
+            "emd2_exact": 0,  # Primary success
             "sinkhorn_fallbacks": 0,  # emd2 failed → sinkhorn
-            "l2_fallbacks": 0,        # both failed
+            "l2_fallbacks": 0,  # both failed
         }
 
     @staticmethod
@@ -184,7 +186,7 @@ class WassersteinEngine:
             M = M / mmax
         return np.ascontiguousarray(M, dtype=np.float64)
 
-    def _stable_ot(self, p: np.ndarray, q: np.ndarray, M: np.ndarray) -> Tuple[float, str]:
+    def _stable_ot(self, p: np.ndarray, q: np.ndarray, M: np.ndarray) -> tuple[float, str]:
         """Optimal Transport: emd2 Primary → Sinkhorn Fallback → L2.
 
         Returns: (w1_value, method_used). Trả -1.0 nếu cần L2 proxy (sentinel).
@@ -210,8 +212,7 @@ class WassersteinEngine:
         for reg in self.SINKHORN_FALLBACK_LADDER:
             with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
                 try:
-                    val = ot.sinkhorn2(p, q, M, reg=reg, numItermax=2000,
-                                       stopThr=1e-9, method="sinkhorn_stabilized")
+                    val = ot.sinkhorn2(p, q, M, reg=reg, numItermax=2000, stopThr=1e-9, method="sinkhorn_stabilized")
                     w1 = float(np.asarray(val).ravel()[0])
                 except Exception as e:
                     logger.debug(f"[SEL_OT] Sinkhorn fallback reg={reg} raised: {e}")
@@ -237,14 +238,12 @@ class WassersteinEngine:
         M = self._build_cost_matrix(p, q)
         w1, method = self._stable_ot(p, q, M)
         if method == "l2_proxy" or w1 < 0:
-            w1 = float(np.sqrt(np.mean((np.asarray(P, np.float64) -
-                                        np.asarray(Q, np.float64)) ** 2)))
+            w1 = float(np.sqrt(np.mean((np.asarray(P, np.float64) - np.asarray(Q, np.float64)) ** 2)))
         self._w1_history.append(w1)
         return w1
 
     @staticmethod
-    def compute_pairwise_w1_matrix(vectors: List[np.ndarray],
-                                   reg: float = 0.01) -> np.ndarray:
+    def compute_pairwise_w1_matrix(vectors: list[np.ndarray], reg: float = 0.01) -> np.ndarray:
         """Ma trận W1 giữa tất cả các cặp vector — dùng cùng engine (emd2 primary)."""
         n = len(vectors)
         if n < 2:
@@ -277,7 +276,7 @@ class DynamicThresholding:
     NOVELTY_BAND_K = 3.0
 
     def __init__(self):
-        self.w1_history: List[float] = []
+        self.w1_history: list[float] = []
         self.theta_stable: float = 0.15
         self.theta_novelty: float = 0.65
         self._percentile_99: float = 0.65
@@ -298,10 +297,7 @@ class DynamicThresholding:
     def _save_history(self):
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         try:
-            W1_LIBRARY_FILE.write_text(
-                json.dumps({"w1_history": self.w1_history[-500:]}),
-                encoding="utf-8"
-            )
+            W1_LIBRARY_FILE.write_text(json.dumps({"w1_history": self.w1_history[-500:]}), encoding="utf-8")
         except Exception:
             pass
 
@@ -311,8 +307,7 @@ class DynamicThresholding:
             self._percentile_99 = float(np.percentile(arr, 99))
             self._sigma_w1 = float(np.std(arr))
             # theta_stable: P30 với floor cứng 0.10
-            self.theta_stable = max(float(np.percentile(arr, 30)),
-                                    self.THETA_STABLE_FLOOR)
+            self.theta_stable = max(float(np.percentile(arr, 30)), self.THETA_STABLE_FLOOR)
             # theta_novelty: DẢI BĂNG ĐỘNG (Dynamic Band) — không dùng magic number.
             #   theta_novelty = max(theta_stable + sigma_W1 * k, P99)
             # Khi phân phối hẹp (sigma nhỏ, P99 nhỏ do EMD exact), band bám sát
@@ -339,7 +334,7 @@ class DynamicThresholding:
         """Kiểm tra W1 có vượt ngưỡng novelty (P99)."""
         return w1 >= self.theta_novelty
 
-    def get_survival_params(self, w1: float) -> Dict:
+    def get_survival_params(self, w1: float) -> dict:
         """Tham số chế độ Survival khi W1 >= theta_novelty."""
         inflation_factor = 1.0 + w1 * 2.0
         return {
@@ -362,7 +357,7 @@ class StationarityValidator:
     def __init__(self, min_samples: int = MIN_SAMPLES_FOR_REGIME):
         self.min_samples = min_samples
 
-    def validate(self, data_series: np.ndarray) -> Dict:
+    def validate(self, data_series: np.ndarray) -> dict:
         """Kiểm tra tính dừng của chuỗi dữ liệu.
 
         Returns:
@@ -405,8 +400,8 @@ class StationarityValidator:
         if window >= 5:
             w1_internal = []
             for i in range(0, len(samples) - window, window // 2):
-                s1 = samples[i:i + window]
-                s2 = samples[i + window:i + 2 * window]
+                s1 = samples[i : i + window]
+                s2 = samples[i + window : i + 2 * window]
                 if len(s1) == len(s2) and len(s1) >= 5:
                     w = WassersteinEngine().compute_w1(s1, s2)
                     w1_internal.append(w)
@@ -445,9 +440,7 @@ class StationarityValidator:
         }
 
     @staticmethod
-    def build_reference_regime(data_series: np.ndarray,
-                               label: str,
-                               w1_distances: List[float]) -> Dict:
+    def build_reference_regime(data_series: np.ndarray, label: str, w1_distances: list[float]) -> dict:
         """Tạo mẫu Reference Regime mới từ dữ liệu đã kiểm định."""
         return {
             "label": label,
@@ -475,10 +468,10 @@ class SurvivalGovernor:
     """
 
     def __init__(self):
-        self.survival_data: List[np.ndarray] = []
+        self.survival_data: list[np.ndarray] = []
         self.survival_start: str | None = None
 
-    def enter(self, w1: float, params: Dict) -> Dict:
+    def enter(self, w1: float, params: dict) -> dict:
         """Kích hoạt Survival Mode."""
         self.survival_start = datetime.now().isoformat()
         self.survival_data = []
@@ -541,7 +534,7 @@ class StructureEvolutionLayer:
         # Mốc thời gian T — quyết định biên anti-lookahead.
         self.as_of: str = self._resolve_as_of(as_of)
 
-        self.regime_library: Dict = {}
+        self.regime_library: dict = {}
         self._load_regime_library()
 
         # Current state
@@ -550,8 +543,8 @@ class StructureEvolutionLayer:
         self.state: str = "NORMAL"
         self.hdr_limit: float | None = None
         self.is_survival: bool = False
-        self.survival_params: Dict = {}
-        self.stationarity_check: Dict = {}
+        self.survival_params: dict = {}
+        self.stationarity_check: dict = {}
 
     def _resolve_as_of(self, as_of: str | None) -> str:
         """Xác định mốc T. Nếu None → ngày macro_history mới nhất trong DB cục bộ.
@@ -562,9 +555,7 @@ class StructureEvolutionLayer:
             return as_of
         try:
             with get_connection() as conn:
-                row = conn.execute(
-                    "SELECT MAX(date) FROM macro_history WHERE value IS NOT NULL"
-                ).fetchone()
+                row = conn.execute("SELECT MAX(date) FROM macro_history WHERE value IS NOT NULL").fetchone()
             if row and row[0]:
                 return str(row[0])
         except Exception as e:
@@ -576,9 +567,7 @@ class StructureEvolutionLayer:
     def _load_regime_library(self):
         if REGIME_LIBRARY_FILE.exists():
             try:
-                self.regime_library = json.loads(
-                    REGIME_LIBRARY_FILE.read_text(encoding="utf-8")
-                )
+                self.regime_library = json.loads(REGIME_LIBRARY_FILE.read_text(encoding="utf-8"))
             except Exception:
                 self.regime_library = dict(INITIAL_REFERENCE_REGIMES)
         else:
@@ -595,16 +584,13 @@ class StructureEvolutionLayer:
                     if key in d and isinstance(d[key], list) and len(d[key]) > 7:
                         d[key] = d[key][:7]
                 saveable[name] = d
-            REGIME_LIBRARY_FILE.write_text(
-                json.dumps(saveable, indent=2, ensure_ascii=False),
-                encoding="utf-8"
-            )
+            REGIME_LIBRARY_FILE.write_text(json.dumps(saveable, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
 
     # --- State Vector Construction ---
 
-    def _build_state_vector(self) -> Tuple[np.ndarray | None, Dict]:
+    def _build_state_vector(self) -> tuple[np.ndarray | None, dict]:
         """Xây dựng vector trạng thái 7-chiều từ macro_history.
 
         Returns: (vector, details) hoặc (None, {}) nếu thiếu dữ liệu.
@@ -612,7 +598,7 @@ class StructureEvolutionLayer:
         dxy = self._fetch_latest("DXY")
         usdvnd = self._fetch_latest("USD_VND")
         interbank_on = self._fetch_latest("INTERBANK_ON")
-        gold = self._fetch_latest("GOLD_XAU")
+        self._fetch_latest("GOLD_XAU")
 
         breadth_pct = self._fetch_engine_metric("breadth_pct", "regime_history")
         adx = self._fetch_engine_metric("active_model", "regime_history")
@@ -628,17 +614,18 @@ class StructureEvolutionLayer:
         ff_10d = max(0, min(1, (foreign_10d + 2000) / 4000))
 
         details = {
-            "dxy_raw": dxy, "dxy_norm": round(dxy_norm, 4),
-            "usdvnd_raw": usdvnd, "usdvnd_dev": round(usdvnd_dev, 4),
+            "dxy_raw": dxy,
+            "dxy_norm": round(dxy_norm, 4),
+            "usdvnd_raw": usdvnd,
+            "usdvnd_dev": round(usdvnd_dev, 4),
             "interbank_on": interbank_on,
-            "breadth_pct": breadth_pct, "adx_val": adx_val,
+            "breadth_pct": breadth_pct,
+            "adx_val": adx_val,
             "gold_momentum_10d": round(gold_mom, 4),
             "foreign_10d_bn": round(foreign_10d, 1),
         }
 
-        vector = np.array([dxy_norm, usdvnd_dev, interbank_stress,
-                           breadth, adx_val, gold_mom, ff_10d],
-                          dtype=np.float64)
+        vector = np.array([dxy_norm, usdvnd_dev, interbank_stress, breadth, adx_val, gold_mom, ff_10d], dtype=np.float64)
         return vector, details
 
     def _fetch_latest(self, variable: str) -> float:
@@ -647,7 +634,7 @@ class StructureEvolutionLayer:
             row = conn.execute(
                 "SELECT value FROM macro_history WHERE variable = ? "
                 "AND value IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 1",
-                (variable, self.as_of)
+                (variable, self.as_of),
             ).fetchone()
         return float(row[0]) if row else 0.0
 
@@ -655,9 +642,8 @@ class StructureEvolutionLayer:
         """Dòng vốn ngoại 10 phiên TÍNH ĐẾN T (không vượt quá as_of)."""
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT SUM(net_value) FROM market_foreign_history "
-                "WHERE date <= ? AND date >= date(?, '-10 days')",
-                (self.as_of, self.as_of)
+                "SELECT SUM(net_value) FROM market_foreign_history WHERE date <= ? AND date >= date(?, '-10 days')",
+                (self.as_of, self.as_of),
             ).fetchone()
         return float(row[0]) if row and row[0] else 0.0
 
@@ -667,7 +653,7 @@ class StructureEvolutionLayer:
             rows = conn.execute(
                 "SELECT value FROM macro_history WHERE variable = 'GOLD_XAU' "
                 "AND value IS NOT NULL AND date <= ? ORDER BY date DESC LIMIT 10",
-                (self.as_of,)
+                (self.as_of,),
             ).fetchall()
         if len(rows) >= 2:
             vals = [float(r[0]) for r in rows]
@@ -678,9 +664,7 @@ class StructureEvolutionLayer:
         with get_connection() as conn:
             try:
                 row = conn.execute(
-                    f"SELECT {column} FROM {table} WHERE date <= ? "
-                    f"ORDER BY date DESC LIMIT 1",
-                    (self.as_of,)
+                    f"SELECT {column} FROM {table} WHERE date <= ? ORDER BY date DESC LIMIT 1", (self.as_of,)
                 ).fetchone()
                 val = row[0] if row else None
                 if column == "active_model":
@@ -709,7 +693,7 @@ class StructureEvolutionLayer:
                     "SELECT value FROM macro_history WHERE variable = ? "
                     "AND value IS NOT NULL AND date < ? "  # STRICT '<': loại bỏ T
                     "ORDER BY date DESC LIMIT ?",
-                    (var, self.as_of, rows_per_variable)
+                    (var, self.as_of, rows_per_variable),
                 ).fetchall()
                 data[var] = [float(r[0]) for r in rows]
 
@@ -727,7 +711,7 @@ class StructureEvolutionLayer:
 
     # --- Main Assessment ---
 
-    def assess(self) -> Dict:
+    def assess(self) -> dict:
         """Pipeline SEL chính."""
         # 1. Build state vector
         vector, details = self._build_state_vector()
@@ -797,8 +781,7 @@ class StructureEvolutionLayer:
             "theta_stable": round(self.threshold.theta_stable, 4),
             "theta_novelty": round(self.threshold.theta_novelty, 4),
             "state_vector_raw": {n: round(float(v), 4) for n, v in zip(self.FEATURE_NAMES, vector)},
-            "regime_distances": {k: round(v, 4) for k, v in
-                                  sorted(regime_distances.items(), key=lambda x: x[1])},
+            "regime_distances": {k: round(v, 4) for k, v in sorted(regime_distances.items(), key=lambda x: x[1])},
             "survival": {
                 "active": self.is_survival,
                 "params": self.survival_params if self.is_survival else {},
@@ -814,19 +797,14 @@ class StructureEvolutionLayer:
                 "ot_diagnostics": dict(self.wasserstein.numerical_diagnostics),
             },
         }
-        logger.info(
-            f"[SEL] State={self.state} W1={self.current_w1:.4f} "
-            f"HDR={self.hdr_limit} Best={self.best_match}"
-        )
+        logger.info(f"[SEL] State={self.state} W1={self.current_w1:.4f} HDR={self.hdr_limit} Best={self.best_match}")
         return result
 
     def _certify_new_regime(self, q_new: np.ndarray):
         """Chứng nhận Q_new thành Reference Regime mới."""
         label = f"sel_discovery_{datetime.now().strftime('%Y%m')}"
         w1_distances = self.wasserstein._w1_history[-20:] if self.wasserstein._w1_history else [0]
-        regime = StationarityValidator.build_reference_regime(
-            q_new, label, w1_distances
-        )
+        regime = StationarityValidator.build_reference_regime(q_new, label, w1_distances)
         regime["certified_at"] = datetime.now().isoformat()
         regime["w1_mean_to_library"] = round(self.current_w1, 4)
         self.regime_library[label] = regime
@@ -835,7 +813,7 @@ class StructureEvolutionLayer:
         self.survival.survival_data = []
 
     @staticmethod
-    def assess_global(as_of: str | None = None, offline: bool = True) -> Dict:
+    def assess_global(as_of: str | None = None, offline: bool = True) -> dict:
         """Static wrapper.
 
         Args:
@@ -845,10 +823,12 @@ class StructureEvolutionLayer:
         return StructureEvolutionLayer(as_of=as_of, offline=offline).assess()
 
     @staticmethod
-    def print_report(result: Dict, lang: str = "vi"):
+    def print_report(result: dict, lang: str = "vi"):
         """In báo cáo SEL CLI."""
-        from src.utils.localization import translate, localize_state, log_structured
-        t = lambda k: translate(k, lang)
+        from src.utils.localization import translate
+
+        def t(k):
+            return translate(k, lang)
 
         state_labels = {
             "NORMAL": "BÌNH THƯỜNG",
@@ -869,18 +849,18 @@ class StructureEvolutionLayer:
         print(f"\n  -- {t('status')} --")
         for name, val in result.get("state_vector_raw", {}).items():
             print(f"  {name:25s}: {val:.4f}")
-        print(f"\n  -- Regime Distances --")
+        print("\n  -- Regime Distances --")
         for reg, w in result.get("regime_distances", {}).items():
             print(f"  {reg:30s}: W1={w:.4f}")
         sv = result.get("survival", {})
         if sv.get("active"):
-            print(f"\n  -- SURVIVAL MODE --")
+            print("\n  -- SURVIVAL MODE --")
             for k, v in sv.get("params", {}).items():
                 print(f"  {k:30s}: {v}")
             print(f"  Observations:     {sv.get('observations_collected', 0)} / {MIN_SAMPLES_FOR_REGIME}")
         st = result.get("stationarity")
         if st and st.get("evidence", {}).get("n_samples", 0) > 0:
-            print(f"\n  -- Stationarity Check --")
+            print("\n  -- Stationarity Check --")
             print(f"  {t('status'):20s}: {'OK' if st.get('is_stationary') else 'CHUA DAT'}")
             print(f"  Confidence:       {st.get('confidence', 0):.0%}")
             ev = st.get("evidence", {})

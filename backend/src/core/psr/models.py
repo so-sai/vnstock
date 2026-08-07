@@ -1,10 +1,10 @@
-﻿"""PSR data models — snapshot, audit, version, replay diff."""
+"""PSR data models — snapshot, audit, version, replay diff."""
+
 from __future__ import annotations
 
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
@@ -30,12 +30,13 @@ PROJECT_ROOT = _hydrate_path()
 @dataclass
 class PSRVersion:
     """Immutable version manifest for a CAO release."""
-    version: str                     # e.g. "CAO v3.1"
-    git_commit: str                  # current HEAD
-    snapshot_hash: str               # hash of the frozen snapshot
-    semantic_contract_hash: str      # hash of USCL label_vi mappings
+
+    version: str  # e.g. "CAO v3.1"
+    git_commit: str  # current HEAD
+    snapshot_hash: str  # hash of the frozen snapshot
+    semantic_contract_hash: str  # hash of USCL label_vi mappings
     created_at: str
-    api_contract_hash: str = ""      # hash of the API route manifest
+    api_contract_hash: str = ""  # hash of the API route manifest
     notes: str = ""
 
 
@@ -46,16 +47,17 @@ class PSRSnapshot:
     Fields are dicts so the snapshot is JSON-serializable without a schema
     dependency — every layer serialises via ``to_dict()``.
     """
-    snapshot_id: str                 # timestamp-based unique ID
+
+    snapshot_id: str  # timestamp-based unique ID
     timestamp: str
-    regime: dict                     # output of detect_regime()
-    market_state: dict               # output of build_market_state()
-    gold: dict                       # aggregate_gold() output (excl. semantic)
-    trust: dict                      # aggregate_trust() output (excl. semantic)
-    data_quality: dict               # DIS + DIVI + events
-    weekly_report: Optional[dict] = None  # full build_weekly_report() output
-    api_routes: Optional[dict] = None    # CAGL route graph snapshot
-    api_contract_hash: str = ""          # hash of the API route manifest
+    regime: dict  # output of detect_regime()
+    market_state: dict  # output of build_market_state()
+    gold: dict  # aggregate_gold() output (excl. semantic)
+    trust: dict  # aggregate_trust() output (excl. semantic)
+    data_quality: dict  # DIS + DIVI + events
+    weekly_report: dict | None = None  # full build_weekly_report() output
+    api_routes: dict | None = None  # CAGL route graph snapshot
+    api_contract_hash: str = ""  # hash of the API route manifest
     snapshot_hash: str = ""
 
     def to_dict(self) -> dict:
@@ -69,10 +71,11 @@ class PSRSnapshot:
 @dataclass
 class PSRAuditEntry:
     """Single append-only audit record for one significant system output."""
-    entry_id: str                    # unique ID
+
+    entry_id: str  # unique ID
     timestamp: str
-    snapshot_id: str                 # links to PSRSnapshot
-    source: str                      # "weekly_report" | "gold" | "cao_gate" | etc.
+    snapshot_id: str  # links to PSRSnapshot
+    source: str  # "weekly_report" | "gold" | "cao_gate" | etc.
     label_vi: str
     explanation_vi: str
     severity: float
@@ -94,6 +97,7 @@ class PSRAuditEntry:
 @dataclass
 class PSRDiff:
     """Difference between two snapshots or a replay comparison."""
+
     field: str
     original: object
     replayed: object
@@ -103,6 +107,7 @@ class PSRDiff:
 @dataclass
 class PSRReplayResult:
     """Result of a deterministic replay run."""
+
     snapshot_id: str
     timestamp: str
     match: bool

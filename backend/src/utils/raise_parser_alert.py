@@ -16,7 +16,8 @@ import functools
 import logging
 import sys
 import traceback
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +69,13 @@ def raise_parser_alert(
                 print(alert, file=sys.stderr)
                 logger.error(
                     "[PTCK_ALERT] %s — %s. Recovery: %s\n%s",
-                    source, message, recovery,
+                    source,
+                    message,
+                    recovery,
                     traceback.format_exc(),
                 )
                 return fail_safe
+
         return wrapper
+
     return decorator

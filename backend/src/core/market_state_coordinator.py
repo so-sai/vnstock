@@ -27,13 +27,12 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -57,13 +56,14 @@ OUTPUT_DIR = Path(str(PROJECT_ROOT)) / "backend" / "data" / "output"
 
 # ── Engine output loaders ──────────────────────────────────────────────────
 
+
 def _load_json(filename: str) -> dict:
     path = OUTPUT_DIR / filename
     if not path.exists():
         logger.warning(f"Coordinator: missing engine output {filename}")
         return {}
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Coordinator: error reading {filename}: {e}")
@@ -96,7 +96,12 @@ def _load_flow_state() -> dict:
         acceleration_count = summary.get("acceleration_count", 0)
         continuation_count = summary.get("continuation_count", 0)
         deceleration_count = summary.get("deceleration_count", 0)
-        total = acceleration_count + continuation_count + deceleration_count + summary.get("stable_count", 0) + summary.get("lag_count", 0)
+        (
+            acceleration_count
+            + continuation_count
+            + deceleration_count
+            + (summary.get("stable_count", 0) + summary.get("lag_count", 0))
+        )
 
         if acceleration_count >= 2 and acceleration_count > deceleration_count:
             state["status"] = "MỞ_RỘNG"
@@ -206,50 +211,54 @@ def _load_recommendations() -> dict:
 
 # ── Conflict resolution (lightweight) ──────────────────────────────────────
 
-def _resolve_conflicts(regime_state: dict, flow_state: dict,
-                       breadth_state: dict, rsi_state: dict,
-                       risk_state: dict) -> list:
+
+def _resolve_conflicts(regime_state: dict, flow_state: dict, breadth_state: dict, rsi_state: dict, risk_state: dict) -> list:
     flags = []
 
     regime_status = regime_state.get("status", "UNKNOWN")
     flow_status = flow_state.get("status", "UNKNOWN")
 
     if regime_status == "CRISIS" and flow_status in ("MỞ_RỘNG", "DUY_TRÌ"):
-        flags.append({
-            "type": "REGIME_FLOW_MISMATCH",
-            "severity": "MEDIUM",
-            "message": f"Regime={regime_status} nhưng Flow={flow_status} — thị trường phân kỳ",
-        })
+        flags.append(
+            {
+                "type": "REGIME_FLOW_MISMATCH",
+                "severity": "MEDIUM",
+                "message": f"Regime={regime_status} nhưng Flow={flow_status} — thị trường phân kỳ",
+            }
+        )
 
     if risk_state.get("governor_state") == "LOCKDOWN" and risk_state.get("active_vetoes", 0) > 0:
-        flags.append({
-            "type": "RISK_LOCKDOWN_ACTIVE",
-            "severity": "HIGH",
-            "message": "Risk governor đang LOCKDOWN — veto đang kích hoạt",
-        })
+        flags.append(
+            {
+                "type": "RISK_LOCKDOWN_ACTIVE",
+                "severity": "HIGH",
+                "message": "Risk governor đang LOCKDOWN — veto đang kích hoạt",
+            }
+        )
 
     if breadth_state.get("health_score", 0) < 30 and flow_status == "MỞ_RỘNG":
-        flags.append({
-            "type": "BREADTH_FLOW_DIVERGENCE",
-            "severity": "LOW",
-            "message": "Độ rộng yếu nhưng flow mở rộng — tín hiệu chưa đồng thuận",
-        })
+        flags.append(
+            {
+                "type": "BREADTH_FLOW_DIVERGENCE",
+                "severity": "LOW",
+                "message": "Độ rộng yếu nhưng flow mở rộng — tín hiệu chưa đồng thuận",
+            }
+        )
 
     return flags
 
 
 # ── Meta-state computation ──────────────────────────────────────────────────
 
-def _compute_meta_state(regime_state: dict, flow_state: dict,
-                        breadth_state: dict, rsi_state: dict,
-                        risk_state: dict) -> dict:
+
+def _compute_meta_state(regime_state: dict, flow_state: dict, breadth_state: dict, rsi_state: dict, risk_state: dict) -> dict:
     regime_status = regime_state.get("status", "UNKNOWN")
     flow_status = flow_state.get("status", "UNKNOWN")
     risk_gov = risk_state.get("governor_state", "UNKNOWN")
     breadth_health = breadth_state.get("health_score", 0)
 
-    bull_count = rsi_state.get("bull_count", 0)
-    bear_count = rsi_state.get("bear_count", 0)
+    rsi_state.get("bull_count", 0)
+    rsi_state.get("bear_count", 0)
 
     market_phase = "KHÔNG_XÁC_ĐỊNH"
     liquidity_condition = "TRUNG_TÍNH"
@@ -315,6 +324,7 @@ def _compute_meta_state(regime_state: dict, flow_state: dict,
 
 # ── Build unified state ────────────────────────────────────────────────────
 
+
 def _compute_drift_label(structure: dict) -> str:
     if not structure:
         return "KHONG XAC DINH"
@@ -343,6 +353,7 @@ def _flow_status_to_bias_score(flow_status: str) -> float:
 
 
 def build_market_state() -> dict:
+    from core.presentation import build_opportunity_view
     from core.presentation.asset_preference_mapping import compute_asset_preference
     from core.presentation.decision_closure_layer import compute_dcl
     from core.presentation.direction_persistence_layer import compute_direction_persistence
@@ -350,8 +361,6 @@ def build_market_state() -> dict:
     from core.presentation.state_stability_index import compute_ssi
     from core.presentation.trade_state_policy import compile_action_policy, compute_trade_state
     from core.presentation.transition_trigger_layer import compute_transition_trigger
-
-    from core.presentation import build_opportunity_view
     from core.presentation.vi_localizer import localize_market_state
 
     regime_state = _load_regime_state()
@@ -362,13 +371,9 @@ def build_market_state() -> dict:
     recommendations = _load_recommendations()
     structure_state = _load_market_structure()
 
-    warnings = _resolve_conflicts(
-        regime_state, flow_state, breadth_state, rsi_state, risk_state
-    )
+    warnings = _resolve_conflicts(regime_state, flow_state, breadth_state, rsi_state, risk_state)
 
-    meta = _compute_meta_state(
-        regime_state, flow_state, breadth_state, rsi_state, risk_state
-    )
+    meta = _compute_meta_state(regime_state, flow_state, breadth_state, rsi_state, risk_state)
 
     drift_label = _compute_drift_label(structure_state)
 
@@ -488,38 +493,24 @@ def build_market_state() -> dict:
 
     state = {
         "timestamp": datetime.now().isoformat(),
-
         "market_regime": regime_state,
         "flow_state": flow_state,
         "breadth_state": breadth_state,
         "rsi_state": rsi_state,
         "risk_state": risk_state,
         "market_structure": structure_state,
-
         "recommendations": recommendations,
-
         "meta_state": meta,
-
         "trade_state": trade_state.model_dump(),
-
         "state_stability": ssi.model_dump(),
-
         "asset_preference": sapm.model_dump(),
-
         "action_policy": action_policy.model_dump(),
-
         "decision_closure": dcl.model_dump(),
-
         "directional_bias": dbe.model_dump(),
-
         "direction_persistence": dpl.model_dump(),
-
         "transition_trigger": ttl.model_dump(),
-
         "investment_verdicts": verdict_summary,
-
         "opportunity_view": opportunity_view,
-
         "warning_flags": warnings,
     }
 
@@ -528,12 +519,14 @@ def build_market_state() -> dict:
 
 # ── Export ──────────────────────────────────────────────────────────────────
 
-def export_market_state(state: dict, path: Optional[Path] = None):
+
+def export_market_state(state: dict, path: Path | None = None):
     if path is None:
         path = Path(str(PROJECT_ROOT)) / "backend" / "data" / "market_state.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     from src.database.db_core import safe_json_dump
-    with open(path, 'w', encoding='utf-8') as f:
+
+    with open(path, "w", encoding="utf-8") as f:
         safe_json_dump(state, f, indent=2, ensure_ascii=False)
     print(f"  [Coordinator] Market state saved → {path}")
     return path
@@ -541,11 +534,12 @@ def export_market_state(state: dict, path: Optional[Path] = None):
 
 # ── Main entry point ───────────────────────────────────────────────────────
 
+
 def run_coordinator() -> dict:
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  MARKET STATE COORDINATOR v1.0")
     print(f"  Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     state = build_market_state()
     export_market_state(state)
@@ -565,12 +559,27 @@ def run_coordinator() -> dict:
     print(f"    Tin cậy state:    {ssi.get('label_vi', '?')} (SSI={ssi.get('score', 0):.2f})")
     print(f"    Xu hướng TS:      {sapm.get('dominant_bias_vi', '?')}")
     print(f"    Kỷ luật GD:       {ap.get('label_vi', '?')}")
-    print(f"    DCL:              {dcl.get('verdict_vi', '?')} (score={dcl.get('score', 0):.2f}, override={dcl.get('compensations_triggered', 0)})")
-    print(f"    Hướng thị trường: {db.get('label_vi', '?')} (strength={db.get('bias_strength', 0):.2f}, confidence={db.get('bias_confidence', 0):.2f})")
+    print(
+        f"    DCL:              {dcl.get('verdict_vi', '?')} (score={dcl.get('score', 0):.2f}, "
+        f"override={dcl.get('compensations_triggered', 0)})"
+    )
+    print(
+        f"    Hướng thị trường: {db.get('label_vi', '?')} (strength={db.get('bias_strength', 0):.2f}, "
+        f"confidence={db.get('bias_confidence', 0):.2f})"
+    )
     print(f"    Lực chi phối:     {db.get('dominant_force_vi', '?')}")
-    print(f"    DPL:              {dp.get('label_vi', '?')} (stability={dp.get('dbe_stability_score', 0):.2f}, flicker={dp.get('flicker_risk_code', '?')})")
-    print(f"    TTL:              {tt.get('label_vi', '?')} (type={tt.get('transition_type_vi', '?')}, confidence={tt.get('trigger_confidence', 0):.2f})")
-    print(f"    Phán quyết:       {vd.get('allowed', 0)}/{vd.get('total_symbols', 0)} mã được giải ngân (+{vd.get('conditional', 0)} có điều kiện)")
+    print(
+        f"    DPL:              {dp.get('label_vi', '?')} (stability={dp.get('dbe_stability_score', 0):.2f}, "
+        f"flicker={dp.get('flicker_risk_code', '?')})"
+    )
+    print(
+        f"    TTL:              {tt.get('label_vi', '?')} (type={tt.get('transition_type_vi', '?')}, "
+        f"confidence={tt.get('trigger_confidence', 0):.2f})"
+    )
+    print(
+        f"    Phán quyết:       {vd.get('allowed', 0)}/{vd.get('total_symbols', 0)} mã được giải ngân "
+        f"(+{vd.get('conditional', 0)} có điều kiện)"
+    )
     print(f"    Pha thị trường:   {meta.get('market_phase', '?')}")
     print(f"    Rủi ro:           {meta.get('risk_appetite', '?')}")
     print(f"    Thanh khoản:      {meta.get('liquidity_condition', '?')}")
@@ -580,7 +589,7 @@ def run_coordinator() -> dict:
     if ov:
         print(f"    Top Picks:        {len(ov.top_picks)}")
         print(f"    Watchlist:        {len(ov.watchlist)}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     return state
 
@@ -588,12 +597,13 @@ def run_coordinator() -> dict:
 if __name__ == "__main__":
     if sys.platform == "win32":
         import io
+
         if isinstance(sys.stdout, io.TextIOWrapper):
-            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
-                    sys.stdout.reconfigure(encoding='utf-8')
+                    sys.stdout.reconfigure(encoding="utf-8")
                 except Exception:
                     pass
-        elif hasattr(sys.stdout, 'buffer'):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        elif hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     run_coordinator()

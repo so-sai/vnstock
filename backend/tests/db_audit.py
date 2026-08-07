@@ -1,13 +1,15 @@
 ﻿"""DB schema audit for AEL design — run from project root"""
-import sys, pathlib
+import pathlib
+import sys
+
 p = pathlib.Path(__file__).resolve()
 for parent in p.parents:
     if (parent / "AGENTS.md").exists() and (parent / "backend").is_dir():
         sys.path.insert(0, str(parent / "backend"))
         break
 
-from src.database.db_core import get_connection
 import pandas as pd
+from src.database.db_core import get_connection
 
 with get_connection() as conn:
     tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name", conn)

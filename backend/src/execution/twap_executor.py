@@ -1,4 +1,4 @@
-﻿"""TWAPExecutor — Order Execution Layer (Phase 4.3).
+"""TWAPExecutor — Order Execution Layer (Phase 4.3).
 
 Middleware giữa CLI và StalePositionManager.
 Preflight ping, Idempotent Resume, Circuit Breaker, Liquidity Strike handling.
@@ -7,16 +7,15 @@ Asia Circuit Breaker (Intraday Governor Override) — KOSPI 13:30 canary.
 
 import logging
 import socket
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable, Optional
+from datetime import UTC, datetime
 
-from src.portfolio.system_state import (
-    update_twap_context, get_twap_context, clear_twap_context,
-    is_locked, lock as _lock_state,
-)
 from src.portfolio.stale_manager import StalePositionManager
+from src.portfolio.system_state import (
+    clear_twap_context,
+    get_twap_context,
+    update_twap_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +23,9 @@ PING_TIMEOUT_S = 2
 MAX_CIRCUIT_BREAKER_TRIPS = 3
 MAX_REQUEUES = 3
 BASE_SLICE_INTERVAL_S = 60
-SLIPPAGE_THRESHOLD = 0.003   # 0.3%
-INTERVAL_CEILING_S = 1200    # 20 phút
-INTERVAL_FLOOR_S = 30        # 30 giây
+SLIPPAGE_THRESHOLD = 0.003  # 0.3%
+INTERVAL_CEILING_S = 1200  # 20 phút
+INTERVAL_FLOOR_S = 30  # 30 giây
 SAFETY_STOP_MINUTES = 15
 
 
@@ -34,12 +33,12 @@ SAFETY_STOP_MINUTES = 15
 class Slice:
     index: int
     amount: float
-    status: str = "PENDING"   # PENDING | SUBMITTED | PARTIAL_FILLED | FILLED | CANCELED | DEFERRED
-    broker_order_id: Optional[str] = None
-    submitted_at: Optional[str] = None
-    fill_price: Optional[float] = None
-    filled_qty: Optional[float] = None
-    slippage: Optional[float] = None
+    status: str = "PENDING"  # PENDING | SUBMITTED | PARTIAL_FILLED | FILLED | CANCELED | DEFERRED
+    broker_order_id: str | None = None
+    submitted_at: str | None = None
+    fill_price: float | None = None
+    filled_qty: float | None = None
+    slippage: float | None = None
 
 
 @dataclass
@@ -48,9 +47,9 @@ class SlicePlan:
     total_amount: float
     n_slices: int
     slices: list[Slice] = field(default_factory=list)
-    status: str = "PENDING"   # PENDING | ACTIVE | PAUSED | COMPLETED | FAILED
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    status: str = "PENDING"  # PENDING | ACTIVE | PAUSED | COMPLETED | FAILED
+    started_at: str | None = None
+    completed_at: str | None = None
 
 
 class BrokerAPI:
@@ -65,16 +64,21 @@ class BrokerAPI:
             socket.setdefaulttimeout(timeout)
             socket.gethostbyname("api.broker.local")
             return True
-        except (socket.gaierror, socket.timeout, OSError):
+        except TimeoutError, socket.gaierror, OSError:
             return False
 
     def place_limit_order(self, symbol: str, side: str, quantity: float, price: float) -> str:
         self._next_id += 1
         oid = f"BROKER_{self._next_id:06d}"
         self._orders[oid] = {
-            "order_id": oid, "symbol": symbol, "side": side,
-            "quantity": quantity, "filled_qty": 0.0, "price": price,
-            "status": "PENDING", "created_at": datetime.now(timezone.utc).isoformat(),
+            "order_id": oid,
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "filled_qty": 0.0,
+            "price": price,
+            "status": "PENDING",
+            "created_at": datetime.now(UTC).isoformat(),
         }
         return oid
 
@@ -102,8 +106,7 @@ class BrokerAPI:
     def get_open_orders(self, symbol: str) -> list[dict]:
         """Return all non-terminal orders for a given symbol."""
         return [
-            dict(o) for o in self._orders.values()
-            if o["symbol"] == symbol and o["status"] in ("PENDING", "PARTIAL_FILLED")
+            dict(o) for o in self._orders.values() if o["symbol"] == symbol and o["status"] in ("PENDING", "PARTIAL_FILLED")
         ]
 
     def get_best_bid(self, symbol: str) -> float:
@@ -122,13 +125,14 @@ class TWAPExecutor:
     StalePositionManager chỉ là sổ cái thụ động.
     """
 
-    def __init__(self, stale_manager: StalePositionManager, broker: Optional[BrokerAPI] = None,
-                 symbol: str = "STOCK", side: str = "SELL"):
+    def __init__(
+        self, stale_manager: StalePositionManager, broker: BrokerAPI | None = None, symbol: str = "STOCK", side: str = "SELL"
+    ):
         self.sm = stale_manager
         self.broker = broker or BrokerAPI()
         self.symbol = symbol
         self.side = side
-        self.plan: Optional[SlicePlan] = None
+        self.plan: SlicePlan | None = None
 
     # ── Asia Circuit Breaker (Intraday Governor Override v2.1) ──
     #
@@ -142,18 +146,18 @@ class TWAPExecutor:
     #   θ (eigenvector rotation) REMOVED — replaced by direct VN-Index impulse confirmation.
     #
 
-    ASIA_HALT_KOSPI_TIER2_DROP = 0.01        # 1.0%
-    ASIA_HALT_KOSPI_TIER1_DROP = 0.015       # 1.5% — absolute veto
-    ASIA_HALT_VN_CONFIRM_DROP  = -0.005       # -0.5%
+    ASIA_HALT_KOSPI_TIER2_DROP = 0.01  # 1.0%
+    ASIA_HALT_KOSPI_TIER1_DROP = 0.015  # 1.5% — absolute veto
+    ASIA_HALT_VN_CONFIRM_DROP = -0.005  # -0.5%
 
     KOSPI_INTRADAY_TICKER = "KM=F"
-    SCAN_WINDOW_START_KST  = "13:15"
-    SCAN_WINDOW_END_KST    = "13:31"
+    SCAN_WINDOW_START_KST = "13:15"
+    SCAN_WINDOW_END_KST = "13:31"
     # No polling loop — fetch runs ONCE per execute_slice() call.
     # 5 slices × 1 yfinance call = 5 requests max, well under rate limit.
 
     @staticmethod
-    def _fetch_kospi_intraday() -> Optional[float]:
+    def _fetch_kospi_intraday() -> float | None:
         """Fetch KOSPI futures (KM=F) 1m candles, return drop % within scan window.
 
         Scans 13:15-13:31 KST to capture last ~15 minutes of KRX continuous trading.
@@ -164,8 +168,8 @@ class TWAPExecutor:
         5 slices = 5 yfinance requests = well under 2000 req/h limit.
         """
         try:
-            import yfinance as yf
             import pandas as pd
+            import yfinance as yf
 
             ticker = yf.Ticker(TWAPExecutor.KOSPI_INTRADAY_TICKER)
             df = ticker.history(period="1d", interval="1m")
@@ -176,7 +180,7 @@ class TWAPExecutor:
             # Filter to scan window (KST = UTC+9)
             now_kst = pd.Timestamp.now(tz="Asia/Seoul")
             scan_start = now_kst.normalize() + pd.Timedelta(TWAPExecutor.SCAN_WINDOW_START_KST)
-            scan_end   = now_kst.normalize() + pd.Timedelta(TWAPExecutor.SCAN_WINDOW_END_KST)
+            now_kst.normalize() + pd.Timedelta(TWAPExecutor.SCAN_WINDOW_END_KST)
 
             window = df[df.index >= scan_start.tz_localize(None)]
             if window.empty:
@@ -185,18 +189,17 @@ class TWAPExecutor:
                 if len(df) < 2:
                     return None
                 first = float(df["Close"].iloc[0])
-                last  = float(df["Close"].iloc[-1])
+                last = float(df["Close"].iloc[-1])
                 if first <= 0:
                     return None
                 return (last - first) / first
 
             first_price = float(window["Open"].iloc[0])
-            last_close  = float(window["Close"].iloc[-1])
+            last_close = float(window["Close"].iloc[-1])
             if first_price <= 0:
                 return None
             pct = (last_close - first_price) / first_price
-            logger.debug("KOSPI intraday scan: first=%.2f last=%.2f pct=%.4f%%",
-                         first_price, last_close, pct * 100)
+            logger.debug("KOSPI intraday scan: first=%.2f last=%.2f pct=%.4f%%", first_price, last_close, pct * 100)
             return pct
 
         except Exception as exc:
@@ -204,14 +207,15 @@ class TWAPExecutor:
             return None
 
     @staticmethod
-    async def _fetch_kospi_intraday_async() -> Optional[float]:
+    async def _fetch_kospi_intraday_async() -> float | None:
         """Async wrapper — runs yfinance in thread pool to avoid blocking FastAPI event loop."""
         import asyncio
+
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, TWAPExecutor._fetch_kospi_intraday)
 
     @staticmethod
-    def _fetch_vnindex_intraday() -> Optional[float]:
+    def _fetch_vnindex_intraday() -> float | None:
         """Fetch VN-Index intraday return from daily_ohlcv (latest session close).
 
         Returns % change of the most recent VNINDEX close versus previous session close,
@@ -222,13 +226,12 @@ class TWAPExecutor:
 
             with get_connection() as conn:
                 rows = conn.execute(
-                    "SELECT date, close FROM daily_ohlcv "
-                    "WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 2"
+                    "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 2"
                 ).fetchall()
             if len(rows) < 2:
                 return None
             latest = float(rows[0][1])
-            prev   = float(rows[1][1])
+            prev = float(rows[1][1])
             if prev <= 0:
                 return None
             return (latest - prev) / prev
@@ -237,13 +240,14 @@ class TWAPExecutor:
             return None
 
     @staticmethod
-    async def _fetch_vnindex_intraday_async() -> Optional[float]:
+    async def _fetch_vnindex_intraday_async() -> float | None:
         """Async wrapper for database read (fast, but keeps async interface consistent)."""
         import asyncio
+
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, TWAPExecutor._fetch_vnindex_intraday)
 
-    def _asia_canary_check(self) -> Optional[str]:
+    def _asia_canary_check(self) -> str | None:
         """Multi-tiered Adaptive Breaker trigger.
 
         Returns halt reason string or None.
@@ -255,10 +259,7 @@ class TWAPExecutor:
 
         # Tier 1 — Absolute Veto Gate (bypass all other conditions)
         if kospi_pct <= -self.ASIA_HALT_KOSPI_TIER1_DROP:
-            reason = (
-                f"ASIA_TIER1_VETO: KOSPI {kospi_pct*100:+.2f}% | "
-                f"breached 1.5% absolute threshold — emergency halt"
-            )
+            reason = f"ASIA_TIER1_VETO: KOSPI {kospi_pct * 100:+.2f}% | breached 1.5% absolute threshold — emergency halt"
             logger.warning("🛑 %s", reason)
             return reason
 
@@ -269,19 +270,13 @@ class TWAPExecutor:
         vn_pct = self._fetch_vnindex_intraday()
         if vn_pct is None:
             logger.warning("Asia canary Tier 2: VN-Index data unavailable -> fallback halt")
-            reason = (
-                f"ASIA_TIER2_NO_VN: KOSPI {kospi_pct*100:+.2f}% | "
-                f"VN-Index data missing -- precautionary halt"
-            )
+            reason = f"ASIA_TIER2_NO_VN: KOSPI {kospi_pct * 100:+.2f}% | VN-Index data missing -- precautionary halt"
             return reason
 
         if vn_pct >= self.ASIA_HALT_VN_CONFIRM_DROP:
             return None  # KOSPI dropped but VN hasn't confirmed contagion
 
-        reason = (
-            f"ASIA_TIER2_HALT: KOSPI {kospi_pct*100:+.2f}% | "
-            f"VN {vn_pct*100:+.2f}% | confirmed contagion"
-        )
+        reason = f"ASIA_TIER2_HALT: KOSPI {kospi_pct * 100:+.2f}% | VN {vn_pct * 100:+.2f}% | confirmed contagion"
         logger.warning("🛑 %s", reason)
         return reason
 
@@ -344,7 +339,7 @@ class TWAPExecutor:
         ok = self.broker.ping()
         ctx = get_twap_context()
         if ok:
-            ctx["last_known_good_network"] = datetime.now(timezone.utc).isoformat()
+            ctx["last_known_good_network"] = datetime.now(UTC).isoformat()
             ctx["circuit_breaker_trips"] = 0
         else:
             ctx["circuit_breaker_trips"] = ctx.get("circuit_breaker_trips", 0) + 1
@@ -373,15 +368,17 @@ class TWAPExecutor:
             return {"success": False, "reason": f"SLICE_{slice_obj.status if slice_obj else 'NOT_FOUND'}"}
 
         self.plan.status = "ACTIVE"
-        self.plan.started_at = self.plan.started_at or datetime.now(timezone.utc).isoformat()
+        self.plan.started_at = self.plan.started_at or datetime.now(UTC).isoformat()
 
         oid = self.broker.place_limit_order(
-            symbol=self.symbol, side=self.side,
-            quantity=slice_obj.amount, price=price,
+            symbol=self.symbol,
+            side=self.side,
+            quantity=slice_obj.amount,
+            price=price,
         )
         slice_obj.broker_order_id = oid
         slice_obj.status = "SUBMITTED"
-        slice_obj.submitted_at = datetime.now(timezone.utc).isoformat()
+        slice_obj.submitted_at = datetime.now(UTC).isoformat()
 
         self._persist()
         return {
@@ -473,12 +470,14 @@ class TWAPExecutor:
         else:
             adjusted_price = self.broker.get_best_ask(self.symbol)
         oid = self.broker.place_limit_order(
-            symbol=self.symbol, side=self.side,
-            quantity=slice_obj.amount, price=round(adjusted_price, 2),
+            symbol=self.symbol,
+            side=self.side,
+            quantity=slice_obj.amount,
+            price=round(adjusted_price, 2),
         )
         slice_obj.broker_order_id = oid
         slice_obj.status = "SUBMITTED"
-        slice_obj.submitted_at = datetime.now(timezone.utc).isoformat()
+        slice_obj.submitted_at = datetime.now(UTC).isoformat()
         self._persist()
 
         return {
@@ -491,8 +490,7 @@ class TWAPExecutor:
 
     # ── Interval Adjustment ──────────────────────────────
 
-    def compute_interval(self, last_slippage: float, slices_remaining: int,
-                         session_remaining_s: float) -> float:
+    def compute_interval(self, last_slippage: float, slices_remaining: int, session_remaining_s: float) -> float:
         """Dynamic interval: giãn khi slippage cao, thu hẹp khi thấp."""
         base = min(session_remaining_s / max(slices_remaining, 1), BASE_SLICE_INTERVAL_S)
         if last_slippage > SLIPPAGE_THRESHOLD:
@@ -527,6 +525,7 @@ class TWAPExecutor:
 
         # Đọc Market Impact Threshold từ params_registry
         from src.portfolio.params_registry import load_or_build
+
         registry = load_or_build()
         threshold = registry.get("market_impact_threshold", 0.1)
         max_slice_amount = threshold * self.sm.total_capital
@@ -572,12 +571,9 @@ class TWAPExecutor:
         if deferred:
             return self.rollover_deferred()
 
-        filled_amount = sum(
-            s.amount for s in self.plan.slices
-            if s.status in ("FILLED", "PARTIAL_FILLED")
-        )
+        filled_amount = sum(s.amount for s in self.plan.slices if s.status in ("FILLED", "PARTIAL_FILLED"))
         self.plan.status = "COMPLETED"
-        self.plan.completed_at = datetime.now(timezone.utc).isoformat()
+        self.plan.completed_at = datetime.now(UTC).isoformat()
 
         # Ghi nhận write-off trên sổ cái
         result = self.sm.writeoff_lifo()
@@ -607,7 +603,7 @@ class TWAPExecutor:
 
     # ── Internal ─────────────────────────────────────────
 
-    def _find_slice(self, index: int) -> Optional[Slice]:
+    def _find_slice(self, index: int) -> Slice | None:
         if not self.plan:
             return None
         for s in self.plan.slices:
@@ -615,7 +611,7 @@ class TWAPExecutor:
                 return s
         return None
 
-    def _find_slice_by_oid(self, oid: str) -> Optional[Slice]:
+    def _find_slice_by_oid(self, oid: str) -> Slice | None:
         if not self.plan:
             return None
         for s in self.plan.slices:
@@ -631,13 +627,12 @@ class TWAPExecutor:
             "pending_slices_count": sum(1 for s in self.plan.slices if s.status == "PENDING"),
             "active_broker_order_id": self._active_order_id(),
             "slice_history": [
-                {"index": s.index, "status": s.status, "broker_order_id": s.broker_order_id}
-                for s in self.plan.slices
+                {"index": s.index, "status": s.status, "broker_order_id": s.broker_order_id} for s in self.plan.slices
             ],
         }
         update_twap_context(ctx)
 
-    def _current_cursor(self) -> Optional[int]:
+    def _current_cursor(self) -> int | None:
         if not self.plan:
             return None
         for s in self.plan.slices:
@@ -645,7 +640,7 @@ class TWAPExecutor:
                 return s.index
         return None
 
-    def _active_order_id(self) -> Optional[str]:
+    def _active_order_id(self) -> str | None:
         if not self.plan:
             return None
         for s in self.plan.slices:

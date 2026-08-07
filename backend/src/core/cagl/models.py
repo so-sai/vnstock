@@ -1,9 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
@@ -33,6 +32,7 @@ class EndpointSpec:
     ``path`` is the full resolved path (prefix + route decorator path).
     ``module`` is the logical module name (e.g. *flow*, *gold*, *macro*).
     """
+
     path: str
     method: str
     module: str
@@ -58,11 +58,12 @@ class EndpointSpec:
 @dataclass
 class ValidationFinding:
     """A single validation issue discovered during CAGL verification."""
-    severity: str       # "error", "warning", "info"
-    category: str       # "phantom", "missing", "prefix_dup", "unregistered"
+
+    severity: str  # "error", "warning", "info"
+    category: str  # "phantom", "missing", "prefix_dup", "unregistered"
     path: str
     message: str
-    detail: Optional[str] = None
+    detail: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -77,6 +78,7 @@ class ValidationFinding:
 @dataclass
 class ScanResult:
     """Aggregated result of a CAGL verification pass."""
+
     runtime_routes: list[EndpointSpec] = field(default_factory=list)
     findings: list[ValidationFinding] = field(default_factory=list)
 

@@ -5,11 +5,9 @@ TDD cho backend/src/calibration/system_auditor.py.
 Các collector là hàm thuần hoặc đọc DB qua function-level imports (để monkeypatch được).
 Aggregation (aggregate_audit) là hàm thuần — test trực tiếp.
 """
-import json
 import sqlite3
 
 import pytest
-
 
 # ═══════════════════════════════════════════════════════════════
 # AGGREGATION (hàm thuần)
@@ -383,7 +381,9 @@ def test_collect_circuit_breaker_level_mapping(monkeypatch):
 
 def test_record_and_load_history_roundtrip():
     from calibration.system_auditor import (
-        create_audit_table, record_snapshot, load_history,
+        create_audit_table,
+        load_history,
+        record_snapshot,
     )
     conn = sqlite3.connect(":memory:")
     create_audit_table(conn)
@@ -408,7 +408,8 @@ def test_record_and_load_history_roundtrip():
 
 def test_load_history_empty(monkeypatch):
     from calibration.system_auditor import (
-        create_audit_table, load_history,
+        create_audit_table,
+        load_history,
     )
     conn = sqlite3.connect(":memory:")
     create_audit_table(conn)

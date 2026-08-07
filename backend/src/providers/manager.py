@@ -16,7 +16,8 @@ import logging
 import threading
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
 
@@ -55,7 +56,7 @@ class CircuitBreaker:
         self.cooldown_seconds = cooldown_seconds
         self._lock = threading.Lock()
         self._state = "CLOSED"
-        self._events: Deque[Tuple[float, bool]] = deque()
+        self._events: deque[tuple[float, bool]] = deque()
         self._state_since = time.time()
 
     # ── State ──────────────────────────────────────────────────────────
@@ -118,11 +119,11 @@ class CircuitBreaker:
 
 
 # ── Default manager (module-level singleton) ─────────────────────────
-_default_manager: Optional["ProviderManager"] = None
+_default_manager: ProviderManager | None = None
 _manager_lock = threading.Lock()
 
 
-def get_provider_manager(providers: Optional[List[FinancialProvider]] = None) -> "ProviderManager":
+def get_provider_manager(providers: list[FinancialProvider] | None = None) -> ProviderManager:
     """Return the shared ProviderManager, registering `providers` on first call."""
     global _default_manager
     with _manager_lock:
@@ -147,22 +148,22 @@ class ProviderManager:
 
     def __init__(
         self,
-        providers: Optional[List[FinancialProvider]] = None,
-        breaker_factory: Optional[Callable[[], CircuitBreaker]] = None,
+        providers: list[FinancialProvider] | None = None,
+        breaker_factory: Callable[[], CircuitBreaker] | None = None,
     ) -> None:
-        self._providers: List[FinancialProvider] = providers or []
+        self._providers: list[FinancialProvider] = providers or []
         self._lock = threading.Lock()
-        self._source_attribution: Dict[str, int] = {}
-        self._failures: Dict[str, int] = {}
-        self._tripped: Dict[str, int] = {}
-        self._breakers: Dict[str, CircuitBreaker] = {}
+        self._source_attribution: dict[str, int] = {}
+        self._failures: dict[str, int] = {}
+        self._tripped: dict[str, int] = {}
+        self._breakers: dict[str, CircuitBreaker] = {}
         self._breaker_factory = breaker_factory or CircuitBreaker
         for provider in self._providers:
             if getattr(provider, "circuit_breakable", True):
                 self._breakers[provider.name] = self._breaker_factory()
-        self._cross_validation: Dict[tuple, Dict[str, Any]] = {}
-        self._discrepancies: Dict[tuple, Dict[str, Any]] = {}
-        self._last_primary_source: Optional[str] = None
+        self._cross_validation: dict[tuple, dict[str, Any]] = {}
+        self._discrepancies: dict[tuple, dict[str, Any]] = {}
+        self._last_primary_source: str | None = None
         self._secondary_provider = self._make_secondary_provider
         self._forensic_cache: Any = None
 
@@ -183,13 +184,13 @@ class ProviderManager:
             from src.providers.vnstock_provider import VnstockProvider
 
             self.register(VnstockProvider())
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("VnstockProvider unavailable: %s", e)
         try:
             from src.providers.sqlite_provider import SqliteCacheProvider
 
             self.register(SqliteCacheProvider())
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("SqliteCacheProvider unavailable: %s", e)
 
     def register(self, provider: FinancialProvider) -> None:
@@ -199,10 +200,10 @@ class ProviderManager:
                 self._breakers[provider.name] = self._breaker_factory()
 
     @property
-    def providers(self) -> List[FinancialProvider]:
+    def providers(self) -> list[FinancialProvider]:
         return list(self._providers)
 
-    def active_source(self) -> Optional[str]:
+    def active_source(self) -> str | None:
         """Name of the first currently-available (and un-tripped) provider."""
         for p in self._providers:
             breaker = self._breakers.get(p.name)
@@ -215,19 +216,19 @@ class ProviderManager:
                 continue
         return None
 
-    def source_attribution(self) -> Dict[str, int]:
+    def source_attribution(self) -> dict[str, int]:
         with self._lock:
             return dict(self._source_attribution)
 
-    def failures(self) -> Dict[str, int]:
+    def failures(self) -> dict[str, int]:
         with self._lock:
             return dict(self._failures)
 
-    def breaker_states(self) -> Dict[str, str]:
+    def breaker_states(self) -> dict[str, str]:
         """Current circuit state per breakable provider."""
         return {name: cb.state for name, cb in self._breakers.items()}
 
-    def tripped_sources(self) -> Dict[str, int]:
+    def tripped_sources(self) -> dict[str, int]:
         """Count of requests skipped because a provider was OPEN."""
         with self._lock:
             return dict(self._tripped)
@@ -266,7 +267,7 @@ class ProviderManager:
                         self._source_attribution[provider.name] = self._source_attribution.get(provider.name, 0) + 1
                         self._last_primary_source = getattr(provider, "source", provider.name)
                     return result, provider.name
-            except Exception as e:  # noqa: BLE001 - provider boundary
+            except Exception as e:
                 logger.debug("Provider %s failed %s: %s", provider.name, method, e)
                 if breaker is not None:
                     breaker.record_failure()
@@ -275,12 +276,12 @@ class ProviderManager:
         return None, None
 
     # ── Cross-validation audit ──────────────────────────────────────────
-    def cross_validation_report(self) -> Dict[str, Dict[str, Any]]:
+    def cross_validation_report(self) -> dict[str, dict[str, Any]]:
         """Full audit trail of every cross-validation run (symbol, method)."""
         with self._lock:
             return {f"{sym}:{m}": dict(rep) for (sym, m), rep in sorted(self._cross_validation.items())}
 
-    def discrepancies(self) -> Dict[str, Dict[str, Any]]:
+    def discrepancies(self) -> dict[str, dict[str, Any]]:
         """Only the flagged FLAG_DISCREPANCY records (quarantine view)."""
         with self._lock:
             return {f"{sym}:{m}": dict(rep) for (sym, m), rep in sorted(self._discrepancies.items())}
@@ -292,7 +293,7 @@ class ProviderManager:
         secondary_source: str = "KBS",
         threshold: float = 0.05,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run an on-demand cross-validation for a single symbol/method.
 
         Returns the comparison report (VERIFIED / FLAG_DISCREPANCY /
@@ -321,21 +322,21 @@ class ProviderManager:
 
     # ── Domain methods (mirror FinancialProvider) ──────────────────────
     @xvalidate
-    def income_statement(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def income_statement(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         result, _ = self._try_call("income_statement", symbol, **kwargs)
         return result
 
     @xvalidate
-    def balance_sheet(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def balance_sheet(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         result, _ = self._try_call("balance_sheet", symbol, **kwargs)
         return result
 
     @xvalidate
-    def cashflow(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def cashflow(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         result, _ = self._try_call("cashflow", symbol, **kwargs)
         return result
 
-    def financial_statements(self, symbol: str, **kwargs: Any) -> Dict[str, Optional[pd.DataFrame]]:
+    def financial_statements(self, symbol: str, **kwargs: Any) -> dict[str, pd.DataFrame | None]:
         return {
             "IS": self.income_statement(symbol, **kwargs),
             "BS": self.balance_sheet(symbol, **kwargs),
@@ -345,19 +346,19 @@ class ProviderManager:
     def history(
         self,
         symbol: str,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
         **kwargs: Any,
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         result, _ = self._try_call("history", symbol, start, end, **kwargs)
         return result
 
-    def company_info(self, symbol: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    def company_info(self, symbol: str, **kwargs: Any) -> dict[str, Any] | None:
         result, _ = self._try_call("company_info", symbol, **kwargs)
         return result
 
     # ── Forensic screening cache (O(1) read, never recomputes on request) ─
-    def forensic_risk(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def forensic_risk(self, symbol: str) -> dict[str, Any] | None:
         """Latest cached forensic score for a symbol (Beneish/Sloan/ARI).
 
         Reads the materialized `forensic_scores` table via PRIMARY KEY lookup
@@ -371,9 +372,9 @@ class ProviderManager:
 
                 self._forensic_cache = ForensicScoreCache()
             return self._forensic_cache.get(symbol)
-        except Exception:  # noqa: BLE001 - provider boundary
+        except Exception:
             return None
 
-    def symbols(self, **kwargs: Any) -> Optional[List[str]]:
+    def symbols(self, **kwargs: Any) -> list[str] | None:
         result, _ = self._try_call("symbols", **kwargs)
         return result

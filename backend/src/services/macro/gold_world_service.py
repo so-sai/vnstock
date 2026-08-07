@@ -1,19 +1,19 @@
-﻿"""
+"""
 Gold World Service — Fetch XAUUSD via yfinance (GC=F)
 Bổ sung Global Gold vào Gold Cognition Layer.
 Sanity guard: so sánh với rolling 30d median từ DB, cảnh báo nếu lệch >50%.
 """
+
 import logging
 import os
 import sys
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -29,6 +29,7 @@ def _hydrate_path():
     if str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 _LIBS = str(Path(PROJECT_ROOT) / "backend" / "libs")
@@ -72,7 +73,7 @@ HARD_UPPER = 5000.0
 SOFT_DEVIATION = 0.50
 
 
-def _get_30d_median() -> Optional[float]:
+def _get_30d_median() -> float | None:
     """Lấy median GOLD_XAU 30 phiên gần nhất từ DB."""
     try:
         with get_connection() as conn:
@@ -89,7 +90,7 @@ def _get_30d_median() -> Optional[float]:
 
 def _check_flat_line() -> bool:
     """Detect flat time series: last N consecutive GOLD_XAU values are identical.
-    
+
     When DB Fallback repeats the same value across weekends/holidays,
     the time series appears flat. This flag alerts downstream algorithms
     (EWMA, Z-Score) that volatility is artificially suppressed.
@@ -108,9 +109,9 @@ def _check_flat_line() -> bool:
         return False
 
 
-def _gold_fallback_from_db() -> Optional[float]:
+def _gold_fallback_from_db() -> float | None:
     """Fallback: last known GOLD_XAU from DB when yfinance fails.
-    
+
     NOTE: This value is NOT inserted into macro_history. The Dual-Z EWMA
     pipeline reads macro_history directly and never sees repeated fallback
     values, so flat-line noise does NOT reach the Z-score computation.
@@ -136,7 +137,7 @@ def _gold_fallback_from_db() -> Optional[float]:
     return None
 
 
-def fetch_world_gold_live() -> Optional[float]:
+def fetch_world_gold_live() -> float | None:
     """Fetch XAUUSD (GC=F) latest close via yfinance. Falls back to DB on failure."""
     now = int(datetime.now().timestamp())
     if GOLD_CACHE["price"] is not None and now - GOLD_CACHE["timestamp"] < CACHE_TTL:
@@ -164,9 +165,7 @@ def fetch_world_gold_live() -> Optional[float]:
             deviation = abs(latest / median - 1)
             if deviation > SOFT_DEVIATION:
                 GOLD_CACHE["conflicted"] = True
-                logger.warning(
-                    f"XAUUSD {latest} deviates {deviation*100:.0f}% from 30d median {median:.0f} — CONFLICTED"
-                )
+                logger.warning(f"XAUUSD {latest} deviates {deviation * 100:.0f}% from 30d median {median:.0f} — CONFLICTED")
 
         return latest
     except Exception as e:
@@ -193,7 +192,7 @@ def fetch_world_gold_history(period: str = "1y") -> pd.DataFrame:
             return pd.DataFrame()
         df = data[["Close"]].reset_index()
         df.columns = [c.lower().strip() for c in df.columns]
-        df["date"] = pd.to_datetime(df["date"], format='mixed').dt.strftime("%Y-%m-%d")
+        df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
         return df[["date", "close"]]
     except Exception as e:
         logger.error(f"World gold history fetch failed: {e}")
@@ -219,14 +218,20 @@ def seed_world_gold_to_db(period: str = "1y") -> bool:
         for _, row in df.iterrows():
             try:
                 rec = _NORM.normalize("GOLD_XAU", row["date"], row["value"], "yahoo")
-                v2_records.append({
-                    "variable": rec.variable, "date": rec.date,
-                    "value": rec.value, "asset_class": rec.asset_class.value,
-                    "unit": rec.unit.value, "source": rec.source.value,
-                    "raw_value": rec.raw_value, "raw_unit": rec.raw_unit,
-                    "confidence": rec.confidence,
-                })
-            except (ValueError, CanonicalValidationError):
+                v2_records.append(
+                    {
+                        "variable": rec.variable,
+                        "date": rec.date,
+                        "value": rec.value,
+                        "asset_class": rec.asset_class.value,
+                        "unit": rec.unit.value,
+                        "source": rec.source.value,
+                        "raw_value": rec.raw_value,
+                        "raw_unit": rec.raw_unit,
+                        "confidence": rec.confidence,
+                    }
+                )
+            except ValueError, CanonicalValidationError:
                 rejects += 1
 
         if v2_records:

@@ -1,4 +1,4 @@
-﻿"""data_freshness.py — Theo dõi độ tươi dữ liệu và trạng thái API ngoại vi.
+"""data_freshness.py — Theo dõi độ tươi dữ liệu và trạng thái API ngoại vi.
 
 Bảng `data_freshness` là single source of truth cho mọi consumer:
   - staleness_hours: tuổi dữ liệu (giờ kể từ last_updated)
@@ -8,10 +8,11 @@ Bảng `data_freshness` là single source of truth cho mọi consumer:
 Mỗi consumer bắt buộc kiểm tra staleness_hours trước khi dùng.
 Không có metadata → coi là STALE và từ chối xử lý.
 """
+
 import hashlib
 import json
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Any
 
 from src.database.db_core import get_connection
 
@@ -41,8 +42,8 @@ def upsert_freshness(
     date: str,
     source: str = "API",
     api_status: str = "OK",
-    data_row: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
+    data_row: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
 ):
     """Ghi/Cập nhật metadata độ tươi cho một (symbol, date).
 
@@ -68,7 +69,7 @@ def upsert_freshness(
         )
 
 
-def check_staleness(symbol: str, date: str) -> Tuple[str, float, str]:
+def check_staleness(symbol: str, date: str) -> tuple[str, float, str]:
     """Kiểm tra độ tươi của một (symbol, date).
 
     Returns:
@@ -78,8 +79,7 @@ def check_staleness(symbol: str, date: str) -> Tuple[str, float, str]:
     ensure_table()
     with get_connection() as conn:
         row = conn.execute(
-            f"SELECT source, staleness_hours, last_updated, api_status "
-            f"FROM {TABLE_NAME} WHERE symbol=? AND date=?",
+            f"SELECT source, staleness_hours, last_updated, api_status FROM {TABLE_NAME} WHERE symbol=? AND date=?",
             (symbol, date),
         ).fetchone()
     if not row:
@@ -92,7 +92,7 @@ def check_staleness(symbol: str, date: str) -> Tuple[str, float, str]:
     try:
         updated_dt = datetime.fromisoformat(last_updated)
         staleness = (datetime.now() - updated_dt).total_seconds() / 3600.0
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         staleness = MAX_STALE_HOURS
 
     return (source, staleness, api_status)
@@ -100,21 +100,20 @@ def check_staleness(symbol: str, date: str) -> Tuple[str, float, str]:
 
 def get_stale_symbols(
     max_stale: float = MAX_STALE_HOURS,
-    date: Optional[str] = None,
-) -> List[str]:
+    date: str | None = None,
+) -> list[str]:
     """Trả về danh sách symbol có staleness > max_stale cho một ngày."""
     ensure_table()
     today = date or datetime.now().strftime("%Y-%m-%d")
     with get_connection() as conn:
         rows = conn.execute(
-            f"SELECT symbol FROM {TABLE_NAME} "
-            f"WHERE date=? AND (staleness_hours > ? OR api_status != 'OK')",
+            f"SELECT symbol FROM {TABLE_NAME} WHERE date=? AND (staleness_hours > ? OR api_status != 'OK')",
             (today, max_stale),
         ).fetchall()
     return [r[0] for r in rows]
 
 
-def mark_api_status(symbol: str, date: str, status: str, reason: Optional[str] = None):
+def mark_api_status(symbol: str, date: str, status: str, reason: str | None = None):
     """Đánh dấu trạng thái API cho một (symbol, date)."""
     ensure_table()
     with get_connection() as conn:
@@ -126,14 +125,14 @@ def mark_api_status(symbol: str, date: str, status: str, reason: Optional[str] =
     if existing and existing[0]:
         try:
             meta = json.loads(existing[0])
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             meta = {}
     if reason:
         meta["reason"] = reason
     upsert_freshness(symbol, date, source="API", api_status=status, metadata=meta)
 
 
-def get_backfill_gap(symbol: str) -> Tuple[Optional[str], Optional[str]]:
+def get_backfill_gap(symbol: str) -> tuple[str | None, str | None]:
     """Xác định gap dữ liệu: (last_date_in_db, expected_date).
 
     Returns:
@@ -156,7 +155,7 @@ def resolve_staleness_for_consumer(
     symbol: str,
     date: str,
     max_hours: float = MAX_STALE_HOURS,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Consumer-facing check: trả về metadata để consumer quyết định.
 
     Returns:
@@ -175,7 +174,7 @@ def resolve_staleness_for_consumer(
     }
 
 
-def _compute_hash(data_row: Dict[str, Any]) -> str:
+def _compute_hash(data_row: dict[str, Any]) -> str:
     """SHA256 hash của OHLCV row để phát hiện data drift."""
     canonical = json.dumps(data_row, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]

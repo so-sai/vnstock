@@ -14,6 +14,7 @@ Uses APScheduler CronTrigger with:
 LAW-009 alignment: all macro data fetched at fixed times ensures
 temporal consistency — no drift between M vector and sector scores.
 """
+
 import logging
 import sys
 from pathlib import Path
@@ -42,28 +43,28 @@ if str(SRC_DIR) not in sys.path:
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
+
     APSCHEDULER_AVAILABLE = True
 except ImportError:
     APSCHEDULER_AVAILABLE = False
-    logger.warning(
-        "[SCHEDULER] apscheduler not installed. "
-        "Install: pip install apscheduler"
-    )
+    logger.warning("[SCHEDULER] apscheduler not installed. Install: pip install apscheduler")
 
 
 def _get_data_pipeline():
     """Lazy-import the daily data pipeline."""
     from engine.eod_runner import run_daily_pipeline
+
     return run_daily_pipeline
 
 
 def _get_macro_refresh():
     """Lazy-import macro indicator refresh."""
     from governor.regional_influence_engine import compute_macro_vector
+
     return compute_macro_vector
 
 
-def create_market_scheduler() -> "BackgroundScheduler | None":
+def create_market_scheduler() -> BackgroundScheduler | None:
     """Create and configure the market-aligned scheduler.
 
     Returns:
@@ -113,10 +114,7 @@ def create_market_scheduler() -> "BackgroundScheduler | None":
         replace_existing=True,
     )
 
-    logger.info(
-        "[SCHEDULER] Market-aligned CronTrigger configured: "
-        "08:30 (macro), 11:45 (mid-day), 15:30 (EOD)"
-    )
+    logger.info("[SCHEDULER] Market-aligned CronTrigger configured: 08:30 (macro), 11:45 (mid-day), 15:30 (EOD)")
     return scheduler
 
 
@@ -135,6 +133,7 @@ def stop_scheduler():
         return
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
+
         for s in BackgroundScheduler.__subclasses__():
             if s._instance:
                 s._instance.shutdown(wait=False)
@@ -146,21 +145,10 @@ def stop_scheduler():
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="PTCK_VNSTOCK Market-Aligned Scheduler"
-    )
-    parser.add_argument(
-        "--start", action="store_true",
-        help="Start the scheduler in background"
-    )
-    parser.add_argument(
-        "--stop", action="store_true",
-        help="Stop the scheduler"
-    )
-    parser.add_argument(
-        "--status", action="store_true",
-        help="Show scheduled jobs"
-    )
+    parser = argparse.ArgumentParser(description="PTCK_VNSTOCK Market-Aligned Scheduler")
+    parser.add_argument("--start", action="store_true", help="Start the scheduler in background")
+    parser.add_argument("--stop", action="store_true", help="Stop the scheduler")
+    parser.add_argument("--status", action="store_true", help="Show scheduled jobs")
     args = parser.parse_args()
 
     if args.start:
@@ -168,6 +156,7 @@ if __name__ == "__main__":
         print("Scheduler started. 3 slots: 08:30 | 11:45 | 15:30 (Mon-Fri)")
         try:
             import time
+
             while True:
                 time.sleep(60)
         except KeyboardInterrupt:

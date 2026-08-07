@@ -1,4 +1,4 @@
-﻿"""rejected_signals.py — Kho lưu tín hiệu bị từ chối + Evidence Ledger.
+"""rejected_signals.py — Kho lưu tín hiệu bị từ chối + Evidence Ledger.
 
 LAW-001 (Anti-Survivorship):
   Lưu cả tín hiệu bị từ chối để phân tích counterfactual.
@@ -12,10 +12,10 @@ Evidence Expiry:
   Mỗi signal có evaluation_horizon (7d/20d/60d/120d). Sau horizon,
   record tự động closed, không còn ảnh hưởng calibration.
 """
+
 import json
-import math
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -82,11 +82,11 @@ def record_rejected_signal(
     rejection_reason: str,
     regime_score: float,
     adx_value: float,
-    feature_vector: Dict[str, Any],
+    feature_vector: dict[str, Any],
     prior_belief: float,
     posterior_belief: float,
     evaluation_horizon: str = "60d",
-    accepted_alternative: Optional[str] = None,
+    accepted_alternative: str | None = None,
 ) -> int:
     """Ghi một tín hiệu bị từ chối vào Evidence Ledger.
 
@@ -116,7 +116,7 @@ def record_rejected_signal(
     # Parse horizon (e.g., "60d" → 60 days)
     try:
         horizon_days = int(evaluation_horizon.replace("d", ""))
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         horizon_days = DEFAULT_HORIZON
     valid_until = (now + timedelta(days=horizon_days)).isoformat()
 
@@ -129,20 +129,29 @@ def record_rejected_signal(
             " evaluation_horizon, valid_until, information_gain, surprise, status, "
             " accepted_alternative) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'ACTIVE', ?)",
-            (now.isoformat(), ticker, signal_type, rejection_reason,
-             regime_score, adx_value, fv_json,
-             prior_belief, posterior_belief,
-             evaluation_horizon, valid_until,
-             accepted_alternative),
+            (
+                now.isoformat(),
+                ticker,
+                signal_type,
+                rejection_reason,
+                regime_score,
+                adx_value,
+                fv_json,
+                prior_belief,
+                posterior_belief,
+                evaluation_horizon,
+                valid_until,
+                accepted_alternative,
+            ),
         )
         return cur.lastrowid
 
 
 def get_rejected_signals(
     limit: int = 100,
-    reason_filter: Optional[str] = None,
-    days_back: Optional[int] = None,
-) -> List[Dict[str, Any]]:
+    reason_filter: str | None = None,
+    days_back: int | None = None,
+) -> list[dict[str, Any]]:
     """Truy vấn rejected signals.
 
     Args:
@@ -180,13 +189,13 @@ def get_rejected_signals(
         d = dict(r)
         try:
             d["feature_vector"] = json.loads(d.pop("feature_vector_json", "{}"))
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             d["feature_vector"] = {}
         result.append(d)
     return result
 
 
-def count_by_reason(days_back: Optional[int] = 30) -> Dict[str, int]:
+def count_by_reason(days_back: int | None = 30) -> dict[str, int]:
     """Đếm số lượng rejected signals theo rejection_reason."""
     ensure_table()
     where = ""
@@ -197,9 +206,7 @@ def count_by_reason(days_back: Optional[int] = 30) -> Dict[str, int]:
         params.append(cutoff)
     with get_connection() as conn:
         rows = conn.execute(
-            f"SELECT rejection_reason, COUNT(*) as cnt "
-            f"FROM {TABLE_NAME} {where} "
-            f"GROUP BY rejection_reason ORDER BY cnt DESC",
+            f"SELECT rejection_reason, COUNT(*) as cnt FROM {TABLE_NAME} {where} GROUP BY rejection_reason ORDER BY cnt DESC",
             params,
         ).fetchall()
     return {r[0]: r[1] for r in rows}
@@ -250,7 +257,7 @@ def get_counterfactual_returns(
 
 def fetch_doc_returns(
     window_days: int = 30,
-) -> List[Dict[str, float]]:
+) -> list[dict[str, float]]:
     """Lấy cặp (alternative_return, simulated_return) để tính DOC_Index.
 
     DOC = Decision Opportunity Cost — đo độ lệch giữa lợi nhuận
@@ -277,10 +284,12 @@ def fetch_doc_returns(
         sim = r[2] if r[2] is not None else (r[1] if r[1] is not None else r[0])
         alt = r[5] if r[5] is not None else (r[4] if r[4] is not None else r[3])
         if sim is not None and alt is not None:
-            pairs.append({
-                "rejected_return": float(sim) / 100.0,
-                "alternative_return": float(alt) / 100.0,
-            })
+            pairs.append(
+                {
+                    "rejected_return": float(sim) / 100.0,
+                    "alternative_return": float(alt) / 100.0,
+                }
+            )
     return pairs[-window_days:]
 
 
@@ -305,8 +314,7 @@ def _compute_adv_20(symbol: str) -> float:
     """Average Daily Value (VND) 20 phiên — thanh khoản trung bình."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT close, volume FROM daily_ohlcv "
-            "WHERE symbol = ? ORDER BY date DESC LIMIT 20",
+            "SELECT close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 20",
             (symbol,),
         ).fetchall()
     if len(rows) < 5:
@@ -319,8 +327,7 @@ def _compute_atr_14(symbol: str) -> float:
     """Average True Range 14 phiên — biến động trung bình."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT high, low, close FROM daily_ohlcv "
-            "WHERE symbol = ? ORDER BY date DESC LIMIT 15",
+            "SELECT high, low, close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 15",
             (symbol,),
         ).fetchall()
     if len(rows) < 3:
@@ -379,7 +386,7 @@ def _compute_dynamic_slippage(
 def _compute_information_gain(
     simulated_return_pct: float,
     prior_belief: float,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Evidence Ledger: information_gain + surprise.
 
     Công thức:
@@ -402,8 +409,7 @@ def close_expired():
     now = datetime.now().isoformat()
     with get_connection() as conn:
         cur = conn.execute(
-            f"UPDATE {TABLE_NAME} SET status = 'CLOSED' "
-            f"WHERE valid_until < ? AND status = 'ACTIVE'",
+            f"UPDATE {TABLE_NAME} SET status = 'CLOSED' WHERE valid_until < ? AND status = 'ACTIVE'",
             (now,),
         )
         return cur.rowcount
@@ -445,12 +451,10 @@ def run_eod_update(order_volume: float = 100_000_000):
 
     with get_connection() as conn:
         ohlcv_rows = conn.execute(
-            "SELECT symbol, date, adj_close FROM daily_ohlcv "
-            "WHERE date >= (SELECT MIN(date) FROM daily_ohlcv) "
-            "ORDER BY date"
+            "SELECT symbol, date, adj_close FROM daily_ohlcv WHERE date >= (SELECT MIN(date) FROM daily_ohlcv) ORDER BY date"
         ).fetchall()
 
-    price_map: Dict[str, Dict[str, float]] = {}
+    price_map: dict[str, dict[str, float]] = {}
     for r in ohlcv_rows:
         sym = r[0]
         if sym not in price_map:
@@ -465,7 +469,7 @@ def run_eod_update(order_volume: float = 100_000_000):
         ticker = r[2]
         try:
             entry_date = datetime.fromisoformat(ts_str).date()
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             entry_date = now.date()
 
         ticker_prices = price_map.get(ticker, {})
@@ -493,10 +497,7 @@ def run_eod_update(order_volume: float = 100_000_000):
 
             for horizon in [5, 10, 20]:
                 col = f"simulated_exit_{horizon}d"
-                existing = conn.execute(
-                    f"SELECT {col} FROM {TABLE_NAME} WHERE id = ?",
-                    (record_id,)
-                ).fetchone()[0]
+                existing = conn.execute(f"SELECT {col} FROM {TABLE_NAME} WHERE id = ?", (record_id,)).fetchone()[0]
                 if existing is not None:
                     continue
 
@@ -540,20 +541,17 @@ def run_eod_update(order_volume: float = 100_000_000):
         alt_ticker = ar[2]
         try:
             entry_date = datetime.fromisoformat(ts_str).date()
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             entry_date = now.date()
 
         with get_connection() as conn:
             for horizon in [5, 10, 20]:
                 col = f"alternative_return_{horizon}d"
-                existing = conn.execute(
-                    f"SELECT {col} FROM {TABLE_NAME} WHERE id = ?",
-                    (record_id,)
-                ).fetchone()[0]
+                existing = conn.execute(f"SELECT {col} FROM {TABLE_NAME} WHERE id = ?", (record_id,)).fetchone()[0]
                 if existing is not None:
                     continue
 
-                if alt_ticker == 'CASH':
+                if alt_ticker == "CASH":
                     # Risk-free rate return
                     frac_year = horizon / 365.0
                     rf_return = ((1.0 + RISK_FREE_RATE) ** frac_year - 1.0) * 100

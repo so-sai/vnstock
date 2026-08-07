@@ -1,4 +1,3 @@
-﻿# -*- coding: utf-8 -*-
 """
 hsr_kernel.py — HSR Execution Kernel (zero-DB replay engine).
 
@@ -32,52 +31,39 @@ class InMemoryDB:
     """
 
     def __init__(self, start_date: str, end_date: str):
-        self._conn = sqlite3.connect(':memory:')
+        self._conn = sqlite3.connect(":memory:")
         self._conn.execute("PRAGMA busy_timeout=5000;")
         self._load_data(start_date, end_date)
         self._create_indexes()
 
     def _load_data(self, start_date: str, end_date: str):
         import pandas as pd
-
         from src.database.db_core import get_connection as _disk_conn
 
-        tables_to_copy = ['daily_ohlcv']
+        tables_to_copy = ["daily_ohlcv"]
         for table in tables_to_copy:
             with _disk_conn() as disk:
-                df = pd.read_sql(
-                    f"SELECT * FROM {table} "
-                    f"WHERE date >= ? AND date <= ?",
-                    disk, params=(start_date, end_date)
-                )
+                df = pd.read_sql(f"SELECT * FROM {table} WHERE date >= ? AND date <= ?", disk, params=(start_date, end_date))
             if not df.empty:
-                df.to_sql(table, self._conn, if_exists='replace', index=False)
-                logger.info(
-                    f"  [Kernel] Loaded {len(df):,} rows from {table} "
-                    f"into memory ({start_date} → {end_date})"
-                )
+                df.to_sql(table, self._conn, if_exists="replace", index=False)
+                logger.info(f"  [Kernel] Loaded {len(df):,} rows from {table} into memory ({start_date} → {end_date})")
 
         # Also load regime_history for flow_forecast
         try:
             with _disk_conn() as disk:
                 df = pd.read_sql(
-                    "SELECT * FROM regime_history WHERE date >= ? AND date <= ?",
-                    disk, params=(start_date, end_date)
+                    "SELECT * FROM regime_history WHERE date >= ? AND date <= ?", disk, params=(start_date, end_date)
                 )
             if not df.empty:
-                df.to_sql('regime_history', self._conn, if_exists='replace', index=False)
+                df.to_sql("regime_history", self._conn, if_exists="replace", index=False)
                 logger.info(f"  [Kernel] Loaded {len(df):,} rows from regime_history")
         except Exception:
             logger.info("  [Kernel] regime_history table not available — will be created by engines")
 
     def _create_indexes(self):
         try:
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ohlcv_date ON daily_ohlcv(date)"
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol ON daily_ohlcv(symbol)"
-            )
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_ohlcv_date ON daily_ohlcv(date)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol ON daily_ohlcv(symbol)")
         except Exception:
             pass
 

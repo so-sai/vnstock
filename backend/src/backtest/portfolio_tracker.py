@@ -10,7 +10,6 @@ Encapsulates BUY/SELL execution with proper accounting:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
 
 
 @dataclass
@@ -20,9 +19,9 @@ class PortfolioTracker:
     initial_capital: float = 100_000_000.0
     cash: float = 100_000_000.0
     invested: float = 0.0
-    positions: Dict[str, float] = field(default_factory=dict)  # symbol -> shares
-    entry_prices: Dict[str, float] = field(default_factory=dict)  # symbol -> exec_price
-    trade_log: List[dict] = field(default_factory=list)
+    positions: dict[str, float] = field(default_factory=dict)  # symbol -> shares
+    entry_prices: dict[str, float] = field(default_factory=dict)  # symbol -> exec_price
+    trade_log: list[dict] = field(default_factory=list)
     max_positions: int = 10
     cash_reserve: float = 0.05
     buy_fee: float = 0.0045  # 0.45%
@@ -32,7 +31,7 @@ class PortfolioTracker:
     entry_threshold: float = 0.50
     exit_threshold: float = 0.40
 
-    def nav(self, prices: Dict[str, float]) -> float:
+    def nav(self, prices: dict[str, float]) -> float:
         """Total NAV = cash + Σ(shares × current_price)."""
         total = self.cash
         for sym, shares in self.positions.items():
@@ -40,7 +39,7 @@ class PortfolioTracker:
             total += shares * p
         return total
 
-    def capital_per_stock(self, prices: Dict[str, float]) -> float:
+    def capital_per_stock(self, prices: dict[str, float]) -> float:
         """Position sizing: FIXED at initial_capital, never grows with NAV."""
         return self.initial_capital * (1 - self.cash_reserve) / self.max_positions
 
@@ -49,7 +48,7 @@ class PortfolioTracker:
         symbol: str,
         price: float,
         score: float,
-        prices: Dict[str, float],
+        prices: dict[str, float],
         alloc_multiplier: float = 1.0,
     ) -> bool:
         """Execute BUY. Returns True if executed.
@@ -91,7 +90,7 @@ class PortfolioTracker:
         )
         return True
 
-    def sell(self, symbol: str, price: float, score: float, prices: Dict[str, float]) -> bool:
+    def sell(self, symbol: str, price: float, score: float, prices: dict[str, float]) -> bool:
         """Execute SELL. Returns True if executed."""
         if symbol not in self.positions:
             return False

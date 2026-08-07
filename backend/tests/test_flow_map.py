@@ -6,7 +6,9 @@ delta_liquidity) must produce expected keys and non-null values. Missing
 driver = truncated flow-map output = wrong cash-flow direction signal.
 Do NOT add new drivers without adding corresponding assertions here.
 """
-import sys, pathlib
+import pathlib
+import sys
+
 
 def _hydrate_path():
     current = pathlib.Path(__file__).resolve().parent
@@ -74,7 +76,7 @@ print(f"[OK] Layer 4 drift: has_drift={dr['has_drift']}")
 # Metadata
 assert result["ngay"] == "2026-06-11"
 assert result["timestamp"] == "2026-06-11 10:00:00"
-print(f"[OK] Metadata present")
+print("[OK] Metadata present")
 
 print()
 print("ALL FLOW MAP ASSERTIONS PASSED")

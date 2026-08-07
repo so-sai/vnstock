@@ -1,6 +1,6 @@
-from .models import HoldingPosition, SectorExposure, HoldingsView
-from .exposure_engine import compute_exposure_summary, load_portfolio_positions, compute_sector_exposure
+from .exposure_engine import compute_exposure_summary, compute_sector_exposure, load_portfolio_positions
 from .holdings_view_builder import build_holdings_view
+from .models import HoldingPosition, HoldingsView, SectorExposure
 
 __all__ = [
     "HoldingPosition",

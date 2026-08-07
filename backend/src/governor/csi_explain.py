@@ -27,9 +27,10 @@ import json
 import logging
 import sqlite3
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, cast
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ class CSIExplainEngine:
 
     def __init__(self) -> None:
         self._graph: Any = None
-        self._world: Optional[Dict] = None
+        self._world: dict | None = None
         self._perception: Any = None
 
     # ── Lazy dependencies ────────────────────────────────────────────
@@ -121,7 +122,7 @@ class CSIExplainEngine:
                 # status() reads the persisted fed_policy_cache.json without
                 # hitting the network — deterministic for CLI explanation.
                 self._world = WorldSensor(use_cache=True).status()
-            except Exception as e:  # noqa: BLE001 — external sensor module
+            except Exception as e:
                 logger.warning("[CSI] WorldSensor load FAILED: %s — World layer empty", e)
                 self._world = {}
         return self._world
@@ -135,7 +136,7 @@ class CSIExplainEngine:
 
     # ── World layer (P0.5) ────────────────────────────────────────────
 
-    def _world_nodes(self) -> List[Dict]:
+    def _world_nodes(self) -> list[dict]:
         """Map WorldSensor fields → causal nodes tagged Fact vs Latent.
 
         FACTS are measured values (fed funds, DXY, US10Y, QT balance).
@@ -203,10 +204,10 @@ class CSIExplainEngine:
 
             arch = ArchetypeEngine().classify(symbol)
             return arch.archetype if arch else "UNKNOWN"
-        except Exception:  # noqa: BLE001 — external engine
+        except Exception:
             return "UNKNOWN"
 
-    def _symbol_sector(self, symbol: str) -> Optional[str]:
+    def _symbol_sector(self, symbol: str) -> str | None:
         """Map symbol → ICB sector name via the same mapping SectorStateEngine uses."""
         try:
             from src.core.macro.sector_state_engine import SectorStateEngine
@@ -215,11 +216,11 @@ class CSIExplainEngine:
             for sector, syms in mapping.items():
                 if symbol in syms:
                     return sector
-        except Exception:  # noqa: BLE001, S110 — external module
+        except Exception:
             pass
         return None
 
-    def _sector_phase(self, sector: str) -> Optional[Dict]:
+    def _sector_phase(self, sector: str) -> dict | None:
         """Look up the sector's rotation phase from the persisted P1 report."""
         try:
             path = MACRO_DIR / "sector_rotation_latest.json"
@@ -239,7 +240,7 @@ class CSIExplainEngine:
 
     # ── Causal path ───────────────────────────────────────────────────
 
-    def _trace_chain(self, symbol: str, archetype: str) -> Dict:
+    def _trace_chain(self, symbol: str, archetype: str) -> dict:
         """Build the DAG path: World source → VN macro → company metric.
 
         Uses CausalGraph.trace_path (highest-confidence path) for the
@@ -262,7 +263,7 @@ class CSIExplainEngine:
             )
             try:
                 path = cg.trace_path(wn["node"], vn_target, None)
-            except Exception:  # noqa: BLE001 — external causal engine
+            except Exception:
                 path = None
             if path:
                 # Store the first found (highest-confidence) world→VN leg.
@@ -287,7 +288,7 @@ class CSIExplainEngine:
                     continue
                 try:
                     path = cg.trace_path(src, target_node, archetype)
-                except Exception:  # noqa: BLE001 — external causal engine
+                except Exception:
                     path = None
                 if path:
                     company_leg = {
@@ -315,7 +316,7 @@ class CSIExplainEngine:
 
     # ── Attribution: Policy Rate vs Hawkish Dissent ───────────────────
 
-    def _attribution(self) -> Dict:
+    def _attribution(self) -> dict:
         """Clarify whether CSI pressure comes from the rate LEVEL (fact)
         or from hawkish DISSENT (surprise/latent state)."""
         w = self._get_world()
@@ -351,7 +352,7 @@ class CSIExplainEngine:
 
     # ── Main explain ──────────────────────────────────────────────────
 
-    def explain(self, symbol: str) -> Dict:
+    def explain(self, symbol: str) -> dict:
         """Assemble the full CSI explanation for one symbol."""
         perception = self._get_perception()
 
@@ -377,7 +378,7 @@ class CSIExplainEngine:
                 "mos": mandate.margin_of_safety,
                 "market_context": mandate.market_context_tag,
             }
-        except Exception:  # noqa: BLE001 — external governor module
+        except Exception:
             csi = {"p_gain": 0.5, "action": "N/A", "mos": None, "market_context": "N/A"}
 
         # Sector leg.
@@ -435,10 +436,10 @@ class CSIExplainEngine:
 
 
 def scan_all(
-    symbols: Optional[List[str]] = None,
+    symbols: list[str] | None = None,
     min_vol: float = 100_000,
-    progress_cb: Optional[Callable[[int, int, str], None]] = None,
-) -> List[Dict]:
+    progress_cb: Callable[[int, int, str], None] | None = None,
+) -> list[dict]:
     """Quét CSI cho tập mã (mặc định: mọi mã đạt Vol20D >= min_vol).
 
     Args:
@@ -456,7 +457,7 @@ def scan_all(
             return []
 
     engine = CSIExplainEngine()
-    rows: List[Dict] = []
+    rows: list[dict] = []
     total = len(symbols)
     for i, sym in enumerate(symbols, 1):
         try:
@@ -475,7 +476,7 @@ def scan_all(
                     "csi_confidence": ent.get("csi_confidence"),
                 }
             )
-        except Exception:  # noqa: BLE001 — batch resilience
+        except Exception:
             # Mã thiếu dữ liệu Governor → bỏ qua, không làm hỏng batch.
             rows.append(
                 {
@@ -495,7 +496,7 @@ def scan_all(
     return rows
 
 
-def _liquid_symbols(min_vol: float = 100_000) -> List[str]:
+def _liquid_symbols(min_vol: float = 100_000) -> list[str]:
     """Trả về danh sách mã có avg_vol_20d >= min_vol ở phiên mới nhất.
 
     Dùng screener_cache.db daily_ohlcv, tính avg_vol_20d bằng pandas
@@ -540,14 +541,14 @@ def _liquid_symbols(min_vol: float = 100_000) -> List[str]:
 # ════════════════════════════════════════════════════════════════════
 
 
-def _fmt_mos(mos: Optional[float]) -> str:
+def _fmt_mos(mos: float | None) -> str:
     if mos is None:
         return "MoS: N/A"
     zone = "DISCOUNT" if mos < 0 else "PREMIUM" if mos > 0 else "FAIR"
     return f"MoS: {mos:+.1f}% ({zone})"
 
 
-def print_csi_explain(result: Dict, lang_mode: str = "full") -> None:
+def print_csi_explain(result: dict, lang_mode: str = "full") -> None:
     """Render the CSI causal trace as an ASCII DAG."""
     sym = result["symbol"]
     csi = result["csi"]
@@ -689,7 +690,7 @@ def _localize(label: str) -> str:
 
         vi = localize_label(label, "full")
         return f"{vi} ({label})" if vi != label else label
-    except Exception:  # noqa: BLE001 — external adapter module
+    except Exception:
         return label
 
 
@@ -699,7 +700,7 @@ def _(
     return _localize(label)
 
 
-def print_sector_csi_comparison(results: List[Dict], sector_name: str) -> None:
+def print_sector_csi_comparison(results: list[dict], sector_name: str) -> None:
     """Render a side-by-side comparison of CSI traces within the same sector.
 
     WHY: Operators need to see how the same macro/transmission/sector context
@@ -761,7 +762,7 @@ def print_sector_csi_comparison(results: List[Dict], sector_name: str) -> None:
     print("\n  🔀 CAUSAL PATH DIVERGENCE")
     print(f"  {'─' * 100}")
     # Group by archetype to show path similarities/differences.
-    by_arch: Dict[str, List[Dict]] = {}
+    by_arch: dict[str, list[dict]] = {}
     for r in results:
         a = r["archetype"]
         by_arch.setdefault(a, []).append(r)
@@ -805,7 +806,7 @@ def print_sector_csi_comparison(results: List[Dict], sector_name: str) -> None:
     print(f"\n  {'═' * 100}\n")
 
 
-def resolve_sector_symbols(sector_query: str) -> List[str]:
+def resolve_sector_symbols(sector_query: str) -> list[str]:
     """Resolve a sector name (or partial match) to list of symbols.
 
     Supports exact ICB name or fuzzy substring match. Returns sorted symbol list.
@@ -814,7 +815,7 @@ def resolve_sector_symbols(sector_query: str) -> List[str]:
         from src.core.macro.sector_state_engine import SectorStateEngine
 
         mapping = SectorStateEngine._load_icb_mapping()
-    except Exception:  # noqa: BLE001 — external module
+    except Exception:
         return []
 
     # Exact match first.
@@ -830,14 +831,14 @@ def resolve_sector_symbols(sector_query: str) -> List[str]:
     return []
 
 
-def list_sectors() -> List[str]:
+def list_sectors() -> list[str]:
     """Return all available ICB sector names for display."""
     try:
         from src.core.macro.sector_state_engine import SectorStateEngine
 
         mapping = SectorStateEngine._load_icb_mapping()
         return sorted(mapping.keys())
-    except Exception:  # noqa: BLE001 — external module
+    except Exception:
         return []
 
 

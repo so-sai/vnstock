@@ -1,14 +1,15 @@
-﻿"""
+"""
 Backtest Service Layer v1.0
 Time Kernel — Kết nối Backtest Engine và Stress Test.
 """
+
 import logging
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -21,6 +22,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -39,18 +41,21 @@ def get_backtest_results(model: str = "A", start_date: str = "2023-01-01", end_d
     """
     try:
         with get_connection() as conn:
-            df = pd.read_sql(f"""
+            df = pd.read_sql(
+                f"""
                 SELECT symbol, date, open, high, low, adj_close as close, volume
                 FROM daily_ohlcv
                 WHERE date >= '{start_date}' AND date <= '{end_date}'
                 AND symbol NOT IN ('VNINDEX', 'VN30')
                 ORDER BY symbol, date
-            """, conn)
+            """,
+                conn,
+            )
 
         if df.empty:
             return {"error": "No data for backtest period"}
 
-        df['date'] = pd.to_datetime(df['date'], format='mixed')
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
 
         results = _run_simple_backtest(df, model)
         return results
@@ -65,57 +70,59 @@ def _run_simple_backtest(df: pd.DataFrame, model: str) -> dict:
     Model A: Momentum (RS Rating cao + Regime TRENDING)
     Model B: Mean Reversion (RS thấp + Regime CRISIS/RANGING)
     """
-    g = df.groupby('symbol')
+    df.groupby("symbol")
 
     stats = []
-    for symbol, group in df.groupby('symbol'):
+    for symbol, group in df.groupby("symbol"):
         if len(group) < 60:
             continue
 
         group = group.copy()
-        group = group.sort_values('date')
+        group = group.sort_values("date")
 
-        prices = _normalize_price_unit(group['close'].values)
-        dates = group['date'].values
+        prices = _normalize_price_unit(group["close"].values)
+        group["date"].values
 
         returns_1y = (prices[-1] / prices[0] - 1) * 100 if prices[0] > 0 else 0
         max_drawdown = _calc_max_drawdown(prices)
 
         daily_returns = pd.Series(prices).pct_change(fill_method=None).dropna()
-        sharpe = (daily_returns.mean() / daily_returns.std() * (252 ** 0.5)) if daily_returns.std() > 0 else 0
+        sharpe = (daily_returns.mean() / daily_returns.std() * (252**0.5)) if daily_returns.std() > 0 else 0
         if max_drawdown <= -90:
             sharpe = 0.0
 
-        stats.append({
-            'symbol': symbol,
-            'return1y': round(returns_1y, 2),
-            'sharpe': round(sharpe, 3),
-            'maxDrawdown': round(max_drawdown, 2),
-            'volatility': round(daily_returns.std() * (252 ** 0.5) * 100, 2),
-        })
+        stats.append(
+            {
+                "symbol": symbol,
+                "return1y": round(returns_1y, 2),
+                "sharpe": round(sharpe, 3),
+                "maxDrawdown": round(max_drawdown, 2),
+                "volatility": round(daily_returns.std() * (252**0.5) * 100, 2),
+            }
+        )
 
     stats_df = pd.DataFrame(stats)
     if stats_df.empty:
         return {"error": "No valid symbols for backtest"}
 
     if model.upper() == "A":
-        top = stats_df.nlargest(20, 'sharpe')
+        top = stats_df.nlargest(20, "sharpe")
     else:
-        top = stats_df.nsmallest(20, 'maxDrawdown')
+        top = stats_df.nsmallest(20, "maxDrawdown")
 
-    equity_curve = _build_equity_curve(df, top['symbol'].tolist())
+    equity_curve = _build_equity_curve(df, top["symbol"].tolist())
 
     return {
         "model": model.upper(),
-        "startDate": str(df['date'].min().date()),
-        "endDate": str(df['date'].max().date()),
+        "startDate": str(df["date"].min().date()),
+        "endDate": str(df["date"].max().date()),
         "totalSymbols": len(stats_df),
-        "topPicks": top.to_dict(orient='records'),
+        "topPicks": top.to_dict(orient="records"),
         "portfolioStats": {
-            "avgReturn": round(top['return1y'].mean(), 2),
-            "avgSharpe": round(top['sharpe'].mean(), 3),
-            "avgMaxDrawdown": round(top['maxDrawdown'].mean(), 2),
-            "avgVolatility": round(top['volatility'].mean(), 2),
+            "avgReturn": round(top["return1y"].mean(), 2),
+            "avgSharpe": round(top["sharpe"].mean(), 3),
+            "avgMaxDrawdown": round(top["maxDrawdown"].mean(), 2),
+            "avgVolatility": round(top["volatility"].mean(), 2),
         },
         "equityCurve": equity_curve,
     }
@@ -137,12 +144,12 @@ def _calc_max_drawdown(prices) -> float:
 def _build_equity_curve(df: pd.DataFrame, symbols: list, top_n: int = 10) -> list:
     """Xây dựng equity curve từ top symbols."""
     top_symbols = symbols[:top_n]
-    filtered = df[df['symbol'].isin(top_symbols)].copy()
+    filtered = df[df["symbol"].isin(top_symbols)].copy()
 
     if filtered.empty:
         return []
 
-    pivot = filtered.pivot_table(index='date', columns='symbol', values='close', aggfunc='first')
+    pivot = filtered.pivot_table(index="date", columns="symbol", values="close", aggfunc="first")
     pivot = pivot.ffill()
     pivot = pivot.map(lambda x: _normalize_price_unit(np.array([x]))[0] if pd.notna(x) else x)
 
@@ -154,10 +161,12 @@ def _build_equity_curve(df: pd.DataFrame, symbols: list, top_n: int = 10) -> lis
 
     curve = []
     for date, value in equity.items():
-        curve.append({
-            "date": str(date.date()) if hasattr(date, 'date') else str(date),
-            "value": round(value, 2),
-        })
+        curve.append(
+            {
+                "date": str(date.date()) if hasattr(date, "date") else str(date),
+                "value": round(value, 2),
+            }
+        )
 
     return curve
 
@@ -168,25 +177,29 @@ def get_stress_test_summary(start_date: str = "2022-01-01", end_date: str = "202
     """
     try:
         with get_connection() as conn:
-            df = pd.read_sql("""
+            df = pd.read_sql(
+                """
                 SELECT symbol, date, adj_close as close
                 FROM daily_ohlcv
                 WHERE date >= ? AND date <= ?
                 AND symbol NOT IN ('VNINDEX', 'VN30')
                 ORDER BY symbol, date
-            """, conn, params=(start_date, end_date))
+            """,
+                conn,
+                params=(start_date, end_date),
+            )
 
         if df.empty:
             return {"error": f"No stress test data for {start_date} to {end_date}"}
 
-        df['date'] = pd.to_datetime(df['date'], format='mixed')
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
 
         results = []
-        for symbol, group in df.groupby('symbol'):
+        for symbol, group in df.groupby("symbol"):
             if len(group) < 30:
                 continue
-            group = group.sort_values('date')
-            prices = _normalize_price_unit(group['close'].values)
+            group = group.sort_values("date")
+            prices = _normalize_price_unit(group["close"].values)
             peak = prices.max()
             trough = prices.min()
             max_dd = (trough - peak) / peak * 100 if peak > 0 else 0
@@ -194,14 +207,16 @@ def get_stress_test_summary(start_date: str = "2022-01-01", end_date: str = "202
             recovery_date = None
             for i, p in enumerate(prices):
                 if p >= peak and i > list(prices).index(peak):
-                    recovery_date = str(group.iloc[i]['date'].date())
+                    recovery_date = str(group.iloc[i]["date"].date())
                     break
 
-            results.append({
-                "symbol": symbol,
-                "maxDrawdown2022": round(max_dd, 2),
-                "recovered": recovery_date is not None,
-            })
+            results.append(
+                {
+                    "symbol": symbol,
+                    "maxDrawdown2022": round(max_dd, 2),
+                    "recovered": recovery_date is not None,
+                }
+            )
 
         results_df = pd.DataFrame(results)
         if results_df.empty:
@@ -210,10 +225,10 @@ def get_stress_test_summary(start_date: str = "2022-01-01", end_date: str = "202
         return {
             "period": f"{start_date} to {end_date}",
             "totalSymbols": len(results_df),
-            "avgMaxDrawdown": round(results_df['maxDrawdown2022'].mean(), 2),
-            "worstDrawdown": round(results_df['maxDrawdown2022'].min(), 2),
-            "recoveryRate": round(results_df['recovered'].mean() * 100, 1),
-            "worstPerformers": results_df.nsmallest(10, 'maxDrawdown2022').to_dict(orient='records'),
+            "avgMaxDrawdown": round(results_df["maxDrawdown2022"].mean(), 2),
+            "worstDrawdown": round(results_df["maxDrawdown2022"].min(), 2),
+            "recoveryRate": round(results_df["recovered"].mean() * 100, 1),
+            "worstPerformers": results_df.nsmallest(10, "maxDrawdown2022").to_dict(orient="records"),
         }
     except Exception as e:
         logger.error(f"Stress test failed: {e}")
@@ -221,6 +236,7 @@ def get_stress_test_summary(start_date: str = "2022-01-01", end_date: str = "202
 
 
 # ─── Unit normalizer: phát hiện & chuẩn hóa VND↔nghìn đồng ───
+
 
 def _normalize_price_unit(prices: np.ndarray) -> np.ndarray:
     """

@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -7,7 +7,7 @@ import pandas as pd
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -21,6 +21,7 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import json
@@ -30,23 +31,22 @@ import numpy as np
 
 def _calc_adx(df, period=14):
     df = df.copy()
-    df['plus_dm'] = df['high'].diff()
-    df['minus_dm'] = -df['low'].diff()
-    df['plus_dm'] = np.where((df['plus_dm'] > df['minus_dm']) & (df['plus_dm'] > 0), df['plus_dm'], 0.0)
-    df['minus_dm'] = np.where((df['minus_dm'] > df['plus_dm']) & (df['minus_dm'] > 0), df['minus_dm'], 0.0)
+    df["plus_dm"] = df["high"].diff()
+    df["minus_dm"] = -df["low"].diff()
+    df["plus_dm"] = np.where((df["plus_dm"] > df["minus_dm"]) & (df["plus_dm"] > 0), df["plus_dm"], 0.0)
+    df["minus_dm"] = np.where((df["minus_dm"] > df["plus_dm"]) & (df["minus_dm"] > 0), df["minus_dm"], 0.0)
 
-    tr = pd.concat([
-        df['high'] - df['low'],
-        (df['high'] - df['close'].shift(1)).abs(),
-        (df['low'] - df['close'].shift(1)).abs()
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [df["high"] - df["low"], (df["high"] - df["close"].shift(1)).abs(), (df["low"] - df["close"].shift(1)).abs()], axis=1
+    ).max(axis=1)
 
     atr = tr.rolling(period).mean()
-    plus_di = 100 * (df['plus_dm'].rolling(period).mean() / atr)
-    minus_di = 100 * (df['minus_dm'].rolling(period).mean() / atr)
+    plus_di = 100 * (df["plus_dm"].rolling(period).mean() / atr)
+    minus_di = 100 * (df["minus_dm"].rolling(period).mean() / atr)
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
     adx = dx.rolling(period).mean()
     return adx.iloc[-1], tr.rolling(period).mean().iloc[-1]
+
 
 def simulate():
     output_dir = Path("data/output")
@@ -56,16 +56,16 @@ def simulate():
         print("Missing market_pulse.json")
         return
 
-    with open(pulse_path, 'r', encoding='utf-8') as f:
+    with open(pulse_path, encoding="utf-8") as f:
         pulse = json.load(f)
 
-    breadth_pct = pulse['health_score_ma20']
+    breadth_pct = pulse["health_score_ma20"]
     b_score = 1.0 if breadth_pct > 55 else 0.6 if breadth_pct > 35 else 0.3 if breadth_pct > 15 else 0.0
 
-    conn = sqlite3.connect('data/screener_cache.db')
+    conn = sqlite3.connect("data/screener_cache.db")
     df = pd.read_sql('SELECT date, high, low, close FROM daily_ohlcv WHERE symbol="VNINDEX" ORDER BY date', conn)
 
-    df['ma200'] = df['close'].rolling(200).mean()
+    df["ma200"] = df["close"].rolling(200).mean()
     latest = df.iloc[-1]
 
     adx_val, atr_val = _calc_adx(df)
@@ -74,7 +74,7 @@ def simulate():
     # Price > MA200 AND ADX > 20 -> 1.0
     # Price > MA200 AND ADX < 20 -> 0.6
     # Price < MA200 -> 0.0
-    if latest['close'] > latest['ma200']:
+    if latest["close"] > latest["ma200"]:
         t_score = 1.0 if adx_val > 20 else 0.6
     else:
         t_score = 0.0
@@ -83,10 +83,13 @@ def simulate():
     # ATR compressing -> 1.0
     # ATR stable -> 0.6
     # ATR expanding -> 0.2
-    atr_pct = (atr_val / latest['close']) * 100
-    avg_atr_pct = (df['close'].rolling(14).apply(lambda x: (df.loc[x.index, 'high'] - df.loc[x.index, 'low']).mean()).iloc[-1] / latest['close']) * 100
+    (atr_val / latest["close"]) * 100
+    (
+        df["close"].rolling(14).apply(lambda x: (df.loc[x.index, "high"] - df.loc[x.index, "low"]).mean()).iloc[-1]
+        / latest["close"]
+    ) * 100
     # Simple check for expanding/compressing relative to recent mean
-    v_score = 0.2 # Defaulting to expanding given current panic
+    v_score = 0.2  # Defaulting to expanding given current panic
 
     regime_score = (0.5 * b_score) + (0.3 * t_score) + (0.2 * v_score)
 
@@ -100,6 +103,7 @@ def simulate():
     print(f"FINAL REGIME SCORE: {regime_score:.2f}")
     print(f"SYSTEM STATUS: {status}")
     print("----------------------------------------")
+
 
 if __name__ == "__main__":
     simulate()

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Sentinel Circuit Breaker — bảo vệ IP nhà cung cấp API ở mức phần cứng.
 
 Nguyên tắc:
@@ -17,6 +17,7 @@ Format:
         "yfinance": {"tripped_at": 1700000123.0, "reason": "timeout"}
     }
 """
+
 import json
 import logging
 import os
@@ -25,13 +26,12 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -56,9 +56,9 @@ STATE_FILE = DATA_DIR / "circuit_breaker_state.json"
 # yfinance: 30 phút (ít strict hơn, có thể recover nhanh)
 # default: 5 phút
 SOURCE_COOLDOWN = {
-    "vnstock": 43200,      # 12 tiếng
-    "yfinance": 1800,      # 30 phút
-    "default": 300,        # 5 phút
+    "vnstock": 43200,  # 12 tiếng
+    "yfinance": 1800,  # 30 phút
+    "default": 300,  # 5 phút
 }
 
 # Mã lỗi kích hoạt trip
@@ -182,11 +182,11 @@ class CircuitBreaker:
             cooldown = cls._cooldown_for(source)
             logger.warning(
                 f"🛑 [CircuitBreaker] TRIP {source} — lý do: {reason} | "
-                f"cooldown={cooldown}s (~{cooldown//3600}h{cooldown%3600//60}m)"
+                f"cooldown={cooldown}s (~{cooldown // 3600}h{cooldown % 3600 // 60}m)"
             )
 
     @classmethod
-    def should_trip_on_error(cls, error_msg: str, http_code: Optional[int] = None) -> bool:
+    def should_trip_on_error(cls, error_msg: str, http_code: int | None = None) -> bool:
         """Phân tích exception message / http_code để quyết định có trip hay không."""
         if http_code in TRIP_HTTP_CODES:
             return True
@@ -225,11 +225,12 @@ class CircuitBreaker:
 # ── Public guard helper ────────────────────────────────────
 class APIBlockedError(Exception):
     """Raise khi breaker đang trip. Caller phải dùng fallback."""
+
     def __init__(self, source: str, remaining: int):
         self.source = source
         self.remaining = remaining
         super().__init__(
-            f"🔒 Circuit OPEN for {source} — còn {remaining}s (~{remaining//3600}h{remaining%3600//60}m) "
+            f"🔒 Circuit OPEN for {source} — còn {remaining}s (~{remaining // 3600}h{remaining % 3600 // 60}m) "
             f"trong cooldown. Dùng cache/disk."
         )
 

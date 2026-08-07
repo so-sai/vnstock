@@ -8,8 +8,6 @@ Kiểm thử:
 """
 
 import os
-import sys
-import pytest
 
 
 def test_init_terminal_colors_no_crash():
@@ -19,7 +17,7 @@ def test_init_terminal_colors_no_crash():
 
 
 def test_color_formatting_and_reset():
-    from utils.cli_theme import Color, c_red, c_green, c_yellow, c_cyan, c_dim
+    from utils.cli_theme import Color, c_green, c_red
 
     os.environ.pop("NO_COLOR", None)
     res_red = c_red("ALERT")

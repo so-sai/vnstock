@@ -40,7 +40,7 @@ if sys.platform == "win32":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:  # noqa: BLE001, S110 - best-effort encoding
+            except Exception:
                 pass
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -240,7 +240,7 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
 
                 provider = VnstockProvider(source=src)
                 box["df"] = provider.history(symbol, start=start, end=end, pause=0)
-            except Exception as e:  # noqa: BLE001 - provider boundary
+            except Exception as e:
                 box["err"] = e
 
         t = threading.Thread(target=_run, daemon=True)
@@ -317,7 +317,9 @@ def _kiem_tra_symbol_co_san(symbol: str) -> bool:
         return row is not None
 
 
-def backfill(symbols: list = None, start: str = None, end: str = None, dry_run: bool = False, verbose: bool = True) -> dict:
+def backfill(
+    symbols: list | None = None, start: str | None = None, end: str | None = None, dry_run: bool = False, verbose: bool = True
+) -> dict:
     """
     Engine khôi phục dữ liệu lịch sử cho các mã thiếu dữ liệu.
 
@@ -429,7 +431,7 @@ def backfill(symbols: list = None, start: str = None, end: str = None, dry_run: 
                 try:
                     with get_connection() as conn:
                         save_data_upsert("daily_ohlcv", df, conn)
-                except Exception:  # noqa: BLE001 - DB write failure, non-blocking
+                except Exception:
                     that_bai += 1
                     blacklist[symbol] = time.time()
                     break
@@ -455,7 +457,7 @@ def backfill(symbols: list = None, start: str = None, end: str = None, dry_run: 
                     print(f"\r  [{idx}/{tong}] {symbol}: ✅ +{dong_moi} dòng ({dong_truoc}→{dong_sau}) [src={src}]")
                 break
 
-            except Exception as e:  # noqa: BLE001 - retry boundary, logged below
+            except Exception as e:
                 logger.warning(f"  [{idx}/{tong}] {symbol}: ⚠ Lỗi lần {lan_thu + 1}/{TOI_DA_THU_LAI}: {e}")
                 if lan_thu < TOI_DA_THU_LAI - 1:
                     thoi_gian_cho = COOLDOWN_LOI * (2**lan_thu)

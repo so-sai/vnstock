@@ -52,6 +52,19 @@ def main() -> int:
         return 2
     _re_stage_touched(files)
 
+    # WHY (2026-08-07): tự động dọn RUF100 (noqa thừa) trên STAGED files —
+    #   rule AN TOÀN 100% auto-fix, dọn DẦN theo commit, không gây merge
+    #   conflict ồ ạt. KHÔNG auto-fix UP035 (deprecated typing → builtin generics):
+    #   ruff xem là unsafe-fix và không sửa được import/hint đồng bộ → sửa tay.
+    print("[pre-commit] ruff auto-fix (RUF100) on", len(files), "staged file(s)...")
+    proc = subprocess.run(
+        [ruff, "check", "--fix", "--select", "RUF100", *files],
+        cwd=str(REPO_ROOT),
+    )
+    if proc.returncode != 0:
+        return 2
+    _re_stage_touched(files)
+
     # Phase 2: blocking check on the (auto-fixed) staged subset
     print(f"[pre-commit] ruff check on {len(files)} staged file(s)...")
     proc = subprocess.run([ruff, "check", *files], cwd=str(REPO_ROOT))

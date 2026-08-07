@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gold Service — chuẩn hóa SJC + BTMC thành GoldPriceSnapshot
 Dùng provenance-aware để Sentinel hiểu bối cảnh giá vàng.
 
@@ -9,22 +9,23 @@ Dùng provenance-aware để Sentinel hiểu bối cảnh giá vàng.
 - Chỉ cache khi DataFrame có dữ liệu thật (tránh cache rỗng khi API lỗi)
 - KHÔNG thay đổi signature/public API của hàm
 """
+
 import logging
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # ── Sentinel Macro Cache ─────────────────────────────────────
-LIVE_CACHE_TTL = 43200      # 12 tiếng cho dữ liệu live (None)
+LIVE_CACHE_TTL = 43200  # 12 tiếng cho dữ liệu live (None)
 HISTORICAL_CACHE_TTL = 3600  # 1 tiếng cho dữ liệu lịch sử (backfill safety)
-_SJC_CACHE: dict = {}        # key=target_date_str|None -> (data, expiry_ts)
+_SJC_CACHE: dict = {}  # key=target_date_str|None -> (data, expiry_ts)
 _BTMC_CACHE: dict = {}
 logger_macro = logging.getLogger(__name__)
 
+
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -47,6 +48,7 @@ def _hydrate_path():
         sys.path.insert(0, libs_path)
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import pandas as pd
@@ -63,14 +65,14 @@ class GoldPriceSnapshot(BaseModel):
     source: str
     timestamp: int
     brand: str
-    branch: Optional[str] = None
+    branch: str | None = None
     buy_price: float
     sell_price: float
     spread: float
     normalized_price: float
 
 
-def _cache_get(cache: dict, key: str) -> Optional[list]:
+def _cache_get(cache: dict, key: str) -> list | None:
     """Lấy dữ liệu từ cache nếu còn hạn. Trả về None nếu hết hạn hoặc không có."""
     entry = cache.get(key)
     if entry is None:
@@ -79,7 +81,9 @@ def _cache_get(cache: dict, key: str) -> Optional[list]:
     if time.time() > expiry:
         cache.pop(key, None)
         return None
-    logger_macro.debug(f"[MACRO CACHE] HIT key={key} age={int(time.time() - (expiry - (LIVE_CACHE_TTL if key == 'live' else HISTORICAL_CACHE_TTL)))}s")
+    logger_macro.debug(
+        f"[MACRO CACHE] HIT key={key} age={int(time.time() - (expiry - (LIVE_CACHE_TTL if key == 'live' else HISTORICAL_CACHE_TTL)))}s"
+    )
     return data
 
 
@@ -92,9 +96,9 @@ def _cache_set(cache: dict, key: str, data: list) -> None:
     logger_macro.info(f"[MACRO CACHE] SET key={key} ttl={ttl}s items={len(data)}")
 
 
-def fetch_sjc_snapshot(target_date: Optional[str] = None) -> list[GoldPriceSnapshot]:
+def fetch_sjc_snapshot(target_date: str | None = None) -> list[GoldPriceSnapshot]:
     """Fetch SJC gold prices and return standardized snapshots.
-    
+
     [SENTINEL GUARD] Có in-memory cache 12h (live) / 1h (historical)
     để chống vnstock Rate Limit. Click tab nhiều lần KHÔNG tốn thêm API quota.
     """
@@ -109,8 +113,7 @@ def fetch_sjc_snapshot(target_date: Optional[str] = None) -> list[GoldPriceSnaps
     if not CircuitBreaker.is_available(_VNSTOCK_SOURCE):
         remaining = CircuitBreaker.time_remaining(_VNSTOCK_SOURCE)
         logger_macro.warning(
-            f"[MACRO CACHE] vnstock breaker OPEN — còn {remaining}s. "
-            f"Trả cache rỗng cho SJC (key={cache_key})."
+            f"[MACRO CACHE] vnstock breaker OPEN — còn {remaining}s. Trả cache rỗng cho SJC (key={cache_key})."
         )
         return []
     try:
@@ -120,18 +123,20 @@ def fetch_sjc_snapshot(target_date: Optional[str] = None) -> list[GoldPriceSnaps
             return []
         snapshots = []
         for _, row in df.iterrows():
-            buy = float(row['buy_price'])
-            sell = float(row['sell_price'])
-            snapshots.append(GoldPriceSnapshot(
-                source="SJC",
-                timestamp=int(datetime.now().timestamp()),
-                brand=str(row['name']),
-                branch=str(row['branch']) if pd.notna(row.get('branch')) else None,
-                buy_price=buy,
-                sell_price=sell,
-                spread=round(sell - buy, 2),
-                normalized_price=round((buy + sell) / 2, 2),
-            ))
+            buy = float(row["buy_price"])
+            sell = float(row["sell_price"])
+            snapshots.append(
+                GoldPriceSnapshot(
+                    source="SJC",
+                    timestamp=int(datetime.now().timestamp()),
+                    brand=str(row["name"]),
+                    branch=str(row["branch"]) if pd.notna(row.get("branch")) else None,
+                    buy_price=buy,
+                    sell_price=sell,
+                    spread=round(sell - buy, 2),
+                    normalized_price=round((buy + sell) / 2, 2),
+                )
+            )
         # 3. Chỉ cache khi có dữ liệu thật
         _cache_set(_SJC_CACHE, cache_key, snapshots)
         return snapshots
@@ -145,7 +150,7 @@ def fetch_sjc_snapshot(target_date: Optional[str] = None) -> list[GoldPriceSnaps
 
 def fetch_btmc_snapshot() -> list[GoldPriceSnapshot]:
     """Fetch BTMC gold prices and return standardized snapshots.
-    
+
     [SENTINEL GUARD] Có in-memory cache 12h (BTMC chỉ support live).
     """
     cache_key = "live"
@@ -157,10 +162,7 @@ def fetch_btmc_snapshot() -> list[GoldPriceSnapshot]:
     # Circuit Breaker guard — chặn gọi API nếu vnstock đang trong cooldown 12h
     if not CircuitBreaker.is_available(_VNSTOCK_SOURCE):
         remaining = CircuitBreaker.time_remaining(_VNSTOCK_SOURCE)
-        logger_macro.warning(
-            f"[MACRO CACHE] vnstock breaker OPEN — còn {remaining}s. "
-            f"Trả cache rỗng cho BTMC."
-        )
+        logger_macro.warning(f"[MACRO CACHE] vnstock breaker OPEN — còn {remaining}s. Trả cache rỗng cho BTMC.")
         return []
 
     try:
@@ -170,20 +172,22 @@ def fetch_btmc_snapshot() -> list[GoldPriceSnapshot]:
             return []
         snapshots = []
         for _, row in df.iterrows():
-            buy = float(row['buy_price']) if row['buy_price'] else 0.0
-            sell = float(row['sell_price']) if row['sell_price'] else 0.0
+            buy = float(row["buy_price"]) if row["buy_price"] else 0.0
+            sell = float(row["sell_price"]) if row["sell_price"] else 0.0
             if buy == 0 and sell == 0:
                 continue
-            snapshots.append(GoldPriceSnapshot(
-                source="BTMC",
-                timestamp=int(datetime.now().timestamp()),
-                brand=str(row['name']),
-                branch=None,
-                buy_price=buy,
-                sell_price=sell,
-                spread=round(sell - buy, 2),
-                normalized_price=round((buy + sell) / 2, 2),
-            ))
+            snapshots.append(
+                GoldPriceSnapshot(
+                    source="BTMC",
+                    timestamp=int(datetime.now().timestamp()),
+                    brand=str(row["name"]),
+                    branch=None,
+                    buy_price=buy,
+                    sell_price=sell,
+                    spread=round(sell - buy, 2),
+                    normalized_price=round((buy + sell) / 2, 2),
+                )
+            )
         _cache_set(_BTMC_CACHE, cache_key, snapshots)
         return snapshots
     except Exception as e:

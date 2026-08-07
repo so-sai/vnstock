@@ -17,8 +17,7 @@ import json
 
 import numpy as np
 import pytest
-
-from src.database.db_core import NumpyEncoder, safe_json_dumps, safe_json_dump
+from src.database.db_core import NumpyEncoder, safe_json_dump, safe_json_dumps
 
 
 def _strict_loads(s):

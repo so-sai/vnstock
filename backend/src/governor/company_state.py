@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ PRIOR_PROB_GAIN = 0.53
 PRIOR_ODDS = PRIOR_PROB_GAIN / (1.0 - PRIOR_PROB_GAIN)
 
 
-def _symbol_sector(symbol: str) -> Optional[str]:
+def _symbol_sector(symbol: str) -> str | None:
     """Resolve per-symbol ICB sector (icb_name2) — NHẤT QUÁN với
     SectorStateEngine._load_icb_mapping().
 
@@ -102,7 +102,7 @@ def _symbol_sector(symbol: str) -> Optional[str]:
             return "Bán lẻ"
         if arch_name == "TECHNOLOGY":
             return "Công nghệ Thông tin"
-    except Exception:  # noqa: BLE001, S110 — ArchetypeEngine may raise arbitrary errors
+    except Exception:
         pass
     return None
 
@@ -215,7 +215,7 @@ MOS_ZONE_THRESHOLDS = [
 ]
 
 
-def _compute_mos_zone(mos_pct: Optional[float]) -> str:
+def _compute_mos_zone(mos_pct: float | None) -> str:
     """Map MoS % to zone. MoS is PRIMARY valuation signal (CSI v2)."""
     if mos_pct is None:
         return MOS_ZONE_NO_DATA
@@ -373,13 +373,13 @@ def compute_gain_probability(
     macro_entropy: float = 0.0,
     transmission_credit: float = 50.0,
     archetype_prior_key: str = "UNKNOWN",
-    lr_macro_override: Optional[float] = None,
-    evidence_weights: Optional[Dict[str, float]] = None,
-    model_registry_lr: Optional[float] = None,
-    lr_val_override: Optional[float] = None,
-    recovery_authenticity_lr: Optional[float] = None,
+    lr_macro_override: float | None = None,
+    evidence_weights: dict[str, float] | None = None,
+    model_registry_lr: float | None = None,
+    lr_val_override: float | None = None,
+    recovery_authenticity_lr: float | None = None,
     sector_macro_lr: float = 1.0,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """Bayesian Weight-of-Evidence v3 → P(Gain | Evidence).
 
     LAW-004: accepts evidence_weights dict from EvidenceEngine
@@ -467,7 +467,7 @@ UTILITY_MATRIX = {
 }
 
 
-def compute_expected_utilities(p_gain: float) -> List[Tuple[str, float]]:
+def compute_expected_utilities(p_gain: float) -> list[tuple[str, float]]:
     """Return (action, EU) sorted descending."""
     p_loss = 1.0 - p_gain
     results = []
@@ -478,7 +478,7 @@ def compute_expected_utilities(p_gain: float) -> List[Tuple[str, float]]:
     return results
 
 
-def pick_best_action(eu_list: List[Tuple[str, float]]) -> Tuple[str, float]:
+def pick_best_action(eu_list: list[tuple[str, float]]) -> tuple[str, float]:
     """Highest-EU action. Ties broken by priority."""
     priority = ["VETO", "AVOID", "REDUCE", "WAIT", "HOLD", "SCALE_IN", "OPEN"]
     best = eu_list[0][0]
@@ -528,7 +528,7 @@ def kelly_allocation(p_gain: float, calibration_penalty: float, macro_entropy: f
 # =========================================================================
 
 
-def _safe_div(a: Any, b: Any) -> Optional[float]:
+def _safe_div(a: Any, b: Any) -> float | None:
     if b is None or b == 0:
         return None
     try:
@@ -543,7 +543,7 @@ class L2HealthLoader:
     def __init__(self) -> None:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
-    def get_latest_ratios(self, symbol: str) -> Dict:
+    def get_latest_ratios(self, symbol: str) -> dict:
         from .schemas import validate_finite_float
 
         cur = self.conn.cursor()
@@ -558,7 +558,7 @@ class L2HealthLoader:
             (symbol.upper(), symbol.upper()),
         )
         rows = cur.fetchall()
-        result: Dict = {}
+        result: dict = {}
         for r in rows:
             ratio_name, ratio_value, interpretation = r
             validated_val = validate_finite_float(
@@ -596,7 +596,7 @@ class L3ValuationLoader:
     def __init__(self) -> None:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
-    def get_latest_valuation(self, symbol: str, target_date: Optional[str] = None) -> Dict:
+    def get_latest_valuation(self, symbol: str, target_date: str | None = None) -> dict:
         """Point-in-time valuation lookup.
 
         When target_date is provided, only periods already published by that
@@ -657,7 +657,7 @@ class L3ValuationLoader:
             for r in rows
         }
 
-    def score_valuation(self, symbol: str, target_date: Optional[str] = None) -> Dict:
+    def score_valuation(self, symbol: str, target_date: str | None = None) -> dict:
         vals = self.get_latest_valuation(symbol, target_date=target_date)
         if not vals:
             return {
@@ -739,7 +739,7 @@ class L4BehaviorLoader:
     def __init__(self) -> None:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
-    def get_volume_profile(self, symbol: str, target_date: Optional[str] = None) -> Optional[Dict]:
+    def get_volume_profile(self, symbol: str, target_date: str | None = None) -> dict | None:
         """Point-in-time volume profile lookup.
 
         When target_date is provided, only profile rows computed by that date
@@ -782,7 +782,7 @@ class L4BehaviorLoader:
             "ma50": row[6],
         }
 
-    def get_active_demand_count(self, symbol: str, days: int = 20, target_date: Optional[str] = None) -> int:
+    def get_active_demand_count(self, symbol: str, days: int = 20, target_date: str | None = None) -> int:
         cur = self.conn.cursor()
         if target_date:
             cutoff = (datetime.strptime(target_date, "%Y-%m-%d") - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -804,7 +804,7 @@ class L4BehaviorLoader:
             )
         return int(cur.fetchone()[0])
 
-    def score_behavior(self, symbol: str, fusion_action: str = "", target_date: Optional[str] = None) -> Dict:
+    def score_behavior(self, symbol: str, fusion_action: str = "", target_date: str | None = None) -> dict:
         """Score behavior from Volume Profile + optional decision fusion context.
 
         WHY fusion_action (P1 bridge):
@@ -890,7 +890,7 @@ class PerceptionLoader:
             path = MACRO_DIR / "macro_state_history.json"
             if not path.exists():
                 return {"state": "STABLE", "posterior": 0.5, "entropy": 1.5}
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 history = json.load(f)
             if not history:
                 return {"state": "STABLE", "posterior": 0.5, "entropy": 1.5}
@@ -910,7 +910,7 @@ class PerceptionLoader:
             path = MACRO_DIR / "transmission_history.json"
             if not path.exists():
                 return {"phase": "FRAGILE_STABILITY", "liquidity": 50, "credit": 50, "confidence": 50}
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 history = json.load(f)
             if not history:
                 return {"phase": "FRAGILE_STABILITY", "liquidity": 50, "credit": 50, "confidence": 50}
@@ -930,7 +930,7 @@ class PerceptionLoader:
             path = MACRO_DIR / "sector_rotation_latest.json"
             if not path.exists():
                 return {"top_sector": "UNKNOWN", "n_healthy": 0, "chain": "NEUTRAL"}
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 report = json.load(f)
             chain = report.get("rotation_chain", [])
             top_phase = chain[-1] if chain else "NEUTRAL"
@@ -944,7 +944,7 @@ class PerceptionLoader:
         except json.JSONDecodeError, OSError, KeyError:
             return {"top_sector": "UNKNOWN", "n_healthy": 0, "chain": [], "top_phase": "NEUTRAL"}
 
-    def load_health(self, symbol: str, target_date: Optional[str] = None) -> dict:
+    def load_health(self, symbol: str, target_date: str | None = None) -> dict:
         """Load P2 HealthLatentState for a symbol — dynamic import to avoid circular.
 
         Point-in-time: when target_date is provided, only financial periods
@@ -965,7 +965,7 @@ class PerceptionLoader:
                 "confidence": state.archetype_confidence,
                 "periods": state.data_periods,
             }
-        except Exception:  # noqa: BLE001 — CompanyHealthV2.analyze may raise arbitrary errors
+        except Exception:
             return {"archetype": "STEADY_EARNER", "vector": [0.5, 0.5, 0.5, 0.5, 0.5], "confidence": 0.5, "periods": 0}
 
 
@@ -994,15 +994,15 @@ class BayesianMandate:
     valuation_zone_peer: str
     valuation_zone_ts: str
     behavior_position: str
-    pe_raw: Optional[float] = None
-    pb_raw: Optional[float] = None
+    pe_raw: float | None = None
+    pb_raw: float | None = None
 
     # FairMultipleEngine fields (absolute intrinsic valuation vs current price)
-    fair_pe: Optional[float] = None
-    fair_pb: Optional[float] = None
-    margin_of_safety: Optional[float] = None
-    fair_ke: Optional[float] = None
-    fair_g: Optional[float] = None
+    fair_pe: float | None = None
+    fair_pb: float | None = None
+    margin_of_safety: float | None = None
+    fair_ke: float | None = None
+    fair_g: float | None = None
     fair_sector: str = ""
     fair_status: str = ""
 
@@ -1016,7 +1016,7 @@ class BayesianMandate:
     archetype_prior: str = "UNKNOWN"
     lr_macro_dynamic: float = 1.0
     contextual_health_score: float = 0.5
-    eu_ranking: List[Tuple[str, float]] = field(default_factory=list)
+    eu_ranking: list[tuple[str, float]] = field(default_factory=list)
 
     # Circuit breaker
     circuit_breaker_level: int = 0
@@ -1028,7 +1028,7 @@ class BayesianMandate:
     #      all symbols share the same BMA weights (market-level).
     #      model_registry_lr = f(bma_posterior) feeds into
     #      compute_gain_probability() as evidence node 8.
-    bma_posterior: Dict[str, float] = field(default_factory=dict)
+    bma_posterior: dict[str, float] = field(default_factory=dict)
     dominant_model: str = ""
     model_registry_lr: float = 1.0
 
@@ -1054,7 +1054,7 @@ class BayesianMandate:
     # WHY: Dot product is linear. When China + Commodities both boom,
     #      the combined effect on STEEL is MORE than the sum of parts.
     interaction_multiplier: float = 1.0  # non-linear adjustment [0.70, 1.35]
-    interaction_active_synergies: List = field(default_factory=list)  # triggered rules
+    interaction_active_synergies: list = field(default_factory=list)  # triggered rules
 
     # Persistence + Momentum (Step 4 — Signal Quality)
     # WHY: Same raw score can mean very different things:
@@ -1067,7 +1067,7 @@ class BayesianMandate:
     # PolicyImpactEngine — chinh sach vi mo (PolicyEvent -> impact score)
     # WHY: Co quan ly van de chinh sach nhu QD 1743 lam giai toa LDR cho Big3.
     #      Truyen vao mandate de CompositeScoreProjector & allocation cap nhat.
-    policy_context: Dict = field(default_factory=dict)
+    policy_context: dict = field(default_factory=dict)
     policy_cap_boost: float = 0.0  # muc nang tran ty trong do chinh sach [0, 0.15]
 
 
@@ -1114,8 +1114,8 @@ class BayesianGovernor:
 
         # Giai đoạn 7: ModelRegistry (BMA competition)
         self._model_registry: Any = None
-        self._bma_posterior: Optional[Dict[str, float]] = None
-        self._dominant_model: Optional[Dict[str, str]] = None
+        self._bma_posterior: dict[str, float] | None = None
+        self._dominant_model: dict[str, str] | None = None
 
         # Load market-level context once
         self._macro = self.perception.load_macro_state()
@@ -1123,7 +1123,7 @@ class BayesianGovernor:
         self._sector = self.perception.load_sector()
 
         # Circuit breaker cache (lazy-loaded once per instance)
-        self._cb_state: Optional[Dict[str, Any]] = None
+        self._cb_state: dict[str, Any] | None = None
 
     def _get_factor_engine(self) -> Any:
         if self._factor_engine is None:
@@ -1154,7 +1154,7 @@ class BayesianGovernor:
 
             arch = ArchetypeEngine().classify(symbol)
             return arch.archetype if arch else "UNKNOWN"
-        except Exception:  # noqa: BLE001 — ArchetypeEngine may raise arbitrary errors
+        except Exception:
             return "UNKNOWN"
 
     def _get_fair_engine(self) -> Any:
@@ -1173,7 +1173,7 @@ class BayesianGovernor:
             self._model_registry = ModelRegistry()
         return self._model_registry
 
-    def _check_circuit_breaker(self) -> Dict[str, Any]:
+    def _check_circuit_breaker(self) -> dict[str, Any]:
         """Check calibration degradation and cache circuit breaker state.
 
         Chỉ check 1 lần per Governor instance (lazy-loaded). Kết quả được
@@ -1185,7 +1185,7 @@ class BayesianGovernor:
             from calibration.prediction_log import check_circuit_breaker_auto
 
             self._cb_state = check_circuit_breaker_auto(days=90)
-        except Exception as e:  # noqa: BLE001 — circuit_breaker may raise arbitrary errors
+        except Exception as e:
             logger.warning("[GOV] Circuit breaker check FAILED: %s — defaulting to BÌNH_THƯỜNG (level 0)", e)
             self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": f"CHECK_FAILED: {e}"}
         if self._cb_state is None:
@@ -1216,7 +1216,7 @@ class BayesianGovernor:
                         last_roe = roe_series[-1][1]
                         if last_roe is not None:
                             roe_val = last_roe * 4.0 if last_roe < 0.25 else last_roe
-                except Exception:  # noqa: BLE001, S110 — CompanyHealthV2 internal DB may raise
+                except Exception:
                     pass
             if roe_val is not None and pe_val is not None and pb_val is not None:
                 fair = self._get_fair_engine()(
@@ -1226,7 +1226,7 @@ class BayesianGovernor:
                     pb_current=pb_val,
                     archetype=health.get("archetype", "UNKNOWN"),
                 )
-        except Exception:  # noqa: BLE001, S110 — FairMultipleEngine may raise arbitrary errors
+        except Exception:
             pass
 
         # ── CSI v2: MoS Zone replaces Z-Score as PRIMARY valuation signal ──
@@ -1280,7 +1280,7 @@ class BayesianGovernor:
                     df_regime,
                 )
                 fusion_action = fusion.get("action", "")
-        except Exception:  # noqa: BLE001, S110 — DecisionFusion may raise arbitrary errors
+        except Exception:
             pass
         beh = self.behavior.score_behavior(symbol, fusion_action=fusion_action)
 
@@ -1296,7 +1296,7 @@ class BayesianGovernor:
             # Scale base LR by per-symbol multiplier
             lr_macro_dynamic = _lookup_lr(LR_MACRO, self._macro["state"]) * lr_mult
             lr_macro_dynamic = max(0.05, min(5.0, lr_macro_dynamic))
-        except Exception:  # noqa: BLE001, S110 — FactorEngine may raise arbitrary errors
+        except Exception:
             pass
 
         # ── Giai đoạn 3: Contextual Health ──────────────────
@@ -1306,7 +1306,7 @@ class BayesianGovernor:
             ctx = ctx_eng.assess(symbol)
             if ctx:
                 contextual_health_score = ctx.overall_score
-        except Exception:  # noqa: BLE001, S110 — ContextHealthEngine may raise arbitrary errors
+        except Exception:
             pass
 
         # ── Giai đoạn 4: Capital Allocation ─────────────────
@@ -1318,7 +1318,7 @@ class BayesianGovernor:
             if cap:
                 capital_arch = cap.archetype
                 capital_score = cap.quality_score
-        except Exception:  # noqa: BLE001, S110 — CapitalAllocationEngine may raise arbitrary errors
+        except Exception:
             pass
 
         # Derive sector phase
@@ -1335,7 +1335,7 @@ class BayesianGovernor:
             dw = get_dynamic_evidence_weights(_ms, _sp, _en)
             if dw:
                 dynamic_weights = dw
-        except Exception as e:  # noqa: BLE001 — EvidenceEngine may raise arbitrary errors
+        except Exception as e:
             logger.warning("[GOV] EvidenceEngine dynamic weights FAILED: %s — using static weights", e)
 
         # ── Giai đoạn 6: CausalEdge propagation (Sprint 3) ──
@@ -1357,7 +1357,7 @@ class BayesianGovernor:
                 _causal_paths = len(_results)
                 # Coherence = avg confidence across all reached nodes
                 _causal_coherence = sum(r["confidence"] for r in _results) / len(_results)
-        except Exception as e:  # noqa: BLE001 — CausalGraph may raise arbitrary errors
+        except Exception as e:
             logger.warning("[GOV] CausalGraph propagation FAILED for %s: %s", symbol, e)
 
         # ── Giai đoạn 6b: Sector Macro Score (Dot Product M · W_i) ──
@@ -1375,8 +1375,8 @@ class BayesianGovernor:
         _lag_hl = 0.0
         _interaction_mult = 1.0
         _interaction_synergies = []
-        _momentum: Dict[str, float] = {}
-        _confidence: Dict[str, float] = {}
+        _momentum: dict[str, float] = {}
+        _confidence: dict[str, float] = {}
         _persistence = 0.5
         try:
             from governor.interaction_engine import InteractionEngine
@@ -1414,7 +1414,7 @@ class BayesianGovernor:
                 _ix_result = _ix_engine.compute(_M, _sector_name)
                 _interaction_mult = _ix_result.multiplier
                 _interaction_synergies = _ix_result.active_synergies
-        except Exception as e:  # noqa: BLE001 — SectorExposureMatrix may raise arbitrary errors
+        except Exception as e:
             logger.warning("[GOV] SectorExposureMatrix FAILED for %s: %s", symbol, e)
 
         # ── Giai đoạn 7: ModelRegistry BMA competition (Sprint 4) ──
@@ -1431,7 +1431,7 @@ class BayesianGovernor:
             bma = self._bma_posterior
             if bma is not None:
                 model_registry_lr = compute_model_registry_lr(bma)
-        except Exception as e:  # noqa: BLE001 — ModelRegistry may raise arbitrary errors
+        except Exception as e:
             logger.warning("[GOV] ModelRegistry BMA FAILED: %s — model_registry_lr=1.0", e)
 
         # Bayesian inference v3 with Giai đoạn 7 ModelRegistry LR
@@ -1444,7 +1444,7 @@ class BayesianGovernor:
                 breadth_momentum_5d=0.0,
                 credit_shift=_credit_shift,
             )
-        except Exception:  # noqa: BLE001 — RecoveryAuthenticity may raise arbitrary errors
+        except Exception:
             recovery_authenticity_lr = None
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
@@ -1557,13 +1557,13 @@ class BayesianGovernor:
                     valuation_zone=val.get("overall_zone", "FAIR"),
                     behavior_position=beh.get("position", "UNKNOWN"),
                 )
-        except Exception:  # noqa: BLE001, S110 — BayesianMandate construction may raise
+        except Exception:
             pass
 
         # ── Policy Impact Engine (PolicyEvent -> policy_context) ──
         # WHY: Chinh sach vi mo (QD 1743...) tac dong bat doi xung len tung cum.
         #      Truyen ket qua vao mandate de T5 Governor nang tran ty trong cho Big3.
-        policy_ctx: Dict = {}
+        policy_ctx: dict = {}
         policy_cap_boost: float = 0.0
         try:
             from .policy_impact_engine import PolicyImpactEngine
@@ -1576,7 +1576,7 @@ class BayesianGovernor:
                 # Cap boost scale: full 500bps LDR relief for benefit 1.0 -> +0.15
                 _relief = _pimp.ldr_relief_bps
                 policy_cap_boost = round(min(0.15, (_relief / 500.0) * 0.15), 4)
-        except Exception:  # noqa: BLE001 — PolicyImpactEngine may raise arbitrary errors
+        except Exception:
             policy_ctx = {}
             policy_cap_boost = 0.0
 
@@ -1645,7 +1645,7 @@ class BayesianGovernor:
             policy_cap_boost=policy_cap_boost,
         )
 
-    def analyze(self, symbols: List[str]) -> Dict:
+    def analyze(self, symbols: list[str]) -> dict:
         results = {}
         for sym in symbols:
             results[sym] = self.assess(sym)
@@ -1684,7 +1684,7 @@ def _ensure_calib() -> None:
 
             init_schema()
             _CALIB_INITED = True
-        except Exception:  # noqa: BLE001, S110 — init_schema may raise on missing DB
+        except Exception:
             pass
 
 
@@ -1729,7 +1729,7 @@ BUSINESS_STATUS_MAP = {
 #   print_report() using MOS_EMOJI/MOS_ABBR/MOS_ZONE_* constants.
 
 
-def print_report(analysis: Dict[str, Any]) -> None:
+def print_report(analysis: dict[str, Any]) -> None:
     """Inverted Pyramid 3-Tầng CSI report.
 
     WHY: End-investor reads Tầng 1 (verdict + 3 reasons) first,
@@ -1745,7 +1745,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
         def _(x: str) -> str:
             vi = localize_label(x, "full")
             return f"{vi} ({x})" if vi != x else x
-    except Exception:  # noqa: BLE001 — localize_label may raise on missing locale
+    except Exception:
 
         def _(x: str) -> str:
             return x
@@ -1863,7 +1863,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
         projector = CompositeScoreProjector()
         comp_results = projector.project_batch(list(results.values()))
         print_composite_dashboard(comp_results)
-    except Exception:  # noqa: BLE001, S110 — CompositeScoreProjector may raise arbitrary errors
+    except Exception:
         pass
 
     # ══════════════════════════════════════════════════════════════════

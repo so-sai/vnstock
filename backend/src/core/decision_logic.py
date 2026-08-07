@@ -29,7 +29,7 @@ def xu_ly_quyet_dinh(ket_qua: dict, anh_chup: dict, ir: dict, diem_thị_trườ
             "tạm_ngưng": đg["tạm_ngưng_kết_luận"],
             "lý_do_tạm_ngưng": đg["lý_do_tạm_ngưng"],
         }
-    except Exception:  # noqa: BLE001 — degrade to neutral confidence
+    except Exception:
         ket_qua["độ_tin_cậy_sau_hiệu_chỉnh"] = {
             "điểm_số": 0.5,
             "mức": "TRUNG_BINH",
@@ -55,7 +55,7 @@ def xu_ly_quyet_dinh(ket_qua: dict, anh_chup: dict, ir: dict, diem_thị_trườ
         ket_qua["ly_do"] = guarded["ly_do"]
         ket_qua["bi_chặn_bởi_bảo_vệ"] = guarded["bi_chặn"]
         ket_qua["lý_do_chặn"] = guarded["ly_do_chặn"]
-    except Exception:  # noqa: BLE001 — guard degrades to open state
+    except Exception:
         ket_qua["bi_chặn_bởi_bảo_vệ"] = False
         ket_qua["lý_do_chặn"] = None
 
@@ -75,7 +75,7 @@ def in_bao_cao(kq: dict):
         from src.core.canonical_output_adapter import localize_label
 
         verdict_label = localize_label(verdict_label, "full")
-    except Exception:  # noqa: BLE001 — display-only, keep raw token
+    except Exception:
         verdict_label = kq.get("quyet_dinh", "N/A")
     print("\n" + "=" * 60)
     print("  BỘ QUYẾT ĐỊNH CUỐI CÙNG")

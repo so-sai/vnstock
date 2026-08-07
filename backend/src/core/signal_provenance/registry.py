@@ -1,7 +1,8 @@
 from collections import deque
-from typing import Dict, Any, List, Optional, Set, Tuple
-from .models import SignalProvenanceNode, EpistemicState
+from typing import Any
+
 from .graph import SignalEdge, SignalProvenanceGraph
+from .models import SignalProvenanceNode
 
 
 class TemporalCausalityViolation(ValueError):
@@ -21,9 +22,9 @@ class ProvenanceRegistry:
         self.graph = SignalProvenanceGraph(graph_id="global_market_state")
 
         # Internal maps for O(1) lookups (avoid linear scans over graph.edges)
-        self._forward_index: Dict[str, List[str]] = {}
-        self._reverse_index: Dict[str, List[str]] = {}
-        self._node_map: Dict[str, SignalProvenanceNode] = {}
+        self._forward_index: dict[str, list[str]] = {}
+        self._reverse_index: dict[str, list[str]] = {}
+        self._node_map: dict[str, SignalProvenanceNode] = {}
 
     # ───────────────────────────────
     #  Node lifecycle
@@ -38,16 +39,16 @@ class ProvenanceRegistry:
         self._forward_index.setdefault(node.node_id, [])
         self._reverse_index.setdefault(node.node_id, [])
 
-    def get_node(self, node_id: str) -> Optional[SignalProvenanceNode]:
+    def get_node(self, node_id: str) -> SignalProvenanceNode | None:
         return self._node_map.get(node_id)
 
     # ───────────────────────────────
     #  Edge lifecycle + DAG enforcement
     # ───────────────────────────────
 
-    def add_edge(self, from_id: str, to_id: str, weight: float,
-                 edge_type: str = "DERIVATION",
-                 attenuation: Optional[dict] = None) -> SignalEdge:
+    def add_edge(
+        self, from_id: str, to_id: str, weight: float, edge_type: str = "DERIVATION", attenuation: dict | None = None
+    ) -> SignalEdge:
         if from_id not in self._node_map:
             raise NodeNotFound(f"Source node '{from_id}' not found.")
         if to_id not in self._node_map:
@@ -59,8 +60,7 @@ class ProvenanceRegistry:
         # Temporal causality: parent must exist before child
         if parent.timestamp > child.timestamp:
             raise TemporalCausalityViolation(
-                f"Parent '{from_id}' (t={parent.timestamp}) is newer "
-                f"than child '{to_id}' (t={child.timestamp})."
+                f"Parent '{from_id}' (t={parent.timestamp}) is newer than child '{to_id}' (t={child.timestamp})."
             )
 
         edge = SignalEdge(
@@ -79,16 +79,14 @@ class ProvenanceRegistry:
             # Rollback index mutation
             self._forward_index[from_id].remove(to_id)
             self._reverse_index[to_id].remove(from_id)
-            raise CycleDetected(
-                f"Adding edge '{from_id}' -> '{to_id}' would create a cycle."
-            )
+            raise CycleDetected(f"Adding edge '{from_id}' -> '{to_id}' would create a cycle.")
 
         self.graph.edges.append(edge)
         return edge
 
     def _has_cycle(self) -> bool:
         WHITE, GRAY, BLACK = 0, 1, 2
-        color: Dict[str, int] = {nid: WHITE for nid in self._node_map}
+        color: dict[str, int] = {nid: WHITE for nid in self._node_map}
 
         def dfs(nid: str) -> bool:
             color[nid] = GRAY
@@ -102,10 +100,10 @@ class ProvenanceRegistry:
 
         return any(dfs(nid) for nid in self._node_map if color[nid] == WHITE)
 
-    def detect_cycles(self) -> List[List[str]]:
+    def detect_cycles(self) -> list[list[str]]:
         """Returns all elementary cycles (back edges found during DFS)."""
         WHITE, GRAY, BLACK = 0, 1, 2
-        color: Dict[str, int] = {nid: WHITE for nid in self._node_map}
+        color: dict[str, int] = {nid: WHITE for nid in self._node_map}
         cycles = []
         path_stack = []
 
@@ -130,21 +128,19 @@ class ProvenanceRegistry:
     #  Graph traversal
     # ───────────────────────────────
 
-    def get_parents(self, node_id: str) -> List[SignalProvenanceNode]:
-        return [self._node_map[pid] for pid in self._reverse_index.get(node_id, [])
-                if pid in self._node_map]
+    def get_parents(self, node_id: str) -> list[SignalProvenanceNode]:
+        return [self._node_map[pid] for pid in self._reverse_index.get(node_id, []) if pid in self._node_map]
 
-    def get_children(self, node_id: str) -> List[SignalProvenanceNode]:
-        return [self._node_map[cid] for cid in self._forward_index.get(node_id, [])
-                if cid in self._node_map]
+    def get_children(self, node_id: str) -> list[SignalProvenanceNode]:
+        return [self._node_map[cid] for cid in self._forward_index.get(node_id, []) if cid in self._node_map]
 
-    def find_root_cause(self, node_id: str) -> List[str]:
+    def find_root_cause(self, node_id: str) -> list[str]:
         """Traverse reverse index to find all root (RAW) ancestors."""
         if node_id not in self._node_map:
             return []
 
-        visited: Set[str] = set()
-        roots: List[str] = []
+        visited: set[str] = set()
+        roots: list[str] = []
         queue = deque([node_id])
 
         while queue:
@@ -180,7 +176,7 @@ class ProvenanceRegistry:
         total_attenuation = 1.0
 
         queue = deque([node_id])
-        visited: Set[str] = set()
+        visited: set[str] = set()
 
         while queue:
             nid = queue.popleft()
@@ -193,12 +189,12 @@ class ProvenanceRegistry:
                 edge = self._find_edge(pid, nid)
                 if edge is not None:
                     ng = edge.attenuation.get("noise_gain", 0.0)
-                    total_attenuation *= (1.0 - ng)
+                    total_attenuation *= 1.0 - ng
                 queue.append(pid)
 
         return base * total_attenuation
 
-    def _find_edge(self, from_id: str, to_id: str) -> Optional[SignalEdge]:
+    def _find_edge(self, from_id: str, to_id: str) -> SignalEdge | None:
         for e in self.graph.edges:
             if e.from_node == from_id and e.to_node == to_id:
                 return e
@@ -208,7 +204,7 @@ class ProvenanceRegistry:
     #  Node expiry
     # ───────────────────────────────
 
-    def purge_expired(self, reference_time) -> List[str]:
+    def purge_expired(self, reference_time) -> list[str]:
         """Remove nodes whose ttl_seconds has elapsed. Returns purged node IDs."""
         purged = []
         for nid, node in list(self._node_map.items()):
@@ -235,14 +231,11 @@ class ProvenanceRegistry:
         self._forward_index.pop(node_id, None)
         self._reverse_index.pop(node_id, None)
         # Remove graph edges
-        self.graph.edges = [
-            e for e in self.graph.edges
-            if e.from_node != node_id and e.to_node != node_id
-        ]
+        self.graph.edges = [e for e in self.graph.edges if e.from_node != node_id and e.to_node != node_id]
 
     # ───────────────────────────────
     #  Export
     # ───────────────────────────────
 
-    def export(self) -> Dict[str, Any]:
+    def export(self) -> dict[str, Any]:
         return self.graph.model_dump(mode="json")

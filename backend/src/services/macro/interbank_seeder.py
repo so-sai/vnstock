@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import re
 import sys
 from datetime import datetime
@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -23,33 +23,38 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
-PROJECT_ROOT = _hydrate_path()
 
-from src.utils.raise_parser_alert import raise_parser_alert
+PROJECT_ROOT = _hydrate_path()
 
 import pandas as pd
 
 from src.database.db_core import get_connection, save_data_upsert
+from src.utils.raise_parser_alert import raise_parser_alert
 
 logger = logging.getLogger(__name__)
 
 VIETNAMBiz_BUILD_ID = "4rZHofl9s0ftfNuzY0Phf"
-VIETNAMBiz_RATES_URL = (
-    f"https://data.vietnambiz.vn/_next/data/{VIETNAMBiz_BUILD_ID}/currency-interest-rate.json"
-)
+VIETNAMBiz_RATES_URL = f"https://data.vietnambiz.vn/_next/data/{VIETNAMBiz_BUILD_ID}/currency-interest-rate.json"
 
-INTERBANK_VARIABLES = ["INTERBANK_ON", "INTERBANK_1W", "INTERBANK_2W", "INTERBANK_1M",
-                        "INTERBANK_3M", "INTERBANK_6M", "INTERBANK_9M"]
+INTERBANK_VARIABLES = [
+    "INTERBANK_ON",
+    "INTERBANK_1W",
+    "INTERBANK_2W",
+    "INTERBANK_1M",
+    "INTERBANK_3M",
+    "INTERBANK_6M",
+    "INTERBANK_9M",
+]
 
 
 def _normalize(val) -> float | None:
     """Ép giá trị về float sạch, xoá ký tự rác / khoảng trắng."""
     if val is None:
         return None
-    cleaned = re.sub(r'[^0-9\.]', '', str(val).replace(',', '.'))
+    cleaned = re.sub(r"[^0-9\.]", "", str(val).replace(",", "."))
     try:
         return float(cleaned)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 
@@ -90,7 +95,13 @@ ALERT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "ale
 ALERT_FILE = ALERT_DIR / "sbv_structure_changed.json"
 
 SBV_TABLE_SIGNATURES = [
-    "Qua đêm", "1 Tuần", "2 Tuần", "1 Tháng", "3 Tháng", "6 Tháng", "9 Tháng",
+    "Qua đêm",
+    "1 Tuần",
+    "2 Tuần",
+    "1 Tháng",
+    "3 Tháng",
+    "6 Tháng",
+    "9 Tháng",
 ]
 
 CLOUDFLARE_SIGNATURES = ["cf-browser-request", "Attention Required", "Just a moment", "sucuri"]
@@ -109,7 +120,7 @@ def _has_sbv_table_signature(html: str) -> bool:
         return True
 
     div_signal = re.search(
-        r'<(?:div|span)[^>]*>.*?(Qua\s*đêm|1\s*Tuần|2\s*Tuần|1\s*Tháng|3\s*Tháng|6\s*Tháng|9\s*Tháng)',
+        r"<(?:div|span)[^>]*>.*?(Qua\s*đêm|1\s*Tuần|2\s*Tuần|1\s*Tháng|3\s*Tháng|6\s*Tháng|9\s*Tháng)",
         html,
         re.IGNORECASE | re.DOTALL | re.UNICODE,
     )
@@ -132,6 +143,7 @@ def _log_sbv_alert(raw_html: str = ""):
     import os
     import subprocess
     import time
+
     was_active = ALERT_FILE.exists()
     ALERT_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -158,7 +170,8 @@ def _log_sbv_alert(raw_html: str = ""):
         )
         subprocess.Popen(
             ["powershell", "-Command", f"& {{{ps_cmd}}}"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     except Exception:
         pass
@@ -167,6 +180,7 @@ def _log_sbv_alert(raw_html: str = ""):
 def _clear_sbv_alert():
     """Xóa alert file khi cấu trúc SBV đã được fix."""
     import os
+
     if ALERT_FILE.exists():
         os.remove(str(ALERT_FILE))
     tmp = ALERT_FILE.with_suffix(".tmp")
@@ -184,15 +198,13 @@ def _is_sbv_alert_active() -> bool:
 
 
 TERM_RE_PATTERN = re.compile(
-    r'('
-    + '|'.join(re.escape(k) for k in TERM_MAP)
-    + r')\s*[^<>]{0,60}?'
-    r'(\d+[\s,]*\d*\.?\d+)',
+    r"(" + "|".join(re.escape(k) for k in TERM_MAP) + r")\s*[^<>]{0,60}?"
+    r"(\d+[\s,]*\d*\.?\d+)",
     re.IGNORECASE | re.UNICODE,
 )
 
 CELL_RE_PATTERN = re.compile(
-    r'<t[hd][^>]*>\s*([^<]+?)\s*</t[hd]>.*?<t[hd][^>]*>\s*([^<]+?)\s*</t[hd]>',
+    r"<t[hd][^>]*>\s*([^<]+?)\s*</t[hd]>.*?<t[hd][^>]*>\s*([^<]+?)\s*</t[hd]>",
     re.IGNORECASE | re.DOTALL | re.UNICODE,
 )
 
@@ -232,10 +244,12 @@ def _parse_sbv_dom(html_text: str) -> dict[str, float | None]:
     """Layer 1: lxml DOM table extraction (original approach)."""
     try:
         from lxml import html as lx
+
         tree = lx.fromstring(html_text)
     except Exception:
         try:
             from lxml.html import fromstring as _hf
+
             tree = _hf(html_text)
         except Exception:
             return {}
@@ -282,8 +296,13 @@ def _parse_sbv_regex(html_text: str) -> dict[str, float | None]:
 
 
 VALIDATION_BOUNDS = {
-    "ON": (0, 35), "1W": (0, 35), "2W": (0, 35),
-    "1M": (0, 30), "3M": (0, 25), "6M": (0, 20), "9M": (0, 20),
+    "ON": (0, 35),
+    "1W": (0, 35),
+    "2W": (0, 35),
+    "1M": (0, 30),
+    "3M": (0, 25),
+    "6M": (0, 20),
+    "9M": (0, 20),
 }
 TENOR_ORDER_VAL = ["ON", "1W", "2W", "1M", "3M", "6M", "9M"]
 
@@ -346,7 +365,8 @@ def _try_sbv(force: bool = False) -> dict:
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=True, channel="chrome",
+                headless=True,
+                channel="chrome",
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
             )
             ctx = browser.new_context(
@@ -401,7 +421,7 @@ def _try_sbv(force: bool = False) -> dict:
 
             # Trích xuất ngày áp dụng
             body = page.inner_text("body")
-            m = re.search(r'Ngày áp dụng:\s*(\d{2}/\d{2}/\d{4})', body)
+            m = re.search(r"Ngày áp dụng:\s*(\d{2}/\d{2}/\d{4})", body)
             if m:
                 logger.info(f"SBV interbank data date: {m.group(1)}")
 
@@ -428,6 +448,7 @@ def _try_vietnambiz() -> float | None:
     """Lấy Lãi suất liên ngân hàng _ON từ VietnamBiz."""
     try:
         import requests
+
         resp = requests.get(
             VIETNAMBiz_RATES_URL,
             headers={"User-Agent": "Mozilla/5.0"},
@@ -459,20 +480,21 @@ def _doc_cooldown() -> float:
     try:
         import json
         import os
+
         # Dọn file .tmp còn sót (OOM/Task Manager kill giữa chừng)
         tmp = RECALL_STATE_PATH.with_suffix(".tmp")
         if tmp.exists():
             try:
-                with open(tmp, "r", encoding="utf-8") as f:
+                with open(tmp, encoding="utf-8") as f:
                     json.load(f)
                 # .tmp hợp lệ → replace vào file chính (phục hồi sau crash)
                 os.replace(tmp, RECALL_STATE_PATH)
-            except (json.JSONDecodeError, ValueError, OSError):
+            except json.JSONDecodeError, ValueError, OSError:
                 # .tmp hỏng → xóa, không dùng
                 tmp.unlink(missing_ok=True)
         # Đọc file chính (không bao giờ corrupt nhờ os.replace)
         if RECALL_STATE_PATH.exists():
-            with open(RECALL_STATE_PATH, "r", encoding="utf-8") as f:
+            with open(RECALL_STATE_PATH, encoding="utf-8") as f:
                 return float(json.load(f).get("last_check_epoch", 0.0))
     except Exception:
         pass
@@ -487,6 +509,7 @@ def _ghi_cooldown_atomic(epoch: float) -> bool:
     try:
         import json
         import os
+
         tmp = RECALL_STATE_PATH.with_suffix(".tmp")
         RECALL_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
@@ -517,9 +540,9 @@ def kiem_tra_sbv_theo_yeu_cau(min_interval_s: int = 1800) -> dict:
           - sbv_http_status: HTTP status code or None
     """
     import time
+
     now = time.time()
-    kq = {"scraped": False, "ON": None, "signal": "NORMAL", "cooldown_hit": False,
-          "sbv_type": None, "sbv_http_status": None}
+    kq = {"scraped": False, "ON": None, "signal": "NORMAL", "cooldown_hit": False, "sbv_type": None, "sbv_http_status": None}
 
     # --- Kiểm tra cooldown từ disk ---
     last_check = _doc_cooldown()

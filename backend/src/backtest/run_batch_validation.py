@@ -1,4 +1,4 @@
-﻿"""
+"""
 run_batch_validation.py — Run full batch runner with calibrated ROM and validate.
 """
 
@@ -46,11 +46,11 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from core.validation.state_space_validator import StateSpaceValidator
+from src.database.db_core import get_connection
+
 from backend.src.backtest.feature_lattice_builder import FeatureLatticeBuilder
 from backend.src.backtest.hsr_batch_runner import HSRBatchRunner
-from core.validation.state_space_validator import StateSpaceValidator
-
-from src.database.db_core import get_connection
 
 
 def get_trading_dates(start_date: str, end_date: str) -> list:

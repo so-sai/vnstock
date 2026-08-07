@@ -222,7 +222,6 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import requests
 from bs4 import BeautifulSoup
@@ -492,12 +491,61 @@ CAFEF_MAP_BANK = {
     "Thu nhập ngoài lãi": "NON_II",
 }
 
+# Ánh xạ BCTC Công ty Chứng khoán (Thông tư 334/2016/TT-BTC).
+# WHY: Tài sản CTCK 4 nhóm sinh lời (FVTPL/HTM/AFS/MARGIN_LOANS). Đăng ký sẵn
+# để khi nguồn (CafeF/VCI/KBS) trả label tương ứng, crawl tự map — thiếu label
+# thì metric không xuất hiện (No Provenance = No Trust, không bịa dữ liệu).
+CAFEF_MAP_SECURITIES = {
+    "Tài sản tài chính ghi nhận thông qua lãi/lỗ": "FVTPL",
+    "Tài sản tài chính FVTPL": "FVTPL",
+    "Tài sản tài chính giữ đến ngày đáo hạn": "HTM",
+    "Tài sản tài chính giữ đến ngày đáo hạn (HTM)": "HTM",
+    "Tài sản tài chính sẵn sàng để bán": "AFS",
+    "Tài sản tài chính sẵn sàng để bán (AFS)": "AFS",
+    "Các khoản cho vay": "MARGIN_LOANS",
+    "Dư nợ cho vay giao dịch ký quỹ": "MARGIN_LOANS",
+    "Cho vay giao dịch ký quỹ": "MARGIN_LOANS",
+    "Lãi từ các khoản cho vay và phái sinh": "MARGIN_INTEREST",
+    "Lãi cho vay margin": "MARGIN_INTEREST",
+    "Lãi từ các tài sản tài chính FVTPL": "FVTPL_GAIN",
+    "Lãi tự doanh": "PROPRIETARY_GAIN",
+    "Tổng doanh thu hoạt động": "OPERATING_REVENUE",
+    "Doanh thu hoạt động": "OPERATING_REVENUE",
+    "Lợi nhuận sau thuế": "NET_INCOME",
+    "Tổng cộng tài sản": "TOTAL_ASSETS",
+    "Nợ phải trả": "TOTAL_LIABILITIES",
+    "Vốn chủ sở hữu": "TOTAL_EQUITY",
+    "Lưu chuyển tiền thuần từ hoạt động kinh doanh": "CFO",
+}
+
+# Ánh xạ BCTC Doanh nghiệp Bảo hiểm (Thông tư 135/2012/TT-BTC).
+# WHY: Doanh thu = Phí bảo hiểm thuần, chi phí = bồi thường + quản lý nghiệp vụ.
+# Đăng ký sẵn để crawl map khi nguồn trả label — thiếu label thì không xuất hiện.
+CAFEF_MAP_INSURANCE = {
+    "Doanh thu thuần hoạt động kinh doanh bảo hiểm": "NET_PREMIUM",
+    "Phí bảo hiểm thuần": "NET_PREMIUM",
+    "Doanh thu phí bảo hiểm": "NET_PREMIUM",
+    "Chi phí bồi thường bảo hiểm": "NET_CLAIMS",
+    "Chi phí bồi thường thuần": "NET_CLAIMS",
+    "Chi phí hoạt động kinh doanh bảo hiểm": "OPERATING_EXPENSE",
+    "Chi phí quản lý nghiệp vụ": "OPERATING_EXPENSE",
+    "Dự phòng nghiệp vụ": "TECHNICAL_RESERVES",
+    "Dự phòng nghiệp vụ bảo hiểm": "TECHNICAL_RESERVES",
+    "Doanh thu hoạt động tài chính": "INVESTMENT_INCOME",
+    "Thu nhập đầu tư tài chính": "INVESTMENT_INCOME",
+    "Lợi nhuận sau thuế": "NET_INCOME",
+    "Tổng cộng tài sản": "TOTAL_ASSETS",
+    "Nợ phải trả": "TOTAL_LIABILITIES",
+    "Vốn chủ sở hữu": "TOTAL_EQUITY",
+    "Lưu chuyển tiền thuần từ hoạt động kinh doanh": "CFO",
+}
+
 
 class CafeFCrawler:
     """Crawl 20 quarters BCTC from CafeF into financial_facts.db."""
 
     def __init__(
-        self, db: Optional[FinancialFactsDB] = None, use_playwright: bool = False, delay: float = 0, incremental: bool = True
+        self, db: FinancialFactsDB | None = None, use_playwright: bool = False, delay: float = 0, incremental: bool = True
     ):
         self.db = db or FinancialFactsDB()
         self.batch_id = f"cafef_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -517,7 +565,7 @@ class CafeFCrawler:
         )
 
     @staticmethod
-    def generate_20_quarters() -> List[Tuple[int, int]]:
+    def generate_20_quarters() -> list[tuple[int, int]]:
         """Q3/2021 → Q2/2026 = 20 quarters."""
         quarters = []
         for year in range(2021, 2027):
@@ -546,7 +594,7 @@ class CafeFCrawler:
     def get_missing_or_active_quarters(
         self,
         symbol: str,
-        target_quarters: list = None,
+        target_quarters: list | None = None,
     ) -> list:
         """Determine which quarters need crawling (incremental mode).
 
@@ -589,7 +637,172 @@ class CafeFCrawler:
 
         return missing
 
-    def _parse_cafef_value(self, raw: str) -> Optional[float]:
+    # ── Period-Level Missing-Metric Fallback (Fallback cấp Quý) ──
+    # WHY: tháp fallback cấp Symbol chỉ kích hoạt khi len(all_periods)==0 — bỏ
+    # sót quý lẻ bị khiếm khuyết (VD VCB 2026Q2 chỉ có BOOK_VALUE_PS). Cơ chế
+    # này quét 4 quý gần nhất, phát hiện quý thiếu >=3 core metrics và cào bù
+    # từ nguồn phụ; kết hợp Cooldown Gate 24h chống spam request khi BCTC chưa
+    # thực sự công bố (Zero-Hallucination: thiếu dữ liệu -> giữ NO_DATA).
+    FALLBACK_CORE_METRICS = ("REVENUE", "TOTAL_ASSETS", "NET_PROFIT", "CFO")
+    FALLBACK_CORE_METRICS_BANK = ("NET_PROFIT", "TOTAL_ASSETS", "CUSTOMER_DEPOSITS", "CUSTOMER_LOANS")
+    FALLBACK_MISSING_THRESHOLD = 3  # thiếu >= 3 core metrics thì đáng fallback
+    FALLBACK_SCAN_QUARTERS = 4  # chỉ quét 4 quý gần nhất (dữ liệu mới)
+
+    @classmethod
+    def _detect_missing_periods(
+        cls, periods: list[dict], recent_quarters: list[tuple], core_metrics: tuple = FALLBACK_CORE_METRICS
+    ) -> list[tuple]:
+        """Trả danh sách (year, quarter) thuộc recent_quarters thiếu >= 3 core metrics.
+
+        recent_quarters: list (year, q) các quý được phép quét (4 quý gần nhất).
+        WHY: nguồn chính trả OK 19 quý nhưng quý mới chỉ có 1-2 fact (VD VCI cho
+        VCB 2026Q2 = BOOK_VALUE_PS) — cần đánh dấu để cào bù cục bộ. Quý cũ
+        (2018Q1) không bao giờ bị quét vì không thuộc cửa sổ gần nhất.
+        """
+        data_by_key = {}
+        for p in periods:
+            y = p.get("_fiscal_year")
+            q = p.get("_fiscal_quarter")
+            if y and q:
+                data_by_key[(int(y), int(q))] = p
+
+        missing = []
+        for y, q in recent_quarters:
+            p = data_by_key.get((y, q))
+            if p is None:
+                missing.append((y, q))
+                continue
+            present = sum(1 for m in core_metrics if p.get(m) is not None)
+            if present < len(core_metrics) - cls.FALLBACK_MISSING_THRESHOLD + 1:
+                # present <= 1 → thiếu >= 3 trong 4 core metrics
+                missing.append((y, q))
+        return missing
+
+    @staticmethod
+    def _merge_fallback_periods(target: dict, fallback: dict) -> dict:
+        """Merge dữ liệu nguồn phụ vào quý thiếu — giữ metric cũ, điền metric mới.
+
+        WHY: nguồn phụ có thể trả thêm REVENUE/TOTAL_ASSETS/NET_PROFIT cho quý
+        mà nguồn chính chỉ có BOOK_VALUE_PS. KHÔNG ghi đè metric đã có (ưu tiên
+        nguồn chính) — đúng tinh thần Metric-Level Upsert (cumulative merge).
+        """
+        out = dict(target)
+        for k, v in fallback.items():
+            if v is not None and (k.startswith("_") or out.get(k) is None):
+                out[k] = v
+        return out
+
+    def _recent_quarters(self, n: int = FALLBACK_SCAN_QUARTERS) -> list[tuple]:
+        """Trả n quý gần nhất (gồm quý hiện tại) dạng [(year, q), ...].
+
+        WHY: Fallback chỉ quan tâm cửa sổ dữ liệu mới — quý BCTC vừa công bố
+        hoặc đang được cập nhật. Quý cũ (2018Q1) đã ổn định, không cần cào bù.
+        """
+        now = datetime.now()
+        y, q = now.year, (now.month - 1) // 3 + 1
+        out = []
+        for _ in range(n):
+            out.append((y, q))
+            q -= 1
+            if q == 0:
+                y -= 1
+                q = 4
+        return out
+
+    def _maybe_fallback_missing_periods(self, symbol: str, entity_type: str, all_periods: list[dict]) -> list[dict]:
+        """Period-Level Missing-Metric Fallback: cào bù quý thiếu >=3 core metrics.
+
+        Luồng:
+          1. Quét 4 quý gần nhất, tìm quý thiếu >=3 core metrics (VD VCB 2026Q2
+             chỉ có BOOK_VALUE_PS).
+          2. Bỏ qua quý đang trong Cooldown Gate 24h (chưa có dữ liệu ở lần thử
+             trước → không spam request).
+          3. Gọi nguồn phụ (Vietstock → CafeF Bank API) cho toàn symbol, lọc
+             lấy period thuộc danh sách quý thiếu, merge vào all_periods.
+          4. Quý vẫn thiếu sau fallback → set cooldown 24h (Zero-Hallucination:
+             giữ NO_DATA, không bịa).
+
+        WHY: tháp fallback cấp Symbol (len(all_periods)==0) không kích hoạt khi
+        nguồn chính trả OK 19 quý nhưng quý mới chỉ có 1-2 fact. Cơ chế này lấp
+        điểm mù đó mà không phá dữ liệu đã có (Metric-Level Upsert).
+        """
+        recent = self._recent_quarters()
+        # Core metrics theo entity_type: bank không có REVENUE/CFO theo chuẩn
+        # STANDARD (dùng NET_PROFIT/TOTAL_ASSETS/DEPOSITS/LOANS) — tránh fallback
+        # vô ích cho ngân hàng vì thiếu REVENUE "không tồn tại" ở bank.
+        core = self.FALLBACK_CORE_METRICS_BANK if entity_type == "BANK" else self.FALLBACK_CORE_METRICS
+        missing = self._detect_missing_periods(all_periods, recent, core)
+        if not missing:
+            return all_periods
+
+        # Cooldown Gate: lọc bỏ quý đang trong cửa sổ cooldown
+        to_fetch = [(y, q) for y, q in missing if not self.db.is_fallback_cooldown_active(symbol, f"{y}Q{q}")]
+        if not to_fetch:
+            logger.info(f"  {symbol}: {len(missing)} quý thiếu đang trong cooldown — skip fallback")
+            return all_periods
+
+        logger.info(
+            f"  {symbol}: Period-Level Fallback — {len(missing)} quý thiếu core metrics, "
+            f"cào bù {len(to_fetch)} quý: {[f'{y}Q{q}' for y, q in to_fetch]}"
+        )
+
+        # Nguồn phụ: Vietstock (free summary) → CafeF Bank API
+        fallback_periods: list[dict] = self.fetch_vietstock_api(symbol)
+        fallback_source = "vietstock"
+        if not fallback_periods:
+            fallback_periods = self.fetch_cafef_bank_api(symbol)
+            fallback_source = "cafef"
+
+        want = set(to_fetch)
+
+        def key_of(p):
+            return (p.get("_fiscal_year"), p.get("_fiscal_quarter"))
+
+        # Merge dữ liệu nguồn phụ vào all_periods (chỉ cho quý thiếu)
+        data_by_key = {}
+        for p in all_periods:
+            k = key_of(p)
+            if k[0] and k[1]:
+                data_by_key[(int(k[0]), int(k[1]))] = p
+
+        backfilled = 0
+        for fp in fallback_periods:
+            k = key_of(fp)
+            if not k[0] or not k[1] or (int(k[0]), int(k[1])) not in want:
+                continue
+            key = (int(k[0]), int(k[1]))
+            if key in data_by_key:
+                data_by_key[key] = self._merge_fallback_periods(data_by_key[key], fp)
+            else:
+                data_by_key[key] = fp
+            backfilled += 1
+            logger.info(f"  [{symbol} fallback:{fallback_source}] {key[0]}Q{key[1]} — bổ sung facts")
+
+        # Rebuild all_periods (giữ thứ tự, thay thế bản cũ bằng bản merged)
+        seen = set()
+        rebuilt = []
+        for p in all_periods:
+            k = key_of(p)
+            key = (int(k[0]), int(k[1])) if k[0] and k[1] else None
+            if key and key in data_by_key:
+                rebuilt.append(data_by_key[key])
+                seen.add(key)
+            else:
+                rebuilt.append(p)
+        for key, p in data_by_key.items():
+            if key not in seen:
+                rebuilt.append(p)
+        all_periods = rebuilt
+
+        # Cooldown: quý vẫn thiếu core metrics sau fallback -> ghi cooldown 24h
+        still_missing = self._detect_missing_periods(all_periods, recent, core)
+        for y, q in still_missing:
+            self.db.set_fallback_cooldown(symbol, f"{y}Q{q}")
+            logger.info(f"  {symbol}: {y}Q{q} vẫn thiếu sau fallback — cooldown {self.db.FALLBACK_COOLDOWN_HOURS}h")
+
+        return all_periods
+
+    def _parse_cafef_value(self, raw: str) -> float | None:
         """Parse CafeF number: '1.234.567.890' or '(1.234)' (negative) → float."""
         # WHY: CafeF hiển thị đơn vị TRIỆU VND và số âm đặt trong ngoặc
         # "(1.234)" → *1_000_000 để quy về VND; dấu '.' là phân tách nghìn.
@@ -622,10 +835,17 @@ class CafeFCrawler:
             f"?year={year}&quarter={quarter}"
         )
 
-    def fetch_statement(self, symbol: str, st_type: int, year: int, quarter: int) -> Dict[str, float]:
+    def fetch_statement(self, symbol: str, st_type: int, year: int, quarter: int) -> dict[str, float]:
         """Fetch one statement (BS/IS/CF) for one quarter."""
         entity_type = self.db.get_entity_type(symbol)
-        mapping = CAFEF_MAP_BANK if entity_type == "BANK" else CAFEF_MAP_STANDARD
+        if entity_type == "BANK":
+            mapping = CAFEF_MAP_BANK
+        elif entity_type == "SECURITIES":
+            mapping = dict(CAFEF_MAP_STANDARD, **CAFEF_MAP_SECURITIES)
+        elif entity_type == "INSURANCE":
+            mapping = dict(CAFEF_MAP_STANDARD, **CAFEF_MAP_INSURANCE)
+        else:
+            mapping = CAFEF_MAP_STANDARD
 
         urls = [
             self._cafef_url(symbol, st_type, year, quarter),
@@ -641,7 +861,7 @@ class CafeFCrawler:
                     resp = self.session.get(url, timeout=12)
                     if resp.status_code == 200:
                         html_raw = resp.text
-                except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+                except Exception as e:
                     logger.debug(f"Requests failed {url}: {e}")
 
             # ── Tầng 2: Playwright (fallback khi requests 404, hoặc force) ──
@@ -685,13 +905,13 @@ class CafeFCrawler:
                 if result:
                     return result
 
-            except Exception as e:  # noqa: BLE001 — HTML parse, any exception is safe to catch
+            except Exception as e:
                 logger.debug(f"Parse failed {url}: {e}")
                 continue
 
         return {}
 
-    def fetch_quarter(self, symbol: str, year: int, quarter: int) -> Dict:
+    def fetch_quarter(self, symbol: str, year: int, quarter: int) -> dict:
         """Fetch all 3 statements for one quarter."""
         entity_type = self.db.get_entity_type(symbol)
 
@@ -717,7 +937,7 @@ class CafeFCrawler:
         return data
 
     @staticmethod
-    def _generate_synthetic_base(symbol: str, entity_type: str) -> List[Dict]:
+    def _generate_synthetic_base(symbol: str, entity_type: str) -> list[dict]:
         """KHÓA VĨNH VIỄN — Zero-Hallucination Policy.
 
         Sắc lệnh 2026-08-04: TUYỆT ĐỐI CẤM sinh dữ liệu bịa (hallucinated data).
@@ -1041,7 +1261,7 @@ class CafeFCrawler:
         return result
 
     # ── Tầng 1: CafeF Bank API (nguồn chính, HOẠT ĐỘNG) ──────────
-    def fetch_cafef_bank_api(self, symbol: str) -> List[Dict]:
+    def fetch_cafef_bank_api(self, symbol: str) -> list[dict]:
         """Dùng CafeF Bank API (BHoSoCongTy) làm nguồn chính.
 
         Bản đồ URL: URL_MAP["CAFEF_BANK_API"] (ALIVE).
@@ -1075,7 +1295,7 @@ class CafeFCrawler:
                 logger.warning(f"CafeF Bank API: {symbol} HTTP {r.status_code}")
                 return []
             html = r.text
-        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+        except Exception as e:
             logger.warning(f"CafeF Bank API: {symbol} — requests thất bại: {e}")
             html = None
 
@@ -1091,7 +1311,7 @@ class CafeFCrawler:
 
         return self._parse_cafef_bank_api(symbol, entity_type, html)
 
-    def _parse_cafef_bank_api(self, symbol: str, entity_type: str, html: str) -> List[Dict]:
+    def _parse_cafef_bank_api(self, symbol: str, entity_type: str, html: str) -> list[dict]:
         """Parse Bank API (BHoSoCongTy) HTML → list of quarter dicts.
 
         Tách riêng khỏi fetch_cafef_bank_api để tái dùng giữa requests
@@ -1186,11 +1406,11 @@ class CafeFCrawler:
             logger.info(f"CafeF Bank API: {symbol} — {len(result)} quarters, {len(result[0]) if result else 0} metrics")
             return result
 
-        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+        except Exception as e:
             logger.warning(f"CafeF Bank API: {symbol} — {e}")
             return []
 
-    def fetch_cafef_cashflow(self, symbol: str) -> List[Dict]:
+    def fetch_cafef_cashflow(self, symbol: str) -> list[dict]:
         """Dùng CafeF full-statement endpoint (/du-lieu/bao-cao-tai-chinh/...)
         lấy bảng LƯU CHUYỂN TIỀN TỆ (CF) cho 20 quý.
 
@@ -1233,7 +1453,7 @@ class CafeFCrawler:
                         quarters[key] = data
                 if periods:
                     logger.info(f"CafeF CF: {symbol} {year}Q{qtr} → {len(periods)} quý")
-            except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+            except Exception as e:
                 logger.warning(f"CafeF CF: {symbol} {year}Q{qtr} — {e}")
 
         if not quarters:
@@ -1257,7 +1477,7 @@ class CafeFCrawler:
         logger.info(f"CafeF CF: {symbol} — {len(result)} quý, metrics={cf_metrics}")
         return result
 
-    def _parse_cafef_cf_page(self, html: str, entity_type: str) -> Dict[str, Dict]:
+    def _parse_cafef_cf_page(self, html: str, entity_type: str) -> dict[str, dict]:
         """Parse 1 trang CashFlow → { '2025Q3': {'CFO': val, ...}, ... }.
 
         Cấu trúc: header row (td.h_t) chứa label 4 quý, dòng dữ liệu
@@ -1302,7 +1522,7 @@ class CafeFCrawler:
                 out.setdefault(period, {})[metric] = val
         return out
 
-    def _parse_cafef_value_full(self, raw: str) -> Optional[float]:
+    def _parse_cafef_value_full(self, raw: str) -> float | None:
         """Parse số VND đầy đủ: '-1.095.665.704.486' → float (không nhân đơn vị)."""
         # WHY: endpoint CashFlow trả giá trị VND ĐẦY ĐỦ (không theo donvi=1000)
         # → KHÔNG nhân 1_000_000 như _parse_cafef_value, tránh inflate 1000x.
@@ -1320,7 +1540,7 @@ class CafeFCrawler:
         except ValueError:
             return None
 
-    def _map_cafef_metric(self, metric_name: str, entity_type: str) -> Optional[str]:
+    def _map_cafef_metric(self, metric_name: str, entity_type: str) -> str | None:
         """Map CafeF metric name to internal metric name.
 
         WHY: map này phục vụ fetch_cafef_bank_api (nguồn CHÍNH đang hoạt động).
@@ -1405,6 +1625,10 @@ class CafeFCrawler:
         }
 
         mapping = bank_map if entity_type == "BANK" else standard_map
+        if entity_type == "SECURITIES":
+            mapping = dict(standard_map, **CAFEF_MAP_SECURITIES)
+        elif entity_type == "INSURANCE":
+            mapping = dict(standard_map, **CAFEF_MAP_INSURANCE)
 
         # WHY: ưu tiên match chuỗi DÀI trước — "Lưu chuyển tiền thuần từ hoạt động
         # kinh doanh" chứa "hoạt động kinh doanh", không được nhầm với dòng khác.
@@ -1415,7 +1639,7 @@ class CafeFCrawler:
         return None
 
     # ── Tầng 1b: VCI Bridge (thay thế CafeF) ────────────────────
-    def fetch_vci_bridge(self, symbol: str) -> List[Dict]:
+    def fetch_vci_bridge(self, symbol: str) -> list[dict]:
         """Dùng VCI (vnstock wide-format) làm nguồn chính.
 
         Bản đồ URL: URL_MAP["VCI_GRAPHQL"] (NEEDS_API_KEY).
@@ -1439,7 +1663,7 @@ class CafeFCrawler:
         try:
             crawler = VnstockCrawler(db=self.db, source="VCI")
             periods = crawler.fetch_financials_vnstock(symbol, limit=30)
-        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+        except Exception as e:
             logger.warning(f"VCI bridge: VCI API thất bại cho {symbol} — {e}")
             return []
 
@@ -1460,7 +1684,7 @@ class CafeFCrawler:
         return periods
 
     # ── Tầng 1c: VNDirect Fininfo API bridge ─────────────────
-    def fetch_vndirect_api(self, symbol: str) -> List[Dict]:
+    def fetch_vndirect_api(self, symbol: str) -> list[dict]:
         """Dùng VNDirect Fininfo API (JSON, BCTC đầy đủ 4 bảng).
 
         Bản đồ URL: URL_MAP["VNDIRECT_FININFO"] (UNVERIFIED_DNS — cần kiểm chứng
@@ -1490,7 +1714,7 @@ class CafeFCrawler:
                 logger.warning(f"VNDirect Fininfo: {symbol} HTTP {r.status_code}")
                 return []
             payload = r.json()
-        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+        except Exception as e:
             logger.warning(f"VNDirect Fininfo: {symbol} — {e}")
             return []
 
@@ -1499,7 +1723,7 @@ class CafeFCrawler:
         return periods
 
     @staticmethod
-    def _parse_vndirect_json(payload, entity_type: str = "STANDARD") -> List[Dict]:
+    def _parse_vndirect_json(payload, entity_type: str = "STANDARD") -> list[dict]:
         """Pure parser cho VNDirect Fininfo JSON — deterministic, testable.
 
         VNDirect trả list of rows; mỗi row chứa các cột camelCase như:
@@ -1592,7 +1816,7 @@ class CafeFCrawler:
         return result
 
     # ── Tầng 1d: TCBS FinAPI bridge ──────────────────────────
-    def fetch_tcbs_api(self, symbol: str) -> List[Dict]:
+    def fetch_tcbs_api(self, symbol: str) -> list[dict]:
         """Dùng TCBS FinAPI (JSON, BCTC 8 quý gần nhất, 4 bảng).
 
         Bản đồ URL: URL_MAP["TCBS_FINAPI"] (UNVERIFIED_DNS — cần kiểm chứng lại
@@ -1614,7 +1838,7 @@ class CafeFCrawler:
             "INCOME_STATEMENT": "IS",
             "CASH_FLOW": "CF",
         }
-        merged_by_period: Dict[str, Dict] = {}
+        merged_by_period: dict[str, dict] = {}
         for tcbs_type, tag in sections.items():
             url = f"https://finapi.tcbs.com.vn/v1/stock/{symbol.upper()}/financial-statement"
             params = {"type": tcbs_type, "size": "20", "isAll": "true"}
@@ -1624,7 +1848,7 @@ class CafeFCrawler:
                     logger.warning(f"TCBS FinAPI {tcbs_type}: {symbol} HTTP {r.status_code}")
                     continue
                 payload = r.json()
-            except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+            except Exception as e:
                 logger.warning(f"TCBS FinAPI {tcbs_type}: {symbol} — {e}")
                 continue
 
@@ -1654,7 +1878,7 @@ class CafeFCrawler:
         return result
 
     @staticmethod
-    def _parse_tcbs_rows(payload, tag: str = "BS") -> List[Dict]:
+    def _parse_tcbs_rows(payload, tag: str = "BS") -> list[dict]:
         """Pure parser cho TCBS FinAPI payload — deterministic, testable.
 
         TCBS trả {"data": [...]} — mỗi row chứa quarter/year + các cột camelCase.
@@ -1731,7 +1955,7 @@ class CafeFCrawler:
         return result
 
     # ── Tầng 1e: Vietstock Finance summary bridge (cross-check) ──
-    def fetch_vietstock_api(self, symbol: str) -> List[Dict]:
+    def fetch_vietstock_api(self, symbol: str) -> list[dict]:
         """Dùng Vietstock Finance free summary (Playwright Windows Native).
 
         Bản đồ URL: URL_MAP["VIETSTOCK_FININFO"] (ALIVE — verified 2026-07-31).
@@ -1761,7 +1985,7 @@ class CafeFCrawler:
         return periods
 
     # ── Tầng 1c: NoteIndicator (backup limited) ───────────────
-    def fetch_note_indicator(self, symbol: str) -> List[Dict]:
+    def fetch_note_indicator(self, symbol: str) -> list[dict]:
         """Dùng NoteIndicator API làm backup (limited).
 
         Bản đồ URL: URL_MAP["CAFEF_NOTE_INDI"] (LIMITED).
@@ -1867,13 +2091,13 @@ class CafeFCrawler:
             logger.info(f"NoteIndicator: {symbol} — {len(output)} years, {len(output[0]) if output else 0} metrics")
             return output
 
-        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+        except Exception as e:
             logger.warning(f"NoteIndicator: {symbol} — {e}")
             return []
 
     # ── Tầng 2: Playwright (khi requests thất bại) ────────────────
     @staticmethod
-    def _try_cafef_pw(url: str) -> Optional[str]:
+    def _try_cafef_pw(url: str) -> str | None:
         """Dùng Playwright render CafeF page, trả HTML raw hoặc None.
 
         Pattern giống _try_sbv() trong interbank_seeder.py — dùng chung
@@ -1962,11 +2186,11 @@ class CafeFCrawler:
 
                 return html_raw
 
-        except Exception as e:  # noqa: BLE001 — network I/O, any exception is safe to catch
+        except Exception as e:
             logger.warning(f"CafeF PW thất bại: {e}")
             return None
 
-    def crawl_symbol(self, symbol: str, entity_type: str = None, source: str = "vci") -> Dict:
+    def crawl_symbol(self, symbol: str, entity_type: str | None = None, source: str = "vci") -> dict:
         """Crawl 20 quarters for one symbol.
 
         Args:
@@ -2010,7 +2234,7 @@ class CafeFCrawler:
             "POB",
         }
         detected_type = self.db.get_entity_type(symbol)
-        if not detected_type or detected_type not in ("STANDARD", "BANK"):
+        if not detected_type:
             detected_type = "BANK" if symbol.upper() in BANK_SYMBOLS else "STANDARD"
             self.db.register_entity(symbol, detected_type)
         actual_type = detected_type
@@ -2158,6 +2382,12 @@ class CafeFCrawler:
                         merged += 1
                 logger.info(f"  CafeF CF merge: {symbol} — {merged} facts bổ sung")
 
+        # Period-Level Missing-Metric Fallback: cào bù quý thiếu core metrics
+        # (VD VCB 2026Q2 chỉ có BOOK_VALUE_PS). KHÔNG chạy khi nguồn là synthetic
+        # hoặc Vietstock thuần (Vietstock là chính nguồn phụ — tránh tự fallback).
+        if all_periods and not use_synthetic and source not in ("synthetic", "vietstock"):
+            all_periods = self._maybe_fallback_missing_periods(symbol, actual_type, all_periods)
+
         if use_synthetic:
             all_periods = self._generate_synthetic_base(symbol, actual_type)
             # Nếu (bất kỳ lý do nào) vẫn sinh ra dữ liệu bịa, đánh dấu provenance để auditor
@@ -2219,7 +2449,7 @@ class CafeFCrawler:
             "total_metrics": total_metrics,
         }
 
-    def crawl_multi(self, targets: List[Tuple[str, str]], source: str = "vci") -> Dict:
+    def crawl_multi(self, targets: list[tuple[str, str]], source: str = "vci") -> dict:
         """Crawl multiple symbols."""
         import time
 
@@ -2234,7 +2464,7 @@ class CafeFCrawler:
 
     # ── Cross-check đa nguồn ─────────────────────────────────
     @staticmethod
-    def cross_check(reference: List[Dict], candidate: List[Dict], tolerance_pct: float = 20.0) -> Dict:
+    def cross_check(reference: list[dict], candidate: list[dict], tolerance_pct: float = 20.0) -> dict:
         """So sánh 2 nguồn dữ liệu trên cùng metric (kiểm tra chéo).
 
         Dùng cho Vietstock summary (reference/candidate) với nguồn khác

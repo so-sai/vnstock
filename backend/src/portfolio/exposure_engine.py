@@ -1,7 +1,8 @@
-﻿"""
+"""
 Exposure Engine v1.1
 Adaptive feedback loop: conviction dampener + regime memory bias + global risk throttle.
 """
+
 import logging
 import sqlite3
 import sys
@@ -9,7 +10,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -26,6 +27,7 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 from src.database.portfolio_db import PORTFOLIO_DB_PATH
@@ -35,14 +37,18 @@ logger = logging.getLogger(__name__)
 
 MAX_HEAT = 10.0
 
+
 def calculate_model_dampener(thesis_source: str) -> float:
     conn = sqlite3.connect(PORTFOLIO_DB_PATH)
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT realized_pnl_pct FROM position_lifecycle
         WHERE thesis_source = ? AND status = 'CLOSED'
         ORDER BY closed_at DESC LIMIT 5
-    """, (thesis_source,))
+    """,
+        (thesis_source,),
+    )
     trades = c.fetchall()
     conn.close()
 
@@ -57,13 +63,13 @@ def calculate_model_dampener(thesis_source: str) -> float:
         return 0.50
     return 1.0
 
+
 def calculate_total_dampener(thesis_source: str, current_regime: str = "RANGING") -> dict:
     combined = memory_engine.get_effective_dampener(thesis_source, current_regime)
     combined["legacy_dampener"] = calculate_model_dampener(thesis_source)
-    combined["net_dampener"] = round(
-        combined["legacy_dampener"] * combined["net_dampener"], 4
-    )
+    combined["net_dampener"] = round(combined["legacy_dampener"] * combined["net_dampener"], 4)
     return combined
+
 
 def evaluate_global_risk_throttle(current_heat: float) -> dict:
     if current_heat >= MAX_HEAT:
@@ -84,7 +90,8 @@ def evaluate_global_risk_throttle(current_heat: float) -> dict:
         "multiplier": 1.0,
     }
 
-def get_portfolio_heat(nav: float = None) -> float:
+
+def get_portfolio_heat(nav: float | None = None) -> float:
     conn = sqlite3.connect(PORTFOLIO_DB_PATH)
     c = conn.cursor()
     c.execute("""

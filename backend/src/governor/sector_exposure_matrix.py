@@ -41,7 +41,6 @@ Usage:
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 
 def _hydrate_path() -> Path:
@@ -84,7 +83,7 @@ MACRO_NODES = ["US_Liquidity", "China_Economy", "Commodity_Cycle", "Domestic_Liq
 # Reference: VN30 sector correlation analysis 2020-2025
 # User-refined matrix (2026-08-04): Each sector has unique Exposure Matrix
 
-SECTOR_EXPOSURE_WEIGHTS: Dict[str, Dict[str, float]] = {
+SECTOR_EXPOSURE_WEIGHTS: dict[str, dict[str, float]] = {
     # ── Financials ────────────────────────────────────────────────────
     # WHY: Ngân hàng sống còn nhờ SBV/OMO/Interbank (0.60).
     # Fed ảnh hưởng gián qua DXY → VND pressure → capital flow.
@@ -216,9 +215,9 @@ class SectorMacroResult:
 
     sector: str
     macro_score: float  # Dot product M · W_i ∈ [0, 1]
-    exposure_weights: Dict[str, float]  # W_i vector
-    macro_vector: Dict[str, float]  # M vector used
-    components: Dict[str, float]  # m_k * w_ik for each node
+    exposure_weights: dict[str, float]  # W_i vector
+    macro_vector: dict[str, float]  # M vector used
+    components: dict[str, float]  # m_k * w_ik for each node
 
 
 class SectorExposureMatrix:
@@ -234,10 +233,10 @@ class SectorExposureMatrix:
     with a cross-sectional, sector-aware macro fingerprint.
     """
 
-    def __init__(self, custom_weights: Optional[Dict[str, Dict[str, float]]] = None):
+    def __init__(self, custom_weights: dict[str, dict[str, float]] | None = None):
         self.weights = custom_weights or SECTOR_EXPOSURE_WEIGHTS
 
-    def get_exposure_weights(self, sector: str) -> Dict[str, float]:
+    def get_exposure_weights(self, sector: str) -> dict[str, float]:
         """Get exposure weight vector for a sector.
 
         Args:
@@ -257,7 +256,7 @@ class SectorExposureMatrix:
 
         return DEFAULT_EXPOSURE
 
-    def compute_sector_macro_score(self, sector: str, macro_vector: Dict[str, float]) -> SectorMacroResult:
+    def compute_sector_macro_score(self, sector: str, macro_vector: dict[str, float]) -> SectorMacroResult:
         """Compute macro score for a specific sector via dot product.
 
         Formula:
@@ -293,7 +292,7 @@ class SectorExposureMatrix:
             components=components,
         )
 
-    def compute_all_sector_scores(self, macro_vector: Dict[str, float]) -> Dict[str, SectorMacroResult]:
+    def compute_all_sector_scores(self, macro_vector: dict[str, float]) -> dict[str, SectorMacroResult]:
         """Compute macro scores for all defined sectors.
 
         Args:
@@ -307,7 +306,7 @@ class SectorExposureMatrix:
             results[sector] = self.compute_sector_macro_score(sector, macro_vector)
         return results
 
-    def get_sector_ranking(self, macro_vector: Dict[str, float], ascending: bool = False) -> List[Tuple[str, float]]:
+    def get_sector_ranking(self, macro_vector: dict[str, float], ascending: bool = False) -> list[tuple[str, float]]:
         """Rank sectors by macro score.
 
         Args:
@@ -325,7 +324,7 @@ class SectorExposureMatrix:
     def compute_mos_adjustment(
         self,
         sector: str,
-        macro_vector: Dict[str, float],
+        macro_vector: dict[str, float],
         base_mos: float = 1.0,
     ) -> float:
         """Compute Margin of Safety adjustment based on macro score.

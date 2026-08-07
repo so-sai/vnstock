@@ -1,10 +1,10 @@
-﻿import json
+import json
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent
@@ -19,17 +19,19 @@ def _hydrate_path():
             sys.path.insert(0, str(p))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
-if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
+if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
     import io
+
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import numpy as np
 import pandas as pd
 
@@ -62,50 +64,51 @@ def _tinh_median_return(target_date: str) -> dict:
             "SELECT symbol, date, close, volume FROM daily_ohlcv "
             "WHERE symbol != 'VNINDEX' AND date >= ? AND date <= ? "
             "ORDER BY symbol, date",
-            conn, params=(start.strftime('%Y-%m-%d'), target_date)
+            conn,
+            params=(start.strftime("%Y-%m-%d"), target_date),
         )
         df_idx = pd.read_sql(
-            "SELECT date, close as idx_close FROM daily_ohlcv "
-            "WHERE symbol='VNINDEX' AND date <= ? ORDER BY date",
-            conn, params=(target_date,)
+            "SELECT date, close as idx_close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= ? ORDER BY date",
+            conn,
+            params=(target_date,),
         )
     if df.empty or df_idx.empty:
         return {"weighted_return": 0, "median_return": 0, "divergence": 0, "idx_return": 0}
-    df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
-    df = df.dropna(subset=['date'])
+    df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed", errors="coerce")
+    df = df.dropna(subset=["date"])
     target_dt = pd.to_datetime(target_date)
-    latest = df[df['date'] == target_dt].copy()
+    latest = df[df["date"] == target_dt].copy()
 
     if latest.empty:
-        dates = sorted(df['date'].unique())
+        dates = sorted(df["date"].unique())
         target_date = dates[-1] if dates else target_dt
-        latest = df[df['date'] == target_dt].copy()
+        latest = df[df["date"] == target_dt].copy()
     if latest.empty:
         return {"weighted_return": 0, "median_return": 0, "divergence": 0, "idx_return": 0}
 
-    latest = latest[latest['volume'] >= 10000].copy()
-    if latest.empty or latest['close'].sum() == 0:
+    latest = latest[latest["volume"] >= 10000].copy()
+    if latest.empty or latest["close"].sum() == 0:
         return {"weighted_return": 0, "median_return": 0, "divergence": 0, "idx_return": 0}
 
-    prev = df[df['date'] < target_dt].groupby('symbol').last().reset_index()
-    merged = latest.merge(prev[['symbol', 'close']], on='symbol', suffixes=('', '_prev'))
-    merged.loc[:, 'change_pct'] = (merged['close'] - merged['close_prev']) / merged['close_prev'].replace(0, np.nan)
-    merged.loc[:, 'change_pct'] = merged['change_pct'].replace([np.inf, -np.inf], 0).fillna(0).clip(-0.2, 0.2)
+    prev = df[df["date"] < target_dt].groupby("symbol").last().reset_index()
+    merged = latest.merge(prev[["symbol", "close"]], on="symbol", suffixes=("", "_prev"))
+    merged.loc[:, "change_pct"] = (merged["close"] - merged["close_prev"]) / merged["close_prev"].replace(0, np.nan)
+    merged.loc[:, "change_pct"] = merged["change_pct"].replace([np.inf, -np.inf], 0).fillna(0).clip(-0.2, 0.2)
 
-    total_value = (merged['close'] * merged['volume'] * 1000).sum()
+    total_value = (merged["close"] * merged["volume"] * 1000).sum()
     if total_value == 0:
         return {"weighted_return": 0, "median_return": 0, "divergence": 0, "idx_return": 0}
-    weights = (merged['close'] * merged['volume'] * 1000) / total_value
-    weighted_return = float(np.average(merged['change_pct'], weights=weights))
-    median_return = float(merged['change_pct'].median())
+    weights = (merged["close"] * merged["volume"] * 1000) / total_value
+    weighted_return = float(np.average(merged["change_pct"], weights=weights))
+    median_return = float(merged["change_pct"].median())
     divergence = round(weighted_return - median_return, 4)
 
-    idx_latest = df_idx[df_idx['date'] == df_idx['date'].max()]
-    idx_prev = df_idx[df_idx['date'] < df_idx['date'].max()].tail(1)
+    idx_latest = df_idx[df_idx["date"] == df_idx["date"].max()]
+    idx_prev = df_idx[df_idx["date"] < df_idx["date"].max()].tail(1)
     idx_return = 0.0
     if not idx_latest.empty and not idx_prev.empty:
-        idx_lc = float(idx_latest['idx_close'].iloc[0])
-        idx_pc = float(idx_prev['idx_close'].iloc[0])
+        idx_lc = float(idx_latest["idx_close"].iloc[0])
+        idx_pc = float(idx_prev["idx_close"].iloc[0])
         if idx_pc > 0:
             idx_return = round((idx_lc - idx_pc) / idx_pc * 100, 2)
 
@@ -126,44 +129,46 @@ def _tinh_vingroup_contribution(target_date: str) -> dict:
             "SELECT symbol, date, close, volume FROM daily_ohlcv "
             "WHERE symbol != 'VNINDEX' AND date >= ? AND date <= ? "
             "ORDER BY symbol, date",
-            conn, params=(start.strftime('%Y-%m-%d'), target_date)
+            conn,
+            params=(start.strftime("%Y-%m-%d"), target_date),
         )
     if df.empty:
         return {"vingroup_pct": 0, "vingroup_weight": 0, "top_symbols": []}
 
-    df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
-    df = df.dropna(subset=['date'])
-    recent = df[df['date'] >= end - pd.Timedelta(days=20)].copy()
-    recent.loc[:, 'traded_value'] = recent['close'] * recent['volume']
-    avg_value = recent.groupby('symbol', as_index=False)['traded_value'].mean()
-    avg_value.columns = ['symbol', 'avg_value']
-    total = avg_value['avg_value'].sum()
+    df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed", errors="coerce")
+    df = df.dropna(subset=["date"])
+    recent = df[df["date"] >= end - pd.Timedelta(days=20)].copy()
+    recent.loc[:, "traded_value"] = recent["close"] * recent["volume"]
+    avg_value = recent.groupby("symbol", as_index=False)["traded_value"].mean()
+    avg_value.columns = ["symbol", "avg_value"]
+    total = avg_value["avg_value"].sum()
     if total == 0:
         return {"vingroup_pct": 0, "vingroup_weight": 0, "top_symbols": []}
 
-    avg_value.loc[:, 'weight'] = avg_value['avg_value'] / total
-    top15 = avg_value.nlargest(15, 'weight')
-    vingroup_weight = top15[top15['symbol'].isin(VINGROUP_SYMBOLS)]['weight'].sum()
+    avg_value.loc[:, "weight"] = avg_value["avg_value"] / total
+    top15 = avg_value.nlargest(15, "weight")
+    vingroup_weight = top15[top15["symbol"].isin(VINGROUP_SYMBOLS)]["weight"].sum()
 
-    latest = df[df['date'] == target_date]
+    latest = df[df["date"] == target_date]
     if latest.empty:
-        dates = sorted(df['date'].unique())
-        latest = df[df['date'] == dates[-1]]
-    vg_latest = latest[latest['symbol'].isin(VINGROUP_SYMBOLS)]
-    vg_value = (vg_latest['close'] * vg_latest['volume'] * 1000).sum()
-    total_value = (latest['close'] * latest['volume'] * 1000).sum() if not latest.empty else 0
+        dates = sorted(df["date"].unique())
+        latest = df[df["date"] == dates[-1]]
+    vg_latest = latest[latest["symbol"].isin(VINGROUP_SYMBOLS)]
+    vg_value = (vg_latest["close"] * vg_latest["volume"] * 1000).sum()
+    total_value = (latest["close"] * latest["volume"] * 1000).sum() if not latest.empty else 0
     vg_pct = round(vg_value / total_value * 100, 1) if total_value > 0 else 0
 
     return {
         "vingroup_weight": round(vingroup_weight * 100, 1),
         "vingroup_value_share": vg_pct,
-        "vingroup_symbols": sorted(VINGROUP_SYMBOLS & set(top15['symbol'])),
+        "vingroup_symbols": sorted(VINGROUP_SYMBOLS & set(top15["symbol"])),
     }
 
 
 def phan_tich_chi_so(target_date: str | None = None) -> dict:
     if target_date is None:
         from datetime import datetime
+
         target_date = datetime.now().strftime("%Y-%m-%d")
 
     ms = _doc("market_structure.json") or {}
@@ -211,7 +216,11 @@ def phan_tich_chi_so(target_date: str | None = None) -> dict:
 
     signals = []
     signals.append(1.0 if bdi_level < 3 else (0.6 if bdi_level < 7 else (0.3 if bdi_level < 12 else 0.1)))
-    signals.append(1.0 if concentration_level == "THAP" else (0.7 if concentration_level == "TRUNG_BINH" else (0.4 if concentration_level == "CAO" else 0.1)))
+    signals.append(
+        1.0
+        if concentration_level == "THAP"
+        else (0.7 if concentration_level == "TRUNG_BINH" else (0.4 if concentration_level == "CAO" else 0.1))
+    )
     signals.append(1.0 if abs(divergence_pct) < 0.5 else (0.5 if abs(divergence_pct) < 2 else 0.2))
     signals.append(1.0 if vg_weight < 15 else (0.6 if vg_weight < 30 else 0.3))
     market_quality = round(sum(signals) / len(signals), 2)
@@ -300,7 +309,7 @@ def in_bao_cao(kq: dict):
     vnindex = kq.get("chi_so_cong_bo", 0)
     sbmi = kq.get("chi_so_noi_tai", 0)
     bdi = kq.get("do_lech_bdi", 0)
-    gap = vnindex - sbmi
+    vnindex - sbmi
     chenh = kq.get("chenh_lech", {})
     dr = kq.get("do_rong", {})
     tc = kq.get("tap_trung", {})
@@ -345,7 +354,6 @@ def in_bao_cao(kq: dict):
     print(f"  Co phieu TB (median):       {dr_idx.get('median_pct', 0):+.2f}%")
     print(f"  Khoang cach:                {dr_idx.get('gap', 0):+.2f}%")
     print()
-    status_icon = "XANH" if quality >= 0.8 else ("VANG" if quality >= 0.5 else ("CAM" if quality >= 0.2 else "DO"))
     print(f"  DIEM THI TRUONG THAT: {quality:.2f}/1.00 ({label_vn})")
     print(f"  Bien pha: {kq.get('do_lech_pha', 'N/A')}")
     print()

@@ -7,8 +7,8 @@ Nguyên tắc cách ly (isolation):
   - Test chạy trên DB thật (screener_cache.db) vì engine hard-code connection,
     nhưng chỉ thao tác trên namespace test biệt lập.
 """
-import sys
 import pathlib
+import sys
 
 import pytest
 

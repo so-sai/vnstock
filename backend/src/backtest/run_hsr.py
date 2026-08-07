@@ -1,4 +1,3 @@
-﻿# -*- coding: utf-8 -*-
 """
 run_hsr.py — CLI entry point for Historical State Reconstruction + SRV validation.
 
@@ -18,27 +17,33 @@ import io
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
-if sys.platform == "win32" and hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 class _NullWriter(io.TextIOBase):
     """Encoding-safe null writer — never fails on Unicode/emoji."""
-    def write(self, s): return len(s or '')
-    def flush(self): pass
+
+    def write(self, s):
+        return len(s or "")
+
+    def flush(self):
+        pass
+
     @property
-    def encoding(self): return 'utf-8'
+    def encoding(self):
+        return "utf-8"
+
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("run_hsr")
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -58,25 +63,23 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from core.validation.backtest_contract import default_contract
+from core.validation.state_reconstruction_validator import SRVReport, run_srv
+from src.database.db_core import get_connection
+
 from backend.src.backtest.feature_lattice_builder import FeatureLatticeBuilder
 from backend.src.backtest.hsr_coordinator import (
     build_historical_snapshot,
     reset_memory,
 )
 from backend.src.backtest.hsr_kernel import InMemoryDB
-from core.validation.backtest_contract import default_contract
-from core.validation.state_reconstruction_validator import SRVReport, run_srv
-
-from src.database.db_core import get_connection
 
 
 def get_trading_dates(start_date: str, end_date: str) -> list:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT DISTINCT date FROM daily_ohlcv "
-            "WHERE date >= ? AND date <= ? AND symbol = 'VNINDEX' "
-            "ORDER BY date",
-            (start_date, end_date)
+            "SELECT DISTINCT date FROM daily_ohlcv WHERE date >= ? AND date <= ? AND symbol = 'VNINDEX' ORDER BY date",
+            (start_date, end_date),
         ).fetchall()
     return [row[0] for row in rows]
 
@@ -84,7 +87,7 @@ def get_trading_dates(start_date: str, end_date: str) -> list:
 def run_hsr_pipeline(
     start_date: str = "2023-01-01",
     end_date: str = "2026-06-01",
-    max_days: Optional[int] = None,
+    max_days: int | None = None,
     verbose: bool = True,
 ) -> list:
     dates = get_trading_dates(start_date, end_date)
@@ -103,19 +106,21 @@ def run_hsr_pipeline(
 
     kernel = InMemoryDB(start_date, end_date)
 
-    logger.info(f"\n{'='*60}")
+    logger.info(f"\n{'=' * 60}")
     logger.info("  HISTORICAL STATE RECONSTRUCTION")
     logger.info(f"  Period: {start_date} → {end_date} ({total} trading days)")
-    logger.info(f"{'='*60}")
+    logger.info(f"{'=' * 60}")
 
     with kernel.patch_get_connection():
         # Build Feature Lattice (Layer 0) — once for the entire date range
         from src.database.db_core import get_connection as _get_conn
+
         with _get_conn() as conn:
             all_ohlcv = pd.read_sql(
                 "SELECT date, symbol, open, high, low, close, volume FROM daily_ohlcv "
                 "WHERE date >= ? AND date <= ? ORDER BY symbol, date",
-                conn, params=(start_date, end_date)
+                conn,
+                params=(start_date, end_date),
             )
         lattice_builder = FeatureLatticeBuilder()
         lattice = lattice_builder.build(all_ohlcv)
@@ -128,7 +133,7 @@ def run_hsr_pipeline(
             if status == "ENGINE_FAILURE":
                 errors += 1
                 if verbose:
-                    logger.warning(f"  [{idx:4d}/{total}] {d} → ENGINE_FAILURE: {snapshot.get('error','')}")
+                    logger.warning(f"  [{idx:4d}/{total}] {d} → ENGINE_FAILURE: {snapshot.get('error', '')}")
                 continue
             if status == "SKIP":
                 skipped += 1
@@ -138,23 +143,23 @@ def run_hsr_pipeline(
                 logger.info(f"  [{idx:4d}/{total}] ... {d} ({len(snapshots)} snapshots)")
     kernel.close()
 
-    logger.info(f"\n{'='*60}")
+    logger.info(f"\n{'=' * 60}")
     logger.info("  Reconstruction complete:")
     logger.info(f"    Total days: {total}")
     logger.info(f"    Snapshots:  {len(snapshots)}")
     logger.info(f"    Errors:     {errors}")
     logger.info(f"    Skipped:    {skipped}")
-    logger.info(f"{'='*60}")
+    logger.info(f"{'=' * 60}")
 
     return snapshots
 
 
 def print_summary(report: SRVReport):
-    logger.info(f"\n{'='*60}")
+    logger.info(f"\n{'=' * 60}")
     logger.info(f"  SRV REPORT: {report.contract_name}")
     logger.info(f"  Run: {report.run_date}")
     logger.info(f"  Period: {report.date_range}  ({report.total_days_processed} days)")
-    logger.info(f"{'='*60}")
+    logger.info(f"{'=' * 60}")
 
     sa = report.suite_a
     logger.info("\n  Suite A — DBE Stability")
@@ -182,33 +187,26 @@ def print_summary(report: SRVReport):
     logger.info(f"  {'Total TTL Triggers':30s}: {sc.total_ttl_triggers}")
 
     logger.info("\n  Regime Distribution:")
-    for rt, count in sorted(report.regime_type_summary.items(),
-                            key=lambda x: -x[1]):
+    for rt, count in sorted(report.regime_type_summary.items(), key=lambda x: -x[1]):
         logger.info(f"    {rt:20s}: {count}")
 
     logger.info("\n  Transition Matches:")
     for m in sc.matches:
         icon = "✓" if m.is_hit else "✗"
-        logger.info(f"    {icon} {m.event_name:25s} "
-                     f"type={m.event_type:15s} "
-                     f"delay={m.delay_days:2d}d "
-                     f"ttl={m.ttl_date} ({m.ttl_type})")
+        logger.info(
+            f"    {icon} {m.event_name:25s} type={m.event_type:15s} delay={m.delay_days:2d}d ttl={m.ttl_date} ({m.ttl_type})"
+        )
 
-    logger.info(f"{'='*60}\n")
+    logger.info(f"{'=' * 60}\n")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Historical State Reconstruction + SRV Validation"
-    )
+    parser = argparse.ArgumentParser(description="Historical State Reconstruction + SRV Validation")
     parser.add_argument("--from", dest="start_date", default="2023-01-01")
     parser.add_argument("--to", dest="end_date", default="2026-06-01")
-    parser.add_argument("--report", default=None,
-                        help="Output path for JSON report")
-    parser.add_argument("--max-days", type=int, default=None,
-                        help="Limit number of days (for testing)")
-    parser.add_argument("--quiet", action="store_true",
-                        help="Minimal console output")
+    parser.add_argument("--report", default=None, help="Output path for JSON report")
+    parser.add_argument("--max-days", type=int, default=None, help="Limit number of days (for testing)")
+    parser.add_argument("--quiet", action="store_true", help="Minimal console output")
     args = parser.parse_args()
 
     if args.quiet:
@@ -236,15 +234,14 @@ def main():
     if args.report:
         path = Path(args.report)
         from core.validation.state_reconstruction_validator import export_srv_report
+
         export_srv_report(report, str(path))
 
     # ── Quality audit ────────────────────────────────────────────────
     missing_sources = sum(
-        1 for s in snapshots
-        if s.get("hsr_quality", {}).get("capital_displacement") == "MISSING_HISTORICAL_SOURCE"
+        1 for s in snapshots if s.get("hsr_quality", {}).get("capital_displacement") == "MISSING_HISTORICAL_SOURCE"
     )
-    logger.info(f"\n  Data Quality: {missing_sources}/{len(snapshots)} snapshots "
-                 f"with MISSING_HISTORICAL_SOURCE markers")
+    logger.info(f"\n  Data Quality: {missing_sources}/{len(snapshots)} snapshots with MISSING_HISTORICAL_SOURCE markers")
     logger.info("  HSR complete. SRV diagnostic mode — not a trading backtest.\n")
 
 

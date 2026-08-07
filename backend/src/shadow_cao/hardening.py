@@ -1,4 +1,4 @@
-﻿"""Shadow CAO — Hardening Layer.
+"""Shadow CAO — Hardening Layer.
 
 Production-safety guarantees:
 1. Crash-proof hook wrapper — shadow exceptions NEVER propagate to production
@@ -6,21 +6,22 @@ Production-safety guarantees:
 3. Timestamp integrity validator — temporal alignment between decision/outcome/ablation
 4. Replay engine — validate correctness on historical snapshots (benchmark-grade)
 """
+
 import functools
 import json
 import logging
 import queue
 import sys
 import threading
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -34,12 +35,14 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 
 # ====================================================================
 # 1. CRASH-PROOF HOOK WRAPPER
 # ====================================================================
+
 
 def safe_hook(hook_name: str):
     """Decorator: shadow exceptions NEVER propagate to production.
@@ -48,24 +51,25 @@ def safe_hook(hook_name: str):
     If the hook crashes (any exception), it logs and returns None.
     Production pipeline is NEVER affected.
     """
+
     def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                logger.error(
-                    "[SHADOW_CAO] HOOK CRASH [%s]: %s",
-                    hook_name, e, exc_info=True
-                )
+                logger.error("[SHADOW_CAO] HOOK CRASH [%s]: %s", hook_name, e, exc_info=True)
                 return None
+
         return wrapper
+
     return decorator
 
 
 # ====================================================================
 # 2. ASYNC EVENT BUS
 # ====================================================================
+
 
 class ShadowEventBus:
     """Async event bus for Shadow CAO hooks.
@@ -84,7 +88,7 @@ class ShadowEventBus:
     def __init__(self, max_workers: int = 1, queue_timeout: float = 0.01):
         self._queue: queue.Queue = queue.Queue()
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._handlers: dict[str, list[Callable]] = {}
         self._max_workers = max_workers
         self._queue_timeout = queue_timeout
@@ -97,7 +101,7 @@ class ShadowEventBus:
             self._handlers[event_type] = []
         self._handlers[event_type].append(handler)
 
-    def post(self, event_type: str, data: dict = None):
+    def post(self, event_type: str, data: dict | None = None):
         """Post an event to the async queue. NEVER blocks.
 
         Safe to call from production pipeline — returns immediately
@@ -150,7 +154,10 @@ class ShadowEventBus:
                     self._error_count += 1
                     logger.error(
                         "[SHADOW_EVENT_BUS] Handler %s failed for %s: %s",
-                        handler.__name__, event_type, e, exc_info=True,
+                        handler.__name__,
+                        event_type,
+                        e,
+                        exc_info=True,
                     )
 
 
@@ -174,6 +181,7 @@ def start_event_bus():
 # ====================================================================
 # 3. TIMESTAMP INTEGRITY VALIDATOR
 # ====================================================================
+
 
 class TimestampValidator:
     """Validates temporal alignment between decision, outcome, and ablation.
@@ -207,7 +215,8 @@ class TimestampValidator:
             return False
         if ot < dt:
             self._log_violation(
-                decision_id, "outcome_before_decision",
+                decision_id,
+                "outcome_before_decision",
                 f"outcome({ot}) < decision({dt})",
             )
             return False
@@ -215,7 +224,8 @@ class TimestampValidator:
         actual_gap = ot - dt
         if actual_gap < min_horizon:
             self._log_violation(
-                decision_id, "horizon_too_short",
+                decision_id,
+                "horizon_too_short",
                 f"gap={actual_gap.days}d < horizon={horizon_days}d",
             )
             return False
@@ -234,12 +244,13 @@ class TimestampValidator:
         try:
             dt = self._parse(decision_timestamp)
             at = self._parse(ablation_timestamp)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return False
         drift = abs((at - dt).total_seconds() / 3600)
         if drift > self.max_drift_hours:
             self._log_violation(
-                decision_id, "ablation_drift",
+                decision_id,
+                "ablation_drift",
                 f"ablation lags decision by {drift:.1f}h (max={self.max_drift_hours}h)",
             )
             return False
@@ -275,6 +286,7 @@ class TimestampValidator:
 # ====================================================================
 # 4. REPLAY ENGINE
 # ====================================================================
+
 
 class ReplayEngine:
     """Deterministic replay of historical snapshots through Shadow CAO.
@@ -328,6 +340,7 @@ class ReplayEngine:
                     engine_scores = raw_scores
             if engine_scores:
                 from src.shadow_cao.models import ShadowDecisionLog
+
                 weights_raw = snapshot.get("decision_weights")
                 decision_weights = {}
                 if weights_raw:
@@ -359,44 +372,61 @@ class ReplayEngine:
             elif isinstance(raw_scores, dict):
                 engine_scores = raw_scores
         from src.telemetry.storage import get_outcomes
+
         outcomes = get_outcomes(decision_id)
         if outcomes and engine_scores:
             from src.shadow_cao.models import AblationResult
-            ablation_objs = [
-                AblationResult(
-                    engine_removed=a["engine_removed"],
-                    baseline_action=a["baseline_action"],
-                    baseline_confidence=a["baseline_confidence"],
-                    ablated_action=a["ablated_action"],
-                    ablated_confidence=a["ablated_confidence"],
-                    action_changed=bool(a["action_changed"]),
-                    confidence_delta=a["confidence_delta"],
-                    decision_flip=bool(a["decision_flip"]),
-                ) for a in ablations
-            ] if ablations else None
+
+            ablation_objs = (
+                [
+                    AblationResult(
+                        engine_removed=a["engine_removed"],
+                        baseline_action=a["baseline_action"],
+                        baseline_confidence=a["baseline_confidence"],
+                        ablated_action=a["ablated_action"],
+                        ablated_confidence=a["ablated_confidence"],
+                        action_changed=bool(a["action_changed"]),
+                        confidence_delta=a["confidence_delta"],
+                        decision_flip=bool(a["decision_flip"]),
+                    )
+                    for a in ablations
+                ]
+                if ablations
+                else None
+            )
             for outcome in outcomes:
                 horizon = outcome["horizon_days"]
                 market_return = outcome["vnindex_return"]
                 success = bool(outcome["success"])
                 self._validator.validate_decision_outcome(
-                    decision_id, timestamp,
+                    decision_id,
+                    timestamp,
                     outcome.get("evaluated_date", timestamp),
                     horizon,
                 )
                 save_outcome_log(decision_id, horizon, market_return, success)
                 run_dry_run_attribution(
-                    decision_id, horizon, engine_scores, market_return,
+                    decision_id,
+                    horizon,
+                    engine_scores,
+                    market_return,
                     ablation_objs,
                 )
         replay_id = f"replay_{decision_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         from src.shadow_cao.storage import save_belief_value
-        save_belief_value(replay_id, json.dumps({
-            "decision_id": decision_id,
-            "type": replay_type,
-            "timestamp": datetime.now().isoformat(),
-            "outcomes_found": len(outcomes) if outcomes else 0,
-            "violations": self._validator.violations,
-        }))
+
+        save_belief_value(
+            replay_id,
+            json.dumps(
+                {
+                    "decision_id": decision_id,
+                    "type": replay_type,
+                    "timestamp": datetime.now().isoformat(),
+                    "outcomes_found": len(outcomes) if outcomes else 0,
+                    "violations": self._validator.violations,
+                }
+            ),
+        )
         return {
             "decision_id": decision_id,
             "status": "ok",
@@ -418,6 +448,7 @@ class ReplayEngine:
     def batch_replay_from_telemetry(self, limit: int = 200) -> list[dict]:
         """Replay historical snapshots directly from telemetry storage."""
         from src.telemetry.storage import get_all_snapshots
+
         snapshots = get_all_snapshots(limit=limit)
         return self.batch_replay(snapshots)
 
@@ -425,6 +456,7 @@ class ReplayEngine:
 # ====================================================================
 # 5. HOOK WRAPPER (HIGH-LEVEL)
 # ====================================================================
+
 
 class SafeHookWrapper:
     """Production-safe hook wrapper with backpressure control.
@@ -453,13 +485,16 @@ class SafeHookWrapper:
         engine_scores: dict,
     ):
         """Post an outcome-evaluated event asynchronously."""
-        self.bus.post("outcome_evaluated", {
-            "decision_id": decision_id,
-            "horizon_days": horizon_days,
-            "realized_return": realized_return,
-            "success": success,
-            "engine_scores": engine_scores,
-        })
+        self.bus.post(
+            "outcome_evaluated",
+            {
+                "decision_id": decision_id,
+                "horizon_days": horizon_days,
+                "realized_return": realized_return,
+                "success": success,
+                "engine_scores": engine_scores,
+            },
+        )
 
     def validate_timestamp(
         self,
@@ -470,5 +505,8 @@ class SafeHookWrapper:
     ) -> bool:
         """Validate temporal alignment (can be called synchronously)."""
         return self._validator.validate_decision_outcome(
-            decision_id, decision_ts, outcome_ts, horizon,
+            decision_id,
+            decision_ts,
+            outcome_ts,
+            horizon,
         )

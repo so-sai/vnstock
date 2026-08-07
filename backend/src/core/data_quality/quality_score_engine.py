@@ -1,4 +1,4 @@
-﻿"""DataIntegrityScore (DIS) — quantifies data reliability as a [0, 1] scalar.
+"""DataIntegrityScore (DIS) — quantifies data reliability as a [0, 1] scalar.
 
 Primary metric:
     DIS = weakest-link of per-source scores (10th percentile)
@@ -14,12 +14,12 @@ Design:
     - Score 1.0 = pristine pipeline, 0.0 = total degradation
     - Uses registry's sliding window + rolling history buffer
 """
+
 from __future__ import annotations
 
 import logging
 from collections import deque
 from datetime import datetime
-from typing import Optional
 
 from src.core.data_quality.models import (
     DataIntegrityReport,
@@ -56,14 +56,14 @@ class QualityScoreEngine:
     rolling history of recent DIS values for DIVI computation.
     """
 
-    def __init__(self, registry: Optional[EventRegistry] = None):
+    def __init__(self, registry: EventRegistry | None = None):
         self._registry = registry or get_registry()
         self._dis_history: deque[float] = deque(maxlen=_DIVI_WINDOW)
 
     def compute_report(
         self,
-        source: Optional[str] = None,
-        now: Optional[datetime] = None,
+        source: str | None = None,
+        now: datetime | None = None,
     ) -> DataIntegrityReport:
         """Full integrity report — weakest-link DIS + DIVI."""
         now = now or datetime.now()
@@ -99,8 +99,7 @@ class QualityScoreEngine:
                 max_severity = event.severity
 
         source_scores = {
-            src: max(0.0, 1.0 - min(burden, _MAX_SOURCE_BURDEN) / _MAX_SOURCE_BURDEN)
-            for src, burden in source_burden.items()
+            src: max(0.0, 1.0 - min(burden, _MAX_SOURCE_BURDEN) / _MAX_SOURCE_BURDEN) for src, burden in source_burden.items()
         }
 
         integrity = self._weakest_link(source_scores)
@@ -205,7 +204,7 @@ def _severity_rank(s: EventSeverity) -> int:
     return rank.get(s, 0)
 
 
-_engine: Optional[QualityScoreEngine] = None
+_engine: QualityScoreEngine | None = None
 
 
 def get_quality_engine() -> QualityScoreEngine:

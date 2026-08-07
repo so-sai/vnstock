@@ -1,6 +1,9 @@
 from .models import (
-    DCLReport, DCLVerdictLevel, MarketIntentMode,
-    GateScore, CompensationApplied, GateReasonCode, CompCode,
+    CompensationApplied,
+    DCLReport,
+    DCLVerdictLevel,
+    GateScore,
+    MarketIntentMode,
 )
 
 # ── Gate definitions ────────────────────────────────────────────────────
@@ -34,7 +37,11 @@ GATE_DEFS: list[dict] = [
         "name": "structure",
         "weight": 6,
         "pass_if": lambda s: not (s.get("lcr_pct", 30) > 35 and s.get("bdi_signal", "CAN_BANG") != "CAN_BANG"),
-        "raw_score_fn": lambda s: 0.0 if (s.get("lcr_pct", 30) > 35 and s.get("bdi_signal", "CAN_BANG") != "CAN_BANG") else (0.5 if s.get("lcr_pct", 30) > 35 else 1.0),
+        "raw_score_fn": lambda s: (
+            0.0
+            if (s.get("lcr_pct", 30) > 35 and s.get("bdi_signal", "CAN_BANG") != "CAN_BANG")
+            else (0.5 if s.get("lcr_pct", 30) > 35 else 1.0)
+        ),
         "reason_pass": "GATE_STRUCTURE_PASS",
         "reason_fail": "GATE_STRUCTURE_FAIL",
     },
@@ -158,8 +165,7 @@ COMPENSATION_RULES: list[dict] = [
 ]
 
 
-def _resolve_market_intent(gates: dict[str, GateScore], score: float,
-                           compensations: list) -> MarketIntentMode:
+def _resolve_market_intent(gates: dict[str, GateScore], score: float, compensations: list) -> MarketIntentMode:
     sentinel_gate = gates.get("sentinel")
     flow_gate = gates.get("flow")
     ssi_gate = gates.get("ssi")
@@ -265,12 +271,14 @@ def compute_dcl(
             gate.compensation_applied = max(gate.compensation_applied, rule["override_weight"])
             gate.effective_score = min(1.0, gate.raw_score + gate.compensation_applied)
             gate.comp_code = rule["comp_code"]
-            compensations_applied.append(CompensationApplied(
-                target_gate=target,
-                compensated_by=compensated_by,
-                override_weight=rule["override_weight"],
-                comp_code=rule["comp_code"],
-            ))
+            compensations_applied.append(
+                CompensationApplied(
+                    target_gate=target,
+                    compensated_by=compensated_by,
+                    override_weight=rule["override_weight"],
+                    comp_code=rule["comp_code"],
+                )
+            )
 
     total_weight = sum(g.weight for g in gates.values())
     weighted_sum = sum(g.weight * g.effective_score for g in gates.values())

@@ -82,7 +82,7 @@ class RecoveryGovernor:
         # decision["S_minus"] = 0.0
     """
 
-    _instance: "RecoveryGovernor" | None = None
+    _instance: RecoveryGovernor | None = None
 
     def __init__(
         self,
@@ -118,7 +118,7 @@ class RecoveryGovernor:
         self._whitelist: list[dict] = []
 
     @classmethod
-    def get_instance(cls) -> "RecoveryGovernor":
+    def get_instance(cls) -> RecoveryGovernor:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance

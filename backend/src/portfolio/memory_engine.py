@@ -1,8 +1,9 @@
-﻿"""
+"""
 Portfolio State Memory Layer v1.0 — Runtime
 Closed-loop experience memory for adaptive capital control.
 Turns portfolio history into a control signal.
 """
+
 import logging
 import sqlite3
 import sys
@@ -11,7 +12,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -27,6 +28,7 @@ def _hydrate_path():
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -100,11 +102,13 @@ CREATE TABLE IF NOT EXISTS portfolio_state_memory (
 );
 """
 
+
 def _raw_conn():
     conn = sqlite3.connect(PORTFOLIO_DB_PATH, timeout=10)
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
+
 
 def initialize_memory_tables():
     conn = _raw_conn()
@@ -119,6 +123,7 @@ def initialize_memory_tables():
         raise
     finally:
         conn.close()
+
 
 def migrate_memory_tables():
     conn = _raw_conn()
@@ -136,6 +141,7 @@ def migrate_memory_tables():
     finally:
         conn.close()
 
+
 def get_connection():
     global _initialized
     if not _initialized:
@@ -144,27 +150,49 @@ def get_connection():
         migrate_memory_tables()
     return _raw_conn()
 
-def record_trade_memory(symbol: str, model_source: str, regime: str,
-                        entry_time: str, exit_time: str,
-                        entry_score: float, exit_score: float = None,
-                        pnl_pct: float = None, r_multiple: float = None,
-                        holding_period_days: int = None,
-                        max_favorable_excursion: float = None,
-                        max_adverse_excursion: float = None,
-                        exit_reason: str = None) -> dict:
+
+def record_trade_memory(
+    symbol: str,
+    model_source: str,
+    regime: str,
+    entry_time: str,
+    exit_time: str,
+    entry_score: float,
+    exit_score: float | None = None,
+    pnl_pct: float | None = None,
+    r_multiple: float | None = None,
+    holding_period_days: int | None = None,
+    max_favorable_excursion: float | None = None,
+    max_adverse_excursion: float | None = None,
+    exit_reason: str | None = None,
+) -> dict:
     conn = get_connection()
     try:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO portfolio_state_memory
                 (symbol, model_source, regime, entry_time, exit_time,
                  entry_score, exit_score, pnl_pct, r_multiple,
                  holding_period_days, max_favorable_excursion,
                  max_adverse_excursion, exit_reason)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (symbol, model_source, regime, entry_time, exit_time,
-              entry_score, exit_score, pnl_pct, r_multiple,
-              holding_period_days, max_favorable_excursion,
-              max_adverse_excursion, exit_reason))
+        """,
+            (
+                symbol,
+                model_source,
+                regime,
+                entry_time,
+                exit_time,
+                entry_score,
+                exit_score,
+                pnl_pct,
+                r_multiple,
+                holding_period_days,
+                max_favorable_excursion,
+                max_adverse_excursion,
+                exit_reason,
+            ),
+        )
         conn.commit()
         return {"ok": True, "symbol": symbol}
     except Exception as e:
@@ -173,17 +201,21 @@ def record_trade_memory(symbol: str, model_source: str, regime: str,
     finally:
         conn.close()
 
+
 def update_model_regime_stats(model: str, regime: str) -> dict:
     conn = get_connection()
     try:
-        row = conn.execute("""
+        row = conn.execute(
+            """
             SELECT COUNT(*),
                    SUM(CASE WHEN COALESCE(pnl_pct,0) > 0 THEN 1 ELSE 0 END),
                    SUM(CASE WHEN COALESCE(pnl_pct,0) <= 0 THEN 1 ELSE 0 END),
                    COALESCE(SUM(r_multiple), 0)
             FROM portfolio_state_memory
             WHERE model_source = ? AND regime = ?
-        """, (model, regime)).fetchone()
+        """,
+            (model, regime),
+        ).fetchone()
 
         trades, wins, losses, total_r = row
         if trades is None or trades == 0:
@@ -193,8 +225,10 @@ def update_model_regime_stats(model: str, regime: str) -> dict:
         avg_r = round(total_r / trades, 4) if trades > 0 else 0.0
         expectancy = round((win_rate * avg_r) - ((1 - win_rate) * 1.0), 4)
 
-        conn.execute("""
-            INSERT INTO model_regime_performance (model, regime, trades, wins, losses, total_r, avg_r, win_rate, expectancy, last_updated)
+        conn.execute(
+            """
+            INSERT INTO model_regime_performance
+            (model, regime, trades, wins, losses, total_r, avg_r, win_rate, expectancy, last_updated)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(model, regime) DO UPDATE SET
                 trades = excluded.trades,
@@ -205,7 +239,9 @@ def update_model_regime_stats(model: str, regime: str) -> dict:
                 win_rate = excluded.win_rate,
                 expectancy = excluded.expectancy,
                 last_updated = CURRENT_TIMESTAMP
-        """, (model, regime, trades, wins, losses, total_r, avg_r, win_rate, expectancy))
+        """,
+            (model, regime, trades, wins, losses, total_r, avg_r, win_rate, expectancy),
+        )
         conn.commit()
 
         return {
@@ -223,16 +259,20 @@ def update_model_regime_stats(model: str, regime: str) -> dict:
     finally:
         conn.close()
 
-def log_conviction_decay(model: str, regime: str, streak_losses: int,
-                         streak_wins: int, decay_factor: float,
-                         boost_factor: float, reason: str):
+
+def log_conviction_decay(
+    model: str, regime: str, streak_losses: int, streak_wins: int, decay_factor: float, boost_factor: float, reason: str
+):
     conn = get_connection()
     try:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO conviction_decay_log
                 (model, regime, streak_losses, streak_wins, decay_factor, boost_factor, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (model, regime, streak_losses, streak_wins, decay_factor, boost_factor, reason))
+        """,
+            (model, regime, streak_losses, streak_wins, decay_factor, boost_factor, reason),
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -240,31 +280,44 @@ def log_conviction_decay(model: str, regime: str, streak_losses: int,
     finally:
         conn.close()
 
-def snapshot_risk_path(total_exposure: float, portfolio_heat: float,
-                       throttle_factor: float, dampener_avg: float,
-                       drawdown_pct: float, rolling_vol: float):
+
+def snapshot_risk_path(
+    total_exposure: float,
+    portfolio_heat: float,
+    throttle_factor: float,
+    dampener_avg: float,
+    drawdown_pct: float,
+    rolling_vol: float,
+):
     conn = get_connection()
     try:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO portfolio_risk_path
                 (total_exposure, portfolio_heat, throttle_factor, dampener_avg, drawdown_pct, rolling_vol)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (total_exposure, portfolio_heat, throttle_factor, dampener_avg, drawdown_pct, rolling_vol))
+        """,
+            (total_exposure, portfolio_heat, throttle_factor, dampener_avg, drawdown_pct, rolling_vol),
+        )
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+
 
 def get_model_regime_performance(model: str, regime: str) -> dict:
     conn = get_connection()
     try:
-        row = conn.execute("""
+        row = conn.execute(
+            """
             SELECT trades, wins, losses, win_rate, avg_r, expectancy
             FROM model_regime_performance
             WHERE model = ? AND regime = ?
-        """, (model, regime)).fetchone()
+        """,
+            (model, regime),
+        ).fetchone()
         if not row:
             return {"trades": 0, "wins": 0, "losses": 0, "win_rate": 0.0, "avg_r": 0.0, "expectancy": 0.0}
         return {
@@ -278,14 +331,18 @@ def get_model_regime_performance(model: str, regime: str) -> dict:
     finally:
         conn.close()
 
+
 def get_recent_model_streak(model: str, limit: int = 5) -> dict:
     conn = get_connection()
     try:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT pnl_pct FROM portfolio_state_memory
             WHERE model_source = ?
             ORDER BY created_at DESC LIMIT ?
-        """, (model, limit)).fetchall()
+        """,
+            (model, limit),
+        ).fetchall()
         if len(rows) < 3:
             return {"streak_losses": 0, "streak_wins": 0, "win_rate_10d": None}
         losses = sum(1 for r in rows if r[0] is not None and r[0] < 0)
@@ -305,6 +362,7 @@ def get_recent_model_streak(model: str, limit: int = 5) -> dict:
         }
     finally:
         conn.close()
+
 
 def compute_regime_decay_factor(model: str, regime: str) -> float:
     perf = get_model_regime_performance(model, regime)
@@ -328,6 +386,7 @@ def compute_regime_decay_factor(model: str, regime: str) -> float:
 
     return round(min(max(factor, 0.2), 2.0), 2)
 
+
 def get_effective_dampener(thesis_source: str, current_regime: str) -> dict:
     streak = get_recent_model_streak(thesis_source)
     regime_bias = compute_regime_decay_factor(thesis_source, current_regime)
@@ -346,9 +405,9 @@ def get_effective_dampener(thesis_source: str, current_regime: str) -> dict:
     net = round(decay * boost * regime_bias, 4)
 
     if decay < 1.0 or boost > 1.0 or regime_bias != 1.0:
-        log_conviction_decay(thesis_source, current_regime,
-                             streak["streak_losses"], streak["streak_wins"],
-                             decay, boost, reason)
+        log_conviction_decay(
+            thesis_source, current_regime, streak["streak_losses"], streak["streak_wins"], decay, boost, reason
+        )
 
     return {
         "net_dampener": net,
@@ -360,17 +419,21 @@ def get_effective_dampener(thesis_source: str, current_regime: str) -> dict:
         "win_rate_10d": streak["win_rate_10d"],
     }
 
+
 def get_risk_path_window(days: int = 30) -> list:
     conn = get_connection()
     try:
         since = (datetime.now() - timedelta(days=days)).isoformat()
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT timestamp, total_exposure, portfolio_heat, throttle_factor,
                    dampener_avg, drawdown_pct, rolling_vol
             FROM portfolio_risk_path
             WHERE timestamp >= ?
             ORDER BY timestamp ASC
-        """, (since,)).fetchall()
+        """,
+            (since,),
+        ).fetchall()
         return [
             {
                 "timestamp": r[0],
@@ -385,6 +448,7 @@ def get_risk_path_window(days: int = 30) -> list:
         ]
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     initialize_memory_tables()

@@ -16,7 +16,6 @@ import logging
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -123,7 +122,7 @@ def _is_weekend(d: date) -> bool:
 class USSessionCalendar:
     """NYSE trading days: Mon-Fri excluding holidays, shifted for observance."""
 
-    def __init__(self, start_year: int = 2015, end_year: Optional[int] = None):
+    def __init__(self, start_year: int = 2015, end_year: int | None = None):
         self.end_year = end_year or date.today().year + 1
         self._holidays = _generate_nyse_holidays(start_year, self.end_year)
 
@@ -143,7 +142,7 @@ class USSessionCalendar:
 class VNSessionCalendar:
     """HOSE trading days: Mon-Fri excluding VN holidays + weekends."""
 
-    def __init__(self, start_year: int = 2015, end_year: Optional[int] = None):
+    def __init__(self, start_year: int = 2015, end_year: int | None = None):
         self.end_year = end_year or date.today().year + 1
         self._holidays = _load_vn_holidays()
 
@@ -202,7 +201,7 @@ class TimeSeriesAligner:
         self.us_cal = USSessionCalendar()
         self.vn_cal = VNSessionCalendar()
 
-    def align(self, us_data: pd.DataFrame, vn_data: pd.DataFrame, futures_data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    def align(self, us_data: pd.DataFrame, vn_data: pd.DataFrame, futures_data: pd.DataFrame | None = None) -> pd.DataFrame:
         """
         Align US(t-1) close → VN(t) close with optional futures fallback.
 
@@ -349,7 +348,7 @@ class TimeSeriesAligner:
             ]
         return clean.tail(window).reset_index(drop=True)
 
-    def _next_vn_trading_day(self, d) -> Optional[date]:
+    def _next_vn_trading_day(self, d) -> date | None:
         """Find next VN trading day after US close (t-1 close → t open)."""
         if isinstance(d, str):
             d = date.fromisoformat(d)
@@ -557,7 +556,7 @@ def _fetch_vnindex(db_path: str, n_days: int = 365) -> pd.DataFrame:
 
 
 def compute_asia_rotation(
-    db_path: Optional[str] = None,
+    db_path: str | None = None,
     window: int = 90,
 ) -> dict:
     """Compute cross-asset eigenvector rotation: VN-only vs VN+KOSPI+TAIEX+SHENZHEN+DXY.

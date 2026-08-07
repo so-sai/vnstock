@@ -1,4 +1,4 @@
-﻿"""
+"""
 capitulation_detector.py — Phase 4 CAS-DSM Capitulation Detector
 
 Two-Step State Machine:
@@ -12,15 +12,14 @@ Sub-modules:
 
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -77,6 +76,7 @@ def _clamp(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
 # 1. CAPITULATION DETECTOR — P_cap + S_struct
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class PcapResult:
     value: float
@@ -100,6 +100,7 @@ class CapitulationDetector:
         """Tra cứu params từ registry, fallback về DEFAULT_PARAMS."""
         try:
             from src.portfolio.params_registry import lookup_params
+
             entry = lookup_params(regime)
             if entry["params_hash"] != "conservative_default":
                 return entry.get("capitulation_params", self.D)
@@ -117,13 +118,13 @@ class CapitulationDetector:
         delta_sa_prev: float,
         volume_zscore: float = 0.0,
         regime: str = "RANGING",
-        params: Optional[dict] = None,
+        params: dict | None = None,
     ) -> PcapResult:
         """P_cap = σ(w1·ΔBDI_accel + w2·dE/dt + w3·Δ_SA_rate + v(t)·Vol_Zscore)"""
         p = params or self._load_params(regime)
 
         # Đạo hàm bậc 1
-        bdi_deriv = bdi - bdi_prev
+        bdi - bdi_prev
         entropy_deriv = entropy - entropy_prev
         delta_sa_deriv = delta_sa - delta_sa_prev
 
@@ -167,7 +168,7 @@ class CapitulationDetector:
         entropy: float = 0.0,
         max_entropy: float = 3.5,
         regime: str = "RANGING",
-        params: Optional[dict] = None,
+        params: dict | None = None,
     ) -> SstructResult:
         """S_struct = σ(w_s1·Trụ/3 + w_s2·AC_latency + w_s3·(1-Entropy_norm))"""
         p = params or self._load_params(regime)
@@ -176,11 +177,7 @@ class CapitulationDetector:
         ac_norm = _clamp(ac_latency / 2.0, 0, 1)
         entropy_norm = _clamp(entropy / max_entropy, 0, 1)
 
-        raw = (
-            p["w_s1"] * pillar_ratio
-            + p["w_s2"] * ac_norm
-            + p["w_s3"] * (1.0 - entropy_norm)
-        )
+        raw = p["w_s1"] * pillar_ratio + p["w_s2"] * ac_norm + p["w_s3"] * (1.0 - entropy_norm)
         value = round(_sigma(raw, 3.0), 4)
 
         return SstructResult(
@@ -203,11 +200,12 @@ class CapitulationDetector:
 # 2. MULTI-TRANCHE SIGMOID SCALE-IN
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class Tranche:
     index: int
-    pct: float          # % của MaxPos_campaign
-    cumulative: float   # cumulative %
+    pct: float  # % của MaxPos_campaign
+    cumulative: float  # cumulative %
     state: str = "PENDING"  # PENDING | FILLED | SKIPPED | REVERTED
 
 
@@ -222,15 +220,14 @@ class ScaleInCampaign:
     alpha: float = 0.5
     gamma: float = 0.0
     n_tranches: int = 6
-    start_time: Optional[datetime] = None
+    start_time: datetime | None = None
     active: bool = True
 
 
 class MultiTrancheScaler:
     """Multi-Tranche Sigmoid Scale-In with Atomic Lock + Asymmetric Skew."""
 
-    def __init__(self, max_pos: float, s_struct_t0: float, n: int = 6,
-                 alpha: float = 0.5, gamma: float = 0.0):
+    def __init__(self, max_pos: float, s_struct_t0: float, n: int = 6, alpha: float = 0.5, gamma: float = 0.0):
         if n < 2:
             n = 2
         self.n = n
@@ -248,11 +245,13 @@ class MultiTrancheScaler:
         cum = 0.0
         for i in range(n):
             cum += sizes[i]
-            self.campaign.tranches.append(Tranche(
-                index=i + 1,
-                pct=round(sizes[i], 4),
-                cumulative=round(cum, 4),
-            ))
+            self.campaign.tranches.append(
+                Tranche(
+                    index=i + 1,
+                    pct=round(sizes[i], 4),
+                    cumulative=round(cum, 4),
+                )
+            )
 
     def _compute_sizes(self) -> list[float]:
         """Pos_k = [σ(k) - σ(k-1)] / Z, normalized to sum=1."""
@@ -271,7 +270,7 @@ class MultiTrancheScaler:
             return [1.0 / n] * n
         return [r / total for r in raw]
 
-    def get_tranche(self, k: int) -> Optional[Tranche]:
+    def get_tranche(self, k: int) -> Tranche | None:
         for t in self.campaign.tranches:
             if t.index == k:
                 return t
@@ -281,8 +280,9 @@ class MultiTrancheScaler:
         """Tính index velocity (v_idx) cho gamma adaptation."""
         if len(vnindex_prices) < 2:
             return 0.0
-        returns = [abs(vnindex_prices[i] - vnindex_prices[i - 1]) / vnindex_prices[i - 1]
-                   for i in range(1, len(vnindex_prices))]
+        returns = [
+            abs(vnindex_prices[i] - vnindex_prices[i - 1]) / vnindex_prices[i - 1] for i in range(1, len(vnindex_prices))
+        ]
         return round(np.mean(returns), 4) if returns else 0.0
 
     def adapt_gamma(self, v_idx: float, v_shape_threshold: float = 0.15) -> float:
@@ -297,6 +297,7 @@ class MultiTrancheScaler:
 # ═══════════════════════════════════════════════════════════════
 # 3. ABORTION PROTOCOL — Freeze → Cooldown → Graduated Exit
 # ═══════════════════════════════════════════════════════════════
+
 
 class AbortionState:
     ACTIVE = "ACTIVE"
@@ -333,7 +334,7 @@ class AbortionProtocol:
     Step 3 — GRADUATED EXIT: TWAP bán trong graduation_days
     """
 
-    def __init__(self, params: Optional[dict] = None):
+    def __init__(self, params: dict | None = None):
         p = params or dict(DEFAULT_PARAMS)
         self.freeze_threshold = p["pcap_freeze_threshold"]
         self.double_signal_threshold = p.get("double_signal_threshold", 0.85)
@@ -412,6 +413,7 @@ class AbortionProtocol:
 
 # ── Campaign Factory ───────────────────────────────────────
 
+
 def campaign_factory(
     max_pos: float,
     s_struct_v2: float,
@@ -442,6 +444,7 @@ def campaign_factory(
 
 
 # ── Max Drawdown Limit Calculator — Linear Accumulation ────
+
 
 def compute_max_drawdown_limit(
     total_capital: float,
@@ -494,6 +497,7 @@ def compute_max_drawdown_limit(
 # 4. INTEGRATION helper
 # ═══════════════════════════════════════════════════════════════
 
+
 def compute_capitulation_status(snapshot: dict) -> dict:
     """Tính toàn bộ trạng thái capitulation từ market snapshot.
 
@@ -517,9 +521,12 @@ def compute_capitulation_status(snapshot: dict) -> dict:
     delta_sa = ddi.get("delta_sa", 0.0)
 
     p_cap = det.compute_p_cap(
-        bdi=bdi, bdi_prev=bdi - 0.05,
-        entropy=entropy, entropy_prev=entropy - 0.1,
-        delta_sa=delta_sa, delta_sa_prev=delta_sa - 0.02,
+        bdi=bdi,
+        bdi_prev=bdi - 0.05,
+        entropy=entropy,
+        entropy_prev=entropy - 0.1,
+        delta_sa=delta_sa,
+        delta_sa_prev=delta_sa - 0.02,
         volume_zscore=0.0,
         regime=regime,
     )
@@ -559,6 +566,6 @@ def in_bao_cao(snapshot: dict):
     print(f"    AC_latency:   {status['s_struct_components']['ac_latency_norm']:.4f}")
     print(f"    Entropy_norm: {status['s_struct_components']['entropy_norm']:.4f}")
     print(f"  P_cap_final:    {status['p_cap_final']:.4f}  (>0.70 → CANH_MUA)")
-    badge = "🟢 CANH_MUA" if status['canh_mua'] else "🔴 QUAN_SAT"
-    print(f"  Trạng thái:     {badge}" if status['canh_mua'] else f"  Trạng thái:     {badge}")
+    badge = "🟢 CANH_MUA" if status["canh_mua"] else "🔴 QUAN_SAT"
+    print(f"  Trạng thái:     {badge}" if status["canh_mua"] else f"  Trạng thái:     {badge}")
     print("=" * 55)

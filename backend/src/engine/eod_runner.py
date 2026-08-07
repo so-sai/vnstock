@@ -1,4 +1,4 @@
-﻿"""eod_runner.py — Tiến trình EOD 16:00 tự phục hồi + lũy đẳng + chống race.
+"""eod_runner.py — Tiến trình EOD 16:00 tự phục hồi + lũy đẳng + chống race.
 
 Ba cơ chế bắt buộc cho Forward Testing integrity:
 
@@ -16,16 +16,16 @@ Ba cơ chế bắt buộc cho Forward Testing integrity:
      thứ hai văng ResourceLockedException. KHÔNG dùng bảng khóa ứng dụng,
      không có Stale Lock (SQLite tự rollback khi crash).
 """
+
 import logging
 import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -41,14 +41,13 @@ def _hydrate_path():
 
 
 PROJECT_ROOT = _hydrate_path()
-import src.config  # noqa: E402
-from src.database.db_core import get_connection, safe_json_dumps  # noqa: E402
+from src.database.db_core import get_connection, safe_json_dumps
 
 logger = logging.getLogger("PTCK_SYSTEM")
 
 # --- Cấu hình Retry -----------------------------------------------------------
 MAX_RETRIES = 3
-RETRY_SLEEP_SECONDS = 15 * 60      # 15 phút
+RETRY_SLEEP_SECONDS = 15 * 60  # 15 phút
 DEFAULT_PORTFOLIO_ID = "SEL_PAPER_V1"
 
 # --- Cấu hình Catch-up (Giao dịch bù) ----------------------------------------
@@ -65,16 +64,14 @@ CATCHUP_MAX_CALENDAR_GAP = 30
 
 
 # --- Ledger status codes ------------------------------------------------------
-STATUS_SUCCESS = "SUCCESS"                 # chạy đầy đủ (settle + lệnh + MtM)
-STATUS_FAILED = "FAILED"                   # thất bại sau retry (nợ, chờ bù)
-STATUS_PENDING_CATCHUP = "PENDING_CATCHUP" # đã đánh dấu là ngày nợ chờ bù
-STATUS_CATCHUP_FULL = "CATCHUP_FULL"       # bù đầy đủ (còn trong cửa sổ tín hiệu)
+STATUS_SUCCESS = "SUCCESS"  # chạy đầy đủ (settle + lệnh + MtM)
+STATUS_FAILED = "FAILED"  # thất bại sau retry (nợ, chờ bù)
+STATUS_PENDING_CATCHUP = "PENDING_CATCHUP"  # đã đánh dấu là ngày nợ chờ bù
+STATUS_CATCHUP_FULL = "CATCHUP_FULL"  # bù đầy đủ (còn trong cửa sổ tín hiệu)
 STATUS_CATCHUP_MTM_ONLY = "CATCHUP_MTM_ONLY"  # bù stale: chỉ MtM/settlement
 
 
-
-def _is_already_processed(as_of_date: str,
-                          portfolio_id: str = DEFAULT_PORTFOLIO_ID) -> bool:
+def _is_already_processed(as_of_date: str, portfolio_id: str = DEFAULT_PORTFOLIO_ID) -> bool:
     """Idempotency check: as_of_date đã được xử lý chưa?
 
     Kiểm tra CẢ paper_trades_log (có lệnh) LẪN paper_equity_curve (đã MtM).
@@ -83,17 +80,13 @@ def _is_already_processed(as_of_date: str,
     with get_connection() as conn:
         try:
             n_trades = conn.execute(
-                "SELECT COUNT(*) FROM paper_trades_log "
-                "WHERE portfolio_id=? AND decision_date=?",
-                (portfolio_id, as_of_date)
+                "SELECT COUNT(*) FROM paper_trades_log WHERE portfolio_id=? AND decision_date=?", (portfolio_id, as_of_date)
             ).fetchone()[0]
         except sqlite3.OperationalError:
             n_trades = 0
         try:
             n_equity = conn.execute(
-                "SELECT COUNT(*) FROM paper_equity_curve "
-                "WHERE portfolio_id=? AND date=?",
-                (portfolio_id, as_of_date)
+                "SELECT COUNT(*) FROM paper_equity_curve WHERE portfolio_id=? AND date=?", (portfolio_id, as_of_date)
             ).fetchone()[0]
         except sqlite3.OperationalError:
             n_equity = 0
@@ -134,14 +127,20 @@ def _ensure_ledger_schema():
         conn.commit()
 
 
-def _record_ledger(as_of_date: str, portfolio_id: str, status: str,
-                   attempts: int = 0, last_error: str | None = None,
-                   catchup_of: str | None = None):
+def _record_ledger(
+    as_of_date: str,
+    portfolio_id: str,
+    status: str,
+    attempts: int = 0,
+    last_error: str | None = None,
+    catchup_of: str | None = None,
+):
     """Ghi/cập nhật trạng thái một phiên EOD vào sổ cái (idempotent UPSERT)."""
     _ensure_ledger_schema()
     now = datetime.now().isoformat()
     with get_connection() as conn:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO eod_run_ledger
                 (as_of_date, portfolio_id, status, attempts, last_error,
                  catchup_of, created_at, updated_at)
@@ -152,8 +151,9 @@ def _record_ledger(as_of_date: str, portfolio_id: str, status: str,
                 last_error=excluded.last_error,
                 catchup_of=excluded.catchup_of,
                 updated_at=excluded.updated_at
-        """, (as_of_date, portfolio_id, status, attempts, last_error,
-              catchup_of, now, now))
+        """,
+            (as_of_date, portfolio_id, status, attempts, last_error, catchup_of, now, now),
+        )
         conn.commit()
 
 
@@ -166,9 +166,7 @@ def _ledger_succeeded(as_of_date: str, portfolio_id: str) -> bool:
     done = (STATUS_SUCCESS, STATUS_CATCHUP_FULL, STATUS_CATCHUP_MTM_ONLY)
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT status FROM eod_run_ledger "
-            "WHERE as_of_date=? AND portfolio_id=?",
-            (as_of_date, portfolio_id)
+            "SELECT status FROM eod_run_ledger WHERE as_of_date=? AND portfolio_id=?", (as_of_date, portfolio_id)
         ).fetchone()
     return bool(row) and row[0] in done
 
@@ -181,16 +179,12 @@ def _trading_sessions_up_to(as_of_date: str, limit: int) -> list:
     """
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT DISTINCT date FROM daily_ohlcv "
-            "WHERE date <= ? ORDER BY date DESC LIMIT ?",
-            (as_of_date, limit)
+            "SELECT DISTINCT date FROM daily_ohlcv WHERE date <= ? ORDER BY date DESC LIMIT ?", (as_of_date, limit)
         ).fetchall()
     return sorted(r[0] for r in rows)
 
 
-def detect_gap_days(as_of_date: str,
-                    portfolio_id: str = DEFAULT_PORTFOLIO_ID,
-                    scan_limit: int = CATCHUP_SCAN_LIMIT) -> list:
+def detect_gap_days(as_of_date: str, portfolio_id: str = DEFAULT_PORTFOLIO_ID, scan_limit: int = CATCHUP_SCAN_LIMIT) -> list:
     """GAP DETECTION: các phiên < as_of_date CHƯA được xử lý xong (ngày nợ).
 
     Quét 'scan_limit' phiên gần nhất TRƯỚC as_of_date, lọc ra những phiên
@@ -225,8 +219,7 @@ def detect_gap_days(as_of_date: str,
     return gaps
 
 
-def _catchup_gap_days(as_of_date: str, portfolio_id: str,
-                      offline: bool = True, conn=None) -> Dict:
+def _catchup_gap_days(as_of_date: str, portfolio_id: str, offline: bool = True, conn=None) -> dict:
     """SEQUENTIAL BACKFILL: bù tuần tự các ngày nợ TRƯỚC as_of_date.
 
     Cơ chế Stale-Signal Guard:
@@ -261,27 +254,23 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
                     # CATCH-UP EXECUTION RULE: tín hiệu tính tại d nhưng lệnh KHÔNG
                     # khớp giá lịch sử — nạp vào hàng đợi, sẽ ép khớp @ open ngày
                     # phục hồi (as_of_date) qua process_catchup_queue (chống lookback).
-                    PaperTradingEngine.run_daily(decision_date=d, offline=offline,
-                                                 mtm_only=False, catchup_enqueue=True,
-                                                 conn=conn)
-                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_FULL,
-                                   catchup_of=as_of_date)
+                    PaperTradingEngine.run_daily(
+                        decision_date=d, offline=offline, mtm_only=False, catchup_enqueue=True, conn=conn
+                    )
+                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_FULL, catchup_of=as_of_date)
                     report["caught_up"].append(d)
-                    logger.info(f"[CATCHUP] {d}: tín hiệu bù ĐÃ NẠP HÀNG ĐỢI "
-                                f"(sẽ ép khớp @ open {as_of_date}).")
+                    logger.info(f"[CATCHUP] {d}: tín hiệu bù ĐÃ NẠP HÀNG ĐỢI (sẽ ép khớp @ open {as_of_date}).")
                 else:
                     # STALE — chỉ MtM/settlement, không phát lệnh cũ
-                    PaperTradingEngine.run_daily(decision_date=d, offline=offline,
-                                                 mtm_only=True, conn=conn)
-                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_MTM_ONLY,
-                                   catchup_of=as_of_date)
+                    PaperTradingEngine.run_daily(decision_date=d, offline=offline, mtm_only=True, conn=conn)
+                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_MTM_ONLY, catchup_of=as_of_date)
                     report["mtm_only"].append(d)
                     logger.warning(
                         f"[CATCHUP] {d}: STALE — chỉ MtM/settle (tín hiệu hết hạn). "
-                        f"⚠️ Cần con người xem xét quyết định giao dịch ngày này.")
+                        f"⚠️ Cần con người xem xét quyết định giao dịch ngày này."
+                    )
             except Exception as e:
-                _record_ledger(d, portfolio_id, STATUS_FAILED, last_error=str(e),
-                               catchup_of=as_of_date)
+                _record_ledger(d, portfolio_id, STATUS_FAILED, last_error=str(e), catchup_of=as_of_date)
                 report["errors"].append({"date": d, "error": str(e)})
                 logger.exception(f"[CATCHUP] {d}: bù thất bại: {e}")
 
@@ -290,8 +279,7 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
     # của as_of_date → buying_power ngày as_of tự phản ánh vốn đã tiêu cho lệnh bù.
     try:
         eng = PaperTradingEngine(portfolio_id=portfolio_id, offline=offline)
-        report["queue_execution"] = eng.process_catchup_queue(as_of_date,
-                                                               conn=conn)
+        report["queue_execution"] = eng.process_catchup_queue(as_of_date, conn=conn)
     except Exception as e:
         logger.exception(f"[CATCHUP] process_catchup_queue lỗi: {e}")
         report["queue_execution"] = {"error": str(e)}
@@ -299,12 +287,14 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str,
     return report
 
 
-def run_eod_pipeline(as_of_date: str | None = None,
-                      portfolio_id: str = DEFAULT_PORTFOLIO_ID,
-                      max_retries: int = MAX_RETRIES,
-                      retry_sleep: int = RETRY_SLEEP_SECONDS,
-                      force: bool = False,
-                      catchup: bool = True) -> Dict:
+def run_eod_pipeline(
+    as_of_date: str | None = None,
+    portfolio_id: str = DEFAULT_PORTFOLIO_ID,
+    max_retries: int = MAX_RETRIES,
+    retry_sleep: int = RETRY_SLEEP_SECONDS,
+    force: bool = False,
+    catchup: bool = True,
+) -> dict:
     """Điểm vào EOD tự phục hồi + lũy đẳng + chống race + GIAO DỊCH BÙ.
 
     GIAO THỨC ACID (Bifurcated Storage):
@@ -322,20 +312,14 @@ def run_eod_pipeline(as_of_date: str | None = None,
       force: True → bỏ qua idempotency check (chạy lại có chủ đích).
       catchup: True (mặc định) → bù tuần tự các ngày nợ trước khi xử lý hôm nay.
     """
-    from src.database.acid import (global_transaction, get_correlation,
-                                   ResourceLockedException,
-                                   TransactionTimeout, DEFAULT_TXN_TIMEOUT,
-                                   exception_telemetry, vqa_telemetry,
-                                   sel_telemetry, macro_telemetry)
-    from src.engine.paper_trading_engine import PaperTradingEngine
     from src.daily_updater import run_post_update_engines
+    from src.database.acid import DEFAULT_TXN_TIMEOUT, ResourceLockedException, TransactionTimeout, global_transaction
+    from src.engine.paper_trading_engine import PaperTradingEngine
 
     if as_of_date is None:
         as_of_date = _resolve_eod_date()
 
-    result = {"as_of_date": as_of_date, "portfolio_id": portfolio_id,
-              "timestamp": datetime.now().isoformat()}
-    status = None
+    result = {"as_of_date": as_of_date, "portfolio_id": portfolio_id, "timestamp": datetime.now().isoformat()}
     last_error = None
     corr_id = None
 
@@ -351,27 +335,29 @@ def run_eod_pipeline(as_of_date: str | None = None,
                 # dưới sự chi phối của ROLLBACK. Bù tuần tự theo thời gian.
                 if catchup:
                     try:
-                        result["catchup"] = _catchup_gap_days(as_of_date, portfolio_id,
-                                                               conn=conn)
+                        result["catchup"] = _catchup_gap_days(as_of_date, portfolio_id, conn=conn)
                     except Exception as e:
                         logger.exception(f"[EOD] catch-up thất bại (non-blocking): {e}")
                         result["catchup"] = {"error": str(e)}
 
                 # --- 2. IDEMPOTENCY (chống nhân đôi) ---
                 if not force and _is_already_processed(as_of_date, portfolio_id):
-                    result.update({"status": "SKIPPED", "reason": "ALREADY_PROCESSED",
-                                   "note": f"{as_of_date} đã xử lý — không chạy lại."})
+                    result.update(
+                        {
+                            "status": "SKIPPED",
+                            "reason": "ALREADY_PROCESSED",
+                            "note": f"{as_of_date} đã xử lý — không chạy lại.",
+                        }
+                    )
                     logger.info(f"[EOD] {as_of_date}: already processed — skipped.")
                     return result
 
                 # --- 3. ENGINE PHI KẾ TOÁN (read-only / offline) + PAPER TRADING ---
-                logger.info(f"[EOD] {as_of_date}: chạy engines + paper trading "
-                            f"(corr={corr_id})")
+                logger.info(f"[EOD] {as_of_date}: chạy engines + paper trading (corr={corr_id})")
                 engine_results = run_post_update_engines()
-                paper = PaperTradingEngine.run_daily(decision_date=as_of_date,
-                                                     offline=True, conn=conn)
-                summary = paper.get('summary', {})
-                engine_results['paper_trading'] = {
+                paper = PaperTradingEngine.run_daily(decision_date=as_of_date, offline=True, conn=conn)
+                summary = paper.get("summary", {})
+                engine_results["paper_trading"] = {
                     "decision_date": paper.get("decision_date"),
                     "orders": len(paper.get("orders", [])),
                     "hdr": paper.get("hdr"),
@@ -387,22 +373,19 @@ def run_eod_pipeline(as_of_date: str | None = None,
             except Exception as e:
                 last_error = str(e)
                 logger.exception(f"[EOD] {as_of_date}: accounting lỗi → sẽ rollback: {e}")
-                result.update({"status": "FAILED", "reason": "ACCOUNTING_ERROR",
-                               "error": last_error})
+                result.update({"status": "FAILED", "reason": "ACCOUNTING_ERROR", "error": last_error})
                 raise  # để global_transaction thực hiện ROLLBACK
     except ResourceLockedException:
         # Concurrency Guard: tiến trình EOD khác đang chiếm khóa CSDL.
         # Global Transaction chưa từng mở → không cần rollback.
-        result.update({"status": "SKIPPED", "reason": "LOCK_HELD",
-                       "note": "Tiến trình EOD khác đang chạy — bỏ qua an toàn."})
+        result.update({"status": "SKIPPED", "reason": "LOCK_HELD", "note": "Tiến trình EOD khác đang chạy — bỏ qua an toàn."})
         logger.warning(f"[EOD] {as_of_date}: lock held — skipped (anti-race).")
         return result
     except TransactionTimeout:
         # Kill-switch: giao dịch vượt quá SLA.
         last_error = f"Transaction vượt quá {DEFAULT_TXN_TIMEOUT}s — kill-switch kích hoạt."
         logger.critical(f"[EOD] {as_of_date}: TRANSACTION TIMEOUT — {last_error}")
-        result.update({"status": "FAILED", "reason": "TRANSACTION_TIMEOUT",
-                       "error": last_error})
+        result.update({"status": "FAILED", "reason": "TRANSACTION_TIMEOUT", "error": last_error})
         # Ledger fallback sẽ ghi FAILED ở bên dưới
 
     # --- LEDGER FALLBACK: ghi trạng thái qua KẾT NỐI RIÊNG (sau rollback+unlock) ---
@@ -413,8 +396,7 @@ def run_eod_pipeline(as_of_date: str | None = None,
             _record_ledger(as_of_date, portfolio_id, STATUS_SUCCESS)
         # SKIPPED (ALREADY_PROCESSED) đã ghi ở trên hoặc không cần
     else:
-        _record_ledger(as_of_date, portfolio_id, STATUS_FAILED,
-                       attempts=1, last_error=last_error)
+        _record_ledger(as_of_date, portfolio_id, STATUS_FAILED, attempts=1, last_error=last_error)
         logger.error(f"[EOD] {as_of_date}: FAILED → ghi nợ ledger (corr={corr_id}).")
     if corr_id:
         result["correlation_id"] = corr_id
@@ -423,19 +405,15 @@ def run_eod_pipeline(as_of_date: str | None = None,
 
 if __name__ == "__main__":
     import argparse
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s")
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="PTCK EOD Runner (self-healing)")
     parser.add_argument("--date", default=None, help="as_of_date (YYYY-MM-DD)")
-    parser.add_argument("--force", action="store_true",
-                        help="Bỏ qua idempotency check")
-    parser.add_argument("--retry-sleep", type=int, default=RETRY_SLEEP_SECONDS,
-                        help="Giây ngủ giữa các lần retry")
-    parser.add_argument("--no-catchup", dest="catchup", action="store_false",
-                        help="Tắt cơ chế Giao dịch bù (Catch-up)")
+    parser.add_argument("--force", action="store_true", help="Bỏ qua idempotency check")
+    parser.add_argument("--retry-sleep", type=int, default=RETRY_SLEEP_SECONDS, help="Giây ngủ giữa các lần retry")
+    parser.add_argument("--no-catchup", dest="catchup", action="store_false", help="Tắt cơ chế Giao dịch bù (Catch-up)")
     parser.set_defaults(catchup=True)
     args = parser.parse_args()
-    out = run_eod_pipeline(as_of_date=args.date, force=args.force,
-                           retry_sleep=args.retry_sleep, catchup=args.catchup)
+    out = run_eod_pipeline(as_of_date=args.date, force=args.force, retry_sleep=args.retry_sleep, catchup=args.catchup)
     # safe_json_dumps: chống np.* trong engine_results làm ném TypeError
     print(safe_json_dumps(out, indent=2))

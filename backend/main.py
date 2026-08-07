@@ -1,6 +1,5 @@
-﻿import sys
-import os
-import io
+﻿import io
+import sys
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -23,11 +22,11 @@ def _hydrate_path():
     return root_path
 
 PROJECT_ROOT = _hydrate_path()
-import src.config
 from src.engine.breadth_engine import run_breadth_analysis
 from src.engine.heatmap_engine import run_sector_heatmap
 from src.engine.rs_ranker import calculate_rs_score
 from src.engine.screener_logic import run_screener
+
 
 def main():
     """
@@ -48,7 +47,7 @@ def main():
 
     # 1. Market Breadth (Nhịp đập thị trường)
     pulse = run_breadth_analysis()
-    
+
     # 2. Sector Heatmap (Dòng tiền ngành)
     heatmap = run_sector_heatmap()
 

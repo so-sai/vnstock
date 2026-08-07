@@ -17,7 +17,6 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -38,14 +37,15 @@ if str(BACKEND_DIR) not in sys.path:
 @dataclass
 class FingerprintResult:
     """Compiled Fingerprints for a symbol."""
+
     symbol: str
-    fcf_conversion: Optional[float] = None        # CFO / Net Income (> 1.0 = High Quality)
-    roic_persistence: Optional[float] = None      # Fraction of periods ROIC > WACC (~8%)
-    share_dilution_rate: Optional[float] = None   # Annualized ΔShares/Yr (negative = buyback)
-    reinvestment_efficiency: Optional[float] = None # ΔNOPAT / Capex
-    recurring_ratio: Optional[float] = None       # Estimated recurring revenue ratio
-    capex_intensity: Optional[float] = None       # Capex / Revenue
-    margin_stability: Optional[float] = None      # 1.0 - Gross Margin StdDev
+    fcf_conversion: float | None = None  # CFO / Net Income (> 1.0 = High Quality)
+    roic_persistence: float | None = None  # Fraction of periods ROIC > WACC (~8%)
+    share_dilution_rate: float | None = None  # Annualized ΔShares/Yr (negative = buyback)
+    reinvestment_efficiency: float | None = None  # ΔNOPAT / Capex
+    recurring_ratio: float | None = None  # Estimated recurring revenue ratio
+    capex_intensity: float | None = None  # Capex / Revenue
+    margin_stability: float | None = None  # 1.0 - Gross Margin StdDev
     archetype: str = "UNKNOWN"
     archetype_valid: bool = True
     falsification_reason: str = "VALID"
@@ -54,7 +54,7 @@ class FingerprintResult:
 class FingerprintCompiler:
     """Compiles raw financial facts into structured epistemic fingerprints."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or FINANCIAL_DB
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -65,12 +65,15 @@ class FingerprintCompiler:
         conn = self._get_conn()
         try:
             cur = conn.cursor()
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT metric, value, period
                 FROM financial_facts
                 WHERE symbol = ?
                 ORDER BY period ASC
-            """, (sym,))
+            """,
+                (sym,),
+            )
             rows = cur.fetchall()
         finally:
             conn.close()
@@ -79,7 +82,7 @@ class FingerprintCompiler:
             return FingerprintResult(symbol=sym, archetype_valid=False, falsification_reason="NO_DATA")
 
         # Organize by period
-        facts_by_period: Dict[str, Dict[str, float]] = {}
+        facts_by_period: dict[str, dict[str, float]] = {}
         for m, v, p in rows:
             if v is not None:
                 facts_by_period.setdefault(p, {})[m] = v
@@ -126,6 +129,7 @@ class FingerprintCompiler:
 
         # Archetype lookup
         from src.business.archetype import ArchetypeEngine
+
         arch_engine = ArchetypeEngine()
         archetype_obj = arch_engine.classify(sym)
         archetype_name = getattr(archetype_obj, "name", "UNKNOWN")
@@ -153,10 +157,10 @@ class FingerprintCompiler:
         self,
         symbol: str,
         archetype: str,
-        fcf_conversion: Optional[float],
-        share_dilution_rate: Optional[float],
-        recurring_ratio: Optional[float],
-    ) -> Tuple[bool, str]:
+        fcf_conversion: float | None,
+        share_dilution_rate: float | None,
+        recurring_ratio: float | None,
+    ) -> tuple[bool, str]:
         """LAW-007 Falsifiability Principle: Check if fingerprints invalidate the archetype hypothesis."""
         if fcf_conversion is not None and fcf_conversion < -0.2:
             return False, f"FALSIFIED_SEVERE_CFO_COLLAPSE (fcf_conversion={fcf_conversion:.2f})"

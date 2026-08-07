@@ -14,7 +14,7 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -48,7 +48,7 @@ class MarginStressResult:
     stale_days: int
     authority_modifier: float
     veto_triggered: bool
-    mandate_override: Optional[str]
+    mandate_override: str | None
     reason: str
 
 
@@ -72,26 +72,18 @@ class MarginStressNode:
         self.theta = theta
         self.half_life_hours = half_life_hours
 
-    def _calculate_decay(
-        self, last_updated_iso: str, now_iso: str
-    ) -> Tuple[float, int]:
+    def _calculate_decay(self, last_updated_iso: str, now_iso: str) -> tuple[float, int]:
         try:
             last_dt = datetime.datetime.fromisoformat(last_updated_iso)
             now_dt = datetime.datetime.fromisoformat(now_iso)
-            delta_hours = max(
-                0.0, (now_dt - last_dt).total_seconds() / 3600.0
-            )
+            delta_hours = max(0.0, (now_dt - last_dt).total_seconds() / 3600.0)
             stale_days = int(delta_hours / 24.0)
-            decay = math.exp(
-                -math.log(2) * delta_hours / self.half_life_hours
-            )
+            decay = math.exp(-math.log(2) * delta_hours / self.half_life_hours)
             return max(decay, 0.10), stale_days
         except Exception:
             return 0.10, 30
 
-    def compute_stress_index(
-        self, m_sys: float, b_stress: float, c_cross: float
-    ) -> float:
+    def compute_stress_index(self, m_sys: float, b_stress: float, c_cross: float) -> float:
         logit = (self.w1 * m_sys) + (self.w2 * b_stress) + (self.w3 * c_cross) - self.theta
         raw_index = 1.0 / (1.0 + np.exp(-logit))
         return float(np.clip(raw_index, 0.0, 1.0))
@@ -117,11 +109,7 @@ class MarginStressNode:
                 authority_modifier=0.0,
                 veto_triggered=True,
                 mandate_override="CAPITAL_PRESERVATION",
-                reason=(
-                    f"CRITICAL_MARGIN_CASCADE_RISK "
-                    f"(Effective: {effective_stress:.4f}, "
-                    f"Raw: {raw_stress:.4f})"
-                ),
+                reason=(f"CRITICAL_MARGIN_CASCADE_RISK (Effective: {effective_stress:.4f}, Raw: {raw_stress:.4f})"),
             )
         elif effective_stress >= 0.40:
             modifier = max(0.05, 1.0 - 1.25 * (effective_stress - 0.40))
@@ -133,11 +121,7 @@ class MarginStressNode:
                 authority_modifier=round(modifier, 4),
                 veto_triggered=False,
                 mandate_override=None,
-                reason=(
-                    f"ELEVATED_MARGIN_STRESS "
-                    f"(Effective: {effective_stress:.4f}, "
-                    f"Stale: {stale_days}d)"
-                ),
+                reason=(f"ELEVATED_MARGIN_STRESS (Effective: {effective_stress:.4f}, Stale: {stale_days}d)"),
             )
 
         return MarginStressResult(
@@ -151,9 +135,7 @@ class MarginStressNode:
             reason="NORMAL_MARGIN_OPERATIONS",
         )
 
-    def evaluate_governor_impact(
-        self, stress_index: float
-    ) -> MarginStressResult:
+    def evaluate_governor_impact(self, stress_index: float) -> MarginStressResult:
         if stress_index >= 0.80:
             return MarginStressResult(
                 stress_index=stress_index,
@@ -192,14 +174,14 @@ class MarginStressNode:
 class CausalDAGEngine:
     """Core Causal Engine - LAW-008, LAW-009, LAW-010."""
 
-    nodes: List[str] = [
+    nodes: list[str] = [
         "macro_regime",
         "margin_stress",
         "market_breadth",
         "intrinsic_valuation",
         "epistemic_authority",
     ]
-    edges: Dict[str, List[str]] = {
+    edges: dict[str, list[str]] = {
         "macro_regime": ["epistemic_authority", "intrinsic_valuation"],
         "margin_stress": ["epistemic_authority"],
         "market_breadth": ["epistemic_authority"],
@@ -208,11 +190,9 @@ class CausalDAGEngine:
     def __init__(self):
         self.margin_stress_node = MarginStressNode()
 
-    def cluster_dependent_nodes(
-        self, nodes: Dict[str, Dict]
-    ) -> Dict[str, Dict]:
-        clusters: Dict[str, List[Dict]] = {}
-        unclustered: Dict[str, Dict] = {}
+    def cluster_dependent_nodes(self, nodes: dict[str, dict]) -> dict[str, dict]:
+        clusters: dict[str, list[dict]] = {}
+        unclustered: dict[str, dict] = {}
 
         for nid, info in nodes.items():
             cluster_id = info.get("cluster")
@@ -224,18 +204,12 @@ class CausalDAGEngine:
         result_nodes = dict(unclustered)
 
         for cid, cluster_list in clusters.items():
-            lrs = [
-                item.get("lr", 1.0)
-                for item in cluster_list
-                if item.get("lr") is not None
-            ]
+            lrs = [item.get("lr", 1.0) for item in cluster_list if item.get("lr") is not None]
             if not lrs:
                 continue
 
             max_lr = max(lrs)
-            remainder_sum = sum(
-                lr - 1.0 for lr in lrs if lr != max_lr
-            )
+            remainder_sum = sum(lr - 1.0 for lr in lrs if lr != max_lr)
             cluster_lr = max_lr + (ALPHA_DECAY * remainder_sum)
 
             result_nodes[cid] = {
@@ -246,24 +220,16 @@ class CausalDAGEngine:
 
         return result_nodes
 
-    def compute_information_gain(
-        self, p_prior: float, p_posterior: float
-    ) -> InformationGainResult:
+    def compute_information_gain(self, p_prior: float, p_posterior: float) -> InformationGainResult:
         p_0 = max(0.001, min(0.999, p_prior))
         p_1 = max(0.001, min(0.999, p_posterior))
 
         term1 = p_1 * math.log2(p_1 / p_0)
-        term2 = (1.0 - p_1) * math.log2(
-            (1.0 - p_1) / (1.0 - p_0)
-        )
+        term2 = (1.0 - p_1) * math.log2((1.0 - p_1) / (1.0 - p_0))
         ig = term1 + term2
 
         is_anomaly = ig >= 0.50
-        status = (
-            "CAUSAL_ANOMALY"
-            if is_anomaly
-            else "NORMAL_INFORMATION_GAIN"
-        )
+        status = "CAUSAL_ANOMALY" if is_anomaly else "NORMAL_INFORMATION_GAIN"
 
         return InformationGainResult(
             ig_bits=round(ig, 4),
@@ -271,48 +237,28 @@ class CausalDAGEngine:
             status=status,
         )
 
-    def compute_evidence_utility(
-        self, delta_conviction: float, compute_cost: float = 1.0
-    ) -> float:
+    def compute_evidence_utility(self, delta_conviction: float, compute_cost: float = 1.0) -> float:
         cost = max(0.001, compute_cost)
         utility = abs(delta_conviction) / (cost + 0.01)
         return round(utility, 4)
 
-    def process_causal_graph(
-        self, raw_inputs: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def process_causal_graph(self, raw_inputs: dict[str, Any]) -> dict[str, Any]:
         m_sys = raw_inputs.get("system_margin_ratio", 0.0)
         b_stress = raw_inputs.get("breadth_stress_ratio", 0.0)
         c_cross = raw_inputs.get("cross_contagion_index", 0.0)
-        last_updated = raw_inputs.get(
-            "margin_last_updated", "2026-01-01T00:00:00"
-        )
-        now_time = raw_inputs.get(
-            "now_time", "2026-08-01T00:00:00"
-        )
+        last_updated = raw_inputs.get("margin_last_updated", "2026-01-01T00:00:00")
+        now_time = raw_inputs.get("now_time", "2026-08-01T00:00:00")
 
-        margin_res = self.margin_stress_node.evaluate_node(
-            m_sys, b_stress, c_cross, last_updated, now_time
-        )
+        margin_res = self.margin_stress_node.evaluate_node(m_sys, b_stress, c_cross, last_updated, now_time)
 
-        independent_breadth_active = raw_inputs.get(
-            "independent_breadth_active", False
-        )
+        independent_breadth_active = raw_inputs.get("independent_breadth_active", False)
         overlap_penalty = 0.0
         if independent_breadth_active and b_stress > 0.5:
             overlap_penalty = 0.15 * b_stress
 
-        base_authority = raw_inputs.get(
-            "base_epistemic_authority", 1.0
-        )
-        adjusted_authority = (
-            base_authority
-            * margin_res.authority_modifier
-            * (1.0 - overlap_penalty)
-        )
-        final_authority = float(
-            np.clip(adjusted_authority, 0.0, 1.0)
-        )
+        base_authority = raw_inputs.get("base_epistemic_authority", 1.0)
+        adjusted_authority = base_authority * margin_res.authority_modifier * (1.0 - overlap_penalty)
+        final_authority = float(np.clip(adjusted_authority, 0.0, 1.0))
 
         return {
             "dag_nodes_evaluated": len(self.nodes),
@@ -329,9 +275,7 @@ class CausalDAGEngine:
                 "law_008_applied": independent_breadth_active,
                 "overlap_penalty": round(overlap_penalty, 4),
             },
-            "adjusted_epistemic_authority": round(
-                final_authority, 4
-            ),
+            "adjusted_epistemic_authority": round(final_authority, 4),
             "governor_override": margin_res.mandate_override,
             "causal_coherence_passed": True,
         }

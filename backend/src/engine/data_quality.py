@@ -1,9 +1,9 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -20,6 +20,7 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import json
@@ -31,14 +32,14 @@ import src.config
 from src.database.db_core import get_connection
 
 # ── Ngưỡng chất lượng dữ liệu ──────────────────────────────
-MIN_SESSIONS_1Y = 200   # Đủ để tính RS 1 năm tin cậy
-MIN_SESSIONS_BASIC = 50 # Đủ để tính RS 3 tháng
-MIN_SESSIONS_RAW = 20   # Đủ để không bị rs_ranker skip ngay
+MIN_SESSIONS_1Y = 200  # Đủ để tính RS 1 năm tin cậy
+MIN_SESSIONS_BASIC = 50  # Đủ để tính RS 3 tháng
+MIN_SESSIONS_RAW = 20  # Đủ để không bị rs_ranker skip ngay
 
 # ── Ngưỡng validation giá ──────────────────────────────────
-GIA_TOI_THIEU_VND = 100       # Giá tối thiểu (VNĐ) — thấp hơn = dữ liệu sai
-GIA_TOI_DA_VND = 1_000_000    # Giá tối đa (VNĐ) — cao hơn = dữ liệu sai
-BIEN_DONG_TOI_DA_PCT = 40     # Biến động tối đa / ngày (%) — cao hơn = flag
+GIA_TOI_THIEU_VND = 100  # Giá tối thiểu (VNĐ) — thấp hơn = dữ liệu sai
+GIA_TOI_DA_VND = 1_000_000  # Giá tối đa (VNĐ) — cao hơn = dữ liệu sai
+BIEN_DONG_TOI_DA_PCT = 40  # Biến động tối đa / ngày (%) — cao hơn = flag
 
 # ── Nhãn đánh giá ──────────────────────────────────────────
 NHAN_CAO = "CAO"
@@ -49,33 +50,35 @@ NHAN_THIEU_DL = "⚠ Thiếu dữ liệu lịch sử"
 def danh_gia_chat_luong_du_lieu() -> pd.DataFrame:
     """
     Đánh giá độ tin cậy dữ liệu cho từng mã cổ phiếu.
-    
+
     Returns:
         DataFrame với các cột: symbol, so_phien, ngay_min, ngay_max,
         du_1_nam, muc_tin_cay, nhan
     """
     with get_connection() as conn:
-        df = pd.read_sql("""
+        df = pd.read_sql(
+            """
             SELECT symbol, date, close
             FROM daily_ohlcv
             ORDER BY symbol, date ASC
-        """, conn)
+        """,
+            conn,
+        )
 
     if df.empty:
         print("  ⚠ Không có dữ liệu trong DB.")
         return pd.DataFrame()
 
-    df.loc[:, 'date'] = pd.to_datetime(df['date'], format='mixed')
+    df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed")
 
     stats = []
-    for symbol, group in df.groupby('symbol'):
-        group = group.sort_values('date')
+    for symbol, group in df.groupby("symbol"):
+        group = group.sort_values("date")
         so_phien = len(group)
-        ngay_min = group['date'].iloc[0]
-        ngay_max = group['date'].iloc[-1]
+        ngay_min = group["date"].iloc[0]
+        ngay_max = group["date"].iloc[-1]
         du_1_nam = so_phien >= MIN_SESSIONS_1Y
         du_basic = so_phien >= MIN_SESSIONS_BASIC
-        du_raw = so_phien >= MIN_SESSIONS_RAW
 
         if so_phien >= MIN_SESSIONS_1Y:
             muc_tin_cay = NHAN_CAO
@@ -87,31 +90,32 @@ def danh_gia_chat_luong_du_lieu() -> pd.DataFrame:
             muc_tin_cay = NHAN_THIEU_DL
             nhan = "⚠ Thiếu dữ liệu lịch sử — chưa đủ điều kiện xếp hạng"
 
-        stats.append({
-            'symbol': symbol,
-            'so_phien': so_phien,
-            'ngay_min': ngay_min.strftime('%Y-%m-%d'),
-            'ngay_max': ngay_max.strftime('%Y-%m-%d'),
-            'du_1_nam': du_1_nam,
-            'du_basic': du_basic,
-            'muc_tin_cay': muc_tin_cay,
-            'nhan': nhan,
-        })
+        stats.append(
+            {
+                "symbol": symbol,
+                "so_phien": so_phien,
+                "ngay_min": ngay_min.strftime("%Y-%m-%d"),
+                "ngay_max": ngay_max.strftime("%Y-%m-%d"),
+                "du_1_nam": du_1_nam,
+                "du_basic": du_basic,
+                "muc_tin_cay": muc_tin_cay,
+                "nhan": nhan,
+            }
+        )
 
     kq = pd.DataFrame(stats)
-    kq = kq.sort_values('so_phien', ascending=False).reset_index(drop=True)
+    kq = kq.sort_values("so_phien", ascending=False).reset_index(drop=True)
     return kq
 
 
-def loc_bo_bang_tin_cay(symbols: list = None,
-                        toi_thieu_phien: int = MIN_SESSIONS_1Y) -> list:
+def loc_bo_bang_tin_cay(symbols: list | None = None, toi_thieu_phien: int = MIN_SESSIONS_1Y) -> list:
     """
     Lọc danh sách symbols, chỉ giữ lại những mã đủ dữ liệu.
-    
+
     Args:
         symbols: Danh sách cần lọc (None = tất cả)
         toi_thieu_phien: Số phiên tối thiểu (mặc định 200)
-    
+
     Returns:
         Danh sách symbols đạt chuẩn dữ liệu
     """
@@ -119,7 +123,7 @@ def loc_bo_bang_tin_cay(symbols: list = None,
     if dg.empty:
         return symbols or []
 
-    dat_chuan = set(dg.loc[dg['so_phien'] >= toi_thieu_phien, 'symbol'])
+    dat_chuan = set(dg.loc[dg["so_phien"] >= toi_thieu_phien, "symbol"])
 
     if symbols is None:
         result = sorted(dat_chuan)
@@ -135,10 +139,10 @@ def loc_bo_bang_tin_cay(symbols: list = None,
     return result
 
 
-def xuat_bao_cao(duong_dan: str = None) -> dict:
+def xuat_bao_cao(duong_dan: str | None = None) -> dict:
     """
     Xuất báo cáo chất lượng dữ liệu ra màn hình và file JSON.
-    
+
     Returns:
         Dict chứa thống kê
     """
@@ -150,24 +154,24 @@ def xuat_bao_cao(duong_dan: str = None) -> dict:
         duong_dan = os.path.join(src.config.DATA_DIR, "data_quality_report.json")
 
     tong = len(dg)
-    cao = int(dg['muc_tin_cay'].eq(NHAN_CAO).sum())
-    tb = int(dg['muc_tin_cay'].eq(NHAN_TRUNG_BINH).sum())
-    thap = int(dg['muc_tin_cay'].eq(NHAN_THIEU_DL).sum())
+    cao = int(dg["muc_tin_cay"].eq(NHAN_CAO).sum())
+    tb = int(dg["muc_tin_cay"].eq(NHAN_TRUNG_BINH).sum())
+    thap = int(dg["muc_tin_cay"].eq(NHAN_THIEU_DL).sum())
 
-    thieu_du_lieu = dg[dg['so_phien'] < MIN_SESSIONS_1Y].copy()
-    danh_sach_thieu = thieu_du_lieu[['symbol', 'so_phien']].to_dict(orient='records')
+    thieu_du_lieu = dg[dg["so_phien"] < MIN_SESSIONS_1Y].copy()
+    danh_sach_thieu = thieu_du_lieu[["symbol", "so_phien"]].to_dict(orient="records")
 
     bao_cao = {
-        'tong_ma': tong,
-        'dat_chuan_cao': cao,
-        'trung_binh': tb,
-        'thap': thap,
-        'tyle_dat_chuan': round(cao / tong * 100, 1) if tong else 0,
-        'nguong_phien': MIN_SESSIONS_1Y,
-        'danh_sach_thieu_du_lieu': danh_sach_thieu,
+        "tong_ma": tong,
+        "dat_chuan_cao": cao,
+        "trung_binh": tb,
+        "thap": thap,
+        "tyle_dat_chuan": round(cao / tong * 100, 1) if tong else 0,
+        "nguong_phien": MIN_SESSIONS_1Y,
+        "danh_sach_thieu_du_lieu": danh_sach_thieu,
     }
 
-    with open(duong_dan, 'w', encoding='utf-8') as f:
+    with open(duong_dan, "w", encoding="utf-8") as f:
         json.dump(bao_cao, f, ensure_ascii=False, indent=2)
 
     # ── In báo cáo ──────────────────────────────────────────
@@ -181,9 +185,9 @@ def xuat_bao_cao(duong_dan: str = None) -> dict:
 
     # Bảng chi tiết
     print(f"  {'Mã':<8} {'Số phiên':>9} {'Ngày đầu':>12} {'Ngày cuối':>12} {'Tình trạng':>30}")
-    print(f"  {'─'*8} {'─'*9} {'─'*12} {'─'*12} {'─'*30}")
+    print(f"  {'─' * 8} {'─' * 9} {'─' * 12} {'─' * 12} {'─' * 30}")
     for _, row in dg.head(25).iterrows():
-        label = row['nhan'] if row['nhan'] else "✔ Đủ dữ liệu"
+        label = row["nhan"] if row["nhan"] else "✔ Đủ dữ liệu"
         print(f"  {row['symbol']:<8} {row['so_phien']:>9} {row['ngay_min']:>12} {row['ngay_max']:>12} {label:>30}")
 
     if len(dg) > 25:
@@ -193,7 +197,7 @@ def xuat_bao_cao(duong_dan: str = None) -> dict:
     if danh_sach_thieu:
         print("\n  ⚠ CÁC MÃ THIẾU DỮ LIỆU LỊCH SỬ:")
         print(f"  {'Mã':<8} {'Số phiên':>9}")
-        print(f"  {'─'*8} {'─'*9}")
+        print(f"  {'─' * 8} {'─' * 9}")
         for item in danh_sach_thieu:
             print(f"  {item['symbol']:<8} {item['so_phien']:>9}")
         print("\n  → Các mã này chưa đủ điều kiện xếp hạng — cần bổ sung dữ liệu lịch sử.")
@@ -207,70 +211,75 @@ def xuat_bao_cao(duong_dan: str = None) -> dict:
 def kiem_tra_gia_bat_thuong() -> pd.DataFrame:
     """
     Kiểm tra và phát hiện giá bất thường trong daily_ohlcv.
-    
+
     Returns:
         DataFrame với các cột: symbol, date, close, loai_loi, mo_ta
     """
     with get_connection() as conn:
-        df = pd.read_sql("""
+        df = pd.read_sql(
+            """
             SELECT symbol, date, close, open, high, low
             FROM daily_ohlcv
             WHERE date >= date('now', '-30 days')
             ORDER BY symbol, date
-        """, conn)
+        """,
+            conn,
+        )
 
     if df.empty:
         return pd.DataFrame()
 
     van_de = []
 
-    for symbol, group in df.groupby('symbol'):
-        group = group.sort_values('date')
+    for symbol, group in df.groupby("symbol"):
+        group = group.sort_values("date")
 
         for _, row in group.iterrows():
-            close = row['close']
+            close = row["close"]
             if close is None or close == 0:
-                van_de.append({
-                    'symbol': symbol,
-                    'date': row['date'],
-                    'close': close,
-                    'loai_loi': 'GIA_0',
-                    'mo_ta': 'Close = 0 VND'
-                })
+                van_de.append(
+                    {"symbol": symbol, "date": row["date"], "close": close, "loai_loi": "GIA_0", "mo_ta": "Close = 0 VND"}
+                )
                 continue
 
             if close < GIA_TOI_THIEU_VND:
-                van_de.append({
-                    'symbol': symbol,
-                    'date': row['date'],
-                    'close': close,
-                    'loai_loi': 'GIA_THAP',
-                    'mo_ta': f'Close = {close} VND (< {GIA_TOI_THIEU_VND})'
-                })
+                van_de.append(
+                    {
+                        "symbol": symbol,
+                        "date": row["date"],
+                        "close": close,
+                        "loai_loi": "GIA_THAP",
+                        "mo_ta": f"Close = {close} VND (< {GIA_TOI_THIEU_VND})",
+                    }
+                )
 
             if close > GIA_TOI_DA_VND:
-                van_de.append({
-                    'symbol': symbol,
-                    'date': row['date'],
-                    'close': close,
-                    'loai_loi': 'GIA_CAO',
-                    'mo_ta': f'Close = {close:,.0f} VND (> {GIA_TOI_DA_VND:,})'
-                })
+                van_de.append(
+                    {
+                        "symbol": symbol,
+                        "date": row["date"],
+                        "close": close,
+                        "loai_loi": "GIA_CAO",
+                        "mo_ta": f"Close = {close:,.0f} VND (> {GIA_TOI_DA_VND:,})",
+                    }
+                )
 
         # Kiểm tra biến động
         if len(group) > 1:
-            closes = group['close'].values
+            closes = group["close"].values
             for i in range(1, len(closes)):
-                if closes[i-1] and closes[i] and closes[i-1] > 0:
-                    chg_pct = abs((closes[i] - closes[i-1]) / closes[i-1] * 100)
+                if closes[i - 1] and closes[i] and closes[i - 1] > 0:
+                    chg_pct = abs((closes[i] - closes[i - 1]) / closes[i - 1] * 100)
                     if chg_pct > BIEN_DONG_TOI_DA_PCT:
-                        van_de.append({
-                            'symbol': symbol,
-                            'date': group.iloc[i]['date'],
-                            'close': closes[i],
-                            'loai_loi': 'BIEN_DONG',
-                            'mo_ta': f'Biến động {chg_pct:.1f}% trong 1 ngày'
-                        })
+                        van_de.append(
+                            {
+                                "symbol": symbol,
+                                "date": group.iloc[i]["date"],
+                                "close": closes[i],
+                                "loai_loi": "BIEN_DONG",
+                                "mo_ta": f"Biến động {chg_pct:.1f}% trong 1 ngày",
+                            }
+                        )
 
     if not van_de:
         return pd.DataFrame()
@@ -286,10 +295,10 @@ def xuat_bao_cao_gia_bat_thuong() -> dict:
 
     if df.empty:
         print("  ✅ Không phát hiện giá bất thường.")
-        return {'tong_van_de': 0}
+        return {"tong_van_de": 0}
 
     tong = len(df)
-    theo_loai = df['loai_loi'].value_counts().to_dict()
+    theo_loai = df["loai_loi"].value_counts().to_dict()
 
     print("\n  ═══ BÁO CÁO GIÁ BẤT THƯỜNG (P0 VALIDATOR) ═══")
     print(f"  Tổng vấn đề: {tong}")
@@ -298,7 +307,7 @@ def xuat_bao_cao_gia_bat_thuong() -> dict:
 
     print()
     print(f"  {'Mã':<8} {'Ngày':<12} {'Close':>12} {'Loại lỗi':<15} {'Mô tả'}")
-    print(f"  {'─'*8} {'─'*12} {'─'*12} {'─'*15} {'─'*40}")
+    print(f"  {'─' * 8} {'─' * 12} {'─' * 12} {'─' * 15} {'─' * 40}")
     for _, row in df.head(30).iterrows():
         print(f"  {row['symbol']:<8} {row['date']:<12} {row['close']:>12,.0f} {row['loai_loi']:<15} {row['mo_ta']}")
 
@@ -307,13 +316,10 @@ def xuat_bao_cao_gia_bat_thuong() -> dict:
 
     # Lưu báo cáo
     import src.config
+
     report_path = os.path.join(src.config.DATA_DIR, "price_anomaly_report.json")
-    report = {
-        'tong_van_de': tong,
-        'theo_loai': theo_loai,
-        'chi_tiet': df.to_dict(orient='records')
-    }
-    with open(report_path, 'w', encoding='utf-8') as f:
+    report = {"tong_van_de": tong, "theo_loai": theo_loai, "chi_tiet": df.to_dict(orient="records")}
+    with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2, default=str)
 
     print(f"\n  Báo cáo đã lưu: {report_path}")

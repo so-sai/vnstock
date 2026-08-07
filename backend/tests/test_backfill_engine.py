@@ -8,7 +8,6 @@ Fix: init đầy đủ 4 keys trong `_fetch_lich_su`.
 
 import pandas as pd
 import pytest
-
 from src.engine.backfill_engine import _fetch_lich_su
 
 

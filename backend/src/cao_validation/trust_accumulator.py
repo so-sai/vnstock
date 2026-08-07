@@ -1,4 +1,4 @@
-﻿"""CAO Trust Bridge — Trust Accumulator.
+"""CAO Trust Bridge — Trust Accumulator.
 
 Accumulates regime-weighted confidence over time.
 Confidence is NOT sample count — it is a composite metric:
@@ -10,6 +10,7 @@ Where:
     - regime_weight = per-regime multiplier (TRENDING=1.0, RANGING=0.8, CRISIS=0.5)
     - stability_factor = inverse variance of recent consistency scores
 """
+
 import json
 import logging
 import sys
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -33,6 +34,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -100,7 +102,7 @@ class TrustAccumulator:
         self._persist_state(regime, state)
         return state
 
-    def get_state(self, regime: str = None) -> dict[str, TrustState]:
+    def get_state(self, regime: str | None = None) -> dict[str, TrustState]:
         """Get current trust state(s).
 
         Args:
@@ -114,7 +116,7 @@ class TrustAccumulator:
             return {regime: s} if s else {}
         return dict(self._states)
 
-    def get_history(self, regime: str = None, limit: int = 100) -> list[TrustHistoryPoint]:
+    def get_history(self, regime: str | None = None, limit: int = 100) -> list[TrustHistoryPoint]:
         """Get trust accumulation history."""
         if regime:
             return self._history.get(regime, [])[-limit:]
@@ -123,7 +125,7 @@ class TrustAccumulator:
             all_points.extend(pts)
         return sorted(all_points, key=lambda p: p.timestamp)[-limit:]
 
-    def reset(self, regime: str = None):
+    def reset(self, regime: str | None = None):
         """Reset trust state for a regime (or all if None)."""
         if regime:
             self._history[regime] = []
@@ -155,26 +157,24 @@ class TrustAccumulator:
         points = self._history[regime]
         if not points:
             return TrustState(
-                regime=regime, total_samples=0, mean_consistency=0.0,
-                consistency_variance=0.0, confidence=0.0,
-                drift_score=0.0, structural_shift=False,
+                regime=regime,
+                total_samples=0,
+                mean_consistency=0.0,
+                consistency_variance=0.0,
+                confidence=0.0,
+                drift_score=0.0,
+                structural_shift=False,
                 distribution_equivalent=False,
             )
         consistencies = [p.consistency for p in points]
         n = len(consistencies)
         mean_c = sum(consistencies) / n
         variance = sum((v - mean_c) ** 2 for v in consistencies) / n if n > 1 else 0.0
-        weighted_scores = [
-            p.consistency * p.regime_weight * p.stability_factor
-            for p in points
-        ]
-        total_weight = sum(
-            p.regime_weight * p.stability_factor for p in points
-        )
+        weighted_scores = [p.consistency * p.regime_weight * p.stability_factor for p in points]
+        total_weight = sum(p.regime_weight * p.stability_factor for p in points)
         confidence = (sum(weighted_scores) / total_weight) if total_weight > 0 else 0.0
-        recent = consistencies[-min(n, STABILITY_WINDOW):]
-        drift = sum(abs(recent[i] - recent[i - 1])
-                    for i in range(1, len(recent))) / len(recent) if len(recent) > 1 else 0.0
+        recent = consistencies[-min(n, STABILITY_WINDOW) :]
+        drift = sum(abs(recent[i] - recent[i - 1]) for i in range(1, len(recent))) / len(recent) if len(recent) > 1 else 0.0
         return TrustState(
             regime=regime,
             total_samples=n,
@@ -193,13 +193,15 @@ class TrustAccumulator:
         try:
             self._storage.save_belief_value(
                 f"trust_state_{regime}",
-                json.dumps({
-                    "confidence": state.confidence,
-                    "mean_consistency": state.mean_consistency,
-                    "total_samples": state.total_samples,
-                    "drift_score": state.drift_score,
-                    "data_integrity_score": state.data_integrity_score,
-                }),
+                json.dumps(
+                    {
+                        "confidence": state.confidence,
+                        "mean_consistency": state.mean_consistency,
+                        "total_samples": state.total_samples,
+                        "drift_score": state.drift_score,
+                        "data_integrity_score": state.data_integrity_score,
+                    }
+                ),
             )
         except Exception as e:
             logger.warning("[TRUST] Persist failed for %s: %s", regime, e)
@@ -238,11 +240,16 @@ def get_accumulator() -> TrustAccumulator:
     if _accumulator is None:
         try:
             from src.shadow_cao.storage import get_belief_value, save_belief_value
+
             _accumulator = TrustAccumulator(
-                storage=type("Store", (), {
-                    "get_belief_value": staticmethod(get_belief_value),
-                    "save_belief_value": staticmethod(save_belief_value),
-                })()
+                storage=type(
+                    "Store",
+                    (),
+                    {
+                        "get_belief_value": staticmethod(get_belief_value),
+                        "save_belief_value": staticmethod(save_belief_value),
+                    },
+                )()
             )
         except Exception:
             _accumulator = TrustAccumulator()

@@ -1,4 +1,4 @@
-﻿"""CAO Trust Bridge — Shadow vs Live Distribution Comparator.
+"""CAO Trust Bridge — Shadow vs Live Distribution Comparator.
 
 Tests whether shadow CAO ΔAlpha distribution and live telemetry ΔAlpha
 distribution are equivalent (same underlying distribution).
@@ -10,6 +10,7 @@ Uses:
 
 If distribution equivalence test fails → NO PROMOTION regardless of sample size.
 """
+
 import logging
 import math
 import sys
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -33,6 +34,7 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 from src.cao_validation.models import RECOGNIZED_REGIMES, DistributionTestResult
@@ -40,6 +42,7 @@ from src.cao_validation.models import RECOGNIZED_REGIMES, DistributionTestResult
 # ====================================================================
 # KS TEST (pure Python — no scipy dependency)
 # ====================================================================
+
 
 def _ecdf(samples: list[float]) -> list[tuple[float, float]]:
     """Empirical cumulative distribution function."""
@@ -101,6 +104,7 @@ def _ks_p_value(d: float, n1: int, n2: int) -> float:
 # WASSERSTEIN DISTANCE (1D earth mover's distance)
 # ====================================================================
 
+
 def _wasserstein_1d(samples_a: list[float], samples_b: list[float]) -> float:
     """1D Wasserstein distance = |mean_a - mean_b| (simplified for 1D)."""
     if not samples_a or not samples_b:
@@ -111,6 +115,7 @@ def _wasserstein_1d(samples_a: list[float], samples_b: list[float]) -> float:
 # ====================================================================
 # DISTRIBUTION COMPARISON
 # ====================================================================
+
 
 def compare_distributions(
     shadow_deltas: list[float],
@@ -193,9 +198,9 @@ def run_per_regime_tests(
     results = []
     for regime in RECOGNIZED_REGIMES:
         s = shadow_by_regime.get(regime, [])
-        l = live_by_regime.get(regime, [])
-        if len(s) >= 5 and len(l) >= 5:
-            results.extend(run_distribution_tests(s, l, regime))
+        live = live_by_regime.get(regime, [])
+        if len(s) >= 5 and len(live) >= 5:
+            results.extend(run_distribution_tests(s, live, regime))
     all_shadow = []
     all_live = []
     for r in RECOGNIZED_REGIMES:

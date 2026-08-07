@@ -1,15 +1,16 @@
-﻿"""
+"""
 Actionable Intelligence Service (Phase 12).
 Compresses all engines → simple, actionable decisions for the user.
 No new analysis — just orchestration + narrative compression.
 """
+
 import logging
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -25,6 +26,7 @@ def _hydrate_path():
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -52,8 +54,8 @@ def get_opportunity_queue(top_n: int = 5) -> dict:
     regime_status = regime.get("status", "RANGING")
     breakout_ctx = get_breakout_market_context()
 
-    wave_symbols = {w["symbol"] for w in liquidity_waves}
-    breakout_symbols = {b["symbol"] for b in breakout_opps}
+    {w["symbol"] for w in liquidity_waves}
+    {b["symbol"] for b in breakout_opps}
 
     combined = {}
 
@@ -134,8 +136,9 @@ def get_portfolio_coach() -> dict:
     n_positions = len(positions)
     regime_status = regime.get("status", "RANGING")
 
-    coach = _generate_coach_advice(action, risk_state, constraint, confidence,
-                                    n_positions, heat, regime_status, rotation, liquidity, breakout_ctx)
+    coach = _generate_coach_advice(
+        action, risk_state, constraint, confidence, n_positions, heat, regime_status, rotation, liquidity, breakout_ctx
+    )
 
     return {
         "decision": {
@@ -152,11 +155,19 @@ def get_portfolio_coach() -> dict:
     }
 
 
-def _generate_coach_advice(action: str, risk: str, constraint: str, confidence: int,
-                            n_pos: int, heat: float, regime: str, rotation: dict,
-                            liquidity: dict, breakout: dict) -> dict:
+def _generate_coach_advice(
+    action: str,
+    risk: str,
+    constraint: str,
+    confidence: int,
+    n_pos: int,
+    heat: float,
+    regime: str,
+    rotation: dict,
+    liquidity: dict,
+    breakout: dict,
+) -> dict:
     is_locked = constraint == "BLOCKED" or risk == "LOCKED"
-    is_partial = constraint == "PARTIAL"
     has_positions = n_pos > 0
 
     if is_locked:
@@ -248,10 +259,7 @@ def get_scenario_simulation(scenario: str = "drop_5pct") -> dict:
                 break
     last_dd = risk_window[-1]["drawdown_pct"] if risk_window and len(risk_window) > 0 else 0
 
-    total_market_value = sum(
-        p.get("current_size", 0) * (p.get("avg_cost", 0) if p.get("avg_cost") else 0)
-        for p in positions
-    )
+    total_market_value = sum(p.get("current_size", 0) * (p.get("avg_cost", 0) if p.get("avg_cost") else 0) for p in positions)
     if scenario == "drop_5pct":
         loss = round(total_market_value * 0.05, 0)
         new_heat = min(10, heat_curr + 2.0)
@@ -304,15 +312,14 @@ def get_position_narrative(symbol: str) -> dict:
     entry_date = pos.get("entry_date", "")
     regime_entry = pos.get("regime_at_entry", "UNKNOWN")
     conviction = pos.get("conviction_score", 0)
-    current_size = pos.get("current_size", 0)
+    pos.get("current_size", 0)
     avg_cost = pos.get("avg_cost", 0)
     sl_price = pos.get("stop_loss_price", 0)
     thesis = pos.get("thesis_notes", pos.get("thesis_source", ""))
 
     with get_connection() as conn:
         current_price_df = pd.read_sql(
-            "SELECT close, date FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1",
-            conn, params=(symbol,)
+            "SELECT close, date FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1", conn, params=(symbol,)
         )
     current_price = float(current_price_df.iloc[0]["close"]) if not current_price_df.empty else avg_cost
 
@@ -352,14 +359,13 @@ def get_position_narrative(symbol: str) -> dict:
         "system_risk": risk_state,
         "verdict": verdict,
         "status": pos.get("status", "ENTERED"),
-        "narrative": _build_position_story(symbol, pnl_pct, dist_sl, conviction,
-                                            regime_entry, system_action, risk_state),
+        "narrative": _build_position_story(symbol, pnl_pct, dist_sl, conviction, regime_entry, system_action, risk_state),
     }
 
 
-def _build_position_story(symbol: str, pnl_pct: float, dist_sl: float,
-                           conviction: float, regime_entry: str,
-                           sys_action: str, sys_risk: str) -> str:
+def _build_position_story(
+    symbol: str, pnl_pct: float, dist_sl: float, conviction: float, regime_entry: str, sys_action: str, sys_risk: str
+) -> str:
     if pnl_pct < -8:
         return f"{symbol} đang lỗ sâu {pnl_pct:.1f}%. Luận điểm entry có thể đã sai. Cần review gấp."
     if pnl_pct < -3:
@@ -400,7 +406,9 @@ def get_live_summary() -> dict:
         },
         "liquidity_phase": liquidity.get("liquidity_phase", "NEUTRAL") if isinstance(liquidity, dict) else "NEUTRAL",
         "rotation_regime": rotation.get("rotation_regime", "NEUTRAL") if isinstance(rotation, dict) else "NEUTRAL",
-        "breakout_context": breakout_ctx.get("breakout_context", "LOW_BREAKOUT_ACTIVITY") if isinstance(breakout_ctx, dict) else "LOW_BREAKOUT_ACTIVITY",
+        "breakout_context": breakout_ctx.get("breakout_context", "LOW_BREAKOUT_ACTIVITY")
+        if isinstance(breakout_ctx, dict)
+        else "LOW_BREAKOUT_ACTIVITY",
         "positions_count": len(positions) if isinstance(positions, list) else 0,
         "coach_instruction": coach.get("coach", {}).get("instruction", "") if isinstance(coach, dict) else "",
         "updated_at": datetime.now().isoformat(),

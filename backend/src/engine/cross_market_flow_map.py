@@ -1,9 +1,9 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -18,6 +18,7 @@ def _hydrate_path():
             sys.path.insert(0, str(p))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import numpy as np
@@ -28,15 +29,13 @@ from src.database.db_core import get_connection
 
 def _calc_adx(df, period=14):
     df = df.copy()
-    plus_dm = df['high'].diff()
-    minus_dm = -df['low'].diff()
+    plus_dm = df["high"].diff()
+    minus_dm = -df["low"].diff()
     plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0)
     minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0.0)
-    tr = pd.concat([
-        df['high'] - df['low'],
-        (df['high'] - df['close'].shift(1)).abs(),
-        (df['low'] - df['close'].shift(1)).abs()
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [df["high"] - df["low"], (df["high"] - df["close"].shift(1)).abs(), (df["low"] - df["close"].shift(1)).abs()], axis=1
+    ).max(axis=1)
     atr = tr.rolling(period).mean()
     plus_di = 100 * (pd.Series(plus_dm).rolling(period).mean() / atr)
     minus_di = 100 * (pd.Series(minus_dm).rolling(period).mean() / atr)
@@ -84,7 +83,7 @@ class CrossMarketFlowMap:
         self.flow_map = {}
         self._macro_stale_mask: dict = {}
 
-    def localize(self, data: dict = None) -> dict:
+    def localize(self, data: dict | None = None) -> dict:
         """Trả về bản thuần Việt của toàn bộ báo cáo."""
         src = data if data is not None else self.flow_map
         result = {}
@@ -107,7 +106,7 @@ class CrossMarketFlowMap:
                 row = conn.execute(
                     "SELECT value, COALESCE(is_stale, 0) AS is_stale "
                     "FROM macro_history WHERE variable = ? ORDER BY date DESC LIMIT 1 OFFSET ?",
-                    (variable, offset)
+                    (variable, offset),
                 ).fetchone()
                 if row:
                     self._macro_stale_mask[variable] = bool(row[1])
@@ -121,8 +120,7 @@ class CrossMarketFlowMap:
         try:
             with get_connection() as conn:
                 row = conn.execute(
-                    "SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1 OFFSET ?",
-                    (offset,)
+                    "SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1 OFFSET ?", (offset,)
                 ).fetchone()
                 return float(row[0]) if row else 50.0
         except Exception:
@@ -130,8 +128,8 @@ class CrossMarketFlowMap:
 
     def _get_gs_ratio(self, offset: int = 0) -> float:
         """Tính Gold/Silver Ratio từ GOLD_XAU / XAGUSD (không có sẵn trong macro_history)."""
-        gold = self._get_macro_history('GOLD_XAU', offset)
-        silver = self._get_macro_history('XAGUSD', offset)
+        gold = self._get_macro_history("GOLD_XAU", offset)
+        silver = self._get_macro_history("XAGUSD", offset)
         return round(gold / silver, 2) if silver else 0.0
 
     def _calc_adx_t3(self) -> float:
@@ -139,8 +137,7 @@ class CrossMarketFlowMap:
         try:
             with get_connection() as conn:
                 df = pd.read_sql(
-                    "SELECT high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT 20",
-                    conn
+                    "SELECT high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT 20", conn
                 )
             if len(df) < 17:
                 return 0.0
@@ -153,15 +150,15 @@ class CrossMarketFlowMap:
             return 0.0
 
     def _layer_1_driver_registry(self) -> dict:
-        ry_t = self.macro.get('us_real_yield', 0) or 0
-        be_t = self.macro.get('breakeven_inflation', 0) or 0
-        dxy_t = self.macro.get('dxy_index', 0) or 0
-        gs_t = self.macro.get('gold_silver_ratio', 0) or 0
-        breadth_t = self.snapshot.get('regime', {}).get('do_rong', 50) or 50
+        ry_t = self.macro.get("us_real_yield", 0) or 0
+        be_t = self.macro.get("breakeven_inflation", 0) or 0
+        dxy_t = self.macro.get("dxy_index", 0) or 0
+        gs_t = self.macro.get("gold_silver_ratio", 0) or 0
+        breadth_t = self.snapshot.get("regime", {}).get("do_rong", 50) or 50
 
-        ry_t5 = self._get_macro_history('US_REAL_YIELD', 5)
-        be_t5 = self._get_macro_history('BREAKEVEN_INFLATION', 5)
-        dxy_t5 = self._get_macro_history('DXY', 5)
+        ry_t5 = self._get_macro_history("US_REAL_YIELD", 5)
+        be_t5 = self._get_macro_history("BREAKEVEN_INFLATION", 5)
+        dxy_t5 = self._get_macro_history("DXY", 5)
         gs_t5 = self._get_gs_ratio(5)
         breadth_t5 = self._get_breadth_history(5)
 
@@ -174,45 +171,44 @@ class CrossMarketFlowMap:
         }
 
     def _layer_2_settlement_zone(self, drivers: dict) -> str:
-        if drivers['delta_dxy'] > 0 and drivers['delta_real_yield'] > 0:
+        if drivers["delta_dxy"] > 0 and drivers["delta_real_yield"] > 0:
             return "CASH_SHELTER"
-        if drivers['delta_breakeven'] > 0 and drivers['delta_gs_ratio'] > 0:
+        if drivers["delta_breakeven"] > 0 and drivers["delta_gs_ratio"] > 0:
             return "HARD_ASSET_SHELTER"
-        if drivers['delta_gs_ratio'] < 0 and (self.snapshot.get('regime', {}).get('do_rong', 0) or 0) > 50.0:
+        if drivers["delta_gs_ratio"] < 0 and (self.snapshot.get("regime", {}).get("do_rong", 0) or 0) > 50.0:
             return "EQUITY_EXPANSION"
         return "TRANSITION_STATE"
 
     def _layer_3_reputation_ledger(self) -> dict:
-        vgb_q = self.macro.get('vgb10y_data_quality', 'NO_DATA')
-        ib_rate = self.macro.get('interbank_rate')
+        vgb_q = self.macro.get("vgb10y_data_quality", "NO_DATA")
+        ib_rate = self.macro.get("interbank_rate")
 
         return {
             "confidence_level": "LOW_CONFIDENCE_MACRO_VN"
-            if vgb_q in ('ESTIMATED', 'NO_DATA') or ib_rate is None
+            if vgb_q in ("ESTIMATED", "NO_DATA") or ib_rate is None
             else "HIGH_CONFIDENCE",
             "vgb10y_quality": vgb_q,
             "interbank_status": "REAL" if ib_rate is not None else "NO_DATA",
         }
 
     def _layer_4_drift_detector(self) -> dict:
-        adx_t = self.snapshot.get('regime', {}).get('adx', 0) or 0
+        adx_t = self.snapshot.get("regime", {}).get("adx", 0) or 0
         adx_t3 = self._calc_adx_t3()
-        current_regime = self.snapshot.get('regime', {}).get('trang_thai', 'RANGING')
+        current_regime = self.snapshot.get("regime", {}).get("trang_thai", "RANGING")
 
         delta_adx = float(adx_t) - adx_t3
-        drift_warning = delta_adx > 5.0 and current_regime == 'RANGING'
+        drift_warning = delta_adx > 5.0 and current_regime == "RANGING"
 
         return {
             "has_drift": drift_warning,
-            "drift_reason": "LATE-CYCLE OBSERVABILITY GAP: ADX spike trong regime RANGING"
-            if drift_warning else "",
+            "drift_reason": "LATE-CYCLE OBSERVABILITY GAP: ADX spike trong regime RANGING" if drift_warning else "",
         }
 
     def execute_pipeline(self) -> dict:
         drivers = self._layer_1_driver_registry()
         self.flow_map = {
-            "timestamp": self.snapshot.get('thoi_gian_tao'),
-            "ngay": self.snapshot.get('ngay'),
+            "timestamp": self.snapshot.get("thoi_gian_tao"),
+            "ngay": self.snapshot.get("ngay"),
             "layer_1_drivers": drivers,
             "layer_2_settlement": self._layer_2_settlement_zone(drivers),
             "layer_3_reputation": self._layer_3_reputation_ledger(),

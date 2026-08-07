@@ -6,7 +6,7 @@ Engine never imports `vnstock` directly anymore — it talks to this adapter
 (or whatever ProviderManager resolves).
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -21,8 +21,8 @@ class VnstockProvider(FinancialProvider):
     def __init__(
         self,
         source: str = "VCI",
-        finance_kwargs: Optional[Dict[str, Any]] = None,
-        quote_kwargs: Optional[Dict[str, Any]] = None,
+        finance_kwargs: dict[str, Any] | None = None,
+        quote_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self.source = source
         self._finance_kwargs = finance_kwargs or {}
@@ -66,7 +66,7 @@ class VnstockProvider(FinancialProvider):
         return Quote(source=self.source, symbol=symbol, show_log=False, **self._quote_kwargs)
 
     # ── Financial statements ───────────────────────────────────────────
-    def income_statement(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def income_statement(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         try:
             finance = self._finance(symbol)
             limit = kwargs.pop("limit", None)
@@ -76,7 +76,7 @@ class VnstockProvider(FinancialProvider):
         except Exception:
             return None
 
-    def balance_sheet(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def balance_sheet(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         try:
             finance = self._finance(symbol)
             limit = kwargs.pop("limit", None)
@@ -86,7 +86,7 @@ class VnstockProvider(FinancialProvider):
         except Exception:
             return None
 
-    def cashflow(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def cashflow(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         try:
             finance = self._finance(symbol)
             limit = kwargs.pop("limit", None)
@@ -100,10 +100,10 @@ class VnstockProvider(FinancialProvider):
     def history(
         self,
         symbol: str,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
         **kwargs: Any,
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         try:
             q = self._quote(symbol)
             if start and end:
@@ -113,7 +113,7 @@ class VnstockProvider(FinancialProvider):
             return None
 
     # ── Company info ───────────────────────────────────────────────────
-    def company_info(self, symbol: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    def company_info(self, symbol: str, **kwargs: Any) -> dict[str, Any] | None:
         try:
             Company = self._import()["Company"]
             info = Company(symbol=symbol, source=self.source)
@@ -121,7 +121,7 @@ class VnstockProvider(FinancialProvider):
         except Exception:
             return None
 
-    def trading_stats(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def trading_stats(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         """vnstock-specific: Khối ngoại trading stats (foreign_volume).
 
         Not part of the FinancialProvider ABC — it's a vnstock extension
@@ -137,7 +137,7 @@ class VnstockProvider(FinancialProvider):
         except Exception:
             return None
 
-    def price_board(self, symbols: List[str], **kwargs: Any) -> Optional[pd.DataFrame]:
+    def price_board(self, symbols: list[str], **kwargs: Any) -> pd.DataFrame | None:
         """vnstock-specific: Bảng giá real-time (Trading.price_board).
 
         Not part of the FinancialProvider ABC — it's a vnstock extension
@@ -150,7 +150,7 @@ class VnstockProvider(FinancialProvider):
         except Exception:
             return None
 
-    def symbols(self, **kwargs: Any) -> Optional[List[str]]:
+    def symbols(self, **kwargs: Any) -> list[str] | None:
         try:
             Listing = self._import()["Listing"]
             df = Listing(source=self.source).all_symbols()
@@ -162,7 +162,7 @@ class VnstockProvider(FinancialProvider):
             return None
 
     # ── Audit ──────────────────────────────────────────────────────────
-    def describe(self) -> Dict[str, Any]:
+    def describe(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "source": self.source,

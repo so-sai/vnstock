@@ -1,14 +1,14 @@
-﻿"""Telemetry Layer — Decision Snapshot, Outcome, Attribution (Sprint 1 + 2)"""
+"""Telemetry Layer — Decision Snapshot, Outcome, Attribution (Sprint 1 + 2)"""
+
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -21,6 +21,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -36,10 +37,10 @@ class DecisionSnapshot(BaseModel):
     dominant_signal: str
     vnindex_level: float
     opportunity_symbols: list[str] = []
-    holdings_health: Optional[str] = None
-    market_regime: Optional[str] = None
-    decision_weights: Optional[str] = None
-    engine_scores: Optional[str] = None
+    holdings_health: str | None = None
+    market_regime: str | None = None
+    decision_weights: str | None = None
+    engine_scores: str | None = None
 
 
 class OutcomeRecord(BaseModel):
@@ -56,6 +57,7 @@ class OutcomeRecord(BaseModel):
 
 class MarketOutcome(BaseModel):
     """Market data over the evaluation horizon (Sprint 2 canonical)."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     decision_id: str
@@ -72,6 +74,7 @@ class MarketOutcome(BaseModel):
 
 class EngineAttribution(BaseModel):
     """Per-engine contribution (Sprint 2 canonical — TP/FP decomposed)."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     decision_id: str
@@ -89,6 +92,7 @@ class EngineAttribution(BaseModel):
 
 class EnginePerformanceView(BaseModel):
     """Rolling performance summary per engine (Sprint 2 canonical)."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     engine: str
@@ -103,6 +107,7 @@ class EnginePerformanceView(BaseModel):
 
 class DecisionAttributionSummary(BaseModel):
     """Full attribution for UI (Sprint 2 canonical — Vietnamese reasoning)."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     decision_id: str

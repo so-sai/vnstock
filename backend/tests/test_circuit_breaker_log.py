@@ -5,10 +5,7 @@ Fix: (entry.get('trigger_reason') or '')[:28]
 """
 
 import sqlite3
-import tempfile
-import os
-
-from datetime import date, datetime
+from datetime import date
 
 
 def _build_schema(conn):

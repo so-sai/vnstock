@@ -1,7 +1,6 @@
 """test_cross_validate.py - TDD for the @cross_validate decorator."""
 
 import pandas as pd
-
 from src.providers.base import FinancialProvider
 from src.providers.cross_validate import (
     FLAG_DISCREPANCY,

@@ -1,8 +1,9 @@
-﻿"""v1_macro.py — API endpoint: trạng thái vĩ mô song ngữ.
+"""v1_macro.py — API endpoint: trạng thái vĩ mô song ngữ.
 
 Cung cấp macro status dưới định dạng HCI (Human-Computer Interface)
 với localization song ngữ EN/VI cho mọi tín hiệu.
 """
+
 # WHY: Đây là endpoint v1 riêng (song song với macro.py không version) vì phục vụ nhóm
 # client mới cần định dạng HCI chuẩn hóa (metric array + to_hci) và localization song ngữ
 # ngay tại API. Tách route giúp v1 tiến hóa schema độc lập không phá vỡ client cũ đang
@@ -10,13 +11,12 @@ với localization song ngữ EN/VI cho mọi tín hiệu.
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -34,7 +34,10 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.core.bilingual_schema import (
-    REGIME_STATES, EARLY_WARNING, GOVERNOR_STATES, to_hci,
+    EARLY_WARNING,
+    GOVERNOR_STATES,
+    REGIME_STATES,
+    to_hci,
 )
 
 router = APIRouter()
@@ -54,7 +57,7 @@ def _score_to_signal(score: float) -> str:
 
 
 @router.get("/macro/status")
-async def get_macro_status_v1(target_date: Optional[str] = Query(None, description="YYYY-MM-DD")):
+async def get_macro_status_v1(target_date: str | None = Query(None, description="YYYY-MM-DD")):
     """Trạng thái vĩ mô song ngữ (HCI format).
 
     Trả về regime + early warning + governor status dưới dạng
@@ -95,7 +98,7 @@ async def get_macro_status_v1(target_date: Optional[str] = Query(None, descripti
         metrics.append(to_hci(sensor_id.upper(), value, signal, REGIME_STATES))
 
     warns = []
-    for ew in (early_warnings if isinstance(early_warnings, list) else []):
+    for ew in early_warnings if isinstance(early_warnings, list) else []:
         ew_key = ew if isinstance(ew, str) else ew.get("type", "UNKNOWN")
         ew_entry = EARLY_WARNING.get(ew_key)
         if ew_entry:

@@ -1,6 +1,5 @@
 """test_v1_epistemic_api.py — Test cho REST API /api/v1/epistemic."""
 
-import pytest
 from fastapi.testclient import TestClient
 
 

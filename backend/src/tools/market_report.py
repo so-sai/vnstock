@@ -4,6 +4,7 @@ Usage::
 
     python -m backend.src.tools.market_report --month 2026-06 --lang vi
 """
+
 from __future__ import annotations
 
 import argparse
@@ -14,13 +15,15 @@ from datetime import datetime
 from pathlib import Path
 
 if isinstance(sys.stdout, io.TextIOWrapper):
-    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+    if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
-elif hasattr(sys.stdout, 'buffer'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+elif hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+
 def _hydrate_path():
     if getattr(sys, "frozen", False):
         root = Path(sys.executable).resolve().parent
@@ -46,6 +49,7 @@ logger = logging.getLogger("market_report")
 
 def run_cagl_snapshot():
     from src.core.psr.snapshot import SystemStateSnapshotter
+
     snapper = SystemStateSnapshotter()
     snap = snapper.capture()
     snapper.persist(snap)
@@ -61,6 +65,7 @@ def run_cagl_snapshot():
 
 def run_macro_scan(target_date: str):
     from src.services.macro_service import get_macro_status
+
     data = get_macro_status(target_date=target_date)
     return data
 
@@ -68,6 +73,7 @@ def run_macro_scan(target_date: str):
 def run_gold_scan():
     from src.services.macro.gold_service import get_gold_cognition_layer, get_gold_dashboard
     from src.services.macro.gold_world_service import fetch_world_gold_live, is_gold_conflicted
+
     dash = get_gold_dashboard()
     cognition = get_gold_cognition_layer()
     world = fetch_world_gold_live()
@@ -82,13 +88,16 @@ def run_gold_scan():
 
 def run_backtest_regime():
     import pandas as pd
-
     from src.database.db_core import get_connection
     from src.engine.backtest_engine import BacktestAlpha
+
     engine = BacktestAlpha()
     try:
         with get_connection() as conn:
-            df = pd.read_sql("SELECT date, high, low, adj_close as bench_close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date", conn)
+            df = pd.read_sql(
+                "SELECT date, high, low, adj_close as bench_close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date",
+                conn,
+            )
         if df.empty:
             return {"status": "UNKNOWN", "error": "no VNINDEX data in daily_ohlcv"}
         regime_df = engine.detect_market_regime(df)
@@ -105,6 +114,7 @@ def run_backtest_regime():
 
 def run_psr_diff(snapshot_id: str):
     from src.core.psr.replay import DeterministicReplayEngine
+
     engine = DeterministicReplayEngine()
     result = engine.replay(snapshot_id)
     if result is None:
@@ -157,24 +167,16 @@ def flow_drift_map(screener_results: dict | None) -> dict:
         sector = str(row.get("industry", ""))[:12]
 
         if vol > 0 and comp > 0.5 and xn in ("MANH", "TB") and streak >= 5:
-            groups["thu_hut_on_dinh"].append(
-                (sym, f"vol={vol:+.0%}", sector)
-            )
+            groups["thu_hut_on_dinh"].append((sym, f"vol={vol:+.0%}", sector))
             counts["thu_hut_on_dinh"] += 1
         elif vol < 0 and comp < 0.3 and xn == "YEU" and streak == 0 and rank_chg <= 0:
-            groups["rut_cau_truc"].append(
-                (sym, f"composite={comp:.2f}", sector)
-            )
+            groups["rut_cau_truc"].append((sym, f"composite={comp:.2f}", sector))
             counts["rut_cau_truc"] += 1
         elif vol < 0 and comp < 0.5:
-            groups["ro_ri"].append(
-                (sym, f"vol={vol:+.0%}", sector)
-            )
+            groups["ro_ri"].append((sym, f"vol={vol:+.0%}", sector))
             counts["ro_ri"] += 1
         else:
-            groups["dao_dong"].append(
-                (sym, f"comp={comp:.2f}", sector)
-            )
+            groups["dao_dong"].append((sym, f"comp={comp:.2f}", sector))
             counts["dao_dong"] += 1
 
     # Keep top N per group for display
@@ -222,10 +224,8 @@ def translate_regime(regime: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Báo cáo thị trường tháng")
-    parser.add_argument("--month", default=datetime.now().strftime("%Y-%m"),
-                        help="Tháng báo cáo (YYYY-MM)")
-    parser.add_argument("--lang", choices=["en", "vi"], default="vi",
-                        help="Ngôn ngữ báo cáo")
+    parser.add_argument("--month", default=datetime.now().strftime("%Y-%m"), help="Tháng báo cáo (YYYY-MM)")
+    parser.add_argument("--lang", choices=["en", "vi"], default="vi", help="Ngôn ngữ báo cáo")
     args = parser.parse_args()
 
     month = args.month
@@ -243,6 +243,7 @@ def main():
 
     # Stage 0: Data Integrity Guard
     from src.database.data_integrity import ensure_vnindex_integrity
+
     integrity = ensure_vnindex_integrity()
     if integrity["status"] == "FIXED":
         print(f"  [INDEX] Da sua {integrity['rows_fixed']} dong VNINDEX bi loi scale")
@@ -253,6 +254,7 @@ def main():
     print("[0/7] Cau truc thi truong..." if is_vi else "[0/7] Market structure...")
     try:
         from src.engine.market_structure import analyse_market_structure
+
         structure = analyse_market_structure(lookback=60, top_n=10, verbose=True)
     except Exception as e:
         structure = None
@@ -331,6 +333,7 @@ def main():
     print("[6/7] Phân tích mã dẫn dắt..." if is_vi else "[6/7] Leadership tracker...")
     try:
         from src.engine.leadership_tracker import calculate_leadership
+
         leadership = calculate_leadership(lookback=60, top_n=15)
     except Exception as e:
         leadership = None
@@ -341,6 +344,7 @@ def main():
     print("[7/7] Quét cơ hội thị trường..." if is_vi else "[7/7] Stock discovery scan...")
     try:
         from src.engine.screener import scan_market
+
         screener_results = scan_market(lookback=252, top_n=20)
     except Exception as e:
         screener_results = None
@@ -356,10 +360,10 @@ def main():
             print()
             c = fdm["counts"]
             total = sum(c.values()) or 1
-            print(f"  {c['thu_hut_on_dinh']:3d} ma ({c['thu_hut_on_dinh']/total*100:5.1f}%)  Thuan hut on dinh")
-            print(f"  {c['dao_dong']:3d} ma ({c['dao_dong']/total*100:5.1f}%)  Dao dong")
-            print(f"  {c['ro_ri']:3d} ma ({c['ro_ri']/total*100:5.1f}%)  Ro ri")
-            print(f"  {c['rut_cau_truc']:3d} ma ({c['rut_cau_truc']/total*100:5.1f}%)  Rut cau truc")
+            print(f"  {c['thu_hut_on_dinh']:3d} ma ({c['thu_hut_on_dinh'] / total * 100:5.1f}%)  Thuan hut on dinh")
+            print(f"  {c['dao_dong']:3d} ma ({c['dao_dong'] / total * 100:5.1f}%)  Dao dong")
+            print(f"  {c['ro_ri']:3d} ma ({c['ro_ri'] / total * 100:5.1f}%)  Ro ri")
+            print(f"  {c['rut_cau_truc']:3d} ma ({c['rut_cau_truc'] / total * 100:5.1f}%)  Rut cau truc")
             print()
             for label, key, icon in [
                 ("THU HUT ON DINH", "thu_hut_on_dinh", "  "),
@@ -404,20 +408,20 @@ def main():
             print(f"  Tap trung dan dat: {conc}%")
             print(f"  Thanh khoan BQ 20d: {turnover:,.0f} ty")
             decay = leadership.get("decay_analysis", [])
-            high_risk = [d['symbol'] for d in decay if d['decay_score'] >= 0.5]
-            watch = [d['symbol'] for d in decay if 0.3 <= d['decay_score'] < 0.5]
+            high_risk = [d["symbol"] for d in decay if d["decay_score"] >= 0.5]
+            watch = [d["symbol"] for d in decay if 0.3 <= d["decay_score"] < 0.5]
             if high_risk:
                 print(f"  🔴 Nguy co mat tru: {', '.join(high_risk)}")
             if watch:
                 print(f"  🟡 Can theo doi: {', '.join(watch)}")
         if screener_results is not None:
-            dandat = screener_results.get('dandat')
-            moinoi = screener_results.get('moinoi')
+            dandat = screener_results.get("dandat")
+            moinoi = screener_results.get("moinoi")
             if dandat is not None:
-                top5 = dandat.head(5)['symbol'].tolist()
+                top5 = dandat.head(5)["symbol"].tolist()
                 print(f"  🎯 Dan dat: {', '.join(top5)}")
             if moinoi is not None and not moinoi.empty:
-                top5n = moinoi.head(5)['symbol'].tolist()
+                top5n = moinoi.head(5)["symbol"].tolist()
                 print(f"  🔥 Moi noi: {', '.join(top5n)}")
     else:
         print(f"  {month} SUMMARY")
@@ -432,13 +436,13 @@ def main():
         if leadership:
             print(f"  Leadership concentration: {leadership.get('concentration', 0)}%")
         if screener_results is not None:
-            dandat = screener_results.get('dandat')
-            moinoi = screener_results.get('moinoi')
+            dandat = screener_results.get("dandat")
+            moinoi = screener_results.get("moinoi")
             if dandat is not None:
-                top5 = dandat.head(5)['symbol'].tolist()
+                top5 = dandat.head(5)["symbol"].tolist()
                 print(f"  Top picks: {', '.join(top5)}")
             if moinoi is not None and not moinoi.empty:
-                top5n = moinoi.head(5)['symbol'].tolist()
+                top5n = moinoi.head(5)["symbol"].tolist()
                 print(f"  Rising: {', '.join(top5n)}")
     print("=" * 56)
 

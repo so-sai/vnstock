@@ -25,7 +25,6 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 import pytest
-
 from src.sensors.sensor_validation import (
     SensorSignal,
     compute_profile,

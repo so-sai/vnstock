@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -16,6 +16,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 _hydrate_path()
 
@@ -34,8 +35,7 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import requests
 
@@ -72,44 +72,52 @@ CANDIDATE_REQUESTS: list[dict] = []
 
 for domain, info in SSI_DOMAINS.items():
     for path in info["paths"]:
-        CANDIDATE_REQUESTS.append({
-            "domain": domain,
-            "url": f"{info['base']}{path}",
-            "method": "GET",
-            "headers": {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain, */*"},
-            "body": None,
-        })
-        CANDIDATE_REQUESTS.append({
-            "domain": domain,
-            "url": f"{info['base']}{path}",
-            "method": "POST",
-            "headers": {
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "application/json, text/plain, */*",
-                "Content-Type": "application/json",
-            },
-            "body": json.dumps({"query": "{interbankRates{rate term date}}"}),
-        })
+        CANDIDATE_REQUESTS.append(
+            {
+                "domain": domain,
+                "url": f"{info['base']}{path}",
+                "method": "GET",
+                "headers": {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain, */*"},
+                "body": None,
+            }
+        )
+        CANDIDATE_REQUESTS.append(
+            {
+                "domain": domain,
+                "url": f"{info['base']}{path}",
+                "method": "POST",
+                "headers": {
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept": "application/json, text/plain, */*",
+                    "Content-Type": "application/json",
+                },
+                "body": json.dumps({"query": "{interbankRates{rate term date}}"}),
+            }
+        )
 
 # GraphQL variants
 for path in ["/graphql", "/api/graphql"]:
-    CANDIDATE_REQUESTS.append({
-        "domain": "iboard-query",
-        "url": f"https://iboard-query.ssi.com.vn{path}",
-        "method": "POST",
-        "headers": {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
-        "body": json.dumps({"query": "{__typename}"}),
-    })
+    CANDIDATE_REQUESTS.append(
+        {
+            "domain": "iboard-query",
+            "url": f"https://iboard-query.ssi.com.vn{path}",
+            "method": "POST",
+            "headers": {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+            "body": json.dumps({"query": "{__typename}"}),
+        }
+    )
 
 # gRPC-web variants
 for path in ["/", "/grpc"]:
-    CANDIDATE_REQUESTS.append({
-        "domain": "iboard-query",
-        "url": f"https://iboard-query.ssi.com.vn{path}",
-        "method": "POST",
-        "headers": {"Content-Type": "application/grpc-web-text", "User-Agent": "Mozilla/5.0"},
-        "body": None,
-    })
+    CANDIDATE_REQUESTS.append(
+        {
+            "domain": "iboard-query",
+            "url": f"https://iboard-query.ssi.com.vn{path}",
+            "method": "POST",
+            "headers": {"Content-Type": "application/grpc-web-text", "User-Agent": "Mozilla/5.0"},
+            "body": None,
+        }
+    )
 
 
 def _try_request(req: dict) -> dict:
@@ -160,12 +168,12 @@ def _cache_discovery(results: list[dict], cache_path: Path):
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         existing = {"discovered": [], "failed": []}
         if cache_path.exists():
-            with open(cache_path, "r", encoding="utf-8") as f:
+            with open(cache_path, encoding="utf-8") as f:
                 existing = json.load(f)
         # Merge discovered endpoints
         discovered = [r for r in results if r["status"] < 500 and r["status"] > 0]
         existing["discovered"] = discovered
-        existing["last_probe"] = datetime.now(timezone.utc).isoformat()
+        existing["last_probe"] = datetime.now(UTC).isoformat()
         existing["total_candidates"] = len(results)
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
@@ -178,6 +186,7 @@ def _cache_discovery(results: list[dict], cache_path: Path):
 def _log_to_kit(results: list[dict]):
     """Log probe findings via kit learn (if kit is available)."""
     import subprocess
+
     discovered = [r for r in results if r.get("match")]
     if not discovered:
         # No match — log that probe ran but found nothing
@@ -191,7 +200,9 @@ def _log_to_kit(results: list[dict]):
         try:
             subprocess.run(
                 ["kit", "learn", "--tag", "friction", "--namespace", "ssi_probe", msg],
-                capture_output=True, timeout=5, cwd=Path(__file__).resolve().parent.parent.parent.parent
+                capture_output=True,
+                timeout=5,
+                cwd=Path(__file__).resolve().parent.parent.parent.parent,
             )
         except Exception:
             pass
@@ -199,7 +210,7 @@ def _log_to_kit(results: list[dict]):
 
 def probe_ssi_macro_endpoint(
     max_workers: int = 10,
-    cache_dir: Optional[Path] = None,
+    cache_dir: Path | None = None,
 ) -> list[dict]:
     """Probe SSI iBoard API for macro data endpoints.
 
@@ -226,9 +237,7 @@ def probe_ssi_macro_endpoint(
     return _run_probe(CANDIDATE_REQUESTS, max_workers, cache_dir)
 
 
-def _run_probe(
-    candidates: list[dict], max_workers: int, cache_dir: Path
-) -> list[dict]:
+def _run_probe(candidates: list[dict], max_workers: int, cache_dir: Path) -> list[dict]:
     """Execute all probe requests and cache results."""
     logger.info(f"Bắt đầu probe SSI iBoard ({len(candidates)} candidates)...")
     results = []
@@ -261,13 +270,13 @@ def _run_probe(
 if __name__ == "__main__":
     if sys.platform == "win32":
         if isinstance(sys.stdout, io.TextIOWrapper):
-            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
-                    sys.stdout.reconfigure(encoding='utf-8')
+                    sys.stdout.reconfigure(encoding="utf-8")
                 except Exception:
                     pass
-        elif hasattr(sys.stdout, 'buffer'):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        elif hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     results = probe_ssi_macro_endpoint(background=False)
     print(f"\nProbe complete: {len(results)} candidates, {sum(1 for r in results if r.get('match'))} matches")

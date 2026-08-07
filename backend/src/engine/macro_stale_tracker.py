@@ -1,4 +1,4 @@
-﻿"""
+"""
 macro_stale_tracker.py — Layer 1: Phát hiện & Theo dõi dữ liệu vĩ mô cũ
 
 Kiến trúc:
@@ -17,6 +17,7 @@ Layer 3: Tích hợp vào Confidence Layer & Decision Guard.
 Warm-up:
   Biến TERMINAL quay lại → yêu cầu 5 ngày dữ liệu liên tục trước khi phục hồi weight.
 """
+
 # WHY: Module này tồn tại vì dữ liệu vĩ mô fetch theo chu kỳ ngày/nguồn bên thứ ba có thể
 # chết âm thầm — nếu không phát hiện độ cũ (staleness), Decision Guard vẫn dùng trọng số
 # cũ và đưa quyết định dựa trên dữ liệu hết hạn. Nó nằm tách ở Layer 1 để mọi tầng cao hơn
@@ -65,17 +66,17 @@ MACRO_BASE_WEIGHTS: dict[str, float] = {
 # công bố hàng tuần, nên <7 ngày = NORMAL, tới 30 ngày vẫn còn ý nghĩa (WARNING), trên 60
 # ngày dữ liệu coi như vô dụng (EVICT, bị loại khỏi mọi tính toán).
 # Phân tầng (ngày)
-TIER_NORMAL = 7       # < 7d
-TIER_WARNING = 30     # 7-30d
-TIER_TERMINAL = 60    # 30-60d
+TIER_NORMAL = 7  # < 7d
+TIER_WARNING = 30  # 7-30d
+TIER_TERMINAL = 60  # 30-60d
 # ≥ 60d = EVICT
 
 # WHY: WARMUP_DAYS = 5 — sau khi biến quay lại cần ~1 tuần phiên liên tục để chứng minh
 # nguồn đã ổn định trước khi khôi phục toàn bộ trọng số, tránh tin vào 1-2 ngày dữ liệu lẻ.
 # WEIGHT_CAP = 0.50 — một biến không được chiếm quá nửa tổng, đề phòng normalize bị méo
 # khi phần lớn biến chết chỉ còn lại 1-2 biến sống.
-WARMUP_DAYS = 5       # số ngày liên tục cần để phục hồi
-WEIGHT_CAP = 0.50     # trần trọng số đơn lẻ
+WARMUP_DAYS = 5  # số ngày liên tục cần để phục hồi
+WEIGHT_CAP = 0.50  # trần trọng số đơn lẻ
 FRESH_RATIO_VETO = 0.50
 TERMINAL_RATIO_VETO = 0.50
 
@@ -89,7 +90,7 @@ class StaleTracker:
         weights = state["weights"]  # per-variable final weights
     """
 
-    _instance: "StaleTracker" | None = None
+    _instance: StaleTracker | None = None
 
     def __init__(self, db_path: str | None = None, state_path: str | None = None):
         self.db_path = db_path or ""
@@ -99,7 +100,7 @@ class StaleTracker:
         self._warmup: dict[str, int] = {}
 
     @classmethod
-    def get_instance(cls, db_path: str | None = None, state_path: str | None = None) -> "StaleTracker":
+    def get_instance(cls, db_path: str | None = None, state_path: str | None = None) -> StaleTracker:
         if cls._instance is None:
             cls._instance = cls(db_path=db_path or "", state_path=state_path or "")
         if db_path:
@@ -130,6 +131,7 @@ class StaleTracker:
         self._load_warmup()
 
         import sqlite3
+
         conn = sqlite3.connect(self.db_path)
         today_dt = datetime.strptime(today, "%Y-%m-%d")
 

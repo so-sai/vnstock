@@ -3,8 +3,9 @@ HoldingsView Builder v1.0
 Semantic compression layer — biến exposure metrics thành Vietnamese cognition.
 TUYỆT ĐỐI orthogonal với OpportunityView: không recommendation, không scoring.
 """
-from core.holdings.models import HoldingsView
+
 from core.holdings.exposure_engine import compute_exposure_summary
+from core.holdings.models import HoldingsView
 
 
 def build_holdings_view() -> HoldingsView:
@@ -80,6 +81,7 @@ def build_holdings_view() -> HoldingsView:
 
     # ── Regime alignment ──
     from core.macro.gold_regime_engine import analyze_gold_regime
+
     gold = analyze_gold_regime()
     gold_bias = gold.get("macro_bias", "NEUTRAL")
     if high_beta_w > 50 and gold_bias == "DEFENSIVE":

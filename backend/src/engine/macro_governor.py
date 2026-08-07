@@ -1,4 +1,4 @@
-﻿"""macro_governor.py — Cấp Quyết định Vĩ mô (Macro Governor Gatekeeper)
+"""macro_governor.py — Cấp Quyết định Vĩ mô (Macro Governor Gatekeeper)
 
 Kiến trúc Two-Tier:
   Tier 1 (Macro Governor): DXY, USDVND, OMO, Foreign flows, Gold/Yield
@@ -11,23 +11,22 @@ Usage:
   from src.engine.macro_governor import MacroGovernor
   state = MacroGovernor().assess()
 """
+
 # WHY: Tách Macro Governor thành module riêng (Tier 1) thay vì nhúng vào Decision Guard
 # vì nó đánh giá rủi ro toàn thị trường độc lập với từng cổ phiếu — một lần chạy cho mọi
 # symbol. Gatekeeper chỉ cho phép Tier 2 (micro executor) hoạt động khi confidence >= 50,
 # tránh việc micro layer chạy đơn lẻ trong điều kiện vĩ mô bất ổn.
-import json
 import logging
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -44,7 +43,6 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
-
 from src.database.db_core import get_connection
 
 DATA_DIR = src.config.DATA_DIR
@@ -55,7 +53,7 @@ logger = logging.getLogger("PTCK_SYSTEM")
 # mà không nhiễu quá nhiều; FX_LOOKBACK = 30 ngày cho FXRP là cửa sổ ngắn — premium
 # chỉ phản ánh rủi ro tỷ giá tức thời, không phải xu hướng dài hạn.
 MACRO_LOOKBACK = 120  # Ngày cho phân tích macro
-FX_LOOKBACK = 30     # Ngày cho FX risk premium
+FX_LOOKBACK = 30  # Ngày cho FX risk premium
 
 # WHY: DXY có trọng số cao nhất (0.30) vì sức mạnh USD là kênh truyền dẫn chính đến
 # dòng vốn ngoại và tỷ giá tại thị trường mới nổi; thứ tự trọng số khớp độ trễ và
@@ -99,8 +97,8 @@ class MacroGovernor:
     """
 
     def __init__(self):
-        self.data: Dict[str, pd.DataFrame] = {}
-        self.scores: Dict[str, float] = {}
+        self.data: dict[str, pd.DataFrame] = {}
+        self.scores: dict[str, float] = {}
         self.macro_risk: float = 0.0
         self.fxrp: float = 0.0
         self.state: str = "UNKNOWN"
@@ -117,13 +115,14 @@ class MacroGovernor:
                 """SELECT date, value FROM macro_history
                    WHERE variable = ? AND date >= ?
                    ORDER BY date""",
-                conn, params=[variable, start]
+                conn,
+                params=[variable, start],
             )
         if not df.empty:
             # WHY: Nguồn dữ liệu có thể ghi nhiều dòng cho cùng một ngày (cập nhật lại giá trị),
             # de-dup giữ dòng gần nhất để tránh làm lệch momentum và các phép nội suy phía sau.
             # De-duplicate: giữ unique(date) gần nhất
-            df["date"] = pd.to_datetime(df["date"], format='mixed').dt.strftime("%Y-%m-%d")
+            df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
             df = df.drop_duplicates(subset="date", keep="last").sort_values("date")
             df["value"] = pd.to_numeric(df["value"], errors="coerce")
             df = df.dropna()
@@ -136,13 +135,13 @@ class MacroGovernor:
             row = conn.execute(
                 """SELECT SUM(net_value) FROM market_foreign_history
                    WHERE date >= ? AND net_value IS NOT NULL""",
-                (start,)
+                (start,),
             ).fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0
 
     # --- Sensor Scoring ------------------------------------------------------
 
-    def _score_dxy(self) -> Tuple[float, Dict]:
+    def _score_dxy(self) -> tuple[float, dict]:
         """Điểm rủi ro DXY [0, 1]."""
         df = self._fetch_macro_series("DXY")
         # WHY: Thiếu dữ liệu trả về 0.3 (không phải 0.0) — mặc định thận trọng nhẹ để
@@ -166,9 +165,9 @@ class MacroGovernor:
             if momentum > 0.02:
                 score = min(score + 0.15, 1.0)
 
-        return min(score, 1.0), {"latest": round(latest, 2), "momentum": round(momentum, 4) if 'momentum' in dir() else 0.0}
+        return min(score, 1.0), {"latest": round(latest, 2), "momentum": round(momentum, 4) if "momentum" in dir() else 0.0}
 
-    def _score_usdvnd(self) -> Tuple[float, Dict]:
+    def _score_usdvnd(self) -> tuple[float, dict]:
         """Điểm rủi ro USDVND [0, 1]."""
         df = self._fetch_macro_series("USD_VND")
         if df.empty or len(df) < 5:
@@ -189,9 +188,9 @@ class MacroGovernor:
             if momentum > 0.01:
                 score = min(score + 0.20, 1.0)
 
-        return min(score, 1.0), {"latest": round(latest, 2), "momentum": round(momentum, 4) if 'momentum' in dir() else 0.0}
+        return min(score, 1.0), {"latest": round(latest, 2), "momentum": round(momentum, 4) if "momentum" in dir() else 0.0}
 
-    def _score_foreign_flow(self) -> Tuple[float, Dict]:
+    def _score_foreign_flow(self) -> tuple[float, dict]:
         """Điểm rủi ro dòng vốn ngoại [0, 1]."""
         cum_10d = self._fetch_foreign_flow_accum(days=10)
         cum_3d = self._fetch_foreign_flow_accum(days=3)
@@ -215,7 +214,7 @@ class MacroGovernor:
 
         return min(score, 1.0), {"cum_10d_bn": round(cum_10d, 1), "cum_3d_bn": round(cum_3d, 1)}
 
-    def _score_omo(self) -> Tuple[float, Dict]:
+    def _score_omo(self) -> tuple[float, dict]:
         """Điểm rủi ro OMO [0, 1]."""
         df_on = self._fetch_macro_series("INTERBANK_ON")
         df_yield = self._fetch_macro_series("VGB10Y")
@@ -256,7 +255,7 @@ class MacroGovernor:
 
         return min(score, 1.0), details
 
-    def _score_gold_yield(self) -> Tuple[float, Dict]:
+    def _score_gold_yield(self) -> tuple[float, dict]:
         """Điểm rủi ro Gold/Yield divergence [0, 1] — capital flight proxy."""
         df_gold = self._fetch_macro_series("GOLD_XAU")
         df_yield = self._fetch_macro_series("US_REAL_YIELD")
@@ -273,7 +272,7 @@ class MacroGovernor:
                 score += 0.5
 
         if not df_yield.empty and len(df_yield) >= 10:
-            yield_chg = (df_yield["value"].iloc[-1] - df_yield["value"].iloc[-10])
+            yield_chg = df_yield["value"].iloc[-1] - df_yield["value"].iloc[-10]
             details["real_yield_10d_chg"] = round(yield_chg, 4)
             if yield_chg < 0:
                 score += 0.5  # Yield declining = risk
@@ -282,7 +281,7 @@ class MacroGovernor:
 
     # --- FX Risk Premium -----------------------------------------------------
 
-    def _compute_fxrp(self) -> Tuple[float, Dict]:
+    def _compute_fxrp(self) -> tuple[float, dict]:
         """FX Risk Premium — Phần bù rủi ro tỷ giá.
 
         FXRP = (USDVND_deviation) x (DXY_momentum / DXY_vol)
@@ -319,17 +318,19 @@ class MacroGovernor:
         # lệch PPP cực lớn nhân momentum cực lớn làm macro_risk phi tuyến mất kiểm soát.
         fxrp = float(np.clip(fxrp_raw, 0.0, 0.50))  # Clamp 0-50%
 
-        details.update({
-            "usdvnd_ppp_90d": round(ppp_90d, 0),
-            "usdvnd_deviation_pct": round(deviation * 100, 2),
-            "dxy_component": round(dxy_component, 4),
-            "fxrp_raw": round(fxrp_raw, 4),
-        })
+        details.update(
+            {
+                "usdvnd_ppp_90d": round(ppp_90d, 0),
+                "usdvnd_deviation_pct": round(deviation * 100, 2),
+                "dxy_component": round(dxy_component, 4),
+                "fxrp_raw": round(fxrp_raw, 4),
+            }
+        )
         return fxrp, details
 
     # --- Main Assessment -----------------------------------------------------
 
-    def assess(self) -> Dict:
+    def assess(self) -> dict:
         """Đánh giá Macro Governor toàn diện."""
         dxy_score, dxy_d = self._score_dxy()
         usdvnd_score, usdvnd_d = self._score_usdvnd()
@@ -340,11 +341,7 @@ class MacroGovernor:
 
         # Macro risk composite
         macro_risk = (
-            W_DXY * dxy_score +
-            W_USDVND * usdvnd_score +
-            W_FOREIGN * foreign_score +
-            W_OMO * omo_score +
-            W_GOLD * gold_score
+            W_DXY * dxy_score + W_USDVND * usdvnd_score + W_FOREIGN * foreign_score + W_OMO * omo_score + W_GOLD * gold_score
         )
         macro_risk = np.clip(macro_risk, 0.0, 1.0)
 
@@ -386,6 +383,7 @@ class MacroGovernor:
         # SEL — Structural Evolution Layer (Tier 1.5)
         try:
             from src.engine.structure_evolution import StructureEvolutionLayer
+
             self.sel_result = StructureEvolutionLayer().assess()
             sel_hdr = self.sel_result.get("hdr_limit")
             sel_state = self.sel_result.get("state")
@@ -406,8 +404,7 @@ class MacroGovernor:
                     self.hdr_override = sel_hdr
                     self.state = f"SEL_SHIFT_{self.state}"
                     logger.info(
-                        f"[MACRO_GOV] SEL structural shift — W1={self.sel_result['w1']:.4f}. "
-                        f"HDR override={sel_hdr:.2f}"
+                        f"[MACRO_GOV] SEL structural shift — W1={self.sel_result['w1']:.4f}. HDR override={sel_hdr:.2f}"
                     )
         except Exception as e:
             logger.warning(f"[MACRO_GOV] SEL assessment failed: {e}")
@@ -430,43 +427,62 @@ class MacroGovernor:
             },
             "fx_risk_premium_details": fxrp_d,
             "weights": {
-                "dxy": W_DXY, "usdvnd": W_USDVND,
-                "foreign_flow": W_FOREIGN, "omo": W_OMO, "gold_yield": W_GOLD,
+                "dxy": W_DXY,
+                "usdvnd": W_USDVND,
+                "foreign_flow": W_FOREIGN,
+                "omo": W_OMO,
+                "gold_yield": W_GOLD,
             },
             "structure_evolution": {
-                "w1": self.sel_result.get("w1", 0) if hasattr(self, 'sel_result') else 0,
-                "sel_state": self.sel_result.get("state", "UNKNOWN") if hasattr(self, 'sel_result') else "UNKNOWN",
-                "best_match": self.sel_result.get("best_match_regime", "N/A") if hasattr(self, 'sel_result') else "N/A",
-                "theta_novelty": self.sel_result.get("theta_novelty", 0) if hasattr(self, 'sel_result') else 0,
-                "survival_active": self.sel_result.get("survival", {}).get("active", False) if hasattr(self, 'sel_result') else False,
+                "w1": self.sel_result.get("w1", 0) if hasattr(self, "sel_result") else 0,
+                "sel_state": self.sel_result.get("state", "UNKNOWN") if hasattr(self, "sel_result") else "UNKNOWN",
+                "best_match": self.sel_result.get("best_match_regime", "N/A") if hasattr(self, "sel_result") else "N/A",
+                "theta_novelty": self.sel_result.get("theta_novelty", 0) if hasattr(self, "sel_result") else 0,
+                "survival_active": self.sel_result.get("survival", {}).get("active", False)
+                if hasattr(self, "sel_result")
+                else False,
             },
         }
         from src.utils.localization import log_structured
-        log_structured(logger, "MACRO_GOV", state, {
-            "macro_risk": round(adj_macro_risk, 4),
-            "confidence": round(confidence, 2),
-            "fxrp": round(fxrp, 4),
-            "hdr_override": hdr_override,
-            "sensors": {k: round(v, 4) for k, v in [
-                ("dxy", dxy_score), ("usdvnd", usdvnd_score),
-                ("foreign", foreign_score), ("omo", omo_score),
-                ("gold", gold_score)]},
-        })
+
+        log_structured(
+            logger,
+            "MACRO_GOV",
+            state,
+            {
+                "macro_risk": round(adj_macro_risk, 4),
+                "confidence": round(confidence, 2),
+                "fxrp": round(fxrp, 4),
+                "hdr_override": hdr_override,
+                "sensors": {
+                    k: round(v, 4)
+                    for k, v in [
+                        ("dxy", dxy_score),
+                        ("usdvnd", usdvnd_score),
+                        ("foreign", foreign_score),
+                        ("omo", omo_score),
+                        ("gold", gold_score),
+                    ]
+                },
+            },
+        )
         return result
 
     @staticmethod
-    def assess_global() -> Dict:
+    def assess_global() -> dict:
         """Static wrapper để gọi trực tiếp."""
         return MacroGovernor().assess()
 
     @staticmethod
-    def print_report(result: Dict, lang: str = "vi"):
+    def print_report(result: dict, lang: str = "vi"):
         """In báo cáo Macro Governor CLI."""
-        from src.utils.localization import translate, localize_state
+        from src.utils.localization import localize_state, translate
 
-        t = lambda key: translate(key, lang)
-        hdr_str = f"{t('locked')} (HDR={result['hdr_override']:.2f})" if result['hdr_override'] else t('open')
-        state_vi = localize_state(result['state'], lang)
+        def t(key):
+            return translate(key, lang)
+
+        hdr_str = f"{t('locked')} (HDR={result['hdr_override']:.2f})" if result["hdr_override"] else t("open")
+        state_vi = localize_state(result["state"], lang)
 
         print(f"\n{'=' * 65}")
         print(f"  MACRO GOVERNOR GATEKEEPER — {t('tier1_gov')}")
@@ -476,13 +492,13 @@ class MacroGovernor:
         print(f"  {t('governor_conf'):20s}: {result['confidence']:.1f}%")
         print(f"  {t('hdr_global'):20s}: {hdr_str}")
         print(f"  {t('fx_risk_premium'):20s}: {result['fx_risk_premium']:.4f}")
-        print(f"\n  -- Sensors --")
+        print("\n  -- Sensors --")
         for name, s in result["sensors"].items():
             print(f"  {name:15s}: risk={s['score']:.4f}  {s['details']}")
-        print(f"\n  -- FXRP Details --")
+        print("\n  -- FXRP Details --")
         for k, v in result.get("fx_risk_premium_details", {}).items():
             print(f"  {k:30s}: {v}")
-        print(f"\n  -- Weights --")
+        print("\n  -- Weights --")
         for k, v in result["weights"].items():
             print(f"  {k:15s}: {v}")
         print(f"{'=' * 65}")

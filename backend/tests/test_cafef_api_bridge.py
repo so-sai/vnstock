@@ -307,3 +307,54 @@ class TestZeroHallucinationLock:
         assert "data_source" in src
         assert "data_is_synthetic" in src
         assert "is_synthetic=data_is_synthetic" in src
+
+
+# ============================================================
+# Entity registry — crawl không được overwrite SECURITIES/INSURANCE
+# ============================================================
+class TestCrawlPreservesRegistry:
+    """crawl_symbol với registry đã audit (SECURITIES/INSURANCE) không được ghi đè.
+
+    WHY (regression 2026-08-07): điều kiện `detected_type not in ("STANDARD","BANK")`
+    từng overwrite SECURITIES/INSURANCE thành STANDARD rồi register_entity
+    (INSERT OR REPLACE) xoá sạch nhãn đã audit — SSI/BVH bị hạ xuống STANDARD,
+    mất FVTPL/AFS/MARGIN_LOANS/NET_PREMIUM khỏi branch ratios đặc thù.
+    """
+
+    def test_get_entity_type_not_overwritten_when_unknown(self, monkeypatch):
+        """detected_type đã là SECURITIES/INSURANCE → giữ nguyên, không register lại."""
+
+        class FakeDB:
+            def __init__(self):
+                self.regs = []
+
+            def register_entity(self, symbol, entity_type):
+                self.regs.append((symbol, entity_type))
+
+            def get_entity_type(self, symbol):
+                return "SECURITIES"
+
+            def write_batch(self, *a, **k):
+                return {"status": "SUCCESS", "facts_written": 0}
+
+        db = FakeDB()
+        c = CafeFCrawler(db=db, delay=0)
+        for m in [
+            "fetch_vci_bridge",
+            "fetch_vndirect_api",
+            "fetch_tcbs_api",
+            "fetch_cafef_bank_api",
+            "fetch_note_indicator",
+            "fetch_vietstock_api",
+            "fetch_cafef_cashflow",
+            "fetch_quarter",
+        ]:
+            monkeypatch.setattr(c, m, lambda *a, **k: None if m != "fetch_quarter" else {})
+        c.crawl_symbol("SSI", source="vci")
+        assert db.regs == [], f"không được gọi register_entity, thay vì {db.regs}"
+
+    def test_crawl_code_never_overwrites_unknown_type(self):
+        """Source code không còn nhánh overwrite detected_type sang STANDARD/BANK."""
+        src = (BACKEND / "src" / "financial" / "cafef_crawler.py").read_text(encoding="utf-8-sig")
+        assert 'detected_type not in ("STANDARD", "BANK")' not in src
+        assert "if not detected_type:" in src

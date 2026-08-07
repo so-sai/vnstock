@@ -13,14 +13,15 @@ Bổ sung v1.2: get_premium_driver() — phân tích nguyên nhân premium thay 
     contribution[v] = premium(all_current) - premium(v=baseline, others=current)
     dominant_driver = variable có |contribution| lớn nhất
 """
-import sys
+
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent
@@ -37,16 +38,18 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 _LIBS = str(Path(PROJECT_ROOT) / "backend" / "libs")
 if _LIBS not in sys.path:
     sys.path.insert(0, _LIBS)
 
 import pandas as pd
+from canonical import CanonicalAssetRegistry
+
 from src.database.db_core import get_connection
 from src.services.macro.gold_service import get_gold_dashboard
 from src.services.macro.gold_world_service import fetch_world_gold_live
-from canonical import CanonicalAssetRegistry
 
 _CANON = CanonicalAssetRegistry()
 
@@ -187,9 +190,9 @@ def _vi_display(result: dict) -> dict:
 
     return {
         "chenh_lech_hien_tai": f"{pct:+.2f}%",
-        "chenh_lech_trieu_dong": f"{vnd/1e6:+.1f} trieu/luong",
-        "gia_vang_trong_nuoc": f"{sjc/1e6:,.1f} trieu/luong",
-        "gia_vang_the_gioi_quy_doi": f"{xau_vnd/1e6:,.1f} trieu/luong",
+        "chenh_lech_trieu_dong": f"{vnd / 1e6:+.1f} trieu/luong",
+        "gia_vang_trong_nuoc": f"{sjc / 1e6:,.1f} trieu/luong",
+        "gia_vang_the_gioi_quy_doi": f"{xau_vnd / 1e6:,.1f} trieu/luong",
         "trang_thai": REGIME_LABELS.get(regime, regime),
         "mau": severity["color"],
         "muc_do": severity["level"],
@@ -247,7 +250,8 @@ def get_premium_driver(lookback_days: int = 5) -> dict:
             with get_connection() as conn:
                 dates = pd.read_sql(
                     "SELECT DISTINCT date FROM macro_history WHERE variable = 'GOLD_XAU' ORDER BY date DESC LIMIT ?",
-                    conn, params=(lookback_days + 5,)
+                    conn,
+                    params=(lookback_days + 5,),
                 )
                 if len(dates) > lookback_days:
                     base_date = dates.iloc[lookback_days]["date"]
@@ -264,7 +268,8 @@ def get_premium_driver(lookback_days: int = 5) -> dict:
             with get_connection() as conn:
                 df = pd.read_sql(
                     "SELECT variable, value FROM macro_history WHERE date = ? AND variable IN ('GOLD_XAU', 'USD_VND')",
-                    conn, params=(base_date,)
+                    conn,
+                    params=(base_date,),
                 )
                 for _, row in df.iterrows():
                     if row["variable"] == "GOLD_XAU":

@@ -1,9 +1,10 @@
-﻿"""v1_screener.py — Batch screener API với Reference-based Localization.
+"""v1_screener.py — Batch screener API với Reference-based Localization.
 
 Tuân thủ:
   - NormalizedPayload pattern: localizations tách biệt, data dùng *ref.
   - Generic Pydantic model (BilingualRef, LocalizationDict).
 """
+
 import sys
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -30,7 +31,9 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.core.bilingual_schema import (
-    SIGNAL_V1_CLASSES, NormalizedPayload, build_normalized_payload,
+    SIGNAL_V1_CLASSES,
+    NormalizedPayload,
+    build_normalized_payload,
 )
 
 router = APIRouter()

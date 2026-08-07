@@ -1,15 +1,15 @@
-﻿"""Shadow CAO Logger — captures decision snapshots at decision time (REAL data only)."""
+"""Shadow CAO Logger — captures decision snapshots at decision time (REAL data only)."""
+
 import json
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -22,6 +22,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.shadow_cao.ablation import run_decision_ablation
@@ -41,11 +42,11 @@ def log_decision(
     confidence: float,
     engine_scores: dict,
     decision_weights: dict,
-    market_regime: Optional[str] = None,
+    market_regime: str | None = None,
     regime_score: float = 0.0,
     vnindex_level: float = 0.0,
     run_ablations: bool = True,
-) -> Optional[ShadowDecisionLog]:
+) -> ShadowDecisionLog | None:
     """Capture a decision into Shadow CAO (REAL data only, no synthetic outcomes).
 
     Called from the telemetry recorder after a decision is saved.
@@ -91,7 +92,7 @@ def run_pipeline_ablations(entry: ShadowDecisionLog):
         save_ablation_result(result, entry.decision_id)
 
 
-def record_from_snapshot(snapshot: dict) -> Optional[ShadowDecisionLog]:
+def record_from_snapshot(snapshot: dict) -> ShadowDecisionLog | None:
     """Convenience wrapper: ingest from telemetry snapshot dict."""
     raw_scores = snapshot.get("engine_scores")
     engine_scores = {}
@@ -99,7 +100,7 @@ def record_from_snapshot(snapshot: dict) -> Optional[ShadowDecisionLog]:
         if isinstance(raw_scores, str):
             try:
                 engine_scores = json.loads(raw_scores)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
         elif isinstance(raw_scores, dict):
             engine_scores = raw_scores
@@ -109,7 +110,7 @@ def record_from_snapshot(snapshot: dict) -> Optional[ShadowDecisionLog]:
         if isinstance(raw_weights, str):
             try:
                 decision_weights = json.loads(raw_weights)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
         elif isinstance(raw_weights, dict):
             decision_weights = raw_weights

@@ -15,23 +15,18 @@ Usage:
     print_counterfactual_report(report)
 """
 
-import math
-import sys
-from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 # Reuse Bayesian internals from Governor v2
 from src.governor.company_state import (
-    BayesianGovernor, BayesianMandate,
-    EVIDENCE_WEIGHTS,
+    BayesianGovernor,
+    BayesianMandate,
+    compute_expected_utilities,
     compute_gain_probability,
-    compute_expected_utilities, pick_best_action,
-    kelly_allocation, ACTION_VN,
+    kelly_allocation,
+    pick_best_action,
 )
-
 
 # ── Best / Worst values for each evidence node ──────────────
 # v2: includes capital_allocation (Giai đoạn 4)
@@ -91,10 +86,12 @@ SCENARIOS = {
     "BEST_COMPANY": {
         "label": "Doanh nghiệp hoàn hảo",
         "desc": "HQC + ULTRA_CHEAP + IN_VA_DEMAND + VALUE_CREATOR",
-        "overrides": {"health": "HIGH_QUALITY_COMPOUNDER",
-                      "valuation": "ULTRA_CHEAP",
-                      "behavior": "IN_VA_DEMAND",
-                      "capital_allocation": "VALUE_CREATOR"},
+        "overrides": {
+            "health": "HIGH_QUALITY_COMPOUNDER",
+            "valuation": "ULTRA_CHEAP",
+            "behavior": "IN_VA_DEMAND",
+            "capital_allocation": "VALUE_CREATOR",
+        },
     },
     "OPTIMISTIC": {
         "label": "Lạc quan toàn phần",
@@ -112,6 +109,7 @@ SCENARIOS = {
 @dataclass
 class CounterfactualResult:
     """Counterfactual for one symbol under one scenario."""
+
     symbol: str
     scenario: str
     scenario_label: str
@@ -122,13 +120,14 @@ class CounterfactualResult:
     cf_action: str
     baseline_alloc: float
     cf_alloc: float
-    cf_eu_list: List[Tuple[str, float]]
-    overrides: Dict[str, str]
+    cf_eu_list: list[tuple[str, float]]
+    overrides: dict[str, str]
 
 
 @dataclass
 class LeveragePoint:
     """Which evidence node has most influence on P(Gain) for this symbol."""
+
     symbol: str
     node: str
     baseline_value: str
@@ -143,7 +142,7 @@ class CounterfactualEngine:
     def __init__(self):
         self.gov = BayesianGovernor()
 
-    def _get_baseline_params(self, symbol: str) -> Tuple[dict, BayesianMandate]:
+    def _get_baseline_params(self, symbol: str) -> tuple[dict, BayesianMandate]:
         """Run Governor v2 assess() and extract full parameter set.
 
         Returns:
@@ -166,7 +165,7 @@ class CounterfactualEngine:
         }
         return params, mandate
 
-    def _compute_cf(self, baseline_params: dict, overrides: dict) -> Tuple[float, str, float, list]:
+    def _compute_cf(self, baseline_params: dict, overrides: dict) -> tuple[float, str, float, list]:
         """Recompute P(Gain), action, alloc under overridden evidence.
 
         Uses ALL 11 parameters of compute_gain_probability() — exactly
@@ -204,7 +203,7 @@ class CounterfactualEngine:
             alloc = -min(alloc, 10.0)
         return p_gain, action, alloc, eu_list
 
-    def analyze_one(self, symbol: str) -> Tuple[dict, List[CounterfactualResult], List[LeveragePoint]]:
+    def analyze_one(self, symbol: str) -> tuple[dict, list[CounterfactualResult], list[LeveragePoint]]:
         """Return (baseline_params, cf_results, leverage_points) for one symbol.
 
         Baseline P(Gain) sourced directly from Governor v2 assess().
@@ -217,20 +216,22 @@ class CounterfactualEngine:
         cf_results = []
         for key, sc in SCENARIOS.items():
             p_cf, act_cf, alloc_cf, eu_cf = self._compute_cf(params, sc["overrides"])
-            cf_results.append(CounterfactualResult(
-                symbol=symbol,
-                scenario=key,
-                scenario_label=sc["label"],
-                baseline_p_gain=round(p_base, 4),
-                cf_p_gain=round(p_cf, 4),
-                delta=round(p_cf - p_base, 4),
-                baseline_action=act_base,
-                cf_action=act_cf,
-                baseline_alloc=round(alloc_base, 1),
-                cf_alloc=round(alloc_cf, 1),
-                cf_eu_list=eu_cf,
-                overrides=sc["overrides"],
-            ))
+            cf_results.append(
+                CounterfactualResult(
+                    symbol=symbol,
+                    scenario=key,
+                    scenario_label=sc["label"],
+                    baseline_p_gain=round(p_base, 4),
+                    cf_p_gain=round(p_cf, 4),
+                    delta=round(p_cf - p_base, 4),
+                    baseline_action=act_base,
+                    cf_action=act_cf,
+                    baseline_alloc=round(alloc_base, 1),
+                    cf_alloc=round(alloc_cf, 1),
+                    cf_eu_list=eu_cf,
+                    overrides=sc["overrides"],
+                )
+            )
 
         # Leverage: flip each node individually to its best value
         leverage = []
@@ -239,19 +240,21 @@ class CounterfactualEngine:
             p_best, _, _, _ = self._compute_cf(params, ov)
 
             baseline_val = params.get(EVIDENCE_PARAM_MAP.get(key), "?")
-            leverage.append(LeveragePoint(
-                symbol=symbol,
-                node=key,
-                baseline_value=str(baseline_val),
-                best_value=best_val,
-                p_gain_at_best=round(p_best, 4),
-                delta=round(p_best - p_base, 4),
-            ))
+            leverage.append(
+                LeveragePoint(
+                    symbol=symbol,
+                    node=key,
+                    baseline_value=str(baseline_val),
+                    best_value=best_val,
+                    p_gain_at_best=round(p_best, 4),
+                    delta=round(p_best - p_base, 4),
+                )
+            )
         leverage.sort(key=lambda x: abs(x.delta), reverse=True)
 
         return params, cf_results, leverage
 
-    def analyze(self, symbols: List[str]) -> dict:
+    def analyze(self, symbols: list[str]) -> dict:
         results = {}
         for sym in symbols:
             params, cf, lev = self.analyze_one(sym)
@@ -270,59 +273,70 @@ class CounterfactualEngine:
 # REPORTING
 # ═══════════════════════════════════════════════════════════════
 
+
 def print_counterfactual_report(analysis: dict, lang_mode: str = "full"):
     """In báo cáo counterfactual (song ngữ)."""
     try:
         from src.core.canonical_output_adapter import localize_label
     except Exception:
-        def localize_label(l, m="full"): return l
-    _ = lambda x: localize_label(x, lang_mode)
 
-    print(f"\n  {'='*80}")
+        def localize_label(label, m="full"):
+            return label
+
+    def _(x):
+        return localize_label(x, lang_mode)
+
+    print(f"\n  {'=' * 80}")
     print(f"  P5 {_('Counterfactual')} {_('Reasoning')} v2 — '{analysis['date']}'")
-    print(f"  {'='*80}")
+    print(f"  {'=' * 80}")
 
     for sym, info in sorted(analysis["results"].items()):
         params = info["params"]
-        print(f"\n  {'─'*80}")
+        print(f"\n  {'─' * 80}")
         print(f"  📍 {sym}")
-        print(f"  {'─'*80}")
+        print(f"  {'─' * 80}")
 
         # Baseline (v2 fields)
         cf0 = info["counterfactuals"][0]
-        print(f"  {_('Baseline')}:        P(Gain)={cf0.baseline_p_gain:.1%}  "
-              f"Action={cf0.baseline_action}  Alloc={cf0.baseline_alloc:+.1f}%")
-        print(f"  {_('Macro')}:           {params['macro_state']} | {_('Transmission')}: {params['transmission_phase']} | "
-              f"{_('Sector')}: {params['sector_phase']}")
-        print(f"  {_('Health')}:          {params['health_archetype']} | "
-              f"{_('Valuation')}: {params['valuation_zone']} | {_('Behavior')}: {params['behavior_position']}")
-        print(f"  {_('Cap.Alloc')}:       {params['capital_allocation']} | "
-              f"{_('Prior')}: {params['archetype_prior_key']} | "
-              f"{_('Macro LR')}: {params.get('lr_macro_override', 0):.3f}")
+        print(
+            f"  {_('Baseline')}:        P(Gain)={cf0.baseline_p_gain:.1%}  "
+            f"Action={cf0.baseline_action}  Alloc={cf0.baseline_alloc:+.1f}%"
+        )
+        print(
+            f"  {_('Macro')}:           {params['macro_state']} | {_('Transmission')}: {params['transmission_phase']} | "
+            f"{_('Sector')}: {params['sector_phase']}"
+        )
+        print(
+            f"  {_('Health')}:          {params['health_archetype']} | "
+            f"{_('Valuation')}: {params['valuation_zone']} | {_('Behavior')}: {params['behavior_position']}"
+        )
+        print(
+            f"  {_('Cap.Alloc')}:       {params['capital_allocation']} | "
+            f"{_('Prior')}: {params['archetype_prior_key']} | "
+            f"{_('Macro LR')}: {params.get('lr_macro_override', 0):.3f}"
+        )
 
         # Counterfactual scenarios
         print(f"\n  {'▶ ' + _('Scenario') + ' (' + _('Counterfactual') + ')':─<64}")
         print(f"  {_('Scenario'):<26} {'P(Gain)':>8} {'Δ':>7} {_('Action'):<12} {'Alloc':>7}")
-        print(f"  {'─'*64}")
+        print(f"  {'─' * 64}")
         for cf in info["counterfactuals"]:
             delta_s = f"+{cf.delta:.1%}" if cf.delta >= 0 else f"{cf.delta:.1%}"
-            print(f"  {cf.scenario_label:<26} {cf.cf_p_gain:>7.1%} {delta_s:>7} "
-                  f"{cf.cf_action:<12} {cf.cf_alloc:>+6.1f}%")
+            print(f"  {cf.scenario_label:<26} {cf.cf_p_gain:>7.1%} {delta_s:>7} {cf.cf_action:<12} {cf.cf_alloc:>+6.1f}%")
 
         # Leverage ranking (v2: includes capital_allocation)
         print(f"\n  {'▶ ' + _('Leverage') + ' (flip từng nút lên best)':─<64}")
         print(f"  {_('Node'):<16} {_('Current'):<18} {'→ Best':<18} {'P(Best)':>8} {'Δ':>7}")
-        print(f"  {'─'*64}")
+        print(f"  {'─' * 64}")
         for lp in info["leverage"]:
             delta_s = f"+{lp.delta:.1%}" if lp.delta >= 0 else f"{lp.delta:.1%}"
-            print(f"  {lp.node:<16} {lp.baseline_value:<18} {lp.best_value:<18} "
-                  f"{lp.p_gain_at_best:>7.1%} {delta_s:>7}")
+            print(f"  {lp.node:<16} {lp.baseline_value:<18} {lp.best_value:<18} {lp.p_gain_at_best:>7.1%} {delta_s:>7}")
 
     # Summary: which scenario liberates most capital
-    print(f"\n  {'='*80}")
+    print(f"\n  {'=' * 80}")
     print(f"  {_('LEVERAGE SUMMARY')}")
-    print(f"  {'='*80}")
-    scenario_deltas: Dict[str, List[float]] = {}
+    print(f"  {'=' * 80}")
+    scenario_deltas: dict[str, list[float]] = {}
     for info in analysis["results"].values():
         for cf in info["counterfactuals"]:
             scenario_deltas.setdefault(cf.scenario, []).append(cf.delta)
@@ -334,11 +348,25 @@ def print_counterfactual_report(analysis: dict, lang_mode: str = "full"):
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="P5 Counterfactual Reasoning — 'What if?' simulation")
-    parser.add_argument("--symbols", nargs="+", default=[
-        "FPT", "ACB", "HDB", "MBB", "VCB",
-        "HPG", "VHM", "DGC", "MWG", "GAS",
-    ], help="Danh sách mã")
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=[
+            "FPT",
+            "ACB",
+            "HDB",
+            "MBB",
+            "VCB",
+            "HPG",
+            "VHM",
+            "DGC",
+            "MWG",
+            "GAS",
+        ],
+        help="Danh sách mã",
+    )
     args = parser.parse_args()
 
     engine = CounterfactualEngine()

@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta
-from typing import Literal, Optional
+from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 RegimeEventType = Literal["ACCUMULATION", "EXPANSION", "DISTRIBUTION", "CRISIS", "RECOVERY"]
@@ -17,17 +18,17 @@ class RegimeEvent(BaseModel):
 
 
 class EvaluationWindowRule(BaseModel):
-    tolerance_days: int = Field(default=TOLERANCE_DEFAULT, ge=0, le=20,
-                                description="Max days a TTL detection can deviate from ground truth")
-    require_type_match: bool = Field(default=True,
-                                     description="Whether TTL transition type must match event type")
-    grace_period_days: int = Field(default=2, ge=0,
-                                   description="Days after start before expecting detection")
+    tolerance_days: int = Field(
+        default=TOLERANCE_DEFAULT, ge=0, le=20, description="Max days a TTL detection can deviate from ground truth"
+    )
+    require_type_match: bool = Field(default=True, description="Whether TTL transition type must match event type")
+    grace_period_days: int = Field(default=2, ge=0, description="Days after start before expecting detection")
 
 
 class MemoryIsolationRule(BaseModel):
-    reset_modules: list[str] = Field(default_factory=lambda: list(MEMORY_ISOLATION_KEYS),
-                                     description="Module-level globals to reset per run")
+    reset_modules: list[str] = Field(
+        default_factory=lambda: list(MEMORY_ISOLATION_KEYS), description="Module-level globals to reset per run"
+    )
     clear_dpl_on_start: bool = Field(default=True, description="Clear DPL history each run")
     clear_ttl_on_start: bool = Field(default=True, description="Clear TTL history each run")
 
@@ -47,49 +48,57 @@ def _default_regime_events_2023_2026() -> list[RegimeEvent]:
     return [
         RegimeEvent(
             name="2023_Q1_ACCUMULATION",
-            start="2023-01-01", end="2023-03-31",
+            start="2023-01-01",
+            end="2023-03-31",
             event_type="ACCUMULATION",
             description="VNINDEX tích lũy đáy sau 2022 crash",
         ),
         RegimeEvent(
             name="2023_Q2_RECOVERY",
-            start="2023-04-01", end="2023-06-30",
+            start="2023-04-01",
+            end="2023-06-30",
             event_type="RECOVERY",
             description="Phục hồi từ vùng đáy, breadth cải thiện dần",
         ),
         RegimeEvent(
             name="2023_H2_EXPANSION",
-            start="2023-07-01", end="2023-12-31",
+            start="2023-07-01",
+            end="2023-12-31",
             event_type="EXPANSION",
             description="Dòng tiền lan tỏa, VNINDEX trending up",
         ),
         RegimeEvent(
             name="2024_H1_DISTRIBUTION",
-            start="2024-01-01", end="2024-06-30",
+            start="2024-01-01",
+            end="2024-06-30",
             event_type="DISTRIBUTION",
             description="Phân phối đỉnh, breadth divergence, flow yếu dần",
         ),
         RegimeEvent(
             name="2024_H2_ACCUMULATION",
-            start="2024-07-01", end="2024-12-31",
+            start="2024-07-01",
+            end="2024-12-31",
             event_type="ACCUMULATION",
             description="Tích lũy lại, chờ catalyst mới",
         ),
         RegimeEvent(
             name="2025_H1_EXPANSION",
-            start="2025-01-01", end="2025-06-30",
+            start="2025-01-01",
+            end="2025-06-30",
             event_type="EXPANSION",
             description="Tăng trưởng trở lại, flow mạnh",
         ),
         RegimeEvent(
             name="2025_H2_CRISIS",
-            start="2025-07-01", end="2025-12-31",
+            start="2025-07-01",
+            end="2025-12-31",
             event_type="CRISIS",
             description="Khủng hoảng/correction mạnh",
         ),
         RegimeEvent(
             name="2026_Q1_RECOVERY",
-            start="2026-01-01", end="2026-03-31",
+            start="2026-01-01",
+            end="2026-03-31",
             event_type="RECOVERY",
             description="Phục hồi từ đáy 2025",
         ),
@@ -114,7 +123,7 @@ def default_contract() -> BacktestContract:
     )
 
 
-def get_event_by_name(contract: BacktestContract, name: str) -> Optional[RegimeEvent]:
+def get_event_by_name(contract: BacktestContract, name: str) -> RegimeEvent | None:
     for e in contract.regime_events:
         if e.name == name:
             return e

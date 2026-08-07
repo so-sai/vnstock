@@ -19,7 +19,6 @@ WHY:
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -77,7 +76,7 @@ class CompositeScoreResult:
 class CompositeScoreProjector:
     """Projector mapping BayesianMandate to a 0–100 Composite Score."""
 
-    def __init__(self, policy: Optional[ExecutionPolicy] = None):
+    def __init__(self, policy: ExecutionPolicy | None = None):
         self.policy = policy or POLICIES["BALANCED"]
 
     def project(self, mandate: object) -> CompositeScoreResult:
@@ -204,13 +203,13 @@ class CompositeScoreProjector:
             recommendation=recommendation,
         )
 
-    def project_batch(self, mandates: List) -> List[CompositeScoreResult]:
+    def project_batch(self, mandates: list) -> list[CompositeScoreResult]:
         """Project a list of mandates and return sorted descending by final_score."""
         results = [self.project(m) for m in mandates]
         return sorted(results, key=lambda r: r.final_score, reverse=True)
 
 
-def print_composite_dashboard(results: List[CompositeScoreResult], policy_name: str = "BALANCED") -> None:
+def print_composite_dashboard(results: list[CompositeScoreResult], policy_name: str = "BALANCED") -> None:
     """Print clean 0–100 Composite Score Dashboard for CLI in Parallel Bilingual (Việt - Anh) format."""
     from src.utils.cli_theme import c_cyan, c_dim, c_green, c_red, c_yellow
 

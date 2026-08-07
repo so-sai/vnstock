@@ -1,4 +1,4 @@
-﻿"""
+"""
 cognitive_drift_layer.py — Drift UI Layer (100% Vietnamese)
 
 Sits on top of engine/drift_prevention.py (kernel, English).
@@ -22,15 +22,13 @@ Usage:
     # }
 """
 
-from typing import Optional
-
 from backend.src.core.cognitive_schema import drift_to_vi
 from backend.src.engine.drift_prevention import assess_drift
 
 
 def assess_drift_vi(
     snapshot: dict,
-    prev_ets: Optional[float] = None,
+    prev_ets: float | None = None,
 ) -> dict:
     """Evaluate cognitive drift and return pure Vietnamese UI schema.
 

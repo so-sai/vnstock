@@ -1,17 +1,17 @@
-﻿"""Attribution Engine v1 (Sprint 2 canonical) — deterministic engine contribution decomposition"""
+"""Attribution Engine v1 (Sprint 2 canonical) — deterministic engine contribution decomposition"""
+
 import json
 import logging
 import math
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -24,6 +24,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -47,12 +48,12 @@ def _get_vnindex_level_at(entry_date: str, lookback: int = 0) -> float:
                 target = (datetime.strptime(entry_date, "%Y-%m-%d") - timedelta(days=lookback)).strftime("%Y-%m-%d")
                 row = conn.execute(
                     "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1",
-                    (target,)
+                    (target,),
                 ).fetchone()
             else:
                 row = conn.execute(
                     "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1",
-                    (entry_date,)
+                    (entry_date,),
                 ).fetchone()
             if row:
                 return float(row[0])
@@ -84,7 +85,7 @@ def _get_engine_signal_stability(decision_ids: list[str], engine: str) -> float:
                 scores = json.loads(raw)
                 if engine in scores:
                     signals.append(scores[engine])
-            except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+            except json.JSONDecodeError, TypeError, UnicodeDecodeError:
                 continue
     if len(signals) < 3:
         return 0.5
@@ -116,7 +117,7 @@ def _compute_tp_fp(signal: float, market_return: float, decision_posture: str) -
     """Compute true positive and false positive contribution for an engine signal."""
     signal_bullish = signal >= 0.5
     market_up = market_return > 0
-    posture_bullish = decision_posture.upper() in ("ENTER", "SCALE_IN", "HOLD")
+    decision_posture.upper() in ("ENTER", "SCALE_IN", "HOLD")
 
     if signal_bullish and market_up:
         return (min(signal, abs(market_return) * 2), 0.0)
@@ -129,18 +130,16 @@ def _compute_tp_fp(signal: float, market_return: float, decision_posture: str) -
 
 
 def _generate_primary_reason_vi(
-    dominant_engine: str, contribution: float,
-    market_return: float, outcome_label: str,
+    dominant_engine: str,
+    contribution: float,
+    market_return: float,
+    outcome_label: str,
 ) -> str:
     if outcome_label == "DUNG":
-        return (
-            f"{dominant_engine.upper()} là engine đóng góp nhiều nhất "
-            f"({contribution:.0%}) vào quyết định đúng"
-        )
+        return f"{dominant_engine.upper()} là engine đóng góp nhiều nhất ({contribution:.0%}) vào quyết định đúng"
     else:
         return (
-            f"{dominant_engine.upper()} là engine gây thiệt hại nhiều nhất "
-            f"({contribution:.0%}) — tín hiệu lệch pha thị trường"
+            f"{dominant_engine.upper()} là engine gây thiệt hại nhiều nhất ({contribution:.0%}) — tín hiệu lệch pha thị trường"
         )
 
 
@@ -178,6 +177,7 @@ def decompose_attribution(
     market_direction = 1 if market_return >= 0 else -1
 
     from src.telemetry.storage import get_all_snapshots
+
     all_snaps = get_all_snapshots(50)
     recent_ids = [s["decision_id"] for s in all_snaps]
 
@@ -198,13 +198,14 @@ def decompose_attribution(
                     scores = json.loads(raw)
                     if engine in scores:
                         historical_signals.append(scores[engine])
-                except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+                except json.JSONDecodeError, TypeError, UnicodeDecodeError:
                     continue
 
-        correlation = _compute_correlation(
-            historical_signals[:len(historical_returns)],
-            historical_returns[:len(historical_signals)]
-        ) if historical_signals and historical_returns else 0.0
+        correlation = (
+            _compute_correlation(historical_signals[: len(historical_returns)], historical_returns[: len(historical_signals)])
+            if historical_signals and historical_returns
+            else 0.0
+        )
 
         stability = _get_engine_signal_stability(recent_ids, engine)
         signal_direction = 1 if signal >= 0.5 else -1 if signal <= 0.4 else 0
@@ -263,21 +264,23 @@ def decompose_attribution(
     results.sort(key=lambda r: r.contribution, reverse=True)
     logger.info(
         "[ATTRIBUTION] %s | %dd | dominant=%s contrib=%.2f",
-        decision_id, horizon_days,
+        decision_id,
+        horizon_days,
         results[0].engine if results else "?",
         results[0].contribution if results else 0,
     )
     return results
 
 
-def generate_summary_vi(decision_id: str, horizon_days: int) -> Optional[DecisionAttributionSummary]:
+def generate_summary_vi(decision_id: str, horizon_days: int) -> DecisionAttributionSummary | None:
     """Generate Vietnamese UI summary from stored attribution data."""
     raw = get_attribution_summary(decision_id, horizon_days)
     if not raw:
         return None
 
     from src.telemetry.storage import get_outcomes
-    outcome = get_outcomes(decision_id)
+
+    get_outcomes(decision_id)
     total_return = raw["total_return"]
     outcome_label = "DUNG" if total_return >= 0 else "SAI"
 
@@ -303,6 +306,7 @@ def generate_summary_vi(decision_id: str, horizon_days: int) -> Optional[Decisio
 def update_engine_performance(window_days: int = 30):
     """Canonical rolling performance with precision tracking."""
     from src.telemetry.storage import get_all_snapshots
+
     all_snaps = get_all_snapshots(200)
     if not all_snaps:
         return []
@@ -352,6 +356,7 @@ def run_attribution_for_outcomes(outcome_records: list) -> int:
     """Run attribution for a list of newly evaluated outcomes."""
     count = 0
     from src.telemetry.storage import get_snapshot
+
     for outcome in outcome_records:
         did = outcome.decision_id
         horizon = outcome.horizon_days
@@ -363,7 +368,7 @@ def run_attribution_for_outcomes(outcome_records: list) -> int:
             if isinstance(raw, bytes):
                 raw = raw.decode("utf-8", "replace")
             scores = json.loads(raw)
-        except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+        except json.JSONDecodeError, TypeError, UnicodeDecodeError:
             continue
         if not scores:
             continue

@@ -10,14 +10,14 @@ Nguyên tắc: hàm thuần / read-DB qua function-level imports để monkeypat
 """
 import pytest
 
-
 # ═══════════════════════════════════════════════════════════════
 # get_resolved_by_model — query helper
 # ═══════════════════════════════════════════════════════════════
 
 def test_get_resolved_by_model_returns_only_resolved_rows(tmp_path):
-    import calibration.prediction_log as pl
     import sqlite3
+
+    import calibration.prediction_log as pl
 
     db_path = str(tmp_path / "pred_log2.db")
     conn = sqlite3.connect(db_path)
@@ -55,8 +55,9 @@ def test_get_resolved_by_model_returns_only_resolved_rows(tmp_path):
 
 
 def test_get_resolved_by_model_filters_by_model_id(tmp_path):
-    import calibration.prediction_log as pl
     import sqlite3
+
+    import calibration.prediction_log as pl
 
     db_path = str(tmp_path / "pred_log.db")
     conn = sqlite3.connect(db_path)
@@ -99,8 +100,8 @@ def test_get_resolved_by_model_filters_by_model_id(tmp_path):
 # ═══════════════════════════════════════════════════════════════
 
 def test_apply_outcome_updates_reliability_and_brier(tmp_path):
-    from calibration.evidence_engine import EvidenceEngine, PRIOR_ALPHA, PRIOR_BETA
-    import sqlite3
+
+    from calibration.evidence_engine import PRIOR_ALPHA, PRIOR_BETA, EvidenceEngine
 
     conn = _make_evidence_conn(tmp_path)
     ee = EvidenceEngine(conn=conn)
@@ -117,8 +118,8 @@ def test_apply_outcome_updates_reliability_and_brier(tmp_path):
 
 
 def test_apply_outcome_unknown_node_raises(tmp_path):
+
     from calibration.evidence_engine import EvidenceEngine
-    import sqlite3
 
     conn = _make_evidence_conn(tmp_path)
     ee = EvidenceEngine(conn=conn)
@@ -190,9 +191,9 @@ def test_batch_update_skips_unknown_model(tmp_path, monkeypatch):
 # ═══════════════════════════════════════════════════════════════
 
 def test_apply_time_decay_reduces_old_edge_confidence():
-    from calibration import causal_edge
-    from calibration.causal_edge import CausalGraph, CausalEdge
     from datetime import datetime, timedelta
+
+    from calibration.causal_edge import CausalEdge, CausalGraph
 
     now = datetime.now()
     old_ts = (now - timedelta(days=60)).isoformat()
@@ -222,9 +223,10 @@ def test_apply_time_decay_reduces_old_edge_confidence():
 
 
 def test_apply_time_decay_respects_floor():
-    from calibration import causal_edge
-    from calibration.causal_edge import CausalGraph, CausalEdge
     from datetime import datetime, timedelta
+
+    from calibration import causal_edge
+    from calibration.causal_edge import CausalEdge, CausalGraph
 
     old_ts = (datetime.now() - timedelta(days=3650)).isoformat()
     g = CausalGraph()
@@ -241,7 +243,7 @@ def test_apply_time_decay_respects_floor():
 
 
 def test_retire_degraded_moves_below_threshold():
-    from calibration.causal_edge import CausalGraph, CausalEdge
+    from calibration.causal_edge import CausalEdge, CausalGraph
 
     g = CausalGraph()
     g.edges = {
@@ -258,7 +260,7 @@ def test_retire_degraded_moves_below_threshold():
 
 
 def test_retire_degraded_returns_empty_when_all_healthy():
-    from calibration.causal_edge import CausalGraph, CausalEdge
+    from calibration.causal_edge import CausalEdge, CausalGraph
 
     g = CausalGraph()
     g.edges = {
@@ -271,7 +273,7 @@ def test_retire_degraded_returns_empty_when_all_healthy():
 
 def test_remove_from_db_deletes_rows(tmp_path, monkeypatch):
     import sqlite3
-    from calibration import causal_edge as ce_mod
+
     from calibration.causal_edge import CausalGraph
 
     db_path = str(tmp_path / "causal.db")

@@ -13,9 +13,9 @@ Output:
     frontend/src/i18n/en.json              — key: English label (key = key)
     frontend/src/i18n/abbreviations.json   — abbreviation glossary
 """
+
 import io
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -43,7 +43,7 @@ FRONTEND_I18N_DIR = PROJECT_ROOT / "frontend" / "src" / "i18n"
 
 def export_i18n() -> dict:
     """Trích xuất CLI_LABEL_MAP + ABBREVIATION_GLOSSARY → 3 file JSON cho React."""
-    from src.core.canonical_output_adapter import CLI_LABEL_MAP, ABBREVIATION_GLOSSARY
+    from src.core.canonical_output_adapter import ABBREVIATION_GLOSSARY, CLI_LABEL_MAP
 
     # vi.json: key → Vietnamese label
     vi_data = {}
@@ -85,12 +85,12 @@ def export_i18n() -> dict:
 
 if __name__ == "__main__":
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     result = export_i18n()
     print(f"Exported {result['vi_count']} labels + {result['abbr_count']} abbreviations -> {result['output_dir']}")

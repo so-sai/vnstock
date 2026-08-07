@@ -18,8 +18,7 @@ nhanh, chốt chặn regression từ các nguồn nạp mới.
 import sqlite3
 
 import pytest
-
-from src import config  # noqa: E402
+from src import config
 
 
 def _real_conn():
@@ -72,10 +71,14 @@ class TestGapfillIntegrity:
         assert row is not None, "gapfill AAH 2026-04-13 missing"
         assert row[0] == 3300.0, f"unexpected close {row[0]}"
 
-    def test_symbol_industry_has_no_dmx_before_onboard(self, real_db):
-        """DMX chưa onboard trước 16:00 EOD → không có symbol_industry (sẽ có sau khi nạp)."""
-        row = real_db.execute("SELECT COUNT(*) FROM symbol_industry WHERE symbol='DMX'").fetchone()[0]
-        assert row == 0, "DMX unexpectedly present before onboarding"
+    def test_symbol_industry_has_dmx_with_retail_sector(self, real_db):
+        """DMX đã onboard (06/08/2026) + đồng bộ VCI Listing → symbol_industry
+        phải có DMX gán đúng ngành Bán lẻ (icb_name2/3/4)."""
+        row = real_db.execute(
+            "SELECT symbol, icb_name2, icb_name3, icb_name4 FROM symbol_industry WHERE symbol='DMX'"
+        ).fetchone()
+        assert row is not None, "DMX missing from symbol_industry after VCI sync"
+        assert row[1] == "Bán lẻ", f"unexpected DMX icb_name2: {row[1]}"
 
 
 class TestScaleContinuity:

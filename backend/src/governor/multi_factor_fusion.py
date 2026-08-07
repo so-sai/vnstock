@@ -22,7 +22,6 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +128,7 @@ class MultiFactorFusion:
 
     def __init__(
         self,
-        weights: Optional[Dict[str, float]] = None,
+        weights: dict[str, float] | None = None,
         max_position: float = MAX_POSITION_WEIGHT,
         max_sector: float = MAX_SECTOR_WEIGHT,
         min_cash: float = MIN_CASH_RESERVE,
@@ -147,9 +146,9 @@ class MultiFactorFusion:
 
     def fuse(
         self,
-        scores: List[FactorScores],
-        current_positions: Optional[Dict[str, Position]] = None,
-    ) -> List[FusionResult]:
+        scores: list[FactorScores],
+        current_positions: dict[str, Position] | None = None,
+    ) -> list[FusionResult]:
         """Fuse all factor scores into composite decisions.
 
         Args:
@@ -216,7 +215,7 @@ class MultiFactorFusion:
         self,
         fs: FactorScores,
         composite: float,
-        current_pos: Optional[Position],
+        current_pos: Position | None,
     ) -> tuple[str, float, str]:
         """Decide BUY/SELL/HOLD for one symbol."""
         if current_pos is None:
@@ -241,9 +240,9 @@ class MultiFactorFusion:
         # Composite degraded — reduce or exit
         return "SELL", 0.0, f"Composite {composite:.2f} degraded below HOLD threshold"
 
-    def _apply_sector_cap(self, results: List[FusionResult]) -> List[FusionResult]:
+    def _apply_sector_cap(self, results: list[FusionResult]) -> list[FusionResult]:
         """Enforce max sector weight cap."""
-        sector_weights: Dict[str, float] = {}
+        sector_weights: dict[str, float] = {}
         for r in results:
             if r.action in ("BUY", "HOLD") and r.target_weight > 0:
                 sector_weights[r.sector] = sector_weights.get(r.sector, 0.0) + r.target_weight
@@ -266,7 +265,7 @@ class MultiFactorFusion:
         """Compute transaction cost for a trade."""
         return trade_value * self.tx_cost
 
-    def get_risk_metrics(self, results: List[FusionResult]) -> Dict:
+    def get_risk_metrics(self, results: list[FusionResult]) -> dict:
         """Compute portfolio-level risk metrics."""
         total_weight = sum(r.target_weight for r in results if r.action in ("BUY", "HOLD"))
         n_positions = sum(1 for r in results if r.action == "BUY")
@@ -280,9 +279,9 @@ class MultiFactorFusion:
             "sector_concentration_risk": self._check_sector_concentration(results),
         }
 
-    def _check_sector_concentration(self, results: List[FusionResult]) -> Dict[str, float]:
+    def _check_sector_concentration(self, results: list[FusionResult]) -> dict[str, float]:
         """Check sector concentration for risk monitoring."""
-        sector_weights: Dict[str, float] = {}
+        sector_weights: dict[str, float] = {}
         for r in results:
             if r.action in ("BUY", "HOLD") and r.target_weight > 0:
                 sector_weights[r.sector] = sector_weights.get(r.sector, 0.0) + r.target_weight

@@ -1,4 +1,4 @@
-﻿"""
+"""
 semantic_consistency_guard.py — Constraint validator, not a layer.
 
 Checks 3 inconsistency types between:
@@ -17,8 +17,6 @@ Architecture:
 
 from __future__ import annotations
 
-from typing import Optional
-
 from core.cognitive_schema import (
     DRIFT_STATUS_VI,
     DRIVER_VI_LOWER,
@@ -32,7 +30,7 @@ from core.cognitive_schema import (
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def _extract_narrative_driver(narrative: dict) -> Optional[str]:
+def _extract_narrative_driver(narrative: dict) -> str | None:
     """Extract which driver the narrative claims is dominant.
 
     Reuses the same keyword logic as explain_validator.
@@ -107,27 +105,28 @@ def _check_label_mismatch(
             contradict = ["tập trung", "thu hẹp", "co cụm"]
             found = [w for w in contradict if w in text]
             if found:
-                violations.append({
-                    "type": "LABEL_MISMATCH",
-                    "severity": 0.3,
-                    "detail": (
-                        f"flow_rotation ontology='{expected_meaning}' "
-                        f"nhưng narrative chứa từ trái nghĩa: {', '.join(found)}"
-                    ),
-                })
+                violations.append(
+                    {
+                        "type": "LABEL_MISMATCH",
+                        "severity": 0.3,
+                        "detail": (
+                            f"flow_rotation ontology='{expected_meaning}' "
+                            f"nhưng narrative chứa từ trái nghĩa: {', '.join(found)}"
+                        ),
+                    }
+                )
 
         # Risk-off → narrative should mention risk
         if "rủi ro" in expected_meaning or "tháo chạy" in expected_meaning:
             text = " ".join(str(v) for v in narrative.values()).lower()
             if not any(kw in text for kw in RISK_KEYWORDS):
-                violations.append({
-                    "type": "LABEL_MISMATCH",
-                    "severity": 0.4,
-                    "detail": (
-                        f"flow_rotation ontology='{expected_meaning}' "
-                        f"narrative không chứa từ khóa rủi ro nào"
-                    ),
-                })
+                violations.append(
+                    {
+                        "type": "LABEL_MISMATCH",
+                        "severity": 0.4,
+                        "detail": (f"flow_rotation ontology='{expected_meaning}' narrative không chứa từ khóa rủi ro nào"),
+                    }
+                )
 
     return violations
 
@@ -148,14 +147,13 @@ def _check_causal_mismatch(
     if explained is not None and explained != dominant:
         explained_vi = DRIVER_VI_LOWER.get(explained, explained)
         dominant_vi = DRIVER_VI_LOWER.get(dominant, dominant)
-        violations.append({
-            "type": "CAUSAL_MISMATCH",
-            "severity": 0.6,
-            "detail": (
-                f"narrative nói {explained_vi} dẫn dắt "
-                f"nhưng kernel xác định {dominant_vi} đang chi phối"
-            ),
-        })
+        violations.append(
+            {
+                "type": "CAUSAL_MISMATCH",
+                "severity": 0.6,
+                "detail": (f"narrative nói {explained_vi} dẫn dắt nhưng kernel xác định {dominant_vi} đang chi phối"),
+            }
+        )
 
     return violations
 
@@ -182,38 +180,44 @@ def _check_structural_mismatch(
 
     # High drift → narrative should be cautious
     if expected_tone_code == "cautious" and tone_label != "cautious":
-        violations.append({
-            "type": "STRUCTURAL_MISMATCH",
-            "severity": 0.5,
-            "detail": (
-                f"drift_status={drift_status} ({DRIFT_STATUS_VI.get(drift_status, drift_status)}) "
-                f"nhưng narrative ở trạng thái 'risk-on' (tone={tone:.2f}) — "
-                f"kỳ vọng thận trọng hơn"
-            ),
-        })
+        violations.append(
+            {
+                "type": "STRUCTURAL_MISMATCH",
+                "severity": 0.5,
+                "detail": (
+                    f"drift_status={drift_status} ({DRIFT_STATUS_VI.get(drift_status, drift_status)}) "
+                    f"nhưng narrative ở trạng thái 'risk-on' (tone={tone:.2f}) — "
+                    f"kỳ vọng thận trọng hơn"
+                ),
+            }
+        )
 
     # Low drift → narrative should not be alarmist
     if expected_tone_code != "cautious" and tone_label == "cautious":
-        violations.append({
-            "type": "STRUCTURAL_MISMATCH",
-            "severity": 0.4,
-            "detail": (
-                f"drift_status={drift_status} ({DRIFT_STATUS_VI.get(drift_status, drift_status)}) "
-                f"nhưng narrative ở trạng thái 'thận trọng' (tone={tone:.2f}) — "
-                f"có thể đang báo động giả"
-            ),
-        })
+        violations.append(
+            {
+                "type": "STRUCTURAL_MISMATCH",
+                "severity": 0.4,
+                "detail": (
+                    f"drift_status={drift_status} ({DRIFT_STATUS_VI.get(drift_status, drift_status)}) "
+                    f"nhưng narrative ở trạng thái 'thận trọng' (tone={tone:.2f}) — "
+                    f"có thể đang báo động giả"
+                ),
+            }
+        )
 
     # CRISIS regime → narrative MUST be cautious
     if regime_tone_code == "cautious" and tone_label != "cautious":
-        violations.append({
-            "type": "STRUCTURAL_MISMATCH",
-            "severity": 0.7,
-            "detail": (
-                f"regime=CRISIS nhưng narrative ở trạng thái 'risk-on' (tone={tone:.2f}) "
-                f"— sai lệch nhận thức rủi ro nghiêm trọng"
-            ),
-        })
+        violations.append(
+            {
+                "type": "STRUCTURAL_MISMATCH",
+                "severity": 0.7,
+                "detail": (
+                    f"regime=CRISIS nhưng narrative ở trạng thái 'risk-on' (tone={tone:.2f}) "
+                    f"— sai lệch nhận thức rủi ro nghiêm trọng"
+                ),
+            }
+        )
 
     return violations
 
@@ -272,12 +276,8 @@ def check_semantic_consistency(snapshot: dict) -> dict:
 
     # drift_in_meaning chỉ báo động khi cấu trúc sai nghiêm trọng hoặc nhiều sai đồng thời
     has_causal = any(v["severity"] >= 0.6 and v["type"] == "CAUSAL_MISMATCH" for v in violations)
-    has_critical_structural = any(
-        v["severity"] >= 0.7 and v["type"] == "STRUCTURAL_MISMATCH" for v in violations
-    )
-    multiple_structural = (
-        sum(1 for v in violations if v["type"] == "STRUCTURAL_MISMATCH") >= 2
-    )
+    has_critical_structural = any(v["severity"] >= 0.7 and v["type"] == "STRUCTURAL_MISMATCH" for v in violations)
+    multiple_structural = sum(1 for v in violations if v["type"] == "STRUCTURAL_MISMATCH") >= 2
     drift_in_meaning = has_causal or (has_critical_structural and multiple_structural)
 
     return {

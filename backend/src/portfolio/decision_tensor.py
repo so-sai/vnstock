@@ -1,17 +1,17 @@
-﻿"""
+"""
 Decision Tensor v1.0 — Decision Abstraction Engine (Phase 10.1).
 Compresses 5 engine layers → 1 action vector.
 Semantic compression layer, NOT a signal generator.
 """
+
 import logging
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -27,6 +27,7 @@ def _hydrate_path():
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -58,11 +59,18 @@ class DecisionTensorInput:
     regime_confidence: float = 0.5
     portfolio_heat: float = 0.0
     net_exposure_pct: float = 0.0
-    dampener_result: dict = field(default_factory=lambda: {
-        "net_dampener": 1.0, "legacy_dampener": 1.0,
-        "decay_factor": 1.0, "boost_factor": 1.0, "regime_bias": 1.0,
-        "reason": "NORMAL", "streak_losses": 0, "win_rate_10d": None,
-    })
+    dampener_result: dict = field(
+        default_factory=lambda: {
+            "net_dampener": 1.0,
+            "legacy_dampener": 1.0,
+            "decay_factor": 1.0,
+            "boost_factor": 1.0,
+            "regime_bias": 1.0,
+            "reason": "NORMAL",
+            "streak_losses": 0,
+            "win_rate_10d": None,
+        }
+    )
     throttle_state: str = "NORMAL"
     throttle_multiplier: float = 1.0
     memory_perf_a: dict = field(default_factory=lambda: {"trades": 0, "win_rate": 0.0, "avg_r": 0.0, "expectancy": 0.0})
@@ -87,9 +95,9 @@ def _heat_score(heat: float) -> float:
     return max(0.0, 1.0 - (heat / MAX_HEAT))
 
 
-def _signal_score(model_a_signal: str, model_b_signal: str,
-                  model_a_score: float, model_b_score: float, regime: str) -> float:
+def _signal_score(model_a_signal: str, model_b_signal: str, model_a_score: float, model_b_score: float, regime: str) -> float:
     from src.portfolio.decision_fusion import arbitrate
+
     fusion = arbitrate(model_a_signal, model_b_signal, regime)
     if fusion["action"] in ("STAND_DOWN", "FORCE_CASH", "MUTED"):
         return 0.0
@@ -133,9 +141,9 @@ def _resolve_risk_state(heat: float, throttle_state: str, dampener: float, drawd
     return "SAFE"
 
 
-def _resolve_action(action_score: float, risk_state: str,
-                    regime: str, heat: float, dampener: float,
-                    net_exposure: float) -> str:
+def _resolve_action(
+    action_score: float, risk_state: str, regime: str, heat: float, dampener: float, net_exposure: float
+) -> str:
     if risk_state == "LOCKED":
         return "EXIT" if net_exposure > 0 else "STAND_DOWN"
     if risk_state == "STRESS":
@@ -153,8 +161,7 @@ def _resolve_action(action_score: float, risk_state: str,
     return "HOLD"
 
 
-def _resolve_constraint(heat: float, dampener: float, regime: str,
-                        throttle_state: str, streak_losses: int) -> tuple:
+def _resolve_constraint(heat: float, dampener: float, regime: str, throttle_state: str, streak_losses: int) -> tuple:
     if throttle_state == "EMERGENCY_LOCK":
         return "BLOCKED", 0.0
     if heat >= MAX_HEAT * 0.7 or regime == "CRISIS":
@@ -168,9 +175,16 @@ def _resolve_constraint(heat: float, dampener: float, regime: str,
     return "ALLOWED", 1.0
 
 
-def _reason_compressed(action: str, risk_state: str, regime: str,
-                       heat: float, dampener: float, action_score: float,
-                       streak: int, throttle_state: str) -> str:
+def _reason_compressed(
+    action: str,
+    risk_state: str,
+    regime: str,
+    heat: float,
+    dampener: float,
+    action_score: float,
+    streak: int,
+    throttle_state: str,
+) -> str:
     parts = []
     parts.append(f"Regime: {regime}")
     if risk_state != "SAFE":
@@ -186,7 +200,7 @@ def _reason_compressed(action: str, risk_state: str, regime: str,
     return " | ".join(parts)
 
 
-def compute(override_input: Optional[DecisionTensorInput] = None) -> dict:
+def compute(override_input: DecisionTensorInput | None = None) -> dict:
     if override_input:
         inp = override_input
     else:
@@ -214,40 +228,44 @@ def compute(override_input: Optional[DecisionTensorInput] = None) -> dict:
 
     r_score = _regime_score(inp.regime, inp.regime_confidence)
     h_score = _heat_score(inp.portfolio_heat)
-    s_score = _signal_score(inp.model_a_signal, inp.model_b_signal,
-                            inp.model_a_score, inp.model_b_score, inp.regime)
+    s_score = _signal_score(inp.model_a_signal, inp.model_b_signal, inp.model_a_score, inp.model_b_score, inp.regime)
     d_score = _dampener_score(inp.dampener_result["net_dampener"])
     active_model = "MODEL_A" if inp.regime in ("TRENDING",) else "MODEL_B"
     m_score = _memory_score(inp.memory_perf_a, inp.memory_perf_b, inp.regime, active_model)
 
     raw_score = (
-        WEIGHT_REGIME * r_score +
-        WEIGHT_HEAT * h_score +
-        WEIGHT_SIGNAL * s_score +
-        WEIGHT_DAMPENER * d_score +
-        WEIGHT_MEMORY * m_score
+        WEIGHT_REGIME * r_score
+        + WEIGHT_HEAT * h_score
+        + WEIGHT_SIGNAL * s_score
+        + WEIGHT_DAMPENER * d_score
+        + WEIGHT_MEMORY * m_score
     )
     action_score = round(max(0.0, min(1.0, raw_score)) * 100)
 
-    risk_state = _resolve_risk_state(
-        inp.portfolio_heat, inp.throttle_state,
-        inp.dampener_result["net_dampener"]
-    )
+    risk_state = _resolve_risk_state(inp.portfolio_heat, inp.throttle_state, inp.dampener_result["net_dampener"])
     action = _resolve_action(
-        action_score / 100, risk_state,
-        inp.regime, inp.portfolio_heat,
+        action_score / 100,
+        risk_state,
+        inp.regime,
+        inp.portfolio_heat,
         inp.dampener_result["net_dampener"],
         inp.net_exposure_pct,
     )
     constraint, size_mult = _resolve_constraint(
-        inp.portfolio_heat, inp.dampener_result["net_dampener"],
-        inp.regime, inp.throttle_state,
+        inp.portfolio_heat,
+        inp.dampener_result["net_dampener"],
+        inp.regime,
+        inp.throttle_state,
         inp.dampener_result["streak_losses"],
     )
     reason = _reason_compressed(
-        action, risk_state, inp.regime,
-        inp.portfolio_heat, inp.dampener_result["net_dampener"],
-        action_score, inp.dampener_result["streak_losses"],
+        action,
+        risk_state,
+        inp.regime,
+        inp.portfolio_heat,
+        inp.dampener_result["net_dampener"],
+        action_score,
+        inp.dampener_result["streak_losses"],
         inp.throttle_state,
     )
 

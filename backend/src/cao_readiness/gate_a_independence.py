@@ -1,9 +1,10 @@
-﻿"""
+"""
 Gate A — Engine Independence Test
 ==================================
 Checks pairwise correlation between engine signals from historical snapshots.
 High correlation (|r| > threshold) = multicollinearity → causal attribution ambiguity.
 """
+
 import json
 import logging
 import math
@@ -20,7 +21,7 @@ except ImportError:
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -33,6 +34,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.cao_readiness.models import EngineCorrelation, GateResult, IndependenceReport
@@ -49,14 +51,14 @@ def _parse_engine_scores(snapshot: dict) -> dict:
     if isinstance(raw, str):
         try:
             return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return {}
     if isinstance(raw, dict):
         return raw
     return {}
 
 
-def _load_engine_vectors(snapshots: list, engine_names: list[str] = None) -> dict[str, list[float]]:
+def _load_engine_vectors(snapshots: list, engine_names: list[str] | None = None) -> dict[str, list[float]]:
     if engine_names is None:
         engine_names = CANONICAL_ENGINES
     vectors = defaultdict(list)
@@ -106,9 +108,9 @@ def _compute_condition_number(vectors: dict[str, list[float]], engine_names: lis
 
 
 def run_independence_test(
-    snapshots: list[dict] = None,
+    snapshots: list[dict] | None = None,
     threshold: float = DEFAULT_CORRELATION_THRESHOLD,
-    engine_names: list[str] = None,
+    engine_names: list[str] | None = None,
 ) -> IndependenceReport:
     if engine_names is None:
         engine_names = CANONICAL_ENGINES
@@ -132,7 +134,7 @@ def run_independence_test(
     corr_matrix = {}
     max_corr = 0.0
     for i, ea in enumerate(present_engines):
-        for eb in present_engines[i + 1:]:
+        for eb in present_engines[i + 1 :]:
             r = _pearson(vectors[ea], vectors[eb])
             corr_matrix[f"{ea}__{eb}"] = round(r, 4)
             flagged = abs(r) > threshold
@@ -149,7 +151,9 @@ def run_independence_test(
         flagged_engines.add(fp.engine_a)
         flagged_engines.add(fp.engine_b)
     if passed:
-        verdict = f"All {len(present_engines)} engines are sufficiently independent. max|r|={max_corr:.3f} < threshold={threshold}"
+        verdict = (
+            f"All {len(present_engines)} engines are sufficiently independent. max|r|={max_corr:.3f} < threshold={threshold}"
+        )
     elif len(flagged_pairs) <= 2 and len(flagged_engines) <= 2:
         verdict = (
             f"WARN: {len(flagged_pairs)} pair(s) correlated above {threshold}. "
@@ -162,8 +166,13 @@ def run_independence_test(
             f"Multicollinearity risk. max|r|={max_corr:.3f}. "
             f"CAO attribution would be ambiguous."
         )
-    logger.info("[GATE_A] %s | max_corr=%.3f | cond=%.1f | pairs=%d",
-                "PASS" if passed else "FAIL", max_corr, cond_number if cond_number != float("inf") else -1, len(flagged_pairs))
+    logger.info(
+        "[GATE_A] %s | max_corr=%.3f | cond=%.1f | pairs=%d",
+        "PASS" if passed else "FAIL",
+        max_corr,
+        cond_number if cond_number != float("inf") else -1,
+        len(flagged_pairs),
+    )
     return IndependenceReport(
         passed=passed,
         correlation_matrix=corr_matrix,
@@ -175,7 +184,7 @@ def run_independence_test(
 
 
 def gate_a_check(
-    snapshots: list[dict] = None,
+    snapshots: list[dict] | None = None,
     threshold: float = DEFAULT_CORRELATION_THRESHOLD,
 ) -> GateResult:
     report = run_independence_test(snapshots, threshold)
@@ -193,16 +202,9 @@ def gate_a_check(
         message=report.verdict,
         details={
             "max_correlation": report.max_correlation,
-            "flagged_pairs": [
-                {"a": p.engine_a, "b": p.engine_b, "r": p.correlation}
-                for p in report.flagged_pairs
-            ],
+            "flagged_pairs": [{"a": p.engine_a, "b": p.engine_b, "r": p.correlation} for p in report.flagged_pairs],
             "condition_number": report.condition_number,
-            "engines_analyzed": list(
-                set(
-                    e for p in report.flagged_pairs
-                    for e in (p.engine_a, p.engine_b)
-                )
-            ) or "all_uncorrelated",
+            "engines_analyzed": list(set(e for p in report.flagged_pairs for e in (p.engine_a, p.engine_b)))
+            or "all_uncorrelated",
         },
     )

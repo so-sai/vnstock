@@ -92,25 +92,29 @@ def build_opportunity_view(
 
     top_picks = []
     for item in core_items[:8]:
-        top_picks.append(SymbolDecisionView(
-            symbol=item.get("symbol", "UNKNOWN"),
-            action=_conviction_to_action(item.get("conviction", 0)),
-            conviction=_normalize_conviction(item.get("conviction", 0)),
-            rationale_vi=_compress_rationale(item.get("rationale", "")),
-            sector=item.get("sector", ""),
-            tier="core",
-        ))
+        top_picks.append(
+            SymbolDecisionView(
+                symbol=item.get("symbol", "UNKNOWN"),
+                action=_conviction_to_action(item.get("conviction", 0)),
+                conviction=_normalize_conviction(item.get("conviction", 0)),
+                rationale_vi=_compress_rationale(item.get("rationale", "")),
+                sector=item.get("sector", ""),
+                tier="core",
+            )
+        )
 
     watchlist = []
     for item in rotation_items[:8]:
-        watchlist.append(SymbolDecisionView(
-            symbol=item.get("symbol", "UNKNOWN"),
-            action=_conviction_to_action(item.get("conviction", 0)),
-            conviction=_normalize_conviction(item.get("conviction", 0)),
-            rationale_vi=_compress_rationale(item.get("rationale", "")),
-            sector=item.get("sector", ""),
-            tier="rotation",
-        ))
+        watchlist.append(
+            SymbolDecisionView(
+                symbol=item.get("symbol", "UNKNOWN"),
+                action=_conviction_to_action(item.get("conviction", 0)),
+                conviction=_normalize_conviction(item.get("conviction", 0)),
+                rationale_vi=_compress_rationale(item.get("rationale", "")),
+                sector=item.get("sector", ""),
+                tier="rotation",
+            )
+        )
 
     sector_hint = _build_sector_allocation(top_picks)
     risk_notes = _build_risk_notes(recommendations, meta_state)

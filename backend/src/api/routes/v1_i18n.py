@@ -1,4 +1,4 @@
-﻿"""v1_i18n.py — API endpoint phục vụ dictionary auto-sync cho Frontend.
+"""v1_i18n.py — API endpoint phục vụ dictionary auto-sync cho Frontend.
 
 Đọc CLI_LABEL_MAP + ABBREVIATION_GLOSSARY từ canonical_output_adapter.py,
 trả về JSON chứa cả nhãn ngôn ngữ lẫn tooltip giải nghĩa abbreviation.
@@ -11,6 +11,7 @@ Endpoints:
     GET /api/v1/i18n/labels      — Chỉ labels (lightweight)
     GET /api/v1/i18n/abbreviations — Chỉ abbreviation glossary
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -31,7 +32,7 @@ _CACHE_TTL = 300  # 5 minutes
 
 def _build_dictionary() -> dict[str, Any]:
     """Xây dựng dictionary từ canonical_output_adapter."""
-    from src.core.canonical_output_adapter import CLI_LABEL_MAP, ABBREVIATION_GLOSSARY
+    from src.core.canonical_output_adapter import ABBREVIATION_GLOSSARY, CLI_LABEL_MAP
 
     # Labels: key -> Vietnamese
     labels_vi = dict(CLI_LABEL_MAP)

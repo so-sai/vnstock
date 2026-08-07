@@ -12,12 +12,9 @@ từ dữ liệu giá thực tế (screener_cache.db) + dữ liệu tài chính 
 # gian nội tại của symbol nên so sánh được giữa các ngành không đồng nhất.
 
 import sqlite3
-import json
 import sys
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 _candidate = Path(sys.executable).resolve().parent
 if Path(sys.executable).stem.lower().startswith("python"):
@@ -31,7 +28,7 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 DATA_DIR = BACKEND_DIR / "data"
 sys.path.insert(0, str(BACKEND_DIR))
 
-from src.financial.financial_facts import FinancialFactsDB, FINANCIAL_DB_PATH
+from src.financial.financial_facts import FinancialFactsDB
 
 SCREENER_DB_PATH = DATA_DIR / "screener_cache.db"
 
@@ -39,7 +36,7 @@ QUARTER_END_MAP = {
     1: (3, 31),  # Q1 ends March 31
     2: (6, 30),  # Q2 ends June 30
     3: (9, 30),  # Q3 ends Sep 30
-    4: (12, 31), # Q4 ends Dec 31
+    4: (12, 31),  # Q4 ends Dec 31
 }
 # WHY: Map kỳ tài chính (2026Q1) → ngày cuối quý để lấy giá đóng cửa "sát" thời điểm báo
 # cáo tài chính: valuation ratio phải dùng giá tại ngày số liệu công bố, không phải giá
@@ -56,7 +53,7 @@ VALUATION_RATIOS = {
         "description": "Giá trên lợi nhuận mỗi cổ phần",
         "ultra_cheap": 2.0,  # z < -2
         "cheap": 1.0,
-        "expensive": 1.0,   # z > 1
+        "expensive": 1.0,  # z > 1
         "ultra_expensive": 2.0,
     },
     "PB": {
@@ -151,7 +148,7 @@ class ValuationEngine:
         m, d = QUARTER_END_MAP[quarter]
         return f"{year:04d}-{m:02d}-{d:02d}"
 
-    def _get_price_at_date(self, symbol: str, target_date: str) -> Optional[float]:
+    def _get_price_at_date(self, symbol: str, target_date: str) -> float | None:
         """Lấy close price gần nhất với target_date (tìm backward)."""
         conn = self.screener_connect()
         cur = conn.cursor()
@@ -179,7 +176,7 @@ class ValuationEngine:
         conn.close()
         return row[1] if row else None
 
-    def _get_price_history(self, symbol: str) -> Dict[str, float]:
+    def _get_price_history(self, symbol: str) -> dict[str, float]:
         """Get all historical prices: {date: close}."""
         conn = self.screener_connect()
         cur = conn.cursor()
@@ -191,13 +188,12 @@ class ValuationEngine:
         conn.close()
         return result
 
-    def _get_market_cap(self, price: float, shares_out: float) -> Optional[float]:
+    def _get_market_cap(self, price: float, shares_out: float) -> float | None:
         if price and shares_out:
             return price * shares_out
         return None
 
-    def compute_ratios_for_period(self, symbol: str, period: str,
-                                    period_metrics: dict, entity_type: str) -> Dict:
+    def compute_ratios_for_period(self, symbol: str, period: str, period_metrics: dict, entity_type: str) -> dict:
         """Tính các valuation ratios cho 1 kỳ."""
         fy = period_metrics.get("_fiscal_year", int(period[:4]))
         fq = period_metrics.get("_fiscal_quarter", int(period[5:6]))
@@ -264,7 +260,7 @@ class ValuationEngine:
 
         return result
 
-    def _compute_stats(self, values: List[float]) -> Tuple[float, float, int]:
+    def _compute_stats(self, values: list[float]) -> tuple[float, float, int]:
         n = len(values)
         if n < 2:
             return 0.0, 0.0, n
@@ -273,10 +269,10 @@ class ValuationEngine:
         # z-score tính từ std này đáng tin hơn khi số kỳ còn ít (4–12 quý).
         mean = sum(values) / n
         variance = sum((v - mean) ** 2 for v in values) / (n - 1)
-        std = variance ** 0.5
+        std = variance**0.5
         return mean, std, n
 
-    def _percentile(self, values: List[float], current: float) -> float:
+    def _percentile(self, values: list[float], current: float) -> float:
         if not values:
             return 50.0
         # WHY: percentile dạng "đếm ≤ hiện tại / tổng" (inclusive rank): đơn giản, median-robust,
@@ -299,7 +295,7 @@ class ValuationEngine:
         else:
             return "FAIR"
 
-    def compute_valuation(self, symbol: str) -> Dict:
+    def compute_valuation(self, symbol: str) -> dict:
         """Main entry: fetch facts + prices, compute all valuation ratios + z-scores."""
         entity_type = self.facts_db.get_entity_type(symbol)
         facts = self.facts_db.get_facts(symbol)
@@ -350,23 +346,41 @@ class ValuationEngine:
 
                 fy = int(period[:4])
                 fq = int(period[5:6])
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO valuation_scores
                         (symbol, period, fiscal_year, fiscal_quarter,
                          entity_type, ratio_name, ratio_value, z_score,
                          percentile, mean, std, count, zone, price)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    symbol.upper(), period, fy, fq, entity_type.upper(),
-                    rname, val, round(z, 4), round(pct, 2),
-                    round(mean, 4), round(std, 4), n, zone,
-                    price,
-                ))
-                results.append({
-                    "period": period, "ratio": rname,
-                    "value": val, "z_score": round(z, 2),
-                    "percentile": round(pct, 1), "zone": zone,
-                })
+                """,
+                    (
+                        symbol.upper(),
+                        period,
+                        fy,
+                        fq,
+                        entity_type.upper(),
+                        rname,
+                        val,
+                        round(z, 4),
+                        round(pct, 2),
+                        round(mean, 4),
+                        round(std, 4),
+                        n,
+                        zone,
+                        price,
+                    ),
+                )
+                results.append(
+                    {
+                        "period": period,
+                        "ratio": rname,
+                        "value": val,
+                        "z_score": round(z, 2),
+                        "percentile": round(pct, 1),
+                        "zone": zone,
+                    }
+                )
 
         conn.commit()
         conn.close()
@@ -395,17 +409,20 @@ class ValuationEngine:
             "details": results,
         }
 
-    def get_valuation(self, symbol: str) -> Optional[Dict]:
+    def get_valuation(self, symbol: str) -> dict | None:
         """Lấy valuation scores từ DB."""
         conn = self.connect()
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT period, ratio_name, ratio_value, z_score,
                    percentile, zone, price
             FROM valuation_scores
             WHERE symbol = ?
             ORDER BY period DESC, ratio_name
-        """, (symbol.upper(),))
+        """,
+            (symbol.upper(),),
+        )
         rows = cur.fetchall()
         conn.close()
         if not rows:
@@ -413,18 +430,25 @@ class ValuationEngine:
 
         result = {"symbol": symbol.upper(), "ratios": []}
         for r in rows:
-            result["ratios"].append({
-                "period": r[0], "ratio": r[1], "value": r[2],
-                "z_score": r[3], "percentile": r[4],
-                "zone": r[5], "price": r[6],
-            })
+            result["ratios"].append(
+                {
+                    "period": r[0],
+                    "ratio": r[1],
+                    "value": r[2],
+                    "z_score": r[3],
+                    "percentile": r[4],
+                    "zone": r[5],
+                    "price": r[6],
+                }
+            )
         return result
 
-    def get_latest_valuation(self, symbol: str) -> Optional[Dict]:
+    def get_latest_valuation(self, symbol: str) -> dict | None:
         """Latest period valuation summary."""
         conn = self.connect()
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT period, ratio_name, ratio_value, z_score,
                    percentile, zone, price
             FROM valuation_scores
@@ -432,7 +456,9 @@ class ValuationEngine:
                 SELECT MAX(period) FROM valuation_scores WHERE symbol = ?
             )
             ORDER BY ratio_name
-        """, (symbol.upper(), symbol.upper()))
+        """,
+            (symbol.upper(), symbol.upper()),
+        )
         rows = cur.fetchall()
         conn.close()
         if not rows:
@@ -443,11 +469,10 @@ class ValuationEngine:
             "symbol": symbol.upper(),
             "period": period,
             "price": price,
-            "ratios": [{"ratio": r[1], "value": r[2], "z_score": r[3],
-                        "percentile": r[4], "zone": r[5]} for r in rows],
+            "ratios": [{"ratio": r[1], "value": r[2], "z_score": r[3], "percentile": r[4], "zone": r[5]} for r in rows],
         }
 
-    def compare_valuations(self, symbols: List[str]) -> Dict:
+    def compare_valuations(self, symbols: list[str]) -> dict:
         return {sym: self.get_latest_valuation(sym) for sym in symbols}
 
 
@@ -455,10 +480,11 @@ class ValuationEngine:
 # CLI
 # =========================================================================
 
-def print_valuation_table(data: dict, symbols: List[str]):
-    print(f"\n  {'='*80}")
-    print(f"  ĐỊNH GIÁ SO SÁNH — Q2/2026 (latest period)")
-    print(f"  {'='*80}")
+
+def print_valuation_table(data: dict, symbols: list[str]):
+    print(f"\n  {'=' * 80}")
+    print("  ĐỊNH GIÁ SO SÁNH — Q2/2026 (latest period)")
+    print(f"  {'=' * 80}")
 
     # Collect all ratio names
     ratio_names = ["PE", "PB", "PS", "EV_EBITDA"]
@@ -471,7 +497,7 @@ def print_valuation_table(data: dict, symbols: List[str]):
 
     col_width = 15
     total_width = col_width + 15 * len(symbols) + len(symbols)
-    print(f"  {'-'*total_width}")
+    print(f"  {'-' * total_width}")
 
     for i, ratio in enumerate(ratio_names):
         print(f"  {metric_headers[i]:<15}", end="")
@@ -519,7 +545,7 @@ def print_valuation_table(data: dict, symbols: List[str]):
             cheap = [r for r in d["ratios"] if r.get("zone") == "CHEAP"]
             if ultra or cheap:
                 print(f"\n    {sym}: ", end="")
-                for r in (ultra + cheap):
+                for r in ultra + cheap:
                     print(f"{r['ratio']}({r['zone']}) ", end="")
                 found = True
     if not found:
@@ -528,11 +554,10 @@ def print_valuation_table(data: dict, symbols: List[str]):
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Valuation Engine — PTCK_VN Phase 3")
-    parser.add_argument("action", choices=["init", "compute", "show", "compare"],
-                        help="Hành động")
-    parser.add_argument("--symbols", nargs="+", default=["FPT", "ACB", "HDB", "MBB", "VCB"],
-                        help="Danh sách symbol")
+    parser.add_argument("action", choices=["init", "compute", "show", "compare"], help="Hành động")
+    parser.add_argument("--symbols", nargs="+", default=["FPT", "ACB", "HDB", "MBB", "VCB"], help="Danh sách symbol")
     args = parser.parse_args()
 
     engine = ValuationEngine()
@@ -551,9 +576,11 @@ def main():
             results[sym] = r
             if r["status"] == "DONE":
                 zones_str = " ".join(f"{k}={v}" for k, v in r.get("zones", {}).items())
-                print(f"  [{r['status']}] {sym}: price={r.get('latest_price')} "
-                      f"| {r.get('latest_period')} | {r.get('periods_computed')} periods "
-                      f"| {r.get('total_entries')} entries | {zones_str}")
+                print(
+                    f"  [{r['status']}] {sym}: price={r.get('latest_price')} "
+                    f"| {r.get('latest_period')} | {r.get('periods_computed')} periods "
+                    f"| {r.get('total_entries')} entries | {zones_str}"
+                )
             else:
                 print(f"  [{r['status']}] {sym}")
 
@@ -567,11 +594,10 @@ def main():
             if not v:
                 print(f"\n  {sym}: NO DATA")
                 continue
-            print(f"\n  {'='*50}")
+            print(f"\n  {'=' * 50}")
             print(f"  {sym} @ {v.get('price', 'N/A'):,} VND ({v['period']})")
-            print(f"  {'='*50}")
-            icons = {"ULTRA_CHEAP": "⬇⬇", "CHEAP": "⬇", "FAIR": "●",
-                     "EXPENSIVE": "⬆", "ULTRA_EXPENSIVE": "⬆⬆"}
+            print(f"  {'=' * 50}")
+            icons = {"ULTRA_CHEAP": "⬇⬇", "CHEAP": "⬇", "FAIR": "●", "EXPENSIVE": "⬆", "ULTRA_EXPENSIVE": "⬆⬆"}
             for r in v["ratios"]:
                 ico = icons.get(r["zone"], "?")
                 zs = f"z={r['z_score']:+.2f}"

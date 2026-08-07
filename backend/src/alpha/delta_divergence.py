@@ -1,4 +1,4 @@
-﻿"""
+"""
 delta_divergence.py — Delta Divergence Index (DDI)
 
 Δ_SA = dS/dt - α · AC_latency
@@ -10,13 +10,12 @@ delta_divergence.py — Delta Divergence Index (DDI)
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -37,8 +36,8 @@ PROJECT_ROOT = _hydrate_path()
 # ── α mặc định cho từng regime ──
 ALPHA_DEFAULT = {
     "TRENDING": 0.30,
-    "RANGING":  0.50,
-    "CRISIS":   0.70,
+    "RANGING": 0.50,
+    "CRISIS": 0.70,
 }
 
 # ── Cấu trúc weight cho forward-return Sortino ──
@@ -62,7 +61,7 @@ class DeltaDivergenceIndex:
 
     ALPHA_DEFAULT = ALPHA_DEFAULT
 
-    def calculate(self, snapshot: dict, alpha: Optional[dict] = None) -> dict:
+    def calculate(self, snapshot: dict, alpha: dict | None = None) -> dict:
         r = snapshot.get("regime", {})
         c = snapshot.get("cau_truc", {})
         ew = snapshot.get("canh_bao_som", {})
@@ -111,10 +110,14 @@ class AlphaOptimizer:
 
     LAMBDA_REG = 0.2
 
-    def optimize(self, regime_label: str, alpha_prev: float,
-                 historical_returns: np.ndarray,
-                 historical_stress: np.ndarray,
-                 n_splits: int = 5) -> dict:
+    def optimize(
+        self,
+        regime_label: str,
+        alpha_prev: float,
+        historical_returns: np.ndarray,
+        historical_stress: np.ndarray,
+        n_splits: int = 5,
+    ) -> dict:
         from scipy.optimize import minimize_scalar as _minimize
         from sklearn.model_selection import TimeSeriesSplit
 
@@ -143,8 +146,7 @@ class AlphaOptimizer:
         best = None
         best_val = float("inf")
         for lo, hi in [(0.05, 0.95)]:
-            res = _minimize(_objective, bounds=(lo, hi), method="bounded",
-                                  options={"xatol": 0.005, "maxiter": 50})
+            res = _minimize(_objective, bounds=(lo, hi), method="bounded", options={"xatol": 0.005, "maxiter": 50})
             if res.fun < best_val:
                 best_val = res.fun
                 best = res.x
@@ -166,19 +168,24 @@ class AlphaOptimizer:
             r_val = val_r.copy()
             r_val[~active_val] = 0.0
 
-            fold_scores.append({
-                "train_sortino": round(_sortino(r_train), 4),
-                "val_sortino": round(_sortino(r_val), 4),
-            })
+            fold_scores.append(
+                {
+                    "train_sortino": round(_sortino(r_train), 4),
+                    "val_sortino": round(_sortino(r_val), 4),
+                }
+            )
 
         return {
             "regime": regime_label,
             "alpha_optimized": alpha_opt,
             "alpha_previous": round(alpha_prev, 4),
             "sortino_prev": round(_sortino(historical_returns), 4),
-            "sortino_optimized": round(_sortino(historical_returns * (
-                (historical_stress - alpha_opt * (1.0 - historical_stress)) <= 0.0
-            ).astype(float)), 4),
+            "sortino_optimized": round(
+                _sortino(
+                    historical_returns * ((historical_stress - alpha_opt * (1.0 - historical_stress)) <= 0.0).astype(float)
+                ),
+                4,
+            ),
             "walk_forward": fold_scores,
             "n_splits": n_splits,
         }

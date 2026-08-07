@@ -1,10 +1,11 @@
-﻿"""
+"""
 CAO Readiness Gate — Orchestrator
 ==================================
 Runs all 3 gates (A, B, C) and produces the final verdict:
   PASS → CAO Phase 1 is safe to execute
   FAIL → gates describe what must be resolved first
 """
+
 import json
 import logging
 import sys
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -28,6 +29,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
@@ -78,6 +80,7 @@ def run_readiness_check(
     from src.cao_readiness.gate_a_independence import run_independence_test
     from src.cao_readiness.gate_b_injectability import run_injectability_test
     from src.cao_readiness.gate_c_regime_stability import run_regime_stability_test
+
     snapshots = None
     indep_report = run_independence_test(snapshots)
     inj_report = run_injectability_test(snapshots)
@@ -146,12 +149,17 @@ def _save_verdict(verdict: ReadinessVerdict):
 
 
 def print_verdict(verdict: ReadinessVerdict):
-    print(json.dumps({
-        "timestamp": verdict.timestamp,
-        "overall_pass": verdict.overall_pass,
-        "summary": verdict.summary,
-        "gates": [
-            {"name": g.gate_name, "status": g.status, "score": g.score, "message": g.message}
-            for g in verdict.gates
-        ],
-    }, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "timestamp": verdict.timestamp,
+                "overall_pass": verdict.overall_pass,
+                "summary": verdict.summary,
+                "gates": [
+                    {"name": g.gate_name, "status": g.status, "score": g.score, "message": g.message} for g in verdict.gates
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )

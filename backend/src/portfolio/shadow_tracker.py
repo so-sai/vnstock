@@ -1,4 +1,4 @@
-﻿"""
+"""
 =======================================================================
  SHADOW TRACKER V1.0 - MODULE DOI SOAT DOC LAP (L4.5)
  Alpha Forge Backend V1.0 Unified
@@ -19,6 +19,7 @@ from datetime import datetime
 # --- SENTINEL PATH PROTECTION (v2.1 Anchor Fix) ---
 def _hydrate_path():
     from pathlib import Path
+
     current = Path(__file__).resolve().parent
     root_path = current
     while current != current.parent:
@@ -30,52 +31,61 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import get_connection
 
 # --- CONSTANTS ---
 PORTFOLIO_PATH = os.path.join(PROJECT_ROOT, "src", "portfolio", "my_portfolio.json")
-STOP_LOSS_THRESHOLD = -5.0   # % - Nguong cat lo (Rumor Shield)
+STOP_LOSS_THRESHOLD = -5.0  # % - Nguong cat lo (Rumor Shield)
+
 
 def _load_portfolio() -> dict | None:
     if not os.path.exists(PORTFOLIO_PATH):
         print(f"❌ [LOI] Khong tim thay so cai tai: {PORTFOLIO_PATH}")
         return None
     try:
-        with open(PORTFOLIO_PATH, "r", encoding="utf-8") as f:
+        with open(PORTFOLIO_PATH, encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         print(f"❌ [LOI] File JSON bi hong: {e}")
         return None
 
+
 def _get_latest_price_from_vault(symbol: str) -> float | None:
-    """ Truy van gia close moi nhat tu L0 Vault (SQLite) """
+    """Truy van gia close moi nhat tu L0 Vault (SQLite)"""
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT adj_close FROM daily_ohlcv 
-                WHERE symbol = ? 
+            cursor.execute(
+                """
+                SELECT adj_close FROM daily_ohlcv
+                WHERE symbol = ?
                 ORDER BY date DESC LIMIT 1
-            ''', (symbol,))
+            """,
+                (symbol,),
+            )
             row = cursor.fetchone()
             return row[0] if row else None
-    except:
+    except Exception:
         return None
+
 
 def _format_vnd(amount: float) -> str:
     if amount >= 1_000_000_000:
         return f"{amount / 1_000_000_000:.2f} ty VND"
     return f"{amount / 1_000_000:.2f} tr VND"
 
+
 def shadow_reconcile():
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("🛡️  ALPHA FORGE V1.0 - SHADOW RECONCILIATION REPORT")
     print(f"⏰ Run at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*70)
+    print("=" * 70)
 
     data = _load_portfolio()
-    if not data: return
+    if not data:
+        return
 
     positions = data.get("positions", [])
     cash = data.get("cash", 0)
@@ -88,10 +98,10 @@ def shadow_reconcile():
     alerts = []
 
     for pos in positions:
-        sym = pos['symbol']
-        qty = pos['quantity']
-        buy_price = pos['entry_price'] # k VND
-        fee_rate = pos.get('fee_paid', 0.0015)
+        sym = pos["symbol"]
+        qty = pos["quantity"]
+        buy_price = pos["entry_price"]  # k VND
+        fee_rate = pos.get("fee_paid", 0.0015)
 
         # Tinh chi phi (co phi)
         cost_raw = qty * buy_price * 1000
@@ -129,11 +139,13 @@ def shadow_reconcile():
         print(f"📊 PORTFOLIO RS: {total_pnl_pct:+.2f}%")
 
     if alerts:
-        print("\n" + "!"*70)
-        for a in alerts: print(a)
-        print("!"*70)
+        print("\n" + "!" * 70)
+        for a in alerts:
+            print(a)
+        print("!" * 70)
 
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
+
 
 if __name__ == "__main__":
     shadow_reconcile()

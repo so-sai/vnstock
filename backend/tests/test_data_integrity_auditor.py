@@ -160,7 +160,6 @@ def _make_ohlcv_tmp_db(tmp_path):
 def test_save_data_upsert_normalizes_datetime_dates(tmp_path):
     """Crawler mới đẩy cột datetime64[ns] → save_data_upsert phải lưu 'YYYY-MM-DD'."""
     import pandas as pd
-
     from src.database.db_core import save_data_upsert
 
     _, conn = _make_ohlcv_tmp_db(tmp_path)
@@ -185,7 +184,6 @@ def test_save_data_upsert_normalizes_datetime_dates(tmp_path):
 def test_crawl_with_datetime_cannot_create_duplicate_keys(tmp_path):
     """Crawl lặp với datetime không được tạo nhóm (symbol,date) trùng (PRIMARY KEY)."""
     import pandas as pd
-
     from src.database.db_core import save_data_upsert
 
     _, conn = _make_ohlcv_tmp_db(tmp_path)

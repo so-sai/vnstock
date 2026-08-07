@@ -10,10 +10,8 @@ import sys
 import warnings
 from pathlib import Path
 
-import numpy as np
 import pytest
-
-from conftest import PROJECT_ROOT, TEST_PORTFOLIO, TEST_SYMBOL, clean_db
+from conftest import PROJECT_ROOT, TEST_PORTFOLIO
 
 
 # ============================================================
@@ -223,8 +221,9 @@ class TestOfflineGuard:
     def test_run_scan_offline_parameter(self):
         """Hàm run_scan phải chấp nhận tham số offline=bool."""
         try:
-            from src.engine.capital_displacement_engine import run_scan
             import inspect
+
+            from src.engine.capital_displacement_engine import run_scan
             sig = inspect.signature(run_scan)
             assert "offline" in sig.parameters
             assert sig.parameters["offline"].default is False
@@ -737,8 +736,9 @@ class TestHistoricalDataOverwrite:
     def test_backfill_engine_signature(self):
         """Backfill engine phải tồn tại và có tham số cần thiết."""
         try:
-            from src.engine.backfill_engine import backfill
             import inspect
+
+            from src.engine.backfill_engine import backfill
             sig = inspect.signature(backfill)
             assert "symbols" in sig.parameters
             assert "dry_run" in sig.parameters
@@ -1262,7 +1262,7 @@ class TestProjectSyntax:
                 continue
             try:
                 py_compile.compile(str(f), doraise=True)
-            except py_compile.PyCompileError as e:
+            except py_compile.PyCompileError:
                 errors.append(str(f.relative_to(PROJECT_ROOT)))
         if errors:
             pytest.fail(f"SyntaxError trong {len(errors)} file:\n" + "\n".join(errors))

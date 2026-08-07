@@ -3,15 +3,16 @@ Exposure Engine v1.0 — HoldingsView Layer.
 Aggregates portfolio data from JSON + SQLite into exposure metrics.
 PURE AGGREGATION: no scoring, no recommendation, no interpretation.
 """
-import sys
+
 import json
 import logging
 import os
+import sys
 from pathlib import Path
-from typing import Optional
+
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent
@@ -28,23 +29,23 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
-import pandas as pd
 import numpy as np
-from src.database.db_core import get_connection
+import pandas as pd
 from core.holdings.models import HoldingPosition, SectorExposure
+
+from src.database.db_core import get_connection
 
 logger = logging.getLogger(__name__)
 
-PORTFOLIO_PATH = os.path.join(
-    str(PROJECT_ROOT), "backend", "src", "portfolio", "my_portfolio.json"
-)
+PORTFOLIO_PATH = os.path.join(str(PROJECT_ROOT), "backend", "src", "portfolio", "my_portfolio.json")
 
 
 def load_portfolio_positions() -> list[HoldingPosition]:
     try:
-        with open(PORTFOLIO_PATH, "r", encoding="utf-8") as f:
+        with open(PORTFOLIO_PATH, encoding="utf-8") as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.warning(f"Cannot load portfolio: {e}")
@@ -73,17 +74,19 @@ def load_portfolio_positions() -> list[HoldingPosition]:
         adv = vol_profile.get("adv_20d", 0)
         liquidity_score = min(market_value / (adv * 1000) if adv > 0 else 999, 100)
 
-        positions.append(HoldingPosition(
-            symbol=sym,
-            quantity=qty,
-            avg_price=entry_price_k,
-            market_price=round(market_price / 1000, 2),
-            market_value=market_value,
-            portfolio_weight=0.0,
-            sector=sector,
-            pnl_pct=round(pnl_pct, 2),
-            liquidity_score=round(liquidity_score, 2),
-        ))
+        positions.append(
+            HoldingPosition(
+                symbol=sym,
+                quantity=qty,
+                avg_price=entry_price_k,
+                market_price=round(market_price / 1000, 2),
+                market_value=market_value,
+                portfolio_weight=0.0,
+                sector=sector,
+                pnl_pct=round(pnl_pct, 2),
+                liquidity_score=round(liquidity_score, 2),
+            )
+        )
 
     total_nav = cash + sum(p.market_value for p in positions)
     for p in positions:
@@ -107,12 +110,14 @@ def compute_sector_exposure(positions: list[HoldingPosition]) -> list[SectorExpo
     result = []
     for sector, data in sectors.items():
         avg_lq = np.mean(data["liquidity"]) if data["liquidity"] else 1.0
-        result.append(SectorExposure(
-            sector=sector,
-            weight=round(data["weight"], 2),
-            position_count=data["count"],
-            liquidity_quality=round(float(avg_lq), 2),
-        ))
+        result.append(
+            SectorExposure(
+                sector=sector,
+                weight=round(data["weight"], 2),
+                position_count=data["count"],
+                liquidity_quality=round(float(avg_lq), 2),
+            )
+        )
     return sorted(result, key=lambda x: x.weight, reverse=True)
 
 
@@ -171,9 +176,10 @@ def compute_exposure_summary() -> dict:
 # Internal helpers
 # ───────────────────────────────
 
+
 def _load_cash() -> float:
     try:
-        with open(PORTFOLIO_PATH, "r", encoding="utf-8") as f:
+        with open(PORTFOLIO_PATH, encoding="utf-8") as f:
             return json.load(f).get("cash", 0)
     except Exception:
         return 0.0
@@ -192,9 +198,7 @@ def _load_current_prices() -> dict:
     try:
         with get_connection() as conn:
             df = pd.read_sql(
-                "SELECT symbol, adj_close FROM daily_ohlcv "
-                "WHERE date = (SELECT MAX(date) FROM daily_ohlcv)",
-                conn
+                "SELECT symbol, adj_close FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv)", conn
             )
         return {row["symbol"]: float(row["adj_close"]) for _, row in df.iterrows()}
     except Exception:
@@ -205,15 +209,9 @@ def _load_volume_profiles() -> dict:
     try:
         with get_connection() as conn:
             df = pd.read_sql(
-                "SELECT symbol, date, volume FROM daily_ohlcv "
-                "WHERE date >= date('now', '-30 days') ORDER BY date",
-                conn
+                "SELECT symbol, date, volume FROM daily_ohlcv WHERE date >= date('now', '-30 days') ORDER BY date", conn
             )
-        df = df.assign(
-            adv_20d=df.groupby("symbol")["volume"].transform(
-                lambda x: x.rolling(20, min_periods=5).mean()
-            )
-        )
+        df = df.assign(adv_20d=df.groupby("symbol")["volume"].transform(lambda x: x.rolling(20, min_periods=5).mean()))
         latest = df[df["date"] == df.groupby("symbol")["date"].transform("max")]
         return {row["symbol"]: {"adv_20d": float(row["adv_20d"] or 0)} for _, row in latest.iterrows()}
     except Exception:
@@ -225,10 +223,7 @@ def _is_high_beta(symbol: str) -> bool:
     high_beta_sectors = {"Dịch vụ tài chính", "Công nghệ", "Bất động sản", "Xây dựng và Vật liệu"}
     try:
         with get_connection() as conn:
-            df = pd.read_sql(
-                "SELECT icb_name2 FROM symbol_industry WHERE symbol = ?",
-                conn, params=(symbol,)
-            )
+            df = pd.read_sql("SELECT icb_name2 FROM symbol_industry WHERE symbol = ?", conn, params=(symbol,))
             if not df.empty:
                 sector = str(df.iloc[0]["icb_name2"] or "")
                 return sector in high_beta_sectors
@@ -239,5 +234,6 @@ def _is_high_beta(symbol: str) -> bool:
 
 if __name__ == "__main__":
     import json
+
     summary = compute_exposure_summary()
     print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))

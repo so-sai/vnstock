@@ -1,4 +1,5 @@
-﻿"""Telemetry Evaluator — judges decisions after 5, 10, 20, 30 days"""
+"""Telemetry Evaluator — judges decisions after 5, 10, 20, 30 days"""
+
 import logging
 import sys
 from datetime import datetime, timedelta
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -21,6 +22,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -36,8 +38,7 @@ def _get_vnindex_at_date(target_date: str) -> float:
     try:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date = ?",
-                (target_date,)
+                "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date = ?", (target_date,)
             ).fetchone()
             if row:
                 return float(row[0])
@@ -51,7 +52,7 @@ def _get_vnindex_latest_before(target_date: str) -> float:
         with get_connection() as conn:
             row = conn.execute(
                 "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1",
-                (target_date,)
+                (target_date,),
             ).fetchone()
             if row:
                 return float(row[0])
@@ -107,6 +108,7 @@ def evaluate_single(decision_id: str, horizon_days: int) -> OutcomeRecord:
     try:
         if snapshot.get("engine_scores"):
             import json
+
             raw = snapshot["engine_scores"]
             if isinstance(raw, bytes):
                 raw = raw.decode("utf-8", "replace")
@@ -118,7 +120,9 @@ def evaluate_single(decision_id: str, horizon_days: int) -> OutcomeRecord:
 
     logger.info(
         "[TELEMETRY] Evaluated %s | %dd | return=%.2f%% | %s",
-        decision_id, horizon_days, vnindex_return * 100,
+        decision_id,
+        horizon_days,
+        vnindex_return * 100,
         "CORRECT" if success else "WRONG",
     )
     return record

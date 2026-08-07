@@ -1,4 +1,5 @@
-﻿"""Shadow CAO — Separate SQLite storage (never touches production tables)."""
+"""Shadow CAO — Separate SQLite storage (never touches production tables)."""
+
 import json
 import logging
 import sqlite3
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -25,8 +26,10 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 import src.config
+from src.shadow_cao.models import AblationResult, EngineAblationProfile, ShadowDecisionLog
 
 SHADOW_DB_PATH = str(src.config.DATA_DIR / "shadow_cao.db")
 
@@ -145,68 +148,76 @@ def initialize_shadow_database():
     logger.info("[SHADOW_CAO] Database initialized: %s", SHADOW_DB_PATH)
 
 
-def save_decision_log(entry: "ShadowDecisionLog") -> bool:
+def save_decision_log(entry: ShadowDecisionLog) -> bool:
     try:
         with get_shadow_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO shadow_decision_logs
                 (decision_id, timestamp, posture, risk_level, confidence,
                  engine_scores, decision_weights, market_regime,
                  regime_score, vnindex_level)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                entry.decision_id,
-                entry.timestamp,
-                entry.posture,
-                entry.risk_level,
-                entry.confidence,
-                json.dumps(entry.engine_scores, ensure_ascii=False),
-                json.dumps(entry.decision_weights, ensure_ascii=False),
-                entry.market_regime,
-                entry.regime_score,
-                entry.vnindex_level,
-            ))
+            """,
+                (
+                    entry.decision_id,
+                    entry.timestamp,
+                    entry.posture,
+                    entry.risk_level,
+                    entry.confidence,
+                    json.dumps(entry.engine_scores, ensure_ascii=False),
+                    json.dumps(entry.decision_weights, ensure_ascii=False),
+                    entry.market_regime,
+                    entry.regime_score,
+                    entry.vnindex_level,
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[SHADOW_CAO] Failed to save decision log: %s", e)
         return False
 
 
-def save_ablation_result(result: "AblationResult", decision_id: str) -> bool:
+def save_ablation_result(result: AblationResult, decision_id: str) -> bool:
     try:
         with get_shadow_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO shadow_ablations
                 (decision_id, engine_removed, baseline_action,
                  baseline_confidence, ablated_action, ablated_confidence,
                  action_changed, confidence_delta, decision_flip)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                decision_id,
-                result.engine_removed,
-                result.baseline_action,
-                result.baseline_confidence,
-                result.ablated_action,
-                result.ablated_confidence,
-                1 if result.action_changed else 0,
-                result.confidence_delta,
-                1 if result.decision_flip else 0,
-            ))
+            """,
+                (
+                    decision_id,
+                    result.engine_removed,
+                    result.baseline_action,
+                    result.baseline_confidence,
+                    result.ablated_action,
+                    result.ablated_confidence,
+                    1 if result.action_changed else 0,
+                    result.confidence_delta,
+                    1 if result.decision_flip else 0,
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[SHADOW_CAO] Failed to save ablation: %s", e)
         return False
 
 
-def save_outcome_log(decision_id: str, horizon_days: int,
-                     actual_outcome: float, success: bool) -> bool:
+def save_outcome_log(decision_id: str, horizon_days: int, actual_outcome: float, success: bool) -> bool:
     try:
         with get_shadow_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO shadow_outcome_logs
                 (decision_id, horizon_days, actual_outcome, actual_success)
                 VALUES (?, ?, ?, ?)
-            """, (decision_id, horizon_days, actual_outcome, 1 if success else 0))
+            """,
+                (decision_id, horizon_days, actual_outcome, 1 if success else 0),
+            )
         return True
     except Exception as e:
         logger.error("[SHADOW_CAO] Failed to save outcome log: %s", e)
@@ -214,47 +225,68 @@ def save_outcome_log(decision_id: str, horizon_days: int,
 
 
 def save_attribution_perturbation(
-    decision_id: str, horizon_days: int, engine: str,
-    signal: float, baseline_c: float, ablated_c: float,
-    delta_c: float, baseline_tp: float, ablated_tp: float,
-    baseline_fp: float, ablated_fp: float,
+    decision_id: str,
+    horizon_days: int,
+    engine: str,
+    signal: float,
+    baseline_c: float,
+    ablated_c: float,
+    delta_c: float,
+    baseline_tp: float,
+    ablated_tp: float,
+    baseline_fp: float,
+    ablated_fp: float,
 ) -> bool:
     try:
         with get_shadow_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO shadow_attribution_perturbations
                 (decision_id, horizon_days, engine, signal_at_decision,
                  baseline_contribution, ablated_contribution, contribution_delta,
                  baseline_tp, ablated_tp, baseline_fp, ablated_fp)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                decision_id, horizon_days, engine, signal,
-                baseline_c, ablated_c, delta_c,
-                baseline_tp, ablated_tp, baseline_fp, ablated_fp,
-            ))
+            """,
+                (
+                    decision_id,
+                    horizon_days,
+                    engine,
+                    signal,
+                    baseline_c,
+                    ablated_c,
+                    delta_c,
+                    baseline_tp,
+                    ablated_tp,
+                    baseline_fp,
+                    ablated_fp,
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[SHADOW_CAO] Failed to save perturbation: %s", e)
         return False
 
 
-def save_engine_profile(profile: "EngineAblationProfile") -> bool:
+def save_engine_profile(profile: EngineAblationProfile) -> bool:
     try:
         with get_shadow_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO shadow_engine_profiles
                 (engine, total_decisions, flip_count, avg_confidence_delta,
                  action_change_ratio, stability_score, last_updated)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                profile.engine,
-                profile.total_decisions,
-                profile.flip_count,
-                profile.avg_confidence_delta,
-                profile.action_change_ratio,
-                profile.stability_score,
-                datetime.now().isoformat(),
-            ))
+            """,
+                (
+                    profile.engine,
+                    profile.total_decisions,
+                    profile.flip_count,
+                    profile.avg_confidence_delta,
+                    profile.action_change_ratio,
+                    profile.stability_score,
+                    datetime.now().isoformat(),
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[SHADOW_CAO] Failed to save engine profile: %s", e)
@@ -264,10 +296,13 @@ def save_engine_profile(profile: "EngineAblationProfile") -> bool:
 def save_belief_value(key: str, value: str) -> bool:
     try:
         with get_shadow_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO shadow_belief_state (key, value, updated_at)
                 VALUES (?, ?, ?)
-            """, (key, value, datetime.now().isoformat()))
+            """,
+                (key, value, datetime.now().isoformat()),
+            )
         return True
     except Exception as e:
         logger.error("[SHADOW_CAO] Failed to save belief state: %s", e)
@@ -276,45 +311,33 @@ def save_belief_value(key: str, value: str) -> bool:
 
 def get_decision_log(decision_id: str) -> dict:
     with get_shadow_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM shadow_decision_logs WHERE decision_id = ?",
-            (decision_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM shadow_decision_logs WHERE decision_id = ?", (decision_id,)).fetchone()
     return dict(row) if row else None
 
 
 def get_ablations_for_decision(decision_id: str) -> list[dict]:
     with get_shadow_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM shadow_ablations WHERE decision_id = ? ORDER BY confidence_delta DESC",
-            (decision_id,)
+            "SELECT * FROM shadow_ablations WHERE decision_id = ? ORDER BY confidence_delta DESC", (decision_id,)
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_all_decision_logs(limit: int = 200) -> list[dict]:
     with get_shadow_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM shadow_decision_logs ORDER BY created_at DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM shadow_decision_logs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_engine_profiles() -> list[dict]:
     with get_shadow_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM shadow_engine_profiles ORDER BY engine"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM shadow_engine_profiles ORDER BY engine").fetchall()
     return [dict(r) for r in rows]
 
 
 def get_belief_value(key: str) -> str:
     with get_shadow_connection() as conn:
-        row = conn.execute(
-            "SELECT value FROM shadow_belief_state WHERE key = ?",
-            (key,)
-        ).fetchone()
+        row = conn.execute("SELECT value FROM shadow_belief_state WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
 
 

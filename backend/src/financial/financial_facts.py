@@ -13,9 +13,8 @@ Entity types: STANDARD (FPT) vs BANK (ACB, HDB, MBB)
 import re
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -112,6 +111,47 @@ BANK_METRICS = {
     "ROE": ("ROE", "IS"),
     "ROA": ("ROA", "IS"),
     "NIM": ("Tỷ lệ thu nhập lãi thuần", "IS"),
+}
+
+# Metric registry Công ty Chứng khoán (Thông tư 334/2016/TT-BTC).
+# WHY: Tài sản CTCK chia 4 nhóm sinh lời: FVTPL (tự doanh ngắn hạn), HTM (giữ
+# đến đáo hạn), AFS (sẵn sàng để bán), MARGIN_LOANS (cho vay ký quỹ). Đăng ký
+# metric để validator/biểu mẫu nhận diện — nguồn crawl cung cấp khi có.
+SECURITIES_METRICS = {
+    # Balance Sheet — tài sản sinh lời
+    "FVTPL": ("Tài sản tài chính FVTPL", "BS"),
+    "HTM": ("Tài sản tài chính giữ đến đáo hạn (HTM)", "BS"),
+    "AFS": ("Tài sản tài chính sẵn sàng để bán (AFS)", "BS"),
+    "MARGIN_LOANS": ("Cho vay giao dịch ký quỹ (Margin)", "BS"),
+    # Income Statement
+    "OPERATING_REVENUE": ("Tổng doanh thu hoạt động", "IS"),
+    "FVTPL_GAIN": ("Lãi từ tài sản tài chính FVTPL", "IS"),
+    "MARGIN_INTEREST": ("Lãi cho vay margin", "IS"),
+    "PROPRIETARY_GAIN": ("Lãi tự doanh", "IS"),
+    # Chung (map qua STANDARD khi nguồn trả chuẩn)
+    "TOTAL_ASSETS": ("Tổng tài sản", "BS"),
+    "TOTAL_EQUITY": ("Vốn chủ sở hữu", "BS"),
+    "TOTAL_LIABILITIES": ("Nợ phải trả", "BS"),
+    "NET_INCOME": ("Lợi nhuận sau thuế", "IS"),
+    "CFO": ("Lưu chuyển tiền từ HĐKD", "CF"),
+}
+
+# Metric registry Doanh nghiệp Bảo hiểm (Thông tư 135/2012/TT-BTC).
+# WHY: Doanh thu chính = Phí bảo hiểm thuần (NWP); chi phí = bồi thường + quản
+# lý nghiệp vụ. Đăng ký metric cho validator — nguồn cung cấp khi có.
+INSURANCE_METRICS = {
+    # Income Statement — nghiệp vụ bảo hiểm
+    "NET_PREMIUM": ("Phí bảo hiểm thuần (NWP)", "IS"),
+    "NET_CLAIMS": ("Chi phí bồi thường thuần", "IS"),
+    "OPERATING_EXPENSE": ("Chi phí hoạt động nghiệp vụ", "IS"),
+    "INVESTMENT_INCOME": ("Thu nhập đầu tư tài chính", "IS"),
+    # Balance Sheet — dự phòng nghiệp vụ
+    "TECHNICAL_RESERVES": ("Dự phòng nghiệp vụ", "BS"),
+    "TOTAL_ASSETS": ("Tổng tài sản", "BS"),
+    "TOTAL_EQUITY": ("Vốn chủ sở hữu", "BS"),
+    "TOTAL_LIABILITIES": ("Nợ phải trả", "BS"),
+    "NET_INCOME": ("Lợi nhuận sau thuế", "IS"),
+    "CFO": ("Lưu chuyển tiền từ HĐKD", "CF"),
 }
 
 # Vnstock metric mapping: vnstock column name → our metric name
@@ -255,6 +295,40 @@ VNSTOCK_ITEM_ID_MAP = {
     "net_accounting_profit_loss_before_tax": "PRE_TAX_INCOME",
     "general_and_admin_expenses": "OPERATING_EXPENSE",
     "net_operating_profit_before_allowance_for_credit_loss": "OPERATING_PROFIT",
+    # ── SECURITIES (CTCK, Thông tư 334/2016/TT-BTC) — item_id THỰC TẾ VCI trả ──
+    # Verified 2026-08-07 qua probe live VCI trên SSI (wide-format item_id):
+    #   BS: financial_assets_at_fair_value_through_profit_or_loss_fvtpl,
+    #       available_for_sale_financial_assets_afs, loans
+    #   IS: income_from_financial_assets_recognized_through_profit_loss_fvtpl,
+    #       income_from_loans_and_receivables, revenue_in_brokerage_services
+    "financial_assets_at_fair_value_through_profit_or_loss_fvtpl": "FVTPL",
+    "trading_securities": "FVTPL",
+    "available_for_sale_financial_assets_afs": "AFS",
+    "loans": "MARGIN_LOANS",
+    "revenue_in_brokerage_services": "OPERATING_REVENUE",
+    "revenue_in_underwriting_services": "OPERATING_REVENUE",
+    "income_from_financial_assets_recognized_through_profit_loss_fvtpl": "FVTPL_GAIN",
+    "income_from_selling_financial_assets_fvtpl": "FVTPL_GAIN",
+    "dividend_interest_from_fvtpl_financial_assets": "FVTPL_GAIN",
+    "income_from_loans_and_receivables": "MARGIN_INTEREST",
+    # ── INSURANCE (DNBH, Thông tư 135/2012/TT-BTC) — item_id THỰC TẾ VCI trả ──
+    # Verified 2026-08-07 qua probe live VCI trên BVH:
+    #   IS: gross_written_premium, revenue_from_insurance_premium,
+    #       claim_and_maturity_payment_expenses, total_insurance_claim_settlement_expenses
+    #   BS: unearned_premium_reserve, technical_reserve, claim_reserve
+    "gross_written_premium": "NET_PREMIUM",
+    "revenue_from_insurance_premium": "NET_PREMIUM",
+    "net_revenue_of_insurance_premium": "NET_PREMIUM",
+    "claim_and_maturity_payment_expenses": "NET_CLAIMS",
+    "claim_expenses_for_reinsurance_assumed": "NET_CLAIMS",
+    "claim_expenses_on_retained_risks": "NET_CLAIMS",
+    "total_insurance_claim_settlement_expenses": "NET_CLAIMS",
+    "unearned_premium_reserve": "TECHNICAL_RESERVES",
+    "technical_reserve": "TECHNICAL_RESERVES",
+    "claim_reserve": "TECHNICAL_RESERVES",
+    "income_from_financial_activities": "INVESTMENT_INCOME",
+    # DNBH không có "Lợi nhuận sau thuế" theo chuẩn production — dùng profit_after_tax
+    "profit_after_tax": "NET_INCOME",
 }
 
 # Entity type registry
@@ -284,9 +358,9 @@ ENTITY_TYPES = {
     "SGB": "BANK",
     "PGB": "BANK",
     "KLB": "BANK",
-    "HCM": "STANDARD",
-    "SSI": "STANDARD",
-    "VND": "STANDARD",
+    "HCM": "SECURITIES",
+    "SSI": "SECURITIES",
+    "VND": "SECURITIES",
     "VIC": "STANDARD",
     "VHM": "STANDARD",
     "HPG": "STANDARD",
@@ -362,7 +436,7 @@ class DataIntegrityValidator:
     TY_BAND_UPPER = 5_000_000  # 5 triệu tỷ — đủ cho ngân hàng lớn (VCB assets > 2 triệu tỷ)
 
     @staticmethod
-    def auto_scale_to_vnd(value: float, metric: str, symbol: str) -> Tuple[float, str]:
+    def auto_scale_to_vnd(value: float, metric: str, symbol: str) -> tuple[float, str]:
         """Đưa giá trị về đơn vị VND chuẩn.
 
         Một số nguồn trả về giá trị theo tỷ, triệu, hoặc nghìn.
@@ -458,7 +532,7 @@ class DataIntegrityValidator:
     @staticmethod
     def validate_balance_sheet(
         total_assets: float, total_liabilities: float, total_equity: float, symbol: str, period: str
-    ) -> Dict:
+    ) -> dict:
         """Bắt buộc: Assets = Liabilities + Equity (sai số ≤ 0.1%).
 
         Returns dict: {valid, error_pct, pass, action}
@@ -504,7 +578,7 @@ class DataIntegrityValidator:
     @staticmethod
     def validate_integrity_before_write(
         symbol: str, period: str, metric: str, value: float, statement_type: str, entity_type: str
-    ) -> Dict:
+    ) -> dict:
         """Kiểm tra toàn vẹn trước khi ghi vào DB."""
         warnings = []
 
@@ -535,7 +609,7 @@ class DataIntegrityValidator:
 class FinancialFactsDB:
     """Quản lý financial_facts.db — Schema Kép."""
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or str(FINANCIAL_DB_PATH)
         self.conn = None
 
@@ -554,7 +628,12 @@ class FinancialFactsDB:
             self.conn.close()
             self.conn = None
 
-    def cascade_delete_health_ratios(self, symbol: str = None, period: str = None, min_ratio_value: float = None):
+    def cascade_delete_health_ratios(
+        self,
+        symbol: str | None = None,
+        period: str | None = None,
+        min_ratio_value: float | None = None,
+    ):
         """Xóa health_ratios tương ứng khi financial_facts bị purge.
 
         Args:
@@ -642,6 +721,14 @@ class FinancialFactsDB:
         CREATE INDEX IF NOT EXISTS idx_ff_metric ON financial_facts(metric);
         CREATE INDEX IF NOT EXISTS idx_il_batch ON ingestion_log(batch_id);
         CREATE INDEX IF NOT EXISTS idx_il_status ON ingestion_log(status);
+
+        CREATE TABLE IF NOT EXISTS fallback_cooldown (
+            symbol          TEXT NOT NULL,
+            period          TEXT NOT NULL,
+            cooldown_until  TEXT NOT NULL,          -- ISO datetime hết hạn cooldown
+            updated_at      TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (symbol, period)
+        );
         """)
         # Migration an toàn: DB cũ thiếu cột is_synthetic (Provenance guard).
         # WHY: CREATE TABLE IF NOT EXISTS không thêm cột mới vào bảng đã tồn tại. ALTER
@@ -664,7 +751,7 @@ class FinancialFactsDB:
         # Fallback to static registry
         return ENTITY_TYPES.get(symbol.upper(), "STANDARD")
 
-    def register_entity(self, symbol: str, entity_type: str, full_name: str = None):
+    def register_entity(self, symbol: str, entity_type: str, full_name: str | None = None):
         """Đăng ký entity vào registry."""
         conn = self.connect()
         cursor = conn.cursor()
@@ -690,9 +777,9 @@ class FinancialFactsDB:
         unit: str = "VND",
         source: str = "vnstock",
         is_synthetic: int = 0,
-        reported_at: str = None,
+        reported_at: str | None = None,
         integrity_flags: str = "",
-    ) -> Dict:
+    ) -> dict:
         """Ghi một fact vào DB sau khi kiểm tra toàn vẹn."""
         # Validate before write
         validation = DataIntegrityValidator.validate_integrity_before_write(
@@ -745,10 +832,10 @@ class FinancialFactsDB:
         symbol: str,
         period_metrics: dict,
         entity_type: str,
-        batch_id: str = None,
+        batch_id: str | None = None,
         source: str = "vnstock",
         is_synthetic: int = 0,
-    ) -> Dict:
+    ) -> dict:
         """Ghi batch các facts cho 1 kỳ của 1 symbol.
 
         source: Nguồn gốc dữ liệu thật (vci/cafef/vnstock/vndirect/tcbs/...).
@@ -774,30 +861,6 @@ class FinancialFactsDB:
                 "reason": "period_metrics thiếu _fiscal_year/_fiscal_quarter",
             }
         period = f"{fiscal_year}Q{fiscal_quarter}"
-
-        # Purge-before-write: xóa toàn bộ facts cũ của (symbol, period) trước khi ghi.
-        # WHY: INSERT OR REPLACE chỉ thay row cùng (symbol, period, metric) — các metric cũ
-        # không còn xuất hiện trong batch mới vẫn tồn tại (vd REVENUE=13,789 tỷ của 2026Q2
-        # ghi lúc 01:30 sống sót qua các lần crawl sau vì crawl mới chỉ viết 2024Q3-2025Q2,
-        # không đụng tới row 2026Q2). DELETE trước INSERT khiến mỗi kỳ luôn là ảnh trung
-        # thực của đợt crawl mới nhất — triệt tiêu dữ liệu đọng (stale metrics).
-        cursor.execute(
-            "DELETE FROM financial_facts WHERE symbol = ? AND period = ?",
-            (symbol.upper(), period),
-        )
-
-        # CASCADE DELETE health_ratios: xóa chỉ số dẫn xuất tương ứng để tránh
-        # lệch pha CSDL (financial_facts sạch nhưng health_ratios còn rác).
-        # WHY: health_ratios được compute từ financial_facts — khi facts thay đổi,
-        # ratios phải được recomputed. Nếu không cascade delete, dữ liệu rác
-        # (ví dụ D/E=609M từ TOTAL_DEBT synthetic) sẽ tồn tại indefinitely.
-        try:
-            cursor.execute(
-                "DELETE FROM health_ratios WHERE symbol = ? AND period = ?",
-                (symbol.upper(), period),
-            )
-        except Exception:
-            pass  # health_ratios table may not exist yet
 
         # Store balance sheet items for integrity check
         bs_facts = {}
@@ -861,6 +924,21 @@ class FinancialFactsDB:
 
         conn.commit()
 
+        # CASCADE DELETE health_ratios: chỉ khi batch thực sự ghi được facts, xóa chỉ
+        # số dẫn xuất tương ứng để tránh lệch pha CSDL (financial_facts mới nhưng
+        # health_ratios còn giá trị cũ). WHY: health_ratios được compute từ financial_facts
+        # — khi facts thay đổi, ratios phải được recomputed. Chỉ cascade khi total_written>0:
+        # batch trống (nguồn không trả dữ liệu cho kỳ này) không được xóa ratios đang có.
+        if total_written > 0:
+            try:
+                cursor.execute(
+                    "DELETE FROM health_ratios WHERE symbol = ? AND period = ?",
+                    (symbol.upper(), period),
+                )
+            except Exception:
+                pass  # health_ratios table may not exist yet
+            conn.commit()
+
         # Balance Sheet Check (for STANDARD entities with full data)
         if entity_type == "STANDARD" and "TOTAL_ASSETS" in bs_facts and "TOTAL_EQUITY" in bs_facts:
             # Need TOTAL_DEBT and CURRENT_LIAB to compute total liabilities
@@ -922,7 +1000,13 @@ class FinancialFactsDB:
             "batch_id": batch_id,
         }
 
-    def get_facts(self, symbol: str, metrics: List[str] = None, periods: int = 8, entity_type: str = None) -> List[Dict]:
+    def get_facts(
+        self,
+        symbol: str,
+        metrics: list[str] | None = None,
+        periods: int = 8,
+        entity_type: str | None = None,
+    ) -> list[dict]:
         """Lấy dữ liệu facts đã được chuẩn hóa."""
         conn = self.connect()
         cursor = conn.cursor()
@@ -962,7 +1046,7 @@ class FinancialFactsDB:
 
         return result
 
-    def get_latest_period(self, symbol: str) -> Optional[str]:
+    def get_latest_period(self, symbol: str) -> str | None:
         """Lấy kỳ gần nhất có dữ liệu cho symbol."""
         conn = self.connect()
         cursor = conn.cursor()
@@ -974,6 +1058,56 @@ class FinancialFactsDB:
         )
         row = cursor.fetchone()
         return row[0] if row else None
+
+    # ── Period-Level Fallback Cooldown Gate (chống spam request vô ích) ──
+    # WHY: khi fallback cấp quý không tìm được dữ liệu (VD VCB 2026Q2 chưa công
+    # bố toàn thị trường), hệ thống phải "nhớ" không cào lại quý đó trong 24h —
+    # tránh lặp request mỗi chu kỳ daily-update → giảm nguy cơ bị chặn IP.
+    FALLBACK_COOLDOWN_HOURS = 24
+
+    def set_fallback_cooldown(self, symbol: str, period: str) -> None:
+        """Ghi nhận cooldown: không thử fallback cho (symbol, period) trong 24h."""
+        until = (datetime.now() + timedelta(hours=self.FALLBACK_COOLDOWN_HOURS)).isoformat()
+        conn = self.connect()
+        conn.execute(
+            """
+            INSERT INTO fallback_cooldown (symbol, period, cooldown_until)
+            VALUES (?, ?, ?)
+            ON CONFLICT(symbol, period) DO UPDATE SET
+                cooldown_until = excluded.cooldown_until,
+                updated_at = datetime('now')
+        """,
+            (symbol.upper(), period, until),
+        )
+        conn.commit()
+
+    def get_fallback_cooldown(self, symbol: str, period: str) -> str | None:
+        """Trả cooldown_until (ISO) nếu có record, else None."""
+        row = (
+            self.connect()
+            .execute(
+                "SELECT cooldown_until FROM fallback_cooldown WHERE symbol=? AND period=?",
+                (symbol.upper(), period),
+            )
+            .fetchone()
+        )
+        return row[0] if row else None
+
+    def is_fallback_cooldown_active(self, symbol: str, period: str) -> bool:
+        """True nếu (symbol, period) đang trong cửa sổ cooldown (chưa hết hạn)."""
+        raw = self.get_fallback_cooldown(symbol, period)
+        if not raw:
+            return False
+        try:
+            return datetime.fromisoformat(raw) > datetime.now()
+        except ValueError:
+            return False
+
+    def expire_fallback_cooldown(self, symbol: str, period: str) -> None:
+        """Hết hạn cooldown ngay (dùng trong test / khi có dữ liệu mới)."""
+        conn = self.connect()
+        conn.execute("DELETE FROM fallback_cooldown WHERE symbol=? AND period=?", (symbol.upper(), period))
+        conn.commit()
 
 
 # =========================================================================
@@ -990,7 +1124,7 @@ class VnstockCrawler:
         self.batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     @staticmethod
-    def _period_from_col(col: str) -> Optional[str]:
+    def _period_from_col(col: str) -> str | None:
         """Convert a period column label to 'YYYYQx'.
 
         Handles both '2018Q1' and vnstock wide labels '2018_q1' /
@@ -1018,7 +1152,7 @@ class VnstockCrawler:
                 print(f"    {name} ERROR (attempt {attempt + 1}): {e}")
                 return None
 
-    def fetch_financials_vnstock(self, symbol: str, limit: Optional[int] = 30) -> List[Dict]:
+    def fetch_financials_vnstock(self, symbol: str, limit: int | None = 30) -> list[dict]:
         """Lấy financial statements qua ProviderManager (fallback vnstock → cache)."""
         try:
             from src.providers import get_provider_manager
@@ -1035,7 +1169,7 @@ class VnstockCrawler:
 
         return self._parse_statements(symbol, statements)
 
-    def _parse_statements(self, symbol: str, statements: dict) -> List[Dict]:
+    def _parse_statements(self, symbol: str, statements: dict) -> list[dict]:
         """Parse vnstock DataFrames thành period dicts."""
         entity_type = self.db.get_entity_type(symbol)
         metric_map = VNSTOCK_METRIC_MAP_BANK if entity_type == "BANK" else VNSTOCK_METRIC_MAP_STANDARD
@@ -1142,7 +1276,7 @@ class VnstockCrawler:
             result.append(periods_data[period])
         return result
 
-    def fetch_financials_cafef(self, symbol: str) -> List[Dict]:
+    def fetch_financials_cafef(self, symbol: str) -> list[dict]:
         """Fallback: scrape financial data from CafeF.vn."""
 
         import requests
@@ -1165,7 +1299,7 @@ class VnstockCrawler:
 
         return []
 
-    def fetch_financials(self, symbol: str) -> List[Dict]:
+    def fetch_financials(self, symbol: str) -> list[dict]:
         """Main fetch method: try VCI, then fallback to CafeF."""
         print(f"  [Crawler] Fetching {symbol} ({self.db.get_entity_type(symbol)})...")
 
@@ -1185,14 +1319,14 @@ class VnstockCrawler:
         print("    Using sample data for demo...")
         return self._get_sample_data(symbol)
 
-    def _get_sample_data(self, symbol: str) -> List[Dict]:
+    def _get_sample_data(self, symbol: str) -> list[dict]:
         """Sample data for seed testing."""
         entity_type = self.db.get_entity_type(symbol)
         if entity_type == "BANK":
             return self._get_sample_bank(symbol)
         return self._get_sample_standard(symbol)
 
-    def _get_sample_standard(self, symbol: str) -> List[Dict]:
+    def _get_sample_standard(self, symbol: str) -> list[dict]:
         """FPT-like sample data (2025Q1 through 2026Q2)."""
         return [
             {
@@ -1260,7 +1394,7 @@ class VnstockCrawler:
             },
         ]
 
-    def _get_sample_bank(self, symbol: str) -> List[Dict]:
+    def _get_sample_bank(self, symbol: str) -> list[dict]:
         """Bank sample data."""
         base_data = {
             "ACB": {
@@ -1353,7 +1487,7 @@ class VnstockCrawler:
             },
         ]
 
-    def seed_symbol(self, symbol: str) -> Dict:
+    def seed_symbol(self, symbol: str) -> dict:
         """Seed dữ liệu cho 1 symbol."""
         entity_type = self.db.get_entity_type(symbol)
         self.db.register_entity(symbol, entity_type)
@@ -1388,7 +1522,7 @@ class VnstockCrawler:
             "batch_id": self.batch_id,
         }
 
-    def seed_multiple(self, symbols: List[str]) -> Dict:
+    def seed_multiple(self, symbols: list[str]) -> dict:
         """Seed dữ liệu cho nhiều symbol."""
         overall = {"symbols_total": len(symbols), "symbols_done": 0, "total_facts": 0, "periods_total": 0}
         for sym in symbols:

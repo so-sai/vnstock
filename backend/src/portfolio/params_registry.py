@@ -1,4 +1,4 @@
-﻿"""
+"""
 params_registry.py — Param Fingerprint Registry
 
 Xây dựng kho dữ liệu params_hash từ decision_audit.jsonl.
@@ -12,13 +12,12 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -39,10 +38,7 @@ REGISTRY_PATH = PROJECT_ROOT / "backend" / "data" / "params_registry.json"
 
 from src.alpha.delta_divergence import ALPHA_DEFAULT as AD
 
-CONSERVATIVE_DEFAULTS = {
-    r: {"alpha": AD[r], "label": f"Mặc định an toàn ({r})"}
-    for r in AD
-}
+CONSERVATIVE_DEFAULTS = {r: {"alpha": AD[r], "label": f"Mặc định an toàn ({r})"} for r in AD}
 
 MARKET_IMPACT_THRESHOLD = 0.1  # 10% of total capital max per slice
 
@@ -61,17 +57,30 @@ def build_registry() -> dict:
     """Quét decision_audit.jsonl → registry nhóm theo (params_hash, regime)."""
     if not AUDIT_PATH.exists():
         logger.warning("[REGISTRY] Audit file not found: %s", AUDIT_PATH)
-        return {"registry": {}, "best_by_regime": {}, "conservative_defaults": CONSERVATIVE_DEFAULTS,
-                "meta": {"total_hashes": 0, "source": AUDIT_PATH.name, "built_at": datetime.now().isoformat()}}
+        return {
+            "registry": {},
+            "best_by_regime": {},
+            "conservative_defaults": CONSERVATIVE_DEFAULTS,
+            "meta": {"total_hashes": 0, "source": AUDIT_PATH.name, "built_at": datetime.now().isoformat()},
+        }
 
-    reg: dict[str, dict[str, dict]] = defaultdict(lambda: defaultdict(lambda: {
-        "trade_count": 0, "first_seen": None, "last_seen": None,
-        "decision_to": defaultdict(int), "trigger_machine": 0, "trigger_human": 0,
-        "confidence_sum": 0.0, "delta_sa_sum": 0.0,
-    }))
+    reg: dict[str, dict[str, dict]] = defaultdict(
+        lambda: defaultdict(
+            lambda: {
+                "trade_count": 0,
+                "first_seen": None,
+                "last_seen": None,
+                "decision_to": defaultdict(int),
+                "trigger_machine": 0,
+                "trigger_human": 0,
+                "confidence_sum": 0.0,
+                "delta_sa_sum": 0.0,
+            }
+        )
+    )
 
     try:
-        with open(str(AUDIT_PATH), "r", encoding="utf-8") as f:
+        with open(str(AUDIT_PATH), encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -114,8 +123,7 @@ def build_registry() -> dict:
 
     best_by_regime = {}
     for r in CONSERVATIVE_DEFAULTS:
-        candidates = [(h, registry[h].get(r, {}).get("trade_count", 0))
-                      for h in registry if r in registry[h]]
+        candidates = [(h, registry[h].get(r, {}).get("trade_count", 0)) for h in registry if r in registry[h]]
         if candidates:
             best_hash = max(candidates, key=lambda x: x[1])[0]
             best_by_regime[r] = {
@@ -141,8 +149,7 @@ def build_registry() -> dict:
 
 def save_registry(data: dict) -> Path:
     REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REGISTRY_PATH.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    REGISTRY_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return REGISTRY_PATH
 
 
@@ -179,13 +186,12 @@ def lookup_params(regime: str) -> dict:
         "trade_count": 0,
         "human_review": True,
         "note": (
-            f"Không tìm thấy dữ liệu lịch sử cho regime '{regime}'. "
-            f"Dùng α={AD.get(regime, 0.5)}. Vui lòng kiểm tra thủ công."
+            f"Không tìm thấy dữ liệu lịch sử cho regime '{regime}'. Dùng α={AD.get(regime, 0.5)}. Vui lòng kiểm tra thủ công."
         ),
     }
 
 
-def in_bao_cao(regime: Optional[str] = None):
+def in_bao_cao(regime: str | None = None):
     """In báo cáo registry ra console."""
     data = load_or_build()
     reg = data.get("registry", {})
@@ -219,10 +225,7 @@ def in_bao_cao(regime: Optional[str] = None):
         print()
 
     print("  ── Top params_hash theo tổng số lệnh ──")
-    hash_totals = [
-        (h, sum(reg[h][r2]["trade_count"] for r2 in reg[h]))
-        for h in reg
-    ]
+    hash_totals = [(h, sum(reg[h][r2]["trade_count"] for r2 in reg[h])) for h in reg]
     hash_totals.sort(key=lambda x: -x[1])
     for i, (h, tc) in enumerate(hash_totals[:5], 1):
         print(f"    {i}. {h:<18} {tc} lệnh")

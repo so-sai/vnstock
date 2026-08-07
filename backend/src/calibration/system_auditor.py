@@ -30,10 +30,11 @@ Hợp nhất toàn bộ tự đánh giá của hệ thống vào MỘT lớp duy
 import json
 import sqlite3
 import sys
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 from statistics import mean
-from typing import Callable, Dict, List, Optional
+
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ─────────────────────────────────
 def _hydrate_path():
@@ -58,7 +59,7 @@ PROJECT_ROOT = _hydrate_path()
 
 # ── Constants ────────────────────────────────────────────────────────
 
-DOMAIN_WEIGHTS: Dict[str, float] = {
+DOMAIN_WEIGHTS: dict[str, float] = {
     "data": 0.10,
     "concept_drift": 0.15,
     "calibration": 0.15,
@@ -82,26 +83,27 @@ STATUS_RANK = {"GREEN": 0, "YELLOW": 1, "ORANGE": 2, "RED": 3}
 # DATA SOURCE GETTERS — function-level imports để monkeypatch trong test
 # ════════════════════════════════════════════════════════════════════
 
-def get_system_health_rows() -> List[Dict]:
+
+def get_system_health_rows() -> list[dict]:
     """Đọc component status ledger từ screener_cache.db (system_health)."""
     try:
         from src.database.db_core import get_connection
+
         with get_connection() as conn:
-            rows = conn.execute(
-                "SELECT component, status, last_error FROM system_health"
-            ).fetchall()
+            rows = conn.execute("SELECT component, status, last_error FROM system_health").fetchall()
             return [dict(r) for r in rows]
     except Exception:
         return []
 
 
-def get_prediction_stats(days: int = 90) -> Dict:
+def get_prediction_stats(days: int = 90) -> dict:
     """Đếm predictions unresolved vs resolved trong cửa sổ."""
     try:
         from calibration.prediction_log import (
-            get_unresolved_predictions,
             get_outcomes_for_calibration,
+            get_unresolved_predictions,
         )
+
         unresolved = get_unresolved_predictions()
         resolved = get_outcomes_for_calibration(days)
         return {"unresolved": len(unresolved), "resolved": len(resolved)}
@@ -109,77 +111,83 @@ def get_prediction_stats(days: int = 90) -> Dict:
         return {"unresolved": 0, "resolved": 0}
 
 
-def get_calibration_trend(days: int = 90) -> Dict:
+def get_calibration_trend(days: int = 90) -> dict:
     try:
         from calibration.calibrator import calibration_trend_report
+
         return calibration_trend_report(days)
     except Exception:
         return {"status": "NO_DATA"}
 
 
-def get_latest_calibration_snapshot() -> Optional[Dict]:
+def get_latest_calibration_snapshot() -> dict | None:
     try:
         from calibration.prediction_log import get_latest_calibration
+
         return get_latest_calibration()
     except Exception:
         return None
 
 
-def get_evidence_nodes() -> List[Dict]:
+def get_evidence_nodes() -> list[dict]:
     try:
         from calibration.evidence_engine import EvidenceEngine
+
         return EvidenceEngine().get_all_nodes()
     except Exception:
         return []
 
 
-def get_model_stats() -> Dict:
+def get_model_stats() -> dict:
     try:
         from calibration.model_registry import ModelRegistry
+
         return ModelRegistry().stats()
     except Exception:
         return {}
 
 
-def get_models() -> List[Dict]:
+def get_models() -> list[dict]:
     try:
         from calibration.model_registry import ModelRegistry
+
         return ModelRegistry().get_all_models()
     except Exception:
         return []
 
 
-def get_causal_stats() -> Dict:
+def get_causal_stats() -> dict:
     try:
         from calibration.causal_edge import CausalGraph
+
         return CausalGraph().stats()
     except Exception:
         return {}
 
 
-def get_causal_edges() -> List[Dict]:
+def get_causal_edges() -> list[dict]:
     try:
         from calibration.causal_edge import CausalGraph
+
         cg = CausalGraph()
-        return [
-            {"id": e.id, "confidence": e.confidence}
-            for e in cg.edges.values()
-        ]
+        return [{"id": e.id, "confidence": e.confidence} for e in cg.edges.values()]
     except Exception:
         return []
 
 
-def get_cb_state() -> Dict:
+def get_cb_state() -> dict:
     try:
         from calibration.prediction_log import get_circuit_breaker_state
+
         return get_circuit_breaker_state()
     except Exception:
         return {}
 
 
-def get_generalization_report() -> Dict:
+def get_generalization_report() -> dict:
     try:
         from src.core.quantstats_bridge import QuantStatsBridge
+
         return QuantStatsBridge().run_all()
     except Exception:
         return {}
@@ -188,6 +196,7 @@ def get_generalization_report() -> Dict:
 # ════════════════════════════════════════════════════════════════════
 # COLLECTORS — mỗi domain trả dict {key, score, status, findings, metrics}
 # ════════════════════════════════════════════════════════════════════
+
 
 def _clamp(v: float) -> float:
     return max(0.0, min(1.0, v))
@@ -201,17 +210,18 @@ def _status_from_score(score: float) -> str:
     return "CRITICAL"
 
 
-def get_data_density_results(symbols: List[str]) -> Dict:
+def get_data_density_results(symbols: list[str]) -> dict:
     """Đọc mật độ dữ liệu BCTC 30 quý gần nhất cho danh mục cổ phiếu."""
     try:
         from src.audit.data_integrity_auditor import DataIntegrityAuditor
+
         auditor = DataIntegrityAuditor()
         return auditor.audit_many(symbols)
     except Exception:
         return {}
 
 
-def collect_data_health(days: int = 90) -> Dict:
+def collect_data_health(days: int = 90) -> dict:
     rows = get_system_health_rows()
     stats = get_prediction_stats(days)
 
@@ -225,15 +235,16 @@ def collect_data_health(days: int = 90) -> Dict:
         gap_syms = [sym for sym, r in density_results.items() if getattr(r, "status", "") in ("GAP_FOUND", "SEVERE_GAP")]
         if gap_syms:
             severe_syms = [sym for sym, r in density_results.items() if getattr(r, "status", "") == "SEVERE_GAP"]
-            findings.append({
-                "severity": "HIGH" if severe_syms else "MEDIUM",
-                "message": f"phát hiện lỗ hổng mật độ dữ liệu (Data Density Gap): {', '.join(gap_syms)} thiếu chuỗi BCTC quý",
-            })
+            findings.append(
+                {
+                    "severity": "HIGH" if severe_syms else "MEDIUM",
+                    "message": f"phát hiện lỗ hổng mật độ dữ liệu (Data Density Gap): {', '.join(gap_syms)} thiếu chuỗi BCTC quý",
+                }
+            )
             penalty += 0.20 if severe_syms else 0.10
 
     if not rows and stats.get("resolved", 0) == 0 and stats.get("unresolved", 0) == 0 and not findings:
-        return {"key": "data", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "data", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     if rows:
         bad = [r for r in rows if str(r.get("status", "")).upper() not in ("HEALTHY", "OK", "")]
@@ -241,40 +252,48 @@ def collect_data_health(days: int = 90) -> Dict:
         penalty += 0.6 * bad_ratio
         if bad:
             components = ", ".join(r["component"] for r in bad[:5])
-            findings.append({
-                "severity": "HIGH" if bad_ratio >= 0.25 else "MEDIUM",
-                "message": f"component(s) không HEALTHY: {components}",
-            })
+            findings.append(
+                {
+                    "severity": "HIGH" if bad_ratio >= 0.25 else "MEDIUM",
+                    "message": f"component(s) không HEALTHY: {components}",
+                }
+            )
 
     total_pred = stats.get("resolved", 0) + stats.get("unresolved", 0)
     if total_pred > 0:
         unresolved_ratio = stats.get("unresolved", 0) / total_pred
         penalty += 0.4 * unresolved_ratio
         if unresolved_ratio > 0.5:
-            findings.append({
-                "severity": "HIGH",
-                "message": f"tỷ lệ prediction chưa resolve rất cao: {unresolved_ratio:.0%} "
-                           f"({stats.get('unresolved', 0)} chưa resolve, "
-                           f"{stats.get('resolved', 0)} resolved)",
-            })
+            findings.append(
+                {
+                    "severity": "HIGH",
+                    "message": f"tỷ lệ prediction chưa resolve rất cao: {unresolved_ratio:.0%} "
+                    f"({stats.get('unresolved', 0)} chưa resolve, "
+                    f"{stats.get('resolved', 0)} resolved)",
+                }
+            )
         elif unresolved_ratio > 0.3:
-            findings.append({
-                "severity": "MEDIUM",
-                "message": f"tỷ lệ prediction chưa resolve cao: {unresolved_ratio:.0%}",
-            })
+            findings.append(
+                {
+                    "severity": "MEDIUM",
+                    "message": f"tỷ lệ prediction chưa resolve cao: {unresolved_ratio:.0%}",
+                }
+            )
 
     score = _clamp(1.0 - penalty)
-    return {"key": "data", "score": score,
-            "status": _status_from_score(score),
-            "findings": findings,
-            "metrics": {"components": len(rows), "unresolved": stats.get("unresolved", 0)}}
+    return {
+        "key": "data",
+        "score": score,
+        "status": _status_from_score(score),
+        "findings": findings,
+        "metrics": {"components": len(rows), "unresolved": stats.get("unresolved", 0)},
+    }
 
 
-def collect_concept_drift(days: int = 90) -> Dict:
+def collect_concept_drift(days: int = 90) -> dict:
     report = get_calibration_trend(days)
     if report.get("status") != "OK":
-        return {"key": "concept_drift", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "concept_drift", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     trend = report.get("trend", {})
     degraded = trend.get("degradation_detected", False)
@@ -285,30 +304,35 @@ def collect_concept_drift(days: int = 90) -> Dict:
     penalty = 0.0
     if degraded:
         penalty += 0.5
-        findings.append({
-            "severity": "HIGH",
-            "message": f"concept drift phát hiện: Log-Loss tăng "
-                       f"({older_ll:.3f} → {recent_ll:.3f})",
-        })
+        findings.append(
+            {
+                "severity": "HIGH",
+                "message": f"concept drift phát hiện: Log-Loss tăng ({older_ll:.3f} → {recent_ll:.3f})",
+            }
+        )
     if recent_ll > 0.55:
         penalty += 0.3
-        findings.append({
-            "severity": "HIGH" if recent_ll > 0.70 else "MEDIUM",
-            "message": f"recent Log-Loss cao: {recent_ll:.3f}",
-        })
+        findings.append(
+            {
+                "severity": "HIGH" if recent_ll > 0.70 else "MEDIUM",
+                "message": f"recent Log-Loss cao: {recent_ll:.3f}",
+            }
+        )
 
     score = _clamp(1.0 - penalty)
-    return {"key": "concept_drift", "score": score,
-            "status": _status_from_score(score),
-            "findings": findings,
-            "metrics": {"degraded": degraded, "recent_avg_log_loss": recent_ll}}
+    return {
+        "key": "concept_drift",
+        "score": score,
+        "status": _status_from_score(score),
+        "findings": findings,
+        "metrics": {"degraded": degraded, "recent_avg_log_loss": recent_ll},
+    }
 
 
-def collect_calibration(days: int = 90) -> Dict:
+def collect_calibration(days: int = 90) -> dict:
     snap = get_latest_calibration_snapshot()
     if not snap:
-        return {"key": "calibration", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "calibration", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     findings = []
     penalty = 0.0
@@ -340,17 +364,19 @@ def collect_calibration(days: int = 90) -> Dict:
         findings.append({"severity": "MEDIUM", "message": f"accuracy thấp: {acc:.0%}"})
 
     score = _clamp(1.0 - penalty)
-    return {"key": "calibration", "score": score,
-            "status": _status_from_score(score),
-            "findings": findings,
-            "metrics": {"ece": ece, "mean_log_loss": ll, "accuracy": acc}}
+    return {
+        "key": "calibration",
+        "score": score,
+        "status": _status_from_score(score),
+        "findings": findings,
+        "metrics": {"ece": ece, "mean_log_loss": ll, "accuracy": acc},
+    }
 
 
-def collect_evidence(days: int = 90) -> Dict:
+def collect_evidence(days: int = 90) -> dict:
     nodes = get_evidence_nodes()
     if not nodes:
-        return {"key": "evidence", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "evidence", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     findings = []
     drift_scores = [n.get("drift_score", 0.0) or 0.0 for n in nodes]
@@ -366,57 +392,66 @@ def collect_evidence(days: int = 90) -> Dict:
     penalty += 0.3 * (len(high_drift) / len(nodes))
     if feed_gap:
         penalty += 0.25
-        findings.append({
-            "severity": "HIGH",
-            "message": "evidence registry chưa được feed outcome thực tế "
-                       "(mọi node n_updates=0) — dynamic weighting chạy trên prior",
-        })
+        findings.append(
+            {
+                "severity": "HIGH",
+                "message": "evidence registry chưa được feed outcome thực tế "
+                "(mọi node n_updates=0) — dynamic weighting chạy trên prior",
+            }
+        )
     if high_drift:
-        findings.append({
-            "severity": "HIGH" if len(high_drift) >= len(nodes) / 2 else "MEDIUM",
-            "message": f"evidence node drift cao: {', '.join(high_drift)}",
-        })
+        findings.append(
+            {
+                "severity": "HIGH" if len(high_drift) >= len(nodes) / 2 else "MEDIUM",
+                "message": f"evidence node drift cao: {', '.join(high_drift)}",
+            }
+        )
     elif avg_drift >= 0.35:
-        findings.append({
-            "severity": "MEDIUM",
-            "message": f"evidence drift trung bình cao: {avg_drift:.2f}",
-        })
+        findings.append(
+            {
+                "severity": "MEDIUM",
+                "message": f"evidence drift trung bình cao: {avg_drift:.2f}",
+            }
+        )
     elif avg_drift >= 0.25:
-        findings.append({
-            "severity": "LOW",
-            "message": f"evidence drift trung bình tăng: {avg_drift:.2f}",
-        })
+        findings.append(
+            {
+                "severity": "LOW",
+                "message": f"evidence drift trung bình tăng: {avg_drift:.2f}",
+            }
+        )
 
     score = _clamp(1.0 - penalty)
-    return {"key": "evidence", "score": score,
-            "status": _status_from_score(score),
-            "findings": findings,
-            "metrics": {"avg_drift": round(avg_drift, 4),
-                        "avg_reliability": round(avg_rel, 4),
-                        "feed_gap": feed_gap}}
+    return {
+        "key": "evidence",
+        "score": score,
+        "status": _status_from_score(score),
+        "findings": findings,
+        "metrics": {"avg_drift": round(avg_drift, 4), "avg_reliability": round(avg_rel, 4), "feed_gap": feed_gap},
+    }
 
 
-def collect_model(days: int = 90) -> Dict:
+def collect_model(days: int = 90) -> dict:
     stats = get_model_stats()
     models = get_models()
     if not stats or not models:
-        return {"key": "model", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "model", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     findings = []
     total = stats.get("total", 0)
     if total == 0:
-        return {"key": "model", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "model", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     retired_ratio = stats.get("retired", 0) / total
     penalty = 0.5 * retired_ratio
 
     if retired_ratio > 0.3:
-        findings.append({
-            "severity": "HIGH" if retired_ratio >= 0.5 else "MEDIUM",
-            "message": f"{stats.get('retired', 0)}/{total} hypothesis đã RETIRED",
-        })
+        findings.append(
+            {
+                "severity": "HIGH" if retired_ratio >= 0.5 else "MEDIUM",
+                "message": f"{stats.get('retired', 0)}/{total} hypothesis đã RETIRED",
+            }
+        )
 
     active = [m for m in models if m.get("state") == "ACTIVE"]
     if active:
@@ -426,26 +461,28 @@ def collect_model(days: int = 90) -> Dict:
         concentration = max(m.get("posterior", 0.0) for m in active)
         if concentration > 0.8:
             penalty += 0.2
-            findings.append({
-                "severity": "MEDIUM",
-                "message": f"BMA concentration quá cao: M{concentration:.0%} "
-                           f"chiếm gần như toàn bộ posterior",
-            })
+            findings.append(
+                {
+                    "severity": "MEDIUM",
+                    "message": f"BMA concentration quá cao: M{concentration:.0%} chiếm gần như toàn bộ posterior",
+                }
+            )
 
     score = _clamp(1.0 - penalty)
-    return {"key": "model", "score": score,
-            "status": _status_from_score(score),
-            "findings": findings,
-            "metrics": {"retired_ratio": round(retired_ratio, 4),
-                        "total": total}}
+    return {
+        "key": "model",
+        "score": score,
+        "status": _status_from_score(score),
+        "findings": findings,
+        "metrics": {"retired_ratio": round(retired_ratio, 4), "total": total},
+    }
 
 
-def collect_causal(days: int = 90) -> Dict:
+def collect_causal(days: int = 90) -> dict:
     stats = get_causal_stats()
     edges = get_causal_edges()
     if not edges:
-        return {"key": "causal", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "causal", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     findings = []
     dead = [e for e in edges if (e.get("confidence", 0.0) or 0.0) < 0.30]
@@ -457,30 +494,33 @@ def collect_causal(days: int = 90) -> Dict:
     score = _clamp(avg_conf - penalty)
 
     if dead_ratio > 0.2:
-        findings.append({
-            "severity": "HIGH",
-            "message": f"{len(dead)}/{len(edges)} causal edge confidence < 0.30 "
-                       f"(dead/retired candidate)",
-        })
+        findings.append(
+            {
+                "severity": "HIGH",
+                "message": f"{len(dead)}/{len(edges)} causal edge confidence < 0.30 (dead/retired candidate)",
+            }
+        )
     if n_cx > 0:
-        findings.append({
-            "severity": "MEDIUM",
-            "message": f"{n_cx} counter-example tích lũy trong causal graph",
-        })
+        findings.append(
+            {
+                "severity": "MEDIUM",
+                "message": f"{n_cx} counter-example tích lũy trong causal graph",
+            }
+        )
 
-    return {"key": "causal", "score": score,
-            "status": _status_from_score(score),
-            "findings": findings,
-            "metrics": {"avg_confidence": round(avg_conf, 4),
-                        "dead_edges": len(dead),
-                        "counter_examples": n_cx}}
+    return {
+        "key": "causal",
+        "score": score,
+        "status": _status_from_score(score),
+        "findings": findings,
+        "metrics": {"avg_confidence": round(avg_conf, 4), "dead_edges": len(dead), "counter_examples": n_cx},
+    }
 
 
-def collect_circuit_breaker(days: int = 90) -> Dict:
+def collect_circuit_breaker(days: int = 90) -> dict:
     cb = get_cb_state()
     if not cb:
-        return {"key": "circuit_breaker", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "circuit_breaker", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     level = int(cb.get("level", 0) or 0)
     findings = []
@@ -488,29 +528,34 @@ def collect_circuit_breaker(days: int = 90) -> Dict:
     score = score_map.get(level, 0.10)
 
     if level >= 2:
-        findings.append({
-            "severity": "CRITICAL",
-            "message": f"circuit breaker level {level} — "
-                       f"{cb.get('label', '')} ({cb.get('trigger_reason', '')})",
-        })
+        findings.append(
+            {
+                "severity": "CRITICAL",
+                "message": f"circuit breaker level {level} — {cb.get('label', '')} ({cb.get('trigger_reason', '')})",
+            }
+        )
     elif level == 1:
-        findings.append({
-            "severity": "MEDIUM",
-            "message": f"circuit breaker level 1 (CAUTION)",
-        })
+        findings.append(
+            {
+                "severity": "MEDIUM",
+                "message": "circuit breaker level 1 (CAUTION)",
+            }
+        )
 
-    return {"key": "circuit_breaker", "score": score,
-            "status": "CRITICAL" if level >= 2 else ("WARN" if level == 1 else "OK"),
-            "findings": findings,
-            "metrics": {"level": level}}
+    return {
+        "key": "circuit_breaker",
+        "score": score,
+        "status": "CRITICAL" if level >= 2 else ("WARN" if level == 1 else "OK"),
+        "findings": findings,
+        "metrics": {"level": level},
+    }
 
 
-def collect_generalization(days: int = 90) -> Dict:
+def collect_generalization(days: int = 90) -> dict:
     report = get_generalization_report()
     cal = report.get("calibration", {})
     if not cal or cal.get("sharpe_live_smoothed") is None:
-        return {"key": "generalization", "score": None, "status": "NO_DATA",
-                "findings": [], "metrics": {}}
+        return {"key": "generalization", "score": None, "status": "NO_DATA", "findings": [], "metrics": {}}
 
     findings = []
     penalty = cal.get("calibration_penalty", 0.0) or 0.0
@@ -519,29 +564,32 @@ def collect_generalization(days: int = 90) -> Dict:
 
     if action == "ABORT":
         penalty = max(penalty, 0.85)
-        findings.append({"severity": "CRITICAL",
-                         "message": f"generalization ABORT — {cal.get('reason', '')}"})
+        findings.append({"severity": "CRITICAL", "message": f"generalization ABORT — {cal.get('reason', '')}"})
     elif action == "SCALE":
         penalty = max(penalty, 0.5)
-        findings.append({"severity": "HIGH",
-                         "message": f"generalization SCALE — {cal.get('reason', '')}"})
+        findings.append({"severity": "HIGH", "message": f"generalization SCALE — {cal.get('reason', '')}"})
     elif svr < 1.0:
         penalty = max(penalty, 0.4)
-        findings.append({
-            "severity": "HIGH",
-            "message": f"live sharpe thấp hơn random baseline (ratio={svr:.2f})",
-        })
+        findings.append(
+            {
+                "severity": "HIGH",
+                "message": f"live sharpe thấp hơn random baseline (ratio={svr:.2f})",
+            }
+        )
 
     score = _clamp(1.0 - penalty)
-    return {"key": "generalization", "score": score,
-            "status": _status_from_score(score),
-            "findings": findings,
-            "metrics": {"sharpe_vs_random": svr, "action": action}}
+    return {
+        "key": "generalization",
+        "score": score,
+        "status": _status_from_score(score),
+        "findings": findings,
+        "metrics": {"sharpe_vs_random": svr, "action": action},
+    }
 
 
 # ── Mặc định: map domain key → collector ─────────────────────────────
 
-DEFAULT_COLLECTORS: Dict[str, Callable] = {
+DEFAULT_COLLECTORS: dict[str, Callable] = {
     "data": collect_data_health,
     "concept_drift": collect_concept_drift,
     "calibration": collect_calibration,
@@ -557,6 +605,7 @@ DEFAULT_COLLECTORS: Dict[str, Callable] = {
 # AGGREGATION — hàm thuần, dễ test
 # ════════════════════════════════════════════════════════════════════
 
+
 def _risk_level(score: float) -> str:
     if score >= RISK_GREEN:
         return "GREEN"
@@ -568,9 +617,9 @@ def _risk_level(score: float) -> str:
 
 
 def aggregate_audit(
-    domain_reports: Dict[str, Dict],
-    weights: Optional[Dict[str, float]] = None,
-) -> Dict:
+    domain_reports: dict[str, dict],
+    weights: dict[str, float] | None = None,
+) -> dict:
     """Tính overall score (weighted), risk level, hard overrides, findings.
 
     - Domain NO_DATA (score None) bị loại khỏi trung bình, weights chuẩn hóa lại.
@@ -581,10 +630,9 @@ def aggregate_audit(
     """
     weights = weights or DOMAIN_WEIGHTS
 
-    available = {k: v for k, v in domain_reports.items()
-                 if v.get("score") is not None}
-    all_findings: List[Dict] = []
-    hard_overrides: List[str] = []
+    available = {k: v for k, v in domain_reports.items() if v.get("score") is not None}
+    all_findings: list[dict] = []
+    hard_overrides: list[str] = []
 
     for rep in domain_reports.values():
         for f in rep.get("findings", []):
@@ -649,12 +697,14 @@ def aggregate_audit(
 # PERSISTENCE — snapshot vào calibration.db (system_audit_history)
 # ════════════════════════════════════════════════════════════════════
 
+
 def _default_audit_conn() -> sqlite3.Connection:
     from calibration.prediction_log import get_conn
+
     return get_conn()
 
 
-def create_audit_table(conn: Optional[sqlite3.Connection] = None) -> None:
+def create_audit_table(conn: sqlite3.Connection | None = None) -> None:
     conn = conn or _default_audit_conn()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS system_audit_history (
@@ -671,7 +721,7 @@ def create_audit_table(conn: Optional[sqlite3.Connection] = None) -> None:
     conn.commit()
 
 
-def record_snapshot(report: Dict, conn: Optional[sqlite3.Connection] = None) -> int:
+def record_snapshot(report: dict, conn: sqlite3.Connection | None = None) -> int:
     """Lưu một snapshot audit. Trả về id mới."""
     conn = conn or _default_audit_conn()
     create_audit_table(conn)
@@ -694,8 +744,8 @@ def record_snapshot(report: Dict, conn: Optional[sqlite3.Connection] = None) -> 
 
 def load_history(
     limit: int = 20,
-    conn: Optional[sqlite3.Connection] = None,
-) -> List[Dict]:
+    conn: sqlite3.Connection | None = None,
+) -> list[dict]:
     """Đọc các snapshot audit gần nhất, mới nhất trước."""
     conn = conn or _default_audit_conn()
     create_audit_table(conn)
@@ -727,6 +777,7 @@ def load_history(
 # ORCHESTRATION — SystemAuditor
 # ════════════════════════════════════════════════════════════════════
 
+
 class SystemAuditor:
     """Chạy toàn bộ audit và trả về report dict.
 
@@ -734,25 +785,27 @@ class SystemAuditor:
     DEFAULT_COLLECTORS. Dùng để inject trong test.
     """
 
-    def __init__(self, sources: Optional[Dict[str, Callable]] = None):
+    def __init__(self, sources: dict[str, Callable] | None = None):
         self.sources = sources or DEFAULT_COLLECTORS
 
-    def collect_all(self, days: int = 90) -> Dict[str, Dict]:
+    def collect_all(self, days: int = 90) -> dict[str, dict]:
         domains = {}
         for key, collector in self.sources.items():
             try:
                 rep = collector(days=days)
             except Exception as e:
-                rep = {"key": key, "score": None, "status": "ERROR",
-                       "findings": [{"severity": "HIGH",
-                                     "message": f"collector {key} lỗi: {e}"}],
-                       "metrics": {}}
+                rep = {
+                    "key": key,
+                    "score": None,
+                    "status": "ERROR",
+                    "findings": [{"severity": "HIGH", "message": f"collector {key} lỗi: {e}"}],
+                    "metrics": {},
+                }
             rep.setdefault("key", key)
             domains[key] = rep
         return domains
 
-    def run(self, days: int = 90, persist: bool = False,
-            conn: Optional[sqlite3.Connection] = None) -> Dict:
+    def run(self, days: int = 90, persist: bool = False, conn: sqlite3.Connection | None = None) -> dict:
         domains = self.collect_all(days)
         report = aggregate_audit(domains)
         report["audit_date"] = str(date.today())
@@ -766,48 +819,54 @@ class SystemAuditor:
 # REPORT PRINTING
 # ════════════════════════════════════════════════════════════════════
 
-def print_audit_report(report: Dict, lang_mode: str = "full"):
+
+def print_audit_report(report: dict, lang_mode: str = "full"):
     """In toàn bộ System Audit ra console (song ngữ)."""
     try:
         from src.core.canonical_output_adapter import localize_label
     except Exception:
-        def localize_label(l, m="full"): return l
-    _ = lambda x: localize_label(x, lang_mode)
+
+        def localize_label(label, m="full"):
+            return label
+
+    def _(x):
+        return localize_label(x, lang_mode)
 
     status = report.get("status", "INSUFFICIENT_DATA")
     score = report.get("overall_score")
     coverage = report.get("coverage", 0.0)
-    icon = {"GREEN": "🟢", "YELLOW": "🟡", "ORANGE": "🟠", "RED": "🔴",
-            "INSUFFICIENT_DATA": "⚪"}.get(status, "⚪")
+    icon = {"GREEN": "🟢", "YELLOW": "🟡", "ORANGE": "🟠", "RED": "🔴", "INSUFFICIENT_DATA": "⚪"}.get(status, "⚪")
 
-    print(f"\n  {'='*100}")
-    print(f"  {_('SYSTEM AUDITOR')} — {_('Chief Risk Officer Layer')} | "
-          f"{_('Generated')}: {report.get('generated_at', '')[:19]}")
-    print(f"  {'='*100}")
-    print(f"  {icon} {_('Risk Level')}: {status}"
-          + (f"  |  {_('Overall Health')}: {score:.1%}" if score is not None else "")
-          + f"  |  {_('Coverage')}: {coverage:.0%}")
-    print(f"  {'='*100}")
+    print(f"\n  {'=' * 100}")
+    print(
+        f"  {_('SYSTEM AUDITOR')} — {_('Chief Risk Officer Layer')} | {_('Generated')}: {report.get('generated_at', '')[:19]}"
+    )
+    print(f"  {'=' * 100}")
+    print(
+        f"  {icon} {_('Risk Level')}: {status}"
+        + (f"  |  {_('Overall Health')}: {score:.1%}" if score is not None else "")
+        + f"  |  {_('Coverage')}: {coverage:.0%}"
+    )
+    print(f"  {'=' * 100}")
 
-    print(f"\n  {'─'*100}")
+    print(f"\n  {'─' * 100}")
     print(f"  {_('DOMAIN HEALTH')}")
-    print(f"  {'─'*100}")
+    print(f"  {'─' * 100}")
     hdr = f"  {_('Domain'):<18} {_('Status'):>10} {_('Score'):>8} {'Findings'}"
     print(hdr)
-    print(f"  {'─'*100}")
+    print(f"  {'─' * 100}")
     for key, rep in sorted(report.get("domains", {}).items()):
         d_status = rep.get("status", "NO_DATA")
-        d_icon = {"OK": "🟢", "WARN": "🟡", "CRITICAL": "🔴", "NO_DATA": "⚪",
-                  "ERROR": "❌"}.get(d_status, "⚪")
+        d_icon = {"OK": "🟢", "WARN": "🟡", "CRITICAL": "🔴", "NO_DATA": "⚪", "ERROR": "❌"}.get(d_status, "⚪")
         d_score = rep.get("score")
         n_find = len(rep.get("findings", []))
         score_s = f"{d_score:.3f}" if d_score is not None else "N/A"
         print(f"  {key:<18} {d_icon}{d_status:>9} {score_s:>8} {n_find:>8}")
 
     findings = report.get("findings", [])
-    print(f"\n  {'─'*100}")
+    print(f"\n  {'─' * 100}")
     print(f"  {_('FINDINGS')} ({len(findings)})")
-    print(f"  {'─'*100}")
+    print(f"  {'─' * 100}")
     if findings:
         sev_icon = {"HIGH": "🔴", "MEDIUM": "🟡", "CRITICAL": "⛔", "LOW": "🔵"}
         for f in findings:
@@ -819,15 +878,15 @@ def print_audit_report(report: Dict, lang_mode: str = "full"):
 
     overrides = report.get("hard_overrides", [])
     if overrides:
-        print(f"\n  {'─'*100}")
+        print(f"\n  {'─' * 100}")
         print(f"  {_('HARD OVERRIDES')}")
-        print(f"  {'─'*100}")
+        print(f"  {'─' * 100}")
         for o in overrides:
             print(f"  ⛔ {_('Override')}: {o}")
 
-    print(f"\n  {'='*100}")
+    print(f"\n  {'=' * 100}")
     print(f"  {_('KẾT LUẬN')}")
-    print(f"  {'='*100}")
+    print(f"  {'=' * 100}")
     if score is None:
         print(f"  {_('Chưa đủ dữ liệu để audit — chờ predictions resolved + snapshots calibration.')}")
     elif status == "GREEN":
@@ -840,27 +899,32 @@ def print_audit_report(report: Dict, lang_mode: str = "full"):
         print(f"  {_('HỆ THỐNG Ở MỨC RỦI RO CAO — cân nhắc đóng băng vị thế.')}")
 
 
-def print_audit_history(history: List[Dict], lang_mode: str = "full"):
+def print_audit_history(history: list[dict], lang_mode: str = "full"):
     """In lịch sử các snapshot audit gần nhất."""
     try:
         from src.core.canonical_output_adapter import localize_label
     except Exception:
-        def localize_label(l, m="full"): return l
-    _ = lambda x: localize_label(x, lang_mode)
 
-    print(f"\n  {'='*70}")
+        def localize_label(label, m="full"):
+            return label
+
+    def _(x):
+        return localize_label(x, lang_mode)
+
+    print(f"\n  {'=' * 70}")
     print(f"  {_('SYSTEM AUDIT HISTORY')}")
-    print(f"  {'='*70}")
+    print(f"  {'=' * 70}")
     if not history:
         print(f"  {_('Chưa có snapshot nào. Chạy')} 'system-audit run --persist'.")
         return
     hdr = f"  {'ID':<5} {'Date':<12} {'Score':>8} {'Risk':>8} {'Coverage':>10}"
     print(hdr)
-    print(f"  {'─'*60}")
+    print(f"  {'─' * 60}")
     for h in history:
         score = h.get("overall_score")
         score_s = f"{score:.3f}" if score is not None else "N/A"
-        print(f"  {h.get('id', '?'):<5} {str(h.get('audit_date', '')):<12} "
-              f"{score_s:>8} {str(h.get('status', '')):>8} "
-              f"{h.get('coverage', 0.0):>9.0%}")
-
+        print(
+            f"  {h.get('id', '?'):<5} {str(h.get('audit_date', '')):<12} "
+            f"{score_s:>8} {str(h.get('status', '')):>8} "
+            f"{h.get('coverage', 0.0):>9.0%}"
+        )

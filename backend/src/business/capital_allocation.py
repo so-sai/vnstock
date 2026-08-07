@@ -18,15 +18,11 @@ Usage:
     print(result.archetype, result.quality_score)
 """
 
-import math
 import sqlite3
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
-from src.business.archetype import ArchetypeEngine, BusinessArchetype
-
+from src.business.archetype import ArchetypeEngine
 
 # ═══════════════════════════════════════════════════════════════
 # 1. CAPITAL ALLOCATION TAXONOMY
@@ -70,21 +66,22 @@ ALLOCATION_ARCHETYPES = {
 # 2. SCORING ENGINE
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class AllocationResult:
     symbol: str
     archetype: str
     archetype_label: str
-    quality_score: float          # -1.0 to +1.0
-    roic: Optional[float]
-    wacc: Optional[float]
-    roic_wacc_spread: Optional[float]
-    reinvestment_rate: Optional[float]
-    fcf_yield: Optional[float]
-    dilution_trend: Optional[float]  # negative = dilution
-    leverage: Optional[float]        # D/E
-    components: Dict[str, float]     # raw component scores
-    flags: List[str]
+    quality_score: float  # -1.0 to +1.0
+    roic: float | None
+    wacc: float | None
+    roic_wacc_spread: float | None
+    reinvestment_rate: float | None
+    fcf_yield: float | None
+    dilution_trend: float | None  # negative = dilution
+    leverage: float | None  # D/E
+    components: dict[str, float]  # raw component scores
+    flags: list[str]
 
 
 class CapitalAllocationEngine:
@@ -94,17 +91,13 @@ class CapitalAllocationEngine:
 
     def __init__(self):
         self._arch_engine = ArchetypeEngine()
-        self._db_path = (
-            Path(__file__).resolve().parent.parent.parent
-            / "data" / "financial_facts.db"
-        )
+        self._db_path = Path(__file__).resolve().parent.parent.parent / "data" / "financial_facts.db"
 
-    def assess(self, symbol: str) -> Optional[AllocationResult]:
+    def assess(self, symbol: str) -> AllocationResult | None:
         sym = symbol.upper().strip()
 
         # 1. Get archetype for context
-        arch_result = self._arch_engine.classify(sym)
-        arch_name = arch_result.archetype if arch_result else "UNKNOWN"
+        self._arch_engine.classify(sym)
 
         # 2. Load financial data (latest 3 periods)
         facts = self._load_facts(sym)
@@ -131,12 +124,7 @@ class CapitalAllocationEngine:
         s_balance = self._score_balance_sheet(leverage, facts)
 
         # Weighted overall score
-        quality = (
-            s_profitability * 0.40
-            + s_reinvest * 0.25
-            + s_capital_return * 0.20
-            + s_balance * 0.15
-        )
+        quality = s_profitability * 0.40 + s_reinvest * 0.25 + s_capital_return * 0.20 + s_balance * 0.15
 
         # 5. Classify archetype
         archetype = self._classify(quality, spread, reinvest, fcf_yield_val)
@@ -166,14 +154,14 @@ class CapitalAllocationEngine:
             flags=flags,
         )
 
-    def assess_many(self, symbols: List[str]) -> Dict[str, Optional[AllocationResult]]:
+    def assess_many(self, symbols: list[str]) -> dict[str, AllocationResult | None]:
         return {s: self.assess(s) for s in symbols}
 
     # ── Financial computations ─────────────────────────────
 
-    def _compute_roic(self, facts: Dict) -> Optional[float]:
+    def _compute_roic(self, facts: dict) -> float | None:
         """ROIC = EBIT * (1-tax_rate) / (Total Assets - Cash - Current Liabilities)
-        
+
         For banks (no EBIT/CASH_EQUIV), fallback to ROE as capital allocation proxy.
         """
         ebit = self._latest_value(facts, "EBIT")
@@ -196,14 +184,14 @@ class CapitalAllocationEngine:
             return ni / assets if (ni is not None and assets > 0) else None
         return ebit * (1 - max(0, min(1, tax_rate))) / invested
 
-    def _compute_cost_of_debt(self, facts: Dict) -> Optional[float]:
+    def _compute_cost_of_debt(self, facts: dict) -> float | None:
         interest = self._latest_avg(facts, "INTEREST_EXPENSE", 3)
         debt = self._latest_avg(facts, "TOTAL_DEBT", 3)
         if interest is None or debt is None or debt <= 0:
             return 0.08  # default
         return min(0.15, interest / debt)
 
-    def _compute_wacc(self, facts: Dict, cost_of_debt: Optional[float]) -> Optional[float]:
+    def _compute_wacc(self, facts: dict, cost_of_debt: float | None) -> float | None:
         debt = self._latest_avg(facts, "TOTAL_DEBT", 3) or 0
         equity = self._latest_avg(facts, "TOTAL_EQUITY", 3) or 1
         total = debt + equity
@@ -214,14 +202,14 @@ class CapitalAllocationEngine:
         cod = cost_of_debt or 0.08
         return w_d * cod * (1 - 0.20) + w_e * self.COST_OF_EQUITY
 
-    def _compute_reinvestment_rate(self, facts: Dict) -> Optional[float]:
+    def _compute_reinvestment_rate(self, facts: dict) -> float | None:
         capex = self._latest_avg(facts, "CAPEX", 3) or 0
         cfo = self._latest_avg(facts, "CFO", 3)
         if cfo is None or cfo <= 0:
             return None
         return min(2.0, capex / cfo)
 
-    def _compute_fcf_yield(self, facts: Dict) -> Optional[float]:
+    def _compute_fcf_yield(self, facts: dict) -> float | None:
         cfo = self._latest_avg(facts, "CFO", 3)
         capex = self._latest_avg(facts, "CAPEX", 3) or 0
         equity = self._latest_avg(facts, "TOTAL_EQUITY", 3)
@@ -230,7 +218,7 @@ class CapitalAllocationEngine:
         fcf = cfo - capex
         return fcf / equity
 
-    def _compute_dilution(self, facts: Dict) -> Optional[float]:
+    def _compute_dilution(self, facts: dict) -> float | None:
         """Negative = dilution, Positive = buyback."""
         shares = self._load_field_series(facts, "SHARES_OUT")
         if len(shares) < 2:
@@ -244,19 +232,21 @@ class CapitalAllocationEngine:
 
     # ── Scoring functions ──────────────────────────────────
 
-    def _score_profitability(self, roic: Optional[float], wacc: Optional[float],
-                             spread: Optional[float]) -> float:
+    def _score_profitability(self, roic: float | None, wacc: float | None, spread: float | None) -> float:
         if spread is None:
             return 0.0
         # spread > 5% → +1.0, spread > 0% → +0.5, spread = 0 → 0, spread < 0 → -0.5 to -1.0
-        if spread >= 0.05: return 1.0
-        if spread >= 0.02: return 0.5
-        if spread >= 0.00: return 0.1
-        if spread >= -0.03: return -0.3
+        if spread >= 0.05:
+            return 1.0
+        if spread >= 0.02:
+            return 0.5
+        if spread >= 0.00:
+            return 0.1
+        if spread >= -0.03:
+            return -0.3
         return -0.8
 
-    def _score_reinvestment_efficiency(self, reinvest: Optional[float],
-                                       spread: Optional[float]) -> float:
+    def _score_reinvestment_efficiency(self, reinvest: float | None, spread: float | None) -> float:
         if reinvest is None:
             return 0.0
         # Low reinvestment + positive spread → efficient (don't need much)
@@ -269,42 +259,55 @@ class CapitalAllocationEngine:
             return 0.8 if (spread is not None and spread > 0.02) else -0.3
         return -0.5  # excessive reinvestment without return
 
-    def _score_capital_return(self, fcf_yield: Optional[float],
-                              dilution: Optional[float]) -> float:
+    def _score_capital_return(self, fcf_yield: float | None, dilution: float | None) -> float:
         score = 0.0
         if fcf_yield is not None:
-            if fcf_yield > 0.10: score += 0.5
-            elif fcf_yield > 0.05: score += 0.3
-            elif fcf_yield > 0.00: score += 0.1
-            else: score -= 0.3
+            if fcf_yield > 0.10:
+                score += 0.5
+            elif fcf_yield > 0.05:
+                score += 0.3
+            elif fcf_yield > 0.00:
+                score += 0.1
+            else:
+                score -= 0.3
         if dilution is not None:
-            if dilution > 0.02: score += 0.4  # buyback
-            elif dilution > 0.00: score += 0.2
-            elif dilution > -0.02: score -= 0.1
-            else: score -= 0.4  # dilution
+            if dilution > 0.02:
+                score += 0.4  # buyback
+            elif dilution > 0.00:
+                score += 0.2
+            elif dilution > -0.02:
+                score -= 0.1
+            else:
+                score -= 0.4  # dilution
         return max(-1.0, min(1.0, score))
 
-    def _score_balance_sheet(self, leverage: Optional[float],
-                              facts: Dict) -> float:
+    def _score_balance_sheet(self, leverage: float | None, facts: dict) -> float:
         if leverage is None:
             return 0.0
         ic = self._latest_value(facts, "INTEREST_EXPENSE")
         ebit = self._latest_value(facts, "EBIT")
         icr = ebit / ic if (ic is not None and ebit is not None and ic != 0) else None
         score = 0.0
-        if leverage < 0.3: score += 0.4
-        elif leverage < 0.8: score += 0.3
-        elif leverage < 1.5: score += 0.0
-        elif leverage < 2.5: score -= 0.3
-        else: score -= 0.6
+        if leverage < 0.3:
+            score += 0.4
+        elif leverage < 0.8:
+            score += 0.3
+        elif leverage < 1.5:
+            score += 0.0
+        elif leverage < 2.5:
+            score -= 0.3
+        else:
+            score -= 0.6
         if icr is not None:
-            if icr > 5: score += 0.3
-            elif icr > 2: score += 0.1
-            else: score -= 0.3
+            if icr > 5:
+                score += 0.3
+            elif icr > 2:
+                score += 0.1
+            else:
+                score -= 0.3
         return max(-1.0, min(1.0, score))
 
-    def _classify(self, quality: float, spread: Optional[float],
-                  reinvest: Optional[float], fcf_yield: Optional[float]) -> str:
+    def _classify(self, quality: float, spread: float | None, reinvest: float | None, fcf_yield: float | None) -> str:
         if spread is not None and spread > 0.03 and quality > 0.4:
             if fcf_yield is not None and fcf_yield > 0.05:
                 return "VALUE_CREATOR"
@@ -319,13 +322,20 @@ class CapitalAllocationEngine:
             return "TRANSITIONAL"
         return "VALUE_DESTROYER"
 
-    def _generate_flags(self, spread: Optional[float], reinvest: Optional[float],
-                        dilution: Optional[float], leverage: Optional[float],
-                        fcf_yield: Optional[float]) -> List[str]:
+    def _generate_flags(
+        self,
+        spread: float | None,
+        reinvest: float | None,
+        dilution: float | None,
+        leverage: float | None,
+        fcf_yield: float | None,
+    ) -> list[str]:
         flags = []
         if spread is not None:
-            if spread < -0.03: flags.append(f"ROIC thấp hơn WACC {spread:.1%} — giá trị bị hủy")
-            elif spread > 0.05: flags.append(f"ROIC vượt WACC {spread:.1%} — giá trị được tạo")
+            if spread < -0.03:
+                flags.append(f"ROIC thấp hơn WACC {spread:.1%} — giá trị bị hủy")
+            elif spread > 0.05:
+                flags.append(f"ROIC vượt WACC {spread:.1%} — giá trị được tạo")
         if reinvest is not None and reinvest > 1.0:
             flags.append(f"CAPEX/CFO={reinvest:.1f}x — tái đầu tư rất cao")
         if dilution is not None and dilution < -0.03:
@@ -333,27 +343,29 @@ class CapitalAllocationEngine:
         if dilution is not None and dilution > 0.03:
             flags.append(f"Mua lại CP {dilution:.1%} — trả tiền cho cổ đông")
         if leverage is not None:
-            if leverage > 2.0: flags.append(f"D/E={leverage:.1f}x — đòn bẩy cao")
-            elif leverage < 0.1: flags.append(f"D/E={leverage:.1f}x — không dùng đòn bẩy")
+            if leverage > 2.0:
+                flags.append(f"D/E={leverage:.1f}x — đòn bẩy cao")
+            elif leverage < 0.1:
+                flags.append(f"D/E={leverage:.1f}x — không dùng đòn bẩy")
         if fcf_yield is not None and fcf_yield > 0.15:
             flags.append(f"FCF/Equity={fcf_yield:.1%} — dòng tiền dồi dào")
         return flags
 
     # ── Data helpers ───────────────────────────────────────
 
-    def _load_facts(self, symbol: str) -> Optional[Dict]:
+    def _load_facts(self, symbol: str) -> dict | None:
         try:
             conn = sqlite3.connect(str(self._db_path))
             rows = conn.execute(
-                "SELECT period, metric, value FROM financial_facts "
-                "WHERE symbol=? ORDER BY period", (symbol,)
+                "SELECT period, metric, value FROM financial_facts WHERE symbol=? ORDER BY period", (symbol,)
             ).fetchall()
             conn.close()
             if not rows:
                 return None
-            facts: Dict = {}
+            facts: dict = {}
             for period, metric, value in rows:
-                if value is None: continue
+                if value is None:
+                    continue
                 if metric not in facts:
                     facts[metric] = []
                 facts[metric].append((period, value))
@@ -362,16 +374,16 @@ class CapitalAllocationEngine:
             return None
 
     @staticmethod
-    def _current_value(facts: Dict, metric: str) -> Optional[float]:
+    def _current_value(facts: dict, metric: str) -> float | None:
         series = facts.get(metric)
         return series[-1][1] if series else None
 
     @staticmethod
-    def _latest_value(facts: Dict, metric: str) -> Optional[float]:
+    def _latest_value(facts: dict, metric: str) -> float | None:
         return CapitalAllocationEngine._current_value(facts, metric)
 
     @staticmethod
-    def _latest_avg(facts: Dict, metric: str, n: int = 3) -> Optional[float]:
+    def _latest_avg(facts: dict, metric: str, n: int = 3) -> float | None:
         series = facts.get(metric)
         if not series:
             return None
@@ -379,7 +391,7 @@ class CapitalAllocationEngine:
         return sum(vals) / len(vals) if vals else None
 
     @staticmethod
-    def _load_field_series(facts: Dict, metric: str) -> List[Tuple[str, float]]:
+    def _load_field_series(facts: dict, metric: str) -> list[tuple[str, float]]:
         return facts.get(metric, [])
 
     def close(self):
@@ -390,10 +402,11 @@ class CapitalAllocationEngine:
 # 3. REPORTING
 # ═══════════════════════════════════════════════════════════════
 
-def print_allocation_report(results: Dict[str, Optional[AllocationResult]]):
-    print(f"\n  {'='*65}")
-    print(f"  CAPITAL ALLOCATION QUALITY — Giai đoạn 4")
-    print(f"  {'='*65}")
+
+def print_allocation_report(results: dict[str, AllocationResult | None]):
+    print(f"\n  {'=' * 65}")
+    print("  CAPITAL ALLOCATION QUALITY — Giai đoạn 4")
+    print(f"  {'=' * 65}")
 
     for sym, res in sorted(results.items()):
         if not res:
@@ -401,47 +414,80 @@ def print_allocation_report(results: Dict[str, Optional[AllocationResult]]):
             continue
 
         # Determine icon
-        if res.archetype == "VALUE_CREATOR": icon = "🟢"
-        elif res.archetype == "EFFICIENT_ALLOCATOR": icon = "🟢"
-        elif res.archetype == "CAPITAL_HOARDER": icon = "🟡"
-        elif res.archetype == "LEVERAGED_OPTIMIZER": icon = "🟡"
-        elif res.archetype == "TRANSITIONAL": icon = "🔵"
-        else: icon = "🔴"
+        if res.archetype == "VALUE_CREATOR":
+            icon = "🟢"
+        elif res.archetype == "EFFICIENT_ALLOCATOR":
+            icon = "🟢"
+        elif res.archetype == "CAPITAL_HOARDER":
+            icon = "🟡"
+        elif res.archetype == "LEVERAGED_OPTIMIZER":
+            icon = "🟡"
+        elif res.archetype == "TRANSITIONAL":
+            icon = "🔵"
+        else:
+            icon = "🔴"
 
         print(f"\n  {icon} {res.symbol} | {res.archetype_label}")
-        print(f"  {'─'*60}")
+        print(f"  {'─' * 60}")
         print(f"  Quality Score:      {res.quality_score:>+7.3f}")
         print(f"  ROIC:               {res.roic:>7.1%}" if res.roic is not None else "  ROIC:               N/A")
         print(f"  WACC:               {res.wacc:>7.1%}" if res.wacc is not None else "  WACC:               N/A")
-        print(f"  ROIC−WACC:          {res.roic_wacc_spread:>+7.1%}" if res.roic_wacc_spread is not None else "  ROIC−WACC:          N/A")
-        print(f"  Reinvest (Capex/CFO): {res.reinvestment_rate:>7.2f}x" if res.reinvestment_rate is not None else "  Reinvest:           N/A")
+        print(
+            f"  ROIC−WACC:          {res.roic_wacc_spread:>+7.1%}"
+            if res.roic_wacc_spread is not None
+            else "  ROIC−WACC:          N/A"
+        )
+        print(
+            f"  Reinvest (Capex/CFO): {res.reinvestment_rate:>7.2f}x"
+            if res.reinvestment_rate is not None
+            else "  Reinvest:           N/A"
+        )
         print(f"  FCF/Equity:         {res.fcf_yield:>+7.1%}" if res.fcf_yield is not None else "  FCF/Equity:         N/A")
-        print(f"  Dilution (shares):  {res.dilution_trend:>+7.1%}" if res.dilution_trend is not None else "  Dilution:           N/A")
+        print(
+            f"  Dilution (shares):  {res.dilution_trend:>+7.1%}"
+            if res.dilution_trend is not None
+            else "  Dilution:           N/A"
+        )
         print(f"  D/E:                {res.leverage:>7.2f}x" if res.leverage is not None else "  D/E:                N/A")
-        print(f"  Components: {', '.join(f'{k}={v:+0.2f}' for k,v in sorted(res.components.items()))}")
+        print(f"  Components: {', '.join(f'{k}={v:+0.2f}' for k, v in sorted(res.components.items()))}")
         if res.flags:
             for f in res.flags:
                 print(f"  ⚠ {f}")
 
     # Summary
-    print(f"\n  {'='*65}")
-    print(f"  SO SÁNH TỔNG THỂ")
-    print(f"  {'='*65}")
+    print(f"\n  {'=' * 65}")
+    print("  SO SÁNH TỔNG THỂ")
+    print(f"  {'=' * 65}")
     print(f"  {'Symbol':<6} {'Archetype':<24} {'Score':>7} {'ROIC−WACC':>10}")
-    print(f"  {'─'*50}")
+    print(f"  {'─' * 50}")
     for sym, res in sorted(results.items()):
         if res:
             spread = f"{res.roic_wacc_spread:>+7.1%}" if res.roic_wacc_spread is not None else "N/A"
             print(f"  {sym:<6} {res.archetype_label:<24} {res.quality_score:>+7.3f} {spread:>10}")
-    print(f"  {'─'*50}")
+    print(f"  {'─' * 50}")
 
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Capital Allocation Quality — Giai đoạn 4")
-    parser.add_argument("--symbols", nargs="+", default=[
-        "FPT", "ACB", "HDB", "MBB", "VCB", "HPG", "VHM", "DGC", "MWG", "GAS",
-    ], help="Danh sách mã")
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=[
+            "FPT",
+            "ACB",
+            "HDB",
+            "MBB",
+            "VCB",
+            "HPG",
+            "VHM",
+            "DGC",
+            "MWG",
+            "GAS",
+        ],
+        help="Danh sách mã",
+    )
     args = parser.parse_args()
 
     engine = CapitalAllocationEngine()

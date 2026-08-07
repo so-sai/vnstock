@@ -1,4 +1,4 @@
-﻿"""CAO Trust Bridge — Activation Gate (Final Promotion Decision).
+"""CAO Trust Bridge — Activation Gate (Final Promotion Decision).
 
 The switch that determines: Shadow CAO → Live CAO.
 
@@ -9,6 +9,7 @@ Three conditions must ALL be met:
 
 This is NOT a boolean rule engine. It is a statistical promotion control system.
 """
+
 import json
 import logging
 import sys
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -31,6 +32,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -49,7 +51,7 @@ from src.cao_validation.trust_accumulator import get_accumulator
 def evaluate_promotion(
     regime: str,
     trust_state: TrustState,
-    distribution_tests: list[DistributionTestResult] = None,
+    distribution_tests: list[DistributionTestResult] | None = None,
 ) -> PromotionVerdict:
     """Evaluate whether CAO can be promoted for a specific regime.
 
@@ -111,10 +113,7 @@ def evaluate_promotion(
             f"dis={trust_state.data_integrity_score:.3f}>=0.50"
         )
     else:
-        message = (
-            f"BLOCKED [{regime}]: {len(failures)}/{len(gates)} gates fail. "
-            + ", ".join(failures)
-        )
+        message = f"BLOCKED [{regime}]: {len(failures)}/{len(gates)} gates fail. " + ", ".join(failures)
     logger.info("[CAO_GATE] %s", message)
     return PromotionVerdict(
         can_promote=can_promote,
@@ -127,8 +126,8 @@ def evaluate_promotion(
 
 
 def run_full_validation(
-    shadow_deltas_by_regime: dict[str, list[float]] = None,
-    live_deltas_by_regime: dict[str, list[float]] = None,
+    shadow_deltas_by_regime: dict[str, list[float]] | None = None,
+    live_deltas_by_regime: dict[str, list[float]] | None = None,
 ) -> CABValidationReport:
     """Run full CAO Trust Bridge validation pipeline.
 
@@ -147,10 +146,16 @@ def run_full_validation(
     regime_states = list(accumulator.get_state().values())
     if not regime_states:
         regime_states = [
-            TrustState(regime=r, total_samples=0, mean_consistency=0.0,
-                       consistency_variance=0.0, confidence=0.0,
-                       drift_score=0.0, structural_shift=False,
-                       distribution_equivalent=False)
+            TrustState(
+                regime=r,
+                total_samples=0,
+                mean_consistency=0.0,
+                consistency_variance=0.0,
+                confidence=0.0,
+                drift_score=0.0,
+                structural_shift=False,
+                distribution_equivalent=False,
+            )
             for r in ["TRENDING", "RANGING", "CRISIS"]
         ]
     verdicts = []
@@ -177,6 +182,7 @@ def _load_deltas_from_storage() -> tuple[dict, dict]:
     live_by_regime = {r: [] for r in ["TRENDING", "RANGING", "CRISIS"]}
     try:
         from src.shadow_cao.storage import get_shadow_connection
+
         with get_shadow_connection() as conn:
             perturbation_rows = conn.execute(
                 "SELECT p.decision_id, p.contribution_delta, "
@@ -191,14 +197,10 @@ def _load_deltas_from_storage() -> tuple[dict, dict]:
         logger.warning("[VALIDATION] Could not load shadow perturbations: %s", e)
     try:
         from src.telemetry.storage import get_telemetry_connection
+
         with get_telemetry_connection() as conn:
-            outcome_rows = conn.execute(
-                "SELECT vnindex_return, benchmark_return FROM outcome_records"
-            ).fetchall()
-        live_deltas = [
-            round(r["vnindex_return"] - r["benchmark_return"], 4)
-            for r in outcome_rows
-        ]
+            outcome_rows = conn.execute("SELECT vnindex_return, benchmark_return FROM outcome_records").fetchall()
+        live_deltas = [round(r["vnindex_return"] - r["benchmark_return"], 4) for r in outcome_rows]
         for regime in live_by_regime:
             live_by_regime[regime] = live_deltas
     except Exception as e:
@@ -228,18 +230,21 @@ def _persist_report(report: CABValidationReport):
     """Persist the validation report to shadow storage."""
     try:
         from src.shadow_cao.storage import save_belief_value
+
         save_belief_value(
             "cao_validation_report",
-            json.dumps({
-                "timestamp": report.timestamp,
-                "overall_promotable": report.overall_promotable,
-                "summary": report.summary,
-                "verdicts": [
-                    {"regime": v.regime, "can_promote": v.can_promote,
-                     "failures": v.failures, "message": v.message}
-                    for v in report.promotion_verdicts
-                ],
-            }, ensure_ascii=False),
+            json.dumps(
+                {
+                    "timestamp": report.timestamp,
+                    "overall_promotable": report.overall_promotable,
+                    "summary": report.summary,
+                    "verdicts": [
+                        {"regime": v.regime, "can_promote": v.can_promote, "failures": v.failures, "message": v.message}
+                        for v in report.promotion_verdicts
+                    ],
+                },
+                ensure_ascii=False,
+            ),
         )
     except Exception as e:
         logger.warning("[VALIDATION] Report persist failed: %s", e)

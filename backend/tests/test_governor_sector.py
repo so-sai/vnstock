@@ -12,7 +12,6 @@ WHY (bug từng xảy ra):
 Run:  python -m pytest tests/test_governor_sector.py -q   (từ backend/)
 """
 
-import pytest
 
 
 def _src(path: str) -> str:

@@ -1,4 +1,4 @@
-﻿"""absorption_detector.py — Phát hiện Cân bằng Hấp thụ thị trường.
+"""absorption_detector.py — Phát hiện Cân bằng Hấp thụ thị trường.
 
 Kiến trúc:
   1. Streaming PCA trên Liquidity Matrix [decline, VPOC_volume, slippage]
@@ -14,6 +14,7 @@ Luồng hoạt động:
 
 Chạy: python ptck.py absorption-detector [--date YYYY-MM-DD]
 """
+
 import json
 import sys
 from collections import deque
@@ -25,7 +26,7 @@ import pandas as pd
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -42,7 +43,6 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
-
 from src.database.db_core import get_connection
 
 DATA_DIR = src.config.DATA_DIR
@@ -83,12 +83,13 @@ class AbsorptionDetector:
                    FROM daily_ohlcv
                    WHERE symbol = 'VNINDEX' AND date >= ? AND date <= ?
                    ORDER BY date""",
-                conn, params=(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+                conn,
+                params=(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")),
             )
         if df.empty:
             return pd.DataFrame()
 
-        df["date"] = pd.to_datetime(df["date"], format='mixed')
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
         return df
 
     def _compute_liquidity_matrix(self, df: pd.DataFrame) -> np.ndarray:
@@ -176,7 +177,7 @@ class AbsorptionDetector:
             "pc2_variance": float(round(pc2_var, 4)),
             "pc3_variance": float(round(pc3_var, 4)),
             "loadings": loadings,
-            "n_observations": matrix.shape[0]
+            "n_observations": matrix.shape[0],
         }
 
     def _detect_equilibrium(self, sdi: float) -> dict:
@@ -190,7 +191,7 @@ class AbsorptionDetector:
         if len(self._sdi_history) < SDI_MONOTONIC_PERIODS + 1:
             return {"equilibrium": False, "reason": "INSUFFICIENT_HISTORY"}
 
-        recent = list(self._sdi_history)[-(SDI_MONOTONIC_PERIODS + 1):]
+        recent = list(self._sdi_history)[-(SDI_MONOTONIC_PERIODS + 1) :]
         sdi_values = np.array(recent)
 
         sdi_diff = np.diff(sdi_values)
@@ -213,7 +214,7 @@ class AbsorptionDetector:
                 "std_sdi": round(std_sdi, 4),
                 "threshold": round(threshold, 4),
                 "monotonic_decrease_months": SDI_MONOTONIC_PERIODS,
-                "reason": "EQUILIBRIUM_CONFIRMED" if below_threshold else "ABOVE_THRESHOLD"
+                "reason": "EQUILIBRIUM_CONFIRMED" if below_threshold else "ABOVE_THRESHOLD",
             }
 
         return {"equilibrium": False, "reason": "NO_HISTORY"}
@@ -240,12 +241,12 @@ class AbsorptionDetector:
         if vol_total_5d == 0:
             return {"status": "INSUFFICIENT_DATA"}
 
-        all_lows = daily["low"].values
-        all_highs = daily["high"].values
-        all_volumes = daily["volume"].values
+        daily["low"].values
+        daily["high"].values
+        daily["volume"].values
 
         poc_price = daily.loc[daily["volume"].idxmax(), "close"]
-        poc_row = daily.loc[daily["volume"].idxmax()]
+        daily.loc[daily["volume"].idxmax()]
 
         val = poc_price * 0.97
         vah = poc_price * 1.03
@@ -269,13 +270,12 @@ class AbsorptionDetector:
             "vol_value_area": int(vol_value_area),
             "vol_total_5d": int(vol_total_5d),
             "volume_ratio": round(float(volume_ratio), 4),
-            "volume_converged": bool(volume_ratio > VOLUME_RATIO_THRESHOLD and price_in_value_area)
+            "volume_converged": bool(volume_ratio > VOLUME_RATIO_THRESHOLD and price_in_value_area),
         }
 
     # ── 4. Adaptive HDR Unlock ─────────────────────────────────────────
 
-    def _compute_hdr_unlock(self, pca_result: dict, equilibrium: dict,
-                            volume_profile: dict) -> float:
+    def _compute_hdr_unlock(self, pca_result: dict, equilibrium: dict, volume_profile: dict) -> float:
         """Phương trình mở khóa thích nghi HDR.
 
         HDR_new = clamp(1.0 - η · (EMA10(SDI) - SDI) · Volume_Ratio, 0.20, 1.0)
@@ -305,10 +305,7 @@ class AbsorptionDetector:
 
         matrix = self._compute_liquidity_matrix(df)
         if matrix.size == 0:
-            return {
-                "status": "INSUFFICIENT_DATA",
-                "message": "Không đủ dữ liệu thị trường để phân tích PCA."
-            }
+            return {"status": "INSUFFICIENT_DATA", "message": "Không đủ dữ liệu thị trường để phân tích PCA."}
 
         pca_result = self._compute_streaming_pca(matrix)
         self._last_pca_result = pca_result
@@ -341,7 +338,7 @@ class AbsorptionDetector:
                 "pc2_variance": float(pca_result["pc2_variance"]),
                 "pc3_variance": float(pca_result["pc3_variance"]),
                 "loadings": pca_result["loadings"],
-                "n_observations": int(pca_result["n_observations"])
+                "n_observations": int(pca_result["n_observations"]),
             },
             "sdi_history": [float(v) for v in self._sdi_history],
             "equilibrium": {
@@ -351,7 +348,7 @@ class AbsorptionDetector:
                 "ema10_sdi": equilibrium.get("ema10_sdi"),
                 "std_sdi": equilibrium.get("std_sdi"),
                 "threshold": equilibrium.get("threshold"),
-                "monotonic_decrease_months": equilibrium.get("monotonic_decrease_months", 0)
+                "monotonic_decrease_months": equilibrium.get("monotonic_decrease_months", 0),
             },
             "volume_profile": {
                 "poc_price": volume_profile.get("poc_price"),
@@ -362,7 +359,7 @@ class AbsorptionDetector:
                 "volume_ratio": volume_profile.get("volume_ratio", 0),
                 "volume_converged": volume_profile.get("volume_converged", False),
                 "vol_value_area": volume_profile.get("vol_value_area"),
-                "vol_total_5d": volume_profile.get("vol_total_5d")
+                "vol_total_5d": volume_profile.get("vol_total_5d"),
             },
             "hdr_unlock": {
                 "hdr_recommended": hdr_new,
@@ -370,22 +367,20 @@ class AbsorptionDetector:
                 "hdr_delta": round(hdr_new - current_hdr, 4),
                 "eta_unlock": self.eta_unlock,
                 "hdr_floor": HDR_FLOOR,
-                "hdr_ceiling": HDR_CEIL
+                "hdr_ceiling": HDR_CEIL,
             },
-            "governor_action": self._determine_action(panic_active, equilibrium, volume_profile, hdr_new)
+            "governor_action": self._determine_action(panic_active, equilibrium, volume_profile, hdr_new),
         }
 
         return result
 
-    def _determine_action(self, panic_active: bool, equilibrium: dict,
-                          volume_profile: dict, hdr_new: float) -> str:
+    def _determine_action(self, panic_active: bool, equilibrium: dict, volume_profile: dict, hdr_new: float) -> str:
         """Xác định hành động Governor dựa trên trạng thái hiện tại."""
         if not panic_active:
             return "NORMAL_MARKET — Không cần can thiệp."
 
         if equilibrium.get("equilibrium") and volume_profile.get("volume_converged"):
-            return (f"UNLOCK_PARTIAL: Giảm HDR từ 1.0 xuống {hdr_new:.2f}. "
-                    f"Cho phép giải ngân {(1.0 - hdr_new) * 100:.0f}% NAV.")
+            return f"UNLOCK_PARTIAL: Giảm HDR từ 1.0 xuống {hdr_new:.2f}. Cho phép giải ngân {(1.0 - hdr_new) * 100:.0f}% NAV."
 
         if equilibrium.get("equilibrium") and not volume_profile.get("volume_converged"):
             return "HOLD: SDI hội tụ nhưng Volume Profile chưa xác nhận. Chờ thêm khối lượng."
@@ -393,8 +388,7 @@ class AbsorptionDetector:
         return "HOLD: Governor giữ nguyên HDR=1.0 (Cash-only). Chờ SDI hội tụ + Volume Profile."
 
 
-def run_absorption_detection(target_date: str | None = None,
-                             show_details: bool = False) -> dict:
+def run_absorption_detection(target_date: str | None = None, show_details: bool = False) -> dict:
     """Wrapper function để gọi từ CLI."""
     detector = AbsorptionDetector()
     result = detector.analyze(target_date)
@@ -411,36 +405,40 @@ def run_absorption_detection(target_date: str | None = None,
         print(f"  📊 SDI: {result['pca']['sdi']:.4f}  (ngưỡng panic: {SDI_PANIC_THRESHOLD})")
 
         eq = result["equilibrium"]
-        print(f"\n  📈 Equilibrium:")
+        print("\n  📈 Equilibrium:")
         print(f"     Xác nhận: {'CÓ' if eq['confirmed'] else 'KHÔNG'}")
         print(f"     Lý do: {eq['reason']}")
         print(f"     EMA10(SDI): {eq.get('ema10_sdi', 'N/A')}  |  σ_SDI: {eq.get('std_sdi', 'N/A')}")
         print(f"     Ngưỡng: SDI < {eq.get('threshold', 'N/A')}")
 
         vp = result["volume_profile"]
-        print(f"\n  📊 Volume Profile:")
+        print("\n  📊 Volume Profile:")
         print(f"     POC: {vp.get('poc_price', 'N/A')}  |  VAL: {vp.get('val', 'N/A')}  |  VAH: {vp.get('vah', 'N/A')}")
-        print(f"     Giá hiện tại: {vp.get('price_current', 'N/A')} {'✅ trong VA' if vp.get('price_in_value_area') else '❌ ngoài VA'}")
+        print(
+            f"     Giá hiện tại: {vp.get('price_current', 'N/A')} {'✅ trong VA' if vp.get('price_in_value_area') else '❌ ngoài VA'}"
+        )
         print(f"     Volume Ratio: {vp.get('volume_ratio', 0):.2%}  (ngưỡng: {VOLUME_RATIO_THRESHOLD:.0%})")
         print(f"     Hội tụ khối lượng: {'CÓ' if vp.get('volume_converged') else 'CHƯA'}")
 
         hdr = result["hdr_unlock"]
-        print(f"\n  🔓 HDR Unlock:")
+        print("\n  🔓 HDR Unlock:")
         print(f"     HDR hiện tại: {hdr['hdr_current']:.4f}")
         print(f"     HDR đề xuất:  {hdr['hdr_recommended']:.4f}")
         print(f"     Delta:        {hdr['hdr_delta']:+.4f}")
 
-        print(f"\n  🎯 Hành động Governor:")
+        print("\n  🎯 Hành động Governor:")
         print(f"     {result['governor_action']}")
         print()
 
-        print(f"  ⚙️ PCA Loadings (PC1):")
+        print("  ⚙️ PCA Loadings (PC1):")
         for k, v in result["pca"]["loadings"].items():
             print(f"     {k}: {v:+.4f}")
         print(f"  Eigenvalues: {[f'{v:.4f}' for v in result['pca']['eigenvalues']]}")
-        print(f"  PC Variance: PC1={result['pca']['pc1_variance']:.2%}  "
-              f"PC2={result['pca']['pc2_variance']:.2%}  "
-              f"PC3={result['pca']['pc3_variance']:.2%}")
+        print(
+            f"  PC Variance: PC1={result['pca']['pc1_variance']:.2%}  "
+            f"PC2={result['pca']['pc2_variance']:.2%}  "
+            f"PC3={result['pca']['pc3_variance']:.2%}"
+        )
         print("=" * 60)
 
     return result
@@ -448,14 +446,12 @@ def run_absorption_detection(target_date: str | None = None,
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="PTCK Absorption Detector")
     parser.add_argument("--date", help="Ngày phân tích (YYYY-MM-DD)")
     parser.add_argument("--quiet", action="store_true", help="Chỉ in JSON, không in chi tiết")
     args = parser.parse_args()
 
-    result = run_absorption_detection(
-        target_date=args.date,
-        show_details=not args.quiet
-    )
+    result = run_absorption_detection(target_date=args.date, show_details=not args.quiet)
     if args.quiet:
         print(json.dumps(result, indent=2, ensure_ascii=False))

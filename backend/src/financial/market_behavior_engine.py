@@ -11,14 +11,12 @@ và lực cầu chủ động tại vùng hỗ trợ.
 # nhiễu bởi spike giá riêng lẻ. Active Demand scan dùng volume surge + vị trí đóng nến để
 # nhận diện lực cầu chủ động sớm tại vùng tích lũy — tín hiệu trước khi giá breakout.
 
-import sqlite3
 import json
-import sys
 import math
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+import sqlite3
+import sys
 from collections import defaultdict
+from pathlib import Path
 
 _candidate = Path(sys.executable).resolve().parent
 if Path(sys.executable).stem.lower().startswith("python"):
@@ -96,28 +94,37 @@ class MarketBehaviorEngine:
         conn.close()
         print("  Schema OK: volume_profile + active_demand tables")
 
-    def get_ohlcv(self, symbol: str, days: int = 250) -> List[Dict]:
+    def get_ohlcv(self, symbol: str, days: int = 250) -> list[dict]:
         conn = self.screener_conn()
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT date, open, high, low, close, adj_close, volume
             FROM daily_ohlcv
             WHERE symbol = ?
             ORDER BY date DESC
             LIMIT ?
-        """, (symbol.upper(), days))
+        """,
+            (symbol.upper(), days),
+        )
         rows = cur.fetchall()
         conn.close()
         result = []
         for r in reversed(rows):
-            result.append({
-                "date": r[0], "open": r[1], "high": r[2],
-                "low": r[3], "close": r[4], "adj_close": r[5] or r[4],
-                "volume": r[6] or 0,
-            })
+            result.append(
+                {
+                    "date": r[0],
+                    "open": r[1],
+                    "high": r[2],
+                    "low": r[3],
+                    "close": r[4],
+                    "adj_close": r[5] or r[4],
+                    "volume": r[6] or 0,
+                }
+            )
         return result
 
-    def compute_atr(self, data: List[Dict], period: int = 14) -> float:
+    def compute_atr(self, data: list[dict], period: int = 14) -> float:
         if len(data) < period + 1:
             return 0
         trs = []
@@ -128,7 +135,7 @@ class MarketBehaviorEngine:
             trs.append(max(hl, hc, lc))
         return sum(trs) / len(trs)
 
-    def compute_volume_profile(self, symbol: str, window: int = 60) -> Optional[Dict]:
+    def compute_volume_profile(self, symbol: str, window: int = 60) -> dict | None:
         data = self.get_ohlcv(symbol, days=window + 200)
         if len(data) < window:
             return None
@@ -215,8 +222,7 @@ class MarketBehaviorEngine:
         # (được giao dịch vượt trội), loại bỏ nhiễu bin ngẫu nhiên — 2x là điểm cắt đủ cao
         # để chỉ giữ node có ý nghĩa nhưng vẫn bắt được vùng tích lũy rõ rệt.
         avg_bin_vol = total_vp_vol / len(volume_bins)
-        hvns = [{"price": p, "volume": v}
-                for p, v in sorted_bins if v > avg_bin_vol * 2]
+        hvns = [{"price": p, "volume": v} for p, v in sorted_bins if v > avg_bin_vol * 2]
 
         latest = data[-1]
         close_prices = [d["close"] for d in data]
@@ -258,7 +264,7 @@ class MarketBehaviorEngine:
             "range_pct": (vah - val) / val * 100 if val > 0 else 0,
         }
 
-    def scan_active_demand(self, symbol: str, lookback: int = 20) -> List[Dict]:
+    def scan_active_demand(self, symbol: str, lookback: int = 20) -> list[dict]:
         data = self.get_ohlcv(symbol, days=lookback + 60)
         if len(data) < 60:
             return []
@@ -268,7 +274,7 @@ class MarketBehaviorEngine:
             return []
 
         val = vp["val"]
-        vah = vp["vah"]
+        vp["vah"]
         poc = vp["poc"]
         vol_ma20 = vp["volume_ma20"]
 
@@ -305,28 +311,28 @@ class MarketBehaviorEngine:
             # đúng vùng nghẽn; volume ≥1.5x MA20 chứng minh dòng tiền đổ vào (không phải thin
             # volume); đóng nến ≥60% biên độ = người mua áp đảo trong phiên; close > open xác
             # nhận áp lực mua ròng thay vì bẫy hồi giá.
-            if (min_dist <= 0.03 and vol_ratio >= 1.5
-                    and close_position >= 0.6
-                    and price > d.get("open", price)):
+            if min_dist <= 0.03 and vol_ratio >= 1.5 and close_position >= 0.6 and price > d.get("open", price):
                 # WHY: strength = tổng có trọng số các yếu tố độc lập (volume 0.4, close
                 # position 0.3, độ sát hỗ trợ 0.3) — volume là tín hiệu mạnh nhất nên nặng
                 # nhất; cộng dồn để có thang so sánh giữa các tín hiệu khác ngày/mã.
                 strength = vol_ratio * 0.4 + close_position * 0.3 + (1 - min_dist) * 0.3
-                signals.append({
-                    "symbol": symbol.upper(),
-                    "date": d["date"],
-                    "price": price,
-                    "signal_type": "ACTIVE_DEMAND",
-                    "support_level": nearest_support,
-                    "volume_ratio": round(vol_ratio, 2),
-                    "close_position": round(close_position, 2),
-                    "price_change": round((price - d["open"]) / d["open"] * 100, 2) if d["open"] > 0 else 0,
-                    "strength": round(strength, 2),
-                })
+                signals.append(
+                    {
+                        "symbol": symbol.upper(),
+                        "date": d["date"],
+                        "price": price,
+                        "signal_type": "ACTIVE_DEMAND",
+                        "support_level": nearest_support,
+                        "volume_ratio": round(vol_ratio, 2),
+                        "close_position": round(close_position, 2),
+                        "price_change": round((price - d["open"]) / d["open"] * 100, 2) if d["open"] > 0 else 0,
+                        "strength": round(strength, 2),
+                    }
+                )
 
         return signals
 
-    def scan_symbol(self, symbol: str) -> Dict:
+    def scan_symbol(self, symbol: str) -> dict:
         vp = self.compute_volume_profile(symbol)
         if not vp:
             return {"status": "NO_DATA", "symbol": symbol}
@@ -334,34 +340,57 @@ class MarketBehaviorEngine:
         signals = self.scan_active_demand(symbol)
         conn = self.fin_conn()
 
-        conn.execute("""
+        conn.execute(
+            """
             INSERT OR REPLACE INTO volume_profile
                 (symbol, date, price_current, poc, vah, val,
                  poc_volume, total_volume, value_area_volume,
                  bin_size, hvns, price_ma20, price_ma50, price_ma200,
                  volume_ma20, volume_ratio, range_pct)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            symbol.upper(), vp["date"], vp["price_current"],
-            vp["poc"], vp["vah"], vp["val"],
-            vp["poc_volume"], vp["total_volume"], vp["value_area_volume"],
-            vp["bin_size"], json.dumps(vp["hvns"]),
-            vp["price_ma20"], vp["price_ma50"], vp["price_ma200"],
-            vp["volume_ma20"], vp["volume_ratio"], vp["range_pct"],
-        ))
+        """,
+            (
+                symbol.upper(),
+                vp["date"],
+                vp["price_current"],
+                vp["poc"],
+                vp["vah"],
+                vp["val"],
+                vp["poc_volume"],
+                vp["total_volume"],
+                vp["value_area_volume"],
+                vp["bin_size"],
+                json.dumps(vp["hvns"]),
+                vp["price_ma20"],
+                vp["price_ma50"],
+                vp["price_ma200"],
+                vp["volume_ma20"],
+                vp["volume_ratio"],
+                vp["range_pct"],
+            ),
+        )
 
         for sig in signals:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO active_demand
                     (symbol, date, price, signal_type, support_level,
                      volume_ratio, close_position, price_change, strength, metadata)
                 VALUES (?,?,?,?,?,?,?,?,?,?)
-            """, (
-                sig["symbol"], sig["date"], sig["price"],
-                sig["signal_type"], sig["support_level"],
-                sig["volume_ratio"], sig["close_position"],
-                sig["price_change"], sig["strength"], "{}",
-            ))
+            """,
+                (
+                    sig["symbol"],
+                    sig["date"],
+                    sig["price"],
+                    sig["signal_type"],
+                    sig["support_level"],
+                    sig["volume_ratio"],
+                    sig["close_position"],
+                    sig["price_change"],
+                    sig["strength"],
+                    "{}",
+                ),
+            )
 
         conn.commit()
         conn.close()
@@ -379,13 +408,11 @@ class MarketBehaviorEngine:
             "signals": len(signals),
             "hvns": len(vp["hvns"]),
             "position": (
-                "ABOVE_VA" if vp["price_current"] > vp["vah"]
-                else "BELOW_VA" if vp["price_current"] < vp["val"]
-                else "IN_VA"
+                "ABOVE_VA" if vp["price_current"] > vp["vah"] else "BELOW_VA" if vp["price_current"] < vp["val"] else "IN_VA"
             ),
         }
 
-    def scan_multi(self, symbols: List[str]) -> Dict:
+    def scan_multi(self, symbols: list[str]) -> dict:
         results = {}
         for sym in symbols:
             print(f"  [{sym}]...")
@@ -393,8 +420,10 @@ class MarketBehaviorEngine:
             results[sym] = r
             if r["status"] == "DONE":
                 sig_str = f"{r['signals']} signals" if r["signals"] else "no signal"
-                print(f"    POC={r['poc']:,.0f} VA=[{r['val']:,.0f}–{r['vah']:,.0f}] "
-                      f"Price={r['price']:,.0f} ({r['position']}) | {sig_str}")
+                print(
+                    f"    POC={r['poc']:,.0f} VA=[{r['val']:,.0f}–{r['vah']:,.0f}] "
+                    f"Price={r['price']:,.0f} ({r['position']}) | {sig_str}"
+                )
             else:
                 print(f"    {r['status']}")
         return results
@@ -404,15 +433,14 @@ class MarketBehaviorEngine:
 # CLI
 # =========================================================================
 
+
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Market Behavior Engine — PTCK_VN Phase 4")
-    parser.add_argument("action", choices=["init", "scan", "signals", "profile"],
-                        help="Hành động")
-    parser.add_argument("--symbols", nargs="+", default=["FPT", "VCB", "STB", "CSB"],
-                        help="Danh sách symbol")
-    parser.add_argument("--days", type=int, default=20,
-                        help="Số ngày lookback cho active demand")
+    parser.add_argument("action", choices=["init", "scan", "signals", "profile"], help="Hành động")
+    parser.add_argument("--symbols", nargs="+", default=["FPT", "VCB", "STB", "CSB"], help="Danh sách symbol")
+    parser.add_argument("--days", type=int, default=20, help="Số ngày lookback cho active demand")
     args = parser.parse_args()
 
     engine = MarketBehaviorEngine()
@@ -426,38 +454,45 @@ def main():
         engine.init_schema()
         results = engine.scan_multi(args.symbols)
 
-        print(f"\n  {'='*60}")
-        print(f"  VOLUME PROFILE SUMMARY")
-        print(f"  {'='*60}")
+        print(f"\n  {'=' * 60}")
+        print("  VOLUME PROFILE SUMMARY")
+        print(f"  {'=' * 60}")
         print(f"  {'Symbol':<8} {'Price':>10} {'POC':>10} {'VAL':>10} {'VAH':>10} {'Zone':<12} {'Sig'}")
-        print(f"  {'-'*60}")
+        print(f"  {'-' * 60}")
         for sym in args.symbols:
             r = results.get(sym, {})
             if r.get("status") == "DONE":
-                print(f"  {sym:<8} {r['price']:>10,.0f} {r['poc']:>10,.0f} "
-                      f"{r['val']:>10,.0f} {r['vah']:>10,.0f} "
-                      f"{r['position']:<12} {r['signals']}")
+                print(
+                    f"  {sym:<8} {r['price']:>10,.0f} {r['poc']:>10,.0f} "
+                    f"{r['val']:>10,.0f} {r['vah']:>10,.0f} "
+                    f"{r['position']:<12} {r['signals']}"
+                )
 
     elif args.action == "signals":
-        print(f"=== Active Demand Signals ===")
+        print("=== Active Demand Signals ===")
         conn = engine.fin_conn()
         for sym in args.symbols:
             cur = conn.cursor()
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT date, price, volume_ratio, close_position,
                        strength, support_level
                 FROM active_demand
                 WHERE symbol = ?
                 ORDER BY date DESC
                 LIMIT 10
-            """, (sym.upper(),))
+            """,
+                (sym.upper(),),
+            )
             rows = cur.fetchall()
             if rows:
                 print(f"\n  {sym}:")
                 for r in rows:
-                    print(f"    {r[0]} price={r[1]:,.0f} "
-                          f"vol={r[2]:.1f}x close_pos={r[3]:.0%} "
-                          f"strength={r[4]:.2f} support={r[5]:,.0f}")
+                    print(
+                        f"    {r[0]} price={r[1]:,.0f} "
+                        f"vol={r[2]:.1f}x close_pos={r[3]:.0%} "
+                        f"strength={r[4]:.2f} support={r[5]:,.0f}"
+                    )
             else:
                 print(f"\n  {sym}: No active demand signals")
         conn.close()
@@ -466,9 +501,9 @@ def main():
         for sym in args.symbols:
             r = engine.scan_symbol(sym)
             if r["status"] == "DONE":
-                print(f"\n  {'='*50}")
+                print(f"\n  {'=' * 50}")
                 print(f"  {sym} — {r['date']}")
-                print(f"  {'='*50}")
+                print(f"  {'=' * 50}")
                 print(f"  Price:     {r['price']:>12,.0f}")
                 print(f"  POC:       {r['poc']:>12,.0f}")
                 print(f"  VAL:       {r['val']:>12,.0f}")

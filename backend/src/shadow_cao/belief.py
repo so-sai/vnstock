@@ -1,8 +1,9 @@
-﻿"""Shadow CAO — Belief State Store.
+"""Shadow CAO — Belief State Store.
 
 Accumulates ablation statistics over time.
 NO weight updates — only drift tracking and readiness monitoring.
 """
+
 import json
 import logging
 import sys
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -26,6 +27,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.shadow_cao.models import BeliefState, EngineAblationProfile
@@ -45,17 +47,22 @@ def update_engine_profiles() -> dict[str, EngineAblationProfile]:
     NO weight updates — only accumulates statistics for readiness monitoring.
     """
     from src.shadow_cao.storage import get_shadow_connection
+
     try:
         initialize_shadow_database()
     except Exception:
         pass
-    stats = defaultdict(lambda: {
-        "total": 0, "flips": 0, "conf_deltas": [], "action_changes": 0,
-    })
+    stats = defaultdict(
+        lambda: {
+            "total": 0,
+            "flips": 0,
+            "conf_deltas": [],
+            "action_changes": 0,
+        }
+    )
     with get_shadow_connection() as conn:
         rows = conn.execute(
-            "SELECT engine_removed, action_changed, confidence_delta, decision_flip "
-            "FROM shadow_ablations"
+            "SELECT engine_removed, action_changed, confidence_delta, decision_flip FROM shadow_ablations"
         ).fetchall()
     for r in rows:
         eng = r["engine_removed"]
@@ -71,8 +78,12 @@ def update_engine_profiles() -> dict[str, EngineAblationProfile]:
         total = s["total"]
         if total == 0:
             profiles[eng] = EngineAblationProfile(
-                engine=eng, total_decisions=0, flip_count=0,
-                avg_confidence_delta=0.0, action_change_ratio=0.0, stability_score=0.0,
+                engine=eng,
+                total_decisions=0,
+                flip_count=0,
+                avg_confidence_delta=0.0,
+                action_change_ratio=0.0,
+                stability_score=0.0,
             )
             continue
         avg_delta = sum(s["conf_deltas"]) / total if s["conf_deltas"] else 0.0
@@ -111,6 +122,7 @@ def get_belief_state() -> BeliefState:
     stability = compute_stability_index()
     entropy_raw = get_belief_value("regime_entropy_trace")
     from src.shadow_cao.storage import get_shadow_stats
+
     stats = get_shadow_stats()
     return BeliefState(
         engine_profiles=profiles,
@@ -121,7 +133,7 @@ def get_belief_state() -> BeliefState:
     )
 
 
-def persist_stability_trace(stability: float, entropy: float = None):
+def persist_stability_trace(stability: float, entropy: float | None = None):
     """Persist stability trace for long-term monitoring."""
     save_belief_value("current_stability", str(stability))
     if entropy is not None:

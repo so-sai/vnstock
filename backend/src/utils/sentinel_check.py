@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 
 
@@ -18,7 +18,8 @@ def check_sentinels(target_dir="src"):
     # Kiem tra cac file o Root truoc
     root_scripts = ["screener.py", "src/background_sweep.py"]
     for s in root_scripts:
-        if os.path.exists(s): py_files.append(s)
+        if os.path.exists(s):
+            py_files.append(s)
 
     # Kiem tra thu muc src
     for root, _, files in os.walk(target_dir):
@@ -28,7 +29,7 @@ def check_sentinels(target_dir="src"):
 
     for file_path in py_files:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         except Exception as e:
             print(f"Warning: Could not read {file_path}: {e}")
@@ -42,14 +43,17 @@ def check_sentinels(target_dir="src"):
     if missing_files or outdated_files:
         if missing_files:
             print(f"ERROR: Found {len(missing_files)} files missing Sentinel:")
-            for f in missing_files: print(f"   - {f}")
+            for f in missing_files:
+                print(f"   - {f}")
         if outdated_files:
             print(f"WARNING: Found {len(outdated_files)} files on outdated Sentinel (v2.0):")
-            for f in outdated_files: print(f"   - {f}")
+            for f in outdated_files:
+                print(f"   - {f}")
         return False
 
     print(f"SUCCESS: All {len(py_files)} modules are HARDENED with Sentinel v2.1.")
     return True
+
 
 if __name__ == "__main__":
     if not check_sentinels():

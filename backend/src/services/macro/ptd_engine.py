@@ -1,4 +1,4 @@
-﻿"""
+"""
 ptd_engine.py — PTD Integration Engine (Conditioning Gate).
 
 Architecture: PTD Layer 4 (Governor Interface)
@@ -22,14 +22,13 @@ Hotfix — Escrow Coupling 2026-07-09:
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
-from .bp_imm import BPIMM, BP_IMM_Output, GaussianComponent
-from .time_series_aligner import TimeSeriesAligner
-from .phase_transition_detector import PhaseTransitionDetector, NarrativeOutput
+from .bp_imm import BPIMM, BP_IMM_Output
 from .market_macro_coordinator import MarketMacroCoordinator
+from .phase_transition_detector import NarrativeOutput, PhaseTransitionDetector
+from .time_series_aligner import TimeSeriesAligner
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +53,12 @@ IMPACT_THRESHOLD = 0.10  # minimum impact score to qualify as downside component
 @dataclass
 class MacroState:
     """Final output for Governor consumption."""
+
     dominant_narrative: str
     narrative_probs: dict[str, float]
     governor_confidence: float
     novelty_flag: bool
-    novelty_label: Optional[str]
+    novelty_label: str | None
     mahalanobis_distance: float
     driver_vector: np.ndarray
     driver_labels: list[str]
@@ -67,14 +67,14 @@ class MacroState:
     n_regime_components: int
     position_penalty: float
     position_scalar: float  # S_effective / S_base
-    risk_on_scalar: float   # position scalar for high-beta (Tech)
-    defensive_scalar: float # position scalar for defensive (Gold/STB@MA50)
+    risk_on_scalar: float  # position scalar for high-beta (Tech)
+    defensive_scalar: float  # position scalar for defensive (Gold/STB@MA50)
     spectral_stress: str
     mixture_moments: dict
     # Phase classification (2026-07-09: 4 spectral indicators)
     phase_label: str = "UNCERTAIN"
     phase_confidence: float = 0.0
-    phase_indicators: Optional[dict] = None
+    phase_indicators: dict | None = None
 
 
 class PTDEngine:
@@ -87,8 +87,9 @@ class PTDEngine:
         governor.decide(state)
     """
 
-    def __init__(self, n_drivers: int = N_DRIVERS, n_regimes: int = 4,
-                 stale_manager=None, risk_on_pct: float = RISK_ON_ALLOCATION_PCT):
+    def __init__(
+        self, n_drivers: int = N_DRIVERS, n_regimes: int = 4, stale_manager=None, risk_on_pct: float = RISK_ON_ALLOCATION_PCT
+    ):
         self.n = n_drivers
         self.aligner = TimeSeriesAligner()
         self.bp_imm = BPIMM(n_drivers=n_drivers, n_regimes=n_regimes)
@@ -104,12 +105,11 @@ class PTDEngine:
         # Phase classification (4 spectral indicators)
         self.coordinator = MarketMacroCoordinator()
         # Asia supply-chain rotation angle (persisted across steps)
-        self._cross_asset_angle: Optional[float] = None
+        self._cross_asset_angle: float | None = None
 
     # ── Main Pipeline ─────────────────────────────────────────────────
 
-    def step(self, observation: np.ndarray,
-             aligner_features: Optional[dict] = None) -> MacroState:
+    def step(self, observation: np.ndarray, aligner_features: dict | None = None) -> MacroState:
         """
         Single pipeline step.
 
@@ -127,9 +127,7 @@ class PTDEngine:
         """
         self._step_count += 1
         obs = np.asarray(observation, dtype=float).ravel()
-        assert obs.shape[0] == self.n, (
-            f"Observation dim {obs.shape[0]} != {self.n}"
-        )
+        assert obs.shape[0] == self.n, f"Observation dim {obs.shape[0]} != {self.n}"
 
         # 1. BP-IMM: track driver state
         imm_out: BP_IMM_Output = self.bp_imm.update(obs)
@@ -168,15 +166,18 @@ class PTDEngine:
             else:
                 self._safe_session_count = 0
 
-            can_release = (not narrative.novelty_flag and (
-                narrative.governor_confidence > 0.75
-                or self._safe_session_count >= 3
-            ))
+            can_release = not narrative.novelty_flag and (
+                narrative.governor_confidence > 0.75 or self._safe_session_count >= 3
+            )
             if can_release:
                 released = self._stale_mgr.release_ptd_escrow()
                 if released > 0:
-                    logger.info("PTD escrow released: %.2f (confidence=%.4f, safe_sessions=%d)",
-                                released, narrative.governor_confidence, self._safe_session_count)
+                    logger.info(
+                        "PTD escrow released: %.2f (confidence=%.4f, safe_sessions=%d)",
+                        released,
+                        narrative.governor_confidence,
+                        self._safe_session_count,
+                    )
 
         return MacroState(
             dominant_narrative=narrative.dominant_narrative,
@@ -187,8 +188,13 @@ class PTDEngine:
             mahalanobis_distance=narrative.mahalanobis_distance,
             driver_vector=narrative.driver_vector,
             driver_labels=[
-                "Liquidity", "Inflation", "Growth",
-                "Energy", "Risk", "AI_Capex", "Trust",
+                "Liquidity",
+                "Inflation",
+                "Growth",
+                "Energy",
+                "Risk",
+                "AI_Capex",
+                "Trust",
             ],
             regime_weights=imm_out.regime_weights,
             regime_labels=["NORMAL", "STRESS", "LIQUIDITY", "RECOVERY"],
@@ -251,7 +257,7 @@ class PTDEngine:
         if not states:
             return 0.0, 1.0, 1.0
 
-        w_sum = max(sum(s.weight for s in states), 1e-10)
+        max(sum(s.weight for s in states), 1e-10)
 
         # Baseline: total weighted trace (denominator for penalty ratio)
         total_trace = sum(s.weight * float(np.trace(s.cov)) for s in states)
@@ -282,7 +288,7 @@ class PTDEngine:
     # ── Spectral Stress ───────────────────────────────────────────────
 
     @staticmethod
-    def _spectral_stress(features: Optional[dict]) -> str:
+    def _spectral_stress(features: dict | None) -> str:
         """Determine spectral stress level from TimeSeriesAligner features."""
         if features is None:
             return "UNKNOWN"
@@ -315,8 +321,8 @@ class PTDEngine:
     def should_reduce_exposure(state: MacroState) -> dict[str, bool]:
         """Governor: asset-class-specific exposure reduction."""
         return {
-            "risk_on": (
-                state.novelty_flag and state.governor_confidence < 0.5
-            ) or state.spectral_stress == "SYSTEMIC" or state.risk_on_scalar < 0.5,
+            "risk_on": (state.novelty_flag and state.governor_confidence < 0.5)
+            or state.spectral_stress == "SYSTEMIC"
+            or state.risk_on_scalar < 0.5,
             "defensive": False,  # never reduce defensive
         }

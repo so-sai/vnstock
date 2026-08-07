@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Optional
 
 logger = logging.getLogger("data_integrity")
 
@@ -122,7 +121,7 @@ def sanitize_datetime_rows(conn: sqlite3.Connection, dry_run: bool = True) -> di
 
 
 def ensure_vnindex_integrity(
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
     auto_fix: bool = True,
     verbose: bool = True,
 ) -> dict:
@@ -234,7 +233,7 @@ def ensure_vnindex_integrity(
             conn.close()
 
 
-def integrity_report(conn: Optional[sqlite3.Connection] = None) -> dict:
+def integrity_report(conn: sqlite3.Connection | None = None) -> dict:
     """Return a comprehensive data-integrity snapshot for monitoring.
 
     Checks:

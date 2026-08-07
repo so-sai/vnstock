@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import json
 import logging
 import math
@@ -39,7 +39,7 @@ _STRESS_STATE_PATH = PROJECT_ROOT / "backend" / "data" / "probe_cache" / "micro_
 # ── I/O Health — Inline Heartbeat (nhất thể hóa nhịp đập vào payload) ──
 # Không dùng file .io_healthy riêng — heartbeat nằm trong crisis_cooldown.json
 # để triệt tiêu rủi ro bất đối xứng sector giữa file chỉ dấu và file cấu hình.
-_INLINE_HEARTBEAT_MAX_AGE = 10.0       # seconds — quá hạn → OS write cache nghi ngờ
+_INLINE_HEARTBEAT_MAX_AGE = 10.0  # seconds — quá hạn → OS write cache nghi ngờ
 _CROSS_SESSION_HEARTBEAT_MAX_AGE = 3600.0  # seconds (1h) — cross-session stale threshold
 
 # ── Half-Open Circuit Probe ──
@@ -104,7 +104,7 @@ def _probe_disk_health() -> bool:
             # Không cần fsync trên probe — chỉ cần ghi + đọc + verify hash
             readback = _PROBE_PATH.read_bytes()
             actual_hash = hashlib.sha256(readback).hexdigest()
-            result[0] = (actual_hash == expected_hash)
+            result[0] = actual_hash == expected_hash
         except Exception:
             result[0] = False
         finally:
@@ -161,7 +161,7 @@ def _atomic_write_json(path: Path, data: dict, timeout: float = 5.0):
 
     if not done.is_set():
         _virtual_ram_storage[str(path.absolute())] = json.dumps(data, ensure_ascii=False)
-        raise IOError(f"I/O timeout ({timeout}s) — possible bad sector on {path}")
+        raise OSError(f"I/O timeout ({timeout}s) — possible bad sector on {path}")
 
     if result[0] is not None:
         _virtual_ram_storage[str(path.absolute())] = json.dumps(data, ensure_ascii=False)
@@ -174,7 +174,7 @@ def _read_calendar_safe() -> list[str]:
         try:
             data = json.loads(CALENDAR_PATH.read_text(encoding="utf-8"))
             return data.get("holidays", [])
-        except (IOError, json.JSONDecodeError, FileNotFoundError):
+        except OSError, json.JSONDecodeError, FileNotFoundError:
             if attempt < 2:
                 time.sleep(0.1)
     return []
@@ -199,6 +199,7 @@ def hours_since_last_scrape(tenor: str | None = None) -> float:
         return 0.0
     try:
         from src.services.macro.interbank_seeder import _get_latest_from_db
+
         variable = f"INTERBANK_{tenor}" if tenor else "INTERBANK_ON"
         _, ts = _get_latest_from_db(variable)
         if ts:
@@ -219,7 +220,7 @@ def _load_stress_state() -> dict:
             return {"consecutive_high": 0, "gate_active": True, "last_z": 99.9, "last_date": ""}
     try:
         return json.loads(_STRESS_STATE_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError, json.JSONDecodeError:
         return {"consecutive_high": 0, "gate_active": False, "last_z": 0.0, "last_date": ""}
 
 
@@ -250,8 +251,9 @@ def compute_temporal_penalty(
         return 1.0
 
     if is_liquidity_crisis:
-        _save_stress_state({"consecutive_high": 0, "gate_active": True,
-                            "last_z": z_fast, "last_date": datetime.now().strftime("%Y-%m-%d")})
+        _save_stress_state(
+            {"consecutive_high": 0, "gate_active": True, "last_z": z_fast, "last_date": datetime.now().strftime("%Y-%m-%d")}
+        )
         return 0.0
 
     state = _load_stress_state()
@@ -295,9 +297,14 @@ def _load_cooldown_state(current_on: float = 0.0, z_fast: float = 0.0) -> dict:
                 logger.info("[COOLDOWN] Half-open probe OK — disk recovered, closing circuit")
             else:
                 logger.warning("[COOLDOWN] I/O heartbeat dead + probe failed — FORCED_SAFETY")
-                return {"crisis_active": True, "crisis_marker": "FORCED_SAFETY",
-                        "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": "",
-                        "io_heartbeat_timestamp": 0.0}
+                return {
+                    "crisis_active": True,
+                    "crisis_marker": "FORCED_SAFETY",
+                    "consecutive_normal": 0,
+                    "last_normal_date": "",
+                    "last_crisis_date": "",
+                    "io_heartbeat_timestamp": 0.0,
+                }
 
     try:
         data = json.loads(_COOLDOWN_PATH.read_text(encoding="utf-8"))
@@ -307,19 +314,38 @@ def _load_cooldown_state(current_on: float = 0.0, z_fast: float = 0.0) -> dict:
     except FileNotFoundError:
         # Mất file → kiểm tra sensor thời gian thực trước khi fallback
         if current_on >= EARLY_WARNING_THRESHOLD or z_fast > Z_THRESHOLD:
-            logger.warning("[COOLDOWN] File missing + ON=%.1f%% >= %.0f%% or Z=%.1f — FORCED_SAFETY",
-                          current_on, EARLY_WARNING_THRESHOLD, z_fast)
-            return {"crisis_active": True, "crisis_marker": "FORCED_SAFETY",
-                    "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": "",
-                    "io_heartbeat_timestamp": time.time()}
-        return {"crisis_active": False, "crisis_marker": "",
-                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": "",
-                "io_heartbeat_timestamp": time.time()}
-    except (json.JSONDecodeError, ValueError):
+            logger.warning(
+                "[COOLDOWN] File missing + ON=%.1f%% >= %.0f%% or Z=%.1f — FORCED_SAFETY",
+                current_on,
+                EARLY_WARNING_THRESHOLD,
+                z_fast,
+            )
+            return {
+                "crisis_active": True,
+                "crisis_marker": "FORCED_SAFETY",
+                "consecutive_normal": 0,
+                "last_normal_date": "",
+                "last_crisis_date": "",
+                "io_heartbeat_timestamp": time.time(),
+            }
+        return {
+            "crisis_active": False,
+            "crisis_marker": "",
+            "consecutive_normal": 0,
+            "last_normal_date": "",
+            "last_crisis_date": "",
+            "io_heartbeat_timestamp": time.time(),
+        }
+    except json.JSONDecodeError, ValueError:
         logger.warning("[COOLDOWN] File hỏng — CORRUPTED_FALLBACK: crisis_active=True")
-        return {"crisis_active": True, "crisis_marker": "CORRUPTED_FALLBACK",
-                "consecutive_normal": 0, "last_normal_date": "", "last_crisis_date": "",
-                "io_heartbeat_timestamp": 0.0}
+        return {
+            "crisis_active": True,
+            "crisis_marker": "CORRUPTED_FALLBACK",
+            "consecutive_normal": 0,
+            "last_normal_date": "",
+            "last_crisis_date": "",
+            "io_heartbeat_timestamp": 0.0,
+        }
 
 
 def _save_cooldown_state(state: dict):
@@ -342,14 +368,12 @@ def update_crisis_cooldown(current_on: float, z_fast: float = 0.0):
         state["consecutive_normal"] = 0
         state["last_crisis_date"] = today
         state["last_normal_date"] = today  # chặn đếm trong cùng phiên
-        logger.info("[COOLDOWN] Crisis active: ON=%.1f%% >= %.0f%%",
-                    current_on, CRISIS_RATE)
+        logger.info("[COOLDOWN] Crisis active: ON=%.1f%% >= %.0f%%", current_on, CRISIS_RATE)
     elif state.get("crisis_active", False):
         if state.get("last_normal_date") != today:
             state["consecutive_normal"] = state.get("consecutive_normal", 0) + 1
             state["last_normal_date"] = today
-            logger.info("[COOLDOWN] Crisis cooldown: ngày an toàn %d/3 (ON=%.1f%%)",
-                        state["consecutive_normal"], current_on)
+            logger.info("[COOLDOWN] Crisis cooldown: ngày an toàn %d/3 (ON=%.1f%%)", state["consecutive_normal"], current_on)
 
     _save_cooldown_state(state)
 
@@ -378,12 +402,15 @@ def assess_crisis_unlock(current_on: float, z_fast: float, recovery_days: int) -
         state["crisis_active"] = False
         state["consecutive_normal"] = 0
         _save_cooldown_state(state)
-        logger.info("[COOLDOWN] Crisis UNLOCKED: ON=%.1f%%, Z=%.1f, recovery=%d",
-                    current_on, z_fast, recovery_days)
+        logger.info("[COOLDOWN] Crisis UNLOCKED: ON=%.1f%%, Z=%.1f, recovery=%d", current_on, z_fast, recovery_days)
         return True
 
-    logger.info("[COOLDOWN] Crisis locked: consecutive=%d/3, Z=%.1f, recovery=%d",
-                state.get("consecutive_normal", 0), z_fast, recovery_days)
+    logger.info(
+        "[COOLDOWN] Crisis locked: consecutive=%d/3, Z=%.1f, recovery=%d",
+        state.get("consecutive_normal", 0),
+        z_fast,
+        recovery_days,
+    )
     return False
 
 
@@ -426,11 +453,11 @@ def log_entropy_telemetry(H: float, stale_hours: dict[str, float] | None = None)
         TELEMETRY_PATH.parent.mkdir(parents=True, exist_ok=True)
         write_header = not TELEMETRY_PATH.exists()
         import csv
+
         with open(TELEMETRY_PATH, "a", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             if write_header:
-                w.writerow(["timestamp", "H_t", "stale_1W", "stale_2W", "stale_1M",
-                            "stale_3M", "stale_6M", "stale_9M"])
+                w.writerow(["timestamp", "H_t", "stale_1W", "stale_2W", "stale_1M", "stale_3M", "stale_6M", "stale_9M"])
             row = [datetime.now().isoformat(), round(H, 4)]
             if stale_hours:
                 row += [round(stale_hours.get(t, 0.0), 1) for t in TENOR_ORDER]
@@ -464,7 +491,8 @@ def cleanup_telemetry(max_rows: int = 1000):
         return
     try:
         import csv
-        with open(TELEMETRY_PATH, "r", newline="", encoding="utf-8") as f:
+
+        with open(TELEMETRY_PATH, newline="", encoding="utf-8") as f:
             reader = list(csv.reader(f))
         if len(reader) <= max_rows + 1:  # +1 for header
             return
@@ -485,8 +513,7 @@ def _scrape_holidays() -> list[str]:
 
     url = "https://www.timeanddate.com/holidays/vietnam/"
     try:
-        resp = requests.get(url, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         resp.raise_for_status()
         tree = lx.fromstring(resp.content)
         holidays = []
@@ -494,7 +521,7 @@ def _scrape_holidays() -> list[str]:
             cells = row.xpath(".//td")
             if len(cells) >= 3:
                 date_str = (cells[0].text_content() or "").strip()
-                name = (cells[2].text_content() or "").strip()
+                (cells[2].text_content() or "").strip()
                 if date_str and "2026" in date_str:
                     holidays.append(date_str.strip())
         return sorted(set(holidays))

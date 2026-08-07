@@ -1,4 +1,4 @@
-﻿"""meta_evidence.py — Dual Belief Calibration: Meta-labeling cho PTD.
+"""meta_evidence.py — Dual Belief Calibration: Meta-labeling cho PTD.
 
 Tách biệt hai vòng suy luận:
   - Market Loop: Governor suy luận trạng thái thị trường (P(State))
@@ -6,10 +6,11 @@ Tách biệt hai vòng suy luận:
 
 Architecture: Hierarchical Bayesian Control (Meta-labeling, de Prado 2018).
 """
+
 import math
 from collections import deque
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.core.regime_confusion import RegimeAwareConfusion
@@ -28,6 +29,7 @@ SIGMOID_BIAS = 3.0
 
 # ── Helpers ----------------------------------------------------------
 
+
 def _sigmoid(raw: float) -> float:
     """Sigmoid với bias: sigmoid(3.0) ≈ 0.95, sigmoid(0) = 0.5."""
     return 1.0 / (1.0 + math.exp(-raw))
@@ -40,6 +42,7 @@ def _ema(old: float, new: float, alpha: float = 0.05) -> float:
 
 # ── Execution Journal ───────────────────────────────────────────────
 
+
 class ExecutionJournal:
     """Nhật ký thực thi — đầu vào cho Meta Evidence.
 
@@ -47,9 +50,9 @@ class ExecutionJournal:
     """
 
     def __init__(self):
-        self.entries: deque[Dict[str, Any]] = deque(maxlen=1000)
+        self.entries: deque[dict[str, Any]] = deque(maxlen=1000)
 
-    def record(self, entry: Dict[str, Any]):
+    def record(self, entry: dict[str, Any]):
         """Ghi một sự kiện thực thi."""
         entry["timestamp"] = entry.get("timestamp", datetime.now().isoformat())
         self.entries.append(entry)
@@ -65,6 +68,7 @@ class ExecutionJournal:
 
 # ── Execution Quality ───────────────────────────────────────────────
 
+
 class ExecutionQuality:
     """Chất lượng thực thi — đo lỗi từ broker/thị trường.
 
@@ -78,7 +82,7 @@ class ExecutionQuality:
         self.latency_ms_ma: float = 0.0
         self.commission_bps_ma: float = 0.0
 
-    def update(self, entry: Dict[str, Any]):
+    def update(self, entry: dict[str, Any]):
         """Cập nhật từ một entry Execution Journal."""
         alpha = 0.1  # phản ứng nhanh hơn với execution issues
         if "slippage_bps" in entry:
@@ -96,10 +100,10 @@ class ExecutionQuality:
     def score(self) -> float:
         """Execution Fit: [0, 1]. 1.0 = hoàn hảo."""
         penalty = (
-            0.4 * (self.slippage_bps_ma / 20.0)          # slippage chuẩn hóa
-            + 0.3 * self.partial_fill_ma                  # partial fill
-            + 0.2 * self.latency_ms_ma                    # latency
-            + 0.1 * self.commission_bps_ma                # commission
+            0.4 * (self.slippage_bps_ma / 20.0)  # slippage chuẩn hóa
+            + 0.3 * self.partial_fill_ma  # partial fill
+            + 0.2 * self.latency_ms_ma  # latency
+            + 0.1 * self.commission_bps_ma  # commission
         )
         return _sigmoid(SIGMOID_BIAS - penalty)
 
@@ -109,6 +113,7 @@ class ExecutionQuality:
 
 
 # ── Model Quality ───────────────────────────────────────────────────
+
 
 class ModelQuality:
     """Chất lượng mô hình — đo độ tin cậy của Governor.
@@ -162,9 +167,9 @@ class ModelQuality:
     def market_fit_score(self) -> float:
         """C_model: [0, 1]. Độ tin cậy của mô hình thị trường."""
         penalty = (
-            0.5 * (self.stop_loss_count / 3.0)          # SL tần suất cao
-            + 10.0 * self.prediction_error_ma            # Sai số dự báo
-            + 2.0 * self.signal_flip_rate                 # Đảo chiều tín hiệu
+            0.5 * (self.stop_loss_count / 3.0)  # SL tần suất cao
+            + 10.0 * self.prediction_error_ma  # Sai số dự báo
+            + 2.0 * self.signal_flip_rate  # Đảo chiều tín hiệu
         )
         return _sigmoid(SIGMOID_BIAS - penalty)
 
@@ -184,6 +189,7 @@ class ModelQuality:
 
 
 # ── Meta Evidence (Calibration Vector) ──────────────────────────────
+
 
 class MetaEvidence:
     """Đầu não Meta Evidence — tổng hợp calibration vector 5 chiều.
@@ -209,19 +215,21 @@ class MetaEvidence:
         self.current_adx: float = 0.0  # set externally each EOD
 
         # Regime-Aware Confusion Matrix (lazy-loaded)
-        self._regime_confusion: Optional["RegimeAwareConfusion"] = None
+        self._regime_confusion: RegimeAwareConfusion | None = None
 
     @property
     def regime_confusion(self):
         if self._regime_confusion is None:
             from src.core.regime_confusion import (
-                RegimeAwareConfusion, load_confusion_from_db,
+                RegimeAwareConfusion,
+                load_confusion_from_db,
             )
+
             loaded = load_confusion_from_db()
             self._regime_confusion = loaded if loaded else RegimeAwareConfusion()
         return self._regime_confusion
 
-    def update_from_journal(self, entry: Dict[str, Any]):
+    def update_from_journal(self, entry: dict[str, Any]):
         """Cập nhật từ một entry Execution Journal."""
         # Execution Quality
         self.execution_quality.update(entry)
@@ -230,9 +238,7 @@ class MetaEvidence:
         if entry.get("exit_reason") == "STOP_LOSS":
             self.model_quality.record_stop_loss()
         if "expected_return" in entry and "realized_return" in entry:
-            self.model_quality.record_prediction_error(
-                entry["expected_return"], entry["realized_return"]
-            )
+            self.model_quality.record_prediction_error(entry["expected_return"], entry["realized_return"])
         if entry.get("signal_flipped"):
             self.model_quality.record_signal_flip()
         if "mahalanobis_distance" in entry:
@@ -275,7 +281,7 @@ class MetaEvidence:
         return self.regime_confusion.calibration_score(self.current_adx)
 
     @property
-    def calibration_vector(self) -> Dict[str, float]:
+    def calibration_vector(self) -> dict[str, float]:
         """Calibration vector 5 chiều."""
         return {
             "market_fit": round(self.model_quality.market_fit_score, 4),
@@ -294,11 +300,7 @@ class MetaEvidence:
         """
         cv = self.calibration_vector
         return round(
-            cv["market_fit"]
-            * cv["execution_fit"]
-            * cv["data_quality"]
-            * (1.0 - cv["novelty_risk"])
-            * cv["strategy_fit"],
+            cv["market_fit"] * cv["execution_fit"] * cv["data_quality"] * (1.0 - cv["novelty_risk"]) * cv["strategy_fit"],
             4,
         )
 
@@ -311,7 +313,7 @@ class MetaEvidence:
 
 
 # Singleton cho toàn bộ hệ thống (reset theo Hard Reset)
-_ACTIVE_META: Optional[MetaEvidence] = None
+_ACTIVE_META: MetaEvidence | None = None
 
 
 def get_meta_evidence() -> MetaEvidence:

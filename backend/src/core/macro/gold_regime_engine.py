@@ -5,14 +5,14 @@ Phân tích vàng như macro entropy sensor:
   - spread_pressure: áp lực chênh lệch mua/bán
   - macro_bias: DEFENSIVE / NEUTRAL / RISK_ON
 """
-import sys
+
 import logging
+import sys
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional
+
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent
@@ -29,9 +29,11 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import pandas as pd
+
 from src.database.db_core import get_connection
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,7 @@ logger = logging.getLogger(__name__)
 def analyze_gold_regime(lookback_days: int = 20) -> dict:
     """
     Phân tích regime vàng dựa trên GOLD_XAU từ macro_history.
-    
+
     Returns:
         gold_regime: RISK_OFF / DEFENSIVE / NEUTRAL / RISK_ON
         velocity: tốc độ thay đổi (0-1)
@@ -50,16 +52,20 @@ def analyze_gold_regime(lookback_days: int = 20) -> dict:
     """
     try:
         with get_connection() as conn:
-            df = pd.read_sql("""
+            df = pd.read_sql(
+                """
                 SELECT date, value FROM macro_history
                 WHERE variable = 'GOLD_XAU'
                 ORDER BY date DESC LIMIT ?
-            """, conn, params=(lookback_days + 5,))
+            """,
+                conn,
+                params=(lookback_days + 5,),
+            )
         if df.empty:
             return _default_gold_regime()
-        df['date'] = pd.to_datetime(df['date'], format='mixed')
-        df = df.sort_values('date').reset_index(drop=True)
-        prices = df['value'].values
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
+        df = df.sort_values("date").reset_index(drop=True)
+        prices = df["value"].values
         if len(prices) < 5:
             return _default_gold_regime()
         latest = prices[-1]
@@ -100,7 +106,7 @@ def analyze_gold_regime(lookback_days: int = 20) -> dict:
                 "below_ma20_3pct": bool(latest < ma20 * 0.97),
                 "velocity_high": velocity > 0.3,
                 "spread_pressure_high": spread_pressure > 0.4,
-            }
+            },
         }
     except Exception as e:
         logger.error(f"Gold regime analysis failed: {e}")
@@ -120,6 +126,7 @@ def cross_reference_with_market(macro_data: dict) -> dict:
     premium = {}
     try:
         from core.macro.gold_spread_engine import analyze_domestic_premium
+
         premium = analyze_domestic_premium()
     except Exception:
         pass
@@ -198,5 +205,5 @@ def _default_gold_regime() -> dict:
             "below_ma20_3pct": False,
             "velocity_high": False,
             "spread_pressure_high": False,
-        }
+        },
     }

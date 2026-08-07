@@ -20,7 +20,6 @@ for _par in [Path(__file__).resolve().parent.parent.parent] + list(Path(__file__
 BACKEND_DIR = PROJECT_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
-import pytest
 
 
 # ===================================================================
@@ -101,9 +100,8 @@ class TestScanAll:
 
 class TestLiquidSymbols:
     def _df(self):
-        import pandas as pd
         # 3 symbols, 30 sessions, volumes 150k / 60k / 5k
-        import numpy as np
+        import pandas as pd
         dates = pd.bdate_range(end="2026-07-31", periods=30)
         rows = []
         for sym, vol in (("AAA", 150_000), ("BBB", 60_000), ("CCC", 5_000)):
@@ -193,11 +191,10 @@ class TestBreadthFallback:
         assert result["total_active"] == 2
 
     def test_no_data_before_ref_date_returns_none(self, capsys):
-        from src.engine import breadth_engine
-
         # Data is AFTER the requested date → no valid_dates.
         # WHY: dùng df riêng chỉ có ngày > ref_date, không lẫn ngày trước đó.
         import pandas as pd
+        from src.engine import breadth_engine
         df = pd.DataFrame({
             "symbol": ["AAA", "BBB"],
             "date": [pd.Timestamp("2026-08-03"), pd.Timestamp("2026-08-03")],

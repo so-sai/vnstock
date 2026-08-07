@@ -25,7 +25,6 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-
 from src.financial.financial_facts import FINANCIAL_DB_PATH
 from src.financial.forensic_engine import ForensicEngine
 

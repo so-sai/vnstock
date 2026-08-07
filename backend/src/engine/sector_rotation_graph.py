@@ -1,14 +1,15 @@
-﻿"""
+"""
 Sector Rotation Graph (Phase 11 — Asia Adaptation Layer).
 Measures inter-sector influence network, rotation phase, money flow propagation.
 VN market flows through sector narratives (Bank → Securities → Midcap → Penny).
 """
+
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -25,6 +26,7 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import logging
@@ -37,10 +39,22 @@ from src.database.db_core import get_connection
 logger = logging.getLogger(__name__)
 
 SECTOR_ORDER = [
-    "Ngân hàng", "Chứng khoán", "Bất động sản", "Xây dựng",
-    "Thép", "Dầu khí", "Điện", "Công nghệ",
-    "Bán lẻ", "Thực phẩm", "Dược", "Hàng không",
-    "Cảng biển", "Nhựa", "Dệt may", "Thủy sản",
+    "Ngân hàng",
+    "Chứng khoán",
+    "Bất động sản",
+    "Xây dựng",
+    "Thép",
+    "Dầu khí",
+    "Điện",
+    "Công nghệ",
+    "Bán lẻ",
+    "Thực phẩm",
+    "Dược",
+    "Hàng không",
+    "Cảng biển",
+    "Nhựa",
+    "Dệt may",
+    "Thủy sản",
 ]
 
 
@@ -71,7 +85,8 @@ def compute_sector_rs(sector: str, lookback: int = 60) -> dict:
             f"SELECT symbol, date, close FROM daily_ohlcv "
             f"WHERE symbol IN ({placeholders}) AND date >= date('now', '-{lookback + 10} days') "
             f"ORDER BY date",
-            conn, params=symbols
+            conn,
+            params=symbols,
         )
     if df.empty:
         return {"sector": sector, "status": "NO_DATA"}
@@ -90,7 +105,7 @@ def compute_sector_rs(sector: str, lookback: int = 60) -> dict:
     daily["volatility"] = daily["return"].rolling(20).std()
     sharpe = (daily["return"].mean() / daily["return"].std() * np.sqrt(252)) if daily["return"].std() > 0 else 0
 
-    sma20 = daily["close"].mean() if "close" in daily.columns else 0
+    daily["close"].mean() if "close" in daily.columns else 0
 
     recent_5d = daily.tail(5)["return"].sum()
     recent_20d = daily.tail(20)["return"].sum() if len(daily) >= 20 else recent_5d
@@ -170,9 +185,14 @@ def get_sector_rotation_map() -> dict:
         "phase_distribution": phase_counts,
         "num_sectors_active": len(results),
         "market_breadth_score": round(
-            (phase_counts.get("EARLY_ACCEL", 0) + phase_counts.get("MID_CYCLE", 0) * 0.7
-             + phase_counts.get("SUSTAINED", 0) * 0.4
-             - phase_counts.get("WEAKENING", 0) * 0.5) / max(1, len(results)), 3
+            (
+                phase_counts.get("EARLY_ACCEL", 0)
+                + phase_counts.get("MID_CYCLE", 0) * 0.7
+                + phase_counts.get("SUSTAINED", 0) * 0.4
+                - phase_counts.get("WEAKENING", 0) * 0.5
+            )
+            / max(1, len(results)),
+            3,
         ),
     }
 
@@ -183,7 +203,7 @@ def detect_money_flow_propagation(backtrack_days: int = 30) -> list:
             "SELECT date, symbol, close, volume FROM daily_ohlcv "
             f"WHERE date >= date('now', '-{backtrack_days} days') AND volume > 0 "
             "ORDER BY date",
-            conn
+            conn,
         )
     if df.empty:
         return []
@@ -193,9 +213,7 @@ def detect_money_flow_propagation(backtrack_days: int = 30) -> list:
     df["value_bn"] = df["close"] * df["volume"] * 1000 / 1e9
 
     sector_daily = df.groupby(["date", "sector"])["value_bn"].sum().reset_index()
-    sector_daily["value_ma3"] = sector_daily.groupby("sector")["value_bn"].transform(
-        lambda x: x.rolling(3).mean()
-    )
+    sector_daily["value_ma3"] = sector_daily.groupby("sector")["value_bn"].transform(lambda x: x.rolling(3).mean())
     sector_daily["value_shock"] = sector_daily["value_bn"] / sector_daily["value_ma3"]
 
     dates = sector_daily["date"].unique()
@@ -213,12 +231,14 @@ def detect_money_flow_propagation(backtrack_days: int = 30) -> list:
         curr = latest_flow.loc[sec, "value_bn"]
         prev = prev_flow.loc[sec, "value_bn"] if sec in prev_flow.index else 0
         change_pct = ((curr - prev) / prev * 100) if prev > 0 else 0.0
-        flow_changes.append({
-            "sector": sec,
-            "current_value_bn": round(_sanitize_float(curr), 0),
-            "change_1d_pct": round(_sanitize_float(change_pct), 1),
-            "shock_ratio": round(_sanitize_float(latest_flow.loc[sec, "value_shock"]), 2),
-        })
+        flow_changes.append(
+            {
+                "sector": sec,
+                "current_value_bn": round(_sanitize_float(curr), 0),
+                "change_1d_pct": round(_sanitize_float(change_pct), 1),
+                "shock_ratio": round(_sanitize_float(latest_flow.loc[sec, "value_shock"]), 2),
+            }
+        )
 
     flow_changes.sort(key=lambda x: x["change_1d_pct"], reverse=True)
     return flow_changes
@@ -256,6 +276,7 @@ def get_rotation_beta() -> dict:
 
 if __name__ == "__main__":
     import json
+
     rot = get_sector_rotation_map()
     print(f"Sector Rotation: {json.dumps({k: v for k, v in rot.items() if k != 'sectors'}, ensure_ascii=False, indent=2)}")
     flow = detect_money_flow_propagation()

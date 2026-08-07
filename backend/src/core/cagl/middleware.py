@@ -1,10 +1,11 @@
-﻿"""Optional ASGI middleware for runtime route validation."""
+"""Optional ASGI middleware for runtime route validation."""
+
 from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -52,7 +53,6 @@ class CAGLMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         method = request.method
         path = request.url.path
-        key = f"{method}:{path}"
         spec = self.registry.get(method, path)
 
         if spec is None and self.mode != "shadow":
@@ -60,6 +60,7 @@ class CAGLMiddleware(BaseHTTPMiddleware):
             if self.mode == "strict":
                 logger.error(msg)
                 from starlette.responses import JSONResponse
+
                 return JSONResponse(
                     status_code=400,
                     content={"error": "route_not_registered", "detail": msg},

@@ -3,7 +3,6 @@
 import time
 
 import pandas as pd
-
 from src.providers.base import FinancialProvider
 from src.providers.manager import CircuitBreaker, ProviderManager
 

@@ -11,7 +11,7 @@ Không dùng để ngắm backtest, mà để đo độ lệch giữa kỳ vọn
 
 import math
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -35,7 +35,7 @@ class QuantStatsBridge:
 
     def __init__(self, window_days: int = DEFAULT_WINDOW_DAYS):
         self.window_days = window_days
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
 
     # ── 1. LIVE PIPELINE ──────────────────────────────────────────────
 
@@ -171,7 +171,7 @@ class QuantStatsBridge:
         return total_return / mdd if mdd > 1e-10 else 0.0
 
     @staticmethod
-    def compute_outlier_ratio(returns: np.ndarray, n_std: float = 2.0) -> Tuple[float, float]:
+    def compute_outlier_ratio(returns: np.ndarray, n_std: float = 2.0) -> tuple[float, float]:
         """(outlier_win_ratio, outlier_loss_ratio).
 
         Outlier = return lệch > n_std so với mean.
@@ -226,7 +226,7 @@ class QuantStatsBridge:
         kelly = w - (1 - w) / r
         return max(0.0, min(kelly, 0.25))  # clamp [0, 0.25] Half-Kelly
 
-    def compute_metrics(self, returns: np.ndarray) -> Dict[str, float]:
+    def compute_metrics(self, returns: np.ndarray) -> dict[str, float]:
         """Tính toàn bộ metrics từ returns array."""
         if len(returns) < 2:
             return self._empty_metrics()
@@ -242,7 +242,7 @@ class QuantStatsBridge:
         }
 
     @staticmethod
-    def _empty_metrics() -> Dict[str, float]:
+    def _empty_metrics() -> dict[str, float]:
         return {
             "sharpe": 0.0,
             "sortino": 0.0,
@@ -256,7 +256,7 @@ class QuantStatsBridge:
 
     # ── 3. RANDOM BASELINE (Vectorized Monte Carlo) ──────────────────
 
-    def compute_random_baseline(self, mu: float = 0.0, sigma: float = 0.015) -> Dict[str, float]:
+    def compute_random_baseline(self, mu: float = 0.0, sigma: float = 0.015) -> dict[str, float]:
         """Vectorized Monte Carlo — O(1) NumPy.
 
         Tạo ma trận (N_sim, N_days) returns ngẫu nhiên,
@@ -322,7 +322,7 @@ class QuantStatsBridge:
 
     # ── 4b. DOC INDEX ────────────────────────────────────────────────
 
-    def compute_doc_index(self) -> Dict[str, Any]:
+    def compute_doc_index(self) -> dict[str, Any]:
         """Decision Opportunity Cost — đo Governor mù quyết định.
 
         DOC_Index = Mean(R_alternative - R_rejected_simulated)
@@ -360,11 +360,11 @@ class QuantStatsBridge:
 
     def calibration_signal(
         self,
-        live_metrics: Dict[str, float],
-        rejected_metrics: Dict[str, float],
-        random_metrics: Dict[str, float],
+        live_metrics: dict[str, float],
+        rejected_metrics: dict[str, float],
+        random_metrics: dict[str, float],
         live_returns: np.ndarray,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """So sánh 3 pipeline → calibration signal cho MetaEvidence.
 
         Trả về dict với:
@@ -444,7 +444,7 @@ class QuantStatsBridge:
 
     # ── 6. RUN ALL ───────────────────────────────────────────────────
 
-    def run_all(self) -> Dict[str, Any]:
+    def run_all(self) -> dict[str, Any]:
         """Chạy toàn bộ pipeline: live + rejected + random + calibration."""
         live_returns = self.fetch_live_returns()
         rejected_returns = self.fetch_rejected_trades()
@@ -487,7 +487,7 @@ class QuantStatsBridge:
                 conn.execute(ddl)
         conn.commit()
 
-    def save_to_db(self, report: Dict[str, Any]):
+    def save_to_db(self, report: dict[str, Any]):
         """Lưu kết quả QuantStats vào CSDL meta_evidence.
 
         Tạo bảng quantstats_calibration nếu chưa có.
@@ -540,7 +540,7 @@ class QuantStatsBridge:
                 ),
             )
 
-    def load_last_from_db(self) -> Optional[Dict[str, Any]]:
+    def load_last_from_db(self) -> dict[str, Any] | None:
         """Đọc bản ghi quantstats gần nhất."""
         try:
             with get_connection() as conn:

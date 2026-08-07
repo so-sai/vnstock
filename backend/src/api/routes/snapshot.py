@@ -1,4 +1,4 @@
-﻿"""
+"""
 /api/v1/snapshot — Delta Divergence Index + Snapshot Index
 Phase: DDI Gate (Delta Divergence Index + Atomic Parameter Identity)
 """
@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -41,6 +41,7 @@ async def get_ddi():
     """Tính DDI từ snapshot hiện tại (live)."""
     try:
         from src.core.market_snapshot import tao_anh_chup
+
         anh_chup = tao_anh_chup()
         ddi = anh_chup.get("delta_divergence", {})
         ddi["params_hash"] = anh_chup.get("params_hash", "unresolved")
@@ -69,10 +70,13 @@ async def get_params_registry():
     try:
         from src.alpha.delta_divergence import build_params_registry
         from src.utils.params_hash import make_params_hash
+
         registry = build_params_registry()
-        return localize_output({
-            "params_registry": registry,
-            "params_hash": make_params_hash(registry),
-        })
+        return localize_output(
+            {
+                "params_registry": registry,
+                "params_hash": make_params_hash(registry),
+            }
+        )
     except Exception as e:
         return localize_output({"error": str(e)})

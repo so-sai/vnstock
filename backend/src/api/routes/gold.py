@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -21,12 +21,12 @@ def _hydrate_path():
         sys.path.append(str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
+from src.core.canonical_output_adapter import localize_output
 from src.core.macro.gold_regime_engine import analyze_gold_regime, cross_reference_with_market
 from src.core.macro.gold_spread_engine import analyze_domestic_premium, get_premium_driver
-
-from src.core.canonical_output_adapter import localize_output
 from src.services.macro.gold_service import get_gold_cognition_layer, get_gold_dashboard
 from src.services.macro.gold_world_service import fetch_world_gold_live, seed_world_gold_to_db
 from src.services.macro_service import get_macro_status
@@ -54,10 +54,12 @@ async def get_gold_regime():
         except Exception:
             pass
         cognition = cross_reference_with_market(macro)
-        return localize_output({
-            "regime": regime,
-            "cognition": cognition.get("gold_cognition", {}),
-        })
+        return localize_output(
+            {
+                "regime": regime,
+                "cognition": cognition.get("gold_cognition", {}),
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gold regime error: {str(e)}")
 

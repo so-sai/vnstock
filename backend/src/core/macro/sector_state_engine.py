@@ -16,10 +16,9 @@ import json
 import logging
 import sys
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -101,9 +100,9 @@ class SectorRotationReport:
 
     date: str
     sectors: list[dict]
-    top_sector: Optional[str]
+    top_sector: str | None
     top_score: float
-    bottom_sector: Optional[str]
+    bottom_sector: str | None
     bottom_score: float
     rotation_chain: list[str]
     n_sectors_healthy: int
@@ -166,7 +165,7 @@ class SectorStateEngine:
         self._save_report(report)
         return report
 
-    def get_latest(self) -> Optional[SectorRotationReport]:
+    def get_latest(self) -> SectorRotationReport | None:
         """Load most recent report from persistence."""
         return self._load_latest()
 
@@ -230,16 +229,15 @@ class SectorStateEngine:
                 f"WHERE symbol IN ({placeholders}) "
                 f"AND date >= date('now', '-90 days') "
                 f"ORDER BY date",
-                conn, params=symbols,
+                conn,
+                params=symbols,
             )
         except Exception:
             return 0.0
         if df.empty:
             return 0.0
 
-        df["sma20"] = df.groupby("symbol")["close"].transform(
-            lambda x: x.rolling(20, min_periods=5).mean()
-        )
+        df["sma20"] = df.groupby("symbol")["close"].transform(lambda x: x.rolling(20, min_periods=5).mean())
         df["rs"] = df["close"] / df["sma20"].replace(0, np.nan) - 1.0
 
         # Latest RS per symbol
@@ -255,18 +253,20 @@ class SectorStateEngine:
             return 0.0
         placeholders = ",".join("?" * len(symbols))
         try:
-            fin = get_connection()  # same screener_cache, health_ratios in financial_facts.db
+            get_connection()  # same screener_cache, health_ratios in financial_facts.db
             # health_ratios is in financial_facts.db, need separate connection
             fin_conn = None
             fin_path = Path(str(PROJECT_ROOT)) / "backend" / "data" / "financial_facts.db"
             if fin_path.exists():
                 import sqlite3
+
                 fin_conn = sqlite3.connect(str(fin_path))
                 df = pd.read_sql(
                     f"SELECT symbol, score FROM health_ratios "
                     f"WHERE symbol IN ({placeholders}) "
                     f"AND date = (SELECT MAX(date) FROM health_ratios WHERE symbol IN ({placeholders}))",
-                    fin_conn, params=symbols + symbols,
+                    fin_conn,
+                    params=symbols + symbols,
                 )
                 fin_conn.close()
                 if not df.empty:
@@ -286,19 +286,25 @@ class SectorStateEngine:
         placeholders = ",".join("?" * len(symbols))
         try:
             # Latest day: sector avg volume
-            sector_vol = pd.read_sql(
-                f"SELECT AVG(volume) as avg_vol FROM daily_ohlcv "
-                f"WHERE symbol IN ({placeholders}) "
-                f"AND date = (SELECT MAX(date) FROM daily_ohlcv)",
-                conn, params=symbols,
-            ).iloc[0]["avg_vol"] or 0
+            sector_vol = (
+                pd.read_sql(
+                    f"SELECT AVG(volume) as avg_vol FROM daily_ohlcv "
+                    f"WHERE symbol IN ({placeholders}) "
+                    f"AND date = (SELECT MAX(date) FROM daily_ohlcv)",
+                    conn,
+                    params=symbols,
+                ).iloc[0]["avg_vol"]
+                or 0
+            )
 
             # Market avg volume (all symbols)
-            market_vol = pd.read_sql(
-                "SELECT AVG(volume) as avg_vol FROM daily_ohlcv "
-                "WHERE date = (SELECT MAX(date) FROM daily_ohlcv)",
-                conn,
-            ).iloc[0]["avg_vol"] or 1
+            market_vol = (
+                pd.read_sql(
+                    "SELECT AVG(volume) as avg_vol FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv)",
+                    conn,
+                ).iloc[0]["avg_vol"]
+                or 1
+            )
 
             ratio = sector_vol / market_vol if market_vol > 0 else 0
             return float(np.clip(np.log1p(ratio) / 5.0, -1.0, 1.0))
@@ -317,12 +323,14 @@ class SectorStateEngine:
             if not fin_path.exists():
                 return 0.0
             import sqlite3
+
             fin_conn = sqlite3.connect(str(fin_path))
             df = pd.read_sql(
                 f"SELECT symbol, score FROM valuation_scores "
                 f"WHERE symbol IN ({placeholders}) "
                 f"AND date = (SELECT MAX(date) FROM valuation_scores WHERE symbol IN ({placeholders}))",
-                fin_conn, params=symbols + symbols,
+                fin_conn,
+                params=symbols + symbols,
             )
             fin_conn.close()
             if df.empty:
@@ -343,9 +351,7 @@ class SectorStateEngine:
         try:
             # VNINDEX close
             vni = pd.read_sql(
-                "SELECT date, close FROM daily_ohlcv "
-                "WHERE symbol='VNINDEX' AND date >= date('now', '-40 days') "
-                "ORDER BY date",
+                "SELECT date, close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date >= date('now', '-40 days') ORDER BY date",
                 conn,
             )
             if vni.empty or len(vni) < 20:
@@ -358,7 +364,8 @@ class SectorStateEngine:
                 f"WHERE symbol IN ({placeholders}) "
                 f"AND date >= date('now', '-40 days') "
                 f"ORDER BY date",
-                conn, params=symbols,
+                conn,
+                params=symbols,
             )
             if sec.empty:
                 return 0.0
@@ -371,12 +378,11 @@ class SectorStateEngine:
     # ── Phase Classification ───────────────────────────────────────
 
     @staticmethod
-    def _classify_phase(momentum: float, health: float,
-                        flow: float, valuation: float) -> tuple[str, str]:
+    def _classify_phase(momentum: float, health: float, flow: float, valuation: float) -> tuple[str, str]:
         """Classify sector rotation phase."""
         # Normalize to [0,1]
         m = float(np.clip((momentum + 1) / 2, 0, 1))
-        h = float(np.clip((health + 1) / 2, 0, 1))
+        float(np.clip((health + 1) / 2, 0, 1))
         f = float(np.clip((flow + 1) / 2, 0, 1))
         v = float(np.clip((valuation + 1) / 2, 0, 1))
 
@@ -430,8 +436,7 @@ class SectorStateEngine:
         try:
             with get_connection() as conn:
                 df = pd.read_sql(
-                    "SELECT symbol, icb_name2 FROM symbol_industry "
-                    "WHERE icb_name2 IS NOT NULL",
+                    "SELECT symbol, icb_name2 FROM symbol_industry WHERE icb_name2 IS NOT NULL",
                     conn,
                 )
             mapping = defaultdict(list)
@@ -448,7 +453,7 @@ class SectorStateEngine:
         path = self._dir / "sector_rotation_latest.json"
         path.write_text(json.dumps(asdict(report), indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def _load_latest(self) -> Optional[SectorRotationReport]:
+    def _load_latest(self) -> SectorRotationReport | None:
         path = self._dir / "sector_rotation_latest.json"
         if not path.exists():
             return None
@@ -461,29 +466,34 @@ class SectorStateEngine:
 
 # ── CLI Helper ────────────────────────────────────────────────────
 
+
 def print_sector_report(report: SectorRotationReport) -> None:
     """Human-readable sector rotation report."""
-    print(f"\n  {'='*70}")
+    print(f"\n  {'=' * 70}")
     print(f"  SECTOR ROTATION REPORT — {report.date}")
-    print(f"  {'='*70}")
+    print(f"  {'=' * 70}")
     print(f"  Top:     {report.top_sector} ({report.top_score:.1f})")
     print(f"  Bottom:  {report.bottom_sector} ({report.bottom_score:.1f})")
     print(f"  Healthy: {report.n_sectors_healthy}  |  Weak: {report.n_sectors_weak}")
-    print(f"  {'─'*70}")
-    print(f"  SECTOR RANKINGS:")
+    print(f"  {'─' * 70}")
+    print("  SECTOR RANKINGS:")
     print(f"  {'Sector':<30} {'Score':>6} {'Phase':>12} {'Mom':>5} {'Flow':>5} {'Val':>5}")
-    print(f"  {'─'*70}")
+    print(f"  {'─' * 70}")
     for s in report.sectors[:10]:
-        print(f"  {s['sector']:<30} {s['score']:>6.1f} {s['phase']:>12} "
-              f"{s['momentum']:>5.2f} {s['flow']:>5.2f} {s['valuation']:>5.2f}")
+        print(
+            f"  {s['sector']:<30} {s['score']:>6.1f} {s['phase']:>12} "
+            f"{s['momentum']:>5.2f} {s['flow']:>5.2f} {s['valuation']:>5.2f}"
+        )
     if len(report.sectors) > 10:
         print(f"  {'...':>30} {'...':>6} {'...':>12}")
         for s in report.sectors[-3:]:
-            print(f"  {s['sector']:<30} {s['score']:>6.1f} {s['phase']:>12} "
-                  f"{s['momentum']:>5.2f} {s['flow']:>5.2f} {s['valuation']:>5.2f}")
-    print(f"  {'─'*70}")
+            print(
+                f"  {s['sector']:<30} {s['score']:>6.1f} {s['phase']:>12} "
+                f"{s['momentum']:>5.2f} {s['flow']:>5.2f} {s['valuation']:>5.2f}"
+            )
+    print(f"  {'─' * 70}")
     if report.rotation_chain:
-        print(f"  ROTATION CHAIN:")
+        print("  ROTATION CHAIN:")
         for item in report.rotation_chain:
             print(f"    {item}")
-    print(f"  {'='*70}\n")
+    print(f"  {'=' * 70}\n")

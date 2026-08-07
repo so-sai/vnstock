@@ -101,7 +101,7 @@ def kiem_tra_va_nhac_nho():
             co_vnindex = bool(dong and dong[0])
             dong = conn.execute("SELECT MAX(date) FROM macro_history WHERE variable = 'VGB10Y'").fetchone()
             ngay_vgb10y = dong[0] if dong else None
-    except Exception:  # noqa: BLE001 — reminder là best-effort
+    except Exception:
         n_symbols = 0
         co_vnindex = False
         ngay_vgb10y = None

@@ -1,4 +1,4 @@
-﻿"""database_guardian.py — Disaster Recovery Pipeline cho PTCK Database.
+"""database_guardian.py — Disaster Recovery Pipeline cho PTCK Database.
 
 Chạy ngầm qua Cronjob/Task Scheduler lúc 23:00 hàng ngày.
 
@@ -15,6 +15,7 @@ Usage:
   python -m backend.src.database.database_guardian
   python ptck.py db backup
 """
+
 import asyncio
 import io
 import json
@@ -28,7 +29,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -56,15 +57,15 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.FileHandler(LOG_DIR / f"guardian_{datetime.now().strftime('%Y%m%d')}.log", encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 if sys.platform == "win32":
     for h in logging.getLogger().handlers:
         if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
-            if hasattr(h.stream, 'buffer') and not isinstance(h.stream, io.TextIOWrapper):
+            if hasattr(h.stream, "buffer") and not isinstance(h.stream, io.TextIOWrapper):
                 try:
-                    h.stream = io.TextIOWrapper(h.stream.buffer, encoding='utf-8', line_buffering=True)
+                    h.stream = io.TextIOWrapper(h.stream.buffer, encoding="utf-8", line_buffering=True)
                 except Exception:
                     pass
 logger = logging.getLogger("PTCK_DB_GUARDIAN")
@@ -127,12 +128,12 @@ def _trigger_alert(check_type: str, details):
         "severity": "CRITICAL",
         "database": str(DB_PATH),
         "details": details if isinstance(details, list) else [details],
-        "message": f"[GUARDIAN] {check_type}: screener_cache.db cần can thiệp thủ công!"
+        "message": f"[GUARDIAN] {check_type}: screener_cache.db cần can thiệp thủ công!",
     }
     with open(ALERT_FILE, "w", encoding="utf-8") as f:
         json.dump(alert, f, indent=2, ensure_ascii=False)
     logger.critical(f"🚨 Alert file created: {ALERT_FILE}")
-    logger.critical(f"📧 Push Notification / Email sẽ được gửi từ đây (integration pending)")
+    logger.critical("📧 Push Notification / Email sẽ được gửi từ đây (integration pending)")
 
 
 def online_backup(db_path: Path = DB_PATH, backup_dir: Path = BACKUP_DIR) -> dict:
@@ -176,7 +177,7 @@ def online_backup(db_path: Path = DB_PATH, backup_dir: Path = BACKUP_DIR) -> dic
             "status": "ok",
             "backup_path": str(backup_path),
             "size_mb": round(size_after, 2),
-            "duration_seconds": round(elapsed, 2)
+            "duration_seconds": round(elapsed, 2),
         }
     except Exception as e:
         logger.critical(f"❌ ONLINE BACKUP: THẤT BẠI — {e}")
@@ -198,7 +199,7 @@ def prune_old_backups(backup_dir: Path = BACKUP_DIR) -> dict:
 
     pattern = f"{BACKUP_PREFIX}_*{BACKUP_SUFFIX}"
     backups = sorted(backup_dir.glob(pattern))
-    cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
+    datetime.now() - timedelta(days=RETENTION_DAYS)
     deleted = []
     kept = []
 
@@ -215,13 +216,13 @@ def prune_old_backups(backup_dir: Path = BACKUP_DIR) -> dict:
                 logger.info(f"  🗑️ Đã xóa: {bak.name} ({bak_age_days} ngày tuổi)")
             else:
                 kept.append(str(bak.name))
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             bak.unlink()
             deleted.append(str(bak.name))
             logger.info(f"  🗑️ Đã xóa (format lỗi): {bak.name}")
 
     if len(kept) > MAX_BACKUPS:
-        excess = sorted(kept)[:len(kept) - MAX_BACKUPS]
+        excess = sorted(kept)[: len(kept) - MAX_BACKUPS]
         for name in excess:
             bak = backup_dir / name
             bak.unlink()
@@ -247,7 +248,7 @@ def run_guardian_cycle(dry_run: bool = False) -> dict:
         "online_backup": {},
         "prune": {},
         "status": "FAILED",
-        "duration_seconds": 0
+        "duration_seconds": 0,
     }
     start = time.time()
 
@@ -295,10 +296,7 @@ def run_guardian_cycle(dry_run: bool = False) -> dict:
 
 
 # ── Thread Pool for Isolation ────────────────────────────────────────
-_GUARDIAN_EXECUTOR = ThreadPoolExecutor(
-    max_workers=1,
-    thread_name_prefix="guardian_io"
-)
+_GUARDIAN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="guardian_io")
 
 
 async def async_integrity_check(db_path: Path = DB_PATH) -> dict:
@@ -307,17 +305,13 @@ async def async_integrity_check(db_path: Path = DB_PATH) -> dict:
     Dành cho Tauri UI / FastAPI async endpoints.
     """
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _GUARDIAN_EXECUTOR, integrity_check, db_path
-    )
+    return await loop.run_in_executor(_GUARDIAN_EXECUTOR, integrity_check, db_path)
 
 
 async def async_run_guardian_cycle(dry_run: bool = False) -> dict:
     """Full guardian cycle chạy trên luồng riêng."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _GUARDIAN_EXECUTOR, run_guardian_cycle, dry_run
-    )
+    return await loop.run_in_executor(_GUARDIAN_EXECUTOR, run_guardian_cycle, dry_run)
 
 
 def list_backups(backup_dir: Path = BACKUP_DIR) -> list:
@@ -329,16 +323,13 @@ def list_backups(backup_dir: Path = BACKUP_DIR) -> list:
     for bak in sorted(backup_dir.glob(pattern), reverse=True):
         size_mb = bak.stat().st_size / (1024 * 1024)
         mtime = datetime.fromtimestamp(bak.stat().st_mtime)
-        backups.append({
-            "name": bak.name,
-            "size_mb": round(size_mb, 2),
-            "modified": mtime.isoformat()
-        })
+        backups.append({"name": bak.name, "size_mb": round(size_mb, 2), "modified": mtime.isoformat()})
     return backups
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="PTCK Database Guardian — Disaster Recovery Pipeline")
     parser.add_argument("--dry-run", action="store_true", help="Chỉ kiểm tra integrity, không backup")
     parser.add_argument("--list", action="store_true", help="Liệt kê các bản backup hiện có")

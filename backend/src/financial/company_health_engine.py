@@ -19,7 +19,6 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
 
 _candidate = Path(sys.executable).resolve().parent
 if Path(sys.executable).stem.lower().startswith("python"):
@@ -50,7 +49,7 @@ RATIO_META = {
         "formula": "CFO / Net Income",
         "better": ">1.0 (dòng tiền > lợi nhuận)",
         "thresholds": {"GOOD": 1.0, "WARNING": 0.5, "BAD": 0.0},
-        "entity_types": ["STANDARD", "BANK"],
+        "entity_types": ["STANDARD", "BANK", "SECURITIES", "INSURANCE"],
     },
     "FCF_TO_NET_INCOME": {
         "name": "Dòng tiền tự do trên LNST",
@@ -92,7 +91,7 @@ RATIO_META = {
         "formula": "Net Income / Equity",
         "better": ">12% (vn stock)",
         "thresholds": {"GOOD": 0.12, "WARNING": 0.05, "BAD": 0.0},
-        "entity_types": ["STANDARD", "BANK"],
+        "entity_types": ["STANDARD", "BANK", "SECURITIES", "INSURANCE"],
     },
     "ROA": {
         "name": "ROA",
@@ -100,7 +99,7 @@ RATIO_META = {
         "formula": "Net Income / Total Assets",
         "better": ">3%",
         "thresholds": {"GOOD": 0.03, "WARNING": 0.01, "BAD": 0.0},
-        "entity_types": ["STANDARD", "BANK"],
+        "entity_types": ["STANDARD", "BANK", "SECURITIES", "INSURANCE"],
     },
     # --- Liquidity ---
     "CURRENT_RATIO": {
@@ -241,6 +240,92 @@ RATIO_META = {
         "thresholds": {"GOOD": 0.35, "WARNING": 0.45, "BAD": 0.55},
         "entity_types": ["BANK"],
     },
+    # --- SECURITIES-specific (CTCK) ---
+    # WHY: Khung Thông tư 334/2016/TT-BTC. Tài sản CTCK chia 4 nhóm sinh lời:
+    # FVTPL (tự doanh ngắn hạn), HTM (giữ đến đáo hạn), AFS (sẵn sàng để bán),
+    # MARGIN_LOANS (cho vay ký quỹ). Trần pháp lý cho vay margin 2.0x equity.
+    "MARGIN_TO_EQUITY": {
+        "name": "Đòn bẩy Margin trên VCSH",
+        "category": "leverage",
+        "formula": "Margin Loans / Total Equity",
+        "better": "<2.0 (trần pháp lý UBCKNN)",
+        "inverted": True,
+        "thresholds": {"GOOD": 1.0, "WARNING": 1.5, "BAD": 2.0},
+        "entity_types": ["SECURITIES"],
+    },
+    "MARGIN_TO_ASSETS": {
+        "name": "Dư nợ Margin trên tổng tài sản",
+        "category": "risk",
+        "formula": "Margin Loans / Total Assets",
+        "better": "càng thấp càng tốt",
+        "inverted": True,
+        "thresholds": {"GOOD": 0.25, "WARNING": 0.35, "BAD": 0.45},
+        "entity_types": ["SECURITIES"],
+    },
+    "FVTPL_TO_ASSETS": {
+        "name": "Tỷ trọng tự doanh FVTPL",
+        "category": "risk",
+        "formula": "FVTPL / Total Assets",
+        "better": "càng thấp càng tốt",
+        "inverted": True,
+        "thresholds": {"GOOD": 0.20, "WARNING": 0.30, "BAD": 0.40},
+        "entity_types": ["SECURITIES"],
+    },
+    "HTM_TO_ASSETS": {
+        "name": "Tỷ trọng tài sản thu nhập cố định",
+        "category": "efficiency",
+        "formula": "HTM / Total Assets",
+        "better": "càng cao càng tốt (an toàn)",
+        "thresholds": {"GOOD": 0.30, "WARNING": 0.15, "BAD": 0.05},
+        "entity_types": ["SECURITIES"],
+    },
+    "AFS_TO_ASSETS": {
+        "name": "Tỷ trọng tài sản sẵn sàng để bán",
+        "category": "risk",
+        "formula": "AFS / Total Assets",
+        "better": "càng thấp càng tốt",
+        "inverted": True,
+        "thresholds": {"GOOD": 0.15, "WARNING": 0.25, "BAD": 0.35},
+        "entity_types": ["SECURITIES"],
+    },
+    # --- INSURANCE-specific (DNBH) ---
+    # WHY: Khung Thông tư 135/2012/TT-BTC. Lợi nhuận kỹ thuật bảo hiểm đến từ
+    # phí thuần trừ bồi thường và chi phí — Combined Ratio < 100% mới có lãi nghiệp vụ.
+    "LOSS_RATIO": {
+        "name": "Tỷ lệ bồi thường thuần",
+        "category": "profitability",
+        "formula": "Net Claims / Net Premium",
+        "better": "<70%",
+        "inverted": True,
+        "thresholds": {"GOOD": 0.60, "WARNING": 0.70, "BAD": 0.80},
+        "entity_types": ["INSURANCE"],
+    },
+    "EXPENSE_RATIO": {
+        "name": "Tỷ lệ chi phí khai thác",
+        "category": "profitability",
+        "formula": "Operating Expense / Net Premium",
+        "better": "<30%",
+        "inverted": True,
+        "thresholds": {"GOOD": 0.20, "WARNING": 0.30, "BAD": 0.40},
+        "entity_types": ["INSURANCE"],
+    },
+    "COMBINED_RATIO": {
+        "name": "Tỷ lệ hợp nhất kỹ thuật",
+        "category": "profitability",
+        "formula": "Loss Ratio + Expense Ratio",
+        "better": "<100% (lãi nghiệp vụ bảo hiểm)",
+        "inverted": True,
+        "thresholds": {"GOOD": 0.90, "WARNING": 1.00, "BAD": 1.10},
+        "entity_types": ["INSURANCE"],
+    },
+    "TECH_RESERVE_TO_ASSETS": {
+        "name": "Dự phòng nghiệp vụ trên tổng tài sản",
+        "category": "risk",
+        "formula": "Technical Reserves / Total Assets",
+        "better": "đủ dự phòng cho nghĩa vụ",
+        "thresholds": {"GOOD": 0.30, "WARNING": 0.15, "BAD": 0.05},
+        "entity_types": ["INSURANCE"],
+    },
 }
 
 
@@ -323,7 +408,7 @@ class HealthEngine:
             else:
                 return "BAD"
 
-    def compute_standard_ratios(self, period_metrics: dict) -> Dict[str, float]:
+    def compute_standard_ratios(self, period_metrics: dict) -> dict[str, float]:
         r = {}
         # Cash Flow Quality
         ni = period_metrics.get("NET_INCOME")
@@ -352,13 +437,16 @@ class HealthEngine:
         r["CAPEX_TO_CFO"] = self._safe_div(capex, cfo)
         r["NET_MARGIN"] = self._safe_div(ni, rev)
         r["GROSS_MARGIN"] = self._safe_div(gp, rev)
-        r["ROE"] = self._safe_div(ni, equity)
+        # WHY: equity ≤ 0 (âm vốn chủ sở hữu) → ROE/DEBT_TO_EQUITY là số âm vô nghĩa,
+        # đánh lừa đánh giá "sinh lời/vốn" khi công ty thực chất mất vốn. Không sinh.
+        if equity is not None and equity > 0:
+            r["ROE"] = self._safe_div(ni, equity)
+            r["DEBT_TO_EQUITY"] = self._safe_div(debt, equity)
         r["ROA"] = self._safe_div(ni, assets)
         r["CURRENT_RATIO"] = self._safe_div(ca, cl)
         if ca is not None and inv is not None and cl is not None:
             r["QUICK_RATIO"] = self._safe_div(ca - inv, cl)
         r["CASH_RATIO"] = self._safe_div(cash, cl)
-        r["DEBT_TO_EQUITY"] = self._safe_div(debt, equity)
         r["DEBT_TO_ASSETS"] = self._safe_div(debt, assets)
         if interest and interest != 0:
             ebit = period_metrics.get("EBITDA") or (ni + interest if ni else None)
@@ -369,7 +457,7 @@ class HealthEngine:
         r["ASSET_TURNOVER"] = self._safe_div(rev, assets)
         return {k: v for k, v in r.items() if v is not None}
 
-    def compute_bank_ratios(self, period_metrics: dict) -> Dict[str, float]:
+    def compute_bank_ratios(self, period_metrics: dict) -> dict[str, float]:
         r = {}
         nii = period_metrics.get("NII")
         # NET_PROFIT vs NET_INCOME: VCI maps net_profit_loss_after_tax → NET_INCOME,
@@ -389,12 +477,14 @@ class HealthEngine:
         opex = period_metrics.get("OPERATING_EXPENSE")
 
         r["CFO_TO_NET_INCOME"] = self._safe_div(cfo, np_)
-        r["ROE"] = self._safe_div(np_, equity)
+        # WHY: equity ≤ 0 (âm vốn chủ sở hữu) → ROE/CAPITAL_RATIO âm vô nghĩa, không sinh.
+        if equity is not None and equity > 0:
+            r["ROE"] = self._safe_div(np_, equity)
+            r["CAPITAL_RATIO"] = self._safe_div(equity, assets)
         r["ROA"] = self._safe_div(np_, assets)
         r["NIM"] = self._safe_div(nii, loans)
         r["PROVISION_TO_NET_PROFIT"] = self._safe_div(prov, np_)
         r["LDR"] = self._safe_div(loans, deposits)
-        r["CAPITAL_RATIO"] = self._safe_div(equity, assets)
         r["COST_TO_INCOME"] = self._safe_div(opex, toi)
         if npl is not None:
             r["NPL_RATIO"] = npl
@@ -402,11 +492,80 @@ class HealthEngine:
             r["CASA_RATIO"] = casa
         return {k: v for k, v in r.items() if v is not None}
 
-    def compute_period_ratios(self, symbol: str, period: str, period_metrics: dict, entity_type: str) -> Dict:
-        # WHY: chọn bộ công thức theo entity_type — ngân hàng không có
-        # Inventory/Gross Profit, thay bằng NIM/LDR/NPL/CASA; STANDARD ngược lại.
-        if entity_type == "BANK":
+    def compute_securities_ratios(self, period_metrics: dict) -> dict[str, float]:
+        """Tính ratios cho Công ty Chứng khoán (SECURITIES) — ADDITIVE.
+
+        WHY: CTCK vẫn có Doanh thu/Gross Profit/CFO/D/E chuẩn (doanh thu môi giới,
+        lãi tự doanh, dòng tiền hoạt động) nên KẾ THỪA toàn bộ standard_ratios
+        (không mất GROSS_MARGIN/D/E hiện có), rồi BỔ SUNG các ratio đặc thù
+        (Thông tư 334/2016/TT-BTC): đòn bẩy margin, cơ cấu tài sản FVTPL/HTM/AFS.
+        Các ratio đặc thù chỉ xuất hiện khi nguồn cung cấp metric tương ứng —
+        thiếu dữ liệu → không bịa (filter None cuối hàm).
+        """
+        r = self.compute_standard_ratios(period_metrics)
+        margin = period_metrics.get("MARGIN_LOANS")
+        fvtpl = period_metrics.get("FVTPL")
+        htm = period_metrics.get("HTM")
+        afs = period_metrics.get("AFS")
+        assets = period_metrics.get("TOTAL_ASSETS")
+        equity = period_metrics.get("TOTAL_EQUITY")
+
+        r["MARGIN_TO_EQUITY"] = self._safe_div(margin, equity) if equity and equity > 0 else None
+        r["MARGIN_TO_ASSETS"] = self._safe_div(margin, assets)
+        r["FVTPL_TO_ASSETS"] = self._safe_div(fvtpl, assets)
+        r["HTM_TO_ASSETS"] = self._safe_div(htm, assets)
+        r["AFS_TO_ASSETS"] = self._safe_div(afs, assets)
+        return {k: v for k, v in r.items() if v is not None}
+
+    def compute_insurance_ratios(self, period_metrics: dict) -> dict[str, float]:
+        """Tính ratios cho Doanh nghiệp Bảo hiểm (INSURANCE).
+
+        WHY: DNBH không có Doanh thu thuần/Gross Profit theo chuẩn sản xuất —
+        doanh thu chính là Phí bảo hiểm thuần (NET_PREMIUM). Chỉ số cốt lõi theo
+        Thông tư 135/2012/TT-BTC: Loss/Expense/Combined Ratio (lãi kỹ thuật) +
+        dự phòng nghiệp vụ. ROE/ROA/CFO_TO_NET_INCOME dùng chung để so được với
+        các ngành khác.
+        """
+        r = {}
+        np_ = period_metrics.get("NET_PROFIT")
+        if np_ is None:
+            np_ = period_metrics.get("NET_INCOME")
+        premium = period_metrics.get("NET_PREMIUM")
+        claims = period_metrics.get("NET_CLAIMS")
+        opex = period_metrics.get("OPERATING_EXPENSE")
+        reserves = period_metrics.get("TECHNICAL_RESERVES")
+        assets = period_metrics.get("TOTAL_ASSETS")
+        equity = period_metrics.get("TOTAL_EQUITY")
+        cfo = period_metrics.get("CFO")
+
+        r["CFO_TO_NET_INCOME"] = self._safe_div(cfo, np_)
+        # WHY: equity ≤ 0 (âm vốn chủ sở hữu) → ROE âm vô nghĩa, không sinh.
+        if equity is not None and equity > 0:
+            r["ROE"] = self._safe_div(np_, equity)
+        r["ROA"] = self._safe_div(np_, assets)
+        if premium is not None and premium > 0:
+            loss_ratio = self._safe_div(claims, premium)
+            expense_ratio = self._safe_div(opex, premium)
+            if loss_ratio is not None:
+                r["LOSS_RATIO"] = loss_ratio
+            if expense_ratio is not None:
+                r["EXPENSE_RATIO"] = expense_ratio
+            if loss_ratio is not None and expense_ratio is not None:
+                r["COMBINED_RATIO"] = round(loss_ratio + expense_ratio, 4)
+        r["TECH_RESERVE_TO_ASSETS"] = self._safe_div(reserves, assets)
+        return {k: v for k, v in r.items() if v is not None}
+
+    def compute_period_ratios(self, symbol: str, period: str, period_metrics: dict, entity_type: str) -> dict:
+        # WHY: chọn bộ công thức theo entity_type — 4 khung kế toán VAS khác biệt:
+        # BANK (NIM/LDR/NPL/CASA), SECURITIES (margin/FVTPL/HTM/AFS + standard),
+        # INSURANCE (Loss/Combined/Reserve), STANDARD (Inventory/Gross Margin/D/E).
+        et = entity_type.upper() if entity_type else "STANDARD"
+        if et == "BANK":
             ratios = self.compute_bank_ratios(period_metrics)
+        elif et == "SECURITIES":
+            ratios = self.compute_securities_ratios(period_metrics)
+        elif et == "INSURANCE":
+            ratios = self.compute_insurance_ratios(period_metrics)
         else:
             ratios = self.compute_standard_ratios(period_metrics)
 
@@ -420,7 +579,7 @@ class HealthEngine:
             }
         return result
 
-    def compute_health(self, symbol: str) -> Dict:
+    def compute_health(self, symbol: str) -> dict:
         entity_type = self.facts_db.get_entity_type(symbol)
         facts = self.facts_db.get_facts(symbol)
         if not facts:
@@ -482,7 +641,7 @@ class HealthEngine:
             "details": results,
         }
 
-    def get_health_summary(self, symbol: str) -> Optional[Dict]:
+    def get_health_summary(self, symbol: str) -> dict | None:
         conn = self.connect()
         cur = conn.cursor()
         cur.execute(
@@ -511,7 +670,7 @@ class HealthEngine:
             )
         return result
 
-    def get_latest_health(self, symbol: str) -> Optional[Dict]:
+    def get_latest_health(self, symbol: str) -> dict | None:
         conn = self.connect()
         cur = conn.cursor()
         cur.execute(
@@ -544,7 +703,7 @@ class HealthEngine:
             )
         return result
 
-    def compare_symbols(self, symbols: List[str]) -> Dict:
+    def compare_symbols(self, symbols: list[str]) -> dict:
         results = {}
         for sym in symbols:
             h = self.get_latest_health(sym)

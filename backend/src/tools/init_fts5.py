@@ -15,6 +15,7 @@ Usage::
     python -m backend.src.tools.init_fts5
     python -m backend.src.tools.init_fts5 --verify   # mặc định bật
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,13 +25,15 @@ import sys
 from pathlib import Path
 
 if isinstance(sys.stdout, io.TextIOWrapper):
-    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+    if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
-elif hasattr(sys.stdout, 'buffer'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+elif hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+
 def _hydrate_path():
     if getattr(sys, "frozen", False):
         root = Path(sys.executable).resolve().parent
@@ -115,7 +118,7 @@ def verify_fts5(verbose: bool = True) -> bool:
             try:
                 safe = q.replace('"', '""')
                 rows = conn.execute(
-                    'SELECT symbol, icb_name2 FROM symbol_fts WHERE symbol_fts MATCH ? LIMIT 3',
+                    "SELECT symbol, icb_name2 FROM symbol_fts WHERE symbol_fts MATCH ? LIMIT 3",
                     (f'"{safe}"*',),
                 ).fetchall()
                 ok = len(rows) > 0

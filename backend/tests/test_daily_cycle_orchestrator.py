@@ -7,7 +7,6 @@ stale_window (skip nếu data còn mới), mọi workflow kết thúc bằng Sys
 """
 import pytest
 
-
 # ═══════════════════════════════════════════════════════════════
 # ExecutionGraph — topo sort + skip fresh
 # ═══════════════════════════════════════════════════════════════
@@ -222,7 +221,6 @@ def test_run_audit_node_collects_high_severity_reasons(monkeypatch):
 # ═══════════════════════════════════════════════════════════════
 
 def test_record_run_log_and_freshness(tmp_path, monkeypatch):
-    import sqlite3
     from orchestration import daily_cycle_orchestrator as dco
 
     db_path = str(tmp_path / "cycle.db")

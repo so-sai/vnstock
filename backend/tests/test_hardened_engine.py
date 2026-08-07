@@ -7,8 +7,9 @@ silent NaN in downstream DecisionGuard — no crash, just garbage output.
 Do NOT remove or loosen range assertions.
 Run: python -X utf8 backend/tests/test_hardened_engine.py (from project root)
 """
-import sys
 import pathlib
+import sys
+
 
 # Sentinel v2.1 hydration
 def _hydrate_path():

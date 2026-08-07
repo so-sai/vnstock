@@ -1,4 +1,4 @@
-﻿"""
+"""
 IPO SIGNAL SERVICE - Tích hợp IPO Engine vào Decision Layer
 ================================================================================
 
@@ -17,7 +17,6 @@ Lưu ý:
 
 import logging
 from datetime import datetime
-from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +24,11 @@ logger = logging.getLogger(__name__)
 class IpoSignalService:
     """
     Service Layer để tích hợp IPO signals vào Decision Engine
-    
+
     Hình mẫu sử dụng:
       service = IpoSignalService(db_connection, ipo_engine)
       signal = service.get_daily_ipo_signal(datetime.now())
-      
+
       # Điều chỉnh decision engine
       regime_adjusted = decision_engine.decide(
           regime_score=regime_score,
@@ -47,14 +46,14 @@ class IpoSignalService:
     def get_daily_ipo_signal(
         self,
         current_date: datetime,
-        active_ipo_symbols: List[str] = None,
-        aftermarket_returns: Dict[str, float] = None,
+        active_ipo_symbols: list[str] | None = None,
+        aftermarket_returns: dict[str, float] | None = None,
         breadth_score: float = 0.5,
         secondary_volume_ratio: float = 1.0,
-    ) -> "IpoSignalPackage":
+    ) -> IpoSignalPackage:
         """
         Tính toán tín hiệu IPO hàng ngày
-        
+
         Returns:
             IpoSignalPackage: Gói dữ liệu cho decision engine & frontend
         """
@@ -94,28 +93,24 @@ class IpoSignalService:
 
         return package
 
-    def _convert_to_api_response(self, raw_signal) -> Dict:
+    def _convert_to_api_response(self, raw_signal) -> dict:
         """
         Chuyển đổi tín hiệu thô thành format API (camelCase)
-        
+
         Dùng cho frontend & actionable_intelligence_service
         """
 
         return {
             "signalDate": raw_signal.signal_date.isoformat(),
             "trafficLight": raw_signal.traffic_light.value,
-
             "ipoIntensity": raw_signal.ipo_intensity.value,
             "capitalAbsorptionTrend": raw_signal.capital_absorption_trend.value,
             "secondaryMarketPressure": round(raw_signal.secondary_market_pressure, 1),
-
             "narrativeHeat": raw_signal.narrative_heat.value,
             "rotationRisk": raw_signal.rotation_risk.value,
             "midcapSmallcapPressure": round(raw_signal.midcap_smallcap_pressure, 1),
-
             "liquidityRegime": raw_signal.liquidity_regime.value,
             "regimeConfidence": round(raw_signal.regime_confidence, 2),
-
             "activeIpos": [
                 {
                     "symbol": ipo.symbol,
@@ -125,22 +120,20 @@ class IpoSignalService:
                 }
                 for ipo in raw_signal.active_ipo_list
             ],
-
             "aftermarketPerformance": {
-                symbol: round(ret, 2)
-                for symbol, ret in raw_signal.aftermarket_performance_pct.items()
+                symbol: round(ret, 2) for symbol, ret in raw_signal.aftermarket_performance_pct.items()
             },
         }
 
     def _calculate_regime_modifier(self, raw_signal) -> float:
         """
         Tính hệ số điều chỉnh regime_score cho decision_engine
-        
+
         Logic:
           - 🟢 XANH → 1.0-1.1 (tăng cơn khích thích)
           - 🟡 VÀNG → 0.9-1.0 (bình thường)
           - 🔴 ĐỎ → 0.7-0.9 (hạ chuẩn độ)
-        
+
         Returns:
             float (0.7-1.2): Hệ số nhân cho regime_score
         """
@@ -171,10 +164,10 @@ class IpoSignalService:
 
         return final_modifier
 
-    def _generate_action_command(self, raw_signal) -> Dict:
+    def _generate_action_command(self, raw_signal) -> dict:
         """
         Tạo khẩu lệnh hành động cho điều hành (HUD)
-        
+
         Trả về:
           - primary_action: Hành động chính (BUY/HOLD/SELL)
           - risk_level: CAO/TRUNG_BINH/THAP
@@ -228,14 +221,9 @@ class IpoSignalService:
 
         # Dòng 1: Tóm tắt tình hình IPO
         if raw_signal.ipo_intensity.value == "CAO":
-            lines.append(
-                "📊 Thị trường IPO NÓNG: Nhiều thương vụ lớn lên sàn, "
-                "tiền bị hút mạnh."
-            )
+            lines.append("📊 Thị trường IPO NÓNG: Nhiều thương vụ lớn lên sàn, tiền bị hút mạnh.")
         elif raw_signal.ipo_intensity.value == "THAP":
-            lines.append(
-                "📊 Thị trường IPO TĨNH: Ít thương vụ lớn, tiền còn dồi dào."
-            )
+            lines.append("📊 Thị trường IPO TĨNH: Ít thương vụ lớn, tiền còn dồi dào.")
 
         # Dòng 2: Tác động đến breadth
         if raw_signal.rotation_risk.value == "CAO":
@@ -246,27 +234,17 @@ class IpoSignalService:
 
         # Dòng 3: Trạng thái chu kỳ
         if raw_signal.liquidity_regime.value == "THOAI_LUI":
-            lines.append(
-                "📉 CHU KỲ: Tiền bắt đầu rút khỏi thị trường, sắp lao dốc."
-            )
+            lines.append("📉 CHU KỲ: Tiền bắt đầu rút khỏi thị trường, sắp lao dốc.")
         elif raw_signal.liquidity_regime.value == "DONG_TIEN_MO_RONG":
-            lines.append(
-                "📈 CHU KỲ: Thị trường mở rộng thực, tiền còn nhiều."
-            )
+            lines.append("📈 CHU KỲ: Thị trường mở rộng thực, tiền còn nhiều.")
 
         # Dòng 4: Khuyến cáo
         if raw_signal.traffic_light.value == "DO":
-            lines.append(
-                "🔴 HỢP ĐỀ: Kích hoạt phòng thủ, hạ vị thế, tránh speculative."
-            )
+            lines.append("🔴 HỢP ĐỀ: Kích hoạt phòng thủ, hạ vị thế, tránh speculative.")
         elif raw_signal.traffic_light.value == "VANG":
-            lines.append(
-                "🟡 HỢP ĐỀ: Thận trọng, đóng margin, giám sát sát sao."
-            )
+            lines.append("🟡 HỢP ĐỀ: Thận trọng, đóng margin, giám sát sát sao.")
         else:
-            lines.append(
-                "🟢 HỢP ĐỀ: An toàn, tiếp tục phát huy lợi thế."
-            )
+            lines.append("🟢 HỢP ĐỀ: An toàn, tiếp tục phát huy lợi thế.")
 
         return " ".join(lines)
 
@@ -274,7 +252,7 @@ class IpoSignalService:
 class IpoSignalPackage:
     """
     Gói dữ liệu IPO Signal - Chứa tất cả thông tin cần thiết
-    
+
     Dùng để:
       1. Tính toán regime_modifier → decision_engine
       2. Tạo IpoSignalResponse → frontend
@@ -285,9 +263,9 @@ class IpoSignalPackage:
         self,
         signal_date: datetime,
         raw_signal,  # IpoMarketSignal from ipo_engine.py
-        api_response: Dict,
+        api_response: dict,
         regime_modifier: float,
-        action_command: Dict,
+        action_command: dict,
     ):
         self.signal_date = signal_date
         self.raw_signal = raw_signal
@@ -295,14 +273,14 @@ class IpoSignalPackage:
         self.regime_modifier = regime_modifier
         self.action_command = action_command
 
-    def to_frontend_json(self) -> Dict:
+    def to_frontend_json(self) -> dict:
         """Trả về JSON cho frontend (chỉ API response + action command)"""
         return {
             **self.api_response,
             "actionCommand": self.action_command,
         }
 
-    def to_decision_engine_input(self) -> Dict:
+    def to_decision_engine_input(self) -> dict:
         """Trả về input cho decision_engine"""
         return {
             "ipo_regime_modifier": self.regime_modifier,

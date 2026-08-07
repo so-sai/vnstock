@@ -3,8 +3,12 @@
 Buffett Quality x VN Governance x Sector Cycle x Valuation/Allocation.
 
 Tier 1 — BUFFETT QUALITY (static, long-term moat):
-  ROE >= 15% (3y), CFO > 0 (3y), D/E < 1.0 (non-bank) / < 8.0 (bank),
-  Gross Margin >= 25%.
+  DUAL-BRANCH:
+    STANDARD (sản xuất/thương mại): ROE >= 15% (3y), CFO > 0 (3y),
+      D/E <= 1.0, Gross Margin >= 25%.
+    BANK (ngân hàng — SBV-based, không dùng CFO/GM):
+      ROE >= 15% (3y), NPL <= 2.5%, NIM >= 1.8%, CAR >= 5.0%,
+      D/E <= 8.0 (nếu có).
 
 Tier 2 — GOVERNOR SHIELD (VN governance):
   Dilution rate <= 5%/yr (share count growth), Receivables/Revenue <= 25%.
@@ -29,7 +33,6 @@ Data sources (financial_facts.db + screener_cache.db):
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
 
 
 def _hydrate_path():
@@ -60,6 +63,11 @@ T1_ROE_MIN = 0.15  # 15%
 T1_DE_MAX_NONBANK = 1.0
 T1_DE_MAX_BANK = 8.0
 T1_GROSS_MARGIN_MIN = 0.25  # 25%
+T1_GROSS_MARGIN_MIN_STEEL = 0.15  # 15% — ngoại lệ ngành Thép (commodity, biên gộp thấp bẩm sinh)
+# ── Bank-specific T1 gate (BCTC ngân hàng không có CFO/GM/D/E theo chuẩn SBV) ──
+T1_BANK_NPL_MAX = 0.025  # NPL <= 2.5% (chuẩn SBV)
+T1_BANK_NIM_MIN = 0.018  # NIM >= 1.8%
+T1_BANK_CAR_MIN = 0.05  # Capital adequacy >= 5.0%
 T2_DILUTION_MAX = 0.05  # 5%/yr
 T2_RECEIVABLES_MAX = 0.25  # 25% of revenue
 T4_MOS_MIN = 0.25  # 25% margin of safety (VN premium)
@@ -81,6 +89,64 @@ SECTOR_CYCLE_LABELS = {
 }
 
 
+# ── Dynamic MoS (Biên An Toàn Động) 2026-08-07 ─────────────────────────
+# WHY: Ngưỡng MoS tĩnh 25% gây Type II Error (bỏ lỡ) cho cổ phiếu trụ cột
+# chất lượng cao trong giai đoạn tích lũy. MoS min giờ là hàm của Regime
+# thị trường (rủi ro vĩ mô) và Chất lượng doanh nghiệp (ROE annual).
+#   MoS_base:  CRISIS/BEARISH→25%, RANGING/RECOVERY→20%, EXPANSION/BULL→15%
+#   Δ_quality: ROE_annual >= 20% → được ưu đãi 5% (hạ ngưỡng)
+#   Sàn tuyệt đối: 10% (không bao giờ nhận định giá quá đắt).
+MOS_BASE_CRISIS = 0.25
+MOS_BASE_RANGING = 0.20
+MOS_BASE_EXPANSION = 0.15
+MOS_QUALITY_DISCOUNT = 0.05
+MOS_ELITE_ROE_MIN = 0.20
+MOS_FLOOR = 0.10
+
+
+def get_dynamic_mos_threshold(regime: str, roe_annual: float | None) -> float:
+    """Tính ngưỡng Biên An Toàn động theo Regime thị trường + ROE annual.
+
+    MoS_min = MoS_base(Regime) - Δ_quality(ROE >= 20% ? 5% : 0%), sàn 10%.
+    Pure function — không đụng DB, dễ test TDD.
+    """
+    regime_upper = (regime or "RANGING").upper()
+
+    # 1. Base MoS theo Regime
+    if "CRISIS" in regime_upper or "BEAR" in regime_upper:
+        base_mos = MOS_BASE_CRISIS
+    elif "EXPANSION" in regime_upper or "BULL" in regime_upper:
+        base_mos = MOS_BASE_EXPANSION
+    else:  # RANGING / RECOVERY / DEFAULT
+        base_mos = MOS_BASE_RANGING
+
+    # 2. Ưu đãi 5% cho Siêu cổ phiếu (ROE_annual >= 20%)
+    quality_discount = MOS_QUALITY_DISCOUNT if (roe_annual is not None and roe_annual >= MOS_ELITE_ROE_MIN) else 0.0
+
+    return round(max(MOS_FLOOR, base_mos - quality_discount), 4)
+
+
+def _latest_market_regime(conn) -> str:
+    """Đọc regime thị trường mới nhất từ screener_cache.regime_history.
+
+    Map status nội bộ (TRENDING/RANGING/CRISIS) → bucket Dynamic MoS:
+      TRENDING (uptrend) → EXPANSION, RANGING → RANGING, CRISIS → CRISIS.
+    Thiếu dữ liệu → RANGING (ngưỡng giữa, an toàn).
+    """
+    try:
+        row = conn.execute("SELECT status FROM regime_history ORDER BY date DESC, rowid DESC LIMIT 1").fetchone()
+    except Exception:
+        return "RANGING"
+    if not row or not row["status"]:
+        return "RANGING"
+    s = str(row["status"]).upper()
+    if s in ("TRENDING",):
+        return "EXPANSION"
+    if s in ("CRISIS", "CRISIS_WARNING"):
+        return "CRISIS"
+    return "RANGING"
+
+
 def _fin_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(FIN_DB), timeout=60)
     conn.row_factory = sqlite3.Row
@@ -98,11 +164,11 @@ def _latest_period(conn) -> str:
     return row[0] if row else ""
 
 
-def _periods_n_years(period: str, n: int = N_YEARS) -> List[str]:
+def _periods_n_years(period: str, n: int = N_YEARS) -> list[str]:
     """Return list of period keys for the last n years ending at `period`."""
 
 
-def _periods_n_years(period: str, n: int = N_YEARS) -> List[str]:
+def _periods_n_years(period: str, n: int = N_YEARS) -> list[str]:
     """Return period keys for the last n years ending at `period`, ASCENDING.
 
     Oldest first (2024Q1 → 2026Q2) so `periods[-4:]` = the 4 MOST RECENT
@@ -128,7 +194,7 @@ def _periods_n_years(period: str, n: int = N_YEARS) -> List[str]:
 # ════════════════════════════════════════════════════════════════════
 
 
-def _load_ratio_series(conn, symbol: str, ratio: str, periods: List[str]) -> List[float]:
+def _load_ratio_series(conn, symbol: str, ratio: str, periods: list[str]) -> list[float]:
     ph = ",".join("?" for _ in periods)
     rows = conn.execute(
         f"SELECT period, ratio_value FROM health_ratios WHERE symbol=? AND ratio_name=? AND period IN ({ph}) ORDER BY period",
@@ -137,14 +203,20 @@ def _load_ratio_series(conn, symbol: str, ratio: str, periods: List[str]) -> Lis
     return [float(r["ratio_value"]) for r in rows if r["ratio_value"] is not None]
 
 
-def _load_metric_years(conn, symbol: str, metric: str, periods: List[str]) -> Dict[str, float]:
+def _latest_ratio(conn, symbol: str, ratio: str, periods: list[str]) -> float | None:
+    """Latest (most recent) value of a health_ratio within periods, or None."""
+    series = _load_ratio_series(conn, symbol, ratio, periods)
+    return series[-1] if series else None
+
+
+def _load_metric_years(conn, symbol: str, metric: str, periods: list[str]) -> dict[str, float]:
     """Map {year: value} for a financial_facts metric across last n years."""
     ph = ",".join("?" for _ in periods)
     rows = conn.execute(
         f"SELECT period, value FROM financial_facts WHERE symbol=? AND metric=? AND period IN ({ph}) ORDER BY period",
         (symbol, metric, *periods),
     ).fetchall()
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     for r in rows:
         y = r["period"][:4]
         if r["value"] is not None:
@@ -152,23 +224,40 @@ def _load_metric_years(conn, symbol: str, metric: str, periods: List[str]) -> Di
     return out
 
 
-def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: List[str]) -> Dict:
-    """Tier 1: Buffett quality gate. Returns pass/fail + metrics."""
+def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: list[str], is_steel: bool = False) -> dict:
+    """Tier 1: Buffett quality gate. Returns pass/fail + metrics.
+
+    DUAL-BRANCH (T1-Bank refactor 2026-08-06):
+      - BANK:   BCTC ngân hàng không có CFO/GM/D/E ý nghĩa theo chuẩn Buffett.
+                Thay bằng bộ chỉ số SBV: NPL <= 2.5%, NIM >= 1.8%, CAR >= 5%.
+                D/E (nếu có) dùng ngưỡng lỏng 8.0; CFO/GM bỏ qua.
+      - STANDARD: giữ nguyên tiêu chuẩn Buffett: CFO > 0 (3y), GM >= 25%,
+                D/E <= 1.0 (thiếu GM/D/E -> FAIL vì là doanh nghiệp thật).
+
+    is_steel (T1-Steel exception 2026-08-06): ngành Thép là commodity, biên gộp
+    thường 15-22% nên dùng ngưỡng GM >= 15% thay vì 25% (Type II Error tránh loại
+    sạch thép VN khỏi T1). Không ảnh hưởng ROE/CFO/D/E.
+    """
+    is_bank = entity_type == "BANK"
     result = {
         "symbol": symbol,
         "entity_type": entity_type,
+        "is_bank": is_bank,
         "pass": False,
         "roe": None,
         "roe_3y_min": None,
         "cfo_years": 0,
         "cfo_positive": False,
         "de": None,
-        "de_max": T1_DE_MAX_NONBANK,
+        "de_max": T1_DE_MAX_BANK if is_bank else T1_DE_MAX_NONBANK,
         "gross_margin": None,
+        "npl": None,
+        "nim": None,
+        "car": None,
         "reasons": [],
     }
 
-    # ROE: require >= 15% for last 3 years.
+    # ROE: require >= 15% for last 3 years (mọi ngành — bắt buộc).
     # NOTE: health_ratios ROE is SINGLE-QUARTER (e.g. 0.065 for FPT/Q) →
     # annualize x4 before comparing to the 15% yearly threshold.
     roe_series = _load_ratio_series(conn, symbol, "ROE", periods)
@@ -180,45 +269,66 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: List[str
         roe_3y = [sum(vs) / len(vs) for vs in yearly.values()]
         result["roe_3y_min"] = round(min(roe_3y), 4) if roe_3y else None
         result["roe"] = round(roe_series[-1] * 4.0, 4) if roe_series else None
-        if roe_3y and min(roe_3y) >= T1_ROE_MIN:
-            pass  # ok
-        else:
+        if not roe_3y or min(roe_3y) < T1_ROE_MIN:
             result["reasons"].append(
                 f"ROE 3y min {result['roe_3y_min']} < 15%" if result["roe_3y_min"] is not None else "ROE data missing"
             )
-
-    # CFO: > 0 for 3 consecutive years
-    cfo_years = _load_metric_years(conn, symbol, "CFO", periods)
-    if cfo_years:
-        result["cfo_years"] = len(cfo_years)
-        result["cfo_positive"] = all(v > 0 for v in cfo_years.values())
-        if not result["cfo_positive"]:
-            result["reasons"].append("CFO không dương liên tục 3 năm")
     else:
-        result["reasons"].append("CFO data missing")
+        result["reasons"].append("ROE data missing")
 
-    # D/E — Banks: use CAPITAL_RATIO as capital-safety proxy instead of D/E.
-    # VCI statements don't emit DEBT_TO_EQUITY for banks (NPL/CASA are separate
-    # indicators); missing D/E for a BANK is NOT a fail — the leverage gate is
-    # replaced by the capital adequacy check.
-    de_max = T1_DE_MAX_BANK if entity_type == "BANK" else T1_DE_MAX_NONBANK
-    result["de_max"] = de_max
-    de_series = _load_ratio_series(conn, symbol, "DEBT_TO_EQUITY", periods[-4:])
-    if de_series:
-        result["de"] = round(de_series[-1], 4)
-        if result["de"] > de_max:
-            result["reasons"].append(f"D/E {result['de']} > {de_max}")
-    elif entity_type != "BANK":
-        result["reasons"].append("D/E data missing")
+    if is_bank:
+        # ── NHÁNH BANK ──
+        result["npl"] = _latest_ratio(conn, symbol, "NPL_RATIO", periods[-4:])
+        result["nim"] = _latest_ratio(conn, symbol, "NIM", periods[-4:])
+        result["car"] = _latest_ratio(conn, symbol, "CAPITAL_RATIO", periods[-4:])
 
-    # Gross margin — banks exempt (no COGS-based margin; NIM used instead)
-    gm_series = _load_ratio_series(conn, symbol, "GROSS_MARGIN", periods[-4:])
-    if gm_series:
-        result["gross_margin"] = round(gm_series[-1], 4)
-        if result["gross_margin"] < T1_GROSS_MARGIN_MIN and entity_type != "BANK":
-            result["reasons"].append(f"Gross margin {result['gross_margin']} < 25%")
-    elif entity_type != "BANK":
-        result["reasons"].append("Gross margin data missing")
+        if result["npl"] is not None and result["npl"] > T1_BANK_NPL_MAX:
+            result["reasons"].append(f"Bank NPL {result['npl']:.1%} > {T1_BANK_NPL_MAX:.1%}")
+        # NOTE: health_ratios NIM là QUARTERLY (NII quarterly / loans) — annualize x4
+        # trước khi so với ngưỡng 1.8%/năm, giống ROE (vn20_quant_filter.py:208).
+        if result["nim"] is not None:
+            result["nim"] = round(result["nim"] * 4.0, 4)
+            if result["nim"] < T1_BANK_NIM_MIN:
+                result["reasons"].append(f"Bank NIM {result['nim']:.1%} < {T1_BANK_NIM_MIN:.1%}")
+        if result["car"] is not None and result["car"] < T1_BANK_CAR_MIN:
+            result["reasons"].append(f"Bank CAR {result['car']:.1%} < {T1_BANK_CAR_MIN:.1%}")
+
+        # Banks: D/E missing is NOT a fail — capital adequacy (CAR) replaces it.
+        de_series = _load_ratio_series(conn, symbol, "DEBT_TO_EQUITY", periods[-4:])
+        if de_series:
+            result["de"] = round(de_series[-1], 4)
+            if result["de"] > T1_DE_MAX_BANK:
+                result["reasons"].append(f"D/E {result['de']} > {T1_DE_MAX_BANK}")
+    else:
+        # ── NHÁNH STANDARD ──
+        # CFO: > 0 for 3 consecutive years
+        cfo_years = _load_metric_years(conn, symbol, "CFO", periods)
+        if cfo_years:
+            result["cfo_years"] = len(cfo_years)
+            result["cfo_positive"] = all(v > 0 for v in cfo_years.values())
+            if not result["cfo_positive"]:
+                result["reasons"].append("CFO không dương liên tục 3 năm")
+        else:
+            result["reasons"].append("CFO data missing")
+
+        # D/E
+        de_series = _load_ratio_series(conn, symbol, "DEBT_TO_EQUITY", periods[-4:])
+        if de_series:
+            result["de"] = round(de_series[-1], 4)
+            if result["de"] > T1_DE_MAX_NONBANK:
+                result["reasons"].append(f"D/E {result['de']} > {T1_DE_MAX_NONBANK}")
+        else:
+            result["reasons"].append("D/E data missing")
+
+        # Gross margin (ngoại lệ ngành Thép: GM >= 15% thay vì 25% chung)
+        gm_min = T1_GROSS_MARGIN_MIN_STEEL if is_steel else T1_GROSS_MARGIN_MIN
+        gm_series = _load_ratio_series(conn, symbol, "GROSS_MARGIN", periods[-4:])
+        if gm_series:
+            result["gross_margin"] = round(gm_series[-1], 4)
+            if result["gross_margin"] < gm_min:
+                result["reasons"].append(f"Gross margin {result['gross_margin']} < {gm_min:.0%}")
+        else:
+            result["reasons"].append("Gross margin data missing")
 
     result["pass"] = len(result["reasons"]) == 0
     return result
@@ -230,8 +340,8 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: List[str
 
 
 def tier2_governance_shield(
-    conn, symbol: str, periods: List[str], entity_type: str = "STANDARD", sector_pct75: Optional[float] = None
-) -> Dict:
+    conn, symbol: str, periods: list[str], entity_type: str = "STANDARD", sector_pct75: float | None = None
+) -> dict:
     """Tier 2: dilution rate + receivables health.
 
     Banks: receivables gate is skipped (banks don't have trade receivables;
@@ -255,7 +365,7 @@ def tier2_governance_shield(
     # Dilution: median of YoY same-quarter share changes (Qx this vs Qx last year).
     # Median (not last-pair) tolerates single-quarter crawler scale errors
     # (e.g. HPG 3.2B→292M in 2025Q3) so one bad point can't fake dilution.
-    q_map: Dict[str, float] = {}
+    q_map: dict[str, float] = {}
     for r in conn.execute(
         "SELECT period, value FROM financial_facts WHERE symbol=? AND metric='SHARES_OUT' ORDER BY period",
         (symbol,),
@@ -316,7 +426,7 @@ def tier2_governance_shield(
 # ════════════════════════════════════════════════════════════════════
 
 
-def tier3_sector_cycle(symbol: str, sector_ctx: Dict) -> Dict:
+def tier3_sector_cycle(symbol: str, sector_ctx: dict) -> dict:
     """Tier 3: sector cycle phase from RS momentum + valuation percentile.
 
     sector_ctx (computed once per sector):
@@ -360,7 +470,7 @@ def tier3_sector_cycle(symbol: str, sector_ctx: Dict) -> Dict:
     return result
 
 
-def compute_sector_context(conn, sector: str, lookback: int = 90) -> Dict:
+def compute_sector_context(conn, sector: str, lookback: int = 90) -> dict:
     """Compute per-sector cycle context: RS momentum + valuation percentile."""
     import pandas as pd
 
@@ -423,7 +533,7 @@ def compute_sector_context(conn, sector: str, lookback: int = 90) -> Dict:
     return {"sector": sector, "momentum": momentum, "valuation_pct": val_pct}
 
 
-def _load_symbol_industry(conn) -> Dict[str, str]:
+def _load_symbol_industry(conn) -> dict[str, str]:
     try:
         rows = conn.execute("SELECT symbol, icb_name3 FROM symbol_industry").fetchall()
         return {r["symbol"]: r["icb_name3"] for r in rows}
@@ -431,9 +541,22 @@ def _load_symbol_industry(conn) -> Dict[str, str]:
         return {}
 
 
-def _compute_sector_receivables_p75(
-    fin_conn, screen_conn, universe: List[str], periods: List[str]
-) -> Dict[str, Optional[float]]:
+def _load_steel_symbols(conn) -> set:
+    """Set các symbol thuộc ngành Thép theo ICB (icb_name4 'Thép và sản phẩm thép').
+
+    WHY: Ngành thép VN (HPG/HSG/NKG/TLH...) là commodity có biên gộp thường
+    15-22%, dưới ngưỡng Buffett 25%. T1 cần ngoại lệ GM >= 15% cho nhóm này —
+    xác định chính xác qua ICB cấp 4 thay vì đoán bằng tên mã."""
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT symbol FROM symbol_industry WHERE icb_name4 LIKE '%Thép%' OR icb_name4 LIKE '%thép%'"
+        ).fetchall()
+        return {r["symbol"] for r in rows}
+    except Exception:
+        return set()
+
+
+def _compute_sector_receivables_p75(fin_conn, screen_conn, universe: list[str], periods: list[str]) -> dict[str, float | None]:
     """Compute 75th percentile of RECEIVABLES/REVENUE per sector.
 
     Two-layer scan:
@@ -453,7 +576,7 @@ def _compute_sector_receivables_p75(
     all_symbols = list(all_mapping.keys())
 
     # Compute RECEIVABLES/REVENUE ratio for every symbol with data
-    sector_ratios: Dict[str, List[float]] = {}
+    sector_ratios: dict[str, list[float]] = {}
     for sym in all_symbols:
         sector = all_mapping.get(sym, "UNKNOWN")
         rec = _load_metric_years(fin_conn, sym, "RECEIVABLES", periods[-4:])
@@ -466,7 +589,7 @@ def _compute_sector_receivables_p75(
                 sector_ratios.setdefault(sector, []).append(ratio)
 
     # Layer 2: Compute P75 per sector, with P100 fallback for small sectors
-    result: Dict[str, Optional[float]] = {}
+    result: dict[str, float | None] = {}
     for sector, ratios in sector_ratios.items():
         if len(ratios) >= 3:
             sorted_r = sorted(ratios)
@@ -486,16 +609,20 @@ def _compute_sector_receivables_p75(
 # ════════════════════════════════════════════════════════════════════
 
 
-def tier4_valuation_mos(conn, symbol: str) -> Dict:
+def tier4_valuation_mos(conn, symbol: str, regime: str = "RANGING", roe_annual: float | None = None) -> dict:
     """Tier 4: Margin of Safety from valuation z-scores.
 
     MoS = max over PE/PB z-score of (1 - z_inverse), floored 0..1.
-    Requires MoS >= 25% for entry.
+    Ngưỡng tối thiểu ĐỘNG theo Regime + ROE (Dynamic MoS 2026-08-07):
+      CRISIS→25%, RANGING→20%, EXPANSION→15%; ROE>=20% → ưu đãi 5%;
+      sàn tuyệt đối 10%.
     """
     result = {
         "symbol": symbol,
         "pass": False,
         "mos": None,
+        "mos_threshold": get_dynamic_mos_threshold(regime, roe_annual),
+        "mos_regime": (regime or "RANGING").upper(),
         "pe_z": None,
         "pb_z": None,
         "reasons": [],
@@ -522,16 +649,17 @@ def tier4_valuation_mos(conn, symbol: str) -> Dict:
         # z < 0 => cheap => high MoS. Map z=-2 -> MoS~1, z=+2 -> MoS~0.
         mos = max(0.0, min(1.0, 1.0 - (max(zs) / 3.0 + 0.5)))
         result["mos"] = round(mos, 4)
-        result["pass"] = mos >= T4_MOS_MIN
+        th = result["mos_threshold"]
+        result["pass"] = mos >= th
         if not result["pass"]:
-            result["reasons"].append(f"MoS {mos:.1%} < 25%")
+            result["reasons"].append(f"MoS {mos:.1%} < {th:.1%}")
     else:
         result["reasons"].append("Valuation data missing")
 
     return result
 
 
-def allocate(qualified: List[Dict]) -> Dict:
+def allocate(qualified: list[dict]) -> dict:
     """Bayesian-style allocation: 5-8 names, max 25% each.
 
     Max Sector Concentration Gate: no single sector may exceed
@@ -560,7 +688,7 @@ def allocate(qualified: List[Dict]) -> Dict:
     # ── Max Sector Concentration Gate ──
     # Aggregate per sector, cap each at T4_MAX_SECTOR_WEIGHT, drain excess to cash.
     sector_map = {p["symbol"]: p.get("sector", "UNKNOWN") for p in picked}
-    sector_total: Dict[str, float] = {}
+    sector_total: dict[str, float] = {}
     for sym, w in weights.items():
         sec = sector_map.get(sym, "UNKNOWN")
         sector_total[sec] = sector_total.get(sec, 0.0) + w
@@ -580,7 +708,7 @@ def allocate(qualified: List[Dict]) -> Dict:
     # the capped sector back toward 100% (single-sector trap).
 
     # Sector totals after gate (for reporting)
-    post_sector: Dict[str, float] = {}
+    post_sector: dict[str, float] = {}
     for sym, w in weights.items():
         sec = sector_map.get(sym, "UNKNOWN")
         post_sector[sec] = post_sector.get(sec, 0.0) + w
@@ -601,7 +729,7 @@ def allocate(qualified: List[Dict]) -> Dict:
 # ════════════════════════════════════════════════════════════════════
 
 
-def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
+def run_vn20_filter(top_n: int | None = None, verbose: bool = True) -> dict:
     """Run the full 4-tier pipeline over the whole market."""
     fin = _fin_conn()
     screen = _screen_conn()
@@ -618,10 +746,14 @@ def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
 
     # Sector mapping (screener_cache)
     mapping = _load_symbol_industry(screen)
-    sector_ctx_cache: Dict[str, Dict] = {}
+    steel_symbols = _load_steel_symbols(screen)
+    sector_ctx_cache: dict[str, dict] = {}
 
     # Industry-Relative Percentile: pre-compute sector P75 for receivables gate
     sector_pct75 = _compute_sector_receivables_p75(fin, screen, universe, periods)
+
+    # Market regime cho Dynamic MoS (đọc 1 lần, dùng cho cả pipeline)
+    market_regime = _latest_market_regime(screen)
 
     passed_t12 = []
     stage_counts = {"T1_pass": 0, "T2_pass": 0, "T3_pass": 0, "T4_pass": 0, "total_universe": len(universe)}
@@ -630,7 +762,7 @@ def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
         entity = entity_map.get(sym, "STANDARD")
 
         # Tier 1
-        t1 = tier1_buffett_quality(fin, sym, entity, periods)
+        t1 = tier1_buffett_quality(fin, sym, entity, periods, is_steel=sym in steel_symbols)
         if not t1["pass"]:
             continue
         stage_counts["T1_pass"] += 1
@@ -650,8 +782,8 @@ def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
             continue
         stage_counts["T3_pass"] += 1
 
-        # Tier 4 (valuation + MoS)
-        t4 = tier4_valuation_mos(fin, sym)
+        # Tier 4 (valuation + MoS động)
+        t4 = tier4_valuation_mos(fin, sym, market_regime, t1["roe"])
         if not t4["pass"]:
             continue
         stage_counts["T4_pass"] += 1
@@ -675,6 +807,7 @@ def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
                 "receivables": t2["receivables_ratio"],
                 "phase": t3["phase"],
                 "mos": t4["mos"],
+                "mos_threshold": t4["mos_threshold"],
                 "pe_z": t4["pe_z"],
                 "pb_z": t4["pb_z"],
                 "score": round(score, 2),
@@ -701,7 +834,7 @@ def run_vn20_filter(top_n: Optional[int] = None, verbose: bool = True) -> Dict:
     }
 
 
-def _print_report(qualified: List[Dict], allocation: Dict, stage: Dict, periods: List[str]) -> None:
+def _print_report(qualified: list[dict], allocation: dict, stage: dict, periods: list[str]) -> None:
     print("\n" + "=" * 78)
     print("  PTCK_VN20 — 4-TIER QUANT SCREENING (Buffett x VN Governance x Cycle)")
     print("=" * 78)

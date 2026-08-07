@@ -4,6 +4,7 @@ Ablation Study: Test each of the 5 models individually and in combination.
 Uses grid search's pre-computed scores for fast iteration.
 Tests: M1(Macro), M2(Fundamental), M3(Behavioral), Alpha(Momentum), VN20(Gate)
 """
+
 from __future__ import annotations
 
 import json
@@ -27,9 +28,9 @@ if str(SRC_DIR) not in sys.path:
 from backtest.portfolio_tracker import PortfolioTracker
 from backtest.unified_system_replay import (
     UNIVERSE,
+    _get_behavioral_score,
     _get_close,
     _get_fundamental_score,
-    _get_behavioral_score,
     _get_momentum_score,
     _get_sector,
     _get_trading_days,
@@ -53,7 +54,7 @@ def precompute_scores(conn, dates, score_days):
 
     for idx, date in enumerate(score_days):
         if (idx + 1) % 50 == 0:
-            print(f"  Precompute {idx+1}/{len(score_days)} ({time.time()-t0:.0f}s)")
+            print(f"  Precompute {idx + 1}/{len(score_days)} ({time.time() - t0:.0f}s)")
 
         day_scores = {}
         macro_result = None
@@ -98,13 +99,11 @@ def precompute_scores(conn, dates, score_days):
 
         scores[date] = day_scores
 
-    print(f"  Precompute done: {len(scores)} days in {time.time()-t0:.1f}s")
+    print(f"  Precompute done: {len(scores)} days in {time.time() - t0:.1f}s")
     return scores
 
 
-def run_ablation(scores, dates, score_days, weights, label,
-                 entry=0.55, exit_t=0.35, stop=0.05, take=0.20,
-                 db_path=None):
+def run_ablation(scores, dates, score_days, weights, label, entry=0.55, exit_t=0.35, stop=0.05, take=0.20, db_path=None):
     """Run backtest with given weights (zero-weight = model disabled)."""
     if db_path is None:
         db_path = str(DATA_DIR / "screener_cache.db")
@@ -307,11 +306,11 @@ def main():
     print(f"\n  All scenarios done in {elapsed:.0f}s")
 
     # Phase 3: Report
-    print(f"\n{'='*100}")
-    print(f"  ABLATION STUDY RESULTS — 5 Models (2021-04 to 2026-08)")
-    print(f"{'='*100}")
+    print(f"\n{'=' * 100}")
+    print("  ABLATION STUDY RESULTS — 5 Models (2021-04 to 2026-08)")
+    print(f"{'=' * 100}")
     print(f"  {'Scenario':<35} {'Sharpe':>8} {'Return%':>10} {'MaxDD%':>8} {'WinRate':>8} {'Trades':>7} {'Final NAV':>12}")
-    print(f"  {'-'*95}")
+    print(f"  {'-' * 95}")
 
     # Sort by Sharpe
     results.sort(key=lambda x: x["sharpe"], reverse=True)
@@ -320,7 +319,7 @@ def main():
         print(
             f"  {r['label']:<35} {r['sharpe']:>8.4f} {r['total_return']:>10.1f} "
             f"{r['max_drawdown']:>8.1f} {r['win_rate']:>7.1f}% {r['total_trades']:>6} "
-            f"{r['final_nav']/1e6:>10.1f}M{marker}"
+            f"{r['final_nav'] / 1e6:>10.1f}M{marker}"
         )
 
     # Save

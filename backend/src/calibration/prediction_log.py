@@ -29,12 +29,10 @@ WHY model_id column (P0):
            independently → BMA can retire underperforming models.
 """
 
-import json
 import sqlite3
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 _candidate = Path(sys.executable).resolve().parent
 if Path(sys.executable).stem.lower().startswith("python"):
@@ -139,7 +137,7 @@ def init_schema():
 
 def init_model_registry_schema():
     """Initialize model_registry table for Sprint 4 Competing Hypotheses Engine.
-    
+
     WHY separate table from prediction_log? model_registry tracks hypothesis-level
     lifecycle (state transitions ACTIVE/DORMANT/RETIRED) and BMA weights, while
     prediction_log tracks per-symbol Governor decisions. The two tables join on
@@ -195,39 +193,55 @@ def insert_prediction(
     health_archetype: str,
     valuation_zone: str,
     behavior_position: str,
-    model_id: Optional[str] = None,
+    model_id: str | None = None,
 ):
     """Insert one prediction row. model_id=NULL for combined BMA prediction."""
     conn = get_conn()
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO prediction_log
             (date, symbol, model_id, p_gain, eu, kelly_alloc, action,
              macro_state, transmission_phase, sector_phase,
              health_archetype, valuation_zone, behavior_position)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, (
-        date_str, symbol, model_id, p_gain, eu, kelly_alloc, action,
-        macro_state, transmission_phase, sector_phase,
-        health_archetype, valuation_zone, behavior_position,
-    ))
+    """,
+        (
+            date_str,
+            symbol,
+            model_id,
+            p_gain,
+            eu,
+            kelly_alloc,
+            action,
+            macro_state,
+            transmission_phase,
+            sector_phase,
+            health_archetype,
+            valuation_zone,
+            behavior_position,
+        ),
+    )
     conn.commit()
     conn.close()
 
 
-def get_unresolved_by_model(model_id: str, days: int = 365) -> List[Dict]:
+def get_unresolved_by_model(model_id: str, days: int = 365) -> list[dict]:
     """Return unresolved predictions for a specific BMA model."""
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     conn = get_conn()
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT * FROM prediction_log
         WHERE model_id = ? AND outcome IS NULL AND date >= ?
         ORDER BY date ASC, symbol ASC
-    """, (model_id, cutoff)).fetchall()
+    """,
+        (model_id, cutoff),
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_resolved_by_model(model_id: str, days: int = 365) -> List[Dict]:
+def get_resolved_by_model(model_id: str, days: int = 365) -> list[dict]:
     """Return RESOLVED predictions (outcome NOT NULL) for a BMA model.
 
     WHY (Bước 2 — Outcome Feed): Step 11c cũ feed ModelRegistry bằng
@@ -238,16 +252,19 @@ def get_resolved_by_model(model_id: str, days: int = 365) -> List[Dict]:
     """
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     conn = get_conn()
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT * FROM prediction_log
         WHERE model_id = ? AND outcome IS NOT NULL AND date >= ?
         ORDER BY date ASC, symbol ASC
-    """, (model_id, cutoff)).fetchall()
+    """,
+        (model_id, cutoff),
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_unresolved_predictions() -> List[Dict]:
+def get_unresolved_predictions() -> list[dict]:
     """Return all predictions with NULL outcome."""
     conn = get_conn()
     rows = conn.execute("""
@@ -262,29 +279,35 @@ def get_unresolved_predictions() -> List[Dict]:
 def resolve_outcome(pred_id: int, outcome: float, log_loss: float):
     """Mark a prediction as resolved with actual outcome and loss."""
     conn = get_conn()
-    conn.execute("""
+    conn.execute(
+        """
         UPDATE prediction_log
         SET outcome = ?, log_loss = ?, resolved_at = datetime('now','localtime')
         WHERE id = ?
-    """, (outcome, log_loss, pred_id))
+    """,
+        (outcome, log_loss, pred_id),
+    )
     conn.commit()
     conn.close()
 
 
-def get_outcomes_for_calibration(days_back: int = 90) -> List[Dict]:
+def get_outcomes_for_calibration(days_back: int = 90) -> list[dict]:
     """Return resolved predictions within window for calibration."""
     cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     conn = get_conn()
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT * FROM prediction_log
         WHERE outcome IS NOT NULL AND date >= ?
         ORDER BY date DESC
-    """, (cutoff,)).fetchall()
+    """,
+        (cutoff,),
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_beta_posteriors() -> Dict[str, Tuple[float, float]]:
+def get_beta_posteriors() -> dict[str, tuple[float, float]]:
     """Return all (alpha, beta) tuples keyed by evidence_key."""
     conn = get_conn()
     rows = conn.execute("SELECT evidence_key, alpha, beta FROM lr_beta_posteriors").fetchall()
@@ -294,14 +317,17 @@ def get_beta_posteriors() -> Dict[str, Tuple[float, float]]:
 
 def upsert_beta(evidence_key: str, alpha: float, beta: float):
     conn = get_conn()
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO lr_beta_posteriors (evidence_key, alpha, beta)
         VALUES (?,?,?)
         ON CONFLICT(evidence_key) DO UPDATE SET
             alpha = excluded.alpha,
             beta = excluded.beta,
             updated_at = datetime('now','localtime')
-    """, (evidence_key, alpha, beta))
+    """,
+        (evidence_key, alpha, beta),
+    )
     conn.commit()
     conn.close()
 
@@ -309,6 +335,7 @@ def upsert_beta(evidence_key: str, alpha: float, beta: float):
 # ═══════════════════════════════════════════════════════════════
 # Calibration History — time-series tracking of Log-Loss, ECE
 # ═══════════════════════════════════════════════════════════════
+
 
 def init_calibration_history():
     conn = get_conn()
@@ -341,28 +368,34 @@ def insert_calibration_snapshot(
     accuracy: float = 0.0,
 ):
     conn = get_conn()
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO calibration_history
             (date, n_resolved, n_unresolved, mean_log_loss, mean_brier, ece, mce, accuracy)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (date_str, n_resolved, n_unresolved, mean_log_loss, mean_brier, ece, mce, accuracy))
+    """,
+        (date_str, n_resolved, n_unresolved, mean_log_loss, mean_brier, ece, mce, accuracy),
+    )
     conn.commit()
     conn.close()
 
 
-def get_calibration_history(days: int = 90) -> List[Dict]:
+def get_calibration_history(days: int = 90) -> list[dict]:
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     conn = get_conn()
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT * FROM calibration_history
         WHERE date >= ?
         ORDER BY date DESC
-    """, (cutoff,)).fetchall()
+    """,
+        (cutoff,),
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_latest_calibration() -> Optional[Dict]:
+def get_latest_calibration() -> dict | None:
     conn = get_conn()
     row = conn.execute("""
         SELECT * FROM calibration_history
@@ -376,9 +409,9 @@ def get_latest_calibration() -> Optional[Dict]:
 # Circuit Breaker — tự động đóng băng vị thế khi degradation
 # ═══════════════════════════════════════════════════════════════
 
-CB_LEVEL_NONE = 0       # Hoạt động bình thường
-CB_LEVEL_CAUTION = 1    # Degradation nhẹ → chặn OPEN
-CB_LEVEL_ACTIVE = 2     # Degradation mạnh → chặn OPEN/SCALE_IN, hạ HOLD
+CB_LEVEL_NONE = 0  # Hoạt động bình thường
+CB_LEVEL_CAUTION = 1  # Degradation nhẹ → chặn OPEN
+CB_LEVEL_ACTIVE = 2  # Degradation mạnh → chặn OPEN/SCALE_IN, hạ HOLD
 CB_LEVEL_EMERGENCY = 3  # Log-Loss rất cao → đóng băng toàn bộ
 
 CB_LABELS = {
@@ -444,10 +477,13 @@ def get_circuit_breaker_state() -> dict:
         conn.close()
         return r
     # Default: inactive, level 0
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO circuit_breaker (date, level, label, active)
         VALUES (?, 0, 'BÌNH_THƯỜNG', 0)
-    """, (str(date.today()),))
+    """,
+        (str(date.today()),),
+    )
     conn.commit()
     conn.close()
     return {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0}
@@ -456,10 +492,10 @@ def get_circuit_breaker_state() -> dict:
 def set_circuit_breaker(
     level: int,
     trigger_reason: str = "",
-    mean_log_loss: Optional[float] = None,
+    mean_log_loss: float | None = None,
     threshold: float = 0.05,
-    recent_avg_ll: Optional[float] = None,
-    older_avg_ll: Optional[float] = None,
+    recent_avg_ll: float | None = None,
+    older_avg_ll: float | None = None,
 ):
     """Record new circuit breaker state. Previous active entry is auto-resolved."""
     today = str(date.today())
@@ -474,13 +510,15 @@ def set_circuit_breaker(
         WHERE active = 1 AND resolved_at IS NULL
     """)
     # Insert new state
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO circuit_breaker
             (date, level, label, active, trigger_reason,
              mean_log_loss, threshold, recent_avg_ll, older_avg_ll)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (today, level, label, active, trigger_reason,
-          mean_log_loss, threshold, recent_avg_ll, older_avg_ll))
+    """,
+        (today, level, label, active, trigger_reason, mean_log_loss, threshold, recent_avg_ll, older_avg_ll),
+    )
     conn.commit()
     conn.close()
 
@@ -493,19 +531,22 @@ def check_circuit_breaker_auto(days: int = 90, ll_threshold: float = 0.05) -> di
     """
     try:
         from calibration.calibrator import calibration_trend_report
+
         report = calibration_trend_report(days=days)
     except Exception:
-        return {"level": CB_LEVEL_NONE, "label": CB_LABELS[CB_LEVEL_NONE],
-                "active": 0, "error": "calibration_trend_report failed"}
+        return {
+            "level": CB_LEVEL_NONE,
+            "label": CB_LABELS[CB_LEVEL_NONE],
+            "active": 0,
+            "error": "calibration_trend_report failed",
+        }
 
     if report.get("status") != "OK":
-        return {"level": CB_LEVEL_NONE, "label": CB_LABELS[CB_LEVEL_NONE],
-                "active": 0, "reason": "NO_DATA"}
+        return {"level": CB_LEVEL_NONE, "label": CB_LABELS[CB_LEVEL_NONE], "active": 0, "reason": "NO_DATA"}
 
     trend = report.get("trend", {})
     if not trend:
-        return {"level": CB_LEVEL_NONE, "label": CB_LABELS[CB_LEVEL_NONE],
-                "active": 0, "reason": "NO_TREND"}
+        return {"level": CB_LEVEL_NONE, "label": CB_LABELS[CB_LEVEL_NONE], "active": 0, "reason": "NO_TREND"}
 
     recent_ll = trend.get("recent_avg_log_loss", 0.0)
     older_ll = trend.get("older_avg_log_loss", 0.0)
@@ -553,7 +594,7 @@ def check_circuit_breaker_auto(days: int = 90, ll_threshold: float = 0.05) -> di
 
 def init_macro_sensory_log():
     """Initialize macro_sensory_log table for WorldSensor (P0.5) snapshots.
-    
+
     WHY separate table from macro_history (screener_cache.db)?
     macro_history stores individual variable rows (1 row per variable per date),
     optimized for time-series queries. macro_sensory_log stores the full 10-field
@@ -583,14 +624,17 @@ def init_macro_sensory_log():
     conn.close()
 
 
-def get_circuit_breaker_log(days: int = 90) -> List[Dict]:
+def get_circuit_breaker_log(days: int = 90) -> list[dict]:
     """Return circuit breaker history."""
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     conn = get_conn()
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT * FROM circuit_breaker
         WHERE date >= ?
         ORDER BY id DESC
-    """, (cutoff,)).fetchall()
+    """,
+        (cutoff,),
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]

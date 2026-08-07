@@ -1,4 +1,4 @@
-﻿"""
+"""
 alpha_attribution_engine.py — Alpha Attribution Engine (FAE)
 
 Final closure layer for the decision stack.
@@ -19,14 +19,14 @@ import copy
 import json
 import math
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -40,6 +40,7 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 # ── Module registry ──────────────────────────────────────────────────────────
@@ -47,10 +48,10 @@ PROJECT_ROOT = _hydrate_path()
 MODULES = ["driver_state", "drift_layer", "ets_validation", "early_warning"]
 
 MODULE_LABELS = {
-    "driver_state":   "Driver State (dominant driver detection)",
-    "drift_layer":    "Drift Prevention (cognitive drift detection)",
+    "driver_state": "Driver State (dominant driver detection)",
+    "drift_layer": "Drift Prevention (cognitive drift detection)",
     "ets_validation": "ETS Validation (narrative truth score)",
-    "early_warning":  "Early Warning (temporal stability signals)",
+    "early_warning": "Early Warning (temporal stability signals)",
 }
 
 # ── Toggle application ───────────────────────────────────────────────────────
@@ -96,10 +97,10 @@ def _neutralize_early_warning(entry: dict) -> dict:
 
 
 NEUTRALIZERS: dict[str, Callable] = {
-    "driver_state":   _neutralize_driver_state,
-    "drift_layer":    _neutralize_drift_layer,
+    "driver_state": _neutralize_driver_state,
+    "drift_layer": _neutralize_drift_layer,
     "ets_validation": _neutralize_ets,
-    "early_warning":  _neutralize_early_warning,
+    "early_warning": _neutralize_early_warning,
 }
 
 
@@ -236,7 +237,7 @@ def _simulate_pnl(
 
     daily_returns = []
     for i in range(1, len(equity_curve)):
-        dr = (equity_curve[i] - equity_curve[i-1]) / equity_curve[i-1]
+        dr = (equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1]
         daily_returns.append(dr)
 
     if daily_returns:
@@ -296,13 +297,13 @@ class AlphaAttributionReport:
     net_alpha_pct: float
 
     # ── Per-module attribution ────────────────────────────────────
-    alpha_attribution: dict[str, float]       # module → ΔPnL (percentage points)
-    sharpe_delta: dict[str, float]            # module → ΔSharpe
-    mdd_delta: dict[str, float]               # module → ΔMaxDrawdown (pp)
-    win_rate_delta: dict[str, float]          # module → ΔWinRate (pp)
+    alpha_attribution: dict[str, float]  # module → ΔPnL (percentage points)
+    sharpe_delta: dict[str, float]  # module → ΔSharpe
+    mdd_delta: dict[str, float]  # module → ΔMaxDrawdown (pp)
+    win_rate_delta: dict[str, float]  # module → ΔWinRate (pp)
 
     # ── Interaction effects ───────────────────────────────────────
-    interaction_effects: dict[str, float]     # "A×B" → interaction magnitude
+    interaction_effects: dict[str, float]  # "A×B" → interaction magnitude
     total_interaction_pct: float
 
     # ── Risk decomposition ────────────────────────────────────────
@@ -402,7 +403,7 @@ def run_attribution(
 
     if include_pairwise:
         for i, m1 in enumerate(MODULES):
-            for m2 in MODULES[i+1:]:
+            for m2 in MODULES[i + 1 :]:
                 missing = {m1, m2}
                 key = _build_config_key(set(MODULES) - missing)
                 configs[key] = set(MODULES) - missing
@@ -429,15 +430,9 @@ def run_attribution(
         key = _build_config_key(set(MODULES) - {mod})
         without = results.get(key, {})
         alpha_attribution[mod] = round(total_pnl - without.get("total_return_pct", 0.0), 4)
-        sharpe_delta[mod] = round(
-            full.get("sharpe_ratio", 0.0) - without.get("sharpe_ratio", 0.0), 4
-        )
-        mdd_delta[mod] = round(
-            full.get("max_drawdown_pct", 0.0) - without.get("max_drawdown_pct", 0.0), 4
-        )
-        win_rate_delta[mod] = round(
-            (full.get("win_rate", 0.0) - without.get("win_rate", 0.0)) * 100.0, 2
-        )
+        sharpe_delta[mod] = round(full.get("sharpe_ratio", 0.0) - without.get("sharpe_ratio", 0.0), 4)
+        mdd_delta[mod] = round(full.get("max_drawdown_pct", 0.0) - without.get("max_drawdown_pct", 0.0), 4)
+        win_rate_delta[mod] = round((full.get("win_rate", 0.0) - without.get("win_rate", 0.0)) * 100.0, 2)
 
     # ── Interaction effects ───────────────────────────────────────
     interaction_effects = {}
@@ -446,7 +441,7 @@ def run_attribution(
 
     if include_pairwise:
         for i, m1 in enumerate(MODULES):
-            for m2 in MODULES[i+1:]:
+            for m2 in MODULES[i + 1 :]:
                 both_off_key = _build_config_key(set(MODULES) - {m1, m2})
                 m1_off_key = _build_config_key(set(MODULES) - {m1})
                 m2_off_key = _build_config_key(set(MODULES) - {m2})
@@ -468,12 +463,9 @@ def run_attribution(
     # ── Risk decomposition ────────────────────────────────────────
     risk_attribution = {
         "max_drawdown_reduction": {
-            m: round(baseline.get("max_drawdown_pct", 0.0) - full.get("max_drawdown_pct", 0.0), 4)
-            for m in MODULES
+            m: round(baseline.get("max_drawdown_pct", 0.0) - full.get("max_drawdown_pct", 0.0), 4) for m in MODULES
         },
-        "sharpe_improvement": {
-            m: sharpe_delta[m] for m in MODULES
-        },
+        "sharpe_improvement": {m: sharpe_delta[m] for m in MODULES},
     }
 
     # ── Assemble report ──────────────────────────────────────────
@@ -516,13 +508,14 @@ if __name__ == "__main__":
 
     # Try to load shadow log from standard output path
     import src.config
+
     shadow_path = Path(src.config.DATA_DIR) / "output" / "shadow_log.json"
     if not shadow_path.exists():
         print(f"No shadow log found at {shadow_path}")
         print("Run the pipeline first to generate shadow data.")
         sys.exit(0)
 
-    with open(shadow_path, "r", encoding="utf-8") as f:
+    with open(shadow_path, encoding="utf-8") as f:
         data = json.load(f)
 
     entries = data.get("entries", data) if isinstance(data, dict) else data

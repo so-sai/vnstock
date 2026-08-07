@@ -1,4 +1,4 @@
-﻿"""
+"""
 Bộ tự đánh giá độ tin cậy — quyết định có đáng tin không?
 
 Nhiệm vụ:
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def _đường_dẫn_gốc():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         đường_dẫn_gốc = Path(sys.executable).resolve().parent
     else:
         hiện_tại = Path(__file__).resolve().parent
@@ -45,16 +45,17 @@ def _đường_dẫn_gốc():
 
 
 ĐƯỜNG_DẪN_GỐC = _đường_dẫn_gốc()
-if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
+if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
     import io
+
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import src.config
 
 # ── Ngưỡng đánh giá ─────────────────────────────────────
@@ -104,8 +105,8 @@ def _mức_ra_chữ(mức: str) -> str:
 
 # ── 6 yếu tố đánh giá ────────────────────────────────────
 
-def _1_thị_trường_rõ_ràng(trạng_thái: str, điểm_số: float,
-                            adx: float | None, rad_có_kích_hoạt: bool) -> dict:
+
+def _1_thị_trường_rõ_ràng(trạng_thái: str, điểm_số: float, adx: float | None, rad_có_kích_hoạt: bool) -> dict:
     điểm = 0.50
     lý_do = []
 
@@ -137,8 +138,7 @@ def _1_thị_trường_rõ_ràng(trạng_thái: str, điểm_số: float,
     return {"điểm": round(điểm, 3), "lý_do": lý_do}
 
 
-def _2_cấu_trúc_lành_mạnh(trạng_thái_cấu_trúc: str, số_trụ: int,
-                            entropy: float | None) -> dict:
+def _2_cấu_trúc_lành_mạnh(trạng_thái_cấu_trúc: str, số_trụ: int, entropy: float | None) -> dict:
     điểm = 0.50
     lý_do = []
 
@@ -169,8 +169,9 @@ def _2_cấu_trúc_lành_mạnh(trạng_thái_cấu_trúc: str, số_trụ: int,
     return {"điểm": round(điểm, 3), "lý_do": lý_do}
 
 
-def _3_tín_hiệu_đồng_thuận(trạng_thái_thị_trường: str, trạng_thái_cấu_trúc: str,
-                             mức_cảnh_báo: str, entropy: float | None) -> dict:
+def _3_tín_hiệu_đồng_thuận(
+    trạng_thái_thị_trường: str, trạng_thái_cấu_trúc: str, mức_cảnh_báo: str, entropy: float | None
+) -> dict:
     điểm = 0.50
     lý_do = []
 
@@ -226,6 +227,7 @@ def _5_tín_hiệu_đáng_tin(trạng_thái: str) -> dict:
     lý_do = []
     try:
         from src.telemetry.driver_reputation import get_reputation_summary
+
         tóm_tắt = get_reputation_summary()
         các_driver = tóm_tắt.get("drivers", [])
         if các_driver:
@@ -325,8 +327,10 @@ def _7_chất_lượng_vĩ_mô(db_path: str = "") -> dict:
     try:
         if not db_path:
             from src.config import DATA_DIR
+
             db_path = str(DATA_DIR / "screener_cache.db")
         from src.engine.macro_stale_tracker import StaleTracker
+
         tracker = StaleTracker.get_instance()
         state = tracker.update(db_path=db_path)
         fresh = state["fresh_ratio"]
@@ -353,6 +357,7 @@ def _7_chất_lượng_vĩ_mô(db_path: str = "") -> dict:
 
 
 # ── Hàm chính ────────────────────────────────────────────
+
 
 def đánh_giá_độ_tin_cậy(
     anh_chup: dict | None = None,
@@ -400,19 +405,22 @@ def đánh_giá_độ_tin_cậy(
         breadth = gi.get("breadth")
         dominant_contribution_pct = gi.get("dominant_contribution_pct")
         top_contribution_pts = gi.get("top_contribution_pts")
-        chất_lượng_chỉ_số_điểm = gi.get("chat_luong_chi_so")
+        gi.get("chat_luong_chi_so")
     else:
         # ── Fallback: đọc riêng lẻ (cho standalone) ──
         if dữ_liệu_thị_trường is None:
             from src.engine.regime_engine import detect_regime
+
             dữ_liệu_thị_trường = detect_regime(target_date=target_date, lang_mode=lang_mode)
 
         if dữ_liệu_cấu_trúc is None:
             from src.engine.structural_detector import detect_cau_truc
+
             dữ_liệu_cấu_trúc = detect_cau_truc(target_date=target_date) or {}
 
         if cảnh_báo_sớm is None:
             from src.services.early_warning_engine import build_early_warning
+
             cảnh_báo_sớm = build_early_warning(regime_data=dữ_liệu_thị_trường)
 
         trạng_thái = dữ_liệu_thị_trường.get("status", "N/A")
@@ -437,10 +445,7 @@ def đánh_giá_độ_tin_cậy(
             dominant_contribution_pct = gi_fb.get("dominant_contribution_pct")
             vnindex_ex_top10 = gi_fb.get("vnindex_ex_top10")
             vnindex_actual = gi_fb.get("vnindex_actual")
-            top_contribution_pts = (
-                round(vnindex_actual - vnindex_ex_top10, 2)
-                if vnindex_actual and vnindex_ex_top10 else None
-            )
+            top_contribution_pts = round(vnindex_actual - vnindex_ex_top10, 2) if vnindex_actual and vnindex_ex_top10 else None
         except Exception:
             breadth = None
             dominant_contribution_pct = None
@@ -489,17 +494,21 @@ def đánh_giá_độ_tin_cậy(
 
     # ── Tổng hợp lý do ──
     tất_cả_lý_do = []
-    for yt, tên in [(yt_1, "thị_trường"), (yt_2, "cấu_trúc"), (yt_3, "đồng_thuận"),
-                    (yt_4, "biến_động"), (yt_5, "tín_hiệu"), (yt_6, "chất_lượng"),
-                    (yt_7, "vĩ_mô")]:
+    for yt, tên in [
+        (yt_1, "thị_trường"),
+        (yt_2, "cấu_trúc"),
+        (yt_3, "đồng_thuận"),
+        (yt_4, "biến_động"),
+        (yt_5, "tín_hiệu"),
+        (yt_6, "chất_lượng"),
+        (yt_7, "vĩ_mô"),
+    ]:
         for ld in yt["lý_do"]:
             if ld not in tất_cả_lý_do:
                 tất_cả_lý_do.append(ld)
 
     if he_so_phat_cau_truc < 1.0:
-        tất_cả_lý_do.append(
-            f"cấu trúc vỡ — phạt phi tuyến (×{he_so_phat_cau_truc})"
-        )
+        tất_cả_lý_do.append(f"cấu trúc vỡ — phạt phi tuyến (×{he_so_phat_cau_truc})")
 
     # ── Kết luận bằng tiếng Việt ──
     if mức_đánh_giá == "CAO":
@@ -541,6 +550,7 @@ def đánh_giá_độ_tin_cậy(
 
 
 # ── In báo cáo ──────────────────────────────────────────
+
 
 def in_báo_cáo(kết_quả: dict):
     """In báo cáo độ tin cậy cho người dùng xem."""

@@ -1,4 +1,3 @@
-﻿
 import sys
 from pathlib import Path
 
@@ -7,7 +6,7 @@ import pandas as pd
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -20,10 +19,11 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
 
-    backend_dir = root_path / 'backend'
+    backend_dir = root_path / "backend"
     if backend_dir.exists() and str(backend_dir) not in sys.path:
         sys.path.append(str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import get_connection, save_data_upsert
@@ -34,21 +34,21 @@ def log_regime_state(verdict):
     """
     Persists the daily regime decision to the regime_history table.
     """
-    date = verdict.get('date')
+    date = verdict.get("date")
     if not date:
         return
 
     data = {
         "date": [date],
-        "regime_score": [verdict.get('regime_score')],
-        "status": [verdict.get('market_status')],
-        "breadth_pct": [verdict['details'].get('breadth_pct')],
-        "breadth_velocity": [verdict.get('breadth_velocity', 0.0)],
-        "trend_score": [verdict['details'].get('t_score')],
-        "vol_score": [verdict['details'].get('v_score')],
-        "atr_ratio": [verdict['details'].get('atr_ratio')],
-        "active_model": [verdict.get('active_model', 'NONE')],
-        "recovery_flag": [1 if verdict.get('recovery', {}).get('is_recovery') else 0]
+        "regime_score": [verdict.get("regime_score")],
+        "status": [verdict.get("market_status")],
+        "breadth_pct": [verdict["details"].get("breadth_pct")],
+        "breadth_velocity": [verdict.get("breadth_velocity", 0.0)],
+        "trend_score": [verdict["details"].get("t_score")],
+        "vol_score": [verdict["details"].get("v_score")],
+        "atr_ratio": [verdict["details"].get("atr_ratio")],
+        "active_model": [verdict.get("active_model", "NONE")],
+        "recovery_flag": [1 if verdict.get("recovery", {}).get("is_recovery") else 0],
     }
 
     df = pd.DataFrame(data)
@@ -56,13 +56,14 @@ def log_regime_state(verdict):
         save_data_upsert("regime_history", df, conn)
     print(f"📈 [TIMELINE] Logged regime state for {date}.")
 
+
 def get_regime_history(limit=30):
     """
     Retrieves the recent regime history for visibility analysis.
     """
     with get_connection() as conn:
         df = pd.read_sql(f"SELECT * FROM regime_history ORDER BY date DESC LIMIT {limit}", conn)
-    return df.sort_values('date')
+    return df.sort_values("date")
 
 
 def _ensure_ipo_calendar_table(conn):
@@ -139,9 +140,16 @@ def seed_static_ipo_calendar() -> int:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    row['symbol'], row['listing_date'], row['listing_price'], row['listing_volume'],
-                    row['market_cap_listing'], row['sector'], row['exchange'],
-                    row['aftermarket_return_pct'], row['days_listed'], row['source'],
+                    row["symbol"],
+                    row["listing_date"],
+                    row["listing_price"],
+                    row["listing_volume"],
+                    row["market_cap_listing"],
+                    row["sector"],
+                    row["exchange"],
+                    row["aftermarket_return_pct"],
+                    row["days_listed"],
+                    row["source"],
                 ),
             )
             inserted += 1
@@ -162,7 +170,7 @@ def get_active_ipos(days_back: int = 90):
                 WHERE date(listing_date) >= date('now', ?)
                 ORDER BY listing_date DESC
                 """,
-                (f'-{days_back} days',),
+                (f"-{days_back} days",),
             ).fetchall()
 
         if not rows:
@@ -185,8 +193,8 @@ def get_active_ipos(days_back: int = 90):
                 listing_price=float(row[2] or 0),
                 listing_volume=int(row[3] or 0),
                 market_cap_listing=float(row[4] or 0),
-                sector=row[5] or 'UNKNOWN',
-                exchange=row[6] or 'HOSE',
+                sector=row[5] or "UNKNOWN",
+                exchange=row[6] or "HOSE",
             )
             for row in rows
         ]
@@ -235,7 +243,11 @@ def calculate_breadth_velocity(current_breadth, days=5, target_date=None):
     try:
         with get_connection() as conn:
             if target_date:
-                df = pd.read_sql(f"SELECT breadth_pct, date FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT {days}", conn)
+                df = pd.read_sql(
+                    f"SELECT breadth_pct, date FROM regime_history "
+                    f"WHERE date < '{target_date}' ORDER BY date DESC LIMIT {days}",
+                    conn,
+                )
             else:
                 df = pd.read_sql(f"SELECT breadth_pct, date FROM regime_history ORDER BY date DESC LIMIT {days}", conn)
 
@@ -243,11 +255,14 @@ def calculate_breadth_velocity(current_breadth, days=5, target_date=None):
             return 0.0
 
         past_entry = df.iloc[-1]
-        past_breadth = past_entry['breadth_pct']
+        past_breadth = past_entry["breadth_pct"]
         velocity = current_breadth - past_breadth
 
         if target_date and velocity != 0:
-            print(f"   [VELOCITY] Today: {current_breadth}% | Past: {past_breadth}% (from {past_entry['date']}) | Result: {velocity:+.1f}%")
+            print(
+                f"   [VELOCITY] Today: {current_breadth}% | Past: {past_breadth}% "
+                f"(from {past_entry['date']}) | Result: {velocity:+.1f}%"
+            )
 
         return velocity
     except Exception:

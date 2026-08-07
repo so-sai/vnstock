@@ -1,12 +1,11 @@
-﻿import logging
+import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,6 +18,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -34,17 +34,46 @@ logger = logging.getLogger(__name__)
 
 # VN30 constituents for price anomaly guard
 VN30_SYMBOLS = {
-    'VCB', 'CTG', 'BID', 'HPG', 'FPT', 'MSN', 'VNM', 'VIC', 'VRE', 'VHM',
-    'SSI', 'MWG', 'ACB', 'VPB', 'MBB', 'TCB', 'TPB', 'HDB', 'STB', 'EIB',
-    'SHB', 'GAS', 'POW', 'PLX', 'SAB', 'BVH', 'VJC', 'PNJ', 'KDH', 'NVL',
+    "VCB",
+    "CTG",
+    "BID",
+    "HPG",
+    "FPT",
+    "MSN",
+    "VNM",
+    "VIC",
+    "VRE",
+    "VHM",
+    "SSI",
+    "MWG",
+    "ACB",
+    "VPB",
+    "MBB",
+    "TCB",
+    "TPB",
+    "HDB",
+    "STB",
+    "EIB",
+    "SHB",
+    "GAS",
+    "POW",
+    "PLX",
+    "SAB",
+    "BVH",
+    "VJC",
+    "PNJ",
+    "KDH",
+    "NVL",
 }
 
 _mfe_instance = None
+
 
 def _get_mfe():
     global _mfe_instance
     if _mfe_instance is None:
         from src.engine.money_flow_engine import MoneyFlowEngine
+
         _mfe_instance = MoneyFlowEngine()
     return _mfe_instance
 
@@ -54,9 +83,9 @@ def _load_rs_data() -> dict:
     if not os.path.exists(rs_path):
         return {}
     try:
-        with open(rs_path, 'r', encoding='utf-8') as f:
+        with open(rs_path, encoding="utf-8") as f:
             data = json.load(f)
-        return {item['symbol']: item for item in data}
+        return {item["symbol"]: item for item in data}
     except Exception as e:
         logger.error(f"Error loading RS data: {e}")
         return {}
@@ -64,25 +93,32 @@ def _load_rs_data() -> dict:
 
 def _resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """Nén dữ liệu nến Daily sang Weekly (W) hoặc Monthly (M)."""
-    rule = {'W': 'W', 'M': 'ME'}[timeframe]
-    df = df.set_index('date')
-    resampled = df.resample(rule).agg({
-        'open': 'first',
-        'high': 'max',
-        'low': 'min',
-        'close': 'last',
-        'volume': 'sum',
-    }).dropna(subset=['open', 'close']).reset_index()
+    rule = {"W": "W", "M": "ME"}[timeframe]
+    df = df.set_index("date")
+    resampled = (
+        df.resample(rule)
+        .agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum",
+            }
+        )
+        .dropna(subset=["open", "close"])
+        .reset_index()
+    )
     return resampled
 
 
-def _check_price_anomaly(symbol: str, df: pd.DataFrame) -> Optional[str]:
+def _check_price_anomaly(symbol: str, df: pd.DataFrame) -> str | None:
     if len(df) < 2:
         return None
     prev = df.iloc[-2]
     curr = df.iloc[-1]
-    prev_close = prev.get('adj_close') or prev.get('close')
-    curr_close = curr.get('adj_close') or curr.get('close')
+    prev_close = prev.get("adj_close") or prev.get("close")
+    curr_close = curr.get("adj_close") or curr.get("close")
     if prev_close and curr_close and prev_close > 0:
         pct_change = abs((curr_close - prev_close) / prev_close) * 100
         if pct_change > 15 and symbol in VN30_SYMBOLS:
@@ -92,40 +128,41 @@ def _check_price_anomaly(symbol: str, df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def _get_latest_ohlcv(symbol: str, timeframe: str = 'D') -> Optional[dict]:
+def _get_latest_ohlcv(symbol: str, timeframe: str = "D") -> dict | None:
     try:
-        limit_map = {'D': 50, 'W': 200, 'M': 800}
+        limit_map = {"D": 50, "W": 200, "M": 800}
         limit = limit_map.get(timeframe, 50)
         with get_connection() as conn:
             df = pd.read_sql(
                 "SELECT date, open, high, low, close, adj_close, volume FROM daily_ohlcv "
                 "WHERE symbol = ? ORDER BY date DESC LIMIT ?",
-                conn, params=(symbol, limit)
+                conn,
+                params=(symbol, limit),
             )
         if df.empty:
             return None
 
-        df['date'] = pd.to_datetime(df['date'], format='mixed')
-        df = df.sort_values('date')
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
+        df = df.sort_values("date")
 
-        if timeframe in ('W', 'M'):
+        if timeframe in ("W", "M"):
             df = _resample_ohlcv(df, timeframe)
 
         latest = df.iloc[-1]
-        close_series = df['close'].values
-        adj_close_series = df['adj_close'].values
+        close_series = df["close"].values
+        adj_close_series = df["adj_close"].values
 
-        has_adj_close = not (df['adj_close'].isna().all() or (df['adj_close'] == 0).all())
+        has_adj_close = not (df["adj_close"].isna().all() or (df["adj_close"] == 0).all())
         price_series = adj_close_series if has_adj_close else close_series
-        display_price = float(latest['adj_close']) if has_adj_close else float(latest['close'])
+        display_price = float(latest["adj_close"]) if has_adj_close else float(latest["close"])
 
-        volume_series = df['volume'].values
+        volume_series = df["volume"].values
 
         candle_count = len(df)
         vol_window = min(20, candle_count)
 
         vol_ma = pd.Series(volume_series).rolling(vol_window).mean().iloc[-1] if candle_count >= vol_window else None
-        volume_ratio = round(latest['volume'] / vol_ma, 2) if vol_ma and vol_ma > 0 else None
+        volume_ratio = round(latest["volume"] / vol_ma, 2) if vol_ma and vol_ma > 0 else None
 
         ma50 = pd.Series(price_series).rolling(50).mean().iloc[-1] if candle_count >= 50 else None
         ma200 = pd.Series(price_series).rolling(200).mean().iloc[-1] if candle_count >= 200 else None
@@ -140,28 +177,30 @@ def _get_latest_ohlcv(symbol: str, timeframe: str = 'D') -> Optional[dict]:
         std_z = pd.Series(price_series).rolling(20).std().iloc[-1] if candle_count >= 20 else None
         z_score = round((display_price - ma_z) / std_z, 2) if ma_z and std_z and std_z > 0 else None
 
-        change_pct = round((latest['close'] - latest['open']) / latest['open'] * 100, 2) if latest['open'] > 0 else 0.0
+        change_pct = round((latest["close"] - latest["open"]) / latest["open"] * 100, 2) if latest["open"] > 0 else 0.0
 
         data_quality = _check_price_anomaly(symbol, df)
 
         ohlcv_history = []
         recent = df.tail(30)
         for _, row in recent.iterrows():
-            ohlcv_history.append({
-                "date": str(row['date'].date()) if hasattr(row['date'], 'date') else str(row['date']),
-                "open": round(float(row['open']), 2),
-                "high": round(float(row['high']), 2),
-                "low": round(float(row['low']), 2),
-                "close": round(float(row['close']), 2),
-                "volume": int(row['volume']),
-            })
+            ohlcv_history.append(
+                {
+                    "date": str(row["date"].date()) if hasattr(row["date"], "date") else str(row["date"]),
+                    "open": round(float(row["open"]), 2),
+                    "high": round(float(row["high"]), 2),
+                    "low": round(float(row["low"]), 2),
+                    "close": round(float(row["close"]), 2),
+                    "volume": int(row["volume"]),
+                }
+            )
 
         return {
             "price": display_price,
-            "open": float(latest['open']),
-            "high": float(latest['high']),
-            "low": float(latest['low']),
-            "volume": int(latest['volume']),
+            "open": float(latest["open"]),
+            "high": float(latest["high"]),
+            "low": float(latest["low"]),
+            "volume": int(latest["volume"]),
             "changePercent": change_pct,
             "volumeRatio": volume_ratio,
             "rsi14": rsi14,
@@ -181,16 +220,13 @@ def _get_latest_ohlcv(symbol: str, timeframe: str = 'D') -> Optional[dict]:
 def _get_sector(symbol: str) -> str:
     try:
         with get_connection() as conn:
-            df = pd.read_sql(
-                "SELECT icb_name3 as sector FROM symbol_industry WHERE symbol = ?",
-                conn, params=(symbol,)
-            )
-        return df.iloc[0]['sector'] if not df.empty else "Unknown"
+            df = pd.read_sql("SELECT icb_name3 as sector FROM symbol_industry WHERE symbol = ?", conn, params=(symbol,))
+        return df.iloc[0]["sector"] if not df.empty else "Unknown"
     except Exception:
         return "Unknown"
 
 
-def get_xray_data(symbol: str, timeframe: str = 'D') -> dict:
+def get_xray_data(symbol: str, timeframe: str = "D") -> dict:
     symbol = symbol.upper()
 
     rs_data = _load_rs_data()
@@ -215,18 +251,18 @@ def get_xray_data(symbol: str, timeframe: str = 'D') -> dict:
     except Exception:
         pass
 
-    price = ohlcv.get('price') if ohlcv else float(rs_info.get('price', 0))
-    change_pct = ohlcv.get('changePercent', 0.0) if ohlcv else 0.0
-    volume_ratio = ohlcv.get('volumeRatio') if ohlcv else float(rs_info.get('rvol', 0))
-    rsi14 = ohlcv.get('rsi14') if ohlcv else None
-    z_score = ohlcv.get('zScore') if ohlcv else None
+    price = ohlcv.get("price") if ohlcv else float(rs_info.get("price", 0))
+    change_pct = ohlcv.get("changePercent", 0.0) if ohlcv else 0.0
+    volume_ratio = ohlcv.get("volumeRatio") if ohlcv else float(rs_info.get("rvol", 0))
+    rsi14 = ohlcv.get("rsi14") if ohlcv else None
+    z_score = ohlcv.get("zScore") if ohlcv else None
 
-    rs_rating = int(rs_info.get('rs_rating', 0))
-    rs_raw = float(rs_info.get('rs_raw', 0))
-    rvol = float(rs_info.get('rvol', 0))
-    change_1y = float(rs_info.get('change_1y', 0))
+    rs_rating = int(rs_info.get("rs_rating", 0))
+    rs_raw = float(rs_info.get("rs_raw", 0))
+    rvol = float(rs_info.get("rvol", 0))
+    change_1y = float(rs_info.get("change_1y", 0))
 
-    data_quality = ohlcv.get('dataQuality') if ohlcv else None
+    data_quality = ohlcv.get("dataQuality") if ohlcv else None
 
     return {
         "symbol": symbol,
@@ -241,10 +277,10 @@ def get_xray_data(symbol: str, timeframe: str = 'D') -> dict:
         "rsi14": rsi14,
         "zScore": z_score,
         "foreign10dAcc": foreign_10d,
-        "aboveMa50": ohlcv.get('aboveMa50') if ohlcv else None,
-        "aboveMa200": ohlcv.get('aboveMa200') if ohlcv else None,
+        "aboveMa50": ohlcv.get("aboveMa50") if ohlcv else None,
+        "aboveMa200": ohlcv.get("aboveMa200") if ohlcv else None,
         "volumeSpike": bool(volume_ratio is not None and volume_ratio > 1.5),
         "regime": regime_data,
         "dataQuality": data_quality,
-        "ohlcvHistory": ohlcv.get('ohlcvHistory', []) if ohlcv else [],
+        "ohlcvHistory": ohlcv.get("ohlcvHistory", []) if ohlcv else [],
     }

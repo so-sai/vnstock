@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -220,6 +220,7 @@ def _resolve_lang_mode(lang_mode: str) -> str:
     if lang_mode == "auto":
         try:
             from src.core.canonical_output_adapter import _detect_lang_mode
+
             return _detect_lang_mode("auto")
         except Exception:
             return "annotated"
@@ -265,6 +266,7 @@ def build_daily_report():
     # 1. Regime
     try:
         from src.engine.regime_engine import detect_regime
+
         regime = detect_regime()
     except Exception as e:
         logger.warning("Không đọc được regime: %s", e)
@@ -274,7 +276,7 @@ def build_daily_report():
     regime_score = regime.get("regime_score", 0.0)
     details = regime.get("details", {})
     rad = regime.get("rad", {})
-    breadth_pct = details.get("breadth_pct")
+    details.get("breadth_pct")
     adx = details.get("adx")
     atr_ratio = details.get("atr_ratio")
     delta_adx = rad.get("signals", {}).get("delta_adx")
@@ -285,6 +287,7 @@ def build_daily_report():
     # 2. Market state
     try:
         from src.core.market_state_coordinator import build_market_state
+
         state = build_market_state()
     except Exception as e:
         logger.warning("Không đọc được market state: %s", e)
@@ -293,12 +296,12 @@ def build_daily_report():
     meta = state.get("meta_state", {})
     flow = state.get("flow_state", {})
     breadth_state = state.get("breadth_state", {})
-    risk_state = state.get("risk_state", {})
+    state.get("risk_state", {})
 
-    market_phase = meta.get("market_phase", "KHÔNG_XÁC_ĐỊNH")
+    meta.get("market_phase", "KHÔNG_XÁC_ĐỊNH")
     risk_appetite = meta.get("risk_appetite", "TRUNG_TÍNH")
-    dominant_flow = meta.get("dominant_flow", "KHÔNG_RÕ")
-    liquidity_condition = meta.get("liquidity_condition", "TRUNG_TÍNH")
+    meta.get("dominant_flow", "KHÔNG_RÕ")
+    meta.get("liquidity_condition", "TRUNG_TÍNH")
     health_score = breadth_state.get("health_score")
     leading_sectors = flow.get("leading_sectors", [])
     lagging_sectors = flow.get("lagging_sectors", [])
@@ -308,6 +311,7 @@ def build_daily_report():
     gold_premium_regime = None
     try:
         from core.macro.gold_spread_engine import analyze_domestic_premium
+
         gp = analyze_domestic_premium()
         if isinstance(gp, dict):
             gold_premium_pct = gold_premium_pct or gp.get("premium_pct")
@@ -317,6 +321,7 @@ def build_daily_report():
 
     try:
         from src.services.macro.gold_world_service import fetch_world_gold_live
+
         world_gold = fetch_world_gold_live()
     except Exception:
         world_gold = None
@@ -375,6 +380,7 @@ def build_daily_report():
     tin_hieu = []
     try:
         from src.services.safe_haven_sentiment import phan_vung_tam_ly
+
         vung_tam_ly = phan_vung_tam_ly(
             gold_premium_pct=gold_premium_pct,
             gold_premium_regime=gold_premium_regime,
@@ -382,38 +388,48 @@ def build_daily_report():
             regime_data=regime,
         )
         if vung_tam_ly["vung"] != "BÌNH_THƯỜNG":
-            tin_hieu.append({
-                "loai": "tâm lý trú ẩn",
-                "noi_dung": f"{vung_tam_ly['ky_hieu']} {vung_tam_ly['ten']}: {vung_tam_ly['mo_ta']}",
-                "muc_do": "cao" if vung_tam_ly["vung"] in ("HOẢNG_LOẠN", "PHÒNG_THỦ_RÕ_RỆT") else "trung bình",
-            })
+            tin_hieu.append(
+                {
+                    "loai": "tâm lý trú ẩn",
+                    "noi_dung": f"{vung_tam_ly['ky_hieu']} {vung_tam_ly['ten']}: {vung_tam_ly['mo_ta']}",
+                    "muc_do": "cao" if vung_tam_ly["vung"] in ("HOẢNG_LOẠN", "PHÒNG_THỦ_RÕ_RỆT") else "trung bình",
+                }
+            )
             for ld in vung_tam_ly["ly_do"][:2]:
                 tin_hieu.append({"loai": "nguyên nhân", "noi_dung": f"▸ {ld}", "muc_do": "thông tin"})
     except Exception:
         if gold_premium_pct is not None and gold_premium_pct > 3:
-            tin_hieu.append({
-                "loai": "vàng",
-                "noi_dung": _gold_premium_giai_thich(gold_premium_pct, gold_premium_regime),
-                "muc_do": "cao" if gold_premium_pct > 5 else "trung bình",
-            })
+            tin_hieu.append(
+                {
+                    "loai": "vàng",
+                    "noi_dung": _gold_premium_giai_thich(gold_premium_pct, gold_premium_regime),
+                    "muc_do": "cao" if gold_premium_pct > 5 else "trung bình",
+                }
+            )
     if rad_activated:
-        tin_hieu.append({
-            "loai": "rad",
-            "noi_dung": "Hệ thống phát hiện thị trường đang chuyển trạng thái",
-            "muc_do": "cao",
-        })
+        tin_hieu.append(
+            {
+                "loai": "rad",
+                "noi_dung": "Hệ thống phát hiện thị trường đang chuyển trạng thái",
+                "muc_do": "cao",
+            }
+        )
     if delta_adx is not None and abs(delta_adx) > 5:
-        tin_hieu.append({
-            "loai": "biến động",
-            "noi_dung": f"Biến động thị trường đang thay đổi nhanh (ΔADX = {delta_adx:+.1f})",
-            "muc_do": "trung bình",
-        })
+        tin_hieu.append(
+            {
+                "loai": "biến động",
+                "noi_dung": f"Biến động thị trường đang thay đổi nhanh (ΔADX = {delta_adx:+.1f})",
+                "muc_do": "trung bình",
+            }
+        )
     if v_breadth is not None and v_breadth < -3:
-        tin_hieu.append({
-            "loai": "độ rộng",
-            "noi_dung": "Số cổ phiếu tăng đang giảm nhanh",
-            "muc_do": "cao",
-        })
+        tin_hieu.append(
+            {
+                "loai": "độ rộng",
+                "noi_dung": "Số cổ phiếu tăng đang giảm nhanh",
+                "muc_do": "cao",
+            }
+        )
     if world_gold and isinstance(world_gold, dict):
         giatri = world_gold.get("price")
         thaydoi = world_gold.get("change_pct")
@@ -421,11 +437,13 @@ def build_daily_report():
             gold_text = f"Vàng thế giới: {giatri:.0f} USD"
             if thaydoi is not None:
                 gold_text += f" ({thaydoi:+.2f}%)"
-            tin_hieu.append({
-                "loai": "vàng thế giới",
-                "noi_dung": gold_text,
-                "muc_do": "thông tin",
-            })
+            tin_hieu.append(
+                {
+                    "loai": "vàng thế giới",
+                    "noi_dung": gold_text,
+                    "muc_do": "thông tin",
+                }
+            )
 
     # ========================================
     # PHẦN 5: KẾT LUẬN HÀNH VI
@@ -437,6 +455,7 @@ def build_daily_report():
     # ========================================
     try:
         from src.services.early_warning_engine import build_early_warning
+
         canh_bao = build_early_warning(
             regime_data=regime,
             market_state=state,
@@ -458,6 +477,7 @@ def build_daily_report():
     # ========================================
     try:
         from src.services.phase_transition_confirmation import xac_nhan_chuyen_pha
+
         xac_nhan = xac_nhan_chuyen_pha(
             regime_data=regime,
             market_state=state,
@@ -479,32 +499,58 @@ def build_daily_report():
     quyet_dinh = {}
     try:
         from src.services.decision_layer import quyet_dinh_cuoi_cung
-        quyet_dinh = quyet_dinh_cuoi_cung({
-            "ket_luan_hanh_vi": hanh_vi,
-            "canh_bao_som": canh_bao,
-            "xac_nhan_chuyen_pha": xac_nhan,
-            "tin_hieu_dac_biet": tin_hieu,
-            "rui_ro": rui_ro,
-        })
+
+        quyet_dinh = quyet_dinh_cuoi_cung(
+            {
+                "ket_luan_hanh_vi": hanh_vi,
+                "canh_bao_som": canh_bao,
+                "xac_nhan_chuyen_pha": xac_nhan,
+                "tin_hieu_dac_biet": tin_hieu,
+                "rui_ro": rui_ro,
+            }
+        )
     except Exception as e:
         logger.warning("Không tạo được quyết định cuối cùng: %s", e)
 
     # ========================================
     # PHẦN 9: PHÂN LOẠI DANH MỤC CỔ PHIẾU
     # ========================================
-    danh_sach_mac_dinh = ["HPG", "MBB", "GMD", "STB", "VTO", "REE", "DP3",
-                          "VTP", "MWG", "SSI", "BSR", "QNS", "TLG", "SBT",
-                          "FPT", "DGC", "VGI", "VIB", "TCB", "ACB"]
+    danh_sach_mac_dinh = [
+        "HPG",
+        "MBB",
+        "GMD",
+        "STB",
+        "VTO",
+        "REE",
+        "DP3",
+        "VTP",
+        "MWG",
+        "SSI",
+        "BSR",
+        "QNS",
+        "TLG",
+        "SBT",
+        "FPT",
+        "DGC",
+        "VGI",
+        "VIB",
+        "TCB",
+        "ACB",
+    ]
     phan_loai = []
     try:
         from src.services.portfolio_decision_layer import phan_loai_danh_muc
-        phan_loai = phan_loai_danh_muc(danh_sach_mac_dinh, {
-            "canh_bao_som": canh_bao,
-            "xac_nhan_chuyen_pha": xac_nhan,
-            "quyet_dinh_cuoi_cung": quyet_dinh,
-            "rui_ro": rui_ro,
-            "dong_tien": dong_tien,
-        })
+
+        phan_loai = phan_loai_danh_muc(
+            danh_sach_mac_dinh,
+            {
+                "canh_bao_som": canh_bao,
+                "xac_nhan_chuyen_pha": xac_nhan,
+                "quyet_dinh_cuoi_cung": quyet_dinh,
+                "rui_ro": rui_ro,
+                "dong_tien": dong_tien,
+            },
+        )
     except Exception as e:
         logger.warning("Không phân loại được danh mục: %s", e)
 
@@ -629,9 +675,11 @@ def in_bao_cao(report, lang_mode: str = "annotated"):
     for ten_nhom, tt in chi_tiet.items():
         dat = "✔" if tt.get("dat") else "✘"
         diem = tt.get("diem", 0)
-        ten_hien = {"gia_va_xu_huong": "Giá và xu hướng",
-                     "dong_tien": "Dòng tiền",
-                     "hanh_vi_phong_thu": "Hành vi phòng thủ"}.get(ten_nhom, ten_nhom)
+        ten_hien = {
+            "gia_va_xu_huong": "Giá và xu hướng",
+            "dong_tien": "Dòng tiền",
+            "hanh_vi_phong_thu": "Hành vi phòng thủ",
+        }.get(ten_nhom, ten_nhom)
         print(f"  {dat} {_bi(ten_hien, lang_mode)} (điểm: {diem})")
         for ld in tt.get("ly_do", [])[:2]:
             print(f"    ▸ {ld}")
@@ -669,13 +717,14 @@ def in_bao_cao(report, lang_mode: str = "annotated"):
 if __name__ == "__main__":
     if sys.platform == "win32":
         import io
+
         if isinstance(sys.stdout, io.TextIOWrapper):
-            if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+            if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
-                    sys.stdout.reconfigure(encoding='utf-8')
+                    sys.stdout.reconfigure(encoding="utf-8")
                 except Exception:
                     pass
-        elif hasattr(sys.stdout, 'buffer'):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        elif hasattr(sys.stdout, "buffer"):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     bao_cao = build_daily_report()
     in_bao_cao(bao_cao)

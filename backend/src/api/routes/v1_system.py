@@ -1,4 +1,4 @@
-﻿"""v1_system.py — API endpoint: vận hành hệ thống (EOD run, health).
+"""v1_system.py — API endpoint: vận hành hệ thống (EOD run, health).
 
 Tuân thủ:
   - CLI-First Law: gọi run_eod_pipeline() từ eod_runner, không nhúng logic.
@@ -7,12 +7,12 @@ Tuân thủ:
       POST → asyncio.Queue ← Background Thread (ACID) → StreamingResponse
       ACID transaction hoàn toàn cách ly khỏi I/O mạng.
 """
+
 import asyncio
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -42,26 +42,30 @@ router = APIRouter()
 
 # ── Request Models ──────────────────────────────────────────────────
 
+
 class EODRunRequest(BaseModel):
-    as_of_date: Optional[str] = None
+    as_of_date: str | None = None
     force: bool = False
     catchup: bool = True
 
 
 # ── EOD Blocking Endpoint (sync, for CLI) ──────────────────────────
 
+
 @router.post("/system/eod-run")
-async def trigger_eod_run(as_of_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
-                          force: bool = Query(False, description="Bỏ qua idempotency check"),
-                          catchup: bool = Query(True, description="Bù ngày nợ trước khi xử lý")):
+async def trigger_eod_run(
+    as_of_date: str | None = Query(None, description="YYYY-MM-DD"),
+    force: bool = Query(False, description="Bỏ qua idempotency check"),
+    catchup: bool = Query(True, description="Bù ngày nợ trước khi xử lý"),
+):
     """Kích hoạt EOD Pipeline thủ công (blocking).
 
     Chạy toàn bộ chu trình: catch-up → paper trading → settle → CA → MtM → ledger.
     Trả về kết quả dạng song ngữ HCI.
     """
     try:
-        from src.engine.eod_runner import run_eod_pipeline
         from src.database.acid import ResourceLockedException, TransactionTimeout
+        from src.engine.eod_runner import run_eod_pipeline
 
         result = run_eod_pipeline(
             as_of_date=as_of_date,
@@ -69,25 +73,31 @@ async def trigger_eod_run(as_of_date: Optional[str] = Query(None, description="Y
             catchup=catchup,
         )
     except ResourceLockedException as e:
-        raise HTTPException(status_code=423, detail={
-            "status": "SKIPPED",
-            "signal": "RESOURCE_LOCKED",
-            "message": str(e),
-            "localization": {
-                "vi": {"name": "Đã bỏ qua", "tooltip": "Tiến trình EOD khác đang chạy. Thử lại sau."},
-                "en": {"name": "Skipped", "tooltip": "Another EOD process is running. Retry later."},
+        raise HTTPException(
+            status_code=423,
+            detail={
+                "status": "SKIPPED",
+                "signal": "RESOURCE_LOCKED",
+                "message": str(e),
+                "localization": {
+                    "vi": {"name": "Đã bỏ qua", "tooltip": "Tiến trình EOD khác đang chạy. Thử lại sau."},
+                    "en": {"name": "Skipped", "tooltip": "Another EOD process is running. Retry later."},
+                },
             },
-        })
+        )
     except TransactionTimeout as e:
-        raise HTTPException(status_code=408, detail={
-            "status": "TIMEOUT",
-            "signal": "TRANSACTION_TIMEOUT",
-            "message": str(e),
-            "localization": {
-                "vi": {"name": "Quá thời gian", "tooltip": "Giao dịch EOD vượt quá SLA. Kiểm tra log telemetry."},
-                "en": {"name": "Timeout", "tooltip": "EOD transaction exceeded SLA. Check telemetry logs."},
+        raise HTTPException(
+            status_code=408,
+            detail={
+                "status": "TIMEOUT",
+                "signal": "TRANSACTION_TIMEOUT",
+                "message": str(e),
+                "localization": {
+                    "vi": {"name": "Quá thời gian", "tooltip": "Giao dịch EOD vượt quá SLA. Kiểm tra log telemetry."},
+                    "en": {"name": "Timeout", "tooltip": "EOD transaction exceeded SLA. Check telemetry logs."},
+                },
             },
-        })
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"EOD run failed: {str(e)}")
 
@@ -106,19 +116,26 @@ async def trigger_eod_run(as_of_date: Optional[str] = Query(None, description="Y
             "localization": {
                 "vi": {
                     "name": "Thành công" if status == "success" else "Thất bại",
-                    "tooltip": "EOD pipeline chạy thành công." if status == "success" else "EOD pipeline thất bại. Kiểm tra telemetry exceptions.",
+                    "tooltip": "EOD pipeline chạy thành công."
+                    if status == "success"
+                    else "EOD pipeline thất bại. Kiểm tra telemetry exceptions.",
                 },
                 "en": {
                     "name": "Success" if status == "success" else "Failed",
-                    "tooltip": "EOD pipeline completed successfully." if status == "success" else "EOD pipeline failed. Check telemetry exceptions.",
+                    "tooltip": "EOD pipeline completed successfully."
+                    if status == "success"
+                    else "EOD pipeline failed. Check telemetry exceptions.",
                 },
             },
         },
-        "details": {k: v for k, v in result.items() if k not in ("status", "as_of_date", "correlation_id", "corr_id", "timestamp")},
+        "details": {
+            k: v for k, v in result.items() if k not in ("status", "as_of_date", "correlation_id", "corr_id", "timestamp")
+        },
     }
 
 
 # ── SSE Streaming Endpoint (decoupled from ACID) ───────────────────
+
 
 @router.post("/system/eod-run/stream")
 async def trigger_eod_run_stream(body: EODRunRequest):
@@ -142,11 +159,14 @@ async def trigger_eod_run_stream(body: EODRunRequest):
     async def _background_worker():
         """Vòng đời: queue START → run_in_executor → queue SUCCESS/ERROR."""
         try:
-            await queue.put({
-                "progress": 0, "stage": "QUEUED",
-                "message": "Xếp hàng chờ xử lý...",
-                "as_of_date": body.as_of_date,
-            })
+            await queue.put(
+                {
+                    "progress": 0,
+                    "stage": "QUEUED",
+                    "message": "Xếp hàng chờ xử lý...",
+                    "as_of_date": body.as_of_date,
+                }
+            )
 
             loop = asyncio.get_running_loop()
 
@@ -156,10 +176,12 @@ async def trigger_eod_run_stream(body: EODRunRequest):
                     from src.engine.eod_runner import run_eod_pipeline
 
                     loop.call_soon_threadsafe(
-                        queue.put_nowait, {
-                            "progress": 5, "stage": "START",
+                        queue.put_nowait,
+                        {
+                            "progress": 5,
+                            "stage": "START",
                             "message": "Bắt đầu EOD pipeline...",
-                        }
+                        },
                     )
 
                     result = run_eod_pipeline(
@@ -171,41 +193,51 @@ async def trigger_eod_run_stream(body: EODRunRequest):
                     status = result.get("status", "FAILED")
                     is_ok = status == "success"
                     loop.call_soon_threadsafe(
-                        queue.put_nowait, {
+                        queue.put_nowait,
+                        {
                             "progress": 100,
                             "stage": "SUCCESS" if is_ok else "FAILED",
                             "message": "EOD pipeline hoàn tất!" if is_ok else "EOD pipeline thất bại.",
                             "result": result,
-                        }
+                        },
                     )
                 except ResourceLockedException as e:
                     loop.call_soon_threadsafe(
-                        queue.put_nowait, {
-                            "progress": -1, "stage": "SKIPPED",
+                        queue.put_nowait,
+                        {
+                            "progress": -1,
+                            "stage": "SKIPPED",
                             "message": str(e),
-                        }
+                        },
                     )
                 except TransactionTimeout as e:
                     loop.call_soon_threadsafe(
-                        queue.put_nowait, {
-                            "progress": -1, "stage": "TIMEOUT",
+                        queue.put_nowait,
+                        {
+                            "progress": -1,
+                            "stage": "TIMEOUT",
                             "message": str(e),
-                        }
+                        },
                     )
                 except Exception as e:
                     loop.call_soon_threadsafe(
-                        queue.put_nowait, {
-                            "progress": -1, "stage": "ERROR",
+                        queue.put_nowait,
+                        {
+                            "progress": -1,
+                            "stage": "ERROR",
                             "message": str(e),
-                        }
+                        },
                     )
 
             await loop.run_in_executor(None, _run_eod_in_thread)
         except Exception as e:
-            await queue.put({
-                "progress": -1, "stage": "FATAL",
-                "message": f"Background worker crash: {e}",
-            })
+            await queue.put(
+                {
+                    "progress": -1,
+                    "stage": "FATAL",
+                    "message": f"Background worker crash: {e}",
+                }
+            )
 
     asyncio.create_task(_background_worker())
 
@@ -228,6 +260,7 @@ async def trigger_eod_run_stream(body: EODRunRequest):
 
 
 # ── Health Check ────────────────────────────────────────────────────
+
 
 @router.get("/system/health")
 async def system_health():

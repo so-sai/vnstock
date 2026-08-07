@@ -1,4 +1,4 @@
-﻿"""Boot-time CAGL verifier — runs at FastAPI startup to validate route integrity.
+"""Boot-time CAGL verifier — runs at FastAPI startup to validate route integrity.
 
 Usage::
 
@@ -11,12 +11,12 @@ Modes:
   - ``"WARN"``   — log all findings (default)
   - ``"STRICT"`` — raise SystemExit on errors
 """
+
 from __future__ import annotations
 
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI
 
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 def verify_cagl(
     app: FastAPI,
     mode: str = "WARN",
-    expected_routes: Optional[list[EndpointSpec]] = None,
+    expected_routes: list[EndpointSpec] | None = None,
 ) -> ScanResult:
     """Run full CAGL verification on a FastAPI application.
 
@@ -117,8 +117,7 @@ def verify_cagl(
         logger.error("[CAGL] STRICT mode — %d error(s) found, aborting", len(result.errors))
         raise SystemExit(1)
 
-    logger.info("[CAGL] Verification complete: %d errors, %d warnings",
-                len(result.errors), len(result.warnings))
+    logger.info("[CAGL] Verification complete: %d errors, %d warnings", len(result.errors), len(result.warnings))
     return result
 
 

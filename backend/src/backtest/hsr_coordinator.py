@@ -1,4 +1,3 @@
-﻿# -*- coding: utf-8 -*-
 """
 hsr_coordinator.py — Historical State Reconstruction Coordinator.
 
@@ -19,13 +18,12 @@ Contract:
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
 logger = logging.getLogger("sentinel.hsr")
 
-_OHLCV_CACHE: Optional[pd.DataFrame] = None
+_OHLCV_CACHE: pd.DataFrame | None = None
 """Module-level cache: pre-loaded OHLCV for all symbols across entire replay window."""
 
 
@@ -33,22 +31,24 @@ def preload_ohlcv(start_date: str, end_date: str) -> pd.DataFrame:
     """Load ALL OHLCV data for ALL symbols in one query. Called once before replay loop."""
     global _OHLCV_CACHE
     from src.database.db_core import get_connection
+
     with get_connection() as conn:
         _OHLCV_CACHE = pd.read_sql(
-            "SELECT symbol, date, close FROM daily_ohlcv "
-            "WHERE date >= ? AND date <= ? AND volume > 0 "
-            "ORDER BY symbol, date",
-            conn, params=(start_date, end_date)
+            "SELECT symbol, date, close FROM daily_ohlcv WHERE date >= ? AND date <= ? AND volume > 0 ORDER BY symbol, date",
+            conn,
+            params=(start_date, end_date),
         )
-    _OHLCV_CACHE['date'] = pd.to_datetime(_OHLCV_CACHE['date'], format='mixed')
-    logger.info(f"  [HSR] Pre-loaded {len(_OHLCV_CACHE):,} rows for "
-                f"{_OHLCV_CACHE['symbol'].nunique()} symbols "
-                f"({start_date} → {end_date})")
+    _OHLCV_CACHE["date"] = pd.to_datetime(_OHLCV_CACHE["date"], format="mixed")
+    logger.info(
+        f"  [HSR] Pre-loaded {len(_OHLCV_CACHE):,} rows for "
+        f"{_OHLCV_CACHE['symbol'].nunique()} symbols "
+        f"({start_date} → {end_date})"
+    )
     return _OHLCV_CACHE
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -82,7 +82,6 @@ from core.presentation.transition_trigger_layer import (
     clear_ttl_history,
     compute_transition_trigger,
 )
-
 from src.engine.breadth_engine import run_breadth_analysis
 from src.engine.capital_flow_forecasting_engine import generate_flow_forecast
 from src.engine.decision_engine import merge_decisions
@@ -92,10 +91,14 @@ from src.engine.rsi_regime_engine import generate_market_rsi_report
 
 def _flow_status_to_bias_score(flow_status: str) -> float:
     mapping = {
-        "MỞ_RỘNG": 1.0, "MỞ_RỘNG_TÍCH_CỰC": 1.0,
-        "DUY_TRÌ": 0.65, "ỔN_ĐỊNH": 0.65,
-        "TRUNG_TÍNH": 0.5, "PHÂN_HÓA": 0.35,
-        "THU_HẸP": 0.1, "UNKNOWN": 0.4,
+        "MỞ_RỘNG": 1.0,
+        "MỞ_RỘNG_TÍCH_CỰC": 1.0,
+        "DUY_TRÌ": 0.65,
+        "ỔN_ĐỊNH": 0.65,
+        "TRUNG_TÍNH": 0.5,
+        "PHÂN_HÓA": 0.35,
+        "THU_HẸP": 0.1,
+        "UNKNOWN": 0.4,
     }
     return mapping.get(flow_status, 0.4)
 
@@ -138,10 +141,10 @@ def _breadth_from_lattice(lattice: pd.DataFrame, target_date: str) -> tuple:
 
 def build_historical_snapshot(
     target_date: str,
-    dpl_history: Optional[list] = None,
-    ttl_state: Optional[dict] = None,
-    preloaded_df: Optional[pd.DataFrame] = None,
-    lattice: Optional[pd.DataFrame] = None,
+    dpl_history: list | None = None,
+    ttl_state: dict | None = None,
+    preloaded_df: pd.DataFrame | None = None,
+    lattice: pd.DataFrame | None = None,
 ) -> dict:
     """
     Reconstruct a single daily snapshot for SRV at target_date.
@@ -211,10 +214,9 @@ def build_historical_snapshot(
         forecast = {}
 
     # ── Step 5: RSI Regime Report ───────────────────────────────────────
-    rsi_report = {}
     if preloaded_df is not None:
         try:
-            rsi_report = generate_market_rsi_report(
+            generate_market_rsi_report(
                 target_date=target_date,
                 preloaded_df=preloaded_df,
             )
@@ -277,8 +279,10 @@ def build_historical_snapshot(
 
     dpl = compute_direction_persistence(dbe)
 
-    ttl = compute_transition_trigger(
-        dpl=dpl, dbe=dbe, regime_status=regime_status,
+    compute_transition_trigger(
+        dpl=dpl,
+        dbe=dbe,
+        regime_status=regime_status,
     )
 
     # ── Step 7: Assemble SRV snapshot ──────────────────────────────────
@@ -294,7 +298,6 @@ def build_historical_snapshot(
         "dcl_verdict": dcl.verdict,
         "dcl_score": round(dcl.score, 4),
         "compensations_triggered": dcl.compensations_triggered,
-
         # HSR metadata
         "hsr_quality": {
             "capital_displacement": "MISSING_HISTORICAL_SOURCE",

@@ -1,4 +1,5 @@
 from typing import Literal
+
 from pydantic import BaseModel, Field
 
 # ───────────────────────────────
@@ -48,20 +49,36 @@ def resolve_color_from_decision(
     signal_alignment: float = 0.5,
 ) -> ColorDecision:
     if entropy_state == "MẤT_ỔN_ĐỊNH":
-        return ColorDecision(token="RED", hex=HEX_RED, label_vi=COLOR_LABELS_VI["RED"],
-                             reason="Mất ổn định nhận thức → ưu tiên bảo toàn vốn")
+        return ColorDecision(
+            token="RED", hex=HEX_RED, label_vi=COLOR_LABELS_VI["RED"], reason="Mất ổn định nhận thức → ưu tiên bảo toàn vốn"
+        )
     if confidence < 0.4:
-        return ColorDecision(token="GRAY", hex=HEX_GRAY, label_vi=COLOR_LABELS_VI["GRAY"],
-                             reason=f"Confidence={confidence:.2f} dưới ngưỡng 0.4 → chưa đủ tín hiệu")
+        return ColorDecision(
+            token="GRAY",
+            hex=HEX_GRAY,
+            label_vi=COLOR_LABELS_VI["GRAY"],
+            reason=f"Confidence={confidence:.2f} dưới ngưỡng 0.4 → chưa đủ tín hiệu",
+        )
     if risk_level == "CAO":
-        return ColorDecision(token="RED", hex=HEX_RED, label_vi=COLOR_LABELS_VI["RED"],
-                             reason="Rủi ro cao → phòng thủ")
+        return ColorDecision(token="RED", hex=HEX_RED, label_vi=COLOR_LABELS_VI["RED"], reason="Rủi ro cao → phòng thủ")
     if recommended_posture == "TĂNG_TỶ_TRỌNG":
-        return ColorDecision(token="GREEN", hex=HEX_GREEN, label_vi=COLOR_LABELS_VI["GREEN"],
-                             reason="Posture tăng tỷ trọng → dòng tiền mở rộng an toàn")
+        return ColorDecision(
+            token="GREEN",
+            hex=HEX_GREEN,
+            label_vi=COLOR_LABELS_VI["GREEN"],
+            reason="Posture tăng tỷ trọng → dòng tiền mở rộng an toàn",
+        )
     if signal_alignment < 0.4:
-        return ColorDecision(token="ORANGE", hex=HEX_ORANGE, label_vi=COLOR_LABELS_VI["ORANGE"],
-                             reason=f"Signal alignment={signal_alignment:.2f} < 0.4 → mất đồng thuận")
+        return ColorDecision(
+            token="ORANGE",
+            hex=HEX_ORANGE,
+            label_vi=COLOR_LABELS_VI["ORANGE"],
+            reason=f"Signal alignment={signal_alignment:.2f} < 0.4 → mất đồng thuận",
+        )
 
-    return ColorDecision(token="YELLOW", hex=HEX_YELLOW, label_vi=COLOR_LABELS_VI["YELLOW"],
-                         reason="Trạng thái trung tính → tích lũy / quan sát")
+    return ColorDecision(
+        token="YELLOW",
+        hex=HEX_YELLOW,
+        label_vi=COLOR_LABELS_VI["YELLOW"],
+        reason="Trạng thái trung tính → tích lũy / quan sát",
+    )

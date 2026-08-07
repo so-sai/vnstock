@@ -1,11 +1,11 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -22,12 +22,12 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import logging
 
 from core.flow.liquidity_concentration_engine import get_lci_dashboard
-
 from src.engine.flow_decay_engine import (
     get_decayed_flow_summary,
     get_decayed_foreign_summary,
@@ -61,25 +61,27 @@ async def get_liquidity_flow():
         logger.error(f"Liquidity wave scan failed: {e}")
         waves = []
 
-    return localize_output({
-        "liquidity_phase": health.get("liquidity_phase", "NEUTRAL"),
-        "volume_trend_5d": health.get("volume_trend_5d", 0),
-        "value_trend_5d": health.get("value_trend_5d", 0),
-        "top_concentration_pct": health.get("top_concentration_pct", 0),
-        "waves": [
-            {
-                "symbol": w.get("symbol"),
-                "sector": w.get("sector", "Khác"),
-                "vol_ratio": round(w.get("vol_ratio", 0), 2),
-                "vol_accel_20d": round(w.get("vol_accel_20d", 0), 3),
-                "turnover_shock": round(w.get("turnover_shock", 0), 2),
-                "retail_chase_score": round(w.get("retail_chase_score", 0), 2),
-                "wave_strength": w.get("wave_strength", "NORMAL"),
-                "consecutive_high_vol_days": w.get("consecutive_high_vol_days", 0),
-            }
-            for w in waves[:20]
-        ],
-    })
+    return localize_output(
+        {
+            "liquidity_phase": health.get("liquidity_phase", "NEUTRAL"),
+            "volume_trend_5d": health.get("volume_trend_5d", 0),
+            "value_trend_5d": health.get("value_trend_5d", 0),
+            "top_concentration_pct": health.get("top_concentration_pct", 0),
+            "waves": [
+                {
+                    "symbol": w.get("symbol"),
+                    "sector": w.get("sector", "Khác"),
+                    "vol_ratio": round(w.get("vol_ratio", 0), 2),
+                    "vol_accel_20d": round(w.get("vol_accel_20d", 0), 3),
+                    "turnover_shock": round(w.get("turnover_shock", 0), 2),
+                    "retail_chase_score": round(w.get("retail_chase_score", 0), 2),
+                    "wave_strength": w.get("wave_strength", "NORMAL"),
+                    "consecutive_high_vol_days": w.get("consecutive_high_vol_days", 0),
+                }
+                for w in waves[:20]
+            ],
+        }
+    )
 
 
 @router.get("/sector")
@@ -95,25 +97,29 @@ async def get_sector_flow():
     sectors = []
     for s in sectors_raw:
         score = s.get("flow_score", s.get("momentum_score", s.get("score", 50)))
-        sectors.append({
-            "sector": s.get("sector", s.get("name", "Unknown")),
-            "flow_score": score,
-            "momentum": s.get("momentum", 0),
-            "return_20d": s.get("return_20d", 0),
-            "volatility_20d": s.get("volatility_20d", 0),
-            "phase": _classify_phase(score),
-        })
+        sectors.append(
+            {
+                "sector": s.get("sector", s.get("name", "Unknown")),
+                "flow_score": score,
+                "momentum": s.get("momentum", 0),
+                "return_20d": s.get("return_20d", 0),
+                "volatility_20d": s.get("volatility_20d", 0),
+                "phase": _classify_phase(score),
+            }
+        )
     sectors.sort(key=lambda x: x["flow_score"], reverse=True)
 
     chains = _build_chains_from_waves()
     flow_alignment = rotation.get("flow_alignment_pct", rotation.get("alignment", 0))
 
-    return localize_output({
-        "rotation_regime": rotation.get("rotation_regime", "UNKNOWN"),
-        "flow_alignment_pct": flow_alignment,
-        "sectors": sectors,
-        "leader_follower_chains": chains,
-    })
+    return localize_output(
+        {
+            "rotation_regime": rotation.get("rotation_regime", "UNKNOWN"),
+            "flow_alignment_pct": flow_alignment,
+            "sectors": sectors,
+            "leader_follower_chains": chains,
+        }
+    )
 
 
 @router.get("/foreign")
@@ -138,12 +144,14 @@ async def get_foreign_flow():
 
     top_accumulated = sorted(accumulations.items(), key=lambda x: x[1], reverse=True)
 
-    return localize_output({
-        "total_net_10d_bn_vnd": round(total_net, 2),
-        "market_pressure": "ACCUMULATING" if total_net > 0 else "DISTRIBUTING",
-        "top_accumulated": [{"symbol": s, "net_10d_bn_vnd": v} for s, v in top_accumulated[:5]],
-        "top_distributed": [{"symbol": s, "net_10d_bn_vnd": v} for s, v in reversed(top_accumulated[-5:])],
-    })
+    return localize_output(
+        {
+            "total_net_10d_bn_vnd": round(total_net, 2),
+            "market_pressure": "ACCUMULATING" if total_net > 0 else "DISTRIBUTING",
+            "top_accumulated": [{"symbol": s, "net_10d_bn_vnd": v} for s, v in top_accumulated[:5]],
+            "top_distributed": [{"symbol": s, "net_10d_bn_vnd": v} for s, v in reversed(top_accumulated[-5:])],
+        }
+    )
 
 
 @router.get("/decayed-summary")
@@ -232,17 +240,18 @@ async def get_flow_banner():
     elif len(sorted_sectors) == 1:
         top_sec, top_data = sorted_sectors[0]
         banner = (
-            f"DÒNG TIỀN TẬP TRUNG: {top_sec.upper()} ({top_data['symbol']}) | "
-            f"THANH KHOẢN: {_phase_label_vn(liquidity_phase)}"
+            f"DÒNG TIỀN TẬP TRUNG: {top_sec.upper()} ({top_data['symbol']}) | THANH KHOẢN: {_phase_label_vn(liquidity_phase)}"
         )
     else:
         banner = "HỆ THỐNG ĐANG THU THẬP DỮ LIỆU DÒNG CHẢY — CHỜ TÍN HIỆU XÁC NHẬN"
 
-    return localize_output({
-        "banner": banner,
-        "liquidity_phase": liquidity_phase,
-        "rotation_regime": rotation_regime,
-    })
+    return localize_output(
+        {
+            "banner": banner,
+            "liquidity_phase": liquidity_phase,
+            "rotation_regime": rotation_regime,
+        }
+    )
 
 
 @router.get("/banner/decayed")
@@ -253,16 +262,18 @@ async def get_flow_banner_decayed():
         return localize_output(banner_data)
     except Exception as e:
         logger.error(f"Decayed banner failed: {e}")
-        return localize_output({
-            "banner": "LỖI HỆ THỐNG — KHÔNG THỂ TỔNG HỢP DỮ LIỆU DÒNG TIỀN",
-            "liquidity_phase_decayed": "UNKNOWN",
-            "rotation_regime_decayed": "UNKNOWN",
-            "persistence_score": 0.0,
-            "instability_score": 0.0,
-            "signal_strength": 0.0,
-            "conflict_flag": False,
-            "confidence_band": "THẤP",
-        })
+        return localize_output(
+            {
+                "banner": "LỖI HỆ THỐNG — KHÔNG THỂ TỔNG HỢP DỮ LIỆU DÒNG TIỀN",
+                "liquidity_phase_decayed": "UNKNOWN",
+                "rotation_regime_decayed": "UNKNOWN",
+                "persistence_score": 0.0,
+                "instability_score": 0.0,
+                "signal_strength": 0.0,
+                "conflict_flag": False,
+                "confidence_band": "THẤP",
+            }
+        )
 
 
 @router.get("/lci")
@@ -275,11 +286,13 @@ async def get_liquidity_concentration_index():
         return localize_output(lci)
     except Exception as e:
         logger.error(f"LCI failed: {e}")
-        return localize_output({
-            "lci_score": 0.0,
-            "market_breadth_quality": "LAN_TOA_THAT",
-            "error": str(e),
-        })
+        return localize_output(
+            {
+                "lci_score": 0.0,
+                "market_breadth_quality": "LAN_TOA_THAT",
+                "error": str(e),
+            }
+        )
 
 
 def _build_chains_from_waves() -> dict:
@@ -296,10 +309,12 @@ def _build_chains_from_waves() -> dict:
             continue
         if sector not in sector_stocks:
             sector_stocks[sector] = []
-        sector_stocks[sector].append({
-            "symbol": sym,
-            "score": w.get("retail_chase_score", w.get("vol_ratio", 0)),
-        })
+        sector_stocks[sector].append(
+            {
+                "symbol": sym,
+                "score": w.get("retail_chase_score", w.get("vol_ratio", 0)),
+            }
+        )
     for sector, stocks in sector_stocks.items():
         if not stocks:
             continue
@@ -312,9 +327,12 @@ def _build_chains_from_waves() -> dict:
 
 
 def _classify_phase(score: float) -> str:
-    if score >= 80: return "EXPANDING"
-    if score >= 60: return "EARLY_ACCEL"
-    if score >= 40: return "CONTRACTING"
+    if score >= 80:
+        return "EXPANDING"
+    if score >= 60:
+        return "EARLY_ACCEL"
+    if score >= 40:
+        return "CONTRACTING"
     return "CRISIS"
 
 

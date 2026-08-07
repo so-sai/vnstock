@@ -1,4 +1,4 @@
-from .models import CausalAttributionReport, CausalFactor, BiasDriver
+from .models import CausalAttributionReport, CausalFactor
 
 FRIENDLY_NAMES = {
     "FLOW": "Dòng tiền (FLOW)",
@@ -17,7 +17,7 @@ def compute_causal_attribution(
 ) -> CausalAttributionReport:
     """
     Attributes causal weights to the transition based on the delta of DBE driver impacts.
-    
+
     Parameters
     ----------
     transition_type : str
@@ -27,7 +27,7 @@ def compute_causal_attribution(
           - "bias_drivers": list of BiasDriver or dict with keys "source" and "impact"
     lookback_days : int
         Attribution window (T) to calculate impact change.
-        
+
     Returns
     -------
     CausalAttributionReport
@@ -69,14 +69,9 @@ def compute_causal_attribution(
         base_val = base_drivers.get(source, 0.0)
         delta = round(curr_val - base_val, 4)
         direction = 1 if delta > 0 else (-1 if delta < 0 else 0)
-        
+
         total_abs_delta += abs(delta)
-        factors.append({
-            "source": source,
-            "delta": delta,
-            "direction": direction,
-            "abs_delta": abs(delta)
-        })
+        factors.append({"source": source, "delta": delta, "direction": direction, "abs_delta": abs(delta)})
 
     # Sort factors by absolute delta descending
     factors.sort(key=lambda x: x["abs_delta"], reverse=True)
@@ -85,12 +80,9 @@ def compute_causal_attribution(
     causal_factors = []
     for f in factors:
         contrib = round(f["abs_delta"] / total_abs_delta, 4) if total_abs_delta > 0 else 0.0
-        causal_factors.append(CausalFactor(
-            source=f["source"],
-            delta=f["delta"],
-            direction=f["direction"],
-            contribution_pct=contrib
-        ))
+        causal_factors.append(
+            CausalFactor(source=f["source"], delta=f["delta"], direction=f["direction"], contribution_pct=contrib)
+        )
 
     # Generate Vietnamese summary narrative
     if total_abs_delta == 0.0:
@@ -116,8 +108,5 @@ def compute_causal_attribution(
             summary_vi += "."
 
     return CausalAttributionReport(
-        transition_type=transition_type,
-        primary_cause=primary_cause,
-        factors=causal_factors,
-        summary_vi=summary_vi
+        transition_type=transition_type, primary_cause=primary_cause, factors=causal_factors, summary_vi=summary_vi
     )

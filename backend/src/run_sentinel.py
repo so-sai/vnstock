@@ -8,16 +8,18 @@ from pathlib import Path
 
 if sys.platform == "win32":
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+
 def _hydrate_path():
     """Zero-Friction Sentinel v2.2: Anchor on AGENTS.md + backend is_dir"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -48,7 +50,7 @@ def _resolve_data_dir() -> Path:
     Portable mode (frozen): store next to .exe
     Dev mode: use backend/data/
     """
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent / "data"
     return PROJECT_ROOT / "backend" / "data"
 
@@ -76,9 +78,8 @@ def check_cognitive_modules() -> None:
     print("  🧠 Cognitive modules health check...")
     try:
         from core.guard import DECISION_VIEW_SCHEMA_VERSION, lock_schema
-        from core.signal_provenance import ProvenanceRegistry, SignalProvenanceNode
-
         from core.presentation import get_label
+        from core.signal_provenance import ProvenanceRegistry, SignalProvenanceNode
 
         lb = get_label("risk", "NEUTRAL")
         assert lb is not None
@@ -97,7 +98,7 @@ def show_banner(port: int, data_dir: Path) -> None:
     print("  ║          Alpha — Local Execution          ║")
     print("  ╠══════════════════════════════════════════╣")
     print(f"  ║  Serving on http://127.0.0.1:{port:<5}          ║")
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         print(f"  ║  Data: {str(data_dir):35s} ║")
     print("  ║  DecisionView schema: v1.0.0             ║")
     print("  ╚══════════════════════════════════════════╝")
@@ -109,6 +110,7 @@ def show_banner(port: int, data_dir: Path) -> None:
 def cmd_init() -> int:
     """Initialize ALL database schemas (no network)."""
     from src.init_db import run_init
+
     print("=" * 60)
     print("  PTCK — DATABASE INITIALIZATION")
     print("=" * 60)
@@ -121,6 +123,7 @@ def cmd_init() -> int:
 def cmd_seed() -> int:
     """Download market data (requires network)."""
     from src.daily_updater import run_daily_update
+
     print("=" * 60)
     print("  PTCK — DATA SEEDING")
     print("=" * 60)
@@ -135,13 +138,14 @@ def cmd_seed() -> int:
 def cmd_run() -> None:
     """Start the server (default mode)."""
     from src.init_db import needs_init
+
     missing = needs_init(str(DATA_DIR))
     if missing:
         print(f"  ⚠️  {len(missing)} database(s) need initialization: {', '.join(missing)}")
         print("  Chạy '--init' trước, hoặc dùng 'python ptck.py db init'")
         print()
         # Auto-init if in dev mode (non-frozen)
-        if not getattr(sys, 'frozen', False):
+        if not getattr(sys, "frozen", False):
             print("  → Tự động init schema...")
             cmd_init()
         else:
@@ -170,9 +174,13 @@ def main() -> None:
         prog="sentinel",
         description="Sentinel Fortress — PTCK Market Cognition Terminal",
     )
-    parser.add_argument("mode", nargs="?", default="run",
-                        choices=["init", "seed", "run"],
-                        help="init: create DB schemas | seed: download data | run: start server")
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        default="run",
+        choices=["init", "seed", "run"],
+        help="init: create DB schemas | seed: download data | run: start server",
+    )
     parser.add_argument("--port", type=int, default=0, help="Port (0 = auto)")
     args = parser.parse_args()
 

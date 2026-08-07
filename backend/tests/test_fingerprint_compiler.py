@@ -7,7 +7,6 @@ Kiểm thử:
   - LAW-007: Falsifiability Principle (Phủ định & Vô hiệu hóa giả thuyết khi vi phạm)
 """
 
-import pytest
 
 
 def test_fingerprint_compiler_extracts_fingerprints():

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gate B — Counterfactual Injectability Test
 ===========================================
 For each engine, simulate removing its signal (set to neutral/zero)
@@ -7,17 +7,17 @@ and check whether the decision distribution changes measurably.
 If removing an engine does not change the decision → it is a decorative signal
 with no causal capacity → CAO would learn noise.
 """
+
 import json
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -30,6 +30,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.cao_readiness.models import (
@@ -50,7 +51,7 @@ def _parse_engine_scores(snapshot: dict) -> dict:
     if isinstance(raw, str):
         try:
             return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return {}
     if isinstance(raw, dict):
         return raw
@@ -59,13 +60,18 @@ def _parse_engine_scores(snapshot: dict) -> dict:
 
 def _compute_decision_from_scores(
     scores: dict[str, float],
-    weights: dict[str, float] = None,
+    weights: dict[str, float] | None = None,
 ) -> tuple[str, float]:
     if weights is None:
         weights = {
-            "regime": 0.25, "heat": 0.20, "signal": 0.15,
-            "dampener": 0.10, "memory": 0.08, "liquidity": 0.12,
-            "sector": 0.05, "breakout": 0.05,
+            "regime": 0.25,
+            "heat": 0.20,
+            "signal": 0.15,
+            "dampener": 0.10,
+            "memory": 0.08,
+            "liquidity": 0.12,
+            "sector": 0.05,
+            "breakout": 0.05,
         }
     total = 0.0
     weight_sum = 0.0
@@ -94,13 +100,13 @@ def _compute_decision_from_scores(
 def _run_single_counterfactual(
     snapshot: dict,
     removed_engine: str,
-    weights: dict[str, float] = None,
-) -> Optional[CounterfactualResult]:
+    weights: dict[str, float] | None = None,
+) -> CounterfactualResult | None:
     scores = _parse_engine_scores(snapshot)
     if removed_engine not in scores:
         return None
-    posture = snapshot.get("posture", "HOLD")
-    confidence = float(snapshot.get("confidence", 50)) / 100.0
+    snapshot.get("posture", "HOLD")
+    float(snapshot.get("confidence", 50)) / 100.0
     baseline_action, baseline_score = _compute_decision_from_scores(scores, weights)
     removed_scores = dict(scores)
     removed_scores[removed_engine] = 0.0
@@ -121,9 +127,9 @@ def _run_single_counterfactual(
 
 
 def run_injectability_test(
-    snapshots: list[dict] = None,
-    engine_names: list[str] = None,
-    weights: dict[str, float] = None,
+    snapshots: list[dict] | None = None,
+    engine_names: list[str] | None = None,
+    weights: dict[str, float] | None = None,
 ) -> InjectabilityReport:
     if engine_names is None:
         engine_names = CANONICAL_ENGINES
@@ -158,7 +164,7 @@ def run_injectability_test(
         if not results:
             decorative.append(eng)
             continue
-        action_changes = sum(1 for r in results if r.action_changed)
+        sum(1 for r in results if r.action_changed)
         avg_conf_delta = sum(r.confidence_delta for r in results) / len(results)
         injectable_ratio = sum(1 for r in results if r.injectable) / len(results)
         is_decorative = injectable_ratio < 0.15
@@ -188,11 +194,15 @@ def run_injectability_test(
             )
     else:
         verdict = (
-            f"All {len(engine_names)} engines pass injectability. "
-            f"avg Δconfidence={avg_delta:.4f} across {count} simulations."
+            f"All {len(engine_names)} engines pass injectability. avg Δconfidence={avg_delta:.4f} across {count} simulations."
         )
-    logger.info("[GATE_B] %s | decorative=%d/%d | avg_delta=%.4f",
-                "PASS" if passed else "FAIL", len(decorative), len(engine_names), avg_delta)
+    logger.info(
+        "[GATE_B] %s | decorative=%d/%d | avg_delta=%.4f",
+        "PASS" if passed else "FAIL",
+        len(decorative),
+        len(engine_names),
+        avg_delta,
+    )
     return InjectabilityReport(
         passed=passed,
         results=aggregated,
@@ -203,7 +213,7 @@ def run_injectability_test(
 
 
 def gate_b_check(
-    snapshots: list[dict] = None,
+    snapshots: list[dict] | None = None,
 ) -> GateResult:
     report = run_injectability_test(snapshots)
     if report.passed:
@@ -221,6 +231,6 @@ def gate_b_check(
         details={
             "decorative_engines": report.decorative_engines,
             "avg_confidence_delta": report.avg_confidence_delta,
-            "total_simulations": sum(len(r.results) if hasattr(r, 'results') else 1 for r in report.results),
+            "total_simulations": sum(len(r.results) if hasattr(r, "results") else 1 for r in report.results),
         },
     )

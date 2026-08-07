@@ -6,10 +6,9 @@ Usage:
     text = render_report(srv_report, lang="vi")
 """
 
+from core.presentation.vi_localizer import localize_regime
 from core.validation.state_reconstruction_validator import SRVReport
 from core.validation.state_space_validator import StateSpaceValidator
-from core.presentation.vi_localizer import localize_regime, localize_trend_quality
-
 
 REGIME_COLORS = {
     "CRISIS": "red",
@@ -38,9 +37,9 @@ def render_report(report: SRVReport, lang: str = "vi", console_safe: bool = Fals
 
     lines.append(sep)
     if is_vi:
-        lines.append(f"  BAO CAO TAI TAO TRANG THAI THI TRUONG")
+        lines.append("  BAO CAO TAI TAO TRANG THAI THI TRUONG")
     else:
-        lines.append(f"  STATE RECONSTRUCTION REPORT")
+        lines.append("  STATE RECONSTRUCTION REPORT")
     lines.append(f"  {report.contract_name}")
     lines.append(f"  {report.date_range} ({report.total_days_processed} ngay)")
     lines.append(sep)
@@ -48,9 +47,9 @@ def render_report(report: SRVReport, lang: str = "vi", console_safe: bool = Fals
     # Regime distribution
     lines.append("")
     if is_vi:
-        lines.append(f"  PHAN BO REGIME:")
+        lines.append("  PHAN BO REGIME:")
     else:
-        lines.append(f"  REGIME DISTRIBUTION:")
+        lines.append("  REGIME DISTRIBUTION:")
     for r in ["CRISIS", "RANGING", "TRENDING"]:
         count = report.regime_type_summary.get(r, 0)
         pct = count / max(1, report.total_days_processed) * 100
@@ -62,15 +61,15 @@ def render_report(report: SRVReport, lang: str = "vi", console_safe: bool = Fals
     lines.append("")
     if report.regime_sequence:
         if is_vi:
-            lines.append(f"  DUONG THOI GIAN REGIME:")
+            lines.append("  DUONG THOI GIAN REGIME:")
         else:
-            lines.append(f"  REGIME TIMELINE:")
+            lines.append("  REGIME TIMELINE:")
         timeline = build_regime_timeline(report.regime_sequence)
         lines.append(f"    {timeline}")
         if is_vi:
-            lines.append(f"    (!!=KHUNG_HOANG  --=DI_NGANG  ++=XU_HUONG)")
+            lines.append("    (!!=KHUNG_HOANG  --=DI_NGANG  ++=XU_HUONG)")
         else:
-            lines.append(f"    (!!=CRISIS  --=RANGING  ++=TRENDING)")
+            lines.append("    (!!=CRISIS  --=RANGING  ++=TRENDING)")
 
     # State-space analysis
     if report.regime_sequence and len(report.regime_sequence) >= 2:
@@ -79,19 +78,21 @@ def render_report(report: SRVReport, lang: str = "vi", console_safe: bool = Fals
 
         lines.append("")
         if is_vi:
-            lines.append(f"  PHAN TICH KHONG GIAN TRANG THAI:")
+            lines.append("  PHAN TICH KHONG GIAN TRANG THAI:")
         else:
-            lines.append(f"  STATE-SPACE ANALYSIS:")
+            lines.append("  STATE-SPACE ANALYSIS:")
         lines.append(f"    Entropy:           {analysis['entropy']:.4f}")
         lines.append(f"    Persist ratio:     {analysis['persist_ratio']:.2%}")
-        lines.append(f"    Chuyen doi regime: {analysis['num_transitions']} "
-                     f"({analysis['num_transitions']/max(1,analysis['total_days'])*100:.1f}/100ngay)")
+        lines.append(
+            f"    Chuyen doi regime: {analysis['num_transitions']} "
+            f"({analysis['num_transitions'] / max(1, analysis['total_days']) * 100:.1f}/100ngay)"
+        )
 
         lines.append("")
         if is_vi:
-            lines.append(f"  MA TRAN CHUYEN DOI:")
+            lines.append("  MA TRAN CHUYEN DOI:")
         else:
-            lines.append(f"  TRANSITION MATRIX P(next|current):")
+            lines.append("  TRANSITION MATRIX P(next|current):")
         lines.append(f"    {'':>12s} {'CRISIS':>10s} {'RANGING':>10s} {'TRENDING':>10s}")
         for r1 in ["CRISIS", "RANGING", "TRENDING"]:
             vals = [analysis["transition_matrix"].get(r1, {}).get(r2, 0) for r2 in ["CRISIS", "RANGING", "TRENDING"]]
@@ -100,25 +101,27 @@ def render_report(report: SRVReport, lang: str = "vi", console_safe: bool = Fals
 
         lines.append("")
         if is_vi:
-            lines.append(f"  THOI GIAN DUY TRI REGIME (ngay):")
+            lines.append("  THOI GIAN DUY TRI REGIME (ngay):")
         else:
-            lines.append(f"  DWELL TIME (consecutive days):")
+            lines.append("  DWELL TIME (consecutive days):")
         for r in ["CRISIS", "RANGING", "TRENDING"]:
             d = analysis["dwell_stats"].get(r, {})
             if d.get("count", 0) > 0:
                 name = localize_regime(r) if is_vi else r
-                lines.append(f"    {name:12s} count={d['count']:3d} "
-                             f"trung binh={d['mean']:5.1f} "
-                             f"trung vi={d['median']:4.1f} "
-                             f"khoang={d['min']}-{d['max']}")
+                lines.append(
+                    f"    {name:12s} count={d['count']:3d} "
+                    f"trung binh={d['mean']:5.1f} "
+                    f"trung vi={d['median']:4.1f} "
+                    f"khoang={d['min']}-{d['max']}"
+                )
 
     # Suite A: DBE
     lines.append("")
     lines.append(sep)
     if is_vi:
-        lines.append(f"  NGHI THUC A -- DO ON DINH DBE:")
+        lines.append("  NGHI THUC A -- DO ON DINH DBE:")
     else:
-        lines.append(f"  SUITE A -- DBE STABILITY:")
+        lines.append("  SUITE A -- DBE STABILITY:")
     lines.append(f"    Flip rate:     {report.suite_a.flip_rate:.2%}")
     lines.append(f"    Flip count:    {report.suite_a.flip_count}")
     lines.append(f"    Confidence:    {report.suite_a.mean_confidence:.4f}")
@@ -127,20 +130,19 @@ def render_report(report: SRVReport, lang: str = "vi", console_safe: bool = Fals
     # Suite B: DPL
     lines.append("")
     if is_vi:
-        lines.append(f"  NGHI THUC B -- DO BEN DPL:")
+        lines.append("  NGHI THUC B -- DO BEN DPL:")
     else:
-        lines.append(f"  SUITE B -- DPL PERSISTENCE:")
+        lines.append("  SUITE B -- DPL PERSISTENCE:")
     lines.append(f"    Persistent:    {report.suite_b.persistent_days}")
-    lines.append(f"    Flickering:    {report.suite_b.flickering_days} "
-                 f"({report.suite_b.flicker_pct:.2%})")
+    lines.append(f"    Flickering:    {report.suite_b.flickering_days} ({report.suite_b.flicker_pct:.2%})")
     lines.append(f"    Stability:     {report.suite_b.mean_stability:.4f}")
 
     # Suite C: TTL
     lines.append("")
     if is_vi:
-        lines.append(f"  NGHI THUC C -- CHUYEN DOI TTL:")
+        lines.append("  NGHI THUC C -- CHUYEN DOI TTL:")
     else:
-        lines.append(f"  SUITE C -- TTL TRANSITION:")
+        lines.append("  SUITE C -- TTL TRANSITION:")
     lines.append(f"    Hit rate:      {report.suite_c.hit_rate:.2%}")
     lines.append(f"    Hits/Events:   {report.suite_c.hits}/{report.suite_c.total_events}")
     lines.append(f"    Misses:        {report.suite_c.misses}")
@@ -152,15 +154,12 @@ def render_report(report: SRVReport, lang: str = "vi", console_safe: bool = Fals
     if report.suite_c.matches:
         lines.append("")
         if is_vi:
-            lines.append(f"  SU KIEN CHUYEN DOI:")
+            lines.append("  SU KIEN CHUYEN DOI:")
         else:
-            lines.append(f"  TRANSITION EVENTS:")
+            lines.append("  TRANSITION EVENTS:")
         for m in report.suite_c.matches:
             hit = "OK" if m.is_hit else "MISS"
-            lines.append(f"    {hit} {m.event_name:25s} "
-                         f"type={m.event_type:15s} "
-                         f"delay={m.delay_days:2d}d "
-                         f"ttl={m.ttl_date}")
+            lines.append(f"    {hit} {m.event_name:25s} type={m.event_type:15s} delay={m.delay_days:2d}d ttl={m.ttl_date}")
 
     lines.append("")
     lines.append(sep)

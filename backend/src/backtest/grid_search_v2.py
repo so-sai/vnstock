@@ -24,7 +24,6 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -85,7 +84,7 @@ LRI_PROBE = 0.80
 EMERGENCY_TIGHTENED_STOP = -0.02
 
 
-def precompute_lri_cache(dates: List[str], db_path: Optional[str] = None, force: bool = False) -> Dict[str, float]:
+def precompute_lri_cache(dates: list[str], db_path: str | None = None, force: bool = False) -> dict[str, float]:
     """Phase 0: Pre-compute PIT LRI for each trading day, cached to disk.
 
     Returns: {date: lri_score}. Days missing from cache default to 1.0 (no lock).
@@ -100,18 +99,18 @@ def precompute_lri_cache(dates: List[str], db_path: Optional[str] = None, force:
             cached = {k: float(v) for k, v in cached.items()}
             if all(d in cached for d in dates):
                 return cached
-        except Exception as exc:  # noqa: BLE001 — corrupt/partial cache is non-blocking
+        except Exception as exc:
             print(f"  [WARN] LRI cache unreadable (recomputing): {exc}")
 
     from governor.liquidity_recovery_index import compute_lri
 
-    cache: Dict[str, float] = {}
+    cache: dict[str, float] = {}
     t0 = time.time()
     for i, date in enumerate(dates):
         try:
             r = compute_lri(db_path=db_path, target_date=date)
             cache[date] = round(float(r.lri), 4)
-        except Exception:  # noqa: BLE001 — single-day LRI failure is non-blocking
+        except Exception:
             cache[date] = 1.0
         if (i + 1) % 50 == 0:
             elapsed = time.time() - t0
@@ -133,8 +132,8 @@ def _get_beta(conn: sqlite3.Connection, symbol: str) -> float:
         ).fetchall()
         if len(rows) < 30:
             return 1.0
-        rets_stock: List[float] = []
-        rets_ix: List[float] = []
+        rets_stock: list[float] = []
+        rets_ix: list[float] = []
         for i in range(len(rows) - 1):
             p0, p1 = rows[i + 1][0], rows[i][0]
             ix0, ix1 = rows[i + 1][1], rows[i][1]
@@ -148,7 +147,7 @@ def _get_beta(conn: sqlite3.Connection, symbol: str) -> float:
             return 1.0
         cov = float(np.cov(rets_stock, rets_ix)[0][1])
         return round(max(0.0, min(3.0, cov / var_ix)), 3)
-    except Exception:  # noqa: BLE001 — beta is advisory for exit ranking
+    except Exception:
         return 1.0
 
 
@@ -167,7 +166,7 @@ def _get_mos_pct(conn: sqlite3.Connection, symbol: str, target_date: str) -> flo
             return 0.0
         mos = 1.0 - (max(zs) / 3.0 + 0.5)
         return round(max(0.0, min(1.0, mos)) * 100, 1)
-    except Exception:  # noqa: BLE001 — MoS is advisory for exit ranking
+    except Exception:
         return 0.0
 
 
@@ -180,13 +179,13 @@ def _get_volume_avg_20d(conn: sqlite3.Connection, symbol: str, target_date: str)
         ).fetchall()
         vols = [float(r[0]) for r in rows if r[0]]
         return round(float(np.mean(vols)), 0) if vols else 0.0
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 0.0
 
 
-def build_open_positions(conn: sqlite3.Connection, tracker, target_date: str) -> Dict[str, dict]:
+def build_open_positions(conn: sqlite3.Connection, tracker, target_date: str) -> dict[str, dict]:
     """Build open_positions dict for EmergencyExitEngine from current tracker holdings."""
-    open_positions: Dict[str, dict] = {}
+    open_positions: dict[str, dict] = {}
     for sym, shares in tracker.positions.items():
         entry_price = tracker.entry_prices.get(sym, 0.0)
         open_positions[sym] = {
@@ -199,7 +198,7 @@ def build_open_positions(conn: sqlite3.Connection, tracker, target_date: str) ->
     return open_positions
 
 
-def apply_emergency_exit(conn, tracker, target_date: str, lri_score: float) -> Dict[str, str]:
+def apply_emergency_exit(conn, tracker, target_date: str, lri_score: float) -> dict[str, str]:
     """Run EmergencyExitEngine. Returns {symbol: reason} for positions to force-sell."""
     if lri_score >= LRI_DEFENSIVE:
         return {}
@@ -216,11 +215,11 @@ def apply_emergency_exit(conn, tracker, target_date: str, lri_score: float) -> D
 
 def run_backtest_with_guard(
     scores: dict,
-    dates: List[str],
-    score_days: List[str],
+    dates: list[str],
+    score_days: list[str],
     params: dict,
-    db_path: Optional[str] = None,
-    lri_cache: Optional[Dict[str, float]] = None,
+    db_path: str | None = None,
+    lri_cache: dict[str, float] | None = None,
 ) -> dict:
     """Fast backtest with DecisionGuard (LRI + EmergencyExitEngine) integration.
 
@@ -263,7 +262,7 @@ def run_backtest_with_guard(
     )
 
     # Track entry date per symbol for Min Hold Period
-    entry_dates: Dict[str, str] = {}
+    entry_dates: dict[str, str] = {}
 
     equity_curve = []
     score_set = set(score_days)
@@ -372,8 +371,8 @@ def run_backtest_with_guard(
 
             # ── BUY (blocked when BUY LOCK active) ──
             if not buy_locked:
-                buy_candidates: List[tuple] = []
-                seen_sectors: Dict[str, int] = {}
+                buy_candidates: list[tuple] = []
+                seen_sectors: dict[str, int] = {}
                 for sym, data in day_scores.items():
                     sect = data["sector"]
                     if sect not in top_sectors:
@@ -436,14 +435,14 @@ def run_backtest_with_guard(
     }
 
 
-def generate_weight_grid(ranges: Optional[dict] = None, step: float = 0.05) -> List[dict]:
+def generate_weight_grid(ranges: dict | None = None, step: float = 0.05) -> list[dict]:
     """Generate weight combinations in bounded ranges that sum to 1.0.
 
     Default ranges implement the approved 5-Layer Matrix:
       M2(Fund) 0.35-0.50, M1(Macro) 0.10-0.20, Alpha 0.15-0.30, M3(Behav) 0.10-0.25.
     """
     ranges = ranges or DEFAULT_WEIGHT_RANGES
-    weights: List[dict] = []
+    weights: list[dict] = []
     lo_f, hi_f = ranges["w_fund"]
     lo_m, hi_m = ranges["w_macro"]
     lo_a, hi_a = ranges["w_alpha"]
@@ -470,15 +469,15 @@ def _params_key(params: dict) -> str:
 
 def run_grid_search(
     scores: dict,
-    dates: List[str],
-    score_days: List[str],
-    lri_cache: Dict[str, float],
+    dates: list[str],
+    score_days: list[str],
+    lri_cache: dict[str, float],
     step: float = 0.05,
     top_n: int = 15,
     workers: int = 1,
-    db_path: Optional[str] = None,
-    checkpoint: Optional[Path] = None,
-) -> List[dict]:
+    db_path: str | None = None,
+    checkpoint: Path | None = None,
+) -> list[dict]:
     """Phase 2+3: Run staged grid search with parallel workers + checkpointing.
 
     Stage 1: weights only (bounded ranges) — default thresholds
@@ -489,12 +488,12 @@ def run_grid_search(
         db_path = str(SCREENER_DB_PATH)
 
     # ── Load checkpoint ──
-    done: Dict[str, dict] = {}
+    done: dict[str, dict] = {}
     if checkpoint and checkpoint.exists():
         try:
             with open(checkpoint) as f:
                 done = json.load(f)
-        except Exception as exc:  # noqa: BLE001 — corrupt checkpoint is non-blocking
+        except Exception as exc:
             print(f"  [WARN] Checkpoint unreadable (starting fresh): {exc}")
             done = {}
 
@@ -502,7 +501,7 @@ def run_grid_search(
     print(f"  Weight combinations (bounded): {len(weight_combos)}")
 
     # ── Build 3-stage combo list ──
-    combos: List[dict] = []
+    combos: list[dict] = []
 
     # Stage 1: weights only
     for w in weight_combos:
@@ -513,7 +512,7 @@ def run_grid_search(
     print(f"  [Stage 1] {len(combos)} weight combos (entry=0.60, exit=0.35, stop=-5%, take=+15%)")
 
     # ── Execute Stage 1 ──
-    results: List[dict] = [r for r in done.values() if r.get("sharpe", -99) > -98]
+    results: list[dict] = [r for r in done.values() if r.get("sharpe", -99) > -98]
     results = _run_combo_batch(
         combos,
         scores,
@@ -531,7 +530,7 @@ def run_grid_search(
     # Stage 2: top-10 weights x entry/exit thresholds
     stage1_ranked = sorted(results, key=lambda x: x["sharpe"], reverse=True)[:10]
     top_weights = [r["params"] for r in stage1_ranked if "error" not in r]
-    combos2: List[dict] = []
+    combos2: list[dict] = []
     for w in top_weights:
         for entry in DEFAULT_ENTRY_THRESHOLDS:
             for exit_t in DEFAULT_EXIT_THRESHOLDS:
@@ -563,7 +562,7 @@ def run_grid_search(
     # Stage 3: top-5 x stops/takes/min-hold
     stage2_ranked = sorted(results, key=lambda x: x["sharpe"], reverse=True)[:5]
     top_params = [r["params"] for r in stage2_ranked if "error" not in r]
-    combos3: List[dict] = []
+    combos3: list[dict] = []
     for base in top_params:
         for stop in DEFAULT_TRAILING_STOPS:
             for take in DEFAULT_TRAILING_TAKES:
@@ -596,18 +595,18 @@ def run_grid_search(
 
 
 def _run_combo_batch(
-    combos: List[dict],
+    combos: list[dict],
     scores: dict,
-    dates: List[str],
-    score_days: List[str],
-    lri_cache: Dict[str, float],
+    dates: list[str],
+    score_days: list[str],
+    lri_cache: dict[str, float],
     db_path: str,
-    done: Dict[str, dict],
-    results: List[dict],
+    done: dict[str, dict],
+    results: list[dict],
     workers: int,
-    checkpoint: Optional[Path],
+    checkpoint: Path | None,
     label: str,
-) -> List[dict]:
+) -> list[dict]:
     """Run a batch of combos (parallel or sequential), updating done + results."""
     pending = [c for c in combos if _params_key(c) not in done]
     print(f"  {label}: {len(combos)} total, {len(pending)} pending (checkpoint: {len(done)} done)")
@@ -629,7 +628,7 @@ def _run_combo_batch(
                 c = futures[fut]
                 try:
                     r = fut.result()
-                except Exception as exc:  # noqa: BLE001 — one combo failure is non-blocking
+                except Exception as exc:
                     r = {"error": str(exc), "sharpe": -99}
                 r["params"] = c
                 _collect(r, c)
@@ -639,7 +638,7 @@ def _run_combo_batch(
         for i, c in enumerate(pending, 1):
             try:
                 r = run_backtest_with_guard(scores, dates, score_days, c, db_path, lri_cache)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 r = {"error": str(exc), "sharpe": -99}
             r["params"] = c
             _collect(r, c)
@@ -649,13 +648,13 @@ def _run_combo_batch(
     return results
 
 
-def _maybe_checkpoint(checkpoint: Optional[Path], done: Dict[str, dict], i: int) -> None:
+def _maybe_checkpoint(checkpoint: Path | None, done: dict[str, dict], i: int) -> None:
     if checkpoint and i % 25 == 0:
         with open(checkpoint, "w") as f:
             json.dump(done, f, indent=2, ensure_ascii=False)
 
 
-def _maybe_progress(i: int, total: int, results: List[dict], t0: float) -> None:
+def _maybe_progress(i: int, total: int, results: list[dict], t0: float) -> None:
     if i % 20 == 0:
         best = max((x for x in results if x.get("sharpe", -99) > -98), key=lambda x: x["sharpe"], default=None)
         elapsed = time.time() - t0
@@ -663,7 +662,7 @@ def _maybe_progress(i: int, total: int, results: List[dict], t0: float) -> None:
         print(f"    {i}/{total} ({elapsed:.0f}s) | Best {best_s}")
 
 
-def _print_top(results: List[dict], top_n: int = 15) -> None:
+def _print_top(results: list[dict], top_n: int = 15) -> None:
     print(f"\n{'=' * 100}")
     print(f"  TOP {min(top_n, len(results))} PARAMETER COMBINATIONS (by Sharpe Ratio)")
     print(f"{'=' * 100}")

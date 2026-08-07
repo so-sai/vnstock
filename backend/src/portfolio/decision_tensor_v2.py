@@ -1,20 +1,20 @@
-﻿"""
+"""
 Decision Tensor v2.0 — Cognitive Expansion Layer (Phase 10.2).
 Adds counterfactual awareness, hierarchical rationale, override tracking, adaptive weights.
 Extends v1 determinism with institutional decision depth.
 """
+
 import json
 import logging
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 from uuid import uuid4
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -30,6 +30,7 @@ def _hydrate_path():
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -93,7 +94,7 @@ class AlternativeAction:
 class RationaleNode:
     label: str
     detail: str
-    score_contribution: Optional[float] = None
+    score_contribution: float | None = None
     children: list = field(default_factory=list)
 
 
@@ -109,48 +110,48 @@ class CognitiveDecision:
     rationale_tree: list = field(default_factory=list)
     decision_id: str = ""
     override_state: str = "PENDING"
-    override_action: Optional[str] = None
-    override_reason: Optional[str] = None
+    override_action: str | None = None
+    override_reason: str | None = None
     calibrated_weights: dict = field(default_factory=dict)
 
 
 def _evaluate_action_score(inp: DecisionTensorInput, target_action: str) -> tuple:
     action_score_map = {
-        "ENTER": 0.75, "SCALE_IN": 0.60, "HOLD": 0.45,
-        "REDUCE": 0.30, "EXIT": 0.15, "STAND_DOWN": 0.05,
+        "ENTER": 0.75,
+        "SCALE_IN": 0.60,
+        "HOLD": 0.45,
+        "REDUCE": 0.30,
+        "EXIT": 0.15,
+        "STAND_DOWN": 0.05,
     }
     ideal_score = action_score_map.get(target_action, 0.5)
 
     r_score = _regime_score(inp.regime, inp.regime_confidence)
     h_score = _heat_score(inp.portfolio_heat)
-    s_score = _signal_score(inp.model_a_signal, inp.model_b_signal,
-                            inp.model_a_score, inp.model_b_score, inp.regime)
+    s_score = _signal_score(inp.model_a_signal, inp.model_b_signal, inp.model_a_score, inp.model_b_score, inp.regime)
     d_score = _dampener_score(inp.dampener_result["net_dampener"])
     active_model = "MODEL_A" if inp.regime in ("TRENDING",) else "MODEL_B"
     m_score = _memory_score(inp.memory_perf_a, inp.memory_perf_b, inp.regime, active_model)
 
     raw_score = (
-        WEIGHT_REGIME * r_score +
-        WEIGHT_HEAT * h_score +
-        WEIGHT_SIGNAL * s_score +
-        WEIGHT_DAMPENER * d_score +
-        WEIGHT_MEMORY * m_score
+        WEIGHT_REGIME * r_score
+        + WEIGHT_HEAT * h_score
+        + WEIGHT_SIGNAL * s_score
+        + WEIGHT_DAMPENER * d_score
+        + WEIGHT_MEMORY * m_score
     )
 
-    risk_state = _resolve_risk_state(
-        inp.portfolio_heat, inp.throttle_state,
-        inp.dampener_result["net_dampener"]
+    risk_state = _resolve_risk_state(inp.portfolio_heat, inp.throttle_state, inp.dampener_result["net_dampener"])
+    action = _resolve_action(
+        raw_score, risk_state, inp.regime, inp.portfolio_heat, inp.dampener_result["net_dampener"], inp.net_exposure_pct
     )
-    action = _resolve_action(raw_score, risk_state, inp.regime, inp.portfolio_heat,
-                             inp.dampener_result["net_dampener"], inp.net_exposure_pct)
 
     delta = abs(raw_score - ideal_score)
     feasibility = 1.0 - delta
     return raw_score, feasibility, action, risk_state
 
 
-def _generate_alternatives(inp: DecisionTensorInput, chosen_action: str,
-                           chosen_score: float) -> list:
+def _generate_alternatives(inp: DecisionTensorInput, chosen_action: str, chosen_score: float) -> list:
     results = []
     for action in ALL_ACTIONS:
         if action == chosen_action:
@@ -178,22 +179,35 @@ def _generate_alternatives(inp: DecisionTensorInput, chosen_action: str,
             blocked_by = "SCORE_RANK"
             reason = f"Xếp hạng thấp hơn — điểm {score:.2f} (tối đa: {chosen_score:.2f})"
 
-        results.append({
-            "action": action,
-            "score": round(score * 100),
-            "reason_blocked": reason,
-            "blocked_by": blocked_by,
-        })
+        results.append(
+            {
+                "action": action,
+                "score": round(score * 100),
+                "reason_blocked": reason,
+                "blocked_by": blocked_by,
+            }
+        )
 
     results.sort(key=lambda x: x["score"], reverse=True)
     return results[:4]
 
 
-def _build_rationale_tree(inp: DecisionTensorInput, r_score: float, h_score: float,
-                          s_score: float, d_score: float, m_score: float,
-                          action_score: float, risk_state: str, action: str,
-                          constraint: str, size_mult: float,
-                          l_score: float = 0.5, sec_score: float = 0.5, b_score: float = 0.5) -> list:
+def _build_rationale_tree(
+    inp: DecisionTensorInput,
+    r_score: float,
+    h_score: float,
+    s_score: float,
+    d_score: float,
+    m_score: float,
+    action_score: float,
+    risk_state: str,
+    action: str,
+    constraint: str,
+    size_mult: float,
+    l_score: float = 0.5,
+    sec_score: float = 0.5,
+    b_score: float = 0.5,
+) -> list:
     factor_weights = {
         "Regime": (V2_WEIGHT_REGIME, r_score),
         "Heat": (V2_WEIGHT_HEAT, h_score),
@@ -209,7 +223,7 @@ def _build_rationale_tree(inp: DecisionTensorInput, r_score: float, h_score: flo
         label=f"Quyết định: {action} (độ tin cậy {action_score:.0f}%)",
         detail=f"Điểm tổng hợp từ {len(factor_weights)} nhân tố",
         score_contribution=action_score / 100,
-        children=[]
+        children=[],
     )
 
     for name, (weight, score) in sorted(factor_weights.items(), key=lambda x: -x[1][0] * x[1][1]):
@@ -244,7 +258,7 @@ def _build_rationale_tree(inp: DecisionTensorInput, r_score: float, h_score: flo
 def _load_decision_history() -> list:
     try:
         if DECISIONS_FILE.exists():
-            with open(DECISIONS_FILE, "r", encoding="utf-8") as f:
+            with open(DECISIONS_FILE, encoding="utf-8") as f:
                 return json.load(f)
     except Exception as e:
         logger.warning(f"Cannot load decision history: {e}")
@@ -263,16 +277,27 @@ def _save_decision_history(history: list):
 def _calibrate_weights(history: list) -> dict:
     recent = [d for d in history if d.get("outcome") is not None][-30:]
     if len(recent) < 5:
-        return {"regime": V2_WEIGHT_REGIME, "heat": V2_WEIGHT_HEAT, "signal": V2_WEIGHT_SIGNAL,
-                "dampener": V2_WEIGHT_DAMPENER, "memory": V2_WEIGHT_MEMORY,
-                "liquidity": ASIA_WEIGHT_LIQUIDITY, "sector": ASIA_WEIGHT_SECTOR,
-                "breakout": ASIA_WEIGHT_BREAKOUT}
+        return {
+            "regime": V2_WEIGHT_REGIME,
+            "heat": V2_WEIGHT_HEAT,
+            "signal": V2_WEIGHT_SIGNAL,
+            "dampener": V2_WEIGHT_DAMPENER,
+            "memory": V2_WEIGHT_MEMORY,
+            "liquidity": ASIA_WEIGHT_LIQUIDITY,
+            "sector": ASIA_WEIGHT_SECTOR,
+            "breakout": ASIA_WEIGHT_BREAKOUT,
+        }
 
     factor_names = ["regime", "heat", "signal", "dampener", "memory", "liquidity", "sector", "breakout"]
     base_weights = {
-        "regime": V2_WEIGHT_REGIME, "heat": V2_WEIGHT_HEAT, "signal": V2_WEIGHT_SIGNAL,
-        "dampener": V2_WEIGHT_DAMPENER, "memory": V2_WEIGHT_MEMORY,
-        "liquidity": ASIA_WEIGHT_LIQUIDITY, "sector": ASIA_WEIGHT_SECTOR, "breakout": ASIA_WEIGHT_BREAKOUT,
+        "regime": V2_WEIGHT_REGIME,
+        "heat": V2_WEIGHT_HEAT,
+        "signal": V2_WEIGHT_SIGNAL,
+        "dampener": V2_WEIGHT_DAMPENER,
+        "memory": V2_WEIGHT_MEMORY,
+        "liquidity": ASIA_WEIGHT_LIQUIDITY,
+        "sector": ASIA_WEIGHT_SECTOR,
+        "breakout": ASIA_WEIGHT_BREAKOUT,
     }
 
     correct_by_factor = {f: 0 for f in factor_names}
@@ -340,8 +365,10 @@ def _sector_rotation_score() -> float:
         score = beta.get("rotation_score", 0)
         alignment = beta.get("flow_alignment_pct", 50)
         regime_map = {
-            "HEALTHY_ROTATION": 0.75, "BROAD_ROTATION": 0.65,
-            "DIVERGENT": 0.45, "NARROW_LEADERSHIP": 0.30,
+            "HEALTHY_ROTATION": 0.75,
+            "BROAD_ROTATION": 0.65,
+            "DIVERGENT": 0.45,
+            "NARROW_LEADERSHIP": 0.30,
         }
         base = regime_map.get(regime, 0.5)
         adj = (score * 0.5) + ((alignment / 100) * 0.3)
@@ -404,8 +431,10 @@ def _sector_rotation_decayed_score() -> float:
         regime = beta.get("rotation_regime_decayed", "UNKNOWN")
         score = beta.get("rotation_score_decayed", 0)
         regime_map = {
-            "HEALTHY_ROTATION": 0.75, "BROAD_ROTATION": 0.65,
-            "DIVERGENT": 0.45, "NARROW_LEADERSHIP": 0.30,
+            "HEALTHY_ROTATION": 0.75,
+            "BROAD_ROTATION": 0.65,
+            "DIVERGENT": 0.45,
+            "NARROW_LEADERSHIP": 0.30,
         }
         base = regime_map.get(regime, 0.5)
         adj = score * 0.5
@@ -431,7 +460,7 @@ def _foreign_flow_decayed_score() -> float:
         return 0.5
 
 
-def compute_v2_decayed(override_input: Optional[DecisionTensorInput] = None) -> dict:
+def compute_v2_decayed(override_input: DecisionTensorInput | None = None) -> dict:
     """
     Decision Tensor v2 with decay-aware flow signals.
     Uses EWMA-weighted liquidity, sector, and foreign scores instead of raw SMA.
@@ -463,8 +492,7 @@ def compute_v2_decayed(override_input: Optional[DecisionTensorInput] = None) -> 
 
     r_score = _regime_score(inp.regime, inp.regime_confidence)
     h_score = _heat_score(inp.portfolio_heat)
-    s_score = _signal_score(inp.model_a_signal, inp.model_b_signal,
-                            inp.model_a_score, inp.model_b_score, inp.regime)
+    s_score = _signal_score(inp.model_a_signal, inp.model_b_signal, inp.model_a_score, inp.model_b_score, inp.regime)
     d_score = _dampener_score(inp.dampener_result["net_dampener"])
     active_model = "MODEL_A" if inp.regime in ("TRENDING",) else "MODEL_B"
     m_score = _memory_score(inp.memory_perf_a, inp.memory_perf_b, inp.regime, active_model)
@@ -474,45 +502,65 @@ def compute_v2_decayed(override_input: Optional[DecisionTensorInput] = None) -> 
     b_score = _breakout_continuation_score()
 
     raw_score = (
-        V2_WEIGHT_REGIME * r_score +
-        V2_WEIGHT_HEAT * h_score +
-        V2_WEIGHT_SIGNAL * s_score +
-        V2_WEIGHT_DAMPENER * d_score +
-        V2_WEIGHT_MEMORY * m_score +
-        ASIA_WEIGHT_LIQUIDITY * l_score +
-        ASIA_WEIGHT_SECTOR * sec_score +
-        ASIA_WEIGHT_BREAKOUT * b_score
+        V2_WEIGHT_REGIME * r_score
+        + V2_WEIGHT_HEAT * h_score
+        + V2_WEIGHT_SIGNAL * s_score
+        + V2_WEIGHT_DAMPENER * d_score
+        + V2_WEIGHT_MEMORY * m_score
+        + ASIA_WEIGHT_LIQUIDITY * l_score
+        + ASIA_WEIGHT_SECTOR * sec_score
+        + ASIA_WEIGHT_BREAKOUT * b_score
     )
     action_score = round(max(0.0, min(1.0, raw_score)) * 100)
-    risk_state = _resolve_risk_state(
-        inp.portfolio_heat, inp.throttle_state,
-        inp.dampener_result["net_dampener"]
-    )
+    risk_state = _resolve_risk_state(inp.portfolio_heat, inp.throttle_state, inp.dampener_result["net_dampener"])
     action = _resolve_action(
-        raw_score, risk_state, inp.regime, inp.portfolio_heat,
-        inp.dampener_result["net_dampener"], inp.net_exposure_pct
+        raw_score, risk_state, inp.regime, inp.portfolio_heat, inp.dampener_result["net_dampener"], inp.net_exposure_pct
     )
     constraint, size_mult = _resolve_constraint(
-        inp.portfolio_heat, inp.dampener_result["net_dampener"],
-        inp.regime, inp.throttle_state, inp.dampener_result["streak_losses"]
+        inp.portfolio_heat,
+        inp.dampener_result["net_dampener"],
+        inp.regime,
+        inp.throttle_state,
+        inp.dampener_result["streak_losses"],
     )
     asia_reason = f"| D-LQ:{l_score:.2f} D-SEC:{sec_score:.2f} FX:{f_score:.2f} BO:{b_score:.2f}"
-    reason = _reason_compressed(
-        action, risk_state, inp.regime, inp.portfolio_heat,
-        inp.dampener_result["net_dampener"], action_score,
-        inp.dampener_result["streak_losses"], inp.throttle_state
-    ) + asia_reason
+    reason = (
+        _reason_compressed(
+            action,
+            risk_state,
+            inp.regime,
+            inp.portfolio_heat,
+            inp.dampener_result["net_dampener"],
+            action_score,
+            inp.dampener_result["streak_losses"],
+            inp.throttle_state,
+        )
+        + asia_reason
+    )
 
     alternatives = _generate_alternatives(inp, action, raw_score)
-    rationale_tree = _build_rationale_tree(inp, r_score, h_score, s_score, d_score, m_score,
-                                           action_score, risk_state, action, constraint, size_mult,
-                                           l_score, sec_score, b_score)
+    rationale_tree = _build_rationale_tree(
+        inp,
+        r_score,
+        h_score,
+        s_score,
+        d_score,
+        m_score,
+        action_score,
+        risk_state,
+        action,
+        constraint,
+        size_mult,
+        l_score,
+        sec_score,
+        b_score,
+    )
 
     history = _load_decision_history()
     calibrated = _calibrate_weights(history)
 
     decision_id = str(uuid4())[:8]
-    drift_notice = _check_asia_weight_drift(calibrated)
+    _check_asia_weight_drift(calibrated)
 
     decision = CognitiveDecision(
         action=action,
@@ -552,7 +600,7 @@ def compute_v2_decayed(override_input: Optional[DecisionTensorInput] = None) -> 
     return asdict(decision)
 
 
-def compute_v2(override_input: Optional[DecisionTensorInput] = None) -> dict:
+def compute_v2(override_input: DecisionTensorInput | None = None) -> dict:
     if override_input:
         inp = override_input
     else:
@@ -580,8 +628,7 @@ def compute_v2(override_input: Optional[DecisionTensorInput] = None) -> dict:
 
     r_score = _regime_score(inp.regime, inp.regime_confidence)
     h_score = _heat_score(inp.portfolio_heat)
-    s_score = _signal_score(inp.model_a_signal, inp.model_b_signal,
-                            inp.model_a_score, inp.model_b_score, inp.regime)
+    s_score = _signal_score(inp.model_a_signal, inp.model_b_signal, inp.model_a_score, inp.model_b_score, inp.regime)
     d_score = _dampener_score(inp.dampener_result["net_dampener"])
     active_model = "MODEL_A" if inp.regime in ("TRENDING",) else "MODEL_B"
     m_score = _memory_score(inp.memory_perf_a, inp.memory_perf_b, inp.regime, active_model)
@@ -590,45 +637,65 @@ def compute_v2(override_input: Optional[DecisionTensorInput] = None) -> dict:
     b_score = _breakout_continuation_score()
 
     raw_score = (
-        V2_WEIGHT_REGIME * r_score +
-        V2_WEIGHT_HEAT * h_score +
-        V2_WEIGHT_SIGNAL * s_score +
-        V2_WEIGHT_DAMPENER * d_score +
-        V2_WEIGHT_MEMORY * m_score +
-        ASIA_WEIGHT_LIQUIDITY * l_score +
-        ASIA_WEIGHT_SECTOR * sec_score +
-        ASIA_WEIGHT_BREAKOUT * b_score
+        V2_WEIGHT_REGIME * r_score
+        + V2_WEIGHT_HEAT * h_score
+        + V2_WEIGHT_SIGNAL * s_score
+        + V2_WEIGHT_DAMPENER * d_score
+        + V2_WEIGHT_MEMORY * m_score
+        + ASIA_WEIGHT_LIQUIDITY * l_score
+        + ASIA_WEIGHT_SECTOR * sec_score
+        + ASIA_WEIGHT_BREAKOUT * b_score
     )
     action_score = round(max(0.0, min(1.0, raw_score)) * 100)
-    risk_state = _resolve_risk_state(
-        inp.portfolio_heat, inp.throttle_state,
-        inp.dampener_result["net_dampener"]
-    )
+    risk_state = _resolve_risk_state(inp.portfolio_heat, inp.throttle_state, inp.dampener_result["net_dampener"])
     action = _resolve_action(
-        raw_score, risk_state, inp.regime, inp.portfolio_heat,
-        inp.dampener_result["net_dampener"], inp.net_exposure_pct
+        raw_score, risk_state, inp.regime, inp.portfolio_heat, inp.dampener_result["net_dampener"], inp.net_exposure_pct
     )
     constraint, size_mult = _resolve_constraint(
-        inp.portfolio_heat, inp.dampener_result["net_dampener"],
-        inp.regime, inp.throttle_state, inp.dampener_result["streak_losses"]
+        inp.portfolio_heat,
+        inp.dampener_result["net_dampener"],
+        inp.regime,
+        inp.throttle_state,
+        inp.dampener_result["streak_losses"],
     )
     asia_reason = f"| LQ:{l_score:.2f} SEC:{sec_score:.2f} BO:{b_score:.2f}"
-    reason = _reason_compressed(
-        action, risk_state, inp.regime, inp.portfolio_heat,
-        inp.dampener_result["net_dampener"], action_score,
-        inp.dampener_result["streak_losses"], inp.throttle_state
-    ) + asia_reason
+    reason = (
+        _reason_compressed(
+            action,
+            risk_state,
+            inp.regime,
+            inp.portfolio_heat,
+            inp.dampener_result["net_dampener"],
+            action_score,
+            inp.dampener_result["streak_losses"],
+            inp.throttle_state,
+        )
+        + asia_reason
+    )
 
     alternatives = _generate_alternatives(inp, action, raw_score)
-    rationale_tree = _build_rationale_tree(inp, r_score, h_score, s_score, d_score, m_score,
-                                           action_score, risk_state, action, constraint, size_mult,
-                                           l_score, sec_score, b_score)
+    rationale_tree = _build_rationale_tree(
+        inp,
+        r_score,
+        h_score,
+        s_score,
+        d_score,
+        m_score,
+        action_score,
+        risk_state,
+        action,
+        constraint,
+        size_mult,
+        l_score,
+        sec_score,
+        b_score,
+    )
 
     history = _load_decision_history()
     calibrated = _calibrate_weights(history)
 
     decision_id = str(uuid4())[:8]
-    drift_notice = _check_asia_weight_drift(calibrated)
+    _check_asia_weight_drift(calibrated)
 
     decision = CognitiveDecision(
         action=action,
@@ -695,6 +762,7 @@ def log_override(decision_id: str, override_action: str, override_reason: str) -
             # Audit: human override
             try:
                 from src.portfolio.decision_audit import log_transition
+
                 log_transition(
                     prev_state=_prev,
                     new_state=override_action,
@@ -720,6 +788,7 @@ def log_confirm(decision_id: str) -> dict:
             # Audit: human confirm (no state change, log as confirm event)
             try:
                 from src.portfolio.decision_audit import log_transition
+
                 log_transition(
                     prev_state=entry.get("action", "N/A"),
                     new_state=entry.get("action", "N/A"),

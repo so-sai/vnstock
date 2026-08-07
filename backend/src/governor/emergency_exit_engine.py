@@ -20,7 +20,6 @@ import logging
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +94,7 @@ class EmergencyExitEngine:
     def evaluate(
         self,
         lri_score: float,
-        open_positions: Optional[dict] = None,
+        open_positions: dict | None = None,
     ) -> EmergencyExitResult:
         """Đánh giá danh mục và tạo kế hoạch thanh lý khẩn cấp.
 

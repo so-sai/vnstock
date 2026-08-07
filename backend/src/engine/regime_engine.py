@@ -1,5 +1,5 @@
-﻿
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +8,7 @@ import pandas as pd
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -21,6 +21,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 from src.database.db_core import get_connection
@@ -39,16 +40,14 @@ def _calc_adx_dmi(df, period=14):
     nhanh nhưng đủ dài để lọc nhiễu giá ngẫu nhiên hàng ngày trên thị trường VN.
     """
     df = df.copy()
-    plus_dm = df['high'].diff()
-    minus_dm = -df['low'].diff()
+    plus_dm = df["high"].diff()
+    minus_dm = -df["low"].diff()
     plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0)
     minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0.0)
 
-    tr = pd.concat([
-        df['high'] - df['low'],
-        (df['high'] - df['close'].shift(1)).abs(),
-        (df['low'] - df['close'].shift(1)).abs()
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [df["high"] - df["low"], (df["high"] - df["close"].shift(1)).abs(), (df["low"] - df["close"].shift(1)).abs()], axis=1
+    ).max(axis=1)
 
     atr = tr.rolling(period).mean()
     plus_di = 100 * (pd.Series(plus_dm).rolling(period).mean() / atr)
@@ -57,12 +56,14 @@ def _calc_adx_dmi(df, period=14):
     adx = dx.rolling(period).mean()
     return adx, plus_di, minus_di
 
+
 def _ll(label: str, lang_mode: str = "compact") -> str:
     """Localize label if mode is not compact. Lazy import avoids circular deps."""
     if lang_mode == "compact":
         return label
     try:
         from src.core.canonical_output_adapter import localize_label
+
         return localize_label(label, lang_mode)
     except Exception:
         return label
@@ -82,9 +83,9 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     """
     label_replay = _ll("REGIME ENGINE", lang_mode)
     label_sub = _ll("HISTORICAL REPLAY" if target_date else "LIVE ANALYSIS", lang_mode)
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"{label_replay} v2.0: {label_sub}")
-    print("="*50)
+    print("=" * 50)
 
     # 1. B-Score (Breadth): 50% Weight
     with get_connection() as conn:
@@ -93,20 +94,28 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             # phiên mà không kéo dữ liệu quá xa làm nặng query; chỉ lấy tới ngày target để
             # đảm bảo point-in-time — không rò rỉ dữ liệu tương lai khi backtest.
             # Point-in-time window: 60 days before target_date to ensure MA20 calculation
-            df_all = pd.read_sql(f"SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date <= '{target_date}' AND date >= date('{target_date}', '-60 days') AND symbol != 'VNINDEX'", conn)
+            df_all = pd.read_sql(
+                f"SELECT symbol, date, close, volume FROM daily_ohlcv "
+                f"WHERE date <= '{target_date}' AND date >= date('{target_date}', '-60 days') "
+                f"AND symbol != 'VNINDEX'",
+                conn,
+            )
         else:
-            df_all = pd.read_sql("SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-10-01' AND symbol != 'VNINDEX'", conn)
+            df_all = pd.read_sql(
+                "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-10-01' AND symbol != 'VNINDEX'",
+                conn,
+            )
 
     df_all = df_all.copy()
-    df_all['date'] = pd.to_datetime(df_all['date'], format='mixed')
-    df_all = df_all.sort_values(['symbol', 'date'])
-    current_date = pd.to_datetime(target_date) if target_date else df_all['date'].max()
+    df_all["date"] = pd.to_datetime(df_all["date"], format="mixed")
+    df_all = df_all.sort_values(["symbol", "date"])
+    current_date = pd.to_datetime(target_date) if target_date else df_all["date"].max()
 
-    g = df_all.groupby('symbol')
-    df_all['ma20'] = g['close'].transform(lambda x: x.rolling(20).mean())
-    df_all['avg_vol_20d'] = g['volume'].transform(lambda x: x.rolling(20).mean())
+    g = df_all.groupby("symbol")
+    df_all["ma20"] = g["close"].transform(lambda x: x.rolling(20).mean())
+    df_all["avg_vol_20d"] = g["volume"].transform(lambda x: x.rolling(20).mean())
 
-    latest_df = df_all[df_all['date'] == current_date].copy()
+    latest_df = df_all[df_all["date"] == current_date].copy()
 
     # ── BREADTH_SUSPENDED: không có dữ liệu cho current_date → hoãn breadth ──
     if latest_df.empty:
@@ -115,25 +124,34 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     else:
         # WHY: Filter thanh khoản ≥ 50k cổ/phiên loại các mã trôi nổi ít giao dịch — chúng
         # làm nhiễu breadth vì giá dễ bị đẩy qua MA20 mà không phản ánh sức mạnh thật.
-        liquid_df = latest_df[latest_df['avg_vol_20d'] >= 50000]
-        breadth_pct = (len(liquid_df[liquid_df['close'] > liquid_df['ma20']]) / len(liquid_df) * 100) if not liquid_df.empty else 0
+        liquid_df = latest_df[latest_df["avg_vol_20d"] >= 50000]
+        breadth_pct = (
+            (len(liquid_df[liquid_df["close"] > liquid_df["ma20"]]) / len(liquid_df) * 100) if not liquid_df.empty else 0
+        )
 
     # [INTERNAL HOOK] Calculate Breadth Stability (STD 10D) & Momentum
     with get_connection() as conn:
         if target_date:
-            df_hist_b = pd.read_sql(f"SELECT breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 10", conn)
+            df_hist_b = pd.read_sql(
+                f"SELECT breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 10",
+                conn,
+            )
         else:
             df_hist_b = pd.read_sql("SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 10", conn)
 
     # Calculate rolling STD including current data (filter None)
-    all_breadth = [b for b in (df_hist_b['breadth_pct'].tolist() + [breadth_pct]) if b is not None]
+    all_breadth = [b for b in (df_hist_b["breadth_pct"].tolist() + [breadth_pct]) if b is not None]
     breadth_std_10d = np.std(all_breadth) if len(all_breadth) >= 2 else 0.0
 
     # Calculate Breadth Momentum (vs 5 days ago)
     if breadth_pct is None:
         breadth_momentum = 0.0
     else:
-        breadth_5d_ago = df_hist_b['breadth_pct'].iloc[4] if len(df_hist_b) >= 5 else (df_hist_b['breadth_pct'].iloc[-1] if not df_hist_b.empty else breadth_pct)
+        breadth_5d_ago = (
+            df_hist_b["breadth_pct"].iloc[4]
+            if len(df_hist_b) >= 5
+            else (df_hist_b["breadth_pct"].iloc[-1] if not df_hist_b.empty else breadth_pct)
+        )
         breadth_momentum = breadth_pct - breadth_5d_ago
 
     # Breadth Score: None when BREADTH_SUSPENDED
@@ -142,9 +160,16 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     # 2. T-Score (Trend): 30% Weight
     with get_connection() as conn:
         if target_date:
-            df_idx = pd.read_sql(f"SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= '{target_date}' ORDER BY date", conn)
+            df_idx = pd.read_sql(
+                f"SELECT symbol, date, high, low, close FROM daily_ohlcv "
+                f"WHERE symbol='VNINDEX' AND date <= '{target_date}' ORDER BY date",
+                conn,
+            )
         else:
-            df_idx = pd.read_sql("SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date", conn)
+            df_idx = pd.read_sql(
+                "SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date",
+                conn,
+            )
 
     df_idx = df_idx.copy()
     if df_idx.empty:
@@ -166,46 +191,49 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
                 "v_score": 0.5,
                 "atr_ratio": 1.0,
                 "error": "NO_VNINDEX_DATA",
-            }
+            },
         }
-    df_idx['date'] = pd.to_datetime(df_idx['date'], format='mixed')
-    df_idx['ma200'] = df_idx['close'].rolling(200).mean()
-    df_idx['ma50'] = df_idx['close'].rolling(50).mean()
-    df_idx['ma20'] = df_idx['close'].rolling(20).mean()
-    df_idx['adx'], df_idx['plus_di'], df_idx['minus_di'] = _calc_adx_dmi(df_idx)
+    df_idx["date"] = pd.to_datetime(df_idx["date"], format="mixed")
+    df_idx["ma200"] = df_idx["close"].rolling(200).mean()
+    df_idx["ma50"] = df_idx["close"].rolling(50).mean()
+    df_idx["ma20"] = df_idx["close"].rolling(20).mean()
+    df_idx["adx"], df_idx["plus_di"], df_idx["minus_di"] = _calc_adx_dmi(df_idx)
     latest_idx = df_idx.iloc[-1]
 
     # WHY: 3 timeframe 40/30/30 — MA20 bắt xu hướng ngắn hạn (trọng số cao vì quyết định
     # timing), MA50 trung hạn, MA200 đại diện xu hướng dài hạn. Cộng dồn vị thế thay vì
     # một MA duy nhất để phân biệt "tăng ngắn hạn trong downtrend" với uptrend thật sự.
     # Multi-timeframe position matrix: 40% short(MA20) + 30% medium(MA50) + 30% secular(MA200)
-    t_short = 1.0 if latest_idx['close'] > latest_idx['ma20'] else 0.0
-    t_medium = 1.0 if latest_idx['close'] > latest_idx['ma50'] else 0.0
-    t_long = 1.0 if latest_idx['close'] > latest_idx['ma200'] else 0.0
+    t_short = 1.0 if latest_idx["close"] > latest_idx["ma20"] else 0.0
+    t_medium = 1.0 if latest_idx["close"] > latest_idx["ma50"] else 0.0
+    t_long = 1.0 if latest_idx["close"] > latest_idx["ma200"] else 0.0
     t_base = 0.4 * t_short + 0.3 * t_medium + 0.3 * t_long
 
     # DMI Penalty: ADX < 20 (low momentum) AND (DMI- − DMI+) > 2.0 (hysteresis band)
     #   → hair-cut 50%: e.g. 0.60 → 0.30, forces regime into CORRECTING not RANGING
     #   Band > 2.0 eliminates whipsaw false signals when vectors entangle in low liquidity
-    minus_di_val = float(latest_idx['minus_di']) if not np.isnan(latest_idx['minus_di']) else 0.0
-    plus_di_val = float(latest_idx['plus_di']) if not np.isnan(latest_idx['plus_di']) else 0.0
+    minus_di_val = float(latest_idx["minus_di"]) if not np.isnan(latest_idx["minus_di"]) else 0.0
+    plus_di_val = float(latest_idx["plus_di"]) if not np.isnan(latest_idx["plus_di"]) else 0.0
     # WHY: Hysteresis band >2.0 đảm bảo lệch DMI đủ lớn mới kích hoạt penalty — lọc whipsaw
     # khi hai vector DMI quấn nhau trong vùng thanh khoản thấp; ADX<20 xác nhận thị trường
     # không có động lượng thật. Cắt 50% T-score để kéo regime về CORRECTING thay vì RANGING.
-    dmi_penalty = bool(latest_idx['adx'] < 20 and (minus_di_val - plus_di_val) > 2.0)
+    dmi_penalty = bool(latest_idx["adx"] < 20 and (minus_di_val - plus_di_val) > 2.0)
     t_score = t_base * 0.5 if dmi_penalty else t_base
 
     # MA50 Slope — diagnostic only (not in T-Score computation)
-    ma50_today = latest_idx['ma50']
-    ma50_5d_ago = df_idx['ma50'].iloc[-6] if len(df_idx) >= 6 else ma50_today
+    ma50_today = latest_idx["ma50"]
+    ma50_5d_ago = df_idx["ma50"].iloc[-6] if len(df_idx) >= 6 else ma50_today
     ma50_slope = ma50_today - ma50_5d_ago
 
     # 3. V-Score (Volatility): 20% Weight
-    tr = pd.concat([
-        df_idx['high'] - df_idx['low'],
-        (df_idx['high'] - df_idx['close'].shift(1)).abs(),
-        (df_idx['low'] - df_idx['close'].shift(1)).abs()
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            df_idx["high"] - df_idx["low"],
+            (df_idx["high"] - df_idx["close"].shift(1)).abs(),
+            (df_idx["low"] - df_idx["close"].shift(1)).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
 
     atr_20 = tr.rolling(20).mean()
     atr_today = tr.iloc[-1]
@@ -254,17 +282,12 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     with get_connection() as conn:
         if target_date:
             df_prev = pd.read_sql(
-                "SELECT date, regime_score FROM regime_history "
-                f"WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",
-                conn
+                f"SELECT date, regime_score FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1", conn
             )
         else:
-            df_prev = pd.read_sql(
-                "SELECT date, regime_score FROM regime_history ORDER BY date DESC LIMIT 1",
-                conn
-            )
-    prev_smoothed = df_prev['regime_score'].iloc[0] if not df_prev.empty else regime_score_raw
-    prev_date_str = df_prev['date'].iloc[0] if not df_prev.empty else None
+            df_prev = pd.read_sql("SELECT date, regime_score FROM regime_history ORDER BY date DESC LIMIT 1", conn)
+    prev_smoothed = df_prev["regime_score"].iloc[0] if not df_prev.empty else regime_score_raw
+    prev_date_str = df_prev["date"].iloc[0] if not df_prev.empty else None
 
     # WHY: alpha_decay = 1 - exp(-λ·dt) phạt khoảng trống thời gian — nếu cron chết 14 ngày,
     # giá trị prev cũ trở nên vô nghĩa nên hệ thống tự quên (75% weight cho raw mới); còn khi
@@ -296,7 +319,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     velocity_penalty = 0.0
     momentum = {}
     try:
-        close_series = df_idx['close']
+        close_series = df_idx["close"]
         roc_5d = (close_series.iloc[-1] / close_series.iloc[-6] - 1) * 100 if len(close_series) >= 6 else 0.0
         roc_10d = (close_series.iloc[-1] / close_series.iloc[-11] - 1) * 100 if len(close_series) >= 11 else 0.0
 
@@ -347,13 +370,13 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         idx_len = len(df_idx)
         if idx_len >= 10:
             lookback = min(4, idx_len - 2)
-            adx_today = float(latest_idx['adx'])
-            adx_t3 = float(df_idx['adx'].iloc[-1 - lookback])
+            adx_today = float(latest_idx["adx"])
+            adx_t3 = float(df_idx["adx"].iloc[-1 - lookback])
             delta_adx = adx_today - adx_t3
 
             # DMI lead: phe bán (DMI-) đang kiểm soát?
-            minus_di_val = float(latest_idx['minus_di']) if not np.isnan(latest_idx['minus_di']) else 0.0
-            plus_di_val = float(latest_idx['plus_di']) if not np.isnan(latest_idx['plus_di']) else 0.0
+            minus_di_val = float(latest_idx["minus_di"]) if not np.isnan(latest_idx["minus_di"]) else 0.0
+            plus_di_val = float(latest_idx["plus_di"]) if not np.isnan(latest_idx["plus_di"]) else 0.0
             dmi_lead_bears = bool(minus_di_val > plus_di_val)
 
             # v_breadth: breadth velocity (3-session lookback)
@@ -361,14 +384,11 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
                 if target_date:
                     df_b = pd.read_sql(
                         f"SELECT date, breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",
-                        conn
+                        conn,
                     )
                 else:
-                    df_b = pd.read_sql(
-                        "SELECT date, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1",
-                        conn
-                    )
-            breadth_prev = float(df_b['breadth_pct'].iloc[0]) if not df_b.empty else (breadth_pct or 0)
+                    df_b = pd.read_sql("SELECT date, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1", conn)
+            breadth_prev = float(df_b["breadth_pct"].iloc[0]) if not df_b.empty else (breadth_pct or 0)
             v_breadth = ((breadth_pct or 0) - breadth_prev) / 3
 
             # DXY rate of change — macro stress signal
@@ -376,12 +396,11 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             try:
                 with get_connection() as conn:
                     df_dxy = pd.read_sql(
-                        "SELECT date, value FROM macro_history WHERE variable='DXY' ORDER BY date DESC LIMIT 6",
-                        conn
+                        "SELECT date, value FROM macro_history WHERE variable='DXY' ORDER BY date DESC LIMIT 6", conn
                     )
                 if len(df_dxy) >= 6:
-                    dxy_today = float(df_dxy['value'].iloc[0])
-                    dxy_5d = float(df_dxy['value'].iloc[-1])
+                    dxy_today = float(df_dxy["value"].iloc[0])
+                    dxy_5d = float(df_dxy["value"].iloc[-1])
                     dxy_roc = ((dxy_today / dxy_5d) - 1) * 100
             except Exception:
                 pass
@@ -390,6 +409,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             rotation_angle = None
             try:
                 from src.services.macro.time_series_aligner import TimeSeriesAligner
+
                 tsa = TimeSeriesAligner()
                 rotation = tsa.compute_asia_rotation()
                 if rotation and isinstance(rotation, dict):
@@ -402,8 +422,9 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             try:
                 sys.path.insert(0, str(PROJECT_ROOT))
                 from core.macro.gold_spread_engine import analyze_domestic_premium
+
                 gp = analyze_domestic_premium()
-                gold_premium = gp.get('premium_pct', 0)
+                gold_premium = gp.get("premium_pct", 0)
             except Exception:
                 pass
 
@@ -470,15 +491,15 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             "t_long": round(t_long, 1),
             "dmi_penalty": dmi_penalty,
             "dmi_hysteresis": round(minus_di_val - plus_di_val, 2) if dmi_penalty else None,
-            "vnindex_vs_ma200": "ABOVE" if latest_idx['close'] > latest_idx['ma200'] else "BELOW",
-            "vnindex_vs_ma50": "ABOVE" if latest_idx['close'] > latest_idx['ma50'] else "BELOW",
-            "vnindex_vs_ma20": "ABOVE" if latest_idx['close'] > latest_idx['ma20'] else "BELOW",
+            "vnindex_vs_ma200": "ABOVE" if latest_idx["close"] > latest_idx["ma200"] else "BELOW",
+            "vnindex_vs_ma50": "ABOVE" if latest_idx["close"] > latest_idx["ma50"] else "BELOW",
+            "vnindex_vs_ma20": "ABOVE" if latest_idx["close"] > latest_idx["ma20"] else "BELOW",
             "ma50_slope": round(ma50_slope, 2),
-            "adx": round(latest_idx['adx'], 1),
+            "adx": round(latest_idx["adx"], 1),
             "v_score": round(v_score, 4),
             "atr_ratio": round(atr_ratio, 4),
             "momentum": momentum,
-        }
+        },
     }
 
     # Localized labels for live analysis block
@@ -487,32 +508,37 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     lv = _ll("V-Score (continuous)", lang_mode)
     lr = _ll("Raw Score", lang_mode)
     le = _ll("EMA Alpha", lang_mode)
-    lp = _ll("Prev Smoothed", lang_mode)
+    _ll("Prev Smoothed", lang_mode)
     ls = _ll("SMOOTHED REGIME SCORE", lang_mode)
     lm = _ll("Momentum(5D/10D)", lang_mode)
     # Compute dynamic column width for alignment
     labels = [lb, lt, lv, lr]
-    max_w = max(len(l) for l in labels)
+    max_w = max(len(lb) for lb in labels)
     if b_score is not None:
         print(f"  {lb:{max_w}s} {b_score:.4f} ({breadth_pct:.1f}%)")
     else:
         print(f"  {lb:{max_w}s} BREADTH_SUSPENDED (no data for {current_date.date()})")
-    print(f"  {lt:{max_w}s} {t_score:.4f} (MA20/50/200: {t_short:.0f}/{t_medium:.0f}/{t_long:.0f}, ADX: {latest_idx['adx']:.1f})")
+    print(
+        f"  {lt:{max_w}s} {t_score:.4f} (MA20/50/200: {t_short:.0f}/{t_medium:.0f}/{t_long:.0f}, ADX: {latest_idx['adx']:.1f})"
+    )
     if dmi_penalty:
         print(f"  DMI HAIRCUT        ACTIVE (ADX<20, DMI--DMI+>2.0, T halved {t_base:.3f}->{t_score:.3f})")
     print(f"  {lv:{max_w}s} {v_score:.4f} (ATR Ratio: {atr_ratio:.4f})")
     print(f"  {lr:{max_w}s} {regime_score_raw:.4f}")
     print(f"  {le:{max_w}s} {ema_alpha:.4f}  |  α_decay:{alpha_decay:.4f} α_eff:{alpha_effective:.4f} (Δt={dt_days}d)")
     if momentum:
-        print(f"  {lm:{max_w}s} {momentum.get('roc_5d','?'):>6}%/{momentum.get('roc_10d','?'):>6}%  Z:{momentum.get('roc_5d_z','?'):>5.1f}/{momentum.get('roc_10d_z','?'):>5.1f}")
+        print(
+            f"  {lm:{max_w}s} {momentum.get('roc_5d', '?'):>6}%/{momentum.get('roc_10d', '?'):>6}%  "
+            f"Z:{momentum.get('roc_5d_z', '?'):>5.1f}/{momentum.get('roc_10d_z', '?'):>5.1f}"
+        )
     if velocity_penalty > 0:
         print(f"  VELOCITY PENALTY   -{velocity_penalty:.4f}")
     if rad.get("activated"):
-        print(f"  ⚠ RAD OVERRIDE    {rad.get('reason','')} (risk_points={rad['signals'].get('risk_points',0)})")
+        print(f"  ⚠ RAD OVERRIDE    {rad.get('reason', '')} (risk_points={rad['signals'].get('risk_points', 0)})")
     print("-" * 30)
     flag = ">>" if sys.platform == "win32" else "\U0001f6a9"
     print(f"{flag} {ls}: {regime_score:.4f} -> {status}")
-    print("="*50)
+    print("=" * 50)
 
     return verdict
 
@@ -529,30 +555,26 @@ def backfill_regime_history(target_date=None, batch_size=30):
     thống đang chạy cron daily; xử lý ngược thời gian vì EMA cần seed từ ngày gần nhất
     trước khi tính các ngày cũ hơn.
     """
-    from src.database.db_core import save_data_upsert
     import time
+
+    from src.database.db_core import save_data_upsert
 
     with get_connection() as conn:
         # All VNINDEX dates
-        df_idx = pd.read_sql(
-            "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date",
-            conn
-        )
+        df_idx = pd.read_sql("SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date", conn)
         # Existing regime dates
-        df_reg = pd.read_sql(
-            "SELECT date FROM regime_history", conn
-        )
+        df_reg = pd.read_sql("SELECT date FROM regime_history", conn)
 
-    all_dates = set(df_idx['date'].tolist())
-    existing = set(df_reg['date'].tolist())
+    all_dates = set(df_idx["date"].tolist())
+    existing = set(df_reg["date"].tolist())
     missing = sorted(all_dates - existing)
 
     if target_date:
         missing = [d for d in missing if d <= target_date]
 
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"BACKFILL REGIME: {len(missing)}/{len(all_dates)} dates missing")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
 
     if not missing:
         print("✅ regime_history đã đầy đủ.")
@@ -565,20 +587,20 @@ def backfill_regime_history(target_date=None, batch_size=30):
     for i, d in enumerate(missing):
         try:
             verdict = detect_regime(target_date=d, lang_mode="compact")
-            if not verdict or not verdict.get('regime_score'):
+            if not verdict or not verdict.get("regime_score"):
                 continue
 
-            details = verdict.get('details', {})
+            details = verdict.get("details", {})
             row = {
                 "date": d,
-                "regime_score": verdict.get('regime_score'),
-                "status": verdict.get('status', 'RANGING'),
-                "breadth_pct": details.get('breadth_pct'),
-                "breadth_velocity": details.get('breadth_momentum', 0.0),
-                "trend_score": details.get('t_score'),
-                "vol_score": details.get('v_score'),
-                "atr_ratio": details.get('atr_ratio'),
-                "active_model": 'NONE',
+                "regime_score": verdict.get("regime_score"),
+                "status": verdict.get("status", "RANGING"),
+                "breadth_pct": details.get("breadth_pct"),
+                "breadth_velocity": details.get("breadth_momentum", 0.0),
+                "trend_score": details.get("t_score"),
+                "vol_score": details.get("v_score"),
+                "atr_ratio": details.get("atr_ratio"),
+                "active_model": "NONE",
                 "recovery_flag": 0,
             }
             df_row = pd.DataFrame([row])
@@ -590,16 +612,18 @@ def backfill_regime_history(target_date=None, batch_size=30):
             if (i + 1) % 10 == 0:
                 elapsed = time.time() - t0
                 eta = (elapsed / (i + 1)) * (len(missing) - i - 1)
-                print(f"  [{i+1}/{len(missing)}] ✅ {d}  score={row['regime_score']}  ({elapsed:.0f}s elapsed, ETA {eta:.0f}s)")
+                print(
+                    f"  [{i + 1}/{len(missing)}] ✅ {d}  score={row['regime_score']}  ({elapsed:.0f}s elapsed, ETA {eta:.0f}s)"
+                )
 
         except Exception as exc:
-            print(f"  [{i+1}/{len(missing)}] ❌ {d}: {exc}")
+            print(f"  [{i + 1}/{len(missing)}] ❌ {d}: {exc}")
         processed += 1
 
     elapsed = time.time() - t0
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"✅ BACKFILL HOÀN TẤT: {inserted}/{processed} inserted trong {elapsed:.0f}s")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
     return processed, inserted
 
 

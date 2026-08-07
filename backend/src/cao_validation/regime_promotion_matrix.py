@@ -1,4 +1,4 @@
-﻿"""CAO Trust Bridge — Regime Promotion Matrix.
+"""CAO Trust Bridge — Regime Promotion Matrix.
 
 Per-regime promotion thresholds (NOT global).
 Different strictness levels because market is non-stationary.
@@ -6,6 +6,7 @@ Different strictness levels because market is non-stationary.
 Key principle:
     CAO must be HARDER to promote in crisis, not easier.
 """
+
 import logging
 import sys
 from pathlib import Path
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -27,6 +28,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -84,13 +86,14 @@ CONFIDENCE_THRESHOLDS = {
 # MATRIX ACCESS
 # ====================================================================
 
+
 class RegimePromotionMatrix:
     """Regime-aware promotion threshold manager.
 
     NOT a static config — supports frozen regimes, dynamic adjustment.
     """
 
-    def __init__(self, matrix: dict[str, RegimeThreshold] = None):
+    def __init__(self, matrix: dict[str, RegimeThreshold] | None = None):
         self._matrix = matrix or dict(DEFAULT_PROMOTION_MATRIX)
         self._frozen_regimes: set[str] = set()
 

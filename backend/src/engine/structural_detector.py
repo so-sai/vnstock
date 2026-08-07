@@ -1,4 +1,4 @@
-﻿"""
+"""
 structural_detector.py — Bộ phát hiện lệch cấu trúc thị trường
 
 Đo 3 trụ:
@@ -8,6 +8,7 @@ structural_detector.py — Bộ phát hiện lệch cấu trúc thị trường
 
 Output: 1 trong 4 trạng thái cấu trúc + vector nguyên nhân
 """
+
 import json
 import sys
 from datetime import datetime
@@ -15,7 +16,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -30,17 +31,19 @@ def _hydrate_path():
             sys.path.insert(0, str(p))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
-if sys.platform == "win32" and getattr(sys.stdout, 'encoding', '') != 'utf-8':
+if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
     import io
+
     if isinstance(sys.stdout, io.TextIOWrapper):
-        if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+        if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
-                sys.stdout.reconfigure(encoding='utf-8')
+                sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
-    elif hasattr(sys.stdout, 'buffer'):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    elif hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import numpy as np
 import pandas as pd
 
@@ -64,15 +67,13 @@ def _get_historical_data(target_date: str) -> dict:
 
     # Lấy VNINDEX và dữ liệu cổ phiếu tại target_date
     with get_connection() as conn:
-        df_idx = pd.read_sql(
-            "SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date=?",
-            conn, params=(target_date,)
-        )
-        vnindex = float(df_idx.iloc[0]['close']) if not df_idx.empty else None
+        df_idx = pd.read_sql("SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date=?", conn, params=(target_date,))
+        vnindex = float(df_idx.iloc[0]["close"]) if not df_idx.empty else None
 
         df_stocks = pd.read_sql(
             "SELECT symbol, close, volume FROM daily_ohlcv WHERE date=? AND symbol!='VNINDEX' AND close>0",
-            conn, params=(target_date,)
+            conn,
+            params=(target_date,),
         )
 
         # Lấy giá trước đó cho từng symbol riêng (max date < target_date)
@@ -82,46 +83,46 @@ def _get_historical_data(target_date: str) -> dict:
             "  SELECT symbol, MAX(date) as max_date FROM daily_ohlcv "
             "  WHERE date<? AND symbol!='VNINDEX' AND close>0 GROUP BY symbol"
             ") b ON a.symbol=b.symbol AND a.date=b.max_date",
-            conn, params=(target_date,)
+            conn,
+            params=(target_date,),
         )
 
         df_idx_prev = pd.read_sql(
             "SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date = "
             "(SELECT MAX(date) FROM daily_ohlcv WHERE date<? AND symbol='VNINDEX')",
-            conn, params=(target_date,)
+            conn,
+            params=(target_date,),
         )
 
     if df_stocks.empty:
         return {}
 
     # Merge previous close
-    merged = df_stocks.merge(df_prev, on='symbol', how='left')
-    merged['change_pct'] = np.where(
-        merged['close_prev'] > 0,
-        (merged['close'] - merged['close_prev']) / merged['close_prev'] * 100,
-        0
+    merged = df_stocks.merge(df_prev, on="symbol", how="left")
+    merged["change_pct"] = np.where(
+        merged["close_prev"] > 0, (merged["close"] - merged["close_prev"]) / merged["close_prev"] * 100, 0
     )
 
     # Weight proxy (market cap = close * volume)
-    merged['weight'] = merged['close'] * merged['volume']
-    total_weight = merged['weight'].sum()
+    merged["weight"] = merged["close"] * merged["volume"]
+    total_weight = merged["weight"].sum()
     if total_weight > 0:
-        merged['weight_pct'] = merged['weight'] / total_weight * 100
+        merged["weight_pct"] = merged["weight"] / total_weight * 100
     else:
-        merged['weight_pct'] = 1.0 / len(merged)
+        merged["weight_pct"] = 1.0 / len(merged)
 
     # LCR: % tổng weight từ top 10
-    top10 = merged.nlargest(10, 'weight')
-    lcr_pct = round(top10['weight_pct'].sum(), 1) if len(top10) > 0 else None
+    top10 = merged.nlargest(10, "weight")
+    lcr_pct = round(top10["weight_pct"].sum(), 1) if len(top10) > 0 else None
 
     # BDI: chênh lệch % thay đổi VNINDEX vs % stock tăng
     idx_change = None
     if vnindex is not None and not df_idx_prev.empty:
-        idx_prev = float(df_idx_prev.iloc[0]['close'])
+        idx_prev = float(df_idx_prev.iloc[0]["close"])
         if idx_prev > 0:
             idx_change = (vnindex - idx_prev) / idx_prev * 100
 
-    pct_up = (merged['change_pct'] > 0.5).sum() / len(merged) * 100 if len(merged) > 0 else 0
+    pct_up = (merged["change_pct"] > 0.5).sum() / len(merged) * 100 if len(merged) > 0 else 0
     bdi_pct = round((idx_change or 0) - pct_up, 1)
 
     if bdi_pct is not None:
@@ -136,13 +137,13 @@ def _get_historical_data(target_date: str) -> dict:
 
     # Sector heatmap
     ind_map = _get_industry_map()
-    merged['sector'] = merged['symbol'].map(ind_map)
-    sector_groups = merged[merged['sector'].notna()].groupby('sector')['change_pct']
+    merged["sector"] = merged["symbol"].map(ind_map)
+    sector_groups = merged[merged["sector"].notna()].groupby("sector")["change_pct"]
     sector_changes = []
     for sector_name, group in sector_groups:
         avg_ch = group.mean()
         sector_changes.append({"sector": sector_name, "avg_change": round(float(avg_ch), 2)})
-    sector_changes.sort(key=lambda x: abs(x['avg_change']), reverse=True)
+    sector_changes.sort(key=lambda x: abs(x["avg_change"]), reverse=True)
 
     return {
         "health_score_ma20": health,
@@ -161,7 +162,7 @@ def _get_industry_map() -> dict:
     try:
         with get_connection() as conn:
             df = pd.read_sql("SELECT symbol, icb_name2 FROM symbol_industry", conn)
-        return dict(zip(df['symbol'], df['icb_name2']))
+        return dict(zip(df["symbol"], df["icb_name2"]))
     except Exception:
         return {}
 
@@ -182,13 +183,24 @@ def _tru_lan_toa(health: float | None, lcr: float | None) -> dict:
             ok = True
             nguyen_nhan.append(f"dòng tiền lan rộng (breadth={health:.0f}%)")
         elif hieu_chinh > 30:
-            nguyen_nhan.append(f"dòng tiền trung bình (breadth={health:.0f}%, LCR={lcr}%)" if lcr else f"dòng tiền trung bình (breadth={health:.0f}%)")
+            nguyen_nhan.append(
+                f"dòng tiền trung bình (breadth={health:.0f}%, LCR={lcr}%)"
+                if lcr
+                else f"dòng tiền trung bình (breadth={health:.0f}%)"
+            )
         else:
-            nguyen_nhan.append(f"dòng tiền co hẹp (breadth={health:.0f}%, LCR={lcr}%)" if lcr else f"dòng tiền co hẹp (breadth={health:.0f}%)")
+            nguyen_nhan.append(
+                f"dòng tiền co hẹp (breadth={health:.0f}%, LCR={lcr}%)" if lcr else f"dòng tiền co hẹp (breadth={health:.0f}%)"
+            )
     else:
         nguyen_nhan.append("chưa có dữ liệu độ rộng thị trường")
 
-    return {"ok": ok, "do_rong": round(health, 1) if health is not None else None, "lcr": lcr, "nguyen_nhan": "; ".join(nguyen_nhan)}
+    return {
+        "ok": ok,
+        "do_rong": round(health, 1) if health is not None else None,
+        "lcr": lcr,
+        "nguyen_nhan": "; ".join(nguyen_nhan),
+    }
 
 
 def _tru_dong_thuan_nganh(sectors: list) -> dict:
@@ -240,6 +252,7 @@ def _tinh_entropy(health: float | None, lcr: float | None) -> float | None:
     """Tính entropy từ breadth và LCR."""
     try:
         from src.engine.driver_normalizer import driver_state_from_engine_outputs
+
         driver = driver_state_from_engine_outputs(
             breadth_health=health,
             lcr_pct=lcr,
@@ -314,7 +327,7 @@ def detect_cau_truc(target_date: str | None = None) -> dict:
         "metadata": {
             "nguon": "DB (historical replay)" if target_date != datetime.now().strftime("%Y-%m-%d") else "DB (live)",
             "ngay_phan_tich": target_date,
-        }
+        },
     }
 
     # ---- Lưu file (chỉ khi live) ----

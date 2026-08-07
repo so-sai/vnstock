@@ -10,7 +10,7 @@ returns, so existing consumers keep working without re-plumbing.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -34,7 +34,7 @@ class FinancialProvider(ABC):
     def is_available(self) -> bool:
         """Return True if this provider can be reached right now."""
 
-    def describe(self) -> Dict[str, Any]:
+    def describe(self) -> dict[str, Any]:
         """Provider metadata (health/audit)."""
         return {
             "name": self.name,
@@ -43,18 +43,18 @@ class FinancialProvider(ABC):
 
     # ── Financial statements ───────────────────────────────────────────
     @abstractmethod
-    def income_statement(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def income_statement(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         """Income statement (IS) for a symbol."""
 
     @abstractmethod
-    def balance_sheet(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def balance_sheet(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         """Balance sheet (BS) for a symbol."""
 
     @abstractmethod
-    def cashflow(self, symbol: str, **kwargs: Any) -> Optional[pd.DataFrame]:
+    def cashflow(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
         """Cash flow statement (CF) for a symbol."""
 
-    def financial_statements(self, symbol: str, **kwargs: Any) -> Dict[str, Optional[pd.DataFrame]]:
+    def financial_statements(self, symbol: str, **kwargs: Any) -> dict[str, pd.DataFrame | None]:
         """Convenience: fetch all three statements in one call."""
         return {
             "IS": self.income_statement(symbol, **kwargs),
@@ -67,18 +67,18 @@ class FinancialProvider(ABC):
     def history(
         self,
         symbol: str,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        start: str | None = None,
+        end: str | None = None,
         **kwargs: Any,
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Daily/periodic OHLCV history for a symbol."""
 
     # ── Company info ───────────────────────────────────────────────────
-    def company_info(self, symbol: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    def company_info(self, symbol: str, **kwargs: Any) -> dict[str, Any] | None:
         """Company profile (sector, industry, listing). Optional to implement."""
         return None
 
     # ── Utilities ──────────────────────────────────────────────────────
-    def symbols(self, **kwargs: Any) -> Optional[List[str]]:
+    def symbols(self, **kwargs: Any) -> list[str] | None:
         """Full listed symbol universe. Optional to implement."""
         return None

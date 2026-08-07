@@ -9,8 +9,9 @@ PROJECT_ROOT → temp extraction dir → "DB not found" → server crash.
 Do NOT add sys.frozen-only checks without the exec-stem fallback.
 Do NOT use Path(sys.executable).suffix.lower() == '.exe' — python.exe matches too.
 """
-import sys
 import pathlib
+import sys
+
 import pytest
 
 

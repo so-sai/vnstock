@@ -1,4 +1,5 @@
-﻿"""Telemetry Storage — SQLite persistence for snapshots & outcomes"""
+"""Telemetry Storage — SQLite persistence for snapshots & outcomes"""
+
 import json
 import logging
 import os
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -25,6 +26,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
@@ -212,27 +214,30 @@ def _migrate_telemetry_schema(conn):
 def save_snapshot(snapshot) -> bool:
     try:
         with get_telemetry_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO decision_snapshots
                 (decision_id, timestamp, posture, risk_level, confidence,
                  dominant_signal, vnindex_level, opportunity_symbols,
                  holdings_health, market_regime, decision_weights,
                  engine_scores)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                snapshot.decision_id,
-                snapshot.timestamp.isoformat() if hasattr(snapshot.timestamp, 'isoformat') else str(snapshot.timestamp),
-                snapshot.posture,
-                snapshot.risk_level,
-                snapshot.confidence,
-                snapshot.dominant_signal,
-                snapshot.vnindex_level,
-                json.dumps(snapshot.opportunity_symbols, ensure_ascii=False),
-                snapshot.holdings_health,
-                snapshot.market_regime,
-                snapshot.decision_weights,
-                snapshot.engine_scores,
-            ))
+            """,
+                (
+                    snapshot.decision_id,
+                    snapshot.timestamp.isoformat() if hasattr(snapshot.timestamp, "isoformat") else str(snapshot.timestamp),
+                    snapshot.posture,
+                    snapshot.risk_level,
+                    snapshot.confidence,
+                    snapshot.dominant_signal,
+                    snapshot.vnindex_level,
+                    json.dumps(snapshot.opportunity_symbols, ensure_ascii=False),
+                    snapshot.holdings_health,
+                    snapshot.market_regime,
+                    snapshot.decision_weights,
+                    snapshot.engine_scores,
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[TELEMETRY] Failed to save snapshot: %s", e)
@@ -242,22 +247,25 @@ def save_snapshot(snapshot) -> bool:
 def save_outcome(record) -> bool:
     try:
         with get_telemetry_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO outcome_records
                 (decision_id, horizon_days, evaluated_date,
                  vnindex_entry, vnindex_exit, vnindex_return,
                  benchmark_return, success)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                record.decision_id,
-                record.horizon_days,
-                datetime.now().strftime("%Y-%m-%d"),
-                record.vnindex_entry,
-                record.vnindex_exit,
-                record.vnindex_return,
-                record.benchmark_return,
-                1 if record.success else 0,
-            ))
+            """,
+                (
+                    record.decision_id,
+                    record.horizon_days,
+                    datetime.now().strftime("%Y-%m-%d"),
+                    record.vnindex_entry,
+                    record.vnindex_exit,
+                    record.vnindex_return,
+                    record.benchmark_return,
+                    1 if record.success else 0,
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[TELEMETRY] Failed to save outcome: %s", e)
@@ -266,16 +274,14 @@ def save_outcome(record) -> bool:
 
 def get_snapshot(decision_id: str):
     with get_telemetry_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM decision_snapshots WHERE decision_id = ?",
-            (decision_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM decision_snapshots WHERE decision_id = ?", (decision_id,)).fetchone()
     return dict(row) if row else None
 
 
 def get_pending_decisions(min_age_days: int) -> list:
     with get_telemetry_connection() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT s.* FROM decision_snapshots s
             WHERE NOT EXISTS (
                 SELECT 1 FROM outcome_records o
@@ -283,56 +289,55 @@ def get_pending_decisions(min_age_days: int) -> list:
                 AND o.horizon_days = ?
             )
             AND date(s.timestamp) <= date('now', ?)
-        """, (min_age_days, f'-{min_age_days} days')).fetchall()
+        """,
+            (min_age_days, f"-{min_age_days} days"),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_outcomes(decision_id: str = None) -> list:
+def get_outcomes(decision_id: str | None = None) -> list:
     with get_telemetry_connection() as conn:
         if decision_id:
             rows = conn.execute(
-                "SELECT * FROM outcome_records WHERE decision_id = ? ORDER BY horizon_days",
-                (decision_id,)
+                "SELECT * FROM outcome_records WHERE decision_id = ? ORDER BY horizon_days", (decision_id,)
             ).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM outcome_records ORDER BY created_at DESC LIMIT 100"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM outcome_records ORDER BY created_at DESC LIMIT 100").fetchall()
     return [dict(r) for r in rows]
 
 
 def get_all_snapshots(limit: int = 50) -> list:
     with get_telemetry_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM decision_snapshots ORDER BY timestamp DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM decision_snapshots ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 
 def save_engine_attribution(attribution) -> bool:
     try:
         with get_telemetry_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO engine_attribution
                 (decision_id, horizon_days, engine, signal_at_decision,
                  contribution, true_positive_contribution,
                  false_positive_contribution, direction,
                  correlation, accuracy, precision)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                attribution.decision_id,
-                attribution.horizon_days,
-                attribution.engine,
-                attribution.signal_at_decision,
-                attribution.contribution,
-                attribution.true_positive_contribution,
-                attribution.false_positive_contribution,
-                attribution.direction,
-                attribution.correlation,
-                attribution.accuracy,
-                attribution.precision,
-            ))
+            """,
+                (
+                    attribution.decision_id,
+                    attribution.horizon_days,
+                    attribution.engine,
+                    attribution.signal_at_decision,
+                    attribution.contribution,
+                    attribution.true_positive_contribution,
+                    attribution.false_positive_contribution,
+                    attribution.direction,
+                    attribution.correlation,
+                    attribution.accuracy,
+                    attribution.precision,
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[TELEMETRY] Failed to save attribution: %s", e)
@@ -342,94 +347,97 @@ def save_engine_attribution(attribution) -> bool:
 def save_market_outcome(market_outcome) -> bool:
     try:
         with get_telemetry_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO market_outcomes
                 (decision_id, horizon_days, asset_return, benchmark_return,
                  alpha_return, realized_volatility, regime_shift,
                  sector_rotation, liquidity_phase, gold_change_pct)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                market_outcome.decision_id,
-                market_outcome.horizon_days,
-                market_outcome.asset_return,
-                market_outcome.benchmark_return,
-                market_outcome.alpha_return,
-                market_outcome.realized_volatility,
-                1 if market_outcome.regime_shift else 0,
-                market_outcome.sector_rotation,
-                market_outcome.liquidity_phase,
-                market_outcome.gold_change_pct,
-            ))
+            """,
+                (
+                    market_outcome.decision_id,
+                    market_outcome.horizon_days,
+                    market_outcome.asset_return,
+                    market_outcome.benchmark_return,
+                    market_outcome.alpha_return,
+                    market_outcome.realized_volatility,
+                    1 if market_outcome.regime_shift else 0,
+                    market_outcome.sector_rotation,
+                    market_outcome.liquidity_phase,
+                    market_outcome.gold_change_pct,
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[TELEMETRY] Failed to save market outcome: %s", e)
         return False
 
 
-def get_attributions(decision_id: str = None, limit: int = 100) -> list:
+def get_attributions(decision_id: str | None = None, limit: int = 100) -> list:
     with get_telemetry_connection() as conn:
         if decision_id:
             rows = conn.execute(
-                "SELECT * FROM engine_attribution WHERE decision_id = ? ORDER BY contribution DESC",
-                (decision_id,)
+                "SELECT * FROM engine_attribution WHERE decision_id = ? ORDER BY contribution DESC", (decision_id,)
             ).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM engine_attribution ORDER BY created_at DESC LIMIT ?",
-                (limit,)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM engine_attribution ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 
 def save_engine_performance(perf) -> bool:
     try:
         with get_telemetry_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO engine_performance
                 (engine, window_days, accuracy, precision, avg_contribution,
                  stability, decisions_count, last_updated)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                perf.engine,
-                perf.window_days,
-                perf.accuracy,
-                perf.precision,
-                perf.avg_contribution,
-                perf.stability,
-                perf.decisions_count,
-                perf.last_updated,
-            ))
+            """,
+                (
+                    perf.engine,
+                    perf.window_days,
+                    perf.accuracy,
+                    perf.precision,
+                    perf.avg_contribution,
+                    perf.stability,
+                    perf.decisions_count,
+                    perf.last_updated,
+                ),
+            )
         return True
     except Exception as e:
         logger.error("[TELEMETRY] Failed to save engine performance: %s", e)
         return False
 
 
-def get_engine_performance(engine: str = None) -> list:
+def get_engine_performance(engine: str | None = None) -> list:
     with get_telemetry_connection() as conn:
         if engine:
-            rows = conn.execute(
-                "SELECT * FROM engine_performance WHERE engine = ? ORDER BY window_days",
-                (engine,)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM engine_performance WHERE engine = ? ORDER BY window_days", (engine,)).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM engine_performance ORDER BY engine, window_days"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM engine_performance ORDER BY engine, window_days").fetchall()
     return [dict(r) for r in rows]
 
 
 def get_attribution_summary(decision_id: str, horizon_days: int) -> dict:
     with get_telemetry_connection() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT * FROM engine_attribution
             WHERE decision_id = ? AND horizon_days = ?
             ORDER BY contribution DESC
-        """, (decision_id, horizon_days)).fetchall()
-        outcome = conn.execute("""
+        """,
+            (decision_id, horizon_days),
+        ).fetchall()
+        outcome = conn.execute(
+            """
             SELECT vnindex_return, benchmark_return FROM outcome_records
             WHERE decision_id = ? AND horizon_days = ?
-        """, (decision_id, horizon_days)).fetchone()
+        """,
+            (decision_id, horizon_days),
+        ).fetchone()
     if not rows:
         return None
     total_return = outcome["vnindex_return"] if outcome else 0
@@ -459,9 +467,7 @@ def get_snapshot_stats() -> dict:
     with get_telemetry_connection() as conn:
         total = conn.execute("SELECT COUNT(*) as c FROM decision_snapshots").fetchone()["c"]
         evaluated = conn.execute("SELECT COUNT(DISTINCT decision_id) as c FROM outcome_records").fetchone()["c"]
-        success_count = conn.execute(
-            "SELECT COUNT(*) as c FROM outcome_records WHERE success = 1"
-        ).fetchone()["c"]
+        success_count = conn.execute("SELECT COUNT(*) as c FROM outcome_records WHERE success = 1").fetchone()["c"]
         total_outcomes = conn.execute("SELECT COUNT(*) as c FROM outcome_records").fetchone()["c"]
     return {
         "total_decisions": total,

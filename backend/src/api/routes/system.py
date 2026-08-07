@@ -5,6 +5,7 @@ Không gọi engine nặng — đọc thẳng regime_history (1 query) → trả
 
 Dùng cho: hiển thị "Phiên tác chiến: DD/MM/YYYY - HH:MM" trên Header.
 """
+
 import io
 import sys
 from datetime import datetime
@@ -13,13 +14,15 @@ from pathlib import Path
 from fastapi import APIRouter
 
 if isinstance(sys.stdout, io.TextIOWrapper):
-    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+    if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
-elif hasattr(sys.stdout, 'buffer'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+elif hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+
 def _hydrate_path():
     candidate = Path(sys.executable).resolve().parent
     if Path(sys.executable).stem.lower().startswith("python"):
@@ -62,15 +65,17 @@ async def get_session_info():
 
         if row is None:
             # Fallback: chưa có regime_history → trả "no data" để UI biết
-            return localize_output({
-                "target_date": None,
-                "session_time": None,
-                "regime_status": "NO_DATA",
-                "regime_score": None,
-                "breadth_pct": None,
-                "is_stale": True,
-                "server_now": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            })
+            return localize_output(
+                {
+                    "target_date": None,
+                    "session_time": None,
+                    "regime_status": "NO_DATA",
+                    "regime_score": None,
+                    "breadth_pct": None,
+                    "is_stale": True,
+                    "server_now": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
 
         target_date = row["date"]  # YYYY-MM-DD
         # Format thành DD/MM/YYYY - HH:MM (lấy HH:MM từ server_now vì regime_history chỉ lưu date)
@@ -78,24 +83,28 @@ async def get_session_info():
         session_time = server_now.strftime("%H:%M")
         target_date_vn = datetime.strptime(target_date, "%Y-%m-%d").strftime("%d/%m/%Y")
 
-        return localize_output({
-            "target_date": target_date,                # YYYY-MM-DD (cho code)
-            "target_date_vn": target_date_vn,           # DD/MM/YYYY (cho UI)
-            "session_label": f"{target_date_vn} - {session_time}",  # "14/06/2026 - 23:45"
-            "session_time": session_time,
-            "regime_status": row["status"],
-            "regime_score": row["regime_score"],
-            "breadth_pct": row["breadth_pct"],
-            "is_stale": False,
-            "server_now": server_now.strftime("%Y-%m-%d %H:%M:%S"),
-        })
+        return localize_output(
+            {
+                "target_date": target_date,  # YYYY-MM-DD (cho code)
+                "target_date_vn": target_date_vn,  # DD/MM/YYYY (cho UI)
+                "session_label": f"{target_date_vn} - {session_time}",  # "14/06/2026 - 23:45"
+                "session_time": session_time,
+                "regime_status": row["status"],
+                "regime_score": row["regime_score"],
+                "breadth_pct": row["breadth_pct"],
+                "is_stale": False,
+                "server_now": server_now.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
     except Exception as e:
         # KHÔNG throw 500 — Frontend cần luôn có data để hiển thị
-        return localize_output({
-            "target_date": None,
-            "session_label": "Mất kết nối CSDL",
-            "regime_status": "ERROR",
-            "is_stale": True,
-            "error": str(e)[:200],
-            "server_now": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        })
+        return localize_output(
+            {
+                "target_date": None,
+                "session_label": "Mất kết nối CSDL",
+                "regime_status": "ERROR",
+                "is_stale": True,
+                "error": str(e)[:200],
+                "server_now": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )

@@ -1,8 +1,9 @@
-﻿"""SystemStateSnapshotter — captures all layer states at one point in time.
+"""SystemStateSnapshotter — captures all layer states at one point in time.
 
 Used before every significant system decision so the exact causal context
 can be reconstructed later.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -10,7 +11,6 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from src.core.cagl.registry import APIRegistry
 from src.core.cagl.scanner import RouteScanner
@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from src.config import DATA_DIR as _BASE
+
     PSR_DIR = _BASE / "psr"
 except ImportError:
     PSR_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
@@ -66,7 +67,7 @@ class SystemStateSnapshotter:
         logger.info("[PSR] Snapshot saved: %s", path)
         return path
 
-    def load(self, snapshot_id: str) -> Optional[PSRSnapshot]:
+    def load(self, snapshot_id: str) -> PSRSnapshot | None:
         """Load a snapshot by ID."""
         path = DATA_DIR / f"{snapshot_id}.json"
         if not path.exists():
@@ -93,6 +94,7 @@ class SystemStateSnapshotter:
     def _capture_regime() -> dict:
         try:
             from src.engine.regime_engine import detect_regime
+
             r = detect_regime()
             return {
                 "status": r.get("status", "UNKNOWN"),
@@ -107,6 +109,7 @@ class SystemStateSnapshotter:
     def _capture_market_state() -> dict:
         try:
             from src.core.market_state_coordinator import build_market_state
+
             s = build_market_state()
             return {
                 "lci": s.get("liquidity_condition", "UNKNOWN"),
@@ -121,6 +124,7 @@ class SystemStateSnapshotter:
     def _capture_gold() -> dict:
         try:
             from src.services.weekly_cognitive_report import aggregate_gold
+
             return aggregate_gold()
         except Exception as e:
             return {"error": str(e)}
@@ -129,6 +133,7 @@ class SystemStateSnapshotter:
     def _capture_trust() -> dict:
         try:
             from src.services.weekly_cognitive_report import aggregate_trust
+
             return aggregate_trust()
         except Exception as e:
             return {"error": str(e)}
@@ -137,6 +142,7 @@ class SystemStateSnapshotter:
     def _capture_data_quality() -> dict:
         try:
             from src.core.data_quality import QualityScoreEngine
+
             r = QualityScoreEngine().compute_report()
             return {
                 "dis": r.integrity_score,
@@ -149,16 +155,15 @@ class SystemStateSnapshotter:
             return {"error": str(e)}
 
     @staticmethod
-    def _capture_api_routes() -> Optional[dict]:
+    def _capture_api_routes() -> dict | None:
         try:
             from src.api.main import app
+
             scanner = RouteScanner()
             routes = scanner.scan(app)
             registry = APIRegistry(routes)
             route_list = [r.to_dict() for r in sorted(registry.all(), key=lambda x: (x.path, x.method))]
-            route_hash = hashlib.sha256(
-                json.dumps(route_list, sort_keys=True, ensure_ascii=False).encode()
-            ).hexdigest()[:16]
+            route_hash = hashlib.sha256(json.dumps(route_list, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
             return {
                 "count": len(route_list),
                 "hash": route_hash,

@@ -1,4 +1,4 @@
-﻿"""
+"""
 phase_transition_detector.py — Module 3: Phase Transition Detector.
 
 Architecture: PTD Layer 3 (Narrative Emergence)
@@ -14,7 +14,6 @@ Specification (frozen 2026-07-09, Hotfix #3 2026-07-09):
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 from scipy.stats import chi2
@@ -31,8 +30,13 @@ CHI2_THRESHOLD = float(chi2.ppf(0.99, 7))  # 18.475 — compared with D_M²
 
 N_DRIVERS = 7
 DRIVER_LABELS = [
-    "Liquidity", "Inflation", "Growth",
-    "Energy", "Risk", "AI_Capex", "Trust",
+    "Liquidity",
+    "Inflation",
+    "Growth",
+    "Energy",
+    "Risk",
+    "AI_Capex",
+    "Trust",
 ]
 
 # ── Narrative Templates ──────────────────────────────────────────────
@@ -72,12 +76,13 @@ NARRATIVE_NAMES = list(NARRATIVE_TEMPLATES.keys())
 @dataclass
 class NarrativeOutput:
     """Output from Phase Transition Detector."""
+
     narrative_probs: dict[str, float]
     dominant_narrative: str
     novelty_flag: bool
     mahalanobis_distance: float
     governor_confidence: float
-    provisional_label: Optional[str]
+    provisional_label: str | None
     driver_vector: np.ndarray
 
 
@@ -94,8 +99,7 @@ class PhaseTransitionDetector:
         (default 0.3 per step).
     """
 
-    def __init__(self, chi2_threshold: float = CHI2_THRESHOLD,
-                 confidence_decay_rate: float = 0.3):
+    def __init__(self, chi2_threshold: float = CHI2_THRESHOLD, confidence_decay_rate: float = 0.3):
         self.threshold = chi2_threshold  # compared with D_M²
         self.decay_rate = confidence_decay_rate
 
@@ -197,18 +201,14 @@ class PhaseTransitionDetector:
 
     # ── Mahalanobis Distance ──────────────────────────────────────────
 
-    def _mahalanobis_sq(self, x: np.ndarray, mean: np.ndarray,
-                        cov_inv: np.ndarray) -> float:
+    def _mahalanobis_sq(self, x: np.ndarray, mean: np.ndarray, cov_inv: np.ndarray) -> float:
         """Squared Mahalanobis: D_M² = (x-μ)ᵀ Σ⁻¹ (x-μ)."""
         delta = x - mean
         return float(delta @ cov_inv @ delta)
 
     def _mahalanobis_to_all(self, x: np.ndarray) -> tuple[float, int]:
         """Mahalanobis to all templates, return (min_D_M², closest_idx)."""
-        distances = np.array([
-            self._mahalanobis_sq(x, t["mean"], t["cov_inv"])
-            for t in self.templates.values()
-        ])
+        distances = np.array([self._mahalanobis_sq(x, t["mean"], t["cov_inv"]) for t in self.templates.values()])
         min_idx = int(np.argmin(distances))
         return float(distances[min_idx]), min_idx
 
@@ -216,10 +216,7 @@ class PhaseTransitionDetector:
 
     def _softmax_narrative(self, x: np.ndarray) -> dict[str, float]:
         """Softmax over negative Mahalanobis distances (linear D_M)."""
-        d2 = np.array([
-            self._mahalanobis_sq(x, t["mean"], t["cov_inv"])
-            for t in self.templates.values()
-        ])
+        d2 = np.array([self._mahalanobis_sq(x, t["mean"], t["cov_inv"]) for t in self.templates.values()])
         d_lin = np.sqrt(np.maximum(d2, 1e-15))  # linear D_M for softmax
         # Negative distances so closer template → higher prob
         # Temperature scaling to avoid overconfidence
@@ -231,8 +228,7 @@ class PhaseTransitionDetector:
 
     # ── Novelty Detection ─────────────────────────────────────────────
 
-    def _handle_novelty(self, driver: np.ndarray,
-                        closest_name: str) -> str:
+    def _handle_novelty(self, driver: np.ndarray, closest_name: str) -> str:
         """
         Handle novelty detection: create or update provisional template.
 
@@ -255,13 +251,15 @@ class PhaseTransitionDetector:
             "Novelty detected: D_M=%.2f (D_M²=%.2f > χ²=%.2f). "
             "Provisional '%s' created (closest: %s). "
             "Governor confidence decaying.",
-            d_m_lin, d_m_sq, self.threshold,
-            label, closest_name,
+            d_m_lin,
+            d_m_sq,
+            self.threshold,
+            label,
+            closest_name,
         )
         return label
 
-    def update_provisional_template(self, label: str,
-                                     driver: np.ndarray) -> None:
+    def update_provisional_template(self, label: str, driver: np.ndarray) -> None:
         """
         Update existing provisional template with new observation.
 
@@ -301,17 +299,21 @@ class PhaseTransitionDetector:
         """List all defined templates with descriptions."""
         result = []
         for name, t in self.templates.items():
-            result.append({
-                "name": name,
-                "description": t["description"],
-                "mean": t["mean"].tolist(),
-            })
+            result.append(
+                {
+                    "name": name,
+                    "description": t["description"],
+                    "mean": t["mean"].tolist(),
+                }
+            )
         for name, p in self.provisionals.items():
-            result.append({
-                "name": name,
-                "description": "Provisional (novelty)",
-                "closest": p["closest_template"],
-                "stability": p["stability_score"],
-                "observations": len(p["observations"]),
-            })
+            result.append(
+                {
+                    "name": name,
+                    "description": "Provisional (novelty)",
+                    "closest": p["closest_template"],
+                    "stability": p["stability_score"],
+                    "observations": len(p["observations"]),
+                }
+            )
         return result

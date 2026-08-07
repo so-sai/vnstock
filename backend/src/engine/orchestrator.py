@@ -47,7 +47,7 @@ if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception as e:  # noqa: BLE001 — non-fatal, console encoding fallback
+            except Exception as e:
                 logger.debug("[ORCH] stdout reconfigure failed: %s", e)
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -101,7 +101,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
             _raw_daily = "THAM GIA"
         elif "THẬN_TRỌNG" in _risk_appetite:
             _raw_daily = "QUAN SAT"
-    except Exception as e:  # noqa: BLE001 — raw daily signal is advisory
+    except Exception as e:
         logger.debug("[ORCH] raw daily signal estimate failed: %s", e)
 
     # ---- Bước 0: Data Quality Guard ----
@@ -136,7 +136,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
             ket_qua_tam["bi_chặn_bởi_bảo_vệ"] = True
             ket_qua_tam["lý_do_chặn"] = f"chỉ {int(count_liquid)} mã đủ volume > 50k"
             return ket_qua_tam
-    except Exception as e:  # noqa: BLE001 — data quality guard is fail-open
+    except Exception as e:
         logger.warning("[ORCH] Data quality guard query failed: %s", e)
 
     # ---- Bước 0b: Data Fallback Guard — FORCE_LOCK_HDR + Confidence Penalty ----
@@ -180,7 +180,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
             ket_qua_tam["bi_chặn_bởi_bảo_vệ"] = True
             ket_qua_tam["lý_do_chặn"] = "FORCE_LOCK_HDR — synthetic data"
             return ket_qua_tam
-    except Exception as e:  # noqa: BLE001 — fallback guard is fail-open
+    except Exception as e:
         logger.warning("[ORCH] Fallback guard query failed: %s", e)
     # ---- Bước 2: Logic quyết định theo thứ tự ưu tiên ----
     ly_do = []
@@ -299,7 +299,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
             "lý_do_tạm_ngưng": đg["lý_do_tạm_ngưng"],
             "phạt_nguồn_dữ_liệu": round(_fallback_penalty, 4),
         }
-    except Exception as e:  # noqa: BLE001 — confidence fallback keeps pipeline alive
+    except Exception as e:
         logger.warning("[ORCH] Confidence layer failed, using TRUNG_BINH fallback: %s", e)
         ket_qua["độ_tin_cậy_sau_hiệu_chỉnh"] = {
             "điểm_số": 0.5,
@@ -313,7 +313,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
         from src.services.macro.interbank_zscore import assess_interbank_risk
 
         du_lieu_lien_ngan_hang = assess_interbank_risk()
-    except Exception as e:  # noqa: BLE001 — interbank risk is advisory
+    except Exception as e:
         logger.warning("[ORCH] Interbank risk assessment failed: %s", e)
 
     # ── STRUCTURE_UNKNOWN: sensor blind → force DỪNG NGOÀI + 0.0 ──
@@ -363,7 +363,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
                         "[RECALL] SBV on-demand: ON=%.2f%% (elevated), giữ nguyên guard",
                         on_rate,
                     )
-            except Exception as e:  # noqa: BLE001 — on-demand recall is best-effort
+            except Exception as e:
                 logger.warning("[RECALL] SBV on-demand check failed: %s", e)
 
     # ── Bước 4b: Guard chính ──
@@ -384,7 +384,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
             ket_qua["lý_do_chặn"] = guarded["ly_do_chặn"]
             ket_qua["he_so_giam_ty_trong"] = guarded.get("he_so_giam_ty_trong", 1.0)
             ket_qua["lri"] = guarded.get("lri", {})
-        except Exception as e:  # noqa: BLE001 — guard degrades to default state
+        except Exception as e:
             logger.warning("[GUARD] kiem_tra_an_toan failed, using defaults: %s", e)
             if not _recall_triggered:
                 ket_qua["bi_chặn_bởi_bảo_vệ"] = False
@@ -480,7 +480,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
                         ]
                         ket_qua["bi_chặn_bởi_bảo_vệ"] = False
                         ket_qua["lý_do_chặn"] = None
-            except Exception as e:  # noqa: BLE001 — recovery check is non-blocking
+            except Exception as e:
                 logger.debug("[ORCH] Recovery/Healing check failed: %s", e)
 
     # ---- Bước 6: Phase 3 — Structural Consensus (nâng cấp lên THAM GIA FULL) ----
@@ -545,7 +545,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
                         if is_pullback and is_low_vol and is_recovery:
                             retest_confirmed = True
                             retest_log = f"retest T-1: pullback x{float(v1) / v_ma20:.2f} vol MA20 → xác nhận xu hướng"
-            except Exception as e:  # noqa: BLE001 — retest query is non-blocking
+            except Exception as e:
                 logger.debug("[ORCH] Retest confirmation query failed: %s", e)
 
             if retest_confirmed:
@@ -589,7 +589,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
                 ]
                 ket_qua["bi_chặn_bởi_bảo_vệ"] = False
                 ket_qua["lý_do_chặn"] = None
-        except Exception as e:  # noqa: BLE001 — fast-exit guard is non-blocking
+        except Exception as e:
             logger.debug("[ORCH] Fast-exit guard failed: %s", e)
 
     # ---- Gắn params_hash vào kết quả ----
@@ -606,7 +606,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
             try:
                 _prev = json.loads(_prev_path.read_text(encoding="utf-8"))
                 _prev_state = _prev.get("quyet_dinh", "")
-            except Exception as e:  # noqa: BLE001 — prev state is advisory for audit
+            except Exception as e:
                 logger.debug("[ORCH] Prev decision state read failed: %s", e)
         _ddi = anh_chup.get("delta_divergence", {})
         _r = anh_chup.get("regime", {})
@@ -620,7 +620,7 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
             regime=_r.get("trang_thai", "N/A"),
             trigger="machine",
         )
-    except Exception as e:  # noqa: BLE001 — audit trail is non-critical
+    except Exception as e:
         logger.debug("[ORCH] Decision audit log failed: %s", e)
 
     # ---- Lưu file (atomic write: temp → rename) ----
@@ -666,7 +666,7 @@ def _print_executive_report(kq: dict):
             _res = _abs.analyze(_target)
             if isinstance(_res, dict):
                 volume_profile = _res.get("volume_profile")
-    except Exception as e:  # noqa: BLE001 — optional enrichment, never fatal
+    except Exception as e:
         logger.debug("[ORCH] 5-model enrichment failed: %s", e)
 
     rs = kq.get("rs_rating_table")
@@ -773,7 +773,7 @@ def in_bao_cao(kq: dict):
         from src.core.canonical_output_adapter import localize_label
 
         verdict_label = localize_label(verdict_label, "full")
-    except Exception as e:  # noqa: BLE001 — display-only, keep raw token
+    except Exception as e:
         logger.debug("[ORCH] verdict localize failed: %s", e)
     print("\n" + "=" * 60)
     print("  BỘ QUYẾT ĐỊNH CUỐI CÙNG")
@@ -789,7 +789,7 @@ def in_bao_cao(kq: dict):
     # ── 5-MODEL CONSOLIDATED EXECUTIVE REPORT (Zero-Hallucination) ──
     try:
         _print_executive_report(kq)
-    except Exception as e:  # noqa: BLE001 — executive report is display-only
+    except Exception as e:
         logger.debug("[ORCH] Executive report failed: %s", e)
 
     # ── XAI Causal Override Trace (transparency: no silent override) ──
@@ -797,7 +797,7 @@ def in_bao_cao(kq: dict):
         from src.utils.xai_override_trace import print_override_trace
 
         print_override_trace(kq)
-    except Exception as e:  # noqa: BLE001 — XAI trace is display-only
+    except Exception as e:
         logger.debug("[ORCH] XAI override trace failed: %s", e)
 
     ct = kq.get("chi_tiet", {})
@@ -866,7 +866,7 @@ def in_bao_cao(kq: dict):
             print("  Dữ liệu gốc lưu tại: data/alerts/")
             print("  Chạy: python ptck.py sbv-update")
             print(f"  {'=' * 50}")
-    except Exception as e:  # noqa: BLE001 — SBV alert poll is display-only
+    except Exception as e:
         logger.debug("[ORCH] SBV alert poll failed: %s", e)
 
     ss = kq.get("sensor_status")
@@ -1009,7 +1009,7 @@ def in_bao_cao(kq: dict):
                     _fr_row = f"    {_icon} {_fr.symbol:12s}: {_fr.composite_score:.2%} {_fr.action} ({_fr.target_weight:.0%})"
                     print(_fr_row)
             print(
-                "    Allocation: {0:.0f}% | Cash: {1:.0f}% | Positions: {2}".format(
+                "    Allocation: {:.0f}% | Cash: {:.0f}% | Positions: {}".format(
                     _risk["total_allocated"], _risk["cash_reserve"], _risk["n_positions"]
                 )
             )
@@ -1018,10 +1018,10 @@ def in_bao_cao(kq: dict):
                 "results": [(r.symbol, r.composite_score, r.action, r.target_weight) for r in _fusion_results],
                 "risk_metrics": _risk,
             }
-        except Exception as e:  # noqa: BLE001 — fusion display is best-effort
+        except Exception as e:
             logger.debug("[ORCH] Multi-factor fusion unavailable: %s", e)
 
-    except Exception as e:  # noqa: BLE001 — sector macro display is best-effort
+    except Exception as e:
         logger.debug("[ORCH] Sector macro scores unavailable: %s", e)
 
     print("=" * 60)

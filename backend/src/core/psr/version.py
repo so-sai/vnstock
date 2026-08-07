@@ -1,4 +1,4 @@
-﻿"""VersionFreeze — immutable version manifest + git integration.
+"""VersionFreeze — immutable version manifest + git integration.
 
 Defines:
   - ``CAO v3.1`` as an immutable semantic + causal contract
@@ -8,6 +8,7 @@ Defines:
 
 No silent label changes, no backend drift, no UI semantic mutation.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from src.config import DATA_DIR as _BASE
+
     PSR_DIR = _BASE / "psr"
 except ImportError:
     PSR_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "psr"
@@ -36,7 +38,9 @@ def _git_commit() -> str:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
             cwd=Path(__file__).resolve().parent.parent.parent.parent.parent,
         )
         return result.stdout.strip() or "unknown"
@@ -64,6 +68,7 @@ def _hash_api_contract() -> str:
     try:
         from src.api.main import app
         from src.core.cagl.scanner import RouteScanner
+
         scanner = RouteScanner()
         for spec in scanner.scan(app):
             hasher.update(f"{spec.method}:{spec.path}:{spec.module}:{spec.handler}".encode())

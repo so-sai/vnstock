@@ -1,4 +1,4 @@
-﻿"""per_symbol_absorption.py — Dynamic PCA Absorption Detection (Per-Symbol)
+"""per_symbol_absorption.py — Dynamic PCA Absorption Detection (Per-Symbol)
 
 Kiến trúc:
   1. Adaptive Z-Score Standardization Layer trước PCA
@@ -15,19 +15,19 @@ Usage:
   from src.engine.per_symbol_absorption import PerSymbolAbsorption
   result = PerSymbolAbsorption("FPT").analyze()
 """
+
 import json
 import logging
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -44,7 +44,6 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
-
 from src.database.db_core import get_connection
 
 DATA_DIR = src.config.DATA_DIR
@@ -118,18 +117,11 @@ class VolumeQualityAnalyzer:
         return "MARKET_MAKING_CHURN"
 
     @staticmethod
-    def analyze_row(row: pd.Series, vol_series: np.ndarray) -> Dict:
+    def analyze_row(row: pd.Series, vol_series: np.ndarray) -> dict:
         """Phân tích VQA cho một phiên giao dịch."""
-        er = VolumeQualityAnalyzer.compute_er(
-            float(row["open"]), float(row["high"]),
-            float(row["low"]), float(row["close"])
-        )
-        vsi = VolumeQualityAnalyzer.compute_vsi(
-            float(row["close"]), float(row["high"]), float(row["low"])
-        )
-        vol_z = VolumeQualityAnalyzer.compute_volume_zscore(
-            float(row["volume"]), vol_series
-        )
+        er = VolumeQualityAnalyzer.compute_er(float(row["open"]), float(row["high"]), float(row["low"]), float(row["close"]))
+        vsi = VolumeQualityAnalyzer.compute_vsi(float(row["close"]), float(row["high"]), float(row["low"]))
+        vol_z = VolumeQualityAnalyzer.compute_volume_zscore(float(row["volume"]), vol_series)
         vol_z_norm = (vol_z + 3.0) / 6.0
         aq = VolumeQualityAnalyzer.compute_aq(er, vsi, vol_z_norm)
         classification = VolumeQualityAnalyzer.classify(er, vsi, vol_z_norm, aq)
@@ -169,25 +161,25 @@ class PerSymbolAbsorption:
         # PCA
         self.eigenvalues: np.ndarray | None = None
         self.sdi: float | None = None
-        self.sdi_hist: List[float] = []
+        self.sdi_hist: list[float] = []
 
         # Raw metrics (latest row)
-        self.pc: float | None = None        # price_change
-        self.slip: float | None = None       # slippage
-        self.f_net: float | None = None      # foreign net value (billion VND)
-        self.dom_ratio: float | None = None   # domestic absorption ratio
-        self.vpoc_dist: float | None = None   # VPOC distance
+        self.pc: float | None = None  # price_change
+        self.slip: float | None = None  # slippage
+        self.f_net: float | None = None  # foreign net value (billion VND)
+        self.dom_ratio: float | None = None  # domestic absorption ratio
+        self.vpoc_dist: float | None = None  # VPOC distance
 
         # VQA
-        self.vqa: Dict | None = None
+        self.vqa: dict | None = None
 
         # Macro Governor
-        self.macro_state: Dict | None = None
+        self.macro_state: dict | None = None
 
         # State machine
         self.phase: str = "UNKNOWN"
         self.hdr: float = HDR_CEIL
-        self.history: List[Dict] = []
+        self.history: list[dict] = []
 
         self._load()
 
@@ -230,7 +222,7 @@ class PerSymbolAbsorption:
                    WHERE symbol = ? AND date >= ?
                    ORDER BY date""",
                 conn,
-                params=[self.symbol, (datetime.now() - timedelta(days=LOOKBACK * 4)).strftime("%Y-%m-%d")]
+                params=[self.symbol, (datetime.now() - timedelta(days=LOOKBACK * 4)).strftime("%Y-%m-%d")],
             )
             self.foreign = pd.read_sql(
                 """SELECT date, foreign_vol, net_vol, net_value
@@ -238,7 +230,7 @@ class PerSymbolAbsorption:
                    WHERE symbol = ? AND date >= ?
                    ORDER BY date""",
                 conn,
-                params=[self.symbol, (datetime.now() - timedelta(days=LOOKBACK * 4)).strftime("%Y-%m-%d")]
+                params=[self.symbol, (datetime.now() - timedelta(days=LOOKBACK * 4)).strftime("%Y-%m-%d")],
             )
 
         if self.ohlcv.empty:
@@ -270,10 +262,7 @@ class PerSymbolAbsorption:
         slip = slip.clip(0, 0.15).fillna(0).values
 
         # VWAP 5 ngày làm proxy cho POC
-        vwap_5d = (
-            (df["close"] * df["volume"]).rolling(5).sum()
-            / df["volume"].rolling(5).sum()
-        ).fillna(df["close"])
+        vwap_5d = ((df["close"] * df["volume"]).rolling(5).sum() / df["volume"].rolling(5).sum()).fillna(df["close"])
         vpoc = ((df["close"] - vwap_5d) / vwap_5d.replace(0, np.nan)).fillna(0).values
 
         # Merge foreign
@@ -283,8 +272,8 @@ class PerSymbolAbsorption:
         fg["dom_vol"] = df["volume"].fillna(0).values - fg["foreign_vol"].values
         fg["dom_vol"] = np.maximum(fg["dom_vol"].values, 1)
 
-        foreign_net = (fg["net_value"].values * -1)  # Positive = intense selling
-        dom_absorb = (df["volume"].fillna(0).values / np.maximum(fg["foreign_vol"].values, 1))
+        foreign_net = fg["net_value"].values * -1  # Positive = intense selling
+        dom_absorb = df["volume"].fillna(0).values / np.maximum(fg["foreign_vol"].values, 1)
         dom_absorb = np.clip(dom_absorb, 0, 50)
 
         # Store latest raw metrics
@@ -393,7 +382,7 @@ class PerSymbolAbsorption:
 
     # --- Transition Confidence (Phase 2 -> 3) --------------------------------
 
-    def _compute_transition_confidence(self) -> Dict:
+    def _compute_transition_confidence(self) -> dict:
         """Đo độ tin cậy chuyển pha ABSORPTION_ACTIVE -> EQUILIBRIUM.
 
         Phân biệt:
@@ -422,7 +411,7 @@ class PerSymbolAbsorption:
 
         # Volume profile: real exhaustion has volume converging to value area
         # Fake pause: volume drops off
-        if hasattr(self, 'ohlcv') and len(self.ohlcv) >= 3:
+        if hasattr(self, "ohlcv") and len(self.ohlcv) >= 3:
             recent_vol = self.ohlcv["volume"].iloc[-3:].values
             vol_trend = (recent_vol[-1] - recent_vol[0]) / max(recent_vol[0], 1)
             vol_expanding = vol_trend > -0.1
@@ -448,7 +437,7 @@ class PerSymbolAbsorption:
                 "sdi_avg_velocity": round(avg_vel, 6),
                 "sdi_avg_acceleration": round(avg_accel, 6),
                 "sdi_decay_quality": round(float(sdi_decay_quality), 4),
-                "volume_trend": round(float(vol_trend if 'vol_trend' in dir() else 0), 4),
+                "volume_trend": round(float(vol_trend if "vol_trend" in dir() else 0), 4),
                 "vol_quality": round(float(vol_quality), 4),
                 "fnet_quality": round(float(fnet_quality), 4),
             },
@@ -479,7 +468,7 @@ class PerSymbolAbsorption:
 
     # --- Main Pipeline -------------------------------------------------------
 
-    def analyze(self, target_date: str | None = None, macro_state: Dict | None = None) -> Dict:
+    def analyze(self, target_date: str | None = None, macro_state: dict | None = None) -> dict:
         """Pipeline chính: fetch -> build -> PCA -> VQA -> phase -> hdr.
 
         Two-Tier Architecture:
@@ -489,6 +478,7 @@ class PerSymbolAbsorption:
         # --- Tier 1: Macro Governor Gatekeeper ---
         if macro_state is None:
             from src.engine.macro_governor import MacroGovernor
+
             macro_state = MacroGovernor().assess()
 
         governor_conf = macro_state.get("confidence", 0.0)
@@ -523,20 +513,29 @@ class PerSymbolAbsorption:
             distribution_override = True
             if self.phase == "ABSORPTION_ACTIVE":
                 from src.utils.localization import log_structured
-                log_structured(logger, "VQA_OVERRIDE", "DISTRIBUTION_WARNING", {
-                    "symbol": self.symbol, "vqa_class": self.vqa["classification"],
-                    "sdi": round(self.sdi, 4) if self.sdi else None,
-                })
+
+                log_structured(
+                    logger,
+                    "VQA_OVERRIDE",
+                    "DISTRIBUTION_WARNING",
+                    {
+                        "symbol": self.symbol,
+                        "vqa_class": self.vqa["classification"],
+                        "sdi": round(self.sdi, 4) if self.sdi else None,
+                    },
+                )
                 self.phase = "MONITORING"
                 self.hdr = HDR_CEIL
-                self.history.append({
-                    "from": "ABSORPTION_ACTIVE",
-                    "to": "MONITORING_VQA_OVERRIDE",
-                    "date": (target_date or datetime.now().strftime("%Y-%m-%d")),
-                    "sdi": self.sdi,
-                    "vqa_class": self.vqa["classification"],
-                    "reason": "DISTRIBUTION_WARNING",
-                })
+                self.history.append(
+                    {
+                        "from": "ABSORPTION_ACTIVE",
+                        "to": "MONITORING_VQA_OVERRIDE",
+                        "date": (target_date or datetime.now().strftime("%Y-%m-%d")),
+                        "sdi": self.sdi,
+                        "vqa_class": self.vqa["classification"],
+                        "reason": "DISTRIBUTION_WARNING",
+                    }
+                )
 
         new_phase = self._detect_phase()
         transition = new_phase != self.phase
@@ -554,10 +553,17 @@ class PerSymbolAbsorption:
                 }
                 self.history.append(entry)
                 from src.utils.localization import log_structured
-                log_structured(logger, f"ABS_{self.symbol}", new_phase, {
-                    "from": self.phase, "sdi": round(self.sdi, 4) if self.sdi else None,
-                    "vqa_class": entry["vqa_class"],
-                })
+
+                log_structured(
+                    logger,
+                    f"ABS_{self.symbol}",
+                    new_phase,
+                    {
+                        "from": self.phase,
+                        "sdi": round(self.sdi, 4) if self.sdi else None,
+                        "vqa_class": entry["vqa_class"],
+                    },
+                )
             self.phase = new_phase
 
         if not distribution_override or self.phase == "MONITORING":
@@ -573,7 +579,7 @@ class PerSymbolAbsorption:
 
     # --- Result Builders -----------------------------------------------------
 
-    def _default_result(self, status: str) -> Dict:
+    def _default_result(self, status: str) -> dict:
         return {
             "symbol": self.symbol,
             "status": status,
@@ -586,18 +592,26 @@ class PerSymbolAbsorption:
             "governor_confidence": self.macro_state.get("confidence", 0.0) if self.macro_state else 0.0,
         }
 
-    def _build_result(self, target_date: str | None = None) -> Dict:
+    def _build_result(self, target_date: str | None = None) -> dict:
         eigenvalues_list = [round(float(v), 4) for v in self.eigenvalues] if self.eigenvalues is not None else None
-        tc = self._compute_transition_confidence() if self.phase == "ABSORPTION_ACTIVE" else {"confidence": 0.0, "signal": "N/A"}
+        tc = (
+            self._compute_transition_confidence()
+            if self.phase == "ABSORPTION_ACTIVE"
+            else {"confidence": 0.0, "signal": "N/A"}
+        )
         dist_warn = bool(self.vqa and VolumeQualityAnalyzer.is_distribution_warning(self.vqa["classification"]))
-        vqa_data = {
-            "er": self.vqa["er"],
-            "vsi": self.vqa["vsi"],
-            "volume_zscore": self.vqa["volume_zscore"],
-            "volume_zscore_norm": self.vqa["volume_zscore_norm"],
-            "aq": self.vqa["aq"],
-            "classification": self.vqa["classification"],
-        } if self.vqa else None
+        vqa_data = (
+            {
+                "er": self.vqa["er"],
+                "vsi": self.vqa["vsi"],
+                "volume_zscore": self.vqa["volume_zscore"],
+                "volume_zscore_norm": self.vqa["volume_zscore_norm"],
+                "aq": self.vqa["aq"],
+                "classification": self.vqa["classification"],
+            }
+            if self.vqa
+            else None
+        )
 
         return {
             "symbol": self.symbol,
@@ -629,11 +643,13 @@ class PerSymbolAbsorption:
     # --- Report --------------------------------------------------------------
 
     @staticmethod
-    def print_report(result: Dict, lang: str = "vi"):
+    def print_report(result: dict, lang: str = "vi"):
         """In báo cáo CLI."""
-        from src.utils.localization import translate, localize_phase, localize_classification, localize_state
+        from src.utils.localization import localize_classification, localize_phase, localize_state, translate
 
-        t = lambda key: translate(key, lang)
+        def t(key):
+            return translate(key, lang)
+
         symbol = result["symbol"]
         phase = result["phase"]
         hdr = result["hdr"]
@@ -646,14 +662,20 @@ class PerSymbolAbsorption:
         phase_vi = localize_phase(phase, lang)
         gov_state = localize_state(result.get("governor_state", "UNKNOWN"), lang)
         gov_lock = result.get("governor_lock", False)
-        lock_str = f"{t('locked')} (HDR={result.get('hdr', 1.0):.2f})" if gov_lock else t('open')
+        lock_str = f"{t('locked')} (HDR={result.get('hdr', 1.0):.2f})" if gov_lock else t("open")
 
         # VQA classification
         vqa_class_vi = localize_classification(vqa["classification"], lang) if vqa else "N/A"
 
         # Phase icons
-        icons = {"PANIC": "R", "ABSORPTION_ACTIVE": "Y", "EQUILIBRIUM": "G",
-                 "MONITORING": "B", "MONITORING_VQA_OVERRIDE": "Y", "UNKNOWN": "W"}
+        icons = {
+            "PANIC": "R",
+            "ABSORPTION_ACTIVE": "Y",
+            "EQUILIBRIUM": "G",
+            "MONITORING": "B",
+            "MONITORING_VQA_OVERRIDE": "Y",
+            "UNKNOWN": "W",
+        }
         icon = icons.get(phase, "W")
 
         print(f"\n{'=' * 65}")
@@ -672,9 +694,13 @@ class PerSymbolAbsorption:
 
         # Raw metrics
         print(f"\n  -- {t('status')} --")
-        for label, key in [(t('price_change'), "price_change_pct"), (t('slippage'), "slippage_pct"),
-                           (t('vpoc_distance'), "vpoc_distance_pct"), (t('domestic_absorb'), "domestic_absorption_ratio"),
-                           (t('foreign_net'), "foreign_net_value_bn")]:
+        for label, key in [
+            (t("price_change"), "price_change_pct"),
+            (t("slippage"), "slippage_pct"),
+            (t("vpoc_distance"), "vpoc_distance_pct"),
+            (t("domestic_absorb"), "domestic_absorption_ratio"),
+            (t("foreign_net"), "foreign_net_value_bn"),
+        ]:
             v = d.get(key)
             if v is not None:
                 print(f"  {label:25s}: {v:>10.2f}")
@@ -692,7 +718,7 @@ class PerSymbolAbsorption:
 
         # Transition confidence
         if tc.get("signal") not in (None, "N/A"):
-            print(f"\n  -- Transition Confidence --")
+            print("\n  -- Transition Confidence --")
             print(f"  Signal            : {tc.get('signal', 'N/A')}")
             print(f"  Confidence        : {tc.get('confidence', 0):.2%}")
 
@@ -718,13 +744,14 @@ class PerSymbolAbsorption:
         print(f"  ABSORPTION HISTORY — {symbol.upper()}")
         print(f"{'=' * 65}")
         for h in reversed(history):
-            print(f"  {h['date']}: {h['from']:22s} -> {h['to']:22s}  "
-                  f"SDI={h.get('sdi', 0):.4f}  DR={h.get('dom_ratio', 0):.2f}")
+            print(
+                f"  {h['date']}: {h['from']:22s} -> {h['to']:22s}  SDI={h.get('sdi', 0):.4f}  DR={h.get('dom_ratio', 0):.2f}"
+            )
         print(f"{'=' * 65}")
         print()
 
 
-def run_per_symbol_absorption(symbol: str, show_details: bool = True) -> Dict:
+def run_per_symbol_absorption(symbol: str, show_details: bool = True) -> dict:
     """Wrapper CLI."""
     detector = PerSymbolAbsorption(symbol)
     result = detector.analyze()
@@ -735,6 +762,7 @@ def run_per_symbol_absorption(symbol: str, show_details: bool = True) -> Dict:
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Per-Symbol Absorption Detector")
     parser.add_argument("--symbol", required=True, help="Ma co phieu (VD: FPT)")
     parser.add_argument("--history", action="store_true", help="In lich su chuyen pha")

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Silver Service — Domestic Silver from BTMC API + silver_service integration.
 
 The BTMC scraping logic lives here (no dependency on vnstock). The
@@ -6,6 +6,7 @@ The BTMC scraping logic lives here (no dependency on vnstock). The
 explorer/misc/gold_price.py so the commodity service stays independent
 of the stock-scraping library.
 """
+
 import logging
 import sys
 from pathlib import Path
@@ -15,7 +16,7 @@ import requests
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -35,14 +36,12 @@ def _hydrate_path():
         sys.path.insert(0, vnstock_path)
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 logger = logging.getLogger(__name__)
 
-BTMC_SILVER_URL = (
-    "http://api.btmc.vn/api/BTMCAPI/getpricebtmc?"
-    "key=3kd8ub1llcg9t45hnoh8hmn7t5kc2v"
-)
+BTMC_SILVER_URL = "http://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1llcg9t45hnoh8hmn7t5kc2v"
 
 
 def btmc_silver_price(url: str = BTMC_SILVER_URL) -> pd.DataFrame:
@@ -93,13 +92,13 @@ def get_silver_dashboard() -> dict:
         if df is None or df.empty:
             return {"btmc_buy": 0, "btmc_sell": 0, "btmc_spread": 0, "brand": ""}
         main = df.iloc[0]
-        buy = float(main['buy_price'])
-        sell = float(main['sell_price'])
+        buy = float(main["buy_price"])
+        sell = float(main["sell_price"])
         return {
             "btmc_buy": buy,
             "btmc_sell": sell,
             "btmc_spread": round(sell - buy, 2),
-            "brand": str(main['name']),
+            "brand": str(main["name"]),
         }
     except Exception as e:
         logger.error(f"Silver dashboard failed: {e}")

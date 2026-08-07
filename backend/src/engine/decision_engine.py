@@ -1,4 +1,3 @@
-﻿
 import json
 from datetime import datetime
 from pathlib import Path
@@ -7,7 +6,8 @@ from pathlib import Path
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
     import sys
-    if getattr(sys, 'frozen', False):
+
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -20,6 +20,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
@@ -51,20 +52,20 @@ def modulate_conviction(
         dc = driver_state.get("confidence", 0.5)
         if dc < 0.3:
             mult *= 0.6
-            reasons.append("driver confidence low (%.2f)" % dc)
+            reasons.append(f"driver confidence low ({dc:.2f})")
         elif dc < 0.5:
             mult *= 0.85
-            reasons.append("driver confidence moderate (%.2f)" % dc)
+            reasons.append(f"driver confidence moderate ({dc:.2f})")
         elif dc > 0.7:
             mult *= 1.1
-            reasons.append("driver confidence high (%.2f)" % dc)
+            reasons.append(f"driver confidence high ({dc:.2f})")
 
     # 2. Drift — high drift = system unreliable
     if drift_assessment:
         ds = drift_assessment.get("drift_status", "NONE")
         if ds == "HIGH" or ds == "CRITICAL":
             mult *= 0.3
-            reasons.append("drift %s" % ds)
+            reasons.append(f"drift {ds}")
         elif ds == "MEDIUM":
             mult *= 0.6
             reasons.append("drift medium")
@@ -74,13 +75,13 @@ def modulate_conviction(
         ets = explain_validation.get("ets_score", 0.5)
         if ets < 0.3:
             mult *= 0.5
-            reasons.append("ETS low (%.2f)" % ets)
+            reasons.append(f"ETS low ({ets:.2f})")
         elif ets < 0.5:
             mult *= 0.8
-            reasons.append("ETS moderate (%.2f)" % ets)
+            reasons.append(f"ETS moderate ({ets:.2f})")
         elif ets > 0.7:
             mult *= 1.1
-            reasons.append("ETS high (%.2f)" % ets)
+            reasons.append(f"ETS high ({ets:.2f})")
 
     # 4. Flow rotation — risk-off pattern
     if drift_assessment:
@@ -110,22 +111,22 @@ def merge_decisions(
     Includes [LOCK 4] Macro Confidence Dampening.
     Supports Point-in-time accuracy via target_date.
     """
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"DECISION ENGINE: {'HISTORICAL REPLAY' if target_date else 'BOARDROOM CONSENSUS'}")
-    print("="*50)
+    print("=" * 50)
 
     # 1. Get Regime
     regime = detect_regime(target_date=target_date)
-    rs = regime['regime_score']
-    status = regime['status']
+    rs = regime["regime_score"]
+    status = regime["status"]
 
     # 1.1 Calculate Breadth Velocity (5D)
-    breadth_velocity = calculate_breadth_velocity(regime['details']['breadth_pct'], days=5)
-    regime['breadth_velocity'] = breadth_velocity
+    breadth_velocity = calculate_breadth_velocity(regime["details"]["breadth_pct"], days=5)
+    regime["breadth_velocity"] = breadth_velocity
 
     # 1.2 Evaluate Recovery Status
     recovery = evaluate_recovery_status(regime, breadth_velocity, target_date=target_date)
-    regime['recovery_active'] = recovery['is_recovery']
+    regime["recovery_active"] = recovery["is_recovery"]
 
     # 2. Get Model B Picks
     model_b_picks = run_meanrev_scan(regime, target_date=target_date)
@@ -134,7 +135,7 @@ def merge_decisions(
     if model_a_verdict is None:
         sentinel_path = Path(src.config.DATA_DIR) / "output" / "sentinel_verdict.json"
         if sentinel_path.exists():
-            with open(sentinel_path, "r", encoding="utf-8") as f:
+            with open(sentinel_path, encoding="utf-8") as f:
                 model_a_verdict = json.load(f)
         else:
             model_a_verdict = {"final_status": "UNKNOWN", "layer1_mom_expansion": {"status": "FAIL"}}
@@ -145,7 +146,7 @@ def merge_decisions(
     china_nexus_path = Path(src.config.DATA_DIR) / "output" / "china_sensitivity.json"
     if china_nexus_path.exists():
         # In a real scenario, we'd check if SSEC is crashing or USDCNH is spiking
-        china_risk_flag = False # Logic placeholder
+        china_risk_flag = False  # Logic placeholder
 
     # Calculate Confidence
     # confidence = RS * SignalStrength (0.5-1.0)
@@ -181,42 +182,42 @@ def merge_decisions(
             consensus = "CAUTIOUS BUY (PULLBACK)"
         else:
             consensus = "WAIT FOR NICHES"
-    else: # CRISIS
-        if recovery['is_recovery']:
+    else:  # CRISIS
+        if recovery["is_recovery"]:
             active_model = "B (PILOT RECOVERY)"
             consensus = "PILOT BUY (OVERSOLD REBOUND)"
-            base_confidence = 0.4 # Moderate confidence for recovery start
-        elif recovery['status'] == "PILOT_ABORT":
+            base_confidence = 0.4  # Moderate confidence for recovery start
+        elif recovery["status"] == "PILOT_ABORT":
             active_model = "NONE"
             consensus = "PILOT ABORT (EXIT IMMEDIATELY)"
             base_confidence = 0.0
         else:
             active_model = "NONE"
             consensus = "CASH (PROTECT CAPITAL)"
-            base_confidence = 0.0 # Force zero confidence in crisis
+            base_confidence = 0.0  # Force zero confidence in crisis
 
     # 6. Final Verdict
     board_decision = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S") if not target_date else target_date,
-        "date": regime['date'],
+        "date": regime["date"],
         "regime_score": rs,
         "market_status": status,
         "active_model": active_model,
         "consensus": consensus,
         "confidence": round(base_confidence, 2),
-        "breadth_velocity": round(regime.get('breadth_velocity', 0.0), 2),
-        "details": regime['details'],
+        "breadth_velocity": round(regime.get("breadth_velocity", 0.0), 2),
+        "details": regime["details"],
         "model_a": {
             "status": model_a_verdict.get("final_status", "UNKNOWN"),
-            "mom_expansion": model_a_verdict.get("layer1_mom_expansion", {}).get("value", 0)
+            "mom_expansion": model_a_verdict.get("layer1_mom_expansion", {}).get("value", 0),
         },
         "model_b": {
             "picks_count": len(model_b_picks),
             "top_picks": model_b_picks[:5],
-            "context": regime.get('details', {}).get('vnindex_vs_ma200', 'UNKNOWN'),
-            "breadth_pct": regime.get('details', {}).get('breadth_pct', 0),
-            "breadth_std": regime.get('details', {}).get('breadth_std_10d', 0),
-            "breadth_velocity": round(regime.get('breadth_velocity', 0.0), 2),
+            "context": regime.get("details", {}).get("vnindex_vs_ma200", "UNKNOWN"),
+            "breadth_pct": regime.get("details", {}).get("breadth_pct", 0),
+            "breadth_std": regime.get("details", {}).get("breadth_std_10d", 0),
+            "breadth_velocity": round(regime.get("breadth_velocity", 0.0), 2),
         },
         "recovery": recovery,
         "cognitive_modulation": {
@@ -241,6 +242,7 @@ def merge_decisions(
     print("-" * 30)
 
     return board_decision
+
 
 if __name__ == "__main__":
     merge_decisions()

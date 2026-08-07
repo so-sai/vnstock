@@ -1,4 +1,4 @@
-﻿"""paper_mtm.py — Mark-to-Market P&L cho Paper Trading (chuẩn kế toán VN).
+"""paper_mtm.py — Mark-to-Market P&L cho Paper Trading (chuẩn kế toán VN).
 
 Giải quyết 3 giới hạn bắt buộc để đạt tiêu chuẩn Forward Testing:
 
@@ -24,19 +24,16 @@ VÒNG ĐỜI THANH TOÁN T+2.5 (câu hỏi khai thác sâu):
     - settled_qty:   bán được, tính vào sức mua khi bán.
     - unsettled_qty: đang chờ về, KHÓA (không bán).
 """
-import json
+
 import logging
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Tuple
-
-import numpy as np
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -52,18 +49,17 @@ def _hydrate_path():
 
 
 PROJECT_ROOT = _hydrate_path()
-import src.config  # noqa: E402
-from src.database.db_core import get_connection  # noqa: E402
+from src.database.db_core import get_connection
 
 logger = logging.getLogger("PTCK_SYSTEM")
 
 # --- Kế toán giao dịch TTCK Việt Nam --------------------------------------
-SETTLEMENT_DAYS = 2          # T+2 (tiền/CK về ~13:00 T+2 → "T+2.5")
-BUY_FEE_BPS = 15.0           # phí mua ~0.15%
-SELL_FEE_BPS = 15.0          # phí bán ~0.15%
-SELL_TAX_BPS = 10.0          # thuế TNCN chuyển nhượng 0.1% giá trị bán
+SETTLEMENT_DAYS = 2  # T+2 (tiền/CK về ~13:00 T+2 → "T+2.5")
+BUY_FEE_BPS = 15.0  # phí mua ~0.15%
+SELL_FEE_BPS = 15.0  # phí bán ~0.15%
+SELL_TAX_BPS = 10.0  # thuế TNCN chuyển nhượng 0.1% giá trị bán
 # Ứng trước tiền bán (Cash Advance): phí ~0.04%/ngày chờ (lãi suất ứng trước CTCK).
-CASH_ADVANCE_FEE_BPS_PER_DAY = 4.0   # 0.04%/ngày = 4 bps/ngày
+CASH_ADVANCE_FEE_BPS_PER_DAY = 4.0  # 0.04%/ngày = 4 bps/ngày
 DEFAULT_PORTFOLIO_ID = "SEL_PAPER_V1"
 DEFAULT_INITIAL_CAPITAL = 1_000_000_000.0
 
@@ -87,8 +83,7 @@ def _conn_or(conn):
 class PaperMtM:
     """Sổ cái Mark-to-Market cho paper trading — chuẩn kế toán VN + T+2.5."""
 
-    def __init__(self, portfolio_id: str = DEFAULT_PORTFOLIO_ID,
-                 initial_capital: float = DEFAULT_INITIAL_CAPITAL):
+    def __init__(self, portfolio_id: str = DEFAULT_PORTFOLIO_ID, initial_capital: float = DEFAULT_INITIAL_CAPITAL):
         self.portfolio_id = portfolio_id
         self.initial_capital = initial_capital
         self._ensure_schema()
@@ -196,8 +191,7 @@ class PaperMtM:
     def _ensure_portfolio(self):
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT portfolio_id FROM paper_portfolio_state WHERE portfolio_id=?",
-                (self.portfolio_id,)
+                "SELECT portfolio_id FROM paper_portfolio_state WHERE portfolio_id=?", (self.portfolio_id,)
             ).fetchone()
             if not row:
                 now = datetime.now().isoformat()
@@ -205,8 +199,7 @@ class PaperMtM:
                     "INSERT INTO paper_portfolio_state "
                     "(portfolio_id, initial_capital, settled_cash, pending_cash_in, "
                     "created_at, updated_at) VALUES (?,?,?,?,?,?)",
-                    (self.portfolio_id, self.initial_capital, self.initial_capital,
-                     0.0, now, now)
+                    (self.portfolio_id, self.initial_capital, self.initial_capital, 0.0, now, now),
                 )
                 conn.commit()
 
@@ -215,9 +208,7 @@ class PaperMtM:
         """Trả về ngày giao dịch thứ n SAU 'date' (dựa trên daily_ohlcv)."""
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT DISTINCT date FROM daily_ohlcv WHERE date > ? "
-                "ORDER BY date ASC LIMIT ?",
-                (date, n)
+                "SELECT DISTINCT date FROM daily_ohlcv WHERE date > ? ORDER BY date ASC LIMIT ?", (date, n)
             ).fetchall()
         if len(rows) >= n:
             return rows[n - 1][0]
@@ -235,25 +226,20 @@ class PaperMtM:
     def _get_close(self, symbol: str, date: str) -> float | None:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<=? "
-                "ORDER BY date DESC LIMIT 1",
-                (symbol, date)
+                "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<=? ORDER BY date DESC LIMIT 1", (symbol, date)
             ).fetchone()
         return float(row[0]) if row and row[0] else None
 
     # ----------------------------------------------------- portfolio state I/O
-    def _get_state(self) -> Dict:
+    def _get_state(self) -> dict:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT initial_capital, settled_cash, pending_cash_in "
-                "FROM paper_portfolio_state WHERE portfolio_id=?",
-                (self.portfolio_id,)
+                "SELECT initial_capital, settled_cash, pending_cash_in FROM paper_portfolio_state WHERE portfolio_id=?",
+                (self.portfolio_id,),
             ).fetchone()
-        return {"initial_capital": row[0], "settled_cash": row[1],
-                "pending_cash_in": row[2]}
+        return {"initial_capital": row[0], "settled_cash": row[1], "pending_cash_in": row[2]}
 
-    def _update_cash(self, settled_delta: float = 0.0,
-                      pending_delta: float = 0.0, conn=None):
+    def _update_cash(self, settled_delta: float = 0.0, pending_delta: float = 0.0, conn=None):
         # ACID: nếu có conn (Global Transaction) → execute trên cursor chung,
         # KHÔNG commit (quyền commit thuộc tầng cao). Ngược lại tự mở + commit.
         with _conn_or(conn) as __c:
@@ -262,19 +248,16 @@ class PaperMtM:
                 "settled_cash = settled_cash + ?, "
                 "pending_cash_in = pending_cash_in + ?, updated_at=? "
                 "WHERE portfolio_id=?",
-                (settled_delta, pending_delta, datetime.now().isoformat(),
-                 self.portfolio_id)
+                (settled_delta, pending_delta, datetime.now().isoformat(), self.portfolio_id),
             )
 
-    def _ledger(self, date, entry_type, amount, symbol=None, settle_date=None,
-                settled=0, notes=None, conn=None):
+    def _ledger(self, date, entry_type, amount, symbol=None, settle_date=None, settled=0, notes=None, conn=None):
         with _conn_or(conn) as __c:
             __c.execute(
                 "INSERT INTO paper_cash_ledger (portfolio_id, date, entry_type, "
                 "symbol, amount, settle_date, settled, notes, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
-                (self.portfolio_id, date, entry_type, symbol, amount,
-                 settle_date, settled, notes, datetime.now().isoformat())
+                (self.portfolio_id, date, entry_type, symbol, amount, settle_date, settled, notes, datetime.now().isoformat()),
             )
 
     # ============================================================ SETTLEMENT
@@ -292,26 +275,22 @@ class PaperMtM:
                 "SELECT entry_id, amount FROM paper_cash_ledger "
                 "WHERE portfolio_id=? AND entry_type='SELL_PROCEEDS' "
                 "AND settled=0 AND settle_date <= ?",
-                (self.portfolio_id, date)
+                (self.portfolio_id, date),
             ).fetchall()
             total_settled_in = 0.0
             for entry_id, amount in pending:
                 total_settled_in += amount
-                __c.execute(
-                    "UPDATE paper_cash_ledger SET settled=1 WHERE entry_id=?",
-                    (entry_id,)
-                )
+                __c.execute("UPDATE paper_cash_ledger SET settled=1 WHERE entry_id=?", (entry_id,))
 
         if total_settled_in != 0:
-            self._update_cash(settled_delta=total_settled_in,
-                              pending_delta=-total_settled_in, conn=conn)
-            self._ledger(date, "SETTLE", total_settled_in,
-                         notes="Sell proceeds settled (T+2)", conn=conn)
+            self._update_cash(settled_delta=total_settled_in, pending_delta=-total_settled_in, conn=conn)
+            self._ledger(date, "SETTLE", total_settled_in, notes="Sell proceeds settled (T+2)", conn=conn)
             logger.info(f"[MtM] Settled sell proceeds: {total_settled_in:,.0f}")
 
     # ================================================================== BUY
-    def book_buy(self, symbol: str, quantity: int, fill_price: float,
-                  fill_date: str, hdr_limit: float = 0.0, conn=None) -> Dict:
+    def book_buy(
+        self, symbol: str, quantity: int, fill_price: float, fill_date: str, hdr_limit: float = 0.0, conn=None
+    ) -> dict:
         """Hạch toán lệnh MUA đã khớp (T+1 fill).
 
         Kiểm tra sức mua (buying power) tôn trọng HDR_limit. Tạo lot với
@@ -326,10 +305,12 @@ class PaperMtM:
         # --- Sức mua tôn trọng HDR: chỉ được dùng (1 - HDR) * initial_capital ---
         bp = self.get_buying_power(fill_date, hdr_limit)
         if total_cost > bp + 1e-6:
-            return {"status": "REJECTED_INSUFFICIENT_BUYING_POWER",
-                    "required": round(total_cost, 0),
-                    "available": round(bp, 0),
-                    "hdr_limit": hdr_limit}
+            return {
+                "status": "REJECTED_INSUFFICIENT_BUYING_POWER",
+                "required": round(total_cost, 0),
+                "available": round(bp, 0),
+                "hdr_limit": hdr_limit,
+            }
 
         settle_date = self._next_trading_days(fill_date, SETTLEMENT_DAYS)
         cost_basis = total_cost / quantity  # giá vốn đã gồm phí
@@ -340,24 +321,44 @@ class PaperMtM:
                 "INSERT OR REPLACE INTO paper_lots (lot_id, portfolio_id, symbol, "
                 "open_date, settle_date, quantity, original_qty, cost_basis, "
                 "is_closed, created_at) VALUES (?,?,?,?,?,?,?,?,0,?)",
-                (lot_id, self.portfolio_id, symbol, fill_date, settle_date,
-                 quantity, quantity, cost_basis, datetime.now().isoformat())
+                (
+                    lot_id,
+                    self.portfolio_id,
+                    symbol,
+                    fill_date,
+                    settle_date,
+                    quantity,
+                    quantity,
+                    cost_basis,
+                    datetime.now().isoformat(),
+                ),
             )
 
         self._update_cash(settled_delta=-total_cost, conn=conn)
-        self._ledger(fill_date, "BUY", -total_cost, symbol=symbol,
-                     settle_date=settle_date, settled=1,
-                     notes=f"qty={quantity} px={fill_price} fee={fee:.0f}",
-                     conn=conn)
+        self._ledger(
+            fill_date,
+            "BUY",
+            -total_cost,
+            symbol=symbol,
+            settle_date=settle_date,
+            settled=1,
+            notes=f"qty={quantity} px={fill_price} fee={fee:.0f}",
+            conn=conn,
+        )
 
-        return {"status": "FILLED", "lot_id": lot_id, "symbol": symbol,
-                "quantity": quantity, "cost_basis": round(cost_basis, 2),
-                "settle_date": settle_date, "total_cost": round(total_cost, 0),
-                "fee": round(fee, 0)}
+        return {
+            "status": "FILLED",
+            "lot_id": lot_id,
+            "symbol": symbol,
+            "quantity": quantity,
+            "cost_basis": round(cost_basis, 2),
+            "settle_date": settle_date,
+            "total_cost": round(total_cost, 0),
+            "fee": round(fee, 0),
+        }
 
     # ================================================================= SELL
-    def book_sell(self, symbol: str, quantity: int, fill_price: float,
-                   fill_date: str, conn=None) -> Dict:
+    def book_sell(self, symbol: str, quantity: int, fill_price: float, fill_date: str, conn=None) -> dict:
         """Hạch toán lệnh BÁN (FIFO). CHỈ bán được hàng ĐÃ SETTLE (chống bán khống).
 
         T+2.5: tiền bán về sau 2 phiên → ghi pending_cash_in, settle_date=T+2.
@@ -366,16 +367,19 @@ class PaperMtM:
         """
         sellable = self.get_sellable_qty(symbol, fill_date)
         if quantity > sellable:
-            return {"status": "REJECTED_UNSETTLED_INVENTORY",
-                    "requested": quantity, "sellable_settled": sellable,
-                    "note": "Không thể bán hàng chưa về (T+2.5). Chống bán khống giả."}
+            return {
+                "status": "REJECTED_UNSETTLED_INVENTORY",
+                "requested": quantity,
+                "sellable_settled": sellable,
+                "note": "Không thể bán hàng chưa về (T+2.5). Chống bán khống giả.",
+            }
 
         with _conn_or(conn) as __c:
             lots = __c.execute(
                 "SELECT lot_id, quantity, cost_basis FROM paper_lots "
                 "WHERE portfolio_id=? AND symbol=? AND is_closed=0 "
                 "AND settle_date <= ? ORDER BY open_date ASC",
-                (self.portfolio_id, symbol, fill_date)
+                (self.portfolio_id, symbol, fill_date),
             ).fetchall()
 
             remaining = quantity
@@ -387,8 +391,7 @@ class PaperMtM:
                 total_cost_matched += take * cost_basis
                 new_qty = lot_qty - take
                 __c.execute(
-                    "UPDATE paper_lots SET quantity=?, is_closed=? WHERE lot_id=?",
-                    (new_qty, 1 if new_qty == 0 else 0, lot_id)
+                    "UPDATE paper_lots SET quantity=?, is_closed=? WHERE lot_id=?", (new_qty, 1 if new_qty == 0 else 0, lot_id)
                 )
                 remaining -= take
 
@@ -402,28 +405,49 @@ class PaperMtM:
 
             settle_date = self._next_trading_days(fill_date, SETTLEMENT_DAYS)
             self._update_cash(pending_delta=net_proceeds, conn=__c)
-            self._ledger(fill_date, "SELL_PROCEEDS", net_proceeds, symbol=symbol,
-                         settle_date=settle_date, settled=0,
-                         notes=f"qty={quantity} px={fill_price}", conn=__c)
+            self._ledger(
+                fill_date,
+                "SELL_PROCEEDS",
+                net_proceeds,
+                symbol=symbol,
+                settle_date=settle_date,
+                settled=0,
+                notes=f"qty={quantity} px={fill_price}",
+                conn=__c,
+            )
 
             __c.execute(
                 "INSERT INTO paper_realized_pnl (portfolio_id, date, symbol, "
                 "quantity, cost_basis, sell_price, gross_pnl, fees, tax, net_pnl, "
                 "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (self.portfolio_id, fill_date, symbol, quantity,
-                 round(total_cost_matched / quantity, 4), fill_price,
-                 round(gross_pnl, 2), round(fee, 2), round(tax, 2),
-                 round(net_pnl, 2), datetime.now().isoformat())
+                (
+                    self.portfolio_id,
+                    fill_date,
+                    symbol,
+                    quantity,
+                    round(total_cost_matched / quantity, 4),
+                    fill_price,
+                    round(gross_pnl, 2),
+                    round(fee, 2),
+                    round(tax, 2),
+                    round(net_pnl, 2),
+                    datetime.now().isoformat(),
+                ),
             )
 
-        return {"status": "FILLED", "symbol": symbol, "quantity": quantity,
-                "gross_pnl": round(gross_pnl, 0), "net_pnl": round(net_pnl, 0),
-                "fee": round(fee, 0), "tax": round(tax, 0),
-                "proceeds_settle_date": settle_date}
+        return {
+            "status": "FILLED",
+            "symbol": symbol,
+            "quantity": quantity,
+            "gross_pnl": round(gross_pnl, 0),
+            "net_pnl": round(net_pnl, 0),
+            "fee": round(fee, 0),
+            "tax": round(tax, 0),
+            "proceeds_settle_date": settle_date,
+        }
 
     # ==================================================== BUYING POWER / QTY
-    def get_buying_power(self, date: str, hdr_limit: float = 0.0,
-                         allow_cash_advance: bool = False) -> float:
+    def get_buying_power(self, date: str, hdr_limit: float = 0.0, allow_cash_advance: bool = False) -> float:
         """Sức mua khả dụng, TÔN TRỌNG HDR_limit và T+2.5.
 
         Sức mua cơ sở = min(settled_cash, cap_theo_HDR - đã_triển_khai).
@@ -468,7 +492,7 @@ class PaperMtM:
                 "SELECT amount, settle_date FROM paper_cash_ledger "
                 "WHERE portfolio_id=? AND entry_type='SELL_PROCEEDS' "
                 "AND settled=0 AND settle_date > ?",
-                (self.portfolio_id, date)
+                (self.portfolio_id, date),
             ).fetchall()
         total = 0.0
         for amount, settle_date in rows:
@@ -480,8 +504,7 @@ class PaperMtM:
                 continue
             # Phí tính theo CALENDAR DAYS (gồm cuối tuần/lễ)
             calendar_days = self._calendar_days_between(date, settle_date)
-            fee = (amount * CASH_ADVANCE_FEE_BPS_PER_DAY
-                   * calendar_days / 10000.0)
+            fee = amount * CASH_ADVANCE_FEE_BPS_PER_DAY * calendar_days / 10000.0
             total += max(amount - fee, 0.0)
         return total
 
@@ -503,9 +526,7 @@ class PaperMtM:
             return 0
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT COUNT(DISTINCT date) FROM daily_ohlcv "
-                "WHERE date > ? AND date <= ?",
-                (start, end)
+                "SELECT COUNT(DISTINCT date) FROM daily_ohlcv WHERE date > ? AND date <= ?", (start, end)
             ).fetchone()
         return int(row[0]) if row and row[0] else 0
 
@@ -513,9 +534,8 @@ class PaperMtM:
         """Tổng giá vốn CP đang nắm giữ (chưa bán) — vốn đã triển khai."""
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT quantity, cost_basis FROM paper_lots "
-                "WHERE portfolio_id=? AND is_closed=0 AND open_date<=?",
-                (self.portfolio_id, date)
+                "SELECT quantity, cost_basis FROM paper_lots WHERE portfolio_id=? AND is_closed=0 AND open_date<=?",
+                (self.portfolio_id, date),
             ).fetchall()
         return sum(q * cb for q, cb in rows)
 
@@ -526,7 +546,7 @@ class PaperMtM:
                 "SELECT COALESCE(SUM(quantity),0) FROM paper_lots "
                 "WHERE portfolio_id=? AND symbol=? AND is_closed=0 "
                 "AND settle_date <= ?",
-                (self.portfolio_id, symbol, date)
+                (self.portfolio_id, symbol, date),
             ).fetchone()
         return int(row[0]) if row else 0
 
@@ -537,15 +557,21 @@ class PaperMtM:
                 "SELECT COALESCE(SUM(quantity),0) FROM paper_lots "
                 "WHERE portfolio_id=? AND symbol=? AND is_closed=0 "
                 "AND settle_date > ?",
-                (self.portfolio_id, symbol, date)
+                (self.portfolio_id, symbol, date),
             ).fetchone()
         return int(row[0]) if row else 0
 
     # ==================================================== CORPORATE ACTIONS
-    def register_corporate_action(self, symbol: str, ex_date: str,
-                                   action_type: str, cash_per_share: float = 0.0,
-                                   ratio: float = 0.0, notes: str = None,
-                                   conn=None):
+    def register_corporate_action(
+        self,
+        symbol: str,
+        ex_date: str,
+        action_type: str,
+        cash_per_share: float = 0.0,
+        ratio: float = 0.0,
+        notes: str | None = None,
+        conn=None,
+    ):
         """Đăng ký sự kiện doanh nghiệp. action_type: CASH_DIV/STOCK_DIV/SPLIT.
 
         ACID: nhận conn (Global Transaction) để execute chung; không tự commit.
@@ -556,12 +582,11 @@ class PaperMtM:
                 "INSERT OR REPLACE INTO paper_corporate_actions (action_id, symbol, "
                 "ex_date, action_type, cash_per_share, ratio, applied, notes, "
                 "created_at) VALUES (?,?,?,?,?,?,0,?,?)",
-                (action_id, symbol, ex_date, action_type, cash_per_share, ratio,
-                 notes, datetime.now().isoformat())
+                (action_id, symbol, ex_date, action_type, cash_per_share, ratio, notes, datetime.now().isoformat()),
             )
         return {"action_id": action_id, "status": "REGISTERED"}
 
-    def apply_corporate_actions(self, date: str, conn=None) -> List[Dict]:
+    def apply_corporate_actions(self, date: str, conn=None) -> list[dict]:
         """Áp dụng CA có ex_date == date lên cost basis/quantity (chạy trong đêm).
 
         Chống báo lỗ giả tạo vào ngày giao dịch không hưởng quyền:
@@ -574,15 +599,14 @@ class PaperMtM:
             actions = __c.execute(
                 "SELECT action_id, symbol, action_type, cash_per_share, ratio "
                 "FROM paper_corporate_actions WHERE ex_date=? AND applied=0",
-                (date,)
+                (date,),
             ).fetchall()
 
             applied = []
             for action_id, symbol, atype, cps, ratio in actions:
                 lots = __c.execute(
-                    "SELECT lot_id, quantity, cost_basis FROM paper_lots "
-                    "WHERE portfolio_id=? AND symbol=? AND is_closed=0",
-                    (self.portfolio_id, symbol)
+                    "SELECT lot_id, quantity, cost_basis FROM paper_lots WHERE portfolio_id=? AND symbol=? AND is_closed=0",
+                    (self.portfolio_id, symbol),
                 ).fetchall()
 
                 total_qty = sum(q for _, q, _ in lots)
@@ -594,16 +618,20 @@ class PaperMtM:
                     div_cash = cps * total_qty
                     for lot_id, q, cb in lots:
                         new_cb = max(cb - cps, 0.0)
-                        __c.execute(
-                            "UPDATE paper_lots SET cost_basis=? WHERE lot_id=?",
-                            (new_cb, lot_id))
+                        __c.execute("UPDATE paper_lots SET cost_basis=? WHERE lot_id=?", (new_cb, lot_id))
                     sd = self._next_trading_days(date, SETTLEMENT_DAYS)
                     self._update_cash(pending_delta=div_cash, conn=__c)
-                    self._ledger(date, "SELL_PROCEEDS", div_cash, symbol=symbol,
-                                 settle_date=sd, settled=0,
-                                 notes=f"CASH_DIV {cps}/CP x {total_qty}", conn=__c)
-                    applied.append({"symbol": symbol, "type": "CASH_DIV",
-                                    "cash": div_cash})
+                    self._ledger(
+                        date,
+                        "SELL_PROCEEDS",
+                        div_cash,
+                        symbol=symbol,
+                        settle_date=sd,
+                        settled=0,
+                        notes=f"CASH_DIV {cps}/CP x {total_qty}",
+                        conn=__c,
+                    )
+                    applied.append({"symbol": symbol, "type": "CASH_DIV", "cash": div_cash})
 
                 elif atype in ("STOCK_DIV", "SPLIT"):
                     factor = 1.0 + ratio
@@ -611,9 +639,9 @@ class PaperMtM:
                         new_q = int(q * factor)
                         new_cb = cb / factor if factor > 0 else cb
                         __c.execute(
-                            "UPDATE paper_lots SET quantity=?, original_qty=?, "
-                            "cost_basis=? WHERE lot_id=?",
-                            (new_q, new_q, new_cb, lot_id))
+                            "UPDATE paper_lots SET quantity=?, original_qty=?, cost_basis=? WHERE lot_id=?",
+                            (new_q, new_q, new_cb, lot_id),
+                        )
                     applied.append({"symbol": symbol, "type": atype, "ratio": ratio})
 
                 self._mark_ca_applied(action_id, conn=__c)
@@ -624,14 +652,10 @@ class PaperMtM:
 
     def _mark_ca_applied(self, action_id: str, conn=None):
         with _conn_or(conn) as __c:
-            __c.execute(
-                "UPDATE paper_corporate_actions SET applied=1 WHERE action_id=?",
-                (action_id,)
-            )
+            __c.execute("UPDATE paper_corporate_actions SET applied=1 WHERE action_id=?", (action_id,))
 
     # ==================================================== VALUATION (MtM)
-    def mark_to_market(self, date: str, hdr_limit: float = 0.0,
-                       conn=None) -> Dict:
+    def mark_to_market(self, date: str, hdr_limit: float = 0.0, conn=None) -> dict:
         """Định giá danh mục @ close T. Unrealized P&L đã chiết khấu phí+thuế bán.
 
         Trả về snapshot đầy đủ + ghi paper_equity_curve.
@@ -643,7 +667,7 @@ class PaperMtM:
             lots = c.execute(
                 "SELECT symbol, quantity, cost_basis, settle_date FROM paper_lots "
                 "WHERE portfolio_id=? AND is_closed=0 AND open_date<=?",
-                (self.portfolio_id, date)
+                (self.portfolio_id, date),
             ).fetchall()
 
             market_value = 0.0
@@ -659,8 +683,7 @@ class PaperMtM:
                 cost_value += qty * cb
                 if settle_date > date:
                     unsettled_val += mv
-                p = positions.setdefault(symbol, {"qty": 0, "cost": 0.0, "mv": 0.0,
-                                                  "unsettled_qty": 0})
+                p = positions.setdefault(symbol, {"qty": 0, "cost": 0.0, "mv": 0.0, "unsettled_qty": 0})
                 p["qty"] += qty
                 p["cost"] += qty * cb
                 p["mv"] += mv
@@ -672,9 +695,8 @@ class PaperMtM:
             unrealized_net = unrealized_gross - exit_fee
 
             row = c.execute(
-                "SELECT COALESCE(SUM(net_pnl),0) FROM paper_realized_pnl "
-                "WHERE portfolio_id=? AND date<=?",
-                (self.portfolio_id, date)
+                "SELECT COALESCE(SUM(net_pnl),0) FROM paper_realized_pnl WHERE portfolio_id=? AND date<=?",
+                (self.portfolio_id, date),
             ).fetchone()
             realized_cum = float(row[0]) if row else 0.0
 
@@ -693,17 +715,20 @@ class PaperMtM:
                 "exit_fee_tax": round(exit_fee, 0),
                 "realized_pnl_cum": round(realized_cum, 0),
                 "total_equity": round(total_equity, 0),
-                "total_return_pct": round(
-                    (total_equity / state["initial_capital"] - 1) * 100, 2),
+                "total_return_pct": round((total_equity / state["initial_capital"] - 1) * 100, 2),
                 "unsettled_qty_val": round(unsettled_val, 0),
                 "buying_power": round(buying_power, 0),
                 "hdr_limit": hdr_limit,
-                "positions": {s: {"qty": p["qty"],
-                                  "avg_cost": round(p["cost"] / p["qty"], 2) if p["qty"] else 0,
-                                  "market_value": round(p["mv"], 0),
-                                  "unsettled_qty": p["unsettled_qty"],
-                                  "upl": round(p["mv"] - p["cost"], 0)}
-                              for s, p in positions.items()},
+                "positions": {
+                    s: {
+                        "qty": p["qty"],
+                        "avg_cost": round(p["cost"] / p["qty"], 2) if p["qty"] else 0,
+                        "market_value": round(p["mv"], 0),
+                        "unsettled_qty": p["unsettled_qty"],
+                        "upl": round(p["mv"] - p["cost"], 0),
+                    }
+                    for s, p in positions.items()
+                },
             }
 
             c.execute(
@@ -711,19 +736,29 @@ class PaperMtM:
                 "settled_cash, pending_cash_in, market_value, unrealized_pnl, "
                 "realized_pnl_cum, total_equity, unsettled_qty_val, buying_power, "
                 "hdr_limit, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (self.portfolio_id, date, state["settled_cash"],
-                 state["pending_cash_in"], market_value, unrealized_net,
-                 realized_cum, total_equity, unsettled_val, buying_power,
-                 hdr_limit, datetime.now().isoformat())
+                (
+                    self.portfolio_id,
+                    date,
+                    state["settled_cash"],
+                    state["pending_cash_in"],
+                    market_value,
+                    unrealized_net,
+                    realized_cum,
+                    total_equity,
+                    unsettled_val,
+                    buying_power,
+                    hdr_limit,
+                    datetime.now().isoformat(),
+                ),
             )
 
         return snapshot
 
     # -------------------------------------------------------------- reporting
     @staticmethod
-    def print_report(snapshot: Dict, lang: str = "vi"):
+    def print_report(snapshot: dict, lang: str = "vi"):
         print(f"\n{'=' * 65}")
-        print(f"  MARK-TO-MARKET P&L — {snapshot.get('portfolio_id','')}")
+        print(f"  MARK-TO-MARKET P&L — {snapshot.get('portfolio_id', '')}")
         print(f"{'=' * 65}")
         print(f"  Ngày định giá     : {snapshot['date']}")
         print(f"  Tiền đã settle    : {snapshot['settled_cash']:>18,.0f}")
@@ -732,17 +767,15 @@ class PaperMtM:
         print(f"  → chưa settle     : {snapshot['unsettled_qty_val']:>18,.0f}")
         print(f"  Tổng vốn (Equity) : {snapshot['total_equity']:>18,.0f}")
         print(f"  Lợi nhuận         : {snapshot['total_return_pct']:>17.2f}%")
-        print(f"  Sức mua khả dụng  : {snapshot['buying_power']:>18,.0f}  "
-              f"(HDR={snapshot['hdr_limit']})")
-        print(f"\n  -- P&L --")
+        print(f"  Sức mua khả dụng  : {snapshot['buying_power']:>18,.0f}  (HDR={snapshot['hdr_limit']})")
+        print("\n  -- P&L --")
         print(f"  Unrealized (gross): {snapshot['unrealized_pnl_gross']:>18,.0f}")
         print(f"  Phí+thuế thoát    : {snapshot['exit_fee_tax']:>18,.0f}")
         print(f"  Unrealized (net)  : {snapshot['unrealized_pnl_net']:>18,.0f}")
         print(f"  Realized (luỹ kế) : {snapshot['realized_pnl_cum']:>18,.0f}")
         if snapshot.get("positions"):
-            print(f"\n  -- Vị thế --")
+            print("\n  -- Vị thế --")
             for s, p in snapshot["positions"].items():
-                lock = f" [khóa {p['unsettled_qty']:,}]" if p['unsettled_qty'] else ""
-                print(f"  {s:6s} x{p['qty']:>8,} @ {p['avg_cost']:>10,.0f}  "
-                      f"UPL={p['upl']:>14,.0f}{lock}")
+                lock = f" [khóa {p['unsettled_qty']:,}]" if p["unsettled_qty"] else ""
+                print(f"  {s:6s} x{p['qty']:>8,} @ {p['avg_cost']:>10,.0f}  UPL={p['upl']:>14,.0f}{lock}")
         print(f"{'=' * 65}\n")

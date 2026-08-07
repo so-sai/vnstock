@@ -19,7 +19,6 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -45,8 +44,8 @@ class DensityAuditResult:
     required_quarters: int
     available_quarters: int
     density_pct: float
-    missing_quarters: List[str] = field(default_factory=list)
-    missing_fields: List[str] = field(default_factory=list)
+    missing_quarters: list[str] = field(default_factory=list)
+    missing_fields: list[str] = field(default_factory=list)
     status: str = "PERFECT"  # PERFECT / GAP_FOUND / SEVERE_GAP
     healed: bool = False
 
@@ -54,13 +53,13 @@ class DensityAuditResult:
 class DataIntegrityAuditor:
     """Deep Data Density Scanner & Self-Healing Data Pipeline Auditor."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or FINANCIAL_DB
 
     def _get_conn(self) -> sqlite3.Connection:
         return sqlite3.connect(str(self.db_path))
 
-    def _generate_required_quarters(self, start_year: int = 2019, end_year: int = 2026) -> List[str]:
+    def _generate_required_quarters(self, start_year: int = 2019, end_year: int = 2026) -> list[str]:
         quarters = []
         for y in range(start_year, end_year + 1):
             for q in range(1, 5):
@@ -136,10 +135,10 @@ class DataIntegrityAuditor:
             status=status,
         )
 
-    def audit_many(self, symbols: List[str], start_year: int = 2019, end_year: int = 2026) -> Dict[str, DensityAuditResult]:
+    def audit_many(self, symbols: list[str], start_year: int = 2019, end_year: int = 2026) -> dict[str, DensityAuditResult]:
         return {s: self.audit_symbol(s, start_year, end_year) for s in symbols}
 
-    def _seed_symbol(self, symbol: str) -> Dict:
+    def _seed_symbol(self, symbol: str) -> dict:
         """Call VnstockCrawler seeder to backfill missing data."""
         from src.financial.financial_facts import VnstockCrawler
 
@@ -147,8 +146,8 @@ class DataIntegrityAuditor:
         return crawler.seed_symbol(symbol)
 
     def audit_and_heal(
-        self, symbols: List[str], auto_backfill: bool = True, start_year: int = 2019, end_year: int = 2026
-    ) -> Dict[str, DensityAuditResult]:
+        self, symbols: list[str], auto_backfill: bool = True, start_year: int = 2019, end_year: int = 2026
+    ) -> dict[str, DensityAuditResult]:
         """Audit data density and automatically self-heal missing quarters."""
         results = self.audit_many(symbols, start_year, end_year)
 
@@ -169,7 +168,7 @@ class DataIntegrityAuditor:
         return results
 
 
-def print_density_audit_report(results: Dict[str, DensityAuditResult]):
+def print_density_audit_report(results: dict[str, DensityAuditResult]):
     """Print clean Deep Data Density Audit Report for CLI."""
     from src.utils.cli_theme import c_cyan, c_green, c_red, c_yellow
 

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 from pathlib import Path
 
@@ -7,7 +7,7 @@ import pandas as pd
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -24,7 +24,9 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
+
 
 def generate_audit_report(csv_path):
     """
@@ -35,41 +37,41 @@ def generate_audit_report(csv_path):
         return
 
     df = pd.read_csv(csv_path)
-    df['date'] = pd.to_datetime(df['date'], format='mixed')
+    df["date"] = pd.to_datetime(df["date"], format="mixed")
 
     # --- 1. INSTITUTIONAL PILLARS ---
-    max_dd = df['drawdown'].max()
+    max_dd = df["drawdown"].max()
 
     # Recovery Delay (Index V-Shape)
-    bottom_idx = df['idx_close'].idxmin()
-    bottom_date = df.loc[bottom_idx, 'date']
-    recovery_events = df[(df['date'] >= bottom_date) & (df['recovery'] == 'RECOVERY_ACTIVE')]
-    delay = (recovery_events.iloc[0]['date'] - bottom_date).days if not recovery_events.empty else -1
+    bottom_idx = df["idx_close"].idxmin()
+    bottom_date = df.loc[bottom_idx, "date"]
+    recovery_events = df[(df["date"] >= bottom_date) & (df["recovery"] == "RECOVERY_ACTIVE")]
+    delay = (recovery_events.iloc[0]["date"] - bottom_date).days if not recovery_events.empty else -1
 
     survival_rate = 100 - max_dd
 
     # False Recovery Rate
     false_count = 0
-    recovery_indices = df[df['recovery'] == 'RECOVERY_ACTIVE'].index
+    recovery_indices = df[df["recovery"] == "RECOVERY_ACTIVE"].index
     for idx in recovery_indices:
-        future = df.iloc[idx+1 : idx+6]
-        if any(future['status'] == 'CRISIS') or any(future['idx_close'] < df.loc[idx, 'idx_close']):
+        future = df.iloc[idx + 1 : idx + 6]
+        if any(future["status"] == "CRISIS") or any(future["idx_close"] < df.loc[idx, "idx_close"]):
             false_count += 1
 
     # --- 2. THE 4 SAFETY HOOKS (MISSION 2 SPECIAL) ---
-    regime_flips = df['regime_flips'].iloc[0] if 'regime_flips' in df.columns else 0
-    dead_zone_days = df['dead_zone_days'].iloc[0] if 'dead_zone_days' in df.columns else 0
-    ranging_total = df['ranging_total'].iloc[0] if 'ranging_total' in df.columns else 1
-    avg_latency = df['avg_latency'].iloc[0] if 'avg_latency' in df.columns else 0
-    avg_t10 = df['avg_t10'].iloc[0] if 'avg_t10' in df.columns else 0
+    regime_flips = df["regime_flips"].iloc[0] if "regime_flips" in df.columns else 0
+    dead_zone_days = df["dead_zone_days"].iloc[0] if "dead_zone_days" in df.columns else 0
+    ranging_total = df["ranging_total"].iloc[0] if "ranging_total" in df.columns else 1
+    avg_latency = df["avg_latency"].iloc[0] if "avg_latency" in df.columns else 0
+    avg_t10 = df["avg_t10"].iloc[0] if "avg_t10" in df.columns else 0
 
     dead_zone_pct = (dead_zone_days / ranging_total) * 100
-    breadth_stability = df['breadth_std_10d'].mean() if 'breadth_std_10d' in df.columns else 0
+    breadth_stability = df["breadth_std_10d"].mean() if "breadth_std_10d" in df.columns else 0
 
     # Print Report
-    print("\n" + "#"*65)
+    print("\n" + "#" * 65)
     print("      INSTITUTIONAL STRESS TEST AUDIT: MISSION 2 (2023)")
-    print("#"*65)
+    print("#" * 65)
     print(f"Target Period:  {df['date'].min().date()} to {df['date'].max().date()}")
     print(f"Regime Flips:   {regime_flips} times | Breadth Stability: {breadth_stability:.2f} (Avg Std)")
     print("-" * 65)
@@ -92,10 +94,12 @@ def generate_audit_report(csv_path):
     verdict = "✅ PASS" if pillar_pass and hook_pass else "❌ FAIL"
     print(f"FINAL AUDIT VERDICT: {verdict}")
     if not hook_pass:
-        if avg_latency >= 8: print("   ⚠️ ADVISORY: Model B latency is too high. Tuning needed.")
-        if dead_zone_pct >= 45: print("   ⚠️ ADVISORY: Thresholds are too restrictive (High Dead Zone).")
+        if avg_latency >= 8:
+            print("   ⚠️ ADVISORY: Model B latency is too high. Tuning needed.")
+        if dead_zone_pct >= 45:
+            print("   ⚠️ ADVISORY: Thresholds are too restrictive (High Dead Zone).")
 
-    print("#"*65 + "\n")
+    print("#" * 65 + "\n")
 
     return {
         "max_dd": max_dd,
@@ -104,11 +108,13 @@ def generate_audit_report(csv_path):
         "false_recoveries": false_count,
         "avg_latency": avg_latency,
         "dead_zone_pct": dead_zone_pct,
-        "verdict": verdict
+        "verdict": verdict,
     }
+
 
 if __name__ == "__main__":
     import glob
+
     # Find latest audit file
     files = glob.glob("data/reports/replay_audit_*.csv")
     if files:

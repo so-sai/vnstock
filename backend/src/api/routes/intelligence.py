@@ -1,7 +1,8 @@
-﻿"""
+"""
 Phase 12 — Actionable Intelligence API endpoints.
 Compresses all engine outputs into simple, actionable decisions.
 """
+
 import logging
 import sys
 from datetime import datetime
@@ -11,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -24,6 +25,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -48,16 +50,18 @@ async def live_summary():
         return localize_output(get_live_summary())
     except Exception as e:
         logger.error(f"Live summary endpoint failed: {type(e).__name__}: {e}")
-        return localize_output({
-            "regime": "RANGING",
-            "decision": {"action": "HOLD", "confidence": 50, "risk": "SAFE", "constraint": "ALLOWED"},
-            "liquidity_phase": "NEUTRAL",
-            "rotation_regime": "NEUTRAL",
-            "breakout_context": "LOW_BREAKOUT_ACTIVITY",
-            "positions_count": 0,
-            "coach_instruction": "Hệ thống đang thu thập dữ liệu thị trường. Vui lòng quay lại sau phiên giao dịch.",
-            "updated_at": datetime.now().isoformat(),
-        })
+        return localize_output(
+            {
+                "regime": "RANGING",
+                "decision": {"action": "HOLD", "confidence": 50, "risk": "SAFE", "constraint": "ALLOWED"},
+                "liquidity_phase": "NEUTRAL",
+                "rotation_regime": "NEUTRAL",
+                "breakout_context": "LOW_BREAKOUT_ACTIVITY",
+                "positions_count": 0,
+                "coach_instruction": "Hệ thống đang thu thập dữ liệu thị trường. Vui lòng quay lại sau phiên giao dịch.",
+                "updated_at": datetime.now().isoformat(),
+            }
+        )
 
 
 @router.get("/coach")

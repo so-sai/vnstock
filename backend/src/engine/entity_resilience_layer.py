@@ -1,4 +1,4 @@
-﻿"""
+"""
 entity_resilience_layer.py — Entity Resilience Layer (ERL) Framework
 
 Asynchronous Multi-rate Observation Engine:
@@ -13,14 +13,12 @@ POMDP Belief State:
 Giai doan 1: Proxy BCTC tu daily_ohlcv (Volume Anomaly, Volatility, RS Alpha)
 Giai doan 2: Nap BCTC that (Net Debt, EBITDA, Interest Coverage, Beneish M-Score)
 """
-import json
+
 import logging
 import sqlite3
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +47,14 @@ BENEISH_LVGI = -0.327
 
 
 def compute_beneish_m_score(
-    dsri: float, gmi: float, aqi: float, sgi: float,
-    depi: float, sgai: float, tata: float, lvgi: float,
+    dsri: float,
+    gmi: float,
+    aqi: float,
+    sgi: float,
+    depi: float,
+    sgai: float,
+    tata: float,
+    lvgi: float,
 ) -> float:
     """Beneish M-Score chuan hoa (Beneish 1999, he so TATA=4.697)."""
     return (
@@ -106,9 +110,8 @@ class EntityResilienceLayer:
         conn = sqlite3.connect(self.db_path)
 
         symbols = [
-            r[0] for r in conn.execute(
-                "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX','VN30')"
-            ).fetchall()
+            r[0]
+            for r in conn.execute("SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX','VN30')").fetchall()
         ]
 
         results = []
@@ -148,8 +151,7 @@ class EntityResilienceLayer:
     def get_belief(self, symbol: str) -> dict:
         return self._beliefs.get(symbol, {"P": 0.5, "prior": 0.5})
 
-    def update_beneish(self, symbol: str, dsri=1.0, gmi=1.0, aqi=1.0, sgi=1.0,
-                        depi=1.0, sgai=1.0, tata=0.0, lvgi=1.0) -> dict:
+    def update_beneish(self, symbol: str, dsri=1.0, gmi=1.0, aqi=1.0, sgi=1.0, depi=1.0, sgai=1.0, tata=0.0, lvgi=1.0) -> dict:
         """Cap nhat Posterior Belief khi co BCTC moi (Giai doan 2)."""
         m = compute_beneish_m_score(dsri, gmi, aqi, sgi, depi, sgai, tata, lvgi)
         penalty = compute_m_score_penalty(m)
@@ -161,12 +163,17 @@ class EntityResilienceLayer:
         if prev["volume_penalty"] < 1.0 and m <= BENEISH_CUTOFF:
             logger.info(
                 "ERL reconcile: %s — false positive overridden (M=%.2f <= %.2f)",
-                symbol, m, BENEISH_CUTOFF,
+                symbol,
+                m,
+                BENEISH_CUTOFF,
             )
             new_P = prior
             self._beliefs[symbol] = {
-                "P": prior, "prior": prior, "volume_penalty": 1.0,
-                "beneish_penalty": 1.0, "anomaly_streak": 0,
+                "P": prior,
+                "prior": prior,
+                "volume_penalty": 1.0,
+                "beneish_penalty": 1.0,
+                "anomaly_streak": 0,
                 "last_updated": datetime.now().isoformat(),
                 "beneish_m": round(m, 4),
                 "reconciled": True,
@@ -174,8 +181,11 @@ class EntityResilienceLayer:
         else:
             new_P = prior * penalty
             self._beliefs[symbol] = {
-                "P": new_P, "prior": prior, "volume_penalty": prev["volume_penalty"],
-                "beneish_penalty": penalty, "anomaly_streak": prev.get("anomaly_streak", 0),
+                "P": new_P,
+                "prior": prior,
+                "volume_penalty": prev["volume_penalty"],
+                "beneish_penalty": penalty,
+                "anomaly_streak": prev.get("anomaly_streak", 0),
                 "last_updated": datetime.now().isoformat(),
                 "beneish_m": round(m, 4),
                 "reconciled": False,
@@ -221,8 +231,7 @@ class EntityResilienceLayer:
             "reconciled": False,
         }
 
-    def _volume_anomaly(self, symbol: str, target_date: str, conn,
-                        window: int = 20) -> tuple[float, float]:
+    def _volume_anomaly(self, symbol: str, target_date: str, conn, window: int = 20) -> tuple[float, float]:
         """Tinh Volume_Ratio va RS_Z cho symbol tai target_date."""
         rows = conn.execute(
             f"SELECT date, volume, close FROM daily_ohlcv WHERE symbol = ? "
@@ -248,8 +257,7 @@ class EntityResilienceLayer:
 
         return vr, rs_z
 
-    def _count_anomaly_streak(self, symbol: str, target_date: str, conn,
-                               window: int = 20) -> int:
+    def _count_anomaly_streak(self, symbol: str, target_date: str, conn, window: int = 20) -> int:
         """Dem so phien lien tiep co volume anomaly truoc target_date.
 
         Tinh VR cho tung ngay bang rolling median 20 phien.
@@ -264,7 +272,7 @@ class EntityResilienceLayer:
 
         streak = 0
         for i in range(len(rows) - window):
-            chunk = rows[i:i + window]
+            chunk = rows[i : i + window]
             vols = [r[1] for r in chunk if r[1] is not None]
             if len(vols) < window // 2:
                 break
@@ -285,16 +293,14 @@ class EntityResilienceLayer:
                 break
         return min(streak, 5)
 
-    def _volatility_proxy(self, symbol: str, target_date: str, conn,
-                           window: int = 20) -> float:
+    def _volatility_proxy(self, symbol: str, target_date: str, conn, window: int = 20) -> float:
         """Volatility contraction proxy — surrogate cho Interest Coverage.
 
         ATR giam = volatility contraction = co the la dinh.
         Tra ve he so [0.5, 1.0], thap hon = nguy co cao hon.
         """
         rows = conn.execute(
-            f"SELECT high, low, close FROM daily_ohlcv WHERE symbol = ? "
-            f"AND date <= ? ORDER BY date DESC LIMIT {window + 5}",
+            f"SELECT high, low, close FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT {window + 5}",
             (symbol, target_date),
         ).fetchall()
         if len(rows) < window + 1:
@@ -303,8 +309,8 @@ class EntityResilienceLayer:
         # Tinh ATR ngan gon
         atrs = []
         for i in range(len(rows) - 1):
-            h, l, c = rows[i][0] or 0, rows[i][1] or 0, rows[i + 1][2] or 0
-            tr = max(h - l, abs(h - c), abs(l - c))
+            hi, lo, cl = rows[i][0] or 0, rows[i][1] or 0, rows[i + 1][2] or 0
+            tr = max(hi - lo, abs(hi - cl), abs(lo - cl))
             atrs.append(tr)
 
         atr_recent = float(np.mean(atrs[:5])) if len(atrs) >= 5 else float(np.mean(atrs))

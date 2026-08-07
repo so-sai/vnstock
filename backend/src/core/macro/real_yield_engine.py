@@ -6,10 +6,8 @@ Sử dụng TIP ETF (iShares TIPS Bond) để trích xuất:
   - BREAKEVEN_INFLATION = US10Y - US_REAL_YIELD
     (tỷ lệ lạm phát kỳ vọng mà thị trường định giá)
 """
-import sys
+
 import logging
-from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,28 +20,32 @@ BREAKEVEN_LOW = 1.5
 def get_real_yield_from_db() -> dict:
     """Lấy TIP_PRICE + US10Y từ macro_history, fetch TIP yield từ yfinance."""
     try:
-        from src.database.db_core import get_connection
         import pandas as pd
 
+        from src.database.db_core import get_connection
+
         with get_connection() as conn:
-            df = pd.read_sql("""
+            df = pd.read_sql(
+                """
                 SELECT variable, value FROM (
                     SELECT variable, value,
                            ROW_NUMBER() OVER (PARTITION BY variable ORDER BY rowid DESC) as rn
                     FROM macro_history
                     WHERE variable IN ('TIP_PRICE', 'US10Y')
                 ) WHERE rn = 1
-            """, conn)
+            """,
+                conn,
+            )
 
         if df.empty:
             return _empty_real_yield()
 
         vals = {}
         for _, row in df.iterrows():
-            vals[row['variable']] = row['value']
+            vals[row["variable"]] = row["value"]
 
-        tip_price = vals.get('TIP_PRICE')
-        us10y = vals.get('US10Y')
+        tip_price = vals.get("TIP_PRICE")
+        us10y = vals.get("US10Y")
 
         tip_yield = _fetch_tip_dividend_yield()
 
@@ -64,10 +66,11 @@ def get_real_yield_from_db() -> dict:
         return _empty_real_yield()
 
 
-def _fetch_tip_dividend_yield() -> Optional[float]:
+def _fetch_tip_dividend_yield() -> float | None:
     """Fetch TIP ETF trailing annual dividend yield từ yfinance Ticker.info."""
     try:
         import yfinance as yf
+
         tip = yf.Ticker("TIP")
         info = tip.info
         dy = info.get("trailingAnnualDividendYield")
@@ -93,7 +96,7 @@ def _empty_real_yield() -> dict:
     }
 
 
-def _classify_real_yield(real_yield: Optional[float]) -> str:
+def _classify_real_yield(real_yield: float | None) -> str:
     if real_yield is None:
         return "NO_DATA"
     if real_yield > REAL_YIELD_HIGH:
@@ -103,7 +106,7 @@ def _classify_real_yield(real_yield: Optional[float]) -> str:
     return "NEUTRAL"
 
 
-def _classify_breakeven(breakeven: Optional[float]) -> str:
+def _classify_breakeven(breakeven: float | None) -> str:
     if breakeven is None:
         return "NO_DATA"
     if breakeven > BREAKEVEN_HIGH:

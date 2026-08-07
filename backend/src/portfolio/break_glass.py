@@ -1,4 +1,4 @@
-﻿"""Break-Glass Protocol — Single-Pass Key-Anchored Passphrase.
+"""Break-Glass Protocol — Single-Pass Key-Anchored Passphrase.
 
 Không multi-sig, không multi-admin.
 Operator duy nhất dùng --passphrase <SECRET> để override.
@@ -9,11 +9,10 @@ import hashlib
 import json
 import random
 import string
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from src.portfolio.system_state import is_locked, unlock as _unlock_lock
+from src.portfolio.system_state import unlock as _unlock_lock
 
 _BG_PATH = Path(__file__).resolve().parents[3] / "backend" / "data" / "state" / "break_glass.json"
 
@@ -21,7 +20,7 @@ _BG_PATH = Path(__file__).resolve().parents[3] / "backend" / "data" / "state" / 
 def _read_bg() -> dict:
     try:
         return json.loads(_BG_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError, json.JSONDecodeError:
         return {"active_ticket": None, "tickets": {}}
 
 
@@ -33,8 +32,7 @@ def _write_bg(data: dict):
 class BreakGlassProtocol:
     """Single-User Break-Glass với Key-Anchored Passphrase + Time-Delay Fallback."""
 
-    def __init__(self, passphrase: str = "ptck_emergency_override_2026",
-                 time_delay_minutes: int = 15):
+    def __init__(self, passphrase: str = "ptck_emergency_override_2026", time_delay_minutes: int = 15):
         self._passphrase_hash = hashlib.sha256(passphrase.encode()).hexdigest()
         self.time_delay_minutes = time_delay_minutes
 
@@ -47,13 +45,13 @@ class BreakGlassProtocol:
         bg = _read_bg()
         ticket_id = _random_token(12)
         challenge = _random_token(16)
-        expiry = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        expiry = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         bg["active_ticket"] = ticket_id
         bg["tickets"][ticket_id] = {
             "ticket_id": ticket_id,
             "challenge": challenge,
             "use_time_delay": use_time_delay,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "expires_at": expiry,
             "status": "PENDING",
             "passphrase_hash": self._passphrase_hash,
@@ -77,7 +75,7 @@ class BreakGlassProtocol:
             return {"success": False, "reason": f"ALREADY_{ticket['status']}"}
 
         if ticket.get("use_time_delay"):
-            elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(ticket["created_at"])).total_seconds() / 60.0
+            elapsed = (datetime.now(UTC) - datetime.fromisoformat(ticket["created_at"])).total_seconds() / 60.0
             if elapsed < self.time_delay_minutes:
                 remaining = self.time_delay_minutes - elapsed
                 return {"success": False, "reason": "TIME_DELAY_ACTIVE", "remaining_minutes": round(remaining, 1)}
@@ -109,4 +107,4 @@ class BreakGlassProtocol:
 
 
 def _random_token(length: int = 12) -> str:
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=length))

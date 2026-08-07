@@ -22,7 +22,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def _hydrate_path() -> Path:
@@ -90,12 +90,12 @@ class PolicyEvent:
     effective_date: str  # YYYY-MM-DD
     expiry_date: str  # YYYY-MM-DD
     event_type: str  # EVENT_TYPE_*
-    affected_variables: List[str] = field(default_factory=list)  # e.g. ["LDR", "INTERBANK", "COF"]
+    affected_variables: list[str] = field(default_factory=list)  # e.g. ["LDR", "INTERBANK", "COF"]
     transmission_lag_days: int = 3  # LAW-009: lag truyen dan (ngay)
     half_life_days: float = 15.0  # LAW-009: thoi gian ban phan huy
     decay_window_days: int = 90  # Policy Cliff: so ngay truoc expiry bat dau phan ra
-    clusters: Dict[str, float] = field(default_factory=dict)  # {cluster_name: benefit_ratio}
-    delta_params: Dict[str, Any] = field(default_factory=dict)  # cac bien dinh luong
+    clusters: dict[str, float] = field(default_factory=dict)  # {cluster_name: benefit_ratio}
+    delta_params: dict[str, Any] = field(default_factory=dict)  # cac bien dinh luong
     description: str = ""
     source: str = ""
 
@@ -146,13 +146,13 @@ class PolicyImpactResult:
 
     symbol: str
     date: str
-    active_events: List[Dict] = field(default_factory=list)
+    active_events: list[dict] = field(default_factory=list)
     total_impact_score: float = 0.0  # [-1, +1] tong hop
     ldr_relief_bps: float = 0.0  # muc giam LDR (basis points)
     cof_relief_bps: float = 0.0  # muc giam chi phi von
     interbank_shock: float = 0.0  # thay doi lai suat lien NH (%-point)
     nim_boost: float = 0.0  # muc tang NIM uoc tinh
-    gate_relaxation: Dict[str, float] = field(default_factory=dict)  # cac nguong noi long
+    gate_relaxation: dict[str, float] = field(default_factory=dict)  # cac nguong noi long
     cluster: str = "OTHER"
     transmission_factor: float = 1.0  # LAW-009: muc do da truyen toi (0-1)
 
@@ -170,9 +170,9 @@ class PolicyImpactEngine:
       4. Tong hop impact score tu cac delta_params * benefit_ratio * transmission.
     """
 
-    def __init__(self, events_path: Optional[Path] = None):
+    def __init__(self, events_path: Path | None = None):
         self.events_path = events_path or DEFAULT_EVENTS_PATH
-        self._events: Dict[str, PolicyEvent] = {}
+        self._events: dict[str, PolicyEvent] = {}
         self._load_events()
 
     # ── Event lifecycle ──────────────────────────────────────────────
@@ -183,7 +183,7 @@ class PolicyImpactEngine:
             self._save_events()
             return
         try:
-            with open(self.events_path, "r", encoding="utf-8") as f:
+            with open(self.events_path, encoding="utf-8") as f:
                 raw = json.load(f)
             skipped = 0
             for item in raw:
@@ -220,15 +220,15 @@ class PolicyImpactEngine:
         self._events.pop(event_id, None)
         self._save_events()
 
-    def get_event(self, event_id: str) -> Optional[PolicyEvent]:
+    def get_event(self, event_id: str) -> PolicyEvent | None:
         return self._events.get(event_id)
 
-    def get_active_events(self, target_date: Optional[str] = None) -> List[PolicyEvent]:
+    def get_active_events(self, target_date: str | None = None) -> list[PolicyEvent]:
         """Tra ve cac su kien dang hieu luc tai target_date (mac dinh: hom nay)."""
         target_date = target_date or date.today().isoformat()
         return [e for e in self._events.values() if e.is_active_on(target_date)]
 
-    def list_events(self) -> List[PolicyEvent]:
+    def list_events(self) -> list[PolicyEvent]:
         return list(self._events.values())
 
     # ── Clustering ───────────────────────────────────────────────────
@@ -240,7 +240,7 @@ class PolicyImpactEngine:
                 return c
         return "OTHER"
 
-    def get_benefit_ratio(self, symbol: str, event: Optional[PolicyEvent] = None) -> float:
+    def get_benefit_ratio(self, symbol: str, event: PolicyEvent | None = None) -> float:
         """He so huong loi [0,1] cua symbol cho mot event (hoac event dau khop)."""
         if event is not None:
             return event.get_benefit_ratio(symbol)
@@ -296,7 +296,7 @@ class PolicyImpactEngine:
         return f_trans * f_decay
 
     # ── Core compute ─────────────────────────────────────────────────
-    def compute_impact(self, symbol: str, target_date: Optional[str] = None) -> PolicyImpactResult:
+    def compute_impact(self, symbol: str, target_date: str | None = None) -> PolicyImpactResult:
         """Tinh tac dong tong hop cua cac policy event len symbol."""
         target_date = target_date or date.today().isoformat()
         result = PolicyImpactResult(symbol=symbol, date=target_date)
@@ -379,7 +379,7 @@ class PolicyImpactEngine:
         return result
 
     # ── Gate application ─────────────────────────────────────────────
-    def apply_to_gate(self, symbol: str, base_gate_result: bool, target_date: Optional[str] = None) -> bool:
+    def apply_to_gate(self, symbol: str, base_gate_result: bool, target_date: str | None = None) -> bool:
         """Ap dung chinh sach len VN20 Gate.
 
         Quy tac: Neu co policy event nao co gate_relaxation cho symbol
@@ -400,9 +400,7 @@ class PolicyImpactEngine:
         return base_gate_result
 
 
-def compute_policy_impact(
-    symbol: str, target_date: Optional[str] = None, events_path: Optional[Path] = None
-) -> PolicyImpactResult:
+def compute_policy_impact(symbol: str, target_date: str | None = None, events_path: Path | None = None) -> PolicyImpactResult:
     """Convenience function — tinh policy impact cho mot symbol."""
     engine = PolicyImpactEngine(events_path=events_path)
     return engine.compute_impact(symbol, target_date)

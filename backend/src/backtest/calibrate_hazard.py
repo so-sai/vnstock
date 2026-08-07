@@ -1,4 +1,4 @@
-﻿"""
+"""
 calibrate_hazard.py — Calibrate HazardTransitionEngine weights to match
 real engine state-space dynamics.
 
@@ -62,6 +62,9 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+from core.validation.state_space_validator import StateSpaceValidator
+from src.database.db_core import get_connection
+
 from backend.src.backtest.feature_lattice_builder import FeatureLatticeBuilder
 from backend.src.backtest.hsr_batch_runner import HSRBatchRunner
 from backend.src.backtest.hsr_kernel import InMemoryDB
@@ -69,9 +72,6 @@ from backend.src.engine.hazard_engine import (
     DEFAULT_HAZARD_WEIGHTS,
     HazardTransitionEngine,
 )
-from core.validation.state_space_validator import StateSpaceValidator
-
-from src.database.db_core import get_connection
 
 # ── Number of random seeds to average per candidate ────────────────
 N_SEEDS_PER_CANDIDATE = 5

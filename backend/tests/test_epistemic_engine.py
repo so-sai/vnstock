@@ -5,11 +5,10 @@ Kiểm thử:
   - Surprise Engine: Shannon Surprise S = -log2(P(Outcome)) phát hiện Anomaly khi tự tin cao nhưng thất bại
 """
 
-import pytest
 
 
 def test_law_008_open_world_coverage_cap():
-    from calibration.epistemic_engine import EpistemicEngine, COVERAGE_MAX
+    from calibration.epistemic_engine import COVERAGE_MAX, EpistemicEngine
 
     engine = EpistemicEngine()
 

@@ -1,7 +1,6 @@
-from typing import Literal, Optional
-from pydantic import BaseModel, Field
-from enum import Enum
+from typing import Literal
 
+from pydantic import BaseModel, Field
 
 ActionBias = Literal["BUY", "SELL", "HOLD", "REDUCE_RISK", "WAIT"]
 TimeHorizon = Literal["NGẮN_HẠN", "TRUNG_HẠN", "DÀI_HẠN"]
@@ -44,7 +43,12 @@ class DecisionView(BaseModel):
     primary_conflict_vi: str | None = Field(None, description="Single most important contradiction in natural VN")
     short_explanation_vi: str = Field(description="One-line decision rationale")
     time_horizon: TimeHorizon = Field(default="NGẮN_HẠN")
-    decision_urgency: float = Field(default=0.5, ge=0.0, le=1.0, description="Urgency for execution/alert (0=observe, 1=act now)")
+    decision_urgency: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Urgency for execution/alert (0=observe, 1=act now)",
+    )
     entropy_state: EntropyState = Field(default="HỘI_TỤ", description="Aggregate epistemic entropy level")
 
 
@@ -179,18 +183,28 @@ class VerdictSummary(BaseModel):
 DCLVerdictLevel = Literal["ACTIONABLE", "OBSERVE", "NO_TRADE"]
 MarketIntentMode = Literal["ACCUMULATION", "WAITING", "DISTRIBUTION", "PRESERVATION"]
 GateReasonCode = Literal[
-    "GATE_SENTINEL_PASS", "GATE_SENTINEL_FAIL",
-    "GATE_FLOW_PASS", "GATE_FLOW_FAIL",
-    "GATE_BREADTH_PASS", "GATE_BREADTH_FAIL",
-    "GATE_STRUCTURE_PASS", "GATE_STRUCTURE_FAIL",
-    "GATE_SSI_PASS", "GATE_SSI_FAIL",
-    "GATE_TRADE_STATE_PASS", "GATE_TRADE_STATE_FAIL",
+    "GATE_SENTINEL_PASS",
+    "GATE_SENTINEL_FAIL",
+    "GATE_FLOW_PASS",
+    "GATE_FLOW_FAIL",
+    "GATE_BREADTH_PASS",
+    "GATE_BREADTH_FAIL",
+    "GATE_STRUCTURE_PASS",
+    "GATE_STRUCTURE_FAIL",
+    "GATE_SSI_PASS",
+    "GATE_SSI_FAIL",
+    "GATE_TRADE_STATE_PASS",
+    "GATE_TRADE_STATE_FAIL",
 ]
 CompCode = Literal[
-    "COMP_SENTINEL_BY_FLOW_SSI", "COMP_SENTINEL_BY_FLOW_BREADTH",
-    "COMP_BREADTH_BY_SENTINEL_FLOW", "COMP_BREADTH_BY_SENTINEL_SSI",
-    "COMP_SSI_BY_FLOW_BREADTH", "COMP_SSI_BY_SENTINEL_TRADE_STATE",
-    "COMP_FLOW_BY_SENTINEL_SSI", "COMP_FLOW_BY_BREADTH_TRADE_STATE",
+    "COMP_SENTINEL_BY_FLOW_SSI",
+    "COMP_SENTINEL_BY_FLOW_BREADTH",
+    "COMP_BREADTH_BY_SENTINEL_FLOW",
+    "COMP_BREADTH_BY_SENTINEL_SSI",
+    "COMP_SSI_BY_FLOW_BREADTH",
+    "COMP_SSI_BY_SENTINEL_TRADE_STATE",
+    "COMP_FLOW_BY_SENTINEL_SSI",
+    "COMP_FLOW_BY_BREADTH_TRADE_STATE",
     "COMP_STRUCTURE_BY_SENTINEL_FLOW_BREADTH",
     "COMP_TRADE_STATE_BY_SENTINEL_FLOW_SSI",
 ]
@@ -260,8 +274,11 @@ class DirectionPersistenceReport(BaseModel):
 
 TransitionStateCode = Literal["STABLE", "BREWING", "TRIGGERED"]
 TransitionTypeCode = Literal[
-    "NONE", "FLICKER_TO_TREND", "TREND_TO_FLICKER",
-    "REGIME_SHIFT", "BIAS_FLIP",
+    "NONE",
+    "FLICKER_TO_TREND",
+    "TREND_TO_FLICKER",
+    "REGIME_SHIFT",
+    "BIAS_FLIP",
 ]
 
 
@@ -275,7 +292,10 @@ class CausalFactor(BaseModel):
 class CausalAttributionReport(BaseModel):
     transition_type: str = Field(description="Type of transition, matching TransitionTypeCode")
     primary_cause: str = Field(description="The source with largest absolute impact delta")
-    factors: list[CausalFactor] = Field(default_factory=list, description="List of contributors ordered by absolute delta DESC")
+    factors: list[CausalFactor] = Field(
+        default_factory=list,
+        description="List of contributors ordered by absolute delta DESC",
+    )
     summary_vi: str = Field(description="Vietnamese synthesis explanation of the transition causes")
 
 
@@ -287,8 +307,7 @@ class TransitionTriggerReport(BaseModel):
     label_vi: str = Field(default="", description="Vietnamese label for UI")
     color: str = Field(default="", description="UI color token")
     summary_vi: str = Field(default="", description="Vietnamese explanation of transition state")
-    causal_attribution: Optional[CausalAttributionReport] = Field(default=None, description="Detailed causal analysis if transition is triggered")
-
-
-
-
+    causal_attribution: CausalAttributionReport | None = Field(
+        default=None,
+        description="Detailed causal analysis if transition is triggered",
+    )

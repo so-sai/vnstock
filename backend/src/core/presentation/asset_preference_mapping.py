@@ -1,5 +1,4 @@
-
-from .models import AssetPreferenceMap, AssetBiasEntry, AssetBias
+from .models import AssetBias, AssetBiasEntry, AssetPreferenceMap
 
 _BIAS_LABELS: dict[AssetBias, str] = {
     "STRONG_PREFER": "Ưu tiên cao",
@@ -119,10 +118,7 @@ def compute_asset_preference(
         and lcr_pct <= 30
     )
     is_concentration = (
-        trade_state_level in ("ACTIVE", "SELECTIVE")
-        and lcr_pct > 30
-        and breadth_health < 50
-        and bdi_signal == "PHAN_KY_DUONG"
+        trade_state_level in ("ACTIVE", "SELECTIVE") and lcr_pct > 30 and breadth_health < 50 and bdi_signal == "PHAN_KY_DUONG"
     )
     is_fragile = (
         trade_state_level in ("SELECTIVE", "RESTRICTED")
@@ -130,15 +126,9 @@ def compute_asset_preference(
         and lcr_pct > 35
         and "STRUCTURAL" in drift_label.upper()
     )
-    is_stress = (
-        trade_state_level in ("RESTRICTED", "PROHIBITED")
-        or regime_status == "CRISIS"
-    )
+    is_stress = trade_state_level in ("RESTRICTED", "PROHIBITED") or regime_status == "CRISIS"
     is_liquidity_driven = (
-        trade_state_level == "ACTIVE"
-        and regime_status == "TRENDING"
-        and breadth_health >= 50
-        and lcr_pct > 30
+        trade_state_level == "ACTIVE" and regime_status == "TRENDING" and breadth_health >= 50 and lcr_pct > 30
     )
 
     if is_stress:

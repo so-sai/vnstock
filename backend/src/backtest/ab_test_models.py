@@ -48,7 +48,6 @@ import sqlite3
 
 import numpy as np
 import pandas as pd
-
 from src.config import DATA_DIR
 from src.governor.company_state import (
     L3ValuationLoader,
@@ -265,9 +264,9 @@ def run_ab(start_date="2022-01-01", end_date="2022-12-31", top_symbols=40):
     df["m2_m3_gap"] = (df["M2_FUNDAMENTAL"] - df["M3_BEHAVIORAL"]).abs()
     df["m1_m3_gap"] = (df["M1_MACRO"] - df["M3_BEHAVIORAL"]).abs()
     print("\n─ Post-error model disagreement ─")
-    print("  M1-M2 mean |abs| gap: %.4f" % df["m1_m2_gap"].mean())
-    print("  M2-M3 mean |abs| gap: %.4f" % df["m2_m3_gap"].mean())
-    print("  M1-M3 mean |abs| gap: %.4f" % df["m1_m3_gap"].mean())
+    print(f"  M1-M2 mean |abs| gap: {df['m1_m2_gap'].mean():.4f}")
+    print(f"  M2-M3 mean |abs| gap: {df['m2_m3_gap'].mean():.4f}")
+    print(f"  M1-M3 mean |abs| gap: {df['m1_m3_gap'].mean():.4f}")
     lost = df[(df["m2_m3_gap"] > 0.15)]
     if len(lost):
         wins = (lost["outcome"] == 1.0).mean()

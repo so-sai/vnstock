@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -82,11 +82,11 @@ class HealthRatioSchema(StrictBaseModel):
 
     symbol: str = Field(min_length=1, max_length=10)
     period: str
-    roe: Optional[float] = None
-    capital_ratio: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    nim: Optional[float] = Field(default=None, ge=-0.1, le=1.0)
-    npl_ratio: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    debt_to_equity: Optional[float] = Field(default=None, ge=0.0)
+    roe: float | None = None
+    capital_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    nim: float | None = Field(default=None, ge=-0.1, le=1.0)
+    npl_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    debt_to_equity: float | None = Field(default=None, ge=0.0)
     volume: float = Field(default=0.0, ge=0.0)
 
     @field_validator("period")
@@ -110,10 +110,10 @@ class CompanyHealthSnapshot(StrictBaseModel):
     target_date: str
     roe_annual: float = Field(ge=-2.0, le=5.0)
     is_bank: bool = False
-    capital_ratio: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    nim_annual: Optional[float] = Field(default=None, ge=-0.4, le=4.0)
-    npl_ratio: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    debt_to_equity: Optional[float] = Field(default=None, ge=0.0)
+    capital_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    nim_annual: float | None = Field(default=None, ge=-0.4, le=4.0)
+    npl_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    debt_to_equity: float | None = Field(default=None, ge=0.0)
     volume: float = Field(ge=0.0)
 
     @field_validator("target_date")
@@ -134,14 +134,14 @@ class DeltaParamsSchema(StrictBaseModel):
     Pydantic validates: if a field IS present, it must be the correct type/range.
     """
 
-    ldr_relief_bps: Optional[float] = Field(default=None, ge=-1000.0, le=2000.0)
-    cof_relief_bps: Optional[float] = Field(default=None, ge=-500.0, le=500.0)
-    interbank_shock_pct: Optional[float] = Field(default=None, ge=-5.0, le=5.0)
-    nim_boost_bps: Optional[float] = Field(default=None, ge=-100.0, le=200.0)
-    room_boost_pct: Optional[float] = Field(default=None, ge=0.0, le=20.0)
-    rate_cut_pct: Optional[float] = Field(default=None, ge=-5.0, le=5.0)
-    rrr_change_pct: Optional[float] = Field(default=None, ge=-5.0, le=5.0)
-    gate_relaxation: Optional[Dict[str, float]] = None
+    ldr_relief_bps: float | None = Field(default=None, ge=-1000.0, le=2000.0)
+    cof_relief_bps: float | None = Field(default=None, ge=-500.0, le=500.0)
+    interbank_shock_pct: float | None = Field(default=None, ge=-5.0, le=5.0)
+    nim_boost_bps: float | None = Field(default=None, ge=-100.0, le=200.0)
+    room_boost_pct: float | None = Field(default=None, ge=0.0, le=20.0)
+    rate_cut_pct: float | None = Field(default=None, ge=-5.0, le=5.0)
+    rrr_change_pct: float | None = Field(default=None, ge=-5.0, le=5.0)
+    gate_relaxation: dict[str, float] | None = None
 
 
 class PolicyEventInputSchema(StrictBaseModel):
@@ -160,8 +160,8 @@ class PolicyEventInputSchema(StrictBaseModel):
     decay_window_days: int = Field(default=90, ge=0, le=730)
     transmission_lag_days: int = Field(default=0, ge=0, le=365)
     affected_variables: list[str] = Field(default_factory=list)
-    clusters: Dict[str, float] = Field(default_factory=dict)
-    delta_params: Dict[str, Any] = Field(default_factory=dict)
+    clusters: dict[str, float] = Field(default_factory=dict)
+    delta_params: dict[str, Any] = Field(default_factory=dict)
     description: str = ""
     source: str = ""
 
@@ -176,7 +176,7 @@ class PolicyEventInputSchema(StrictBaseModel):
 
     @field_validator("delta_params")
     @classmethod
-    def validate_delta_params(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_delta_params(cls, v: dict[str, Any]) -> dict[str, Any]:
         """Validate delta_params content through DeltaParamsSchema."""
         if v:
             DeltaParamsSchema.model_validate(v)
@@ -194,10 +194,10 @@ class VN20GateInput(StrictBaseModel):
     symbol: str = Field(min_length=1, max_length=10)
     target_date: str
     roe_quarterly: float = Field(ge=-1.0, le=2.0)
-    capital_ratio: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    nim_quarterly: Optional[float] = Field(default=None, ge=-0.25, le=1.0)
-    npl_ratio: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    debt_to_equity: Optional[float] = Field(default=None, ge=0.0)
+    capital_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    nim_quarterly: float | None = Field(default=None, ge=-0.25, le=1.0)
+    npl_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    debt_to_equity: float | None = Field(default=None, ge=0.0)
     volume: float = Field(default=0.0, ge=0.0)
 
     @field_validator("target_date")
@@ -211,7 +211,7 @@ class VN20GateInput(StrictBaseModel):
 
 
 # ── Helper: Safe Parsing ─────────────────────────────────────────────────────
-def safe_validate(schema_class: type[StrictBaseModel], data: dict[str, Any], label: str = "") -> Optional[StrictBaseModel]:
+def safe_validate(schema_class: type[StrictBaseModel], data: dict[str, Any], label: str = "") -> StrictBaseModel | None:
     """Parse untrusted data through Pydantic schema; return None on failure.
 
     WHY: At boundary points, a validation failure should degrade gracefully
@@ -229,7 +229,7 @@ def safe_validate(schema_class: type[StrictBaseModel], data: dict[str, Any], lab
         return None
 
 
-def validate_finite_float(value: Any, label: str = "", min_val: float = -1e10, max_val: float = 1e10) -> Optional[float]:
+def validate_finite_float(value: Any, label: str = "", min_val: float = -1e10, max_val: float = 1e10) -> float | None:
     """Validate that a value is a finite float within range.
 
     Returns the validated float or None if invalid.

@@ -1,4 +1,4 @@
-﻿"""
+"""
 IPO MARKET STRUCTURE SIGNAL ENGINE (Động cơ Tín hiệu Cấu trúc IPO)
 ================================================================================
 
@@ -31,7 +31,6 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 class IpoIntensity(Enum):
     """Cường độ IPO: Mức độ nóng của thị trường IPO"""
+
     CAO = "CAO"  # > 10.000 tỷ / tháng
     TRUNG_BINH = "TRUNG_BINH"  # 5.000 - 10.000 tỷ / tháng
     THAP = "THAP"  # < 5.000 tỷ / tháng
@@ -49,6 +49,7 @@ class IpoIntensity(Enum):
 
 class CapitalAbsorption(Enum):
     """Mức độ hút vốn: IPO chưa / vừa / đã hút máu thị trường"""
+
     TANG_MANH = "TANG_MANH"  # Tiền dồn về IPO, liquidity sàn giao dịch bị hút
     ON_DINH = "ON_DINH"  # IPO thành công nhưng tiền xoay vòng bình thường
     GIAM = "GIAM"  # Tiền bắt đầu rút khỏi thị trường chứng khoán
@@ -56,6 +57,7 @@ class CapitalAbsorption(Enum):
 
 class NarrativeHeat(Enum):
     """Độ nóng theo dõi (Narrative Concentration Risk)"""
+
     BAT_THUONG = "BAT_THUONG"  # Retail phát cuồng, media đầy tranh luận
     BINH_THUONG = "BINH_THUONG"  # Mức bình thường
     THAP = "THAP"  # Ít ai quan tâm
@@ -63,6 +65,7 @@ class NarrativeHeat(Enum):
 
 class RotationRisk(Enum):
     """Rủi ro đảo danh mục (VN30 rebalance impact)"""
+
     CAO = "CAO"  # Midcap/Smallcap bị ép bán mạnh để mua IPO vào rổ
     TRUNG_BINH = "TRUNG_BINH"  # Áp lực vừa phải
     THAP = "THAP"  # Ít áp lực
@@ -70,6 +73,7 @@ class RotationRisk(Enum):
 
 class LiquidityRegime(Enum):
     """Trạng thái thanh khoản toàn thị trường"""
+
     DONG_TIEN_MO_RONG = "DONG_TIEN_MO_RONG"  # Expansion regime: tiền nhiều
     TANG_GIAN = "TANG_GIAN"  # Tightening: tiền sạch dần
     THOAI_LUI = "THOAI_LUI"  # Withdrawal: tiền chảy ra ngoài hệ thống
@@ -77,6 +81,7 @@ class LiquidityRegime(Enum):
 
 class TrafficLightSignal(Enum):
     """Tín hiệu giao tiếp thực chiến"""
+
     XANH = "XANH"  # 🟢 An toàn, tiếp tục
     VANG = "VANG"  # 🟡 Thận trọng, đóng margin
     DO = "DO"  # 🔴 Nguy hiểm, kích hoạt phòng thủ
@@ -90,6 +95,7 @@ class TrafficLightSignal(Enum):
 @dataclass
 class IpoEvent:
     """Sự kiện IPO - Bản ghi trong lịch sử IPO"""
+
     symbol: str
     listing_date: datetime
     listing_price: float  # VND
@@ -102,6 +108,7 @@ class IpoEvent:
 @dataclass
 class IpoMarketSignal:
     """Tín hiệu cấu trúc thị trường từ IPO - Đầu vào cho Sentinel"""
+
     signal_date: datetime
 
     # Tầng 1: Định giá
@@ -125,8 +132,8 @@ class IpoMarketSignal:
     traffic_light: TrafficLightSignal
 
     # Dữ liệu chi tiết
-    active_ipo_list: List[IpoEvent]
-    aftermarket_performance_pct: Dict[str, float]  # {symbol: return_pct}
+    active_ipo_list: list[IpoEvent]
+    aftermarket_performance_pct: dict[str, float]  # {symbol: return_pct}
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -137,7 +144,7 @@ class IpoMarketSignal:
 class IpoEngine:
     """
     Động cơ tín hiệu IPO - Phát hiện & mã hóa tác động cấu trúc
-    
+
     Trách nhiệm:
       1. Quét danh sách IPO hiện tại & gần đây
       2. Tính toán áp suất hút tiền từ quy mô IPO
@@ -159,34 +166,31 @@ class IpoEngine:
         """
         self.market_cap_total = market_cap_total_vnd_billions
         self.midcap_ratio = midcap_ratio
-        self.ipo_history: List[IpoEvent] = []
+        self.ipo_history: list[IpoEvent] = []
 
     def add_ipo_event(self, ipo: IpoEvent) -> None:
         """Ghi nhận một sự kiện IPO vào lịch sử"""
         self.ipo_history.append(ipo)
-        logger.info(
-            f"[IPO Logged] {ipo.symbol} | {ipo.market_cap_listing:.0f}T | "
-            f"{ipo.listing_date.strftime('%Y-%m-%d')}"
-        )
+        logger.info(f"[IPO Logged] {ipo.symbol} | {ipo.market_cap_listing:.0f}T | {ipo.listing_date.strftime('%Y-%m-%d')}")
 
     def analyze(
         self,
         current_date: datetime,
-        active_ipo_symbols: List[str] = None,
-        aftermarket_returns: Dict[str, float] = None,
+        active_ipo_symbols: list[str] | None = None,
+        aftermarket_returns: dict[str, float] | None = None,
         breadth_score: float = 0.5,  # từ regime_engine (0-1.0)
         secondary_volume_ratio: float = 1.0,  # volume toàn sàn / baseline
     ) -> IpoMarketSignal:
         """
         Phân tích tín hiệu IPO theo 4 tầng & phát hành tín hiệu giao tiếp
-        
+
         Args:
             current_date: Ngày phân tích
             active_ipo_symbols: Danh sách symbol IPO trong vòng 90 ngày gần đây
             aftermarket_returns: {symbol: return_pct} tính từ listing date
             breadth_score: Health của thị trường (0-1.0), cao = khỏe
             secondary_volume_ratio: So sánh khối lượng sàn giao dịch vs cơ bản
-        
+
         Returns:
             IpoMarketSignal: Tín hiệu đầy đủ 4 tầng
         """
@@ -197,9 +201,7 @@ class IpoEngine:
         # ─────────────────────────────────────────────────────────────────────
         # TẦNG 1: ĐỊNH GIÁ (VALUATION RISK)
         # ─────────────────────────────────────────────────────────────────────
-        valuation_risk_score = self._calculate_valuation_risk(
-            active_ipo_symbols, aftermarket_returns, current_date
-        )
+        valuation_risk_score = self._calculate_valuation_risk(active_ipo_symbols, aftermarket_returns, current_date)
 
         # ─────────────────────────────────────────────────────────────────────
         # TẦNG 2: THANH KHOẢN (LIQUIDITY PRESSURE)
@@ -217,9 +219,7 @@ class IpoEngine:
             narrative_heat,
             rotation_risk,
             midcap_pressure,
-        ) = self._calculate_rotation_impact(
-            aftermarket_returns, breadth_score, active_ipo_symbols
-        )
+        ) = self._calculate_rotation_impact(aftermarket_returns, breadth_score, active_ipo_symbols)
 
         # ─────────────────────────────────────────────────────────────────────
         # TẦNG 4: CHU KỲ (REGIME CLASSIFICATION)
@@ -259,10 +259,7 @@ class IpoEngine:
             liquidity_regime=liquidity_regime,
             regime_confidence=regime_confidence,
             traffic_light=traffic_light,
-            active_ipo_list=[
-                ipo for ipo in self.ipo_history
-                if (current_date - ipo.listing_date).days <= 90
-            ],
+            active_ipo_list=[ipo for ipo in self.ipo_history if (current_date - ipo.listing_date).days <= 90],
             aftermarket_performance_pct=aftermarket_returns,
         )
 
@@ -271,18 +268,18 @@ class IpoEngine:
 
     def _calculate_valuation_risk(
         self,
-        active_ipo_symbols: List[str],
-        aftermarket_returns: Dict[str, float],
+        active_ipo_symbols: list[str],
+        aftermarket_returns: dict[str, float],
         current_date: datetime,
     ) -> float:
         """
         Tầng 1: Định giá có quá cao không?
-        
+
         Logic:
           - Nếu IPO tăng 50% + trong tuần đầu → peak narrative warning
           - Nếu nhiều IPO cùng mua vào → narrative concentration
           - Nếu consumer brands + retail IPO cùng → late-cycle signal
-        
+
         Returns:
             Điểm 0-100 (cao = cảnh báo định giá)
         """
@@ -291,13 +288,9 @@ class IpoEngine:
             return 0.0
 
         # Tính % IPO có return > 30% trong tuần đầu
-        strong_performers = sum(
-            1 for symbol in active_ipo_symbols
-            if aftermarket_returns.get(symbol, 0) > 30
-        )
+        strong_performers = sum(1 for symbol in active_ipo_symbols if aftermarket_returns.get(symbol, 0) > 30)
 
-        concentration_pct = (strong_performers / len(active_ipo_symbols)) * 100 \
-            if active_ipo_symbols else 0
+        concentration_pct = (strong_performers / len(active_ipo_symbols)) * 100 if active_ipo_symbols else 0
 
         # Nếu > 50% IPO tăng mạnh → peak narrative warning
         valuation_risk = min(concentration_pct * 1.5, 100.0)
@@ -312,25 +305,22 @@ class IpoEngine:
     def _calculate_liquidity_impact(
         self,
         current_date: datetime,
-        active_ipo_symbols: List[str],
-    ) -> Tuple[IpoIntensity, CapitalAbsorption, float]:
+        active_ipo_symbols: list[str],
+    ) -> tuple[IpoIntensity, CapitalAbsorption, float]:
         """
         Tầng 2: Thanh khoản - IPO hút bao nhiêu tiền?
-        
+
         Logic:
           - Quy mô IPO > 10.000T → cường độ CAO
           - So sánh khối lượng IPO vs tổng vốn hóa → hút máu
           - Nếu IPO kéo dài qua nhiều ngày → áp suất kéo dài
-        
+
         Returns:
             (intensity, capital_absorption, secondary_market_pressure)
         """
 
         # Tính tổng quy mô IPO trong 30 ngày gần đây
-        recent_ipos = [
-            ipo for ipo in self.ipo_history
-            if (current_date - ipo.listing_date).days <= 30
-        ]
+        recent_ipos = [ipo for ipo in self.ipo_history if (current_date - ipo.listing_date).days <= 30]
 
         total_ipo_capital = sum(ipo.market_cap_listing for ipo in recent_ipos)
 
@@ -370,27 +360,29 @@ class IpoEngine:
 
     def _calculate_rotation_impact(
         self,
-        aftermarket_returns: Dict[str, float],
+        aftermarket_returns: dict[str, float],
         breadth_score: float,
-        active_ipo_symbols: List[str],
-    ) -> Tuple[NarrativeHeat, RotationRisk, float]:
+        active_ipo_symbols: list[str],
+    ) -> tuple[NarrativeHeat, RotationRisk, float]:
         """
         Tầng 3: Luân chuyển & Câu chuyện (Narrative Heat)
-        
+
         Logic:
           - Nếu IPO aftermarket mạnh (return > 20%) + retail mua cuồng
             → narrative_heat = BAT_THUONG
           - Nếu breadth_score giảm trong khi IPO nóng
             → rotation_risk = CAO (Midcap/Smallcap bị ép)
-        
+
         Returns:
             (narrative_heat, rotation_risk, midcap_pressure)
         """
 
         # Tính avg return của IPO
-        avg_return = sum(
-            aftermarket_returns.get(s, 0) for s in active_ipo_symbols
-        ) / len(active_ipo_symbols) if active_ipo_symbols else 0
+        avg_return = (
+            sum(aftermarket_returns.get(s, 0) for s in active_ipo_symbols) / len(active_ipo_symbols)
+            if active_ipo_symbols
+            else 0
+        )
 
         # Phân loại độ nóng
         if avg_return > 20:
@@ -431,16 +423,16 @@ class IpoEngine:
         capital_absorption: CapitalAbsorption,
         breadth_score: float,
         secondary_volume_ratio: float,
-    ) -> Tuple[LiquidityRegime, float]:
+    ) -> tuple[LiquidityRegime, float]:
         """
         Tầng 4: Xác định chu kỳ - Expansion vs Late-Cycle?
-        
+
         Logic:
           - Nếu IPO nhiều + breadth khỏe + volume bình thường
             → EXPANSION (tiền nhiều, thị trường mở rộng thực)
           - Nếu IPO nhiều + breadth yếu + volume tụt
             → TANG_GIAN hay THOAI_LUI (tiền rút, sắp crash)
-        
+
         Returns:
             (liquidity_regime, confidence)
         """
@@ -486,8 +478,7 @@ class IpoEngine:
             regime = LiquidityRegime.THOAI_LUI
 
         # Tính độ tin cậy (0-1.0)
-        confidence = sum(confidence_factors) / len(confidence_factors) \
-            if confidence_factors else 0.5
+        confidence = sum(confidence_factors) / len(confidence_factors) if confidence_factors else 0.5
 
         logger.info(
             f"[Regime Classification] Signals: {expansion_signals:.1f}/4 | "
@@ -504,15 +495,15 @@ class IpoEngine:
         secondary_pressure: float,
         rotation_risk: RotationRisk,
         breadth_score: float,
-        aftermarket_returns: Dict[str, float],
+        aftermarket_returns: dict[str, float],
     ) -> TrafficLightSignal:
         """
         Phát hành tín hiệu giao tiếp 3 màu
-        
+
         🟢 XANH: IPO mạnh + ngoại mua + breadth khỏe → An toàn
         🟡 VÀNG: IPO thành công + thanh khoản sàn tụt → Thận trọng
         🔴 ĐỎ: IPO cuồng + Midcap chết liquidity → Nguy hiểm
-        
+
         Returns:
             TrafficLightSignal
         """
@@ -561,10 +552,7 @@ class IpoEngine:
         else:
             signal = TrafficLightSignal.XANH
 
-        logger.info(
-            f"[Traffic Light] Green: {green_score} | Red: {red_score} | "
-            f"Signal: {signal.value}"
-        )
+        logger.info(f"[Traffic Light] Green: {green_score} | Red: {red_score} | Signal: {signal.value}")
 
         return signal
 
@@ -572,9 +560,9 @@ class IpoEngine:
         """Ghi log tín hiệu chi tiết"""
         logger.info(
             f"\n"
-            f"{'='*80}\n"
+            f"{'=' * 80}\n"
             f"IPO MARKET STRUCTURE SIGNAL | {signal.signal_date.strftime('%Y-%m-%d')}\n"
-            f"{'='*80}\n"
+            f"{'=' * 80}\n"
             f"TẦNG 1 (ĐỊNH GIÁ):     Valuation Risk = {signal.valuation_risk_score:.1f}\n"
             f"TẦNG 2 (THANH KHOẢN):  Intensity={signal.ipo_intensity.value} | "
             f"Absorption={signal.capital_absorption_trend.value} | "
@@ -584,7 +572,7 @@ class IpoEngine:
             f"Midcap Pressure={signal.midcap_smallcap_pressure:.1f}\n"
             f"TẦNG 4 (CHU KỲ):       Regime={signal.liquidity_regime.value} | "
             f"Confidence={signal.regime_confidence:.2f}\n"
-            f"{'─'*80}\n"
+            f"{'─' * 80}\n"
             f"🟢🟡🔴 TÍN HIỆU:        {signal.traffic_light.value}\n"
-            f"{'='*80}\n"
+            f"{'=' * 80}\n"
         )

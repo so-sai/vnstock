@@ -8,11 +8,8 @@ Lịch sử:
   Ratio 55-70 → Neutral
   Ratio < 55  → Risk-On / Euphoria / Industrial boom
 """
-import sys
+
 import logging
-from pathlib import Path
-from datetime import datetime
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +19,14 @@ GS_ELEVATED = 70.0
 GS_NEUTRAL = 55.0
 
 
-def calculate_gold_silver_ratio(xau_price: Optional[float], xag_price: Optional[float]) -> Optional[float]:
+def calculate_gold_silver_ratio(xau_price: float | None, xag_price: float | None) -> float | None:
     """Tính Gold/Silver Ratio = XAUUSD / XAGUSD."""
     if xau_price is None or xag_price is None or xag_price == 0:
         return None
     return round(xau_price / xag_price, 2)
 
 
-def assess_gs_ratio_regime(ratio: Optional[float]) -> dict:
+def assess_gs_ratio_regime(ratio: float | None) -> dict:
     """Đánh giá trạng thái Gold/Silver Ratio.
 
     Returns dict với:
@@ -78,27 +75,31 @@ def get_gs_ratio_from_db() -> dict:
 
         with get_connection() as conn:
             import pandas as pd
-            df = pd.read_sql("""
+
+            df = pd.read_sql(
+                """
                 SELECT variable, value FROM (
                     SELECT variable, value, ROW_NUMBER() OVER (PARTITION BY variable ORDER BY rowid DESC) as rn
                     FROM macro_history
                     WHERE variable IN ('GOLD_XAU', 'XAGUSD')
                 ) WHERE rn = 1
-            """, conn)
+            """,
+                conn,
+            )
 
         if df.empty:
             return assess_gs_ratio_regime(None)
 
         values = {}
         for _, row in df.iterrows():
-            values[row['variable']] = row['value']
+            values[row["variable"]] = row["value"]
 
-        xau = values.get('GOLD_XAU')
-        xag = values.get('XAGUSD')
+        xau = values.get("GOLD_XAU")
+        xag = values.get("XAGUSD")
         ratio = calculate_gold_silver_ratio(xau, xag)
         result = assess_gs_ratio_regime(ratio)
-        result['xau_usd'] = xau
-        result['xag_usd'] = xag
+        result["xau_usd"] = xau
+        result["xag_usd"] = xag
         return result
 
     except Exception as e:

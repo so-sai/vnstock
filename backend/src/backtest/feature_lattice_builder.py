@@ -1,4 +1,4 @@
-﻿import warnings
+import warnings
 
 import pandas as pd
 
@@ -63,8 +63,8 @@ class FeatureLatticeBuilder:
         result["low_breakdown"] = (
             result["close"] < result.groupby("symbol")["low"].transform(lambda x: x.rolling(20).min())
         ).astype(int)
-        result["range_compression"] = (
-            (result["high"] - result["low"]) / (result.groupby("symbol")["close"].transform(lambda x: x.rolling(20).mean()) + 1e-9)
+        result["range_compression"] = (result["high"] - result["low"]) / (
+            result.groupby("symbol")["close"].transform(lambda x: x.rolling(20).mean()) + 1e-9
         )
 
         # ===== CROSS-SECTIONAL =====
@@ -112,7 +112,7 @@ def build_feature_lattice(
 def get_feature_at(
     lattice: pd.DataFrame,
     date: str,
-    symbol: str = None,
+    symbol: str | None = None,
 ) -> pd.Series | pd.DataFrame:
     mask = lattice["date"] == pd.Timestamp(date)
     if symbol:

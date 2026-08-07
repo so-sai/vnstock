@@ -1,16 +1,15 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 
 def _load_json(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {}
 
 
@@ -29,7 +28,7 @@ def _sentinel_is_green(sentinel: dict) -> bool:
     return status.startswith("GREEN")
 
 
-def _dcl_override_weight(dcl_report: Optional[dict]) -> float:
+def _dcl_override_weight(dcl_report: dict | None) -> float:
     if not dcl_report:
         return 0.0
     verdict = dcl_report.get("verdict", "NO_TRADE")
@@ -53,15 +52,15 @@ def _veto_code(veto_key: str, override_pct: float) -> str:
 
 def compile_verdict(
     symbol: str,
-    model_b_entry: Optional[dict] = None,
-    sentinel_data: Optional[dict] = None,
+    model_b_entry: dict | None = None,
+    sentinel_data: dict | None = None,
     regime_status: str = "UNKNOWN",
     breadth_health: float = 0.0,
     lcr_pct: float = 30.0,
     bdi_signal: str = "CAN_BANG",
     ssi_score: float = 0.5,
     trade_state_level: str = "PROHIBITED",
-    dcl_report: Optional[dict] = None,
+    dcl_report: dict | None = None,
 ) -> dict:
     veto_reasons: list[str] = []
     warnings: list[str] = []
@@ -183,15 +182,15 @@ def compile_verdict(
 
 
 def compile_verdicts_for_portfolio(
-    portfolio_path: Optional[Path] = None,
-    sentinel_path: Optional[Path] = None,
+    portfolio_path: Path | None = None,
+    sentinel_path: Path | None = None,
     regime_status: str = "UNKNOWN",
     breadth_health: float = 0.0,
     lcr_pct: float = 30.0,
     bdi_signal: str = "CAN_BANG",
     ssi_score: float = 0.5,
     trade_state_level: str = "PROHIBITED",
-    dcl_report: Optional[dict] = None,
+    dcl_report: dict | None = None,
 ) -> dict:
     from src.config import DATA_DIR
 

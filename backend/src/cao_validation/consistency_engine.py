@@ -1,4 +1,4 @@
-﻿"""CAO Trust Bridge — Consistency Engine (Statistical Core).
+"""CAO Trust Bridge — Consistency Engine (Statistical Core).
 
 Evaluates 3 dimensions of shadow-vs-real consistency per decision:
 1. Attribution stability — engine contribution ranking maintained?
@@ -7,6 +7,7 @@ Evaluates 3 dimensions of shadow-vs-real consistency per decision:
 
 NOT accuracy. This is CAUSAL AGREEMENT measurement.
 """
+
 import logging
 import sys
 from pathlib import Path
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -28,6 +29,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -42,6 +44,7 @@ CANONICAL_ENGINES = ["regime", "liquidity", "sector", "breakout", "heat", "signa
 # ====================================================================
 # CORE: Attribution Stability
 # ====================================================================
+
 
 def _kendall_tau(rank_a: list[int], rank_b: list[int]) -> float:
     """Kendall rank correlation coefficient between two rankings.
@@ -82,8 +85,7 @@ def compute_attribution_stability(
     Returns:
         (kendall_tau, [EngineContribution, ...])
     """
-    engines = [e for e in CANONICAL_ENGINES
-               if e in shadow_contributions and e in real_contributions]
+    engines = [e for e in CANONICAL_ENGINES if e in shadow_contributions and e in real_contributions]
     if len(engines) < 2:
         return 0.0, []
     shadow_sorted = sorted(engines, key=lambda e: shadow_contributions[e], reverse=True)
@@ -97,21 +99,24 @@ def compute_attribution_stability(
     for eng in engines:
         s = shadow_contributions[eng]
         r = real_contributions[eng]
-        contributions.append(EngineContribution(
-            engine=eng,
-            shadow_contribution=s,
-            real_contribution=r,
-            contribution_delta=round(abs(s - r), 4),
-            rank_shadow=shadow_rank[eng],
-            rank_real=real_rank[eng],
-            rank_flipped=shadow_rank[eng] != real_rank[eng],
-        ))
+        contributions.append(
+            EngineContribution(
+                engine=eng,
+                shadow_contribution=s,
+                real_contribution=r,
+                contribution_delta=round(abs(s - r), 4),
+                rank_shadow=shadow_rank[eng],
+                rank_real=real_rank[eng],
+                rank_flipped=shadow_rank[eng] != real_rank[eng],
+            )
+        )
     return round(kendall, 4), contributions
 
 
 # ====================================================================
 # CORE: ΔAlpha Sign Consistency
 # ====================================================================
+
 
 def compute_sign_consistency(shadow_delta_alpha: float, real_delta_alpha: float) -> float:
     """Check if shadow and real agree on ΔAlpha direction.
@@ -128,6 +133,7 @@ def compute_sign_consistency(shadow_delta_alpha: float, real_delta_alpha: float)
 # ====================================================================
 # CORE: Sensitivity Invariance
 # ====================================================================
+
 
 def compute_sensitivity_invariance(
     shadow_attr_perturbations: list[dict],
@@ -148,9 +154,7 @@ def compute_sensitivity_invariance(
     """
     if not shadow_attr_perturbations or not ablation_confidence_deltas:
         return 0.5
-    shadow_map = {p["engine"]: p["contribution_delta"]
-                  for p in shadow_attr_perturbations
-                  if isinstance(p, dict)}
+    shadow_map = {p["engine"]: p["contribution_delta"] for p in shadow_attr_perturbations if isinstance(p, dict)}
     real_map = dict(ablation_confidence_deltas)
     common = set(shadow_map.keys()) & set(real_map.keys())
     if not common:
@@ -170,6 +174,7 @@ def compute_sensitivity_invariance(
 # OVERALL CONSISTENCY
 # ====================================================================
 
+
 def compute_consistency_score(
     decision_id: str,
     regime: str,
@@ -177,8 +182,8 @@ def compute_consistency_score(
     real_contributions: dict[str, float],
     shadow_delta_alpha: float,
     real_delta_alpha: float,
-    shadow_perturbations: list[dict] = None,
-    ablation_deltas: list[tuple[str, float]] = None,
+    shadow_perturbations: list[dict] | None = None,
+    ablation_deltas: list[tuple[str, float]] | None = None,
 ) -> ConsistencyScore:
     """Compute full consistency score for one decision.
 
@@ -188,11 +193,13 @@ def compute_consistency_score(
         - sensitivity_invariance (0.25)
     """
     attribution_stab, engine_contribs = compute_attribution_stability(
-        shadow_contributions, real_contributions,
+        shadow_contributions,
+        real_contributions,
     )
     sign_cons = compute_sign_consistency(shadow_delta_alpha, real_delta_alpha)
     sensitivity = compute_sensitivity_invariance(
-        shadow_perturbations or [], ablation_deltas or [],
+        shadow_perturbations or [],
+        ablation_deltas or [],
     )
     overall = round(
         0.40 * attribution_stab + 0.35 * sign_cons + 0.25 * sensitivity,
@@ -216,9 +223,10 @@ def compute_consistency_score(
 # BATCH CONSISTENCY
 # ====================================================================
 
+
 def compute_batch_consistency(
     scores: list[ConsistencyScore],
-    regime: str = None,
+    regime: str | None = None,
 ) -> dict:
     """Aggregate consistency statistics over a batch of scores."""
     if not scores:
@@ -230,8 +238,7 @@ def compute_batch_consistency(
             "count": 0,
             "regime": regime or "ALL",
         }
-    vals = [s.overall for s in scores
-            if (regime is None or s.regime == regime)]
+    vals = [s.overall for s in scores if (regime is None or s.regime == regime)]
     if not vals:
         return {
             "mean_consistency": 0.0,

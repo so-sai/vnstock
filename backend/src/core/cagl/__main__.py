@@ -6,19 +6,20 @@ Usage::
 
 Verifies all registered FastAPI routes against the CAGL contract.
 """
+
 from __future__ import annotations
 
 import io
 import sys
 
 if isinstance(sys.stdout, io.TextIOWrapper):
-    if getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+    if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
-elif hasattr(sys.stdout, 'buffer'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+elif hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import argparse
 import logging
 from pathlib import Path
@@ -56,14 +57,17 @@ def cmd_verify(mode: str = "WARN", lang: str = "vi"):
 
     if lang == "vi":
         from src.core.report_i18n_mapper import format_verify_result
+
         print()
-        print(format_verify_result(
-            routes_scanned=len(result.runtime_routes),
-            errors=len(result.errors),
-            warnings=len(result.warnings),
-            is_valid=result.is_valid,
-            findings=result.findings,
-        ))
+        print(
+            format_verify_result(
+                routes_scanned=len(result.runtime_routes),
+                errors=len(result.errors),
+                warnings=len(result.warnings),
+                is_valid=result.is_valid,
+                findings=result.findings,
+            )
+        )
     else:
         print()
         print(f"CAGL VERIFY — {mode}")
@@ -85,6 +89,7 @@ def cmd_verify(mode: str = "WARN", lang: str = "vi"):
 def cmd_snapshot(lang: str = "vi"):
     """Capture a PSR snapshot with API route data included."""
     from src.core.psr.snapshot import SystemStateSnapshotter
+
     snapper = SystemStateSnapshotter()
     snap = snapper.capture()
     snapper.persist(snap)
@@ -92,14 +97,17 @@ def cmd_snapshot(lang: str = "vi"):
     api_hash = snap.api_contract_hash or "N/A"
     if lang == "vi":
         from src.core.report_i18n_mapper import format_scan_summary
+
         print()
-        print(format_scan_summary(
-            snapshot_id=snap.snapshot_id,
-            route_count=route_count,
-            api_hash=api_hash,
-            snapshot_hash=snap.snapshot_hash,
-            timestamp=snap.timestamp,
-        ))
+        print(
+            format_scan_summary(
+                snapshot_id=snap.snapshot_id,
+                route_count=route_count,
+                api_hash=api_hash,
+                snapshot_hash=snap.snapshot_hash,
+                timestamp=snap.timestamp,
+            )
+        )
     else:
         print(f"CAGL SNAPSHOT {snap.snapshot_id}")
         print(f"  API routes:      {route_count}")
@@ -112,18 +120,22 @@ def cmd_snapshot(lang: str = "vi"):
 def cmd_freeze(version: str, notes: str = "", lang: str = "vi"):
     """Freeze current API contract + PSR version."""
     from src.core.psr.version import VersionFreeze
+
     vf = VersionFreeze()
     manifest = vf.freeze(version, notes=notes)
     if lang == "vi":
         from src.core.report_i18n_mapper import format_freeze_summary
+
         print()
-        print(format_freeze_summary(
-            version=manifest.version,
-            api_hash=manifest.api_contract_hash,
-            semantic_hash=manifest.semantic_contract_hash,
-            commit=manifest.git_commit,
-            created_at=manifest.created_at,
-        ))
+        print(
+            format_freeze_summary(
+                version=manifest.version,
+                api_hash=manifest.api_contract_hash,
+                semantic_hash=manifest.semantic_contract_hash,
+                commit=manifest.git_commit,
+                created_at=manifest.created_at,
+            )
+        )
     else:
         print(f"CAGL FREEZE {manifest.version}")
         print(f"  API contract hash:   {manifest.api_contract_hash}")
@@ -136,6 +148,7 @@ def cmd_freeze(version: str, notes: str = "", lang: str = "vi"):
 def cmd_diff(snapshot_id: str, lang: str = "vi"):
     """Replay a snapshot and show API route changes."""
     from src.core.psr.replay import DeterministicReplayEngine
+
     engine = DeterministicReplayEngine()
     result = engine.replay(snapshot_id)
     if result is None:
@@ -144,13 +157,16 @@ def cmd_diff(snapshot_id: str, lang: str = "vi"):
         return 1
     if lang == "vi":
         from src.core.report_i18n_mapper import format_drift_report
+
         print()
-        print(format_drift_report(
-            snapshot_id=snapshot_id,
-            match=result.match,
-            diffs=result.diffs,
-            duration_ms=result.replay_duration_ms,
-        ))
+        print(
+            format_drift_report(
+                snapshot_id=snapshot_id,
+                match=result.match,
+                diffs=result.diffs,
+                duration_ms=result.replay_duration_ms,
+            )
+        )
     else:
         print(f"CAGL DIFF {snapshot_id}")
         print(f"  Match:           {result.match}")
@@ -167,7 +183,9 @@ def main():
 
     verify_parser = sub.add_parser("verify", help="Run route verification")
     verify_parser.add_argument(
-        "--mode", choices=["SHADOW", "WARN", "STRICT"], default="WARN",
+        "--mode",
+        choices=["SHADOW", "WARN", "STRICT"],
+        default="WARN",
         help="Verification mode (default: WARN)",
     )
     verify_parser.add_argument("--lang", choices=["en", "vi"], default="vi", help="Output language")

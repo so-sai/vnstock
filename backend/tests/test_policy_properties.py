@@ -23,7 +23,6 @@ from pathlib import Path
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-
 from src.governor.policy_impact_engine import (
     PolicyEvent,
     PolicyImpactEngine,
