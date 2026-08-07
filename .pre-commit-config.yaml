@@ -14,8 +14,8 @@
 # ==============================================================================
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # ruff >= 0.9.4 (khớp dev dependency trong backend/pyproject.toml)
-    rev: v0.9.10
+    # ruff 0.15.10 (khớp dev dependency trong backend/pyproject.toml và CI workflow)
+    rev: v0.15.10
     hooks:
       - id: ruff
         name: ruff lint (backend)
