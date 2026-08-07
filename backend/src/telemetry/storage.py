@@ -239,7 +239,7 @@ def save_snapshot(snapshot) -> bool:
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[TELEMETRY] Failed to save snapshot: %s", e)
         return False
 
@@ -267,7 +267,7 @@ def save_outcome(record) -> bool:
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[TELEMETRY] Failed to save outcome: %s", e)
         return False
 
@@ -339,7 +339,7 @@ def save_engine_attribution(attribution) -> bool:
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[TELEMETRY] Failed to save attribution: %s", e)
         return False
 
@@ -369,7 +369,7 @@ def save_market_outcome(market_outcome) -> bool:
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[TELEMETRY] Failed to save market outcome: %s", e)
         return False
 
@@ -407,7 +407,7 @@ def save_engine_performance(perf) -> bool:
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[TELEMETRY] Failed to save engine performance: %s", e)
         return False
 

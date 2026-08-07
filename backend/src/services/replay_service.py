@@ -24,6 +24,7 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 import logging
+import sqlite3
 
 import pandas as pd
 
@@ -197,6 +198,6 @@ def get_replay_timeline(limit: int = 365) -> list:
             "days": records,
             "events": events,
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.error(f"Replay timeline failed: {e}")
         return {"days": [], "events": []}

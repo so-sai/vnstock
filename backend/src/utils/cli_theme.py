@@ -9,9 +9,12 @@ WHY:
   file log hoặc stdout khi output được redirect / pipe vào file.
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
@@ -47,8 +50,8 @@ def init_terminal_colors():
             mode = ctypes.c_ulong()
             if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
                 kernel32.SetConsoleMode(handle, mode.value | 0x0004)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except Exception:  # noqa: BLE001 - Windows terminal init: ctypes/console lỗi → bỏ qua (an toàn)
+            logger.debug("Không bật được VT100 terminal processing (bỏ qua)")
 
 
 # Automatically attempt VT100 enablement on import

@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -58,7 +59,7 @@ def _get_us10y_from_db() -> float | None:
                 "SELECT value FROM macro_history WHERE variable = 'US10Y' ORDER BY date DESC LIMIT 1"
             ).fetchone()
             return float(row[0]) if row else None
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return None
 
 
@@ -79,7 +80,7 @@ def seed_vgb10y() -> bool:
             real_yield = _parse_world_bank_vgb10y(resp.json())
             if real_yield is not None:
                 logger.info(f"VGB10Y từ World Bank: {real_yield}%")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         logger.warning(f"World Bank API failed: {e}")
 
     if real_yield is None:
@@ -98,6 +99,6 @@ def seed_vgb10y() -> bool:
             save_data_upsert("macro_history", df, conn)
         logger.info(f"Đã seed VGB10Y REAL: {real_yield}%")
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"Seed VGB10Y thất bại: {e}")
         return False

@@ -207,7 +207,7 @@ def _check_sbv_alert() -> bool:
         from src.services.macro.interbank_seeder import _is_sbv_alert_active
 
         return _is_sbv_alert_active()
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
         return False
 
 
@@ -262,8 +262,8 @@ def assess_interbank_risk() -> dict:
 
         last_dt = datetime.strptime(last_date, "%Y-%m-%d")
         hours_stale = (datetime.now() - last_dt).total_seconds() / 3600
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (TypeError, ValueError, OverflowError) as _e:
+        logger.debug("Không parse được ngày liên ngân hàng (bỏ qua, giữ 999h): %s", _e)
     stale_override = hours_stale >= 48 and abs(z_fast) > 10
 
     # Recovery Gate: count consecutive days (ending today) with |Z_fast| < 1.5
@@ -348,8 +348,8 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                    pass
+                except OSError, AttributeError, ValueError:
+                    logger.debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

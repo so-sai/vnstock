@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def hydrate_2020_data():
             print(f"✅ Hydrated {len(df)} points for VNINDEX.")
         else:
             print("⚠️ No data found.")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         print(f"❌ Error: {e}")
 
 

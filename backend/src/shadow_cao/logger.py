@@ -54,8 +54,8 @@ def log_decision(
     """
     try:
         initialize_shadow_database()
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except Exception:  # noqa: BLE001 - shadow storage best-effort: init DB fail → tiếp tục capture
+        logger.debug("Khởi tạo shadow database thất bại (bỏ qua) — capture decision")
     entry = ShadowDecisionLog(
         decision_id=decision_id,
         timestamp=timestamp,
@@ -75,7 +75,7 @@ def log_decision(
     if run_ablations:
         try:
             run_pipeline_ablations(entry)
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: ablation 1 decision lỗi không dừng pipeline
             logger.error("[SHADOW_CAO] Ablation run failed for %s: %s", decision_id, e)
     return entry
 

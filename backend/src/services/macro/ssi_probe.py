@@ -157,7 +157,7 @@ def _try_request(req: dict) -> dict:
         result["error"] = "TIMEOUT"
     except requests.exceptions.ConnectionError as e:
         result["error"] = f"CONN_ERR: {str(e)[:60]}"
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         result["error"] = str(e)[:80]
     return result
 
@@ -178,7 +178,7 @@ def _cache_discovery(results: list[dict], cache_path: Path):
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (OSError, TypeError, ValueError) as e:
         logger.warning(f"SSI probe cache failed: {e}")
         return False
 
@@ -204,8 +204,8 @@ def _log_to_kit(results: list[dict]):
                 timeout=5,
                 cwd=Path(__file__).resolve().parent.parent.parent.parent,
             )
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (OSError, ValueError, subprocess.SubprocessError) as _e:
+            logger.debug("Ghi kit learn thất bại (bỏ qua): %s", _e)
 
 
 def probe_ssi_macro_endpoint(
@@ -273,8 +273,8 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                    pass
+                except OSError, AttributeError, ValueError:
+                    logger.debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

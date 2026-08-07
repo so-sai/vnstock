@@ -125,7 +125,7 @@ def run_daily_closer():
 
         struct = detect_cau_truc(target_date)
         print(f"  Cấu trúc: {struct.get('trang_thai', 'N/A')} ({struct.get('so_tru_ok', 0)}/3)")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
         print(f"⚠️  Structural detector skipped: {e}")
 
     # Step 3.2: Run Final Orchestrator
@@ -134,7 +134,7 @@ def run_daily_closer():
 
         final = quyet_dinh_cuoi(target_date)
         print(f"  {final.get('quyet_dinh', 'N/A')} — {', '.join(final.get('ly_do', []))}")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
         print(f"⚠️  Orchestrator skipped: {e}")
 
     # Step 3.3: Log to Timeline
@@ -143,7 +143,7 @@ def run_daily_closer():
     # Step 4: Record Decision Snapshot (Telemetry)
     try:
         _adapt_and_record_decision(decision)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
         print(f"⚠️  Telemetry snapshot skipped: {e}")
 
     # Step 5: Generate Report
@@ -157,7 +157,7 @@ def run_daily_closer():
 
         n = update_reputation()
         print(f"📊 Driver Reputation Ledger: {n} rows updated")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
         print(f"⚠️  Reputation update skipped: {e}")
 
     # Step 7: SSI iBoard Macro API Probe (đồng bộ, ~1-2s, không block pipeline đáng kể)
@@ -167,7 +167,7 @@ def run_daily_closer():
         results = probe_ssi_macro_endpoint()
         matches = sum(1 for r in results if r.get("match"))
         print(f"📡 SSI iBoard probe: {len(results)} candidates, {matches} matches")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
         print(f"⚠️  SSI probe failed: {e}")
 
     print(f"\n{'=' * 60}")

@@ -14,6 +14,8 @@ Evidence Expiry:
 """
 
 import json
+import logging
+import sqlite3
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -21,6 +23,8 @@ import numpy as np
 import pandas as pd
 
 from src.database.db_core import get_connection
+
+logger = logging.getLogger(__name__)
 
 # Dynamic Slippage parameters
 ALPHA_IMPACT = 0.3
@@ -69,8 +73,8 @@ def ensure_table():
         try:
             with get_connection() as conn:
                 conn.execute(f"ALTER TABLE {TABLE_NAME} ADD COLUMN {col} {col_type}")
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (sqlite3.Error, TypeError, ValueError) as _e:
+            logger.debug("ALTER TABLE cột %s đã tồn tại hoặc lỗi (bỏ qua): %s", col, _e)
 
 
 RISK_FREE_RATE = 0.05  # 5%/năm — dùng cho CASH alternative

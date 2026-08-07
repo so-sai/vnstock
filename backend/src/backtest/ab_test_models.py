@@ -24,6 +24,7 @@ Usage:
   python backend/src/backtest/ab_test_models.py --start 2023-01-01 --end 2024-12-31
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -55,6 +56,8 @@ from src.governor.company_state import (
     PerceptionLoader,
     compute_gain_probability,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _lookup(conn, q, params=()):
@@ -229,8 +232,8 @@ def run_ab(start_date="2022-01-01", end_date="2022-12-31", top_symbols=40):
                 }
                 row.update(pg)
                 rows.append(row)
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except Exception:  # noqa: BLE001 - batch isolation: 1 mẫu (date,symbol) lỗi không dừng A/B test
+                logger.debug("Bỏ qua mẫu A/B lỗi (date=%s, symbol=%s)", d, sym)
 
     conn.close()
 

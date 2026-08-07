@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -37,7 +38,7 @@ def _lay_du_lieu_lich_su(so_ngay=10):
         if df.empty:
             return pd.DataFrame()
         return df.sort_values("date")
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError:
         return pd.DataFrame()
 
 
@@ -74,8 +75,8 @@ def _toc_do_thay_doi_do_rong(lich_su, breadth_pct_hien_tai) -> dict:
             if toc_do_3ngay > 10:
                 return {"cap_do": "CAO", "diem": 2, "mo_ta": f"Độ rộng đang mở rộng nhanh ({toc_do_3ngay:+.1f}%)"}
             return {"cap_do": "ỔN_ĐỊNH", "diem": 0, "mo_ta": "Độ rộng ổn định"}
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (TypeError, ValueError, AttributeError, KeyError, IndexError) as _e:
+        logger.debug("Tính tốc độ thay đổi độ rộng thất bại (bỏ qua): %s", _e)
     return {"cap_do": "KHÔNG_RÕ", "diem": 0}
 
 
@@ -95,8 +96,8 @@ def _toc_do_thay_doi_diem_regime(lich_su, regime_score_hien_tai) -> dict:
             if abs(delta_3) > 0.1:
                 return {"cap_do": "TRUNG_BÌNH", "diem": 2, "mo_ta": f"Điểm thị trường thay đổi ({delta_3:+.2f})"}
             return {"cap_do": "ỔN_ĐỊNH", "diem": 0}
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (TypeError, ValueError, AttributeError, KeyError, IndexError) as _e:
+        logger.debug("Tính tốc độ thay đổi điểm regime thất bại (bỏ qua): %s", _e)
     return {"cap_do": "KHÔNG_RÕ", "diem": 0}
 
 
@@ -150,7 +151,7 @@ def _canh_bao_tai_san_tru_an(gold_premium_pct, gold_premium_regime, market_state
         if zone == "HƠI_THẬN_TRỌNG":
             return {"cap_do": "TRUNG_BÌNH", "diem": 2, "mo_ta": "; ".join(cac_ly_do) if cac_ly_do else "Hơi thận trọng"}
         return {"cap_do": "BÌNH_THƯỜNG", "diem": 0, "mo_ta": "Tâm lý trú ẩn bình thường"}
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
         logger.warning("Không chạy được phân vùng tâm lý: %s", e)
         return {"cap_do": "KHÔNG_RÕ", "diem": 0, "mo_ta": ""}
 

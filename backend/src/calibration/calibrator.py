@@ -234,7 +234,7 @@ def print_resolve_report(result: dict, lang_mode: str = "full"):
     """In báo cáo outcome resolution ra console (song ngữ)."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label
@@ -369,7 +369,7 @@ def print_trend_report(report: dict, lang_mode: str = "full"):
     """In báo cáo xu hướng calibration (song ngữ)."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label

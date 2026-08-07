@@ -203,7 +203,7 @@ class TrustAccumulator:
                     }
                 ),
             )
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - storage best-effort: persist trust fail không chặn accumulator
             logger.warning("[TRUST] Persist failed for %s: %s", regime, e)
 
     def _load_persisted(self):
@@ -226,8 +226,8 @@ class TrustAccumulator:
                         distribution_equivalent=False,
                         data_integrity_score=data.get("data_integrity_score", 1.0),
                     )
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError, KeyError) as _e:
+                logger.debug("Load trust_state_%s lỗi (bỏ qua): %s", regime, _e)
 
 
 # Singleton
@@ -251,6 +251,6 @@ def get_accumulator() -> TrustAccumulator:
                     },
                 )()
             )
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except ImportError, AttributeError, TypeError, KeyError:
             _accumulator = TrustAccumulator()
     return _accumulator

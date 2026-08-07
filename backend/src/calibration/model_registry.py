@@ -38,10 +38,13 @@ Schema (model_registry table in calibration.db):
 from __future__ import annotations
 
 import json
+import logging
 import math
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # ── 3 Competing Hypotheses ──────────────────────────────────────────────
 
@@ -392,8 +395,8 @@ class ModelRegistry:
                 (model_id, state, posterior, reason),
             )
             conn.commit()
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass  # table may not exist yet
+        except (sqlite3.Error, TypeError, ValueError) as _e:
+            logger.debug("Ghi model_registry_history lỗi (bảng chưa tồn tại, bỏ qua): %s", _e)
 
     def activate(self, model_id: str, reason: str = "") -> None:
         conn = self._get_conn()
@@ -475,7 +478,7 @@ class ModelRegistry:
                 (model_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
             return []
 
     # ── Stats ──────────────────────────────────────────────────────────
@@ -507,7 +510,7 @@ def print_registry_report(
     """Print full model registry report."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label
@@ -565,7 +568,7 @@ def print_selection_report(registry: ModelRegistry, macro_state: str, archetype:
     """Print model selection details."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label

@@ -147,7 +147,7 @@ def analyze_domestic_premium() -> dict:
         }
         result["display"] = _vi_display(result)
         return result
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: phân tích premium fail → trả default
         logger.error(f"Premium analysis failed: {e}")
         return _default_premium()
 
@@ -337,7 +337,7 @@ def get_premium_driver(lookback_days: int = 5) -> dict:
         }
         result["display"] = _vi_driver_display(result)
         return result
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: phân tích driver fail → trả default
         logger.error(f"Premium driver analysis failed: {e}")
         return _default_driver()
 

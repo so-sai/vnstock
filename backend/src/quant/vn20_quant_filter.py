@@ -30,6 +30,7 @@ Data sources (financial_facts.db + screener_cache.db):
   symbol_industry (sector mapping) + daily_ohlcv (sector RS)
 """
 
+import logging
 import sqlite3
 import sys
 from pathlib import Path
@@ -57,6 +58,8 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 FIN_DB = PROJECT_ROOT / "backend" / "data" / "financial_facts.db"
 SCREEN_DB = PROJECT_ROOT / "backend" / "data" / "screener_cache.db"
+
+logger = logging.getLogger(__name__)
 
 # ── Tunable thresholds (Buffer-tuned for VN emerging-market volatility) ──
 T1_ROE_MIN = 0.15  # 15%
@@ -135,7 +138,7 @@ def _latest_market_regime(conn) -> str:
     """
     try:
         row = conn.execute("SELECT status FROM regime_history ORDER BY date DESC, rowid DESC LIMIT 1").fetchone()
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return "RANGING"
     if not row or not row["status"]:
         return "RANGING"
@@ -179,7 +182,7 @@ def _periods_n_years(period: str, n: int = N_YEARS) -> list[str]:
         y, q = period.split("Q")
         y = int(y)
         q = int(q)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except TypeError, ValueError, KeyError, IndexError:
         return []
     out = []
     for yy in range(y - n + 1, y + 1):
@@ -527,8 +530,8 @@ def compute_sector_context(conn, sector: str, lookback: int = 90) -> dict:
         if zs:
             cheap = sum(1 for z in zs if z < -0.5) / len(zs)
             val_pct = round(1.0 - cheap, 4)  # high = expensive
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as _e:
+        logger.debug("Không tính được valuation_pct từ valuation_scores (bỏ qua): %s", _e)
 
     return {"sector": sector, "momentum": momentum, "valuation_pct": val_pct}
 
@@ -537,7 +540,7 @@ def _load_symbol_industry(conn) -> dict[str, str]:
     try:
         rows = conn.execute("SELECT symbol, icb_name3 FROM symbol_industry").fetchall()
         return {r["symbol"]: r["icb_name3"] for r in rows}
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return {}
 
 
@@ -552,7 +555,7 @@ def _load_steel_symbols(conn) -> set:
             "SELECT DISTINCT symbol FROM symbol_industry WHERE icb_name4 LIKE '%Thép%' OR icb_name4 LIKE '%thép%'"
         ).fetchall()
         return {r["symbol"] for r in rows}
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return set()
 
 

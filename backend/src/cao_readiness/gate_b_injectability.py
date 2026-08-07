@@ -136,7 +136,7 @@ def run_injectability_test(
     if snapshots is None:
         try:
             snapshots = get_all_snapshots(limit=200)
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except ImportError, AttributeError, TypeError, KeyError:
             snapshots = []
     if not snapshots:
         return InjectabilityReport(

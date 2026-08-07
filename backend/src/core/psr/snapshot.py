@@ -101,7 +101,7 @@ class SystemStateSnapshotter:
                 "score": r.get("regime_score", 0.0),
                 "details": str(r.get("details", {})),
             }
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (ImportError, AttributeError, TypeError, KeyError) as e:
             logger.warning("[PSR] Regime capture failed: %s", e)
             return {"error": str(e)}
 
@@ -117,7 +117,7 @@ class SystemStateSnapshotter:
                 "phase": s.get("market_phase", "UNKNOWN"),
                 "flow": s.get("dominant_flow", "UNKNOWN"),
             }
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (ImportError, AttributeError, TypeError, KeyError) as e:
             return {"error": str(e)}
 
     @staticmethod
@@ -126,7 +126,7 @@ class SystemStateSnapshotter:
             from src.services.weekly_cognitive_report import aggregate_gold
 
             return aggregate_gold()
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (ImportError, AttributeError, TypeError, KeyError) as e:
             return {"error": str(e)}
 
     @staticmethod
@@ -135,7 +135,7 @@ class SystemStateSnapshotter:
             from src.services.weekly_cognitive_report import aggregate_trust
 
             return aggregate_trust()
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (ImportError, AttributeError, TypeError, KeyError) as e:
             return {"error": str(e)}
 
     @staticmethod
@@ -151,7 +151,7 @@ class SystemStateSnapshotter:
                 "method": r.integrity_method,
                 "recommendation": r.recommendation,
             }
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (ImportError, AttributeError, TypeError, KeyError) as e:
             return {"error": str(e)}
 
     @staticmethod
@@ -169,7 +169,7 @@ class SystemStateSnapshotter:
                 "hash": route_hash,
                 "routes": route_list,
             }
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (ImportError, AttributeError, TypeError, KeyError) as e:
             logger.warning("[PSR] API route capture failed: %s", e)
             return None
 

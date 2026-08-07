@@ -338,7 +338,7 @@ def init_one(db_path: str, schema: str) -> bool:
         conn.commit()
         conn.close()
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"Failed to init {path.name}: {e}")
         return False
 
@@ -353,7 +353,7 @@ def check_schema(db_path: str) -> bool:
         tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         conn.close()
         return len(tables) > 0
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return False
 
 

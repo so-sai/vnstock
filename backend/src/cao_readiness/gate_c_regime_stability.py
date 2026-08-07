@@ -10,6 +10,7 @@ Uses two data sources (prefers regime_history table, falls back to snapshots).
 
 import logging
 import math
+import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
@@ -91,7 +92,7 @@ def _load_regime_from_history(window_days: int = DEFAULT_WINDOW) -> list[dict]:
                 )
                 return fallback_result
             return result
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("[GATE_C] regime_history table not available: %s", e)
         return []
 

@@ -10,6 +10,7 @@ Entity types: STANDARD (FPT) vs BANK (ACB, HDB, MBB)
 # chỉ số đặc thù. DataIntegrityValidator đặt ngay trước khi ghi để chặn dữ liệu sai đơn vị
 # (nghìn/triệu/tỷ) ngay từ nguồn — sai scale là lỗi âm thầm phá vỡ mọi phân tích phía sau.
 
+import logging
 import re
 import sqlite3
 import sys
@@ -30,6 +31,8 @@ PROJECT_ROOT = _candidate
 BACKEND_DIR = PROJECT_ROOT / "backend"
 DATA_DIR = BACKEND_DIR / "data"
 sys.path.insert(0, str(BACKEND_DIR))
+
+logger = logging.getLogger(__name__)
 
 # === Constants ===
 FINANCIAL_DB_PATH = DATA_DIR / "financial_facts.db"
@@ -667,7 +670,7 @@ class FinancialFactsDB:
             deleted = cursor.rowcount
             conn.commit()
             return deleted
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
             return 0
 
     def init_schema(self):
@@ -823,7 +826,7 @@ class FinancialFactsDB:
             )
             conn.commit()
             return {"status": "SUCCESS", "metric": metric, "value": scaled_value, "integrity_flags": integrity_flags}
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             conn.rollback()
             return {"status": "ERROR", "metric": metric, "reason": str(e)}
 
@@ -935,8 +938,8 @@ class FinancialFactsDB:
                     "DELETE FROM health_ratios WHERE symbol = ? AND period = ?",
                     (symbol.upper(), period),
                 )
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass  # health_ratios table may not exist yet
+            except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+                logger.debug("Bảng health_ratios chưa tồn tại — bỏ qua cascade xóa ratios cũ")
             conn.commit()
 
         # Balance Sheet Check (for STANDARD entities with full data)
@@ -1143,7 +1146,7 @@ class VnstockCrawler:
             try:
                 df = fn()
                 return df
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - retry loop nguồn ngoài: bắt mọi lỗi tạm thời để retry
                 if attempt < retries - 1:
                     import time
 
@@ -1158,7 +1161,7 @@ class VnstockCrawler:
             from src.providers import get_provider_manager
 
             mgr = get_provider_manager()
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (ImportError, AttributeError, TypeError, KeyError) as e:
             print(f"  [ProviderManager] init error: {e}")
             return []
 
@@ -1181,12 +1184,12 @@ class VnstockCrawler:
             try:
                 if df.empty:
                     continue
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except TypeError, ValueError, AttributeError, KeyError, IndexError:
                 continue
 
             try:
                 df.columns = [str(c).lower().replace(" ", "_").replace("-", "_").strip() for c in df.columns]
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except TypeError, ValueError, AttributeError, KeyError, IndexError:
                 continue
 
             # vnstock 4.0.5 trả WIDE format: item_id rows + period columns.
@@ -1219,7 +1222,7 @@ class VnstockCrawler:
                                 periods_data[per][mapped] = v
                             except ValueError, TypeError:
                                 continue
-                except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+                except Exception as e:  # noqa: BLE001 - batch isolation: 1 kỳ/dòng parse lỗi không dừng các kỳ khác
                     print(f"    Wide-format parse error: {e}")
                 continue
 
@@ -1267,7 +1270,7 @@ class VnstockCrawler:
                             periods_data[per][mapped] = v
                         except ValueError, TypeError:
                             continue
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 kỳ/dòng parse lỗi không dừng các kỳ khác
                 print(f"    Parse error: {e}")
                 continue
 
@@ -1294,7 +1297,7 @@ class VnstockCrawler:
             if resp.status_code == 200:
                 # parse table...
                 print(f"    CafeF response: {len(resp.content)} bytes")
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (requests.RequestException, OSError, ValueError, KeyError) as e:
             print(f"    CafeF error: {e}")
 
         return []

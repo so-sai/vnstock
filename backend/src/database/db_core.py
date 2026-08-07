@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import sqlite3
 import sys
@@ -32,6 +33,8 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
+
+logger = logging.getLogger(__name__)
 
 # Database file path managed by Elite Config (supports custom paths via .env)
 DB_PATH = str(src.config.DATA_DIR / "screener_cache.db")
@@ -68,7 +71,7 @@ class NumpyEncoder(json.JSONEncoder):
         # Lazy import numpy — db_core không hard-depend numpy lúc import.
         try:
             import numpy as np
-        except Exception:  # pragma: no cover  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # pragma: no cover  # noqa: BLE001 - lazy import numpy: thiếu thư viện → tiếp tục encoder thuần
             np = None
 
         if np is not None:
@@ -98,14 +101,14 @@ class NumpyEncoder(json.JSONEncoder):
         if callable(to_dict):
             try:
                 return to_dict()
-            except Exception:  # pragma: no cover  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
+            except Exception:  # pragma: no cover  # noqa: BLE001, S110 - helper to_dict hỏng → thử model_dump rồi default
                 pass
         # pydantic BaseModel (model_dump)
         model_dump = getattr(obj, "model_dump", None)
         if callable(model_dump):
             try:
                 return model_dump()
-            except Exception:  # pragma: no cover  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
+            except Exception:  # pragma: no cover  # noqa: BLE001, S110 - model_dump hỏng → trả json mặc định
                 pass
         return super().default(obj)
 
@@ -241,14 +244,14 @@ def optimize_sqlite_engine():
         # Migration: add is_stale column to macro_history if missing
         try:
             cursor.execute("ALTER TABLE macro_history ADD COLUMN is_stale INTEGER DEFAULT 0")
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (sqlite3.Error, TypeError, ValueError) as _e:
+            logger.debug("ALTER TABLE macro_history.is_stale đã tồn tại hoặc lỗi (bỏ qua): %s", _e)
 
         # Migration: add is_stale to daily_ohlcv (needed by EliteArmor stale detection)
         try:
             cursor.execute("ALTER TABLE daily_ohlcv ADD COLUMN is_stale INTEGER DEFAULT 0")
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (sqlite3.Error, TypeError, ValueError) as _e:
+            logger.debug("ALTER TABLE daily_ohlcv.is_stale đã tồn tại hoặc lỗi (bỏ qua): %s", _e)
 
         # 6b. TẠO BẢNG SỨC KHỎE HỆ THỐNG (System Health Ledger cho Governor Engine)
         cursor.execute("""

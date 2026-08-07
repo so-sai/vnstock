@@ -10,6 +10,7 @@ Khi is_synthetic=True → Governor nhận FORCE_LOCK_HDR (đóng băng giao dị
 """
 
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +82,7 @@ def resolve(
                 "timeout_ms": live_meta.get("timeout_ms", 0),
             }
             return live_row, meta
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: route_live fail → thử cache/stale/bootstrap
         logger.debug(f"[TIER_0] route_live fail: {e}")
 
     # === TẦNG 1: Kiểm tra freshness ===
@@ -177,7 +178,7 @@ def _fetch_from_ohlcv(symbol: str, date: str) -> dict[str, Any] | None:
                 "adj_close": float(row[4]),
                 "volume": int(row[5]),
             }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.debug(f"[FALLBACK_T1] {symbol}/{date}: {e}")
     return None
 
@@ -196,7 +197,7 @@ def _fetch_from_bootstrap(symbol: str, date: str) -> dict[str, Any] | None:
             match = df[df["date"] == date]
             if not match.empty:
                 return match.iloc[0].to_dict()
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (OSError, TypeError, ValueError, KeyError) as e:
             logger.debug(f"[FALLBACK_T2] {symbol} bootstrap file: {e}")
 
     # Fallback chính: lấy bar gần nhất trước date từ daily_ohlcv
@@ -217,7 +218,7 @@ def _fetch_from_bootstrap(symbol: str, date: str) -> dict[str, Any] | None:
                 "adj_close": float(row[4]),
                 "volume": 0,
             }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.debug(f"[FALLBACK_T2] {symbol}/{date}: {e}")
     return None
 

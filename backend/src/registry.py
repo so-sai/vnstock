@@ -216,7 +216,7 @@ if __name__ == "__main__":
     try:
         cfg = registry.config
         print(f"✅ Registry Load Success: {cfg.__name__}")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
         print(f"❌ Registry Load Failed: {e}")
 
     print("\n[Categories]:")

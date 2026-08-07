@@ -12,6 +12,7 @@ This is NOT a boolean rule engine. It is a statistical promotion control system.
 
 import json
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -193,7 +194,7 @@ def _load_deltas_from_storage() -> tuple[dict, dict]:
         for r in perturbation_rows:
             regime = r["regime"] if r["regime"] in shadow_by_regime else "RANGING"
             shadow_by_regime[regime].append(r["contribution_delta"])
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("[VALIDATION] Could not load shadow perturbations: %s", e)
     try:
         from src.telemetry.storage import get_telemetry_connection
@@ -203,7 +204,7 @@ def _load_deltas_from_storage() -> tuple[dict, dict]:
         live_deltas = [round(r["vnindex_return"] - r["benchmark_return"], 4) for r in outcome_rows]
         for regime in live_by_regime:
             live_by_regime[regime] = live_deltas
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("[VALIDATION] Could not load live outcomes: %s", e)
     return shadow_by_regime, live_by_regime
 
@@ -246,5 +247,5 @@ def _persist_report(report: CABValidationReport):
                 ensure_ascii=False,
             ),
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
         logger.warning("[VALIDATION] Report persist failed: %s", e)

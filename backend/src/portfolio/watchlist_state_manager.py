@@ -33,6 +33,7 @@ PROJECT_ROOT = _hydrate_path()
 
 import json
 import logging
+import sqlite3
 from datetime import datetime
 
 from src.database.db_core import get_connection
@@ -76,8 +77,8 @@ class WatchlistStateManager:
                 if "user_pins" in data:
                     self._state = data
                     return self._state
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as _e:
+                logger.debug("Đọc watchlist_state.json thất bại (dùng mặc định): %s", _e)
         self._state = self._get_default()
         self.save()
         return self._state
@@ -92,7 +93,7 @@ class WatchlistStateManager:
             with open(self.state_path, "w", encoding="utf-8") as f:
                 json.dump(self._state, f, indent=2, ensure_ascii=False)
             return True
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (OSError, TypeError, ValueError) as e:
             logger.error(f"Save watchlist state failed: {e}")
             return False
 
@@ -172,7 +173,7 @@ def _store_pin_history(symbol: str, action: str):
                 (symbol, action, datetime.now().isoformat()),
             )
             conn.commit()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning(f"Store pin history error: {e}")
 
 
@@ -211,8 +212,8 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                    pass
+                except OSError, AttributeError, ValueError:
+                    logger.debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     export_state()

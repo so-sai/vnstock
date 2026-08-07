@@ -8,6 +8,7 @@ Tests: M1(Macro), M2(Fundamental), M3(Behavioral), Alpha(Momentum), VN20(Gate)
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import sys
 import time
@@ -41,6 +42,8 @@ from governor.macro_lag_engine import MacroLagEngine
 from governor.regional_influence_engine import RegionalInfluenceEngine
 from governor.sector_exposure_matrix import SectorExposureMatrix
 
+logger = logging.getLogger(__name__)
+
 
 def precompute_scores(conn, dates, score_days):
     """Pre-compute all factor scores (reused from grid_search)."""
@@ -60,8 +63,8 @@ def precompute_scores(conn, dates, score_days):
         macro_result = None
         try:
             macro_result = macro_engine.compute(date)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except Exception:  # noqa: BLE001 - batch isolation: 1 ngày macro lỗi không dừng precompute
+            logger.debug("macro_engine.compute(%s) thất bại (bỏ qua, dùng score mặc định)", date)
 
         sector_macro_eff = {}
         if macro_result:

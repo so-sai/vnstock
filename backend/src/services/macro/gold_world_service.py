@@ -6,6 +6,7 @@ Sanity guard: so sánh với rolling 30d median từ DB, cảnh báo nếu lệc
 
 import logging
 import os
+import sqlite3
 import sys
 from contextlib import contextmanager
 from datetime import datetime
@@ -84,7 +85,7 @@ def _get_30d_median() -> float | None:
         if df.empty:
             return None
         return float(df["value"].median())
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return None
 
 
@@ -105,7 +106,7 @@ def _check_flat_line() -> bool:
             return False
         vals = df["value"].tolist()
         return len(set(vals)) == 1  # all identical
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return False
 
 
@@ -132,7 +133,7 @@ def _gold_fallback_from_db() -> float | None:
             if GOLD_CACHE["flat_line"]:
                 logger.warning(f"Gold time series FLAT: last {FLAT_LINE_WINDOW} values identical ({val})")
             return val
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning(f"Gold DB fallback failed: {e}")
     return None
 
@@ -168,7 +169,7 @@ def fetch_world_gold_live() -> float | None:
                 logger.warning(f"XAUUSD {latest} deviates {deviation * 100:.0f}% from 30d median {median:.0f} — CONFLICTED")
 
         return latest
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: yfinance fail → fallback DB
         logger.error(f"World gold fetch failed: {e}")
         return _gold_fallback_from_db()
 
@@ -194,7 +195,7 @@ def fetch_world_gold_history(period: str = "1y") -> pd.DataFrame:
         df.columns = [c.lower().strip() for c in df.columns]
         df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
         return df[["date", "close"]]
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - resilience: nguồn ngoài yfinance lỗi → trả DataFrame rỗng
         logger.error(f"World gold history fetch failed: {e}")
         return pd.DataFrame()
 
@@ -243,6 +244,6 @@ def seed_world_gold_to_db(period: str = "1y") -> bool:
             logger.warning(f"World gold seed: all {rejects} rows rejected by canonical validator")
 
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"World gold seed failed: {e}")
         return False

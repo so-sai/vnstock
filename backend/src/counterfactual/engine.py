@@ -278,7 +278,7 @@ def print_counterfactual_report(analysis: dict, lang_mode: str = "full"):
     """In báo cáo counterfactual (song ngữ)."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label

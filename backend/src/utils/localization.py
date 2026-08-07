@@ -10,7 +10,10 @@ Usage:
 """
 
 import io
+import logging
 import sys
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # TRANSLATIONS DICTIONARY
@@ -329,8 +332,8 @@ def detect_terminal_utf8() -> bool:
             if "65001" in cp or "utf-8" in cp.lower() or "utf8" in cp.lower():
                 _TERMINAL_UTF8_CACHE = True
                 return True
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except OSError, subprocess.SubprocessError, ValueError:
+            logger.debug("Chcp.com không chạy được (bỏ qua, giả định không UTF-8)")
 
     _TERMINAL_UTF8_CACHE = False
     return False
@@ -344,20 +347,20 @@ def force_utf8_stdout():
                 if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                     try:
                         sys.stdout.reconfigure(encoding="utf-8")
-                    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                        pass
+                    except OSError, AttributeError, ValueError:
+                        logger.debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
             elif hasattr(sys.stdout, "buffer"):
                 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
             if isinstance(sys.stderr, io.TextIOWrapper):
                 if getattr(sys.stderr, "encoding", "").lower() != "utf-8":
                     try:
                         sys.stderr.reconfigure(encoding="utf-8")
-                    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                        pass
+                    except OSError, AttributeError, ValueError:
+                        logger.debug("Không reconfigure được stderr sang UTF-8 (bỏ qua)")
             elif hasattr(sys.stderr, "buffer"):
                 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except OSError, AttributeError, ValueError:
+            logger.debug("Không ép được stdout/stderr sang UTF-8 (bỏ qua)")
 
 
 def translate(key: str, lang: str = "vi") -> str:

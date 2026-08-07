@@ -70,7 +70,7 @@ def migrate_json_to_jsonb(conn, table: str, json_columns: list[str]):
                   AND json_valid({col}) = 1
             """)
             print(f"    [JSONB] {table}.{col}: {total} rows migrated")
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 cột lỗi không dừng các cột khác
             print(f"    [JSONB] {table}.{col}: SKIP ({e})")
 
 
@@ -87,7 +87,7 @@ def migrate_strict_table(conn, table: str, create_sql: str):
         conn.execute(f"DROP TABLE {table}")
         conn.execute(f"ALTER TABLE {temp_table} RENAME TO {table}")
         print(f"    [STRICT] {table}: migrated to STRICT mode")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
         print(f"    [STRICT] {table}: SKIP ({e})")
 

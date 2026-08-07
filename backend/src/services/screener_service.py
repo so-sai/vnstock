@@ -6,6 +6,7 @@ Xử lý: DataFrame → Dict transformation, RS merge, Fallback.
 
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -48,7 +49,7 @@ def _load_rs_data() -> dict:
         with open(rs_path, encoding="utf-8") as f:
             data = json.load(f)
         return {item["symbol"]: item for item in data}
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         logger.error(f"Error loading RS data: {e}")
         return {}
 
@@ -59,7 +60,7 @@ def _get_sector_map() -> dict:
         with get_connection() as conn:
             df = pd.read_sql("SELECT symbol, icb_name3 as sector FROM symbol_industry", conn)
         return dict(zip(df["symbol"], df["sector"]))
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return {}
 
 
@@ -73,7 +74,7 @@ def get_screener_results(top_n: int = 50) -> list:
     """
     try:
         result_df = registry.screener_logic.run_screener()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.error(f"Screener logic failed: {e}")
         result_df = pd.DataFrame()
 

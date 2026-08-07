@@ -173,7 +173,7 @@ def save_decision_log(entry: ShadowDecisionLog) -> bool:
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[SHADOW_CAO] Failed to save decision log: %s", e)
         return False
 
@@ -202,7 +202,7 @@ def save_ablation_result(result: AblationResult, decision_id: str) -> bool:
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[SHADOW_CAO] Failed to save ablation: %s", e)
         return False
 
@@ -219,7 +219,7 @@ def save_outcome_log(decision_id: str, horizon_days: int, actual_outcome: float,
                 (decision_id, horizon_days, actual_outcome, 1 if success else 0),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[SHADOW_CAO] Failed to save outcome log: %s", e)
         return False
 
@@ -262,7 +262,7 @@ def save_attribution_perturbation(
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[SHADOW_CAO] Failed to save perturbation: %s", e)
         return False
 
@@ -288,7 +288,7 @@ def save_engine_profile(profile: EngineAblationProfile) -> bool:
                 ),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[SHADOW_CAO] Failed to save engine profile: %s", e)
         return False
 
@@ -304,7 +304,7 @@ def save_belief_value(key: str, value: str) -> bool:
                 (key, value, datetime.now().isoformat()),
             )
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error("[SHADOW_CAO] Failed to save belief state: %s", e)
         return False
 
@@ -344,8 +344,8 @@ def get_belief_value(key: str) -> str:
 def get_shadow_stats() -> dict:
     try:
         initialize_shadow_database()
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except Exception:  # noqa: BLE001 - shadow storage best-effort: init DB fail → tiếp tục truy vấn
+        logger.debug("Khởi tạo shadow database thất bại (bỏ qua)")
     with get_shadow_connection() as conn:
         logs = conn.execute("SELECT COUNT(*) as c FROM shadow_decision_logs").fetchone()["c"]
         ablations = conn.execute("SELECT COUNT(*) as c FROM shadow_ablations").fetchone()["c"]

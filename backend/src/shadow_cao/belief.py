@@ -50,8 +50,8 @@ def update_engine_profiles() -> dict[str, EngineAblationProfile]:
 
     try:
         initialize_shadow_database()
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except Exception:  # noqa: BLE001 - shadow storage best-effort: init DB fail → tiếp tục thống kê
+        logger.debug("Khởi tạo shadow database thất bại (bỏ qua) — profile stats")
     stats = defaultdict(
         lambda: {
             "total": 0,

@@ -44,7 +44,7 @@ def get_dashboard_data() -> dict:
     macro = {}
     try:
         macro = get_macro_status()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError, RuntimeError) as e:
         logger.error(f"Macro service failed: {e}")
 
     breadth = {}
@@ -60,19 +60,19 @@ def get_dashboard_data() -> dict:
                 "decliners": breadth_result.get("decliners", 0),
                 "totalActive": breadth_result.get("total_active", 0),
             }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.error(f"Breadth service failed: {e}")
 
     top_leaders = []
     try:
         top_leaders = get_screener_results(top_n=10)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.error(f"Screener service failed: {e}")
 
     regime_history = []
     try:
         regime_history = get_regime_history(limit=90)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.error(f"Regime history failed: {e}")
 
     shadow_cash = 100.0
@@ -90,7 +90,7 @@ def get_dashboard_data() -> dict:
             total_nav = cash + total_position_value
             if total_nav > 0:
                 shadow_cash = round((cash / total_nav) * 100, 1)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         logger.error(f"Portfolio service failed: {e}")
 
     regime_status = macro.get("regime_status", "UNKNOWN")

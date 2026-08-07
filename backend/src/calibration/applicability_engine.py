@@ -176,7 +176,7 @@ def print_applicability_report(
     """Print applicability matrix status."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label
@@ -205,7 +205,7 @@ def print_heatmap(lang_mode: str = "full"):
     """Print macro × node applicability heatmap."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label

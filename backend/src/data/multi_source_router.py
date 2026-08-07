@@ -76,7 +76,7 @@ def fetch_from_vnstock(
                 logger.warning(f"[{source.upper()}] {symbol}: OHLCV issues: {issues}")
             return norm, source
         logger.debug(f"[{source.upper()}] {symbol}: empty response")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: nguồn này fail → thử nguồn khác
         err = str(e)
         if "timeout" in err.lower() or "timed out" in err.lower():
             logger.warning(f"[{source.upper()}] {symbol}: timeout sau {timeout}s")
@@ -103,7 +103,7 @@ def fetch_from_ssi_failover(
             raw = df.iloc[-1].to_dict()
             norm, _ = normalize_to_ptd_schema(raw, source_label=source_used)
             return norm, source_used
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: SSI fail → trả (None, "ssi")
         logger.debug(f"[SSI] {symbol}: {e}")
     return None, "ssi"
 

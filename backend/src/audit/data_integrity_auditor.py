@@ -15,6 +15,7 @@ WHY:
   kích hoạt Self-Healing Pipeline (Crawler Backfill) để bù nạp dữ liệu rỗng.
 """
 
+import logging
 import sqlite3
 import sys
 from dataclasses import dataclass, field
@@ -34,6 +35,8 @@ DATA_DIR = BACKEND_DIR / "data"
 FINANCIAL_DB = DATA_DIR / "financial_facts.db"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -162,8 +165,8 @@ class DataIntegrityAuditor:
                     re_audited = self.audit_symbol(sym, start_year, end_year)
                     re_audited.healed = True
                     results[sym] = re_audited
-                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                    pass
+                except Exception:  # noqa: BLE001 - batch isolation: 1 mã healing lỗi không dừng các mã khác
+                    logger.debug("Self-healing cho %s thất bại (bỏ qua)", sym)
 
         return results
 

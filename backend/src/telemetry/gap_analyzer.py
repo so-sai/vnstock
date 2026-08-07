@@ -1,4 +1,6 @@
 import json
+import logging
+import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,11 +27,12 @@ backend_dir = PROJECT_ROOT / "backend"
 if backend_dir.is_dir() and str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-import sqlite3
-
 
 def _get_db_path():
     return str(backend_dir / "data" / "screener_cache.db")
+
+
+logger = logging.getLogger(__name__)
 
 
 class GapAnalyzer:
@@ -51,8 +54,8 @@ class GapAnalyzer:
     def close(self):
         try:
             self.conn.close()
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except sqlite3.Error, TypeError, ValueError:
+            logger.debug("Đóng connection gap-analyzer thất bại (bỏ qua)")
 
     def _get_cutoff(self):
         if self._cutoff is not None:
@@ -90,8 +93,8 @@ class GapAnalyzer:
             rows = self.conn.execute("SELECT DISTINCT symbol FROM symbol_industry").fetchall()
             for r in rows:
                 from_industry.add(r[0])
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.debug("Bảng symbol_industry chưa có — bỏ qua nguồn ngành")
         merged = from_db | from_industry
         self._expected_symbols = sorted(merged)
         return self._expected_symbols

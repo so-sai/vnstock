@@ -8,12 +8,15 @@ Pipeline reuses existing infra (CafeFCrawler + HealthEngine) — no new crawler.
 Run:  python backend/src/quant/vn50_seeder.py [--dry-run] [--delay 3.0]
 """
 
+import logging
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+logger = logging.getLogger(__name__)
 
 from src.financial.cafef_crawler import CafeFCrawler
 from src.financial.company_health_engine import HealthEngine
@@ -129,7 +132,7 @@ def execute_vn50_sprint(dry_run: bool = False, delay: float = 3.0) -> dict:
                 total_facts += n
                 results["ok"].append(sym)
                 print(f"  [{i + 1}/{len(targets)}] {sym} ({ent}): {n} facts")
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 mã crawl lỗi không dừng các mã khác
             results["failed"].append(sym)
             print(f"  [{i + 1}/{len(targets)}] {sym} ({ent}): ERROR {type(e).__name__}: {str(e)[:120]}")
         if i > 0 and delay > 0:
@@ -144,8 +147,8 @@ def execute_vn50_sprint(dry_run: bool = False, delay: float = 3.0) -> dict:
             h = health_engine.compute_health(sym)
             if h.get("status") == "DONE" or h.get("total_ratios", 0) > 0:
                 health_ok.append(sym)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except Exception:  # noqa: BLE001 - batch isolation: 1 mã health lỗi không dừng các mã khác
+            logger.debug("Tính health cho %s thất bại (bỏ qua)", sym)
 
     print("\n" + "=" * 72)
     print(

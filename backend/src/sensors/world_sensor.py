@@ -112,8 +112,8 @@ def _read_cache() -> dict | None:
             age = time.time() - data.get("cached_at", 0)
             if age < CACHE_TTL_SECONDS:
                 return data
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
+        logger.debug("Cache file hỏng/thiếu — bỏ qua, fetch lại từ nguồn")
     return None
 
 
@@ -122,7 +122,7 @@ def _write_cache(data: dict):
         _ensure_cache_dir()
         data["cached_at"] = time.time()
         CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (OSError, TypeError, ValueError) as e:
         logger.warning(f"World cache write failed: {e}")
 
 
@@ -188,12 +188,12 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
                 implied_rate = float(nearest.get("last", implied_rate))
                 hike_prob = float(nearest.get("probability", 0.0))
                 meeting_label = nearest.get("tradeDate", "unknown")
-        except Exception as inner:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (TypeError, ValueError, KeyError, AttributeError, IndexError) as inner:
             logger.debug(f"CME contract parse: {inner}")
 
         return (implied_rate, hike_prob, meeting_label)
 
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: CME requests fail → thử Playwright
         logger.warning(f"CME FedWatch requests failed: {e}")
         return _cme_fedwatch_playwright_fallback()
 
@@ -215,7 +215,7 @@ def _cme_fedwatch_playwright_fallback() -> tuple[float, float, str]:
             return (rate, prob, meeting)
         logger.warning("CME FedWatch Playwright returned defaults")
         return (DEFAULT_FED_RATE, 0.0, "unknown")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - external provider resilience: Playwright fail → trả default
         logger.warning(f"CME FedWatch Playwright fallback failed: {e}")
         return (DEFAULT_FED_RATE, 0.0, "unknown")
 
@@ -270,7 +270,7 @@ def _fetch_fomc_dissent() -> int:
 
         return dissent_count
 
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         logger.warning(f"FOMC dissent fetch failed: {e}")
         return DEFAULT_DISSENT
 
@@ -306,7 +306,7 @@ def _fetch_fred_series(series_id: str) -> float | None:
             if val and val != ".":
                 return float(val)
         return None
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         logger.warning(f"FRED series {series_id} fetch failed: {e}")
         return None
 
@@ -327,7 +327,7 @@ def _fetch_fred_all() -> dict:
             name = future_map[future]
             try:
                 results[name] = future.result()
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception:  # noqa: BLE001 - batch isolation: 1 series lỗi không dừng các series khác
                 results[name] = None
     return results
 
@@ -371,13 +371,13 @@ def _fetch_yfinance_fallback() -> dict:
                     results[name] = val if not (val != val) else 0.0
                 else:
                     results[name] = 0.0
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception:  # noqa: BLE001 - external provider resilience: 1 ticker yfinance lỗi → trả 0.0
                 results[name] = 0.0
     except ImportError:
         logger.debug("yfinance not installed — skipping Yahoo fallback")
         for name in YFINANCE_WORLD_TICKERS:
             results[name] = 0.0
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - external provider resilience: yFinance bulk fail → trả 0.0
         logger.warning(f"yFinance bulk fetch failed: {e}")
         for name in YFINANCE_WORLD_TICKERS:
             results[name] = 0.0

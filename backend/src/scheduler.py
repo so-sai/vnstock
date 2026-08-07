@@ -138,8 +138,8 @@ def stop_scheduler():
             if s._instance:
                 s._instance.shutdown(wait=False)
                 logger.info("[SCHEDULER] Stopped.")
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except ImportError, AttributeError, TypeError, KeyError:
+        logger.debug("Dừng scheduler thất bại (bỏ qua)")
 
 
 if __name__ == "__main__":

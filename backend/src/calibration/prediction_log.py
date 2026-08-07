@@ -29,6 +29,7 @@ WHY model_id column (P0):
            independently → BMA can retire underperforming models.
 """
 
+import logging
 import sqlite3
 import sys
 from datetime import date, datetime, timedelta
@@ -44,6 +45,9 @@ if Path(sys.executable).stem.lower().startswith("python"):
 
 DATA_DIR = _candidate / "backend" / "data"
 CALIB_DB = DATA_DIR / "calibration.db"
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_conn() -> sqlite3.Connection:
@@ -130,8 +134,8 @@ def init_schema():
     try:
         conn.execute("ALTER TABLE prediction_log ADD COLUMN model_id TEXT")
         conn.commit()
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass  # column already exists
+    except (sqlite3.Error, TypeError, ValueError) as _e:
+        logger.debug("ALTER TABLE prediction_log.model_id đã tồn tại hoặc lỗi (bỏ qua): %s", _e)
     conn.close()
 
 
@@ -533,7 +537,7 @@ def check_circuit_breaker_auto(days: int = 90, ll_threshold: float = 0.05) -> di
         from calibration.calibrator import calibration_trend_report
 
         report = calibration_trend_report(days=days)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
         return {
             "level": CB_LEVEL_NONE,
             "label": CB_LABELS[CB_LEVEL_NONE],

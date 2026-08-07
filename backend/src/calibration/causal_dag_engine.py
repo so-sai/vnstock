@@ -80,7 +80,7 @@ class MarginStressNode:
             stale_days = int(delta_hours / 24.0)
             decay = math.exp(-math.log(2) * delta_hours / self.half_life_hours)
             return max(decay, 0.10), stale_days
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except TypeError, ValueError, OverflowError:
             return 0.10, 30
 
     def compute_stress_index(self, m_sys: float, b_stress: float, c_cross: float) -> float:

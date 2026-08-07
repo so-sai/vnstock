@@ -4,6 +4,7 @@ Breadth Service Layer v1.0
 """
 
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -62,7 +63,7 @@ def get_breadth_analysis() -> dict:
             "nh10Consistency3d": result.get("nh10_consistency_3d", 0),
             "trend": trend,
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.error(f"Breadth analysis failed: {e}")
         return {"error": str(e)}
 
@@ -89,6 +90,6 @@ def get_breadth_history(limit: int = 60) -> list:
 
         df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
         return df.to_dict(orient="records")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.error(f"Breadth history failed: {e}")
         return []

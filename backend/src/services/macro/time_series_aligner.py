@@ -107,7 +107,7 @@ def _load_vn_holidays() -> set[date]:
                 data = json.load(f)
             for h in data.get("holidays", []):
                 holidays.add(date.fromisoformat(h))
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
             logger.warning(f"Cannot load VN holiday calendar: {e}")
     return holidays
 
@@ -499,7 +499,7 @@ def _fetch_macro_as_df(variable: str, db_path: str, n_days: int = 365) -> pd.Dat
                 df = pd.DataFrame(rows, columns=["date", "value", "is_stale"])
                 df["date"] = pd.to_datetime(df["date"], format="mixed")
                 return df.sort_values("date").drop_duplicates(subset="date")
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - fallback ladder: thử bảng macro_history_v2 rồi macro_history
             continue
 
     # ── Fallback: Forward Fill từ bản ghi cuối cùng (không giới hạn ngày) ──
@@ -523,8 +523,8 @@ def _fetch_macro_as_df(variable: str, db_path: str, n_days: int = 365) -> pd.Dat
                 row[1],
             )
             return df
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as _e:
+        logger.debug("_fetch_macro_as_df: forward-fill thất bại (bỏ qua): %s", _e)
 
     conn.close()
     logger.warning("_fetch_macro_as_df: %s not found in macro_history (no fallback either)", variable)
@@ -549,7 +549,7 @@ def _fetch_vnindex(db_path: str, n_days: int = 365) -> pd.DataFrame:
         df = pd.DataFrame(rows, columns=["date", "value"])
         df["date"] = pd.to_datetime(df["date"], format="mixed")
         return df.sort_values("date").drop_duplicates(subset="date")
-    except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as exc:
         conn.close()
         logger.error("_fetch_vnindex: %s", exc)
         return pd.DataFrame(columns=["date", "value"])

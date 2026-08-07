@@ -169,7 +169,7 @@ def cross_validate(
                     method=name,
                     threshold=threshold,
                 )
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 symbol/method lỗi không dừng cross-validate
                 logger.debug("Cross-validation failed for %s/%s: %s", symbol, name, e)
                 report = {"status": FLAG_NO_SECONDARY, "max_error": 0.0, "metrics": {}}
 

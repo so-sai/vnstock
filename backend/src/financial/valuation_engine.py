@@ -11,6 +11,7 @@ từ dữ liệu giá thực tế (screener_cache.db) + dữ liệu tài chính 
 # và percentile (thứ hạng) làm thước đo bổ sung chống outlier. Cả 2 bám vào chuỗi thời
 # gian nội tại của symbol nên so sánh được giữa các ngành không đồng nhất.
 
+import logging
 import sqlite3
 import sys
 from datetime import datetime, timedelta
@@ -27,6 +28,8 @@ PROJECT_ROOT = _candidate
 BACKEND_DIR = PROJECT_ROOT / "backend"
 DATA_DIR = BACKEND_DIR / "data"
 sys.path.insert(0, str(BACKEND_DIR))
+
+logger = logging.getLogger(__name__)
 
 from src.financial.financial_facts import FinancialFactsDB
 
@@ -138,8 +141,8 @@ class ValuationEngine:
         ]:
             try:
                 conn.execute(col_sql)
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except (sqlite3.Error, TypeError, ValueError) as _e:
+                logger.debug("ALTER TABLE valuation_scores cột đã tồn tại hoặc lỗi (bỏ qua): %s", _e)
         conn.commit()
         conn.close()
         print("  Schema OK: valuation_scores table (incl. peer-group columns)")

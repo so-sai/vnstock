@@ -99,7 +99,7 @@ def precompute_lri_cache(dates: list[str], db_path: str | None = None, force: bo
             cached = {k: float(v) for k, v in cached.items()}
             if all(d in cached for d in dates):
                 return cached
-        except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as exc:
             print(f"  [WARN] LRI cache unreadable (recomputing): {exc}")
 
     from governor.liquidity_recovery_index import compute_lri
@@ -110,7 +110,7 @@ def precompute_lri_cache(dates: list[str], db_path: str | None = None, force: bo
         try:
             r = compute_lri(db_path=db_path, target_date=date)
             cache[date] = round(float(r.lri), 4)
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - batch isolation: 1 ngày LRI lỗi không dừng precompute
             cache[date] = 1.0
         if (i + 1) % 50 == 0:
             elapsed = time.time() - t0
@@ -147,7 +147,7 @@ def _get_beta(conn: sqlite3.Connection, symbol: str) -> float:
             return 1.0
         cov = float(np.cov(rets_stock, rets_ix)[0][1])
         return round(max(0.0, min(3.0, cov / var_ix)), 3)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError:
         return 1.0
 
 
@@ -166,7 +166,7 @@ def _get_mos_pct(conn: sqlite3.Connection, symbol: str, target_date: str) -> flo
             return 0.0
         mos = 1.0 - (max(zs) / 3.0 + 0.5)
         return round(max(0.0, min(1.0, mos)) * 100, 1)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError:
         return 0.0
 
 
@@ -179,7 +179,7 @@ def _get_volume_avg_20d(conn: sqlite3.Connection, symbol: str, target_date: str)
         ).fetchall()
         vols = [float(r[0]) for r in rows if r[0]]
         return round(float(np.mean(vols)), 0) if vols else 0.0
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError:
         return 0.0
 
 
@@ -493,7 +493,7 @@ def run_grid_search(
         try:
             with open(checkpoint) as f:
                 done = json.load(f)
-        except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as exc:
             print(f"  [WARN] Checkpoint unreadable (starting fresh): {exc}")
             done = {}
 
@@ -628,7 +628,7 @@ def _run_combo_batch(
                 c = futures[fut]
                 try:
                     r = fut.result()
-                except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+                except Exception as exc:  # noqa: BLE001 - batch isolation: 1 combo lỗi không dừng grid search
                     r = {"error": str(exc), "sharpe": -99}
                 r["params"] = c
                 _collect(r, c)
@@ -638,7 +638,7 @@ def _run_combo_batch(
         for i, c in enumerate(pending, 1):
             try:
                 r = run_backtest_with_guard(scores, dates, score_days, c, db_path, lri_cache)
-            except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as exc:  # noqa: BLE001 - batch isolation: 1 combo lỗi không dừng grid search
                 r = {"error": str(exc), "sharpe": -99}
             r["params"] = c
             _collect(r, c)

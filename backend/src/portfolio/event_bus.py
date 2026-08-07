@@ -1,7 +1,10 @@
 """Lightweight in-process Event Bus cho Hard Shutdown IPC."""
 
+import logging
 from collections.abc import Callable
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _HANDLERS: dict[str, list[Callable]] = {}
 
@@ -20,8 +23,8 @@ def emit(event: str, data: Any = None):
     for cb in _HANDLERS.get(event, []):
         try:
             cb(data)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except Exception:  # noqa: BLE001 - batch isolation: 1 callback lỗi không dừng các callback khác
+            logger.debug("Event handler %s lỗi (bỏ qua, không ảnh hưởng handler khác)", getattr(cb, "__name__", cb))
 
 
 def clear():

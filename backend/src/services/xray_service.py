@@ -1,5 +1,6 @@
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -86,7 +87,7 @@ def _load_rs_data() -> dict:
         with open(rs_path, encoding="utf-8") as f:
             data = json.load(f)
         return {item["symbol"]: item for item in data}
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         logger.error(f"Error loading RS data: {e}")
         return {}
 
@@ -212,7 +213,7 @@ def _get_latest_ohlcv(symbol: str, timeframe: str = "D") -> dict | None:
             "dataQuality": data_quality,
             "ohlcvHistory": ohlcv_history,
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.error(f"Error fetching OHLCV for {symbol}: {e}")
         return None
 
@@ -222,7 +223,7 @@ def _get_sector(symbol: str) -> str:
         with get_connection() as conn:
             df = pd.read_sql("SELECT icb_name3 as sector FROM symbol_industry WHERE symbol = ?", conn, params=(symbol,))
         return df.iloc[0]["sector"] if not df.empty else "Unknown"
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return "Unknown"
 
 
@@ -238,8 +239,8 @@ def get_xray_data(symbol: str, timeframe: str = "D") -> dict:
     foreign_10d = 0.0
     try:
         foreign_10d = round(_get_mfe().get_accumulation(symbol, 10), 1)
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (TypeError, ValueError, AttributeError, KeyError) as _e:
+        logger.debug("Không lấy được dòng tiền nước ngoài 10d (bỏ qua): %s", _e)
 
     regime_data = {"status": "UNKNOWN", "score": 0.0}
     try:
@@ -248,8 +249,8 @@ def get_xray_data(symbol: str, timeframe: str = "D") -> dict:
             "status": rd.get("status", "UNKNOWN"),
             "score": round(rd.get("regime_score", 0), 3),
         }
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (TypeError, ValueError, AttributeError, KeyError) as _e:
+        logger.debug("Không đọc được regime (bỏ qua, dùng UNKNOWN): %s", _e)
 
     price = ohlcv.get("price") if ohlcv else float(rs_info.get("price", 0))
     change_pct = ohlcv.get("changePercent", 0.0) if ohlcv else 0.0

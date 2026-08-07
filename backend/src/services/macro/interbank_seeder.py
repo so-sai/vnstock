@@ -1,8 +1,12 @@
+import json
 import logging
 import re
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
+
+import requests
 
 
 def _hydrate_path():
@@ -69,7 +73,7 @@ def _get_latest_from_db(variable: str) -> tuple[float, str] | tuple[None, None]:
             if row is None:
                 return None, None
             return float(row[0]), str(row[1])
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return None, None
 
 
@@ -139,7 +143,6 @@ def _has_js_rendering(html: str) -> bool:
 
 def _log_sbv_alert(raw_html: str = ""):
     """Ghi alert file khi cấu trúc SBV thay đổi (atomic write) + popup Windows (1 lần)."""
-    import json
     import os
     import subprocess
     import time
@@ -173,8 +176,8 @@ def _log_sbv_alert(raw_html: str = ""):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (OSError, ValueError, subprocess.SubprocessError) as _e:
+        logger.debug("Popup cảnh báo SBV không hiển thị được (bỏ qua): %s", _e)
 
 
 def _clear_sbv_alert():
@@ -246,12 +249,12 @@ def _parse_sbv_dom(html_text: str) -> dict[str, float | None]:
         from lxml import html as lx
 
         tree = lx.fromstring(html_text)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception:  # noqa: BLE001 - fallback ladder: thử method parse lxml khác
         try:
             from lxml.html import fromstring as _hf
 
             tree = _hf(html_text)
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - fallback ladder: method dự phòng lxml.html
             return {}
 
     tables = tree.xpath("//table")
@@ -436,7 +439,7 @@ def _try_sbv(force: bool = False) -> dict:
             _log_sbv_alert(html_raw)
             return {"type": "STRUCTURE_CHANGED", "data": {}, "http_status": 200}
 
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: SBV fail thì trả fallback cho nguồn VietnamBiz
         logger.warning(f"SBV Playwright thất bại: {e}")
         return {"type": "NETWORK_BLOCKED", "data": {}, "http_status": None}
 
@@ -447,8 +450,6 @@ def _try_sbv(force: bool = False) -> dict:
 def _try_vietnambiz() -> float | None:
     """Lấy Lãi suất liên ngân hàng _ON từ VietnamBiz."""
     try:
-        import requests
-
         resp = requests.get(
             VIETNAMBiz_RATES_URL,
             headers={"User-Agent": "Mozilla/5.0"},
@@ -461,7 +462,7 @@ def _try_vietnambiz() -> float | None:
             title = item.get("title", "")
             if "Lãi suất liên ngân hàng _ON" in title or "Lai suat lien ngan hang _ON" in title:
                 return _normalize(item.get("value"))
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         logger.warning(f"VietnamBiz API không khả dụng: {e}")
     return None
 
@@ -496,8 +497,8 @@ def _doc_cooldown() -> float:
         if RECALL_STATE_PATH.exists():
             with open(RECALL_STATE_PATH, encoding="utf-8") as f:
                 return float(json.load(f).get("last_check_epoch", 0.0))
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as _e:
+        logger.debug("Đọc recall_state.json thất bại (dùng 0.0): %s", _e)
     return 0.0
 
 
@@ -516,7 +517,7 @@ def _ghi_cooldown_atomic(epoch: float) -> bool:
             json.dump({"last_check_epoch": epoch}, f)
         os.replace(tmp, RECALL_STATE_PATH)
         return True
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except OSError, TypeError, ValueError:
         return False
 
 
@@ -597,8 +598,8 @@ def refresh_interbank_rate() -> bool:
             try:
                 days_old = (datetime.now() - datetime.strptime(dt, "%Y-%m-%d")).days
                 logger.info(f"{var} hiện tại: {val} (từ {dt}, {days_old} ngày trước)")
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except Exception:  # noqa: BLE001 - batch isolation: 1 biến ngày hỏng không dừng toàn bộ
+                logger.debug("Không tính được độ trễ cho %s (bỏ qua)", var)
 
     # --- Tầng 1: SBV website (Playwright) ---
     sbv_result = _try_sbv()
@@ -655,6 +656,6 @@ def refresh_interbank_rate() -> bool:
         for row in rows:
             logger.info(f"Đã cập nhật {row['variable']}: {row['value']}% (nguồn: {source_tag})")
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"Seed interbank rates thất bại: {e}")
         return False

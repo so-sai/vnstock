@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -63,7 +64,7 @@ class ShadowExecutionTracker:
         try:
             df = pd.read_sql(atr_query, conn)
             atr_val = df.iloc[0]["atr14"] if not df.empty and df.iloc[0]["atr14"] else 0
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
             atr_val = 0
         self._atr_cache[key] = atr_val
         return atr_val
@@ -298,7 +299,7 @@ def run_stress_test(start_date, end_date):
                 }
             )
 
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 ngày lỗi không dừng toàn bộ replay
             print(f"[ERROR] processing {target_date}: {e}")
             continue
 

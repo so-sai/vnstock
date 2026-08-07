@@ -83,8 +83,8 @@ if sys.platform == "win32":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except OSError, AttributeError, ValueError:
+                logging.getLogger(__name__).debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 console_handler = logging.StreamHandler(sys.stdout)
@@ -157,7 +157,7 @@ def retry_with_backoff(func_name, max_retries=3, base_delay=5):
             for attempt in range(max_retries):
                 try:
                     return fn(*args, **kwargs)
-                except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+                except Exception as e:  # noqa: BLE001 - retry loop nguồn ngoài: bắt mọi lỗi tạm thời để retry tiếp
                     delay = base_delay * (2**attempt) + random.uniform(0, 3)
                     logger.warning(f"[{func_name}] Lỗi lần {attempt + 1}/{max_retries}: {e}. Retry sau {delay:.1f}s...")
                     time.sleep(delay)
@@ -185,7 +185,7 @@ class EliteArmor:
                     data = json.load(f)
                     now = time.time()
                     return {k: v for k, v in data.items() if now - v < 7 * 24 * 3600}
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
                 return {}
         return {}
 
@@ -294,7 +294,7 @@ def _fallback_fetch_single(symbol: str) -> pd.DataFrame:
             df_clean["is_stale"] = int(is_stale)
             logger.info(f"[FALLBACK] {symbol} thành công từ nguồn dự phòng: {source_used} (stale={is_stale})")
             return df_clean
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: nguồn dự phòng fail → trả DataFrame rỗng
         logger.error(f"[FALLBACK_FAILED] {symbol}: {e}")
     return pd.DataFrame()
 
@@ -382,7 +382,7 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                 success += len(df_save)
             else:
                 failed += len(active_batch)
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 batch lỗi → fallback từng mã, không dừng toàn bộ
             logger.warning(f"📦 Batch {batch_num}/{total_batches}: ❌ {e} — thử fallback từng mã...")
             for s in active_batch:
                 try:
@@ -408,7 +408,7 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                     else:
                         armor.blacklist(s)
                         failed += 1
-                except Exception as se:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+                except Exception as se:  # noqa: BLE001 - batch isolation: 1 mã lỗi không dừng các mã còn lại
                     logger.error(f"[FALLBACK] {s}: {se}")
                     armor.blacklist(s)
                     failed += 1
@@ -510,7 +510,7 @@ def _fetch_single_yahoo(symbol: str, name: str, period: str = "5d") -> tuple:
             if pd.isna(close_val):
                 close_val = None
                 err = "Close is NaN"
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: yfinance fail → chuyển HTTP tier 2
         err = str(e)
 
     if close_val is not None:
@@ -530,7 +530,7 @@ def _fetch_single_yahoo(symbol: str, name: str, period: str = "5d") -> tuple:
         if closes:
             return float(closes[-1]), None
         return None, f"no close data in chart API: {err}"
-    except Exception as e2:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (requests.RequestException, OSError, ValueError, KeyError) as e2:
         return None, f"yfinance({err}) + HTTP({e2})"
 
 
@@ -577,7 +577,7 @@ def update_macro_data():
                     failed_names.append(name)
         else:
             failed_names = list(MACRO_TICKERS.keys())
-    except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as exc:  # noqa: BLE001 - fallback ladder: batch yfinance fail → rescue từng ticker
         logger.warning(f"⚠️ Macro batch download failed: {exc} — falling back to per-ticker")
         failed_names = list(MACRO_TICKERS.keys())
 
@@ -612,7 +612,7 @@ def update_macro_data():
         for name in MACRO_TICKERS:
             success = name in raw_values and name not in stale_vars
             tracker.record_fresh(name, success)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception:  # noqa: BLE001 - telemetry best-effort: ghi log warm-up không chặn pipeline chính
         logger.debug("⚠️ StaleTracker warm-up recording skipped (non-blocking)", exc_info=True)
 
     if not raw_values:
@@ -695,7 +695,7 @@ def seed_real_yield():
         if dy is None:
             dy = info.get("yield", 0)
         tip_yield = round(float(dy) * 100, 3)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - external provider resilience: yfinance TIP fail → return 0
         logger.warning(f"Không lấy được TIP yield: {e}")
         return 0
 
@@ -976,7 +976,7 @@ def run_forensic_cache_refresh():
         written = cache.refresh(frame)
         logger.info(f"✅ Forensic cache refreshed: {written} symbols, latest period = {frame['period'].max()}")
         return written
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - EOD best-effort: forensic cache refresh fail → return 0
         logger.warning(f"⚠️ Forensic cache refresh failed: {e}")
         return 0
 
@@ -1006,7 +1006,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         from src.telemetry.storage import initialize_telemetry_database
 
         initialize_telemetry_database()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - telemetry best-effort: init DB fail → cảnh báo, không chặn
         logger.warning(f"⚠️ Telemetry DB init: {e}")
 
     start_time = time.time()
@@ -1120,7 +1120,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             logger.info(
                 "🌍 WorldSensor seeded: %d vars into macro_history, 1 snapshot into macro_sensory_log", len(world_vars)
             )
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"⚠️ WorldSensor seed failed: {e}")
             report["world_sensor"] = None
 
@@ -1129,14 +1129,14 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             from src.services.macro.vgb10y_seeder import seed_vgb10y
 
             report["vgb10y_seeded"] = seed_vgb10y()
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"VGB10Y seed failed: {e}")
             report["vgb10y_seeded"] = False
         try:
             from src.services.macro.interbank_seeder import refresh_interbank_rate
 
             report["interbank_seeded"] = refresh_interbank_rate()
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"INTERBANK seed failed: {e}")
             report["interbank_seeded"] = False
 
@@ -1162,7 +1162,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                     before = len(symbols_in_db)
                     symbols_in_db.update(extra)
                     logger.info(f"📦 Manifest bo sung {len(symbols_in_db) - before} ma cho ngay {target_date}")
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
                 logger.warning(f"⚠️ Loi doc manifest: {e}")
 
         symbols_in_db = sorted(symbols_in_db)
@@ -1300,7 +1300,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                     "stress": ms_state.spectral_stress,
                 }
                 logger.info(f"  🌐 MacroState: {ms_state.macro_state} (P={ms_state.posterior:.2%})")
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
                 logger.warning(f"⚠️ MacroState update failed: {e}")
                 report["macro_state"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1322,7 +1322,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                     f"(L={tr_state.liquidity:.0f} C={tr_state.credit:.0f} "
                     f"K={tr_state.confidence:.0f})"
                 )
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
                 logger.warning(f"⚠️ Transmission update failed: {e}")
                 report["transmission"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1345,7 +1345,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                     f"healthy={sc_report.n_sectors_healthy} "
                     f"weak={sc_report.n_sectors_weak}"
                 )
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
                 logger.warning(f"⚠️ Sector rotation update failed: {e}")
                 report["sector_rotation"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1378,7 +1378,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                 }
                 hqc = report["health_v2"]["high_quality_compounders"]
                 logger.info(f"  🏥 HealthV2: {len(ch_states)} symbols | HQC={hqc}")
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
                 logger.warning(f"⚠️ CompanyHealthV2 update failed: {e}")
                 report["health_v2"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1422,11 +1422,11 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                 actions = [v.action for v in bg_analysis["results"].values()]
                 summary = {a: actions.count(a) for a in set(actions)}
                 logger.info(f"  🧠 Governor Bayesian: {summary}")
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
                 logger.warning(f"⚠️ Governor Bayesian update failed: {e}")
                 report["governor_bayesian"] = {"status": f"FAILED: {str(e)}"}
 
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"⚠️ Governor EOD update failed: {e}")
             report["governor"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1444,7 +1444,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                 report["calibration_resolve"] = cal_result
             else:
                 report["calibration_resolve"] = {"status": cal_result["status"]}
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"⚠️ Calibration resolve failed: {e}")
             report["calibration_resolve"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1482,7 +1482,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                     h = csi_eng.explain(sym)
                     key = (h.get("symbol"), h.get("date"))
                     seen[key] = h
-                except Exception as se:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+                except Exception as se:  # noqa: BLE001 - batch isolation: 1 mã lỗi không dừng các mã còn lại
                     logger.warning(f"⚠️ CSI explain {sym}: {se}")
             csi_path.write_text(
                 json.dumps(list(seen.values()), indent=2, ensure_ascii=False, default=str),
@@ -1493,7 +1493,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                 "output": str(csi_path),
             }
             logger.info(f"  🧠 CSI History: {len(seen)} records")
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"⚠️ CSI history update failed: {e}")
             report["csi_history"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1530,7 +1530,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                 "per_model": per_model,
                 "bma_updated": fed_count > 0,
             }
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"⚠️ ModelRegistry feed failed: {e}")
             report["model_registry"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1549,7 +1549,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             }
             if sum(ev_feed.values()) > 0:
                 logger.info(f"  🧮 Evidence feed: {sum(ev_feed.values())} updates")
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"⚠️ Evidence feed failed: {e}")
             report["evidence_feed"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1577,7 +1577,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
             }
             if decayed or retired:
                 logger.info(f"  🕸️ Causal decay={decayed} retired={len(retired)}")
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"⚠️ Causal feed failed: {e}")
             report["causal_feed"] = {"status": f"FAILED: {str(e)}"}
 
@@ -1592,13 +1592,13 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
                 logger.warning(f"  ⛔ CIRCUIT BREAKER KÍCH HOẠT: {cb_state['label']} — {cb_state['reason']}")
             else:
                 logger.info(f"  ✅ Circuit Breaker: {cb_state['label']}")
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
             logger.warning(f"⚠️ Circuit Breaker check failed: {e}")
             report["circuit_breaker"] = {"status": f"FAILED: {str(e)}"}
 
         report["status"] = "SUCCESS"
 
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - top-level orchestrator: bắt mọi lỗi để report FAILED, không crash
         logger.critical(f"💥 DAILY UPDATE THẤT BẠI NGHIÊM TRỌNG: {e}")
         report["status"] = f"FAILED: {str(e)}"
     finally:

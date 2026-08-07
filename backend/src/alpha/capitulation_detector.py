@@ -10,12 +10,15 @@ Sub-modules:
   - AbortionProtocol: freeze → cooldown → graduated exit
 """
 
+import logging
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
@@ -104,8 +107,8 @@ class CapitulationDetector:
             entry = lookup_params(regime)
             if entry["params_hash"] != "conservative_default":
                 return entry.get("capitulation_params", self.D)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except Exception:  # noqa: BLE001 - fallback ladder: params registry fail → default params
+            logger.debug("Tra cứu params thất bại — dùng DEFAULT_PARAMS")
         return dict(self.D)
 
     def compute_p_cap(

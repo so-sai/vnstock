@@ -67,7 +67,7 @@ def aggregate_market() -> dict:
         result["regime"] = regime.get("status", "UNKNOWN")
         result["regime_score"] = regime.get("regime_score", 0.0)
         result["regime_details"] = regime.get("details", {})
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] Market regime read failed: %s", e)
         result["regime_error"] = str(e)
     try:
@@ -76,7 +76,7 @@ def aggregate_market() -> dict:
         result["risk_appetite"] = state.get("risk_appetite", "UNKNOWN")
         result["market_phase"] = state.get("market_phase", "UNKNOWN")
         result["dominant_flow"] = state.get("dominant_flow", "UNKNOWN")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] Market state read failed: %s", e)
     try:
         from src.services.actionable_intelligence_service import get_opportunity_queue
@@ -96,7 +96,7 @@ def aggregate_market() -> dict:
                 if isinstance(o, dict) and "sector" in o:
                     sectors.add(o["sector"])
             result["top_sectors"] = sorted(sectors)[:5]
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - fallback ladder: thử nguồn dự phòng elite_scanner
         logger.warning("[WEEKLY] Opportunity read failed: %s", e)
         try:
             from src.engine.elite_scanner import get_elite_scan
@@ -104,8 +104,8 @@ def aggregate_market() -> dict:
             scan = get_elite_scan()
             if isinstance(scan, list):
                 result["opportunity_count"] = len(scan)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except Exception:  # noqa: BLE001 - fallback ladder: nguồn dự phòng elite_scanner
+            logger.debug("[WEEKLY] Elite scan fallback lỗi (bỏ qua, vẫn còn dữ liệu chính)")
     return result
 
 
@@ -132,7 +132,7 @@ def aggregate_gold() -> dict:
         if isinstance(regime, dict):
             result["regime"] = regime.get("regime", "UNKNOWN")
             result["driver"] = regime.get("driver", "UNKNOWN")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] Gold regime read failed: %s", e)
     try:
         from core.macro.gold_spread_engine import analyze_domestic_premium
@@ -142,7 +142,7 @@ def aggregate_gold() -> dict:
             result["premium_regime"] = premium.get("regime", "NORMAL")
             result["premium_pct"] = premium.get("premium_pct", 0.0)
             result["stress_signal"] = premium.get("regime") in ("SURGE", "DANGER")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] Gold premium read failed: %s", e)
     try:
         from src.services.macro.gold_world_service import fetch_world_gold_live
@@ -151,7 +151,7 @@ def aggregate_gold() -> dict:
         if isinstance(world, dict):
             result["xau_usd"] = world.get("price")
             result["xau_change_pct"] = world.get("change_pct")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] World gold read failed: %s", e)
     return result
 
@@ -184,7 +184,7 @@ def aggregate_trust() -> dict:
                 "promotable": v.can_promote,
                 "failures": v.failures,
             }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] CAO validation read failed: %s", e)
         result["validation_error"] = str(e)
     try:
@@ -201,12 +201,12 @@ def aggregate_trust() -> dict:
                 result["consistency_score"],
                 s.mean_consistency,
             )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] Trust state read failed: %s", e)
     try:
         stats = get_shadow_stats()
         result["decision_count"] = stats.get("decision_logs", 0)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] Shadow stats read failed: %s", e)
     try:
         from src.core.data_quality import QualityScoreEngine
@@ -219,7 +219,7 @@ def aggregate_trust() -> dict:
             "method": dq.integrity_method,
             "recommendation": dq.recommendation,
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         logger.warning("[WEEKLY] DQ monitor read failed: %s", e)
     return result
 
@@ -480,5 +480,5 @@ def _psr_audit(report: dict, trust: dict) -> None:
             snapshot_id=snap.snapshot_id,
             extra={"summary_vi": report.get("summary_vi", "")[:200]},
         )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
         logger.debug("[PSR] Audit skipped: %s", e)

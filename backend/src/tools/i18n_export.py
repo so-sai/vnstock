@@ -16,6 +16,7 @@ Output:
 
 import io
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -88,8 +89,8 @@ if __name__ == "__main__":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except OSError, AttributeError, ValueError:
+                logging.getLogger(__name__).debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     result = export_i18n()

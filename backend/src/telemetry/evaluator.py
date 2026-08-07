@@ -1,6 +1,7 @@
 """Telemetry Evaluator — judges decisions after 5, 10, 20, 30 days"""
 
 import logging
+import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -42,7 +43,7 @@ def _get_vnindex_at_date(target_date: str) -> float:
             ).fetchone()
             if row:
                 return float(row[0])
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("[TELEMETRY] Cannot fetch VNINDEX at %s: %s", target_date, e)
     return 0.0
 
@@ -56,7 +57,7 @@ def _get_vnindex_latest_before(target_date: str) -> float:
             ).fetchone()
             if row:
                 return float(row[0])
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("[TELEMETRY] Cannot fetch VNINDEX before %s: %s", target_date, e)
     return 0.0
 
@@ -115,7 +116,7 @@ def evaluate_single(decision_id: str, horizon_days: int) -> OutcomeRecord:
             scores = json.loads(raw)
             if scores:
                 decompose_attribution(decision_id, horizon_days, scores)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
         logger.warning("[TELEMETRY] Attribution hook failed: %s", e)
 
     logger.info(
@@ -137,7 +138,7 @@ def evaluate_pending():
                 record = evaluate_single(snap["decision_id"], horizon)
                 if record:
                     results.append(record)
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 decision lỗi không dừng các decision khác
                 logger.error("[TELEMETRY] evaluate_single(%s, %d): %s", snap["decision_id"], horizon, e)
     logger.info("[TELEMETRY] Evaluated %d pending outcomes", len(results))
     return results
@@ -147,6 +148,6 @@ def run_telemetry_evaluation():
     logger.info("[TELEMETRY] Running scheduled evaluation...")
     try:
         return evaluate_pending()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - telemetry best-effort: evaluation fail → trả [] không chặn EOD
         logger.error("[TELEMETRY] Evaluation failed: %s", e)
         return []

@@ -370,7 +370,7 @@ class CapitalAllocationEngine:
                     facts[metric] = []
                 facts[metric].append((period, value))
             return facts
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
             return None
 
     @staticmethod

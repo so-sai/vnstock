@@ -12,6 +12,7 @@
 
 import json
 import os
+import sqlite3
 import sys
 from datetime import datetime
 
@@ -47,7 +48,7 @@ def _load_portfolio() -> dict | None:
     try:
         with open(PORTFOLIO_PATH, encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         print(f"❌ [LOI] File JSON bi hong: {e}")
         return None
 
@@ -67,7 +68,7 @@ def _get_latest_price_from_vault(symbol: str) -> float | None:
             )
             row = cursor.fetchone()
             return row[0] if row else None
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return None
 
 

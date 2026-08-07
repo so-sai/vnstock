@@ -51,6 +51,7 @@ PROJECT_ROOT = _hydrate_path()
 
 import json
 import logging
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -118,8 +119,8 @@ def _read_flow_forecast() -> dict:
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as _e:
+            logger.debug("Đọc file dữ liệu đầu ra thất bại (trả {}): %s", _e)
     return {}
 
 
@@ -129,8 +130,8 @@ def _read_capital_displacement() -> dict:
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as _e:
+            logger.debug("Đọc file dữ liệu đầu ra thất bại (trả {}): %s", _e)
     return {}
 
 
@@ -140,8 +141,8 @@ def _read_rsi_regime_report() -> dict:
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as _e:
+            logger.debug("Đọc file dữ liệu đầu ra thất bại (trả {}): %s", _e)
     return {}
 
 
@@ -155,7 +156,7 @@ def _read_rs_data() -> pd.DataFrame:
                 conn,
             )
         return df
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return pd.DataFrame()
 
 
@@ -171,8 +172,8 @@ def _get_regime_from_db() -> dict:
                 "regime_score": float(df["regime_score"].iloc[0]),
                 "breadth_pct": float(df["breadth_pct"].iloc[0]),
             }
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as _e:
+        logger.debug("Đọc regime từ DB thất bại (dùng mặc định): %s", _e)
     return {"status": "UNKNOWN", "regime_score": 0.5, "breadth_pct": 50}
 
 
@@ -317,7 +318,7 @@ def generate_recommendations(target_date: str | None = None) -> dict:
                     **scored,
                 }
             )
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 mã lỗi không dừng toàn bộ scan
             logger.warning(f"Score failed for {symbol}: {e}")
             continue
 
@@ -444,8 +445,8 @@ def _store_recommendations(result: dict):
             """)
             try:
                 conn.execute("ALTER TABLE portfolio_recommendations ADD COLUMN total_scanned INTEGER DEFAULT 0")
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except (sqlite3.Error, TypeError, ValueError) as _e:
+                logger.debug("ALTER TABLE total_scanned đã tồn tại hoặc lỗi (bỏ qua): %s", _e)
             recs = result.get("recommendations", {})
             summary = result.get("summary", {})
             row = {
@@ -466,7 +467,7 @@ def _store_recommendations(result: dict):
             vals = ", ".join(["?"] * len(row))
             conn.execute(f"INSERT OR REPLACE INTO portfolio_recommendations ({cols}) VALUES ({vals})", list(row.values()))
             conn.commit()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning(f"Store recommendations error: {e}")
 
 
@@ -486,8 +487,8 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                    pass
+                except OSError, AttributeError, ValueError:
+                    logger.debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     generate_recommendations()

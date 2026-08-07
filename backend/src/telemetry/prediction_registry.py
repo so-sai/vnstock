@@ -2,6 +2,7 @@
 
 import json
 import logging
+import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -72,7 +73,7 @@ def _get_price_at_date(symbol: str, target_date: str) -> float | None:
             row = conn.execute("SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?", (symbol, target_date)).fetchone()
             if row and row[0] is not None:
                 return float(row[0])
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("[PR] Price lookup fail %s @ %s: %s", symbol, target_date, e)
     return None
 
@@ -88,7 +89,7 @@ def _get_nearest_price(symbol: str, target_date: str, before: bool = True) -> fl
             ).fetchone()
             if row and row[0] is not None:
                 return float(row[0])
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("[PR] Nearest price lookup fail %s @ %s: %s", symbol, target_date, e)
     return None
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import io
 import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -18,8 +19,8 @@ if isinstance(sys.stdout, io.TextIOWrapper):
     if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
             sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except OSError, AttributeError, ValueError:
+            logging.getLogger(__name__).debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
 elif hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -108,7 +109,7 @@ def run_backtest_regime():
             "adx_percentile": round(float(latest.get("adx_percentile", 0)), 3),
             "data_points": len(regime_df),
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         return {"status": "UNKNOWN", "error": str(e)}
 
 
@@ -256,7 +257,7 @@ def main():
         from src.engine.market_structure import analyse_market_structure
 
         structure = analyse_market_structure(lookback=60, top_n=10, verbose=True)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
         structure = None
         if is_vi:
             print(f"  Khong the phan tich cau truc: {e}")
@@ -335,7 +336,7 @@ def main():
         from src.engine.leadership_tracker import calculate_leadership
 
         leadership = calculate_leadership(lookback=60, top_n=15)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
         leadership = None
         print(f"  ⚠️ Lỗi: {e}")
     print()
@@ -346,7 +347,7 @@ def main():
         from src.engine.screener import scan_market
 
         screener_results = scan_market(lookback=252, top_n=20)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
         screener_results = None
         print(f"  ⚠️ Lỗi: {e}")
     print()

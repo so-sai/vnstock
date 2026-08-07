@@ -34,9 +34,12 @@ Schema:
 
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from calibration.prediction_log import get_conn
 
@@ -233,8 +236,8 @@ class EvidenceEngine:
                         (ai, now, nid),
                     )
                 conn_w.commit()
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except (sqlite3.Error, TypeError, ValueError) as _e:
+                logger.debug("Cập nhật applicability evidence lỗi (bỏ qua): %s", _e)
 
         conn = self._get_conn()
         rows = conn.execute("SELECT node_id, reliability, drift_score, applicability FROM evidence_registry").fetchall()
@@ -284,7 +287,7 @@ class EvidenceEngine:
         """
         try:
             from calibration.prediction_log import get_resolved_by_model
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except ImportError, AttributeError, TypeError, KeyError:
             from calibration.prediction_log import get_outcomes_for_calibration as _fallback
 
             # fallback: dùng resolved outcomes tổng, lọc theo model_id
@@ -390,7 +393,7 @@ def get_dynamic_evidence_weights(
         w = ee.get_dynamic_weights(macro_state, sector_phase, entropy)
         if w:
             return w
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
+    except Exception:  # noqa: BLE001, S110 - fallback ladder: EvidenceEngine fail → trọng số uniform
         pass
     # Fallback: uniform
     return {nid: 1.0 / len(EVIDENCE_NODE_IDS) for nid in EVIDENCE_NODE_IDS}
@@ -400,7 +403,7 @@ def print_evidence_report(nodes: list[dict], weights: dict[str, float], lang_mod
     """Print evidence registry report to console."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label

@@ -458,7 +458,7 @@ class ContextualHealthEngine:
             conn.close()
 
             return {r[0]: r[1] for r in rows if r[1] is not None}
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
             return None
 
     def close(self):

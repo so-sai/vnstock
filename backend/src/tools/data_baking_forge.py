@@ -83,7 +83,7 @@ def bake_ticker(symbol: str) -> int:
             save_data_upsert("daily_ohlcv", df, conn)
         logger.info(f"   {symbol}: {len(df)} rows baked successfully.")
         return len(df)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 mã bake lỗi không dừng các mã khác
         logger.error(f"   {symbol}: FAILED — {e}")
         return 0
 

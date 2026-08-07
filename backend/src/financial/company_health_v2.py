@@ -143,7 +143,7 @@ def _quarter_at(target_date: str) -> str:
         y, m, _ = target_date.split("-")
         q = (int(m) - 1) // 3 + 1
         return f"{y}Q{q}"
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except TypeError, ValueError, KeyError, IndexError:
         return ""
 
 
@@ -304,7 +304,7 @@ class CompanyHealthV2:
                 rows = conn.execute(
                     "SELECT period, metric, value FROM financial_facts WHERE symbol=? ORDER BY period", (symbol,)
                 ).fetchall()
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
             return {}
 
         result = defaultdict(list)

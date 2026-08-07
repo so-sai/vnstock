@@ -1010,7 +1010,7 @@ class CausalGraph:
         for e in self.edges.values():
             try:
                 updated = datetime.fromisoformat(e.updated_at or e.created_at)
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except TypeError, ValueError, OverflowError:
                 continue
             elapsed_days = max(0.0, (base - updated).total_seconds() / 86400.0)
             if elapsed_days <= 0.0 or e.half_life <= 0.0:
@@ -1192,7 +1192,7 @@ def print_causal_graph_report(
     """Print propagation report."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label
@@ -1233,7 +1233,7 @@ def trace_report(
     """Print trace_path report."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label
@@ -1271,7 +1271,7 @@ def edge_summary(graph: CausalGraph, lang_mode: str = "full"):
     """Print all edges grouped by archetype."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
 
         def localize_label(label, m="full"):
             return label

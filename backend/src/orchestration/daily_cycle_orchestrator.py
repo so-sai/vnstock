@@ -154,7 +154,7 @@ class ExecutionGraph:
                     out = {}
                 out = dict(out)
                 out.setdefault("status", "OK")
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 node lỗi không dừng các node khác
                 out = {"status": "FAILED", "error": f"{type(e).__name__}: {e}"}
             results[nid] = out
             ctx[nid] = out

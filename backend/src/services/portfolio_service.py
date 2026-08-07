@@ -6,6 +6,7 @@ Quản lý danh mục + Shadow Tracker reconciliation.
 import json
 import logging
 import os
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -68,7 +69,7 @@ def _get_latest_price(symbol: str) -> float | None:
             )
             if not row.empty:
                 return float(row.iloc[0]["adj_close"])
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"Error fetching price for {symbol}: {e}")
     return None
 

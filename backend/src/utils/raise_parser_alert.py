@@ -60,7 +60,7 @@ def raise_parser_alert(
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception:  # noqa: BLE001 - guard decorator: bắt mọi lỗi để báo alert, không crash
                 alert = PTCK_ALERT_FMT.format(
                     source=source,
                     message=message,

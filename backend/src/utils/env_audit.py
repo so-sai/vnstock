@@ -52,7 +52,7 @@ def audit_environment():
 
         print(f"   ✅ src.config      | OK (DATA_DIR: {src.config.DATA_DIR})")
         print("   ✅ src.database    | OK")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
         print(f"   ❌ src modules      | FAIL: {e}")
 
     # 3. Check Database

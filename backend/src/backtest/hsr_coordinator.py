@@ -171,7 +171,7 @@ def build_historical_snapshot(
     try:
         board = merge_decisions(target_date=target_date)
         regime_status = board.get("market_status", "UNKNOWN")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 ngày lỗi không dừng toàn bộ replay
         logger.warning(f"  [HSR] decision_engine failed for {target_date}: {e}")
         return {"date": target_date, "status": "ENGINE_FAILURE", "error": str(e)}
 
@@ -180,7 +180,7 @@ def build_historical_snapshot(
         structure = analyse_market_structure(target_date=target_date, verbose=False)
         if structure is None:
             structure = {"lcr_pct": 30.0, "bdi_signal": "CAN_BANG", "bdi_pct": 0.0}
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 nguồn lỗi không dừng snapshot
         logger.warning(f"  [HSR] market_structure failed: {e}")
         structure = {"lcr_pct": 30.0, "bdi_signal": "CAN_BANG", "bdi_pct": 0.0}
 
@@ -193,7 +193,7 @@ def build_historical_snapshot(
             if pulse is None:
                 pulse = {"health_score_ma20": 0.0, "total_active": 0}
             breadth_health = pulse.get("health_score_ma20", 0.0) / 100.0
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 nguồn lỗi không dừng snapshot
             logger.warning(f"  [HSR] breadth_engine failed: {e}")
             breadth_health = 0.0
             pulse = {}
@@ -207,7 +207,7 @@ def build_historical_snapshot(
         else:
             flow_label = _derive_flow_status(forecast)
             flow_bias_score = _flow_status_to_bias_score(flow_label)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 nguồn lỗi không dừng snapshot
         logger.warning(f"  [HSR] flow_forecast failed: {e}")
         flow_label = "UNKNOWN"
         flow_bias_score = 0.4
@@ -220,7 +220,7 @@ def build_historical_snapshot(
                 target_date=target_date,
                 preloaded_df=preloaded_df,
             )
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 nguồn lỗi không dừng snapshot
             logger.warning(f"  [HSR] rsi_engine failed: {e}")
 
     # ── Step 6: Pure Presentation Layer ─────────────────────────────────

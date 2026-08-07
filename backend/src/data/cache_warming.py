@@ -11,6 +11,7 @@ Luồng:
 """
 
 import logging
+import sqlite3
 import time
 from datetime import datetime, timedelta
 
@@ -84,7 +85,7 @@ def warm_single(symbol: str, target_date: str) -> bool:
     try:
         upsert_freshness(symbol, target_date, source="API", api_status="OK")
         return True
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.debug(f"[CACHE_WARM] {symbol}: {e}")
         return False
 
@@ -106,7 +107,7 @@ def _prefetch_batch(symbols: list[str], target_date: str) -> dict[str, int]:
                 stats["fetched"] += 1
             else:
                 stats["skipped"] += 1
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 mã lỗi không dừng các mã khác
             logger.warning(f"[CACHE_WARM] FAIL {sym}: {e}")
             stats["failed"] += 1
     return stats

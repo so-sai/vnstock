@@ -3,6 +3,7 @@
 import json
 import logging
 import math
+import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -57,7 +58,7 @@ def _get_vnindex_level_at(entry_date: str, lookback: int = 0) -> float:
                 ).fetchone()
             if row:
                 return float(row[0])
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("[ATTRIBUTION] Cannot fetch VNINDEX: %s", e)
     return 0.0
 
@@ -375,7 +376,7 @@ def run_attribution_for_outcomes(outcome_records: list) -> int:
         try:
             decompose_attribution(did, horizon, scores)
             count += 1
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception as e:  # noqa: BLE001 - batch isolation: 1 decision lỗi không dừng các decision khác
             logger.error("[ATTRIBUTION] Failed for %s/%dd: %s", did, horizon, e)
     if count:
         update_engine_performance(window_days=30)

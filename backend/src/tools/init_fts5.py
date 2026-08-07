@@ -28,8 +28,8 @@ if isinstance(sys.stdout, io.TextIOWrapper):
     if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
             sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except OSError, AttributeError, ValueError:
+            logging.getLogger(__name__).debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
 elif hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -127,7 +127,7 @@ def verify_fts5(verbose: bool = True) -> bool:
                     logger.info(f"  {status} Query '{q}' → {len(rows)} kết quả: {[r[0] for r in rows]}")
                 if not ok:
                     all_ok = False
-            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception as e:  # noqa: BLE001 - batch isolation: 1 query lỗi không dừng các query khác
                 logger.error(f"  ❌ Query '{q}' thất bại: {e}")
                 all_ok = False
 
@@ -157,7 +157,7 @@ def main():
                 print("⚠️ FTS5 đã init nhưng verify chưa đủ — kiểm tra log ở trên.")
         else:
             print(f"✅ Đã insert {inserted} dòng vào symbol_fts.")
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - top-level orchestrator: bắt mọi lỗi để report thất bại
         logger.error(f"Init FTS5 thất bại: {e}")
         sys.exit(1)
 

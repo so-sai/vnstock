@@ -92,8 +92,8 @@ def _drop_legacy_lock_table():
             conn.commit()
         _LEGACY_CLEANUP_DONE = True
         logger.info("[ACID] Đã xoá bảng legacy scheduler_locks.")
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass  # non-blocking; lần sau sẽ thử lại
+    except (sqlite3.Error, TypeError, ValueError) as _e:
+        logger.debug("Drop bảng legacy scheduler_locks lỗi (non-blocking, thử lại lần sau): %s", _e)
 
 
 class ResourceLockedException(DataAccessError):
@@ -178,7 +178,7 @@ class TelemetryLogger:
             self._fh.write(safe_json_dumps(rec) + "\n")
             self._fh.flush()
         except (
-            Exception  # noqa: BLE001 - telemetry không được làm sập luồng chính
+            Exception  # noqa: BLE001 - telemetry best-effort: không được làm sập luồng chính
         ) as e:
             logger.warning(f"[TELEMETRY] emit thất bại ({self.component}): {e}")
 
@@ -266,8 +266,8 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1", time
             try:
                 if not committed:
                     conn.execute("ROLLBACK")
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except (sqlite3.Error, TypeError, ValueError) as _e:
+                logger.debug("ROLLBACK thất bại sau lỗi OperationalError (bỏ qua): %s", _e)
             # Kiểm tra "interrupted" từ kill-switch TRƯỚC khi làm bitmask
             err_str = str(e).lower()
             if "interrupted" in err_str:
@@ -329,8 +329,8 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1", time
             try:
                 if not committed:
                     conn.execute("ROLLBACK")
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except (sqlite3.Error, TypeError, ValueError) as _e:
+                logger.debug("ROLLBACK thất bại trong nhánh lỗi chung (bỏ qua): %s", _e)
             logger.error(f"[ACID] ROLLBACK as_of={as_of_date} corr={corr.correlation_id}: {e}")
             exception_telemetry.emit(
                 "eod_rollback",

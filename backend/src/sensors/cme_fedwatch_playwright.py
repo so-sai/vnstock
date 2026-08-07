@@ -118,7 +118,7 @@ def _extract_fedwatch_from_table(table_el) -> tuple[float, float, str]:
             implied_rate = float(rate_match.group(2))
 
         return (implied_rate, hike_prob, meeting_label)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.debug(f"CME FedWatch table parse failed: {e}")
         return (DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING)
 
@@ -169,7 +169,7 @@ async def _fetch_cme_fedwatch_async() -> tuple[float, float, str]:
             # Wait for the probabilities table to render (JS SPA).
             try:
                 await page.wait_for_selector(".cmeTable", timeout=TABLE_WAIT_TIMEOUT_MS)
-            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+            except Exception:  # noqa: BLE001 - external provider resilience: chờ render .cmeTable fail → trả default
                 logger.warning("CME FedWatch: .cmeTable not found after render wait")
                 return (DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING)
 
@@ -180,15 +180,15 @@ async def _fetch_cme_fedwatch_async() -> tuple[float, float, str]:
     except TimeoutError:
         logger.warning("CME FedWatch PW: navigation timeout")
         return (DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - external provider resilience: Playwright fail → trả default
         logger.warning(f"CME FedWatch PW fetch failed: {e}")
         return (DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING)
     finally:
         if browser is not None:
             try:
                 await browser.close()
-            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-                pass
+            except Exception:  # noqa: BLE001 - cleanup best-effort: close browser lỗi không ảnh hưởng kết quả
+                logger.debug("Đóng Chromium browser thất bại (bỏ qua)")
 
 
 def fetch_cme_fedwatch() -> tuple[float, float, str, str]:

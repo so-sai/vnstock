@@ -105,7 +105,7 @@ def build_registry() -> dict:
                     bucket["trigger_machine"] += 1
                 bucket["confidence_sum"] += entry.get("confidence", 0.0)
                 bucket["delta_sa_sum"] += entry.get("delta_sa", 0.0)
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         logger.warning("[REGISTRY] Read audit failed: %s", e)
 
     registry = {}
@@ -157,8 +157,8 @@ def load_or_build() -> dict:
     if REGISTRY_PATH.exists():
         try:
             return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as _e:
+            logger.debug("Đọc params_registry.json thất bại (build lại): %s", _e)
     data = build_registry()
     save_registry(data)
     return data

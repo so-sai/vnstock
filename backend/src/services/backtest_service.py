@@ -4,6 +4,7 @@ Time Kernel — Kết nối Backtest Engine và Stress Test.
 """
 
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -59,7 +60,7 @@ def get_backtest_results(model: str = "A", start_date: str = "2023-01-01", end_d
 
         results = _run_simple_backtest(df, model)
         return results
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.error(f"Backtest failed: {e}")
         return {"error": str(e)}
 
@@ -230,7 +231,7 @@ def get_stress_test_summary(start_date: str = "2022-01-01", end_date: str = "202
             "recoveryRate": round(results_df["recovered"].mean() * 100, 1),
             "worstPerformers": results_df.nsmallest(10, "maxDrawdown2022").to_dict(orient="records"),
         }
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.error(f"Stress test failed: {e}")
         return {"error": str(e)}
 

@@ -1,5 +1,6 @@
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -49,7 +50,7 @@ def get_heatmap_data(top_n: int = 50, history_days: int = 10) -> list:
             """,
                 conn,
             )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.error(f"Error fetching OHLCV for heatmap: {e}")
         return []
 
@@ -152,7 +153,7 @@ def get_breadth_stacked_history(limit: int = 60) -> list:
                 conn,
                 params=(min_date,),
             )
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.error(f"Error fetching OHLCV for breadth: {e}")
         return []
 
@@ -205,6 +206,6 @@ def _load_rs_data() -> dict:
         with open(rs_path, encoding="utf-8") as f:
             data = json.load(f)
         return {item["symbol"]: item for item in data}
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         logger.error(f"Error loading RS data: {e}")
         return {}

@@ -57,15 +57,15 @@ class InMemoryDB:
             if not df.empty:
                 df.to_sql("regime_history", self._conn, if_exists="replace", index=False)
                 logger.info(f"  [Kernel] Loaded {len(df):,} rows from regime_history")
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError:
             logger.info("  [Kernel] regime_history table not available — will be created by engines")
 
     def _create_indexes(self):
         try:
             self._conn.execute("CREATE INDEX IF NOT EXISTS idx_ohlcv_date ON daily_ohlcv(date)")
             self._conn.execute("CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol ON daily_ohlcv(symbol)")
-        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-            pass
+        except (sqlite3.Error, TypeError, ValueError) as _e:
+            logger.debug("Tạo index in-memory thất bại (bỏ qua): %s", _e)
 
     @contextmanager
     def patch_get_connection(self):

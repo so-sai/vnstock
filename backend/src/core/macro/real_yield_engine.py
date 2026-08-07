@@ -80,7 +80,7 @@ def _fetch_tip_dividend_yield() -> float | None:
         if info.get("yield") is not None:
             return round(float(info["yield"]) * 100, 3)
         return None
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except Exception as e:  # noqa: BLE001 - external provider resilience: yfinance TIP fail → trả None
         logger.warning(f"Cannot fetch TIP dividend yield: {e}")
         return None
 

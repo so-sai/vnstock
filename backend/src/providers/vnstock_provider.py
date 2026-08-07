@@ -47,7 +47,7 @@ class VnstockProvider(FinancialProvider):
         try:
             self._import()
             return True
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock chưa cài/fail → báo unavailable
             return False
 
     def _finance(self, symbol: str):
@@ -73,7 +73,7 @@ class VnstockProvider(FinancialProvider):
             if limit is not None:
                 return finance._get_financial_report("income_statement", limit=limit, **kwargs)
             return finance.income_statement(**kwargs)
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
             return None
 
     def balance_sheet(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
@@ -83,7 +83,7 @@ class VnstockProvider(FinancialProvider):
             if limit is not None:
                 return finance._get_financial_report("balance_sheet", limit=limit, **kwargs)
             return finance.balance_sheet(**kwargs)
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
             return None
 
     def cashflow(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
@@ -93,7 +93,7 @@ class VnstockProvider(FinancialProvider):
             if limit is not None:
                 return finance._get_financial_report("cash_flow", limit=limit, **kwargs)
             return finance.cash_flow(**kwargs)
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
             return None
 
     # ── Market data ────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ class VnstockProvider(FinancialProvider):
             if start and end:
                 return q.history(start=start, end=end, **kwargs)
             return q.history(**kwargs)
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
             return None
 
     # ── Company info ───────────────────────────────────────────────────
@@ -118,7 +118,7 @@ class VnstockProvider(FinancialProvider):
             Company = self._import()["Company"]
             info = Company(symbol=symbol, source=self.source)
             return {"symbol": symbol, "raw": info}
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
             return None
 
     def trading_stats(self, symbol: str, **kwargs: Any) -> pd.DataFrame | None:
@@ -134,7 +134,7 @@ class VnstockProvider(FinancialProvider):
                 symbol=symbol,
                 show_log=kwargs.get("show_log", False),
             ).trading_stats(**{k: v for k, v in kwargs.items() if k != "show_log"})
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
             return None
 
     def price_board(self, symbols: list[str], **kwargs: Any) -> pd.DataFrame | None:
@@ -147,7 +147,7 @@ class VnstockProvider(FinancialProvider):
             Trading = self._import()["Trading"]
             t = Trading(source=self.source, random_agent=kwargs.get("random_agent", True))
             return t.price_board(symbols)
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
             return None
 
     def symbols(self, **kwargs: Any) -> list[str] | None:
@@ -158,7 +158,7 @@ class VnstockProvider(FinancialProvider):
                 col = "symbol" if "symbol" in df.columns else df.columns[0]
                 return df[col].dropna().astype(str).tolist()
             return None
-        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
             return None
 
     # ── Audit ──────────────────────────────────────────────────────────

@@ -97,7 +97,7 @@ def log_transition(
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
             f.flush()
             os.fsync(f.fileno())
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (OSError, TypeError, ValueError) as e:
         logger.warning("[AUDIT] Write failed: %s", e)
 
 
@@ -118,7 +118,7 @@ def read_entries(limit: int | None = None) -> list[dict]:
                         valid.append(entry)
                 except json.JSONDecodeError, ValueError:
                     continue
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         logger.warning("[AUDIT] Read failed: %s", e)
     return valid[-limit:] if limit else valid
 
@@ -154,7 +154,7 @@ def integrity_check() -> tuple[int, int]:
                     last_valid_pos = pos  # pos at start of corrupt line
                     break  # corruption only at end
                 pos = f.tell()
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         logger.warning("[AUDIT] Integrity check failed: %s", e)
         return total, corrupt
 
@@ -164,7 +164,7 @@ def integrity_check() -> tuple[int, int]:
             with open(str(AUDIT_PATH), "r+", encoding="utf-8") as f:
                 f.truncate(last_valid_pos)
             logger.info("[AUDIT] Truncated %d corrupt line(s) at end of file", corrupt)
-        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+        except (OSError, TypeError, ValueError) as e:
             logger.warning("[AUDIT] Truncate failed: %s", e)
 
     return total - corrupt, corrupt

@@ -132,8 +132,8 @@ def run_dry_run_attribution(
     """
     try:
         initialize_shadow_database()
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except Exception:  # noqa: BLE001 - shadow storage best-effort: init DB fail → tiếp tục dry-run
+        logger.debug("Khởi tạo shadow database thất bại (bỏ qua) — dry-run attribution")
     summaries = []
     for ablation in ablations or []:
         perturbations = compute_attribution_perturbation(decision_id, horizon_days, engine_scores, market_return, ablation)
@@ -176,8 +176,8 @@ def batch_dry_run_from_logs() -> int:
 
     try:
         initialize_shadow_database()
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except Exception:  # noqa: BLE001 - shadow storage best-effort: init DB fail → tiếp tục batch
+        logger.debug("Khởi tạo shadow database thất bại (bỏ qua) — batch dry-run")
     from src.shadow_cao.storage import (
         get_ablations_for_decision,
         save_outcome_log,

@@ -199,7 +199,7 @@ def _load_alpha_attribution(path: Path | None = None) -> dict[str, dict]:
                 result["FLOW"] = result["STRUCTURE"].copy()
                 result["BREADTH"] = result["STRUCTURE"].copy()
         return result
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
         logger.warning("Failed to load alpha attribution: %s", e)
         return {}
 
@@ -212,8 +212,8 @@ def _read_shadow_log_from_module() -> list[dict]:
         log = get_shadow_log()
         if log:
             return log
-    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
-        pass
+    except ImportError, AttributeError, TypeError, KeyError:
+        logger.debug("Shadow log module chưa có dữ liệu — fallback telemetry.db")
     return _build_shadow_from_telemetry_db()
 
 
@@ -395,7 +395,7 @@ def _build_shadow_from_telemetry_db() -> list[dict]:
 
         conn.close()
         return entries
-    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning("Failed to build shadow entries from telemetry.db: %s", e)
         return []
 
@@ -459,7 +459,7 @@ def _compute_performance_drift(
 
         slope = np.polyfit(xs, ys, 1)[0]
         return round(-slope * 180, 4)
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except TypeError, ValueError, AttributeError, KeyError, IndexError, FloatingPointError:
         return None
 
 
@@ -580,7 +580,7 @@ def _get_db_path() -> Path:
         from src.config import DATA_DIR
 
         return Path(DATA_DIR) / "telemetry.db"
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except ImportError, AttributeError, TypeError, KeyError:
         return Path(__file__).resolve().parent.parent / "data" / "telemetry.db"
 
 

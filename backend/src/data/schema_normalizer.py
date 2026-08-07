@@ -8,6 +8,7 @@ Tự động phát hiện và quy chuẩn độ lệch đơn vị (VND/nghìn/tr
 """
 
 import logging
+import sqlite3
 from typing import Any
 
 from src.database.db_core import get_connection
@@ -152,7 +153,7 @@ def _load_ca_cache():
         _ca_cache_loaded = True
         if rows:
             logger.info(f"[CA_CACHE] Loaded {len(rows)} events, {len(_ca_cache)} symbols")
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         _ca_cache_loaded = True
 
 
@@ -196,7 +197,7 @@ def _get_adjusted_reference(symbol: str, ref_date: str) -> float | None:
             return None
         p = float(row[0])
         ref_date = ref_date or str(row[1] or "")
-    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return None
 
     # Load cache + lấy events trong window [-30, +1] ngày
