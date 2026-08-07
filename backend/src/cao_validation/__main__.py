@@ -1,4 +1,4 @@
-﻿"""CAO Trust Bridge — CLI Entry Point
+"""CAO Trust Bridge — CLI Entry Point
 
 Usage:
     python -m src.cao_validation                  # Run full validation
@@ -6,13 +6,14 @@ Usage:
     python -m src.cao_validation --check-matrix    # Show promotion matrix
     python -m src.cao_validation --json            # Machine-readable output
 """
+
 import json
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -25,6 +26,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -57,10 +59,12 @@ def main():
             if not states:
                 print("No trust states accumulated yet.")
             for regime, s in states.items():
-                print(f"  {regime}: confidence={s.confidence:.4f} "
-                      f"consistency={s.mean_consistency:.4f} "
-                      f"samples={s.total_samples} drift={s.drift_score:.4f} "
-                      f"{'SHIFT' if s.structural_shift else 'stable'}")
+                print(
+                    f"  {regime}: confidence={s.confidence:.4f} "
+                    f"consistency={s.mean_consistency:.4f} "
+                    f"samples={s.total_samples} drift={s.drift_score:.4f} "
+                    f"{'SHIFT' if s.structural_shift else 'stable'}"
+                )
         return
     if check_matrix:
         matrix = get_matrix()
@@ -81,9 +85,11 @@ def main():
             print("Regime Promotion Matrix:")
             for r, t in matrix.matrix.items():
                 frozen = " [FROZEN]" if matrix.is_frozen(r) else ""
-                print(f"  {r}: consistency>={t.required_consistency} "
-                      f"samples>={t.required_samples} "
-                      f"strictness={t.strictness}{frozen}")
+                print(
+                    f"  {r}: consistency>={t.required_consistency} "
+                    f"samples>={t.required_samples} "
+                    f"strictness={t.strictness}{frozen}"
+                )
         return
     if not quiet:
         print("=" * 56)
@@ -91,22 +97,31 @@ def main():
         print("=" * 56)
     report = run_full_validation()
     if json_output:
-        print(json.dumps({
-            "timestamp": report.timestamp,
-            "overall_promotable": report.overall_promotable,
-            "summary": report.summary,
-            "verdicts": [
-                {"regime": v.regime, "can_promote": v.can_promote,
-                 "failures": v.failures}
-                for v in report.promotion_verdicts
-            ],
-            "distribution_tests": [
-                {"regime": t.regime, "test": t.test_name,
-                 "equivalent": t.equivalent, "statistic": t.statistic,
-                 "p_value": t.p_value}
-                for t in report.distribution_tests
-            ],
-        }, indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "timestamp": report.timestamp,
+                    "overall_promotable": report.overall_promotable,
+                    "summary": report.summary,
+                    "verdicts": [
+                        {"regime": v.regime, "can_promote": v.can_promote, "failures": v.failures}
+                        for v in report.promotion_verdicts
+                    ],
+                    "distribution_tests": [
+                        {
+                            "regime": t.regime,
+                            "test": t.test_name,
+                            "equivalent": t.equivalent,
+                            "statistic": t.statistic,
+                            "p_value": t.p_value,
+                        }
+                        for t in report.distribution_tests
+                    ],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
     else:
         print()
         for v in report.promotion_verdicts:
@@ -118,9 +133,11 @@ def main():
             print("  Distribution Tests:")
             for t in report.distribution_tests:
                 icon = "[EQ]" if t.equivalent else "[DIFF]"
-                print(f"    {icon} {t.regime} {t.test_name}: "
-                      f"D={t.statistic:.4f} p={t.p_value:.4f} "
-                      f"(n_shadow={t.n_shadow} n_real={t.n_real})")
+                print(
+                    f"    {icon} {t.regime} {t.test_name}: "
+                    f"D={t.statistic:.4f} p={t.p_value:.4f} "
+                    f"(n_shadow={t.n_shadow} n_real={t.n_real})"
+                )
         print()
         print(f"  SUMMARY: {report.summary}")
 

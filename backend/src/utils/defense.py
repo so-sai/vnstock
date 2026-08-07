@@ -27,6 +27,8 @@ import threading
 import time
 from pathlib import Path
 
+from src.core.errors import ProviderError
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,7 +89,7 @@ class CircuitBreaker:
                     cls._memory_state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
                 else:
                     cls._memory_state = {}
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 logger.warning(f"[CircuitBreaker] Không đọc được state file: {e}")
                 cls._memory_state = {}
             cls._initialized = True
@@ -109,7 +111,7 @@ class CircuitBreaker:
             try:
                 if STATE_FILE.exists():
                     STATE_FILE.unlink()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 logger.warning(f"[CircuitBreaker] Không xóa được state file rỗng: {e}")
             return
 
@@ -127,11 +129,11 @@ class CircuitBreaker:
                 f.flush()
                 os.fsync(f.fileno())  # ép data xuống disk trước khi replace
             os.replace(tmp_path, STATE_FILE)  # atomic rename
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             # Nếu replace fail, dọn file tạm để không rác
             try:
                 Path(tmp_path).unlink(missing_ok=True)
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
             logger.error(f"[CircuitBreaker] Không ghi được state file (atomic): {e}")
 
@@ -223,7 +225,7 @@ class CircuitBreaker:
 
 
 # ── Public guard helper ────────────────────────────────────
-class APIBlockedError(Exception):
+class APIBlockedError(ProviderError):
     """Raise khi breaker đang trip. Caller phải dùng fallback."""
 
     def __init__(self, source: str, remaining: int):

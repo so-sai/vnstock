@@ -52,7 +52,7 @@ async def get_telemetry_snapshots(limit: int = Query(20, ge=1, le=200)):
     try:
         initialize_telemetry_database()
         return localize_output(get_all_snapshots(limit))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -61,7 +61,7 @@ async def get_telemetry_stats():
     try:
         initialize_telemetry_database()
         return localize_output(get_snapshot_stats())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -76,7 +76,7 @@ async def get_telemetry_decision(decision_id: str):
         return localize_output({"snapshot": snap, "outcomes": outcomes})
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -96,7 +96,7 @@ async def evaluate_decision(
         return localize_output(record)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -106,7 +106,7 @@ async def evaluate_all_pending():
         initialize_telemetry_database()
         results = evaluate_pending()
         return localize_output({"evaluated": len(results), "horizons": HORIZONS})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -126,7 +126,7 @@ async def get_decision_attribution(
         return localize_output(summary)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -143,7 +143,7 @@ async def get_attribution_summary_vi(
         return localize_output(summary.model_dump())
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -152,7 +152,7 @@ async def get_engine_perf(engine: str = Query(None, description="Filter by engin
     try:
         initialize_telemetry_database()
         return localize_output(get_engine_performance(engine))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -162,7 +162,7 @@ async def refresh_engine_perf(window: int = Query(30, ge=7, le=90)):
         initialize_telemetry_database()
         results = refresh_perf(window_days=window)
         return localize_output({"updated": len(results), "window_days": window})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -194,7 +194,7 @@ async def driver_reputation(
                 regime_tag=regime_tag,
             )
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -203,7 +203,7 @@ async def reputation_summary(window_days: int = Query(90, ge=30, le=180)):
     """Aggregated reputation: top driver, regime breakdown, full driver list."""
     try:
         return localize_output(get_reputation_summary(window_days=window_days))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -213,5 +213,5 @@ async def refresh_reputation():
     try:
         n = _update_driver_reputation()
         return localize_output({"rows_updated": n})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))

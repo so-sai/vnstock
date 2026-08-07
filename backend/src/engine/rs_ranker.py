@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from pathlib import Path
@@ -26,6 +27,8 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+logger = logging.getLogger(__name__)
+
 if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
     import io
 
@@ -33,8 +36,8 @@ if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except (OSError, AttributeError, ValueError) as e:
+                logger.debug("[RS] stdout reconfigure failed: %s", e)
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import json
@@ -168,7 +171,7 @@ def calculate_rs_score():
     top_10 = result.head(10)
     for _, row in top_10.iterrows():
         print(
-            f"⭐ {row['symbol']:<6} | RS: {row['rs_rating']:>2} | Giá: {row['price']:>8,.0f} | Vol 20D: {row['avg_vol_20d'] / 1000:>6.1f}K"
+            f"⭐ {row['symbol']:<6} | RS: {row['rs_rating']:>2} | Giá: {row['price']:>8,.0f} | Vol 20D: {row['avg_vol_20d'] / 1000:>6.1f}K"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
 
     return result

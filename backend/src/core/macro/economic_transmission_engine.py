@@ -21,6 +21,7 @@ Usage:
 
 import json
 import logging
+import sqlite3
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -226,7 +227,7 @@ class EconomicTransmissionEngine:
             with get_connection() as conn:
                 rows = conn.execute(sql).fetchall()
             return {r[0]: r[1] for r in rows}
-        except Exception as e:
+        except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             logger.warning(f"Macro fetch failed: {e}")
             return {}
 

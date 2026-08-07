@@ -14,6 +14,7 @@ Canonical standard: icb_name2 (19 Vietnamese supersectors).
 
 import json
 import logging
+import sqlite3
 import sys
 from collections import defaultdict
 from dataclasses import asdict, dataclass
@@ -232,7 +233,8 @@ class SectorStateEngine:
                 conn,
                 params=symbols,
             )
-        except Exception:
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.warning("_compute_momentum: không đọc được dữ liệu — fallback 0.0")
             return 0.0
         if df.empty:
             return 0.0
@@ -271,7 +273,7 @@ class SectorStateEngine:
                 fin_conn.close()
                 if not df.empty:
                     return float(np.clip(df["score"].mean(), -1.0, 1.0))
-        except Exception as e:
+        except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             logger.debug(f"Health fetch failed for sector: {e}")
         return 0.0
 
@@ -308,7 +310,7 @@ class SectorStateEngine:
 
             ratio = sector_vol / market_vol if market_vol > 0 else 0
             return float(np.clip(np.log1p(ratio) / 5.0, -1.0, 1.0))
-        except Exception as e:
+        except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             logger.debug(f"Flow fetch failed: {e}")
             return 0.0
 
@@ -338,7 +340,7 @@ class SectorStateEngine:
             return float(np.clip(-df["score"].mean(), -1.0, 1.0))
             # Negative: z-score < 0 = cheap → positive valuation score
             # Positive: z-score > 0 = expensive → negative valuation score
-        except Exception as e:
+        except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             logger.debug(f"Valuation fetch failed: {e}")
             return 0.0
 
@@ -372,7 +374,8 @@ class SectorStateEngine:
             sec_ret = sec.groupby("date")["close"].mean().pct_change().tail(20).mean()
             rs = (sec_ret - vni_ret) if vni_ret is not None else 0
             return float(np.clip(rs * 20, -1.0, 1.0))  # scale
-        except Exception:
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.debug("_compute_rs_vs_index: không tính được RS — fallback 0.0")
             return 0.0
 
     # ── Phase Classification ───────────────────────────────────────
@@ -443,7 +446,7 @@ class SectorStateEngine:
             for _, row in df.iterrows():
                 mapping[row["icb_name2"]].append(row["symbol"])
             return dict(mapping)
-        except Exception as e:
+        except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             logger.error(f"Failed to load ICB mapping: {e}")
             return {}
 

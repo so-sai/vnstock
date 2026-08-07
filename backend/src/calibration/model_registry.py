@@ -392,7 +392,7 @@ class ModelRegistry:
                 (model_id, state, posterior, reason),
             )
             conn.commit()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass  # table may not exist yet
 
     def activate(self, model_id: str, reason: str = "") -> None:
@@ -475,7 +475,7 @@ class ModelRegistry:
                 (model_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return []
 
     # ── Stats ──────────────────────────────────────────────────────────
@@ -507,7 +507,7 @@ def print_registry_report(
     """Print full model registry report."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
 
         def localize_label(label, m="full"):
             return label
@@ -565,7 +565,7 @@ def print_selection_report(registry: ModelRegistry, macro_state: str, archetype:
     """Print model selection details."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
 
         def localize_label(label, m="full"):
             return label

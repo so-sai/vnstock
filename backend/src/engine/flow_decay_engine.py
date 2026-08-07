@@ -43,6 +43,7 @@ PROJECT_ROOT = _hydrate_path()
 
 import io
 import logging
+import sqlite3
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -219,7 +220,7 @@ def _resolve_current_regime() -> str:
         finally:
             sys.stdout = old_stdout
         return verdict.get("status", DEFAULT_REGIME)
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.warning(f"Regime detection failed for decay modulation: {e}")
         return DEFAULT_REGIME
 
@@ -508,7 +509,7 @@ def get_decayed_foreign_summary(top_n: int = 10, regime: str | None = None) -> d
             net = result.get("net_value_decayed", 0.0)
             accumulations[sym] = round(net, 2)
             total_decayed += net
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"Foreign decay failed for {sym}: {e}")
             accumulations[sym] = 0.0
 
@@ -728,8 +729,8 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
-                    pass
+                except OSError, AttributeError, ValueError:
+                    logger.debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     summary = get_decayed_flow_summary()

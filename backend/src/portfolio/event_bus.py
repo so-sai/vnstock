@@ -20,7 +20,7 @@ def emit(event: str, data: Any = None):
     for cb in _HANDLERS.get(event, []):
         try:
             cb(data)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
 

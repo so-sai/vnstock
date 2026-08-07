@@ -106,7 +106,7 @@ def verify_cagl(
         detector = ShadowDetector()
         phantom = detector.detect_undocumented(runtime, openapi_paths)
         result.findings.extend(phantom)
-    except Exception:
+    except ImportError, AttributeError, TypeError, ValueError, KeyError:
         logger.warning("[CAGL] OpenAPI introspection failed, skipping phantom detection")
 
     # Report

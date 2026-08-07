@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from pathlib import Path
@@ -27,8 +28,8 @@ if sys.platform == "win32":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except OSError, AttributeError, ValueError:
+                logging.getLogger(__name__).debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import numpy as np
@@ -290,7 +291,7 @@ def calculate_leadership(lookback=60, top_n=15, min_value=1e9):
     total_idx_return = (idx_end["idx_close"] / idx_start["idx_close"] - 1) * 100
 
     print(
-        f"\nKỳ phân tích: {daily_value['date'].min().strftime('%Y-%m-%d')} → {daily_value['date'].max().strftime('%Y-%m-%d')} ({lookback} phiên)"
+        f"\nKỳ phân tích: {daily_value['date'].min().strftime('%Y-%m-%d')} → {daily_value['date'].max().strftime('%Y-%m-%d')} ({lookback} phiên)"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     )
     print(f"VNINDEX: {idx_start['idx_close']:.1f} → {idx_end['idx_close']:.1f} ({total_idx_return:+.1f}%)")
     print(f"Số mã đủ điều kiện (value >= {min_value / 1e9:.0f}B VND): {len(leader_stats)}")
@@ -305,7 +306,7 @@ def calculate_leadership(lookback=60, top_n=15, min_value=1e9):
         return "NGHICH PHA"
 
     print(
-        f"\n{'Xếp hạng':<8} {'Mã':<6} {'Giá':>8} {'% Giá trị':>9} {'Đóng góp':>9} {'Tương quan':>10} {'RS 20D':>7} {'Vai trò':>15}"
+        f"\n{'Xếp hạng':<8} {'Mã':<6} {'Giá':>8} {'% Giá trị':>9} {'Đóng góp':>9} {'Tương quan':>10} {'RS 20D':>7} {'Vai trò':>15}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     )
     print("-" * 68)
 
@@ -315,7 +316,7 @@ def calculate_leadership(lookback=60, top_n=15, min_value=1e9):
         corr = row["consistency"]
         label = role_label(corr)
         print(
-            f"{f'#{i}':<8} {row['symbol']:<6} {close_val:>8.0f} {share:>7.2f}% {row['total_contrib']:>+8.4f} {corr:>+8.3f}  {row['rel_momentum']:>+6.1%} {label:>14}"
+            f"{f'#{i}':<8} {row['symbol']:<6} {close_val:>8.0f} {share:>7.2f}% {row['total_contrib']:>+8.4f} {corr:>+8.3f}  {row['rel_momentum']:>+6.1%} {label:>14}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
 
     top_n_contrib = top_leaders["total_contrib"].abs().sum()
@@ -336,12 +337,12 @@ def calculate_leadership(lookback=60, top_n=15, min_value=1e9):
     watch = decay_df[(decay_df["decay_score"] >= 0.3) & (decay_df["decay_score"] < 0.5)]
     print("\n——— SUY GIẢM DẪN DẮT (Leadership Decay) ———")
     print(
-        f"{'Mã':<6} {'Điểm suy giảm':>13} {'Xu hướng CG':>11} {'BĐộng đgóp':>11} {'Trừ TQuan':>10} {'Trừ RS':>7} {'Phân loại':>9}"
+        f"{'Mã':<6} {'Điểm suy giảm':>13} {'Xu hướng CG':>11} {'BĐộng đgóp':>11} {'Trừ TQuan':>10} {'Trừ RS':>7} {'Phân loại':>9}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     )
     print("-" * 68)
     for _, row in decay_df.iterrows():
         print(
-            f"{row['symbol']:<6} {row['decay_score']:>10.3f}  {row['contrib_trend']:>8.2f}  {row['vol']:>8.2f}  {row['corr_pen']:>8.2f}  {row['rs_pen']:>5.2f}  {row['grade']:>8}"
+            f"{row['symbol']:<6} {row['decay_score']:>10.3f}  {row['contrib_trend']:>8.2f}  {row['vol']:>8.2f}  {row['corr_pen']:>8.2f}  {row['rs_pen']:>5.2f}  {row['grade']:>8}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
 
     print("-" * 68)

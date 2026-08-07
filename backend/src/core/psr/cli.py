@@ -1,4 +1,4 @@
-﻿"""PSR CLI — command-line interface for production stress release operations.
+"""PSR CLI — command-line interface for production stress release operations.
 
 Usage::
 
@@ -9,6 +9,7 @@ Usage::
     python -m src.core.psr.cli status           # show version + audit stats
     python -m src.core.psr.cli audit            # recent audit entries
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,6 +42,7 @@ logger = logging.getLogger("psr_cli")
 
 def cmd_snapshot():
     from src.core.psr.snapshot import SystemStateSnapshotter
+
     s = SystemStateSnapshotter().capture()
     SystemStateSnapshotter().persist(s)
     print(f"SNAPSHOT {s.snapshot_id} | hash={s.snapshot_hash} | {s.timestamp}")
@@ -49,6 +51,7 @@ def cmd_snapshot():
 
 def cmd_replay(snapshot_id: str):
     from src.core.psr.replay import DeterministicReplayEngine
+
     r = DeterministicReplayEngine().replay(snapshot_id)
     if r is None:
         print(f"SNAPSHOT NOT FOUND: {snapshot_id}")
@@ -62,6 +65,7 @@ def cmd_replay(snapshot_id: str):
 
 def cmd_replay_all():
     from src.core.psr.replay import DeterministicReplayEngine
+
     results = DeterministicReplayEngine().replay_all()
     match_count = sum(1 for r in results if r.match)
     print(f"REPLAY-ALL: {match_count}/{len(results)} matched")
@@ -72,6 +76,7 @@ def cmd_replay_all():
 
 def cmd_freeze(version: str):
     from src.core.psr.version import VersionFreeze
+
     v = VersionFreeze().freeze(version)
     print(f"FROZEN {v.version} | commit={v.git_commit} | hash={v.semantic_contract_hash}")
 
@@ -80,6 +85,7 @@ def cmd_status():
     from src.core.psr.audit import DecisionAuditTrail
     from src.core.psr.snapshot import SystemStateSnapshotter
     from src.core.psr.version import VersionFreeze
+
     v = VersionFreeze().current()
     snapshots = SystemStateSnapshotter().list_snapshots()
     audit_count = DecisionAuditTrail().count()
@@ -92,6 +98,7 @@ def cmd_status():
 
 def cmd_audit(limit: int = 10):
     from src.core.psr.audit import DecisionAuditTrail
+
     entries = DecisionAuditTrail().replay(limit=limit)
     if not entries:
         print("No audit entries.")

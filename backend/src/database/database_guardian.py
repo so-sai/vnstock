@@ -66,7 +66,7 @@ if sys.platform == "win32":
             if hasattr(h.stream, "buffer") and not isinstance(h.stream, io.TextIOWrapper):
                 try:
                     h.stream = io.TextIOWrapper(h.stream.buffer, encoding="utf-8", line_buffering=True)
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
 logger = logging.getLogger("PTCK_DB_GUARDIAN")
 
@@ -114,7 +114,7 @@ def integrity_check(db_path: Path = DB_PATH) -> dict:
                     logger.critical(f"   Lỗi: {r}")
             _trigger_alert("integrity_check_failed", results)
             return {"status": "error", "details": results}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.critical(f"❌ INTEGRITY CHECK: EXCEPTION — {e}")
         _trigger_alert("integrity_check_exception", str(e))
         return {"status": "error", "details": [str(e)]}
@@ -179,7 +179,7 @@ def online_backup(db_path: Path = DB_PATH, backup_dir: Path = BACKUP_DIR) -> dic
             "size_mb": round(size_after, 2),
             "duration_seconds": round(elapsed, 2),
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.critical(f"❌ ONLINE BACKUP: THẤT BẠI — {e}")
         if backup_path.exists():
             backup_path.unlink()
@@ -278,7 +278,7 @@ def run_guardian_cycle(dry_run: bool = False) -> dict:
         report["prune"] = prune_result
         report["status"] = "SUCCESS"
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.critical(f"💥 GUARDIAN CYCLE FAILED: {e}")
         report["status"] = f"FAILED: {str(e)}"
     finally:

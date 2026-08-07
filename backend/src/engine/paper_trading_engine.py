@@ -21,6 +21,7 @@ Nguyên tắc offline: engine CHỈ đọc daily_ohlcv/macro cục bộ, KHÔNG 
 import hashlib
 import logging
 import math
+import sqlite3
 import sys
 from contextlib import contextmanager
 from datetime import datetime
@@ -332,8 +333,8 @@ class PaperTradingEngine:
                     prior_belief=hdr if hdr is not None else 0.5,
                     posterior_belief=0.0,
                 )
-            except Exception:
-                pass
+            except (ImportError, sqlite3.Error, TypeError, ValueError, KeyError) as e:
+                logger.debug("[PAPER] Rejected signal archive failed: %s", e)
             return result
 
         # --- 3. Backtest ideal fill: khớp ngay @ close T (không trễ, không impact)
@@ -840,7 +841,7 @@ class PaperTradingEngine:
             sel = StructureEvolutionLayer.assess_global(as_of=decision_date, offline=self.offline)
             w1 = sel.get("w1")
             sel_hdr = sel.get("hdr_limit")
-        except Exception as e:
+        except (TypeError, ValueError, KeyError, AttributeError) as e:
             logger.warning(f"[PAPER] SEL assess failed: {e}")
             w1, sel_hdr = None, None
 
@@ -848,7 +849,7 @@ class PaperTradingEngine:
             macro = MacroGovernor.assess_global()
             macro_state = macro.get("state", "UNKNOWN")
             macro_hdr = macro.get("hdr_override")
-        except Exception as e:
+        except (TypeError, ValueError, KeyError, AttributeError) as e:
             logger.warning(f"[PAPER] Macro assess failed: {e}")
             macro_state, macro_hdr = "UNKNOWN", None
 
@@ -890,8 +891,8 @@ class PaperTradingEngine:
                         posterior_belief=0.0,
                         accepted_alternative="CASH",
                     )
-            except Exception:
-                pass
+            except (ImportError, sqlite3.Error, TypeError, ValueError, KeyError) as e:
+                logger.debug("[PAPER] Rejected signal loop failed: %s", e)
             self.summarize_daily(decision_date, w1=w1, macro_state=macro_state, conn=conn)
             results["mtm"] = self.mtm.mark_to_market(decision_date, effective_hdr, conn=conn)
             return results
@@ -972,8 +973,8 @@ class PaperTradingEngine:
                         "WHERE timestamp LIKE ? AND accepted_alternative IS NULL",
                         (best_alt, f"{decision_date}%"),
                     )
-            except Exception:
-                pass
+            except (ImportError, sqlite3.Error, TypeError, ValueError, KeyError) as e:
+                logger.debug("[PAPER] Accepted alternative update failed: %s", e)
 
         summary = self.summarize_daily(decision_date, w1=w1, macro_state=macro_state, conn=conn)
         results["summary"] = summary

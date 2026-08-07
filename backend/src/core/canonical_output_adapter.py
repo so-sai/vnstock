@@ -22,6 +22,7 @@ Contract:
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -44,6 +45,8 @@ from .cognitive_schema import (
     SEVERITY_LABEL_VI,
     STATUS_VI,
 )
+
+logger = logging.getLogger(__name__)
 
 # ====================================================================
 # MASTER MAPPING — aggregate ALL known EN→VI pairs from the system
@@ -192,7 +195,7 @@ _EXTRA_MAP: dict[str, str] = {
     "TRANSITION_STATE": "Luân chuyển ngầm",
     "HIGH_CONFIDENCE": "Độ tin cậy cao",
     "LOW_CONFIDENCE_MACRO_VN": "Độ tin cậy vĩ mô trong nước thấp",
-    "LATE-CYCLE OBSERVABILITY GAP: ADX spike trong regime RANGING": "Khoảng cách quan sát cuối chu kỳ: ADX tăng đột biến trong khi regime vẫn ở trạng thái đi ngang",
+    "LATE-CYCLE OBSERVABILITY GAP: ADX spike trong regime RANGING": "Khoảng cách quan sát cuối chu kỳ: ADX tăng đột biến trong khi regime vẫn ở trạng thái đi ngang",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     # ============================================================
     # MIXED-CASE FIXES — catch non-uppercase variants
     # ============================================================
@@ -760,7 +763,7 @@ CLI_LABEL_MAP: dict[str, str] = {
     "drift": "trôi dạt",
     "weight": "trọng số",
     "Weight": "Trọng số",
-    "Use calibrate resolve, then evidence update for real outcomes": "Dùng calibrate resolve, sau đó evidence update để nạp outcome thực tế",
+    "Use calibrate resolve, then evidence update for real outcomes": "Dùng calibrate resolve, sau đó evidence update để nạp outcome thực tế",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     "SIMULATION DRY-RUN": "MÔ PHỎNG THỬ NGHIỆM",
     "predictions": "dự báo",
     "Actual gains": "Kết quả thực tế",
@@ -925,29 +928,29 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
     "Sharpe": {
         "vi": "Sharpe",
         "en": "Sharpe",
-        "detail_vi": "Tỷ lệ Sharpe: đo lợi nhuận điều chỉnh theo rủi ro. Sharpe > 1.0 = tốt, > 2.0 = xuất sắc. Công thức: (Lợi nhuận - Risk-free rate) / Độ lệch chuẩn.",
+        "detail_vi": "Tỷ lệ Sharpe: đo lợi nhuận điều chỉnh theo rủi ro. Sharpe > 1.0 = tốt, > 2.0 = xuất sắc. Công thức: (Lợi nhuận - Risk-free rate) / Độ lệch chuẩn.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Sharpe Ratio: risk-adjusted return. Sharpe > 1.0 = good, > 2.0 = excellent.",
         "category": "international",
     },
     "Sortino": {
         "vi": "Sortino",
         "en": "Sortino",
-        "detail_vi": "Tỷ lệ Sortino: giống Sharpe nhưng chỉ tính downside deviation (lỗ). Phù hợp hơn cho chiến lược asymmetric return.",
+        "detail_vi": "Tỷ lệ Sortino: giống Sharpe nhưng chỉ tính downside deviation (lỗ). Phù hợp hơn cho chiến lược asymmetric return.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Sortino Ratio: like Sharpe but only counts downside deviation.",
         "category": "international",
     },
     "ADX": {
         "vi": "ADX",
         "en": "ADX",
-        "detail_vi": "Average Directional Index: chỉ số xu hướng từ 0-100. ADX > 25 = thị trường có xu hướng rõ ràng. ADX < 20 = thị trường sideway.",
+        "detail_vi": "Average Directional Index: chỉ số xu hướng từ 0-100. ADX > 25 = thị trường có xu hướng rõ ràng. ADX < 20 = thị trường sideway.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Average Directional Index: trend strength 0-100. ADX > 25 = clear trend, ADX < 20 = sideways.",
         "category": "international",
     },
     "ATR": {
         "vi": "ATR",
         "en": "ATR",
-        "detail_vi": "Average True Range: đo lường biến động thực tế của giá. Dùng để tính stop-loss, take-profit, và sizing vị thế.",
-        "detail_en": "Average True Range: measures actual price volatility. Used for stop-loss, take-profit, and position sizing.",
+        "detail_vi": "Average True Range: đo lường biến động thực tế của giá. Dùng để tính stop-loss, take-profit, và sizing vị thế.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
+        "detail_en": "Average True Range: measures actual price volatility. Used for stop-loss, take-profit, and position sizing.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "category": "international",
     },
     "OHLCV": {
@@ -960,35 +963,35 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
     "TWAP": {
         "vi": "TWAP",
         "en": "TWAP",
-        "detail_vi": "Time-Weighted Average Price: chiến lược chia lệnh lớn thành nhiều lệnh nhỏ theo thời gian để giảm thiểu market impact.",
+        "detail_vi": "Time-Weighted Average Price: chiến lược chia lệnh lớn thành nhiều lệnh nhỏ theo thời gian để giảm thiểu market impact.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Time-Weighted Average Price: split large orders over time to minimize market impact.",
         "category": "international",
     },
     "MDD": {
         "vi": "MDD",
         "en": "MDD",
-        "detail_vi": "Maximum Drawdown: sự sụt giảm lớn nhất từ đỉnh đến đáy. Đo lường worst-case scenario. MDD < 20% thường được chấp nhận.",
+        "detail_vi": "Maximum Drawdown: sự sụt giảm lớn nhất từ đỉnh đến đáy. Đo lường worst-case scenario. MDD < 20% thường được chấp nhận.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Maximum Drawdown: largest peak-to-trough decline. Measures worst-case scenario.",
         "category": "international",
     },
     "CUSUM": {
         "vi": "CUSUM",
         "en": "CUSUM",
-        "detail_vi": "Cumulative Sum: phương pháp thống kê detect thay đổi dần dần trong chuỗi thời gian. Dùng để phát hiện regime shift sớm.",
+        "detail_vi": "Cumulative Sum: phương pháp thống kê detect thay đổi dần dần trong chuỗi thời gian. Dùng để phát hiện regime shift sớm.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Cumulative Sum: statistical method to detect gradual shifts in time series.",
         "category": "international",
     },
     "RS": {
         "vi": "RS",
         "en": "RS",
-        "detail_vi": "Relative Strength: so sánh hiệu suất của một cổ phiếu với toàn thị trường hoặc nhóm ngành. RS cao = cổ phiếu mạnh hơn thị trường.",
+        "detail_vi": "Relative Strength: so sánh hiệu suất của một cổ phiếu với toàn thị trường hoặc nhóm ngành. RS cao = cổ phiếu mạnh hơn thị trường.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Relative Strength: compares stock performance vs market or sector. High RS = outperforms.",
         "category": "international",
     },
     "VNINDEX": {
         "vi": "VNINDEX",
         "en": "VNINDEX",
-        "detail_vi": "Chỉ số VN-Index (HoSE): weighted market cap của tất cả cổ phiếu niêm yết. Benchmark cho toàn thị trường.",
+        "detail_vi": "Chỉ số VN-Index (HoSE): weighted market cap của tất cả cổ phiếu niêm yết. Benchmark cho toàn thị trường.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "VN-Index (HoSE): weighted market cap of all listed stocks. Market benchmark.",
         "category": "international",
     },
@@ -1002,7 +1005,7 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
     "DXY": {
         "vi": "DXY",
         "en": "DXY",
-        "detail_vi": "US Dollar Index: đo lường sức mạnh USD so với 6 đồng tiền chính. Ảnh hưởng đến capital flow vào/ra thị trường mới nổi.",
+        "detail_vi": "US Dollar Index: đo lường sức mạnh USD so với 6 đồng tiền chính. Ảnh hưởng đến capital flow vào/ra thị trường mới nổi.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "US Dollar Index: measures USD strength vs 6 major currencies.",
         "category": "international",
     },
@@ -1033,35 +1036,35 @@ ABBREVIATION_GLOSSARY: dict[str, dict[str, str]] = {
     "HDR": {
         "vi": "Hệ số Phân bổ Rủi ro",
         "en": "Risk Allocation Ratio",
-        "detail_vi": "Tỷ lệ phần trăm portfolio được phép Exposure vào một vị thế. Được tính bởi Bộ phân bổ Rủi ro dựa trên regime, volatility, và conviction. Ví dụ: HDR=15% nghĩa là chỉ 15% vốn được phép vào lệnh.",
-        "detail_en": "Percentage of portfolio allowed for exposure to a position. Computed by Risk Allocator based on regime, volatility, and conviction.",
+        "detail_vi": "Tỷ lệ phần trăm portfolio được phép Exposure vào một vị thế. Được tính bởi Bộ phân bổ Rủi ro dựa trên regime, volatility, và conviction. Ví dụ: HDR=15% nghĩa là chỉ 15% vốn được phép vào lệnh.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
+        "detail_en": "Percentage of portfolio allowed for exposure to a position. Computed by Risk Allocator based on regime, volatility, and conviction.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "category": "internal",
     },
     "DOC": {
         "vi": "Chi phí Cơ hội Ra quyết định",
         "en": "Decision Opportunity Cost",
-        "detail_vi": "Đo lường chi phí cơ hội khi từ chối một tín hiệu. So sánh lợi nhuận của tín hiệu bị từ chối với tín hiệu được chấp nhận thay thế. DOC < 0 nghĩa là hệ thống đang bỏ lỡ cơ hội.",
-        "detail_en": "Measures opportunity cost when rejecting a signal. Compares rejected signal returns vs accepted alternative returns.",
+        "detail_vi": "Đo lường chi phí cơ hội khi từ chối một tín hiệu. So sánh lợi nhuận của tín hiệu bị từ chối với tín hiệu được chấp nhận thay thế. DOC < 0 nghĩa là hệ thống đang bỏ lỡ cơ hội.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
+        "detail_en": "Measures opportunity cost when rejecting a signal. Compares rejected signal returns vs accepted alternative returns.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "category": "internal",
     },
     "IG": {
         "vi": "Lượng Thông tin Nhận được",
         "en": "Information Gain",
-        "detail_vi": "Đo lường lượng thông tin mới mà một quan sát mang lại cho mô hình. IG = Surprise × Prior Belief. IG cao nghĩa là mô hình học được nhiều.",
-        "detail_en": "Information Gain: measures new information an observation brings to the model. IG = Surprise × Prior Belief.",
+        "detail_vi": "Đo lường lượng thông tin mới mà một quan sát mang lại cho mô hình. IG = Surprise × Prior Belief. IG cao nghĩa là mô hình học được nhiều.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
+        "detail_en": "Information Gain: measures new information an observation brings to the model. IG = Surprise × Prior Belief.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "category": "internal",
     },
     "W1": {
         "vi": "Khoảng cách Wasserstein",
         "en": "Wasserstein Distance",
-        "detail_vi": "Khoảng cách thống kê giữa hai phân bố. Dùng để đo sự khác biệt giữa regime hiện tại và lịch sử. W1 cao = cấu trúc thị trường thay đổi mạnh.",
+        "detail_vi": "Khoảng cách thống kê giữa hai phân bố. Dùng để đo sự khác biệt giữa regime hiện tại và lịch sử. W1 cao = cấu trúc thị trường thay đổi mạnh.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Statistical distance between two distributions. Measures regime structural change.",
         "category": "internal",
     },
     "B-Score": {
         "vi": "Điểm Độ rộng",
         "en": "Breadth Score",
-        "detail_vi": "Composite score của market breadth indicators: Advance-Decline, New Highs-Lows, Volume breadth. B-Score cao = thị trường lành mạnh.",
+        "detail_vi": "Composite score của market breadth indicators: Advance-Decline, New Highs-Lows, Volume breadth. B-Score cao = thị trường lành mạnh.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "detail_en": "Composite breadth score: Advance-Decline, New Highs-Lows, Volume breadth.",
         "category": "internal",
     },
@@ -1118,7 +1121,7 @@ def _detect_lang_mode(mode: str) -> str:
             return "annotated"
         cols = shutil.get_terminal_size().columns
         return "annotated" if cols >= 120 else "compact"
-    except Exception:
+    except OSError, AttributeError, ValueError:
         return "annotated"
 
 

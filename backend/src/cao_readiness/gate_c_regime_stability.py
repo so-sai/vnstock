@@ -91,7 +91,7 @@ def _load_regime_from_history(window_days: int = DEFAULT_WINDOW) -> list[dict]:
                 )
                 return fallback_result
             return result
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[GATE_C] regime_history table not available: %s", e)
         return []
 

@@ -89,7 +89,7 @@ def run_background_sweep():
                 # Throttling để tránh Ban IP (Elite Armor)
                 time.sleep(random.uniform(0.3, 0.8))
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 print(f"❌ Lỗi: {e}")
                 if "429" in str(e) or "500" in str(e):
                     print("🛑 API Limit/Error detected! Backing off 60s...")

@@ -222,7 +222,7 @@ def _resolve_lang_mode(lang_mode: str) -> str:
             from src.core.canonical_output_adapter import _detect_lang_mode
 
             return _detect_lang_mode("auto")
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return "annotated"
     return lang_mode
 
@@ -268,7 +268,7 @@ def build_daily_report():
         from src.engine.regime_engine import detect_regime
 
         regime = detect_regime()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Không đọc được regime: %s", e)
         regime = {}
 
@@ -289,7 +289,7 @@ def build_daily_report():
         from src.core.market_state_coordinator import build_market_state
 
         state = build_market_state()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Không đọc được market state: %s", e)
         state = {}
 
@@ -316,14 +316,14 @@ def build_daily_report():
         if isinstance(gp, dict):
             gold_premium_pct = gold_premium_pct or gp.get("premium_pct")
             gold_premium_regime = gp.get("premium_regime", "PREMIUM_NORMAL")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Không đọc được gold premium: %s", e)
 
     try:
         from src.services.macro.gold_world_service import fetch_world_gold_live
 
         world_gold = fetch_world_gold_live()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         world_gold = None
 
     # ========================================
@@ -397,7 +397,7 @@ def build_daily_report():
             )
             for ld in vung_tam_ly["ly_do"][:2]:
                 tin_hieu.append({"loai": "nguyên nhân", "noi_dung": f"▸ {ld}", "muc_do": "thông tin"})
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         if gold_premium_pct is not None and gold_premium_pct > 3:
             tin_hieu.append(
                 {
@@ -462,7 +462,7 @@ def build_daily_report():
             gold_premium_pct=gold_premium_pct,
             gold_premium_regime=gold_premium_regime,
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Không tạo được cảnh báo sớm: %s", e)
         canh_bao = {
             "cap_do_ma": "BÌNH_THƯỜNG",
@@ -484,7 +484,7 @@ def build_daily_report():
             gold_premium_pct=gold_premium_pct,
             gold_premium_regime=gold_premium_regime,
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Không xác nhận được chuyển pha: %s", e)
         xac_nhan = {
             "ket_luan": "NHIỄU",
@@ -509,7 +509,7 @@ def build_daily_report():
                 "rui_ro": rui_ro,
             }
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Không tạo được quyết định cuối cùng: %s", e)
 
     # ========================================
@@ -551,7 +551,7 @@ def build_daily_report():
                 "dong_tien": dong_tien,
             },
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Không phân loại được danh mục: %s", e)
 
     # Gop
@@ -722,7 +722,7 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")

@@ -1,4 +1,4 @@
-﻿"""Chained-assignment detector — replaces blind suppression with signal capture.
+"""Chained-assignment detector — replaces blind suppression with signal capture.
 
 Instead of ``pd.options.mode.chained_assignment = None`` (global silence),
 this module:
@@ -10,6 +10,7 @@ this module:
 The pandas warning is still technically raised, but we intercept it and
 convert to a quantified signal.  No crash, no silence.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -62,9 +63,7 @@ class ChainedAssignmentWatcher:
             self._count = 0
         return count
 
-    def _interceptor(
-        self, message, category, filename, lineno, file=None, line=None
-    ):
+    def _interceptor(self, message, category, filename, lineno, file=None, line=None):
         if self._is_chained_assignment(message, category):
             with self._lock:
                 self._count += 1
@@ -86,8 +85,7 @@ class ChainedAssignmentWatcher:
     def _is_chained_assignment(message, category) -> bool:
         msg = str(message)
         return (
-            "ChainedAssignmentError" in msg
-            or "chained assignment" in msg.lower()
+            "ChainedAssignmentError" in msg or "chained assignment" in msg.lower()
         ) and "FutureWarning" in category.__name__
 
 

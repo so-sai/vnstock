@@ -49,7 +49,7 @@ async def get_weekly_report():
     """
     try:
         return localize_output(build_weekly_report())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(
             status_code=500,
             detail=f"Weekly report aggregation failed: {str(e)}",

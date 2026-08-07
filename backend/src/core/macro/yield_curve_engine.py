@@ -8,6 +8,7 @@ Các spread:
 """
 
 import logging
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ def get_yield_curve_from_db() -> dict:
             "inversion_status": _classify_inversion(spreads.get("10Y2Y")),
             "steepness_status": _classify_steepness(spreads.get("30Y10Y")),
         }
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"Yield curve fetch failed: {e}")
         return _empty_curve()
 

@@ -406,7 +406,7 @@ class MacroGovernor:
                     logger.info(
                         f"[MACRO_GOV] SEL structural shift — W1={self.sel_result['w1']:.4f}. HDR override={sel_hdr:.2f}"
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"[MACRO_GOV] SEL assessment failed: {e}")
             self.sel_result = {"status": "FAILED"}
 

@@ -23,6 +23,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
+import logging
 import sqlite3
 from datetime import datetime
 
@@ -31,6 +32,8 @@ import pandas as pd
 
 import src.config
 from src.engine.rs_ranker import compute_rs_components
+
+logger = logging.getLogger(__name__)
 
 
 class BacktestAlpha:
@@ -171,8 +174,8 @@ class BacktestAlpha:
                 available = pd.read_sql("SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol LIKE '%INDEX%'", conn)
                 print(f"🔎 Các mã Index hiện có trong Vault: {available['symbol'].tolist()}")
                 conn.close()
-            except Exception:
-                pass
+            except sqlite3.Error, OSError, TypeError, ValueError, KeyError, IndexError:
+                logger.debug("backtest: không đọc được danh sách index khi debug — bỏ qua")
             return None
 
         if df_stocks.empty or df_bench.empty:

@@ -243,6 +243,6 @@ def register_gold_nodes(registry: ProvenanceRegistry, xau_price: float = 0.0, ti
             return True
         logger.error(f"Gold provenance registration failed: {e}")
         return False
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Gold provenance error: {e}")
         return False

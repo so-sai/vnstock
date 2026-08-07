@@ -210,7 +210,7 @@ def daily_shadow_tick() -> dict:
     try:
         regime_report = run_regime_stability_test()
         current_entropy = regime_report.current_entropy
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[SHADOW_CAO] Regime check failed in daily tick: %s", e)
         current_entropy = None
     persist_stability_trace(stability, current_entropy)
@@ -225,7 +225,7 @@ def daily_shadow_tick() -> dict:
             verdict.gates[1].status,
             verdict.gates[2].status,
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[SHADOW_CAO] Readiness re-check failed: %s", e)
         verdict = None
     summary = {

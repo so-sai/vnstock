@@ -6,9 +6,12 @@ hot path (only kept for compile-test coverage). Logically superseded by
 """
 
 import json
+import logging
 from pathlib import Path
 
 import src.config
+
+logger = logging.getLogger(__name__)
 
 
 def xu_ly_quyet_dinh(ket_qua: dict, anh_chup: dict, ir: dict, diem_thị_trường_thật, độ_méo_chỉ_số, mức_tập_trung) -> dict:
@@ -29,7 +32,8 @@ def xu_ly_quyet_dinh(ket_qua: dict, anh_chup: dict, ir: dict, diem_thị_trườ
             "tạm_ngưng": đg["tạm_ngưng_kết_luận"],
             "lý_do_tạm_ngưng": đg["lý_do_tạm_ngưng"],
         }
-    except Exception:
+    except (ImportError, KeyError, TypeError, ValueError) as e:
+        logger.debug("[DECISION] Confidence layer failed: %s", e)
         ket_qua["độ_tin_cậy_sau_hiệu_chỉnh"] = {
             "điểm_số": 0.5,
             "mức": "TRUNG_BINH",
@@ -55,7 +59,8 @@ def xu_ly_quyet_dinh(ket_qua: dict, anh_chup: dict, ir: dict, diem_thị_trườ
         ket_qua["ly_do"] = guarded["ly_do"]
         ket_qua["bi_chặn_bởi_bảo_vệ"] = guarded["bi_chặn"]
         ket_qua["lý_do_chặn"] = guarded["ly_do_chặn"]
-    except Exception:
+    except (ImportError, KeyError, TypeError, ValueError) as e:
+        logger.debug("[DECISION] Guard failed: %s", e)
         ket_qua["bi_chặn_bởi_bảo_vệ"] = False
         ket_qua["lý_do_chặn"] = None
 
@@ -75,7 +80,8 @@ def in_bao_cao(kq: dict):
         from src.core.canonical_output_adapter import localize_label
 
         verdict_label = localize_label(verdict_label, "full")
-    except Exception:
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
+        logger.debug("[DECISION] Localize failed: %s", e)
         verdict_label = kq.get("quyet_dinh", "N/A")
     print("\n" + "=" * 60)
     print("  BỘ QUYẾT ĐỊNH CUỐI CÙNG")

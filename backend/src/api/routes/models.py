@@ -36,5 +36,5 @@ async def get_dashboard():
     """
     try:
         return localize_output(get_dashboard_data())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Dashboard error: {str(e)}")

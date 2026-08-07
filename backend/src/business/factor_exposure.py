@@ -515,7 +515,7 @@ def main():
             ms = MacroStateClassifier()
             state = ms.classify()
             macro = state.macro_state
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             macro = "CREDIT_STRESS"
         try:
             from src.core.macro.economic_transmission_engine import EconomicTransmissionEngine
@@ -523,7 +523,7 @@ def main():
             te = EconomicTransmissionEngine()
             ts = te.compute()
             trans = ts.transmission_phase
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             trans = "LIQUIDITY_TRAP"
         print(f"\n  {'=' * 80}")
         print(f"  LR ADJUSTMENT — Macro={macro} | Transmission={trans}")

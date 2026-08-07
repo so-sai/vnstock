@@ -1,4 +1,4 @@
-﻿"""
+"""
 hazard_engine.py — Hazard Transition Engine
 
 Replaces deterministic RegimeROM with a stochastic hazard-driven regime sampler.
@@ -15,7 +15,6 @@ Pipeline:
   Feature Lattice -> HazardFeatureBuilder -> HazardModel ->
   SurvivalProb -> TransitionKernel -> RegimeSampler -> SRV
 """
-
 
 import numpy as np
 import pandas as pd

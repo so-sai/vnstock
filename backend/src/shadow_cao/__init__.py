@@ -1,4 +1,4 @@
-﻿"""Shadow CAO — Safe Pre-Learning Simulation Layer.
+"""Shadow CAO — Safe Pre-Learning Simulation Layer.
 
 Cognitive stress-testing system that runs alongside production.
 Does NOT touch production tables — operates in shadow_cao.db namespace.
@@ -22,6 +22,7 @@ Usage:
     verdict = run_gate_recheck()
     replay_results = run_replay(limit=200)
 """
+
 from src.shadow_cao.belief import get_belief_state
 from src.shadow_cao.hardening import ReplayEngine, ShadowEventBus, TimestampValidator, safe_hook
 from src.shadow_cao.hooks import on_attribution_complete, on_decision_recorded, on_outcome_evaluated, run_replay

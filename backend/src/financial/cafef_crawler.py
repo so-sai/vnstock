@@ -861,7 +861,7 @@ class CafeFCrawler:
                     resp = self.session.get(url, timeout=12)
                     if resp.status_code == 200:
                         html_raw = resp.text
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                     logger.debug(f"Requests failed {url}: {e}")
 
             # ── Tầng 2: Playwright (fallback khi requests 404, hoặc force) ──
@@ -905,7 +905,7 @@ class CafeFCrawler:
                 if result:
                     return result
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 logger.debug(f"Parse failed {url}: {e}")
                 continue
 
@@ -1295,7 +1295,7 @@ class CafeFCrawler:
                 logger.warning(f"CafeF Bank API: {symbol} HTTP {r.status_code}")
                 return []
             html = r.text
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"CafeF Bank API: {symbol} — requests thất bại: {e}")
             html = None
 
@@ -1406,7 +1406,7 @@ class CafeFCrawler:
             logger.info(f"CafeF Bank API: {symbol} — {len(result)} quarters, {len(result[0]) if result else 0} metrics")
             return result
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"CafeF Bank API: {symbol} — {e}")
             return []
 
@@ -1453,7 +1453,7 @@ class CafeFCrawler:
                         quarters[key] = data
                 if periods:
                     logger.info(f"CafeF CF: {symbol} {year}Q{qtr} → {len(periods)} quý")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 logger.warning(f"CafeF CF: {symbol} {year}Q{qtr} — {e}")
 
         if not quarters:
@@ -1663,7 +1663,7 @@ class CafeFCrawler:
         try:
             crawler = VnstockCrawler(db=self.db, source="VCI")
             periods = crawler.fetch_financials_vnstock(symbol, limit=30)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"VCI bridge: VCI API thất bại cho {symbol} — {e}")
             return []
 
@@ -1714,7 +1714,7 @@ class CafeFCrawler:
                 logger.warning(f"VNDirect Fininfo: {symbol} HTTP {r.status_code}")
                 return []
             payload = r.json()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"VNDirect Fininfo: {symbol} — {e}")
             return []
 
@@ -1848,7 +1848,7 @@ class CafeFCrawler:
                     logger.warning(f"TCBS FinAPI {tcbs_type}: {symbol} HTTP {r.status_code}")
                     continue
                 payload = r.json()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 logger.warning(f"TCBS FinAPI {tcbs_type}: {symbol} — {e}")
                 continue
 
@@ -2091,7 +2091,7 @@ class CafeFCrawler:
             logger.info(f"NoteIndicator: {symbol} — {len(output)} years, {len(output[0]) if output else 0} metrics")
             return output
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"NoteIndicator: {symbol} — {e}")
             return []
 
@@ -2186,7 +2186,7 @@ class CafeFCrawler:
 
                 return html_raw
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"CafeF PW thất bại: {e}")
             return None
 

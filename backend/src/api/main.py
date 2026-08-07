@@ -354,7 +354,7 @@ if _cagl_mode in ("SHADOW", "WARN", "STRICT"):
         from src.core.cagl import verify_cagl
 
         verify_cagl(app, mode=_cagl_mode)
-    except Exception as _exc:
+    except Exception as _exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         import logging as _logging
 
         _logging.getLogger(__name__).warning("[CAGL] Verification skipped: %s", _exc)

@@ -1,4 +1,4 @@
-﻿"""ECL verifier — execution contract hash + dependency lock."""
+"""ECL verifier — execution contract hash + dependency lock."""
 
 import hashlib
 import sys
@@ -73,6 +73,7 @@ def verify_dependency_lock() -> bool:
     }
     try:
         import pandas as pd
+
         v = pd.__version__.split("+")[0]
         if v != expected["pandas"]:
             print(f"[ECL] Pandas version mismatch: {v} != {expected['pandas']}")

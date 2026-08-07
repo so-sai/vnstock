@@ -1,4 +1,4 @@
-﻿"""Paper Context — Storage Sandboxing cho Phase 5 UAT.
+"""Paper Context — Storage Sandboxing cho Phase 5 UAT.
 
 Cô lập hoàn toàn mọi đường dẫn persistent:
   system_state.json → system_state_paper.json
@@ -51,14 +51,17 @@ def set_paper_mode(enabled: bool = True):
 
     # Override system_state.py path
     from src.portfolio import system_state
+
     system_state.set_lock_path(targets["system_state"])
 
     # Override decision_audit.py path
     from src.portfolio import decision_audit
+
     decision_audit.set_audit_path(targets["decision_audit"])
 
     # Override params_registry.py paths
     from src.portfolio import params_registry
+
     params_registry.set_registry_path(targets["params_registry"])
     params_registry.set_audit_path(targets["decision_audit"])
 

@@ -1,8 +1,11 @@
 import logging
+import sqlite3
 import sys
 import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import requests
 
 warnings.filterwarnings("ignore")
 
@@ -31,8 +34,8 @@ if sys.platform == "win32":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except (OSError, AttributeError, ValueError) as e:
+                logging.getLogger(__name__).debug("[CAPDISPL] stdout reconfigure failed: %s", e)
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 backend_dir = PROJECT_ROOT / "backend"
@@ -414,7 +417,7 @@ def _fetch_batch(symbols, interval_days=5):
                     logger.warning("SKIP: %s — cả VCI và KBS đều fail: %s", sym, e)
                 else:
                     logger.debug("VCI fail for %s, trying KBS: %s", sym, e)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 # Lỗi không phải mạng → bỏ qua symbol, không nuốt timeout mạng
                 logger.debug("Unexpected error for %s (%s): %s", sym, label, e)
                 if label == "KBS":
@@ -536,7 +539,8 @@ def scan_liquidity_concentration(target_date=None, offline: bool = False):
                 else 0,
                 "ma20": round(vni_df["close"].tail(20).mean(), 2) if len(vni_df) >= 20 else 0,
             }
-    except Exception:
+    except (requests.RequestException, KeyError, TypeError, ValueError, IndexError, OSError) as e:
+        logger.warning("[CAPDISPL] VNINDEX context failed: %s", e)
         vni_info = {"close": 0, "chg": 0, "vol_ratio": 0}
 
     # 5. CLASSIFICATION RULES (market-wide, not watchlist)
@@ -565,7 +569,7 @@ def scan_liquidity_concentration(target_date=None, offline: bool = False):
             signals.append("INTERBANK_WARNING")
             signals.append(f"Z_fast={ibank['zscore']['z_fast']}")
             logger.info("Interbank warning: %s", ibank_reason)
-    except Exception as e:
+    except (ImportError, KeyError, TypeError, ValueError, sqlite3.Error) as e:
         logger.warning("Interbank risk assessment failed: %s", e)
 
     # Rule 1: Market-wide top-1 concentration
@@ -716,7 +720,7 @@ def _store_reference_case(verdict):
             vals = ", ".join(["?"] * len(row))
             conn.execute(f"INSERT OR REPLACE INTO capital_displacement_history ({cols}) VALUES ({vals})", list(row.values()))
             conn.commit()
-    except Exception as e:
+    except (sqlite3.Error, KeyError, TypeError, ValueError) as e:
         logger.warning("DB store error: %s", e)
 
 
@@ -740,8 +744,8 @@ def run_scan(target_date=None, offline: bool = False):
             from src.telemetry.recorder import record_engine_fault
 
             record_engine_fault("capital_displacement", str(e), target_date)
-        except Exception:
-            pass
+        except (ImportError, OSError, TypeError, ValueError, sqlite3.Error) as exc:
+            logger.debug("[CAPDISPL] Fault telemetry write failed: %s", exc)
         return {
             "date": target_date or datetime.now().strftime("%Y-%m-%d"),
             "classification": "FAILED",

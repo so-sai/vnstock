@@ -7,6 +7,7 @@ Phân tích vàng như macro entropy sensor:
 """
 
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -108,7 +109,7 @@ def analyze_gold_regime(lookback_days: int = 20) -> dict:
                 "spread_pressure_high": spread_pressure > 0.4,
             },
         }
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"Gold regime analysis failed: {e}")
         return _default_gold_regime()
 
@@ -128,8 +129,8 @@ def cross_reference_with_market(macro_data: dict) -> dict:
         from core.macro.gold_spread_engine import analyze_domestic_premium
 
         premium = analyze_domestic_premium()
-    except Exception:
-        pass
+    except ImportError, AttributeError, TypeError, KeyError:
+        logger.debug("cross_reference_with_market: không đọc được premium — bỏ qua")
 
     # Real yield context
     real_yield = macro_data.get("us_real_yield")

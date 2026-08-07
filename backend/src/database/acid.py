@@ -56,6 +56,7 @@ for p in [Path(__file__).resolve().parent.parent.parent, Path(__file__).resolve(
 if PROJECT_ROOT is None:
     PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+from src.core.errors import DataAccessError
 from src.database.db_core import get_connection, safe_json_dumps
 
 logger = logging.getLogger("PTCK_SYSTEM")
@@ -91,17 +92,17 @@ def _drop_legacy_lock_table():
             conn.commit()
         _LEGACY_CLEANUP_DONE = True
         logger.info("[ACID] Đã xoá bảng legacy scheduler_locks.")
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass  # non-blocking; lần sau sẽ thử lại
 
 
-class ResourceLockedException(Exception):
+class ResourceLockedException(DataAccessError):
     """Tiến trình EOD khác đang chiếm khóa CSDL (concurrency guard). Không phải lỗi hệ thống."""
 
     pass
 
 
-class TransactionTimeout(Exception):
+class TransactionTimeout(DataAccessError):
     """Giao dịch vượt quá SLA thời gian cho phép → conn.interrupt() đã kích hoạt."""
 
     pass
@@ -177,8 +178,8 @@ class TelemetryLogger:
             self._fh.write(safe_json_dumps(rec) + "\n")
             self._fh.flush()
         except (
-            Exception
-        ) as e:  # telemetry tuyệt đối không làm sập luồng chính
+            Exception  # noqa: BLE001 - telemetry không được làm sập luồng chính
+        ) as e:
             logger.warning(f"[TELEMETRY] emit thất bại ({self.component}): {e}")
 
     def close(self):
@@ -265,7 +266,7 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1", time
             try:
                 if not committed:
                     conn.execute("ROLLBACK")
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
             # Kiểm tra "interrupted" từ kill-switch TRƯỚC khi làm bitmask
             err_str = str(e).lower()
@@ -328,7 +329,7 @@ def global_transaction(as_of_date: str, portfolio_id: str = "SEL_PAPER_V1", time
             try:
                 if not committed:
                     conn.execute("ROLLBACK")
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
             logger.error(f"[ACID] ROLLBACK as_of={as_of_date} corr={corr.correlation_id}: {e}")
             exception_telemetry.emit(

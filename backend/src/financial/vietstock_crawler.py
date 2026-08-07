@@ -283,7 +283,7 @@ class VietstockCrawler:
                 bctt_periods = self._fetch_bctt_summary(page, symbol, token)
 
                 browser.close()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"Vietstock crawl thất bại: {e}")
             return []
 

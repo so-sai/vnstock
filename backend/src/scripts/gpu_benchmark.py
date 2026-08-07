@@ -8,6 +8,7 @@ CPU excels at small matrix ops (N ≤ 1,000) due to PCIe transfer overhead.
 Usage:
     python backend/src/scripts/gpu_benchmark.py
 """
+
 import sys
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ import numpy as np
 GPU_AVAILABLE = False
 try:
     import torch
+
     GPU_AVAILABLE = torch.cuda.is_available()
     DEVICE = torch.device("cuda" if GPU_AVAILABLE else "cpu")
 except ImportError:
@@ -39,9 +41,7 @@ SIGMA = 0.20
 def monte_carlo_cpu(n_sim, n_assets, n_steps):
     """Pure NumPy Monte Carlo on CPU."""
     np.random.seed(42)
-    returns = np.random.normal(
-        MU * DT, SIGMA * np.sqrt(DT), (n_sim, n_assets, n_steps)
-    )
+    returns = np.random.normal(MU * DT, SIGMA * np.sqrt(DT), (n_sim, n_assets, n_steps))
     cumulative = np.cumprod(1 + returns, axis=2)
     final = cumulative[:, :, -1]
     return final
@@ -50,13 +50,7 @@ def monte_carlo_cpu(n_sim, n_assets, n_steps):
 def monte_carlo_gpu_torch(n_sim, n_assets, n_steps):
     """PyTorch Monte Carlo on GPU (if available)."""
     torch.manual_seed(42)
-    returns = (
-        torch.randn(n_sim, n_assets, n_steps, device=DEVICE)
-        * SIGMA
-        * np.sqrt(DT)
-        + MU
-        * DT
-    )
+    returns = torch.randn(n_sim, n_assets, n_steps, device=DEVICE) * SIGMA * np.sqrt(DT) + MU * DT
     cumulative = torch.cumprod(1 + returns, dim=2)
     final = cumulative[:, :, -1]
     return final
@@ -69,9 +63,7 @@ def monte_carlo_gpu_cupy(n_sim, n_assets, n_steps):
     except ImportError:
         return None
     cp.random.seed(42)
-    returns = cp.random.normal(
-        MU * DT, SIGMA * np.sqrt(DT), (n_sim, n_assets, n_steps)
-    )
+    returns = cp.random.normal(MU * DT, SIGMA * np.sqrt(DT), (n_sim, n_assets, n_steps))
     cumulative = cp.cumprod(1 + returns, axis=2)
     final = cumulative[:, :, -1]
     return final
@@ -110,6 +102,7 @@ def benchmark():
     cupy_time = time.perf_counter() - t0
     if result_cupy is not None:
         import cupy as cp
+
         cupy_mean = float(cp.asnumpy(result_cupy).mean())
         speedup = cpu_time / cupy_time
         print(f"  GPU (CuPy):    {cupy_time:.3f}s  mean={cupy_mean:.4f}  speedup={speedup:.2f}x")

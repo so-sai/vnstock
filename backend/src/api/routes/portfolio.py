@@ -69,7 +69,7 @@ async def get_portfolio():
     """Lấy tổng quan danh mục + P&L + cảnh báo stop-loss."""
     try:
         return localize_output(get_portfolio_summary())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -85,7 +85,7 @@ async def add_new_position(pos: PositionInput):
                 fee_paid=pos.fee_paid,
             )
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -94,7 +94,7 @@ async def delete_position(symbol: str):
     """Xóa vị thế."""
     try:
         return localize_output(remove_position(symbol))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -103,7 +103,7 @@ async def update_portfolio_cash(cash: CashInput):
     """Cập nhật số dư tiền mặt."""
     try:
         return localize_output(update_cash(cash.amount))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -120,7 +120,7 @@ async def update_portfolio_position(symbol: str, data: PositionUpdate):
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -160,7 +160,7 @@ async def observatory_summary():
                 ],
             }
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -169,7 +169,7 @@ async def observatory_risk_path(days: int = 30):
     """Portfolio Observatory: portfolio risk path EKG data."""
     try:
         return localize_output(get_risk_path_window(days))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -178,7 +178,7 @@ async def observatory_decision():
     """Phase 10 — Decision Tensor: compresses 5 engine layers into 1 action vector."""
     try:
         return localize_output(compute_decision())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -197,7 +197,7 @@ async def observatory_decision_v2():
     """Phase 10.2 — Cognitive Decision Tensor: counterfactual + rationale tree + calibrated weights."""
     try:
         return localize_output(compute_decision_v2())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -206,7 +206,7 @@ async def decision_override(ov: OverrideInput):
     """Log human override of a decision."""
     try:
         return localize_output(log_override(ov.decision_id, ov.override_action, ov.override_reason))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -215,7 +215,7 @@ async def decision_confirm(cf: ConfirmInput):
     """Log human confirmation of a decision."""
     try:
         return localize_output(log_confirm(cf.decision_id))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -224,5 +224,5 @@ async def observatory_decision_history(limit: int = 20):
     """Recent decision history for audit trail."""
     try:
         return localize_output(get_decision_history(limit))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))

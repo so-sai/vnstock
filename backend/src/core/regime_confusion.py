@@ -17,6 +17,7 @@ Reference: Lopez de Prado (2018), "Advances in Financial Machine Learning", Ch. 
 
 import json
 import logging
+import sqlite3
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -135,7 +136,8 @@ class RegimeAwareConfusion:
             # Dùng entry_price làm proxy nếu không lookup được
             try:
                 current_price = price_lookup(self.strategy, current_date)
-            except Exception:
+            except TypeError, ValueError, KeyError, IndexError:
+                logger.debug("resolve_pending: không lookup được giá — fallback entry_price")
                 current_price = signal["entry_price"]
 
             outcome = self._classify_outcome(signal, current_price)
@@ -326,7 +328,7 @@ def load_confusion_from_db(strategy: str = "screener_v1") -> RegimeAwareConfusio
         if row:
             data = json.loads(row["data_json"])
             return RegimeAwareConfusion.from_dict(data)
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError, json.JSONDecodeError) as e:
         logger.warning(f"[CONFUSION] Load failed: {e}")
 
     return None

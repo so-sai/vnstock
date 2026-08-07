@@ -18,10 +18,10 @@ repos:
     rev: v0.15.10
     hooks:
       - id: ruff
-        name: ruff lint (backend)
-        files: ^backend/
-        args: [--config, backend/pyproject.toml]
+        name: ruff lint (backend/src)
+        files: ^backend/src/
+        args: ["--config", "backend/pyproject.toml", "--fix"]
       - id: ruff-format
-        name: ruff format (backend)
-        files: ^backend/
-        args: [--config, backend/pyproject.toml]
+        name: ruff format (backend/src)
+        files: ^backend/src/
+        args: ["--config", "backend/pyproject.toml"]

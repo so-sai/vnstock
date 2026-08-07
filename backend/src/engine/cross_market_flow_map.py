@@ -1,5 +1,9 @@
+import logging
+import sqlite3
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
@@ -112,7 +116,8 @@ class CrossMarketFlowMap:
                     self._macro_stale_mask[variable] = bool(row[1])
                     return float(row[0])
                 return 0.0
-        except Exception:
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.debug("_get_macro_history: %s không đọc được — fallback 0.0", variable)
             return 0.0
 
     def _get_breadth_history(self, offset: int = 0) -> float:
@@ -123,7 +128,8 @@ class CrossMarketFlowMap:
                     "SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1 OFFSET ?", (offset,)
                 ).fetchone()
                 return float(row[0]) if row else 50.0
-        except Exception:
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.debug("_get_breadth_history: không đọc được regime_history — fallback 50.0")
             return 50.0
 
     def _get_gs_ratio(self, offset: int = 0) -> float:
@@ -146,7 +152,8 @@ class CrossMarketFlowMap:
             if adx_series is None or len(adx_series) < 4:
                 return 0.0
             return float(adx_series.iloc[-4])
-        except Exception:
+        except sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError:
+            logger.debug("_calc_adx_t3: không tính được ADX T-3 — fallback 0.0")
             return 0.0
 
     def _layer_1_driver_registry(self) -> dict:

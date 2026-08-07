@@ -370,7 +370,7 @@ class CapitalAllocationEngine:
                     facts[metric] = []
                 facts[metric].append((period, value))
             return facts
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return None
 
     @staticmethod

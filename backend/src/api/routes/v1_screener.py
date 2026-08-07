@@ -63,7 +63,7 @@ async def get_screener_batch(top_n: int = Query(200, ge=1, le=500)):
         from src.services.screener_service import get_screener_results
 
         items = get_screener_results(top_n=top_n)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
     if not items:

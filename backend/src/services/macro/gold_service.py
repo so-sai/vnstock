@@ -82,7 +82,7 @@ def _cache_get(cache: dict, key: str) -> list | None:
         cache.pop(key, None)
         return None
     logger_macro.debug(
-        f"[MACRO CACHE] HIT key={key} age={int(time.time() - (expiry - (LIVE_CACHE_TTL if key == 'live' else HISTORICAL_CACHE_TTL)))}s"
+        f"[MACRO CACHE] HIT key={key} age={int(time.time() - (expiry - (LIVE_CACHE_TTL if key == 'live' else HISTORICAL_CACHE_TTL)))}s"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     )
     return data
 
@@ -140,7 +140,7 @@ def fetch_sjc_snapshot(target_date: str | None = None) -> list[GoldPriceSnapshot
         # 3. Chỉ cache khi có dữ liệu thật
         _cache_set(_SJC_CACHE, cache_key, snapshots)
         return snapshots
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"SJC fetch failed: {e}")
         # Kích hoạt Circuit Breaker nếu lỗi thuộc pattern rate-limit / 5xx
         if CircuitBreaker.should_trip_on_error(str(e)):
@@ -190,7 +190,7 @@ def fetch_btmc_snapshot() -> list[GoldPriceSnapshot]:
             )
         _cache_set(_BTMC_CACHE, cache_key, snapshots)
         return snapshots
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"BTMC fetch failed: {e}")
         if CircuitBreaker.should_trip_on_error(str(e)):
             CircuitBreaker.report_failure(_VNSTOCK_SOURCE, reason=f"BTMC: {str(e)[:200]}")

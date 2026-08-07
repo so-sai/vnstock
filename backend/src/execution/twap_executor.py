@@ -202,7 +202,7 @@ class TWAPExecutor:
             logger.debug("KOSPI intraday scan: first=%.2f last=%.2f pct=%.4f%%", first_price, last_close, pct * 100)
             return pct
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning("KOSPI intraday fetch failed: %s", exc)
             return None
 
@@ -235,7 +235,7 @@ class TWAPExecutor:
             if prev <= 0:
                 return None
             return (latest - prev) / prev
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning("VNINDEX intraday fetch failed: %s", exc)
             return None
 

@@ -8,6 +8,7 @@ Sử dụng TIP ETF (iShares TIPS Bond) để trích xuất:
 """
 
 import logging
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ def get_real_yield_from_db() -> dict:
             "breakeven_regime": _classify_breakeven(breakeven),
             "data_quality": "REAL" if tip_yield is not None else "NO_DATA",
         }
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"Real yield fetch failed: {e}")
         return _empty_real_yield()
 
@@ -79,7 +80,7 @@ def _fetch_tip_dividend_yield() -> float | None:
         if info.get("yield") is not None:
             return round(float(info["yield"]) * 100, 3)
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Cannot fetch TIP dividend yield: {e}")
         return None
 

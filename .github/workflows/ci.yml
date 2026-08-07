@@ -27,15 +27,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: "backend/pyproject.toml"
       - name: Install ruff
         run: pip install ruff==0.15.10
-      - name: Ruff check (backend)
-        run: ruff check --config backend/pyproject.toml backend
-      - name: Ruff format check (backend)
-        run: ruff format --check --config backend/pyproject.toml backend
+      - name: Ruff check (backend/src)
+        run: ruff check --config backend/pyproject.toml backend/src
+      - name: Ruff format check (backend/src)
+        run: ruff format --check --config backend/pyproject.toml backend/src
 
   test:
     name: Full Test Suite
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: "backend/pyproject.toml"
       - name: Install backend deps
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: "backend/pyproject.toml"
       - name: Install backend deps

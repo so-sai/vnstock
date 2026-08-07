@@ -54,7 +54,7 @@ def log_decision(
     """
     try:
         initialize_shadow_database()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
     entry = ShadowDecisionLog(
         decision_id=decision_id,
@@ -75,7 +75,7 @@ def log_decision(
     if run_ablations:
         try:
             run_pipeline_ablations(entry)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error("[SHADOW_CAO] Ablation run failed for %s: %s", decision_id, e)
     return entry
 

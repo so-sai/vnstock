@@ -384,7 +384,7 @@ def get_live_summary() -> dict:
         try:
             result = fn()
             return result if result is not None else default
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"get_live_summary sub-call failed: {type(e).__name__}: {e}")
             return default
 

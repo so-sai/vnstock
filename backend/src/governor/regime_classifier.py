@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
+from numpy.linalg import LinAlgError
 
 if TYPE_CHECKING:
     from hmmlearn.hmm import GaussianHMM
@@ -319,7 +320,7 @@ class RegimeClassifier:
 
             return model, means[order], bic
 
-        except Exception as e:
+        except (ValueError, RuntimeError, LinAlgError) as e:
             logger.warning("[REGIME_CLASSIFIER] HMM fit failed: %s", e)
             return None, None, None
 
@@ -457,7 +458,7 @@ class RegimeClassifier:
                 bic_score=bic,
             )
 
-        except Exception as e:
+        except (ValueError, RuntimeError, AttributeError, IndexError) as e:
             logger.warning("[REGIME_CLASSIFIER] HMM predict failed: %s", e)
             regime_probs = _heuristic_classify(avg_90d)
             regime = max(regime_probs, key=lambda k: regime_probs.get(k, 0.0))

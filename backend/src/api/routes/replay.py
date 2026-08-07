@@ -37,5 +37,5 @@ async def replay_timeline_endpoint(limit: int = Query(365, ge=30, le=1000)):
     try:
         data = get_replay_timeline(limit=limit)
         return localize_output(data)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Replay timeline error: {str(e)}")

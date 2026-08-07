@@ -8,12 +8,13 @@ import requests
 import yfinance as yf
 from requests import Session
 from requests.adapters import HTTPAdapter
+from src.core.errors import RateLimitError
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger("PTK_SYSTEM")
 
 
-class RateLimitException(Exception):
+class RateLimitException(RateLimitError):
     """Ngoại lệ chuyên biệt cho lỗi HTTP 429 — chặn ngay lập tức mọi retry."""
 
 
@@ -53,7 +54,7 @@ class MacroSensorEngine:
                 df = pd.read_sql_query(query, conn, params=[sensor_name])
                 if df is not None and not df.empty:
                     return df, True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error(f"[CRITICAL_DB_ERROR] Không thể truy vấn sensor {sensor_name}: {str(e)}")
         return None, False
 
@@ -75,7 +76,7 @@ class MacroSensorEngine:
                     elif isinstance(df.index, pd.DatetimeIndex):
                         df.index = pd.DatetimeIndex([today_str] * len(df))
                     return df, True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error(f"[CRITICAL_DB_ERROR] Không thể đọc cache dự phòng cho {sensor_name}: {str(e)}")
 
         return None, True
@@ -125,6 +126,6 @@ class MacroSensorEngine:
         except RateLimitException:
             logger.error("[RATE_LIMIT] Phát hiện HTTP 429 cho %s. Ngắt kết nối khẩn cấp, chuyển sang T-1.", ticker)
             return self._get_t_minus_one_fallback(ticker)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error("[SENSOR_ERROR] Lỗi kết nối cảm biến %s: %s", ticker, str(e))
             return self._get_t_minus_one_fallback(ticker)

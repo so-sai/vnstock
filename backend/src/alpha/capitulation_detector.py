@@ -104,7 +104,7 @@ class CapitulationDetector:
             entry = lookup_params(regime)
             if entry["params_hash"] != "conservative_default":
                 return entry.get("capitulation_params", self.D)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
         return dict(self.D)
 

@@ -100,6 +100,6 @@ def get_silver_dashboard() -> dict:
             "btmc_spread": round(sell - buy, 2),
             "brand": str(main["name"]),
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Silver dashboard failed: {e}")
         return {"btmc_buy": 0, "btmc_sell": 0, "btmc_spread": 0, "brand": ""}

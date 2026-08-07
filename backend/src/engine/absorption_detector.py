@@ -415,7 +415,7 @@ def run_absorption_detection(target_date: str | None = None, show_details: bool 
         print("\n  📊 Volume Profile:")
         print(f"     POC: {vp.get('poc_price', 'N/A')}  |  VAL: {vp.get('val', 'N/A')}  |  VAH: {vp.get('vah', 'N/A')}")
         print(
-            f"     Giá hiện tại: {vp.get('price_current', 'N/A')} {'✅ trong VA' if vp.get('price_in_value_area') else '❌ ngoài VA'}"
+            f"     Giá hiện tại: {vp.get('price_current', 'N/A')} {'✅ trong VA' if vp.get('price_in_value_area') else '❌ ngoài VA'}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
         print(f"     Volume Ratio: {vp.get('volume_ratio', 0):.2%}  (ngưỡng: {VOLUME_RATIO_THRESHOLD:.0%})")
         print(f"     Hội tụ khối lượng: {'CÓ' if vp.get('volume_converged') else 'CHƯA'}")

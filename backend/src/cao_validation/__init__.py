@@ -1,4 +1,4 @@
-﻿"""CAO Trust Bridge — Statistical Validation Layer.
+"""CAO Trust Bridge — Statistical Validation Layer.
 
 The transition gate between Shadow CAO (observability) and Live CAO (learning).
 
@@ -21,6 +21,7 @@ Usage:
     if report.overall_promotable:
         print("CAO can be promoted to LIVE")
 """
+
 from src.cao_validation.activation_gate import evaluate_promotion, run_full_validation
 from src.cao_validation.consistency_engine import compute_batch_consistency, compute_consistency_score
 from src.cao_validation.regime_promotion_matrix import get_matrix

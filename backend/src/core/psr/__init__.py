@@ -1,4 +1,4 @@
-﻿"""Production Stress Release (PSR) — reproducibility boundary.
+"""Production Stress Release (PSR) — reproducibility boundary.
 
 Transitions the system from "correct" to "provably reproducible".
 
@@ -8,6 +8,7 @@ Four layers:
   3. DeterministicReplayEngine — load snapshot → reproduce → compare
   4. VersionFreeze           — immutable version manifest + git integration
 """
+
 from src.core.psr.audit import DecisionAuditTrail
 from src.core.psr.models import (
     PSRAuditEntry,

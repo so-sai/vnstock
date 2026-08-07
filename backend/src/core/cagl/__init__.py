@@ -1,4 +1,4 @@
-﻿"""Canonical API Gateway Layer (CAGL) — API integrity & contract enforcement.
+"""Canonical API Gateway Layer (CAGL) — API integrity & contract enforcement.
 
 Provides:
   - Route scanning (runtime introspection)
@@ -14,6 +14,7 @@ Usage::
 
     findings = verify_cagl(app, mode="WARN")
 """
+
 from src.core.cagl.bootstrap import verify_cagl
 from src.core.cagl.contract import ContractValidator
 from src.core.cagl.models import EndpointSpec, ScanResult, ValidationFinding

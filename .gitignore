@@ -264,3 +264,7 @@ releases/
 
 # Nuitka cache
 .nuitka/
+
+# opencode agent state (plans + node_modules)
+/.opencode/
+

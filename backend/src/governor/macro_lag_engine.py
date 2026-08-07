@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from core.errors import AnalysisError
 from governor.sector_exposure_matrix import SectorExposureMatrix
 
 logger = logging.getLogger(__name__)
@@ -275,7 +276,7 @@ class MacroLagEngine:
                     (variable, lookback),
                 ).fetchall()
             return [(r[0], r[1]) for r in rows if r[1] is not None]
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.warning("[LAG] Failed to fetch %s: %s", variable, e)
             return []
         finally:
@@ -300,7 +301,7 @@ class MacroLagEngine:
                     (lookback,),
                 ).fetchall()
             return [(r[0], r[1]) for r in rows if r[1] is not None]
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.warning("[LAG] Failed to fetch VNINDEX: %s", e)
             return []
         finally:
@@ -428,7 +429,8 @@ class MacroLagEngine:
                     (variable, window),
                 ).fetchall()
             return [(r[0], r[1]) for r in rows if r[1] is not None]
-        except Exception:
+        except sqlite3.Error as e:
+            logger.warning("[LAG] Rolling avg fetch failed for %s: %s", variable, e)
             return []
         finally:
             conn.close()
@@ -585,7 +587,8 @@ class MacroLagEngine:
                 vectors = self._reconstruct_historical_vectors(1, check_date)
                 if vectors:
                     m_vectors.append(vectors[0])
-            except Exception:
+            except (AnalysisError, ValueError, TypeError) as e:
+                logger.debug("[LAG] Skipping date %s in persistence calc: %s", check_date, e)
                 continue
 
         if len(m_vectors) < 3:

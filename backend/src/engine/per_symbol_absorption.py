@@ -193,7 +193,7 @@ class PerSymbolAbsorption:
                 self.phase = state.get("phase", "UNKNOWN")
                 self.hdr = state.get("hdr", HDR_CEIL)
                 self.history = state.get("history", [])
-            except Exception as e:
+            except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
                 logger.warning(f"[ABS_{self.symbol}] Load state failed: {e}")
 
     def _save(self):
@@ -208,7 +208,7 @@ class PerSymbolAbsorption:
                 "updated_at": datetime.now().isoformat(),
             }
             self.state_file.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.error(f"[ABS_{self.symbol}] Save state failed: {e}")
 
     # --- Data Fetching -------------------------------------------------------

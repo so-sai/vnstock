@@ -1,7 +1,8 @@
-﻿"""
+"""
 Portfolio Memory Layer v1.0
 Khởi tạo và quản lý portfolio_state.db — Sổ cái kế toán danh mục độc lập.
 """
+
 import os
 import sqlite3
 import sys
@@ -10,7 +11,7 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -26,6 +27,7 @@ def _hydrate_path():
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
@@ -95,6 +97,7 @@ ON position_lifecycle (symbol)
 WHERE status NOT IN ('CLOSED', 'WATCHLIST');
 """
 
+
 @contextmanager
 def get_portfolio_connection():
     conn = sqlite3.connect(PORTFOLIO_DB_PATH, timeout=10)
@@ -109,12 +112,14 @@ def get_portfolio_connection():
     finally:
         conn.close()
 
+
 def initialize_portfolio_database():
     os.makedirs(str(src.config.DATA_DIR), exist_ok=True)
     with get_portfolio_connection() as conn:
         conn.execute(SCHEMA_POSITIONS)
         conn.execute(SCHEMA_TELEMETRY)
         conn.execute(INDEX_ACTIVE)
+
 
 def migrate_portfolio_database():
     """Add Phase 9.2 columns to position_lifecycle and Phase 9.3 to portfolio_telemetry."""
@@ -127,6 +132,7 @@ def migrate_portfolio_database():
         for col_name, col_type in SCHEMA_COLUMNS_V93:
             if col_name not in existing_tele:
                 conn.execute(f"ALTER TABLE portfolio_telemetry ADD COLUMN {col_name} {col_type}")
+
 
 if __name__ == "__main__":
     initialize_portfolio_database()

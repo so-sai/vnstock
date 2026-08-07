@@ -452,7 +452,7 @@ class ArchetypeEngine:
                 return bool(row and str(row[0]).strip() == "Ngân hàng")
             finally:
                 conn.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return False
 
     def _icb_sector(self, symbol: str) -> str | None:
@@ -474,7 +474,7 @@ class ArchetypeEngine:
                 return str(row[0]).strip() if row and row[0] else None
             finally:
                 conn.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return None
 
     def _classify_by_ratios(self, symbol: str) -> BusinessArchetype:

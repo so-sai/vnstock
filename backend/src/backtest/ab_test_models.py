@@ -229,7 +229,7 @@ def run_ab(start_date="2022-01-01", end_date="2022-12-31", top_symbols=40):
                 }
                 row.update(pg)
                 rows.append(row)
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
 
     conn.close()

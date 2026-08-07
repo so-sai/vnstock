@@ -1,4 +1,5 @@
-﻿"""FastAPI route scanner — introspects ``app.routes`` to produce ``EndpointSpec`` list."""
+"""FastAPI route scanner — introspects ``app.routes`` to produce ``EndpointSpec`` list."""
+
 from __future__ import annotations
 
 import logging
@@ -90,12 +91,14 @@ class RouteScanner:
             handler_name = getattr(route.endpoint, "__name__", "<unknown>")
             version = _extract_version(path)
             for method in route.methods:
-                specs.append(EndpointSpec(
-                    path=path,
-                    method=method,
-                    module=mod_name,
-                    handler=handler_name,
-                    tags=list(route.tags),
-                    version=version,
-                ))
+                specs.append(
+                    EndpointSpec(
+                        path=path,
+                        method=method,
+                        module=mod_name,
+                        handler=handler_name,
+                        tags=list(route.tags),
+                        version=version,
+                    )
+                )
         return specs

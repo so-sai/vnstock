@@ -48,7 +48,7 @@ async def live_summary():
     """1-glance live market summary — regime + decision + liquidity + rotation."""
     try:
         return localize_output(get_live_summary())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Live summary endpoint failed: {type(e).__name__}: {e}")
         return localize_output(
             {
@@ -69,7 +69,7 @@ async def portfolio_coach():
     """What should I do next? Plain-language mentor advice."""
     try:
         return localize_output(get_portfolio_coach())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -78,7 +78,7 @@ async def opportunity_queue(top_n: int = Query(5, ge=1, le=20)):
     """Top actionable buy/sell opportunities ranked by combined score."""
     try:
         return localize_output(get_opportunity_queue(top_n))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -87,7 +87,7 @@ async def scenario_simulation(scenario: str = Query("drop_5pct", pattern="^(drop
     """What-if simulation for market scenarios."""
     try:
         return localize_output(get_scenario_simulation(scenario))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -96,5 +96,5 @@ async def position_narrative(symbol: str):
     """Is this position still valid? Full narrative for a held position."""
     try:
         return localize_output(get_position_narrative(symbol.upper()))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))

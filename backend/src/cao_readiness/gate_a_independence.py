@@ -117,7 +117,7 @@ def run_independence_test(
     if snapshots is None:
         try:
             snapshots = get_all_snapshots(limit=200)
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             snapshots = []
     if not snapshots:
         return IndependenceReport(

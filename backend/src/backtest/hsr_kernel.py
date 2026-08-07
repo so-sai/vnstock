@@ -57,14 +57,14 @@ class InMemoryDB:
             if not df.empty:
                 df.to_sql("regime_history", self._conn, if_exists="replace", index=False)
                 logger.info(f"  [Kernel] Loaded {len(df):,} rows from regime_history")
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.info("  [Kernel] regime_history table not available — will be created by engines")
 
     def _create_indexes(self):
         try:
             self._conn.execute("CREATE INDEX IF NOT EXISTS idx_ohlcv_date ON daily_ohlcv(date)")
             self._conn.execute("CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol ON daily_ohlcv(symbol)")
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
     @contextmanager

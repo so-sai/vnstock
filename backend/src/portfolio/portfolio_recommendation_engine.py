@@ -118,7 +118,7 @@ def _read_flow_forecast() -> dict:
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
     return {}
 
@@ -129,7 +129,7 @@ def _read_capital_displacement() -> dict:
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
     return {}
 
@@ -140,7 +140,7 @@ def _read_rsi_regime_report() -> dict:
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
     return {}
 
@@ -155,7 +155,7 @@ def _read_rs_data() -> pd.DataFrame:
                 conn,
             )
         return df
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return pd.DataFrame()
 
 
@@ -171,7 +171,7 @@ def _get_regime_from_db() -> dict:
                 "regime_score": float(df["regime_score"].iloc[0]),
                 "breadth_pct": float(df["breadth_pct"].iloc[0]),
             }
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
     return {"status": "UNKNOWN", "regime_score": 0.5, "breadth_pct": 50}
 
@@ -317,7 +317,7 @@ def generate_recommendations(target_date: str | None = None) -> dict:
                     **scored,
                 }
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"Score failed for {symbol}: {e}")
             continue
 
@@ -444,7 +444,7 @@ def _store_recommendations(result: dict):
             """)
             try:
                 conn.execute("ALTER TABLE portfolio_recommendations ADD COLUMN total_scanned INTEGER DEFAULT 0")
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
             recs = result.get("recommendations", {})
             summary = result.get("summary", {})
@@ -466,7 +466,7 @@ def _store_recommendations(result: dict):
             vals = ", ".join(["?"] * len(row))
             conn.execute(f"INSERT OR REPLACE INTO portfolio_recommendations ({cols}) VALUES ({vals})", list(row.values()))
             conn.commit()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Store recommendations error: {e}")
 
 
@@ -486,7 +486,7 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")

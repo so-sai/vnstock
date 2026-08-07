@@ -184,13 +184,13 @@ class ProviderManager:
             from src.providers.vnstock_provider import VnstockProvider
 
             self.register(VnstockProvider())
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning("VnstockProvider unavailable: %s", e)
         try:
             from src.providers.sqlite_provider import SqliteCacheProvider
 
             self.register(SqliteCacheProvider())
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.debug("SqliteCacheProvider unavailable: %s", e)
 
     def register(self, provider: FinancialProvider) -> None:
@@ -212,7 +212,7 @@ class ProviderManager:
             try:
                 if p.is_available():
                     return p.name
-            except Exception:
+            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 continue
         return None
 
@@ -267,7 +267,7 @@ class ProviderManager:
                         self._source_attribution[provider.name] = self._source_attribution.get(provider.name, 0) + 1
                         self._last_primary_source = getattr(provider, "source", provider.name)
                     return result, provider.name
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 logger.debug("Provider %s failed %s: %s", provider.name, method, e)
                 if breaker is not None:
                     breaker.record_failure()
@@ -372,7 +372,7 @@ class ProviderManager:
 
                 self._forensic_cache = ForensicScoreCache()
             return self._forensic_cache.get(symbol)
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return None
 
     def symbols(self, **kwargs: Any) -> list[str] | None:

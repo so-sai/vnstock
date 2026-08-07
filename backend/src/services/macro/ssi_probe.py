@@ -157,7 +157,7 @@ def _try_request(req: dict) -> dict:
         result["error"] = "TIMEOUT"
     except requests.exceptions.ConnectionError as e:
         result["error"] = f"CONN_ERR: {str(e)[:60]}"
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         result["error"] = str(e)[:80]
     return result
 
@@ -178,7 +178,7 @@ def _cache_discovery(results: list[dict], cache_path: Path):
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"SSI probe cache failed: {e}")
         return False
 
@@ -204,7 +204,7 @@ def _log_to_kit(results: list[dict]):
                 timeout=5,
                 cwd=Path(__file__).resolve().parent.parent.parent.parent,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
 
@@ -273,7 +273,7 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")

@@ -1,3 +1,5 @@
+import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +29,8 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 
 from src.database.db_core import get_connection
+
+logger = logging.getLogger(__name__)
 
 _SESSION_SHOWN = False
 
@@ -101,7 +105,8 @@ def kiem_tra_va_nhac_nho():
             co_vnindex = bool(dong and dong[0])
             dong = conn.execute("SELECT MAX(date) FROM macro_history WHERE variable = 'VGB10Y'").fetchone()
             ngay_vgb10y = dong[0] if dong else None
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.debug("kiểm_tra_và_nhắc_nhở: không đọc được DB — fallback 0")
         n_symbols = 0
         co_vnindex = False
         ngay_vgb10y = None

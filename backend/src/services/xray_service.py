@@ -86,7 +86,7 @@ def _load_rs_data() -> dict:
         with open(rs_path, encoding="utf-8") as f:
             data = json.load(f)
         return {item["symbol"]: item for item in data}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Error loading RS data: {e}")
         return {}
 
@@ -212,7 +212,7 @@ def _get_latest_ohlcv(symbol: str, timeframe: str = "D") -> dict | None:
             "dataQuality": data_quality,
             "ohlcvHistory": ohlcv_history,
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Error fetching OHLCV for {symbol}: {e}")
         return None
 
@@ -222,7 +222,7 @@ def _get_sector(symbol: str) -> str:
         with get_connection() as conn:
             df = pd.read_sql("SELECT icb_name3 as sector FROM symbol_industry WHERE symbol = ?", conn, params=(symbol,))
         return df.iloc[0]["sector"] if not df.empty else "Unknown"
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return "Unknown"
 
 
@@ -238,7 +238,7 @@ def get_xray_data(symbol: str, timeframe: str = "D") -> dict:
     foreign_10d = 0.0
     try:
         foreign_10d = round(_get_mfe().get_accumulation(symbol, 10), 1)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
 
     regime_data = {"status": "UNKNOWN", "score": 0.0}
@@ -248,7 +248,7 @@ def get_xray_data(symbol: str, timeframe: str = "D") -> dict:
             "status": rd.get("status", "UNKNOWN"),
             "score": round(rd.get("regime_score", 0), 3),
         }
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
 
     price = ohlcv.get("price") if ohlcv else float(rs_info.get("price", 0))

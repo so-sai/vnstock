@@ -464,7 +464,7 @@ def build_market_state() -> dict:
             trade_state_level=trade_state.level,
             dcl_report=dcl.model_dump(),
         )
-    except Exception as e:
+    except (ImportError, AttributeError, TypeError, ValueError, KeyError) as e:
         logger.warning(f"Coordinator: verdict compilation failed: {e}")
 
     opportunity_view = None
@@ -488,7 +488,7 @@ def build_market_state() -> dict:
             },
             decision_posture=decision_posture,
         )
-    except Exception as e:
+    except (ImportError, AttributeError, TypeError, ValueError, KeyError) as e:
         logger.warning(f"Coordinator: opportunity_view build failed: {e}")
 
     state = {
@@ -602,8 +602,8 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
-                    pass
+                except OSError, AttributeError, ValueError:
+                    logger.debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     run_coordinator()

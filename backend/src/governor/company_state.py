@@ -102,8 +102,8 @@ def _symbol_sector(symbol: str) -> str | None:
             return "Bán lẻ"
         if arch_name == "TECHNOLOGY":
             return "Công nghệ Thông tin"
-    except Exception:
-        pass
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
+        logger.debug("[GOV] _symbol_sector archetype fallback failed: %s", e)
     return None
 
 
@@ -965,7 +965,8 @@ class PerceptionLoader:
                 "confidence": state.archetype_confidence,
                 "periods": state.data_periods,
             }
-        except Exception:
+        except (ImportError, sqlite3.Error, KeyError, ValueError, TypeError, AttributeError) as e:
+            logger.warning("[GOV] load_health fallback for %s: %s", symbol, e)
             return {"archetype": "STEADY_EARNER", "vector": [0.5, 0.5, 0.5, 0.5, 0.5], "confidence": 0.5, "periods": 0}
 
 
@@ -1154,7 +1155,8 @@ class BayesianGovernor:
 
             arch = ArchetypeEngine().classify(symbol)
             return arch.archetype if arch else "UNKNOWN"
-        except Exception:
+        except (ImportError, AttributeError, TypeError) as e:
+            logger.debug("[GOV] archetype prior failed for %s: %s", symbol, e)
             return "UNKNOWN"
 
     def _get_fair_engine(self) -> Any:
@@ -1185,7 +1187,7 @@ class BayesianGovernor:
             from calibration.prediction_log import check_circuit_breaker_auto
 
             self._cb_state = check_circuit_breaker_auto(days=90)
-        except Exception as e:
+        except (ImportError, sqlite3.Error, KeyError, ValueError, TypeError) as e:
             logger.warning("[GOV] Circuit breaker check FAILED: %s — defaulting to BÌNH_THƯỜNG (level 0)", e)
             self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": f"CHECK_FAILED: {e}"}
         if self._cb_state is None:
@@ -1216,8 +1218,8 @@ class BayesianGovernor:
                         last_roe = roe_series[-1][1]
                         if last_roe is not None:
                             roe_val = last_roe * 4.0 if last_roe < 0.25 else last_roe
-                except Exception:
-                    pass
+                except (ImportError, sqlite3.Error, KeyError, ValueError, TypeError) as e:
+                    logger.debug("[GOV] ROE ratio fallback failed for %s: %s", symbol, e)
             if roe_val is not None and pe_val is not None and pb_val is not None:
                 fair = self._get_fair_engine()(
                     symbol=symbol,
@@ -1226,8 +1228,8 @@ class BayesianGovernor:
                     pb_current=pb_val,
                     archetype=health.get("archetype", "UNKNOWN"),
                 )
-        except Exception:
-            pass
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            logger.debug("[GOV] Fair multiple compute failed for %s: %s", symbol, e)
 
         # ── CSI v2: MoS Zone replaces Z-Score as PRIMARY valuation signal ──
         mos_zone = _compute_mos_zone(fair.get("margin_of_safety_pct"))
@@ -1280,8 +1282,8 @@ class BayesianGovernor:
                     df_regime,
                 )
                 fusion_action = fusion.get("action", "")
-        except Exception:
-            pass
+        except (ImportError, KeyError, TypeError, ValueError) as e:
+            logger.debug("[GOV] Decision fusion failed for %s: %s", symbol, e)
         beh = self.behavior.score_behavior(symbol, fusion_action=fusion_action)
 
         # ── Giai đoạn 1: Archetype-aware prior ──────────────
@@ -1296,8 +1298,8 @@ class BayesianGovernor:
             # Scale base LR by per-symbol multiplier
             lr_macro_dynamic = _lookup_lr(LR_MACRO, self._macro["state"]) * lr_mult
             lr_macro_dynamic = max(0.05, min(5.0, lr_macro_dynamic))
-        except Exception:
-            pass
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            logger.debug("[GOV] Factor LR compute failed for %s: %s", symbol, e)
 
         # ── Giai đoạn 3: Contextual Health ──────────────────
         contextual_health_score = 0.5
@@ -1306,8 +1308,8 @@ class BayesianGovernor:
             ctx = ctx_eng.assess(symbol)
             if ctx:
                 contextual_health_score = ctx.overall_score
-        except Exception:
-            pass
+        except (AttributeError, TypeError, KeyError) as e:
+            logger.debug("[GOV] Contextual health failed for %s: %s", symbol, e)
 
         # ── Giai đoạn 4: Capital Allocation ─────────────────
         capital_arch = "TRANSITIONAL"
@@ -1318,8 +1320,8 @@ class BayesianGovernor:
             if cap:
                 capital_arch = cap.archetype
                 capital_score = cap.quality_score
-        except Exception:
-            pass
+        except (AttributeError, TypeError, KeyError) as e:
+            logger.debug("[GOV] Capital allocation failed for %s: %s", symbol, e)
 
         # Derive sector phase
         sector_phase = self._sector.get("top_phase", "NEUTRAL")
@@ -1335,7 +1337,7 @@ class BayesianGovernor:
             dw = get_dynamic_evidence_weights(_ms, _sp, _en)
             if dw:
                 dynamic_weights = dw
-        except Exception as e:
+        except (ImportError, KeyError, TypeError, ValueError) as e:
             logger.warning("[GOV] EvidenceEngine dynamic weights FAILED: %s — using static weights", e)
 
         # ── Giai đoạn 6: CausalEdge propagation (Sprint 3) ──
@@ -1357,7 +1359,7 @@ class BayesianGovernor:
                 _causal_paths = len(_results)
                 # Coherence = avg confidence across all reached nodes
                 _causal_coherence = sum(r["confidence"] for r in _results) / len(_results)
-        except Exception as e:
+        except (ImportError, KeyError, TypeError, ValueError, RecursionError) as e:
             logger.warning("[GOV] CausalGraph propagation FAILED for %s: %s", symbol, e)
 
         # ── Giai đoạn 6b: Sector Macro Score (Dot Product M · W_i) ──
@@ -1414,7 +1416,7 @@ class BayesianGovernor:
                 _ix_result = _ix_engine.compute(_M, _sector_name)
                 _interaction_mult = _ix_result.multiplier
                 _interaction_synergies = _ix_result.active_synergies
-        except Exception as e:
+        except (ImportError, KeyError, TypeError, ValueError, sqlite3.Error, RecursionError) as e:
             logger.warning("[GOV] SectorExposureMatrix FAILED for %s: %s", symbol, e)
 
         # ── Giai đoạn 7: ModelRegistry BMA competition (Sprint 4) ──
@@ -1431,7 +1433,7 @@ class BayesianGovernor:
             bma = self._bma_posterior
             if bma is not None:
                 model_registry_lr = compute_model_registry_lr(bma)
-        except Exception as e:
+        except (ImportError, KeyError, TypeError, ValueError, sqlite3.Error) as e:
             logger.warning("[GOV] ModelRegistry BMA FAILED: %s — model_registry_lr=1.0", e)
 
         # Bayesian inference v3 with Giai đoạn 7 ModelRegistry LR
@@ -1444,7 +1446,8 @@ class BayesianGovernor:
                 breadth_momentum_5d=0.0,
                 credit_shift=_credit_shift,
             )
-        except Exception:
+        except (TypeError, ValueError, KeyError) as e:
+            logger.debug("[GOV] Recovery authenticity compute failed for %s: %s", symbol, e)
             recovery_authenticity_lr = None
         p_gain, log_odds, calib_penalty = compute_gain_probability(
             macro_state=self._macro["state"],
@@ -1557,8 +1560,8 @@ class BayesianGovernor:
                     valuation_zone=val.get("overall_zone", "FAIR"),
                     behavior_position=beh.get("position", "UNKNOWN"),
                 )
-        except Exception:
-            pass
+        except (ImportError, sqlite3.Error, KeyError, TypeError, ValueError) as e:
+            logger.debug("[GOV] Prediction insert failed for %s: %s", symbol, e)
 
         # ── Policy Impact Engine (PolicyEvent -> policy_context) ──
         # WHY: Chinh sach vi mo (QD 1743...) tac dong bat doi xung len tung cum.
@@ -1576,7 +1579,8 @@ class BayesianGovernor:
                 # Cap boost scale: full 500bps LDR relief for benefit 1.0 -> +0.15
                 _relief = _pimp.ldr_relief_bps
                 policy_cap_boost = round(min(0.15, (_relief / 500.0) * 0.15), 4)
-        except Exception:
+        except (ImportError, AttributeError, TypeError, KeyError, ValueError) as e:
+            logger.debug("[GOV] Policy impact compute failed for %s: %s", symbol, e)
             policy_ctx = {}
             policy_cap_boost = 0.0
 
@@ -1684,8 +1688,8 @@ def _ensure_calib() -> None:
 
             init_schema()
             _CALIB_INITED = True
-        except Exception:
-            pass
+        except (ImportError, sqlite3.Error, RuntimeError, ValueError) as e:
+            logger.debug("[GOV] Calibration schema init failed: %s", e)
 
 
 ARROW_MAP = {
@@ -1745,7 +1749,8 @@ def print_report(analysis: dict[str, Any]) -> None:
         def _(x: str) -> str:
             vi = localize_label(x, "full")
             return f"{vi} ({x})" if vi != x else x
-    except Exception:
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
+        logger.debug("[GOV] print_report localization failed: %s", e)
 
         def _(x: str) -> str:
             return x
@@ -1863,8 +1868,8 @@ def print_report(analysis: dict[str, Any]) -> None:
         projector = CompositeScoreProjector()
         comp_results = projector.project_batch(list(results.values()))
         print_composite_dashboard(comp_results)
-    except Exception:
-        pass
+    except (ImportError, sqlite3.Error, KeyError, TypeError, ValueError) as e:
+        logger.debug("[GOV] Composite score dashboard failed: %s", e)
 
     # ══════════════════════════════════════════════════════════════════
     # TẦNG 3 — KIỂM TOÁN THUẬT TOÁN (BOTTOM TIER — DEVELOPER)

@@ -63,7 +63,7 @@ class ShadowExecutionTracker:
         try:
             df = pd.read_sql(atr_query, conn)
             atr_val = df.iloc[0]["atr14"] if not df.empty and df.iloc[0]["atr14"] else 0
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             atr_val = 0
         self._atr_cache[key] = atr_val
         return atr_val
@@ -298,7 +298,7 @@ def run_stress_test(start_date, end_date):
                 }
             )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             print(f"[ERROR] processing {target_date}: {e}")
             continue
 

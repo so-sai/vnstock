@@ -203,7 +203,7 @@ class TrustAccumulator:
                     }
                 ),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning("[TRUST] Persist failed for %s: %s", regime, e)
 
     def _load_persisted(self):
@@ -226,7 +226,7 @@ class TrustAccumulator:
                         distribution_equivalent=False,
                         data_integrity_score=data.get("data_integrity_score", 1.0),
                     )
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
 
 
@@ -251,6 +251,6 @@ def get_accumulator() -> TrustAccumulator:
                     },
                 )()
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             _accumulator = TrustAccumulator()
     return _accumulator

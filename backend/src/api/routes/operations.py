@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -36,12 +36,15 @@ async def api_daily_close():
     """Thực thi daily closer: breadth + sector + flow + macro + reputation."""
     try:
         from src.daily_closer import run_daily_closer
+
         run_daily_closer()
-        return localize_output({
-            "status": "success",
-            "message": "CHỐT PHIÊN THÀNH CÔNG: Sổ cái SQLite đã khóa!",
-            "timestamp": datetime.now().isoformat(),
-        })
+        return localize_output(
+            {
+                "status": "success",
+                "message": "CHỐT PHIÊN THÀNH CÔNG: Sổ cái SQLite đã khóa!",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
     except Exception as e:
         logger.error(f"Daily close failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Daily close thất bại: {str(e)}")
@@ -52,13 +55,16 @@ async def api_telemetry_drift():
     """Tính toán và ghi nhật ký độ lệch hệ thống (Drift Monitor)."""
     try:
         from src.telemetry.driver_reputation import update_reputation
+
         n = update_reputation()
-        return localize_output({
-            "status": "success",
-            "message": "ĐÃ GHI NHẬT KÝ DRIFT: Baseline 90 ngày ổn định!",
-            "rows_updated": n,
-            "timestamp": datetime.now().isoformat(),
-        })
+        return localize_output(
+            {
+                "status": "success",
+                "message": "ĐÃ GHI NHẬT KÝ DRIFT: Baseline 90 ngày ổn định!",
+                "rows_updated": n,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
     except Exception as e:
         logger.error(f"Telemetry drift failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Drift log thất bại: {str(e)}")

@@ -9,6 +9,7 @@ Tính toán ảnh hưởng của từng nhóm cổ phiếu lên VNINDEX:
 
 import io
 import json
+import logging
 import os
 import sys
 from dataclasses import asdict, dataclass, field
@@ -38,8 +39,8 @@ if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except OSError, AttributeError, ValueError:
+                logging.getLogger(__name__).debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import numpy as np
@@ -372,7 +373,7 @@ def in_bao_cao(mr: MarketReality) -> None:
     for g in mr.group_contributions:
         marker = " *" if g.is_dominant else ""
         print(
-            f"  {g.label_vi:<20} {g.total_market_cap_pct:>9.1f}% {g.index_contribution_pts:>+11.2f} {g.avg_change_pct:>+9.2f}% {g.breadth_contribution:>9.2f}%{marker}"
+            f"  {g.label_vi:<20} {g.total_market_cap_pct:>9.1f}% {g.index_contribution_pts:>+11.2f} {g.avg_change_pct:>+9.2f}% {g.breadth_contribution:>9.2f}%{marker}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
 
     print("  " + "-" * 65)

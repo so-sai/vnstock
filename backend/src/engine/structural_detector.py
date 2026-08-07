@@ -10,6 +10,8 @@ Output: 1 trong 4 trạng thái cấu trúc + vector nguyên nhân
 """
 
 import json
+import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -40,8 +42,8 @@ if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except OSError, AttributeError, ValueError:
+                logging.getLogger(__name__).debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import numpy as np
@@ -49,6 +51,8 @@ import pandas as pd
 
 import src.config
 from src.database.db_core import get_connection
+
+logger = logging.getLogger(__name__)
 
 
 def _get_historical_data(target_date: str) -> dict:
@@ -62,7 +66,8 @@ def _get_historical_data(target_date: str) -> dict:
     try:
         pulse = run_breadth_analysis(target_date=target_date)
         health = pulse.get("health_score_ma20") if pulse else None
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.debug("_get_historical_data: run_breadth_analysis lỗi — health=None")
         health = None
 
     # Lấy VNINDEX và dữ liệu cổ phiếu tại target_date
@@ -163,7 +168,8 @@ def _get_industry_map() -> dict:
         with get_connection() as conn:
             df = pd.read_sql("SELECT symbol, icb_name2 FROM symbol_industry", conn)
         return dict(zip(df["symbol"], df["icb_name2"]))
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.warning("_get_industry_map: không đọc được symbol_industry — fallback map rỗng")
         return {}
 
 
@@ -262,8 +268,8 @@ def _tinh_entropy(health: float | None, lcr: float | None) -> float | None:
         )
         if driver and hasattr(driver, "entropy"):
             return float(driver.entropy)
-    except Exception:
-        pass
+    except ImportError, AttributeError, TypeError, KeyError:
+        logger.debug("_tinh_entropy: không tính được driver entropy — fallback None")
     return None
 
 

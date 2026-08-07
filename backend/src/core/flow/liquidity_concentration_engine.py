@@ -4,6 +4,7 @@ Phát hiện "breadth illusion" — thanh khoản bị co cụm vào vài mã đ
 """
 
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -146,7 +147,7 @@ def _load_sector_map() -> dict:
             sec = str(row["icb_name2"]).strip() if row["icb_name2"] else "Khác"
             mapping[sym] = sec
         return mapping
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"Sector map load failed: {e}")
         return {}
 
@@ -230,7 +231,7 @@ def _load_daily_data(target_date: str | None = None) -> tuple:
                     params=(target_date,),
                 )
                 prev = pd.read_sql(
-                    "SELECT symbol, date, close FROM daily_ohlcv WHERE date < ? AND symbol NOT LIKE '%INDEX%' ORDER BY date DESC LIMIT 1",
+                    "SELECT symbol, date, close FROM daily_ohlcv WHERE date < ? AND symbol NOT LIKE '%INDEX%' ORDER BY date DESC LIMIT 1",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                     conn,
                     params=(target_date,),
                 )
@@ -245,12 +246,12 @@ def _load_daily_data(target_date: str | None = None) -> tuple:
                 params=(latest_date,),
             )
             prev = pd.read_sql(
-                "SELECT symbol, date, close FROM daily_ohlcv WHERE date < ? AND symbol NOT LIKE '%INDEX%' ORDER BY date DESC LIMIT 1000",
+                "SELECT symbol, date, close FROM daily_ohlcv WHERE date < ? AND symbol NOT LIKE '%INDEX%' ORDER BY date DESC LIMIT 1000",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                 conn,
                 params=(latest_date,),
             )
             return latest_date, df, prev
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"LCI data load failed: {e}")
         return "", pd.DataFrame(), pd.DataFrame()
 

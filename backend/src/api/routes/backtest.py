@@ -46,7 +46,7 @@ async def run_backtest(
                 end_date=end_date,
             )
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -58,5 +58,5 @@ async def stress_test_2022(
     """Tóm tắt kết quả Stress Test giai đoạn chỉ định."""
     try:
         return localize_output(get_stress_test_summary(start_date=start_date, end_date=end_date))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,4 +1,4 @@
-﻿"""
+"""
 CAO Readiness Gate — Critical Pre-Flight Module
 ================================================
 Validates 3 pre-conditions before CAO Phase 1 (learning) can be safely executed.
@@ -14,6 +14,7 @@ Usage:
   if verdict.overall_pass:
       print("CAO Phase 1 is SAFE to execute")
 """
+
 from src.cao_readiness.models import GateResult, ReadinessVerdict
 from src.cao_readiness.orchestrator import print_verdict, run_readiness_check
 

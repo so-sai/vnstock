@@ -32,6 +32,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, cast
 
+from core.errors import GovernorDecisionError
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,7 +124,7 @@ class CSIExplainEngine:
                 # status() reads the persisted fed_policy_cache.json without
                 # hitting the network — deterministic for CLI explanation.
                 self._world = WorldSensor(use_cache=True).status()
-            except Exception as e:
+            except (KeyError, TypeError, ValueError, OSError) as e:
                 logger.warning("[CSI] WorldSensor load FAILED: %s — World layer empty", e)
                 self._world = {}
         return self._world
@@ -204,7 +206,8 @@ class CSIExplainEngine:
 
             arch = ArchetypeEngine().classify(symbol)
             return arch.archetype if arch else "UNKNOWN"
-        except Exception:
+        except (ImportError, AttributeError, TypeError) as e:
+            logger.debug("[CSI] Archetype classification failed for %s: %s", symbol, e)
             return "UNKNOWN"
 
     def _symbol_sector(self, symbol: str) -> str | None:
@@ -216,8 +219,8 @@ class CSIExplainEngine:
             for sector, syms in mapping.items():
                 if symbol in syms:
                     return sector
-        except Exception:
-            pass
+        except (ImportError, AttributeError, TypeError, sqlite3.Error) as e:
+            logger.debug("[CSI] Sector mapping lookup failed for %s: %s", symbol, e)
         return None
 
     def _sector_phase(self, sector: str) -> dict | None:
@@ -263,7 +266,8 @@ class CSIExplainEngine:
             )
             try:
                 path = cg.trace_path(wn["node"], vn_target, None)
-            except Exception:
+            except (RecursionError, KeyError, AttributeError) as e:
+                logger.debug("[CSI] World→VN trace failed (%s→%s): %s", wn["node"], vn_target, e)
                 path = None
             if path:
                 # Store the first found (highest-confidence) world→VN leg.
@@ -288,7 +292,8 @@ class CSIExplainEngine:
                     continue
                 try:
                     path = cg.trace_path(src, target_node, archetype)
-                except Exception:
+                except (RecursionError, KeyError, AttributeError) as e:
+                    logger.debug("[CSI] Macro→company trace failed (%s→%s): %s", src, target_node, e)
                     path = None
                 if path:
                     company_leg = {
@@ -378,7 +383,8 @@ class CSIExplainEngine:
                 "mos": mandate.margin_of_safety,
                 "market_context": mandate.market_context_tag,
             }
-        except Exception:
+        except (GovernorDecisionError, sqlite3.Error, KeyError, ValueError, AttributeError) as e:
+            logger.warning("[CSI] BayesianGovernor assess failed for %s: %s", symbol, e)
             csi = {"p_gain": 0.5, "action": "N/A", "mos": None, "market_context": "N/A"}
 
         # Sector leg.
@@ -476,8 +482,9 @@ def scan_all(
                     "csi_confidence": ent.get("csi_confidence"),
                 }
             )
-        except Exception:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             # Mã thiếu dữ liệu Governor → bỏ qua, không làm hỏng batch.
+            logger.debug("[CSI] scan_all skip %s: %s", sym, e)
             rows.append(
                 {
                     "symbol": sym,
@@ -690,7 +697,8 @@ def _localize(label: str) -> str:
 
         vi = localize_label(label, "full")
         return f"{vi} ({label})" if vi != label else label
-    except Exception:
+    except (ImportError, AttributeError, TypeError, KeyError) as e:
+        logger.debug("[CSI] Localize failed for %r: %s", label, e)
         return label
 
 
@@ -815,7 +823,8 @@ def resolve_sector_symbols(sector_query: str) -> list[str]:
         from src.core.macro.sector_state_engine import SectorStateEngine
 
         mapping = SectorStateEngine._load_icb_mapping()
-    except Exception:
+    except (ImportError, AttributeError, sqlite3.Error, KeyError) as e:
+        logger.debug("[CSI] resolve_sector_symbols load failed: %s", e)
         return []
 
     # Exact match first.
@@ -838,7 +847,8 @@ def list_sectors() -> list[str]:
 
         mapping = SectorStateEngine._load_icb_mapping()
         return sorted(mapping.keys())
-    except Exception:
+    except (ImportError, AttributeError, sqlite3.Error, KeyError) as e:
+        logger.debug("[CSI] list_sectors load failed: %s", e)
         return []
 
 

@@ -117,10 +117,10 @@ TERMS: dict[str, str] = {
     "BULL": "Tăng",
     "BEAR": "Giảm",
     # Reason phrases
-    "VALUE_TRAP: Cheap due to asset quality risk (Receivables/Revenue high)": "BẪY GIÁ TRỊ: Rẻ do chất lượng TS kém (Phải thu/DT cao)",
+    "VALUE_TRAP: Cheap due to asset quality risk (Receivables/Revenue high)": "BẪY GIÁ TRỊ: Rẻ do chất lượng TS kém (Phải thu/DT cao)",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     "WEAK fundamentals across all health metrics": "NỀN TẢNG YẾU trên mọi chỉ số sức khỏe",
     "Mo vi the tham do (10-15% tai khoan)": "Mở vị thế thăm dò (10-15% tài khoản)",
-    "Tich luy hoang loan: giai ngan theo phan tai phien volume spike >= 1.5x MA20": "Tích lũy hoàn toàn: giải ngân theo phần tại phiên volume spike >= 1.5x MA20",
+    "Tich luy hoang loan: giai ngan theo phan tai phien volume spike >= 1.5x MA20": "Tích lũy hoàn toàn: giải ngân theo phần tại phiên volume spike >= 1.5x MA20",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     "Nam giu, theo doi them tin hieu": "Nắm giữ, theo dõi thêm tín hiệu",
     "Chua du dieu kien, cho them tinhieu xac nhan": "Chưa đủ điều kiện, chờ thêm tín hiệu xác nhận",
     "Giam vi the, dinh gia dat (z=": "Giảm vị thế, định giá đắt (z=",

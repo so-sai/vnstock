@@ -1,4 +1,4 @@
-﻿"""
+"""
 Static IPO seed / migration for the Sentinel IPO HUD.
 
 This one-time migration seeds the existing screener_cache.db with a small
@@ -10,20 +10,20 @@ from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
         root_path = current
         while current != current.parent:
-            if (current / 'AGENTS.md').exists() and (current / 'backend').is_dir():
+            if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
                 root_path = current
                 break
             current = current.parent
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
 
-    backend_dir = root_path / 'backend'
+    backend_dir = root_path / "backend"
     if backend_dir.exists() and str(backend_dir) not in sys.path:
         sys.path.append(str(backend_dir))
 
@@ -40,5 +40,5 @@ def main() -> None:
     print(f"[IPO SEED] inserted={inserted}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

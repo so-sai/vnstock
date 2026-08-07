@@ -16,7 +16,10 @@ Early warning reads 3 leading indicators from the same history:
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 # ── In-memory window (ephemeral — resets on restart) ────────────────────
 # In production this would persist to .kit/local_brain.db or equivalent.
@@ -210,7 +213,8 @@ def compute_temporal_drift() -> dict:
         t0 = datetime.fromisoformat(_history[0]["timestamp"])
         t1 = datetime.fromisoformat(_history[-1]["timestamp"])
         hours = (t1 - t0).total_seconds() / 3600
-    except Exception:
+    except TypeError, ValueError, OverflowError:
+        logger.debug("compute_temporal_drift: không parse được timestamp — fallback 0.0h")
         hours = 0.0
 
     return {

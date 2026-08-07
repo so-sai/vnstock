@@ -39,12 +39,12 @@ DRIFT_STATUS_VI: dict[str, str] = {
 # Flow rotation patterns → Vietnamese cognitive descriptions
 FLOW_ROTATION_VI: dict[str, str] = {
     "broadsweep: flow+breadth both elevated": "dòng tiền đang lan tỏa ra nhiều nhóm cổ phiếu cùng lúc",
-    "risk_off: flow concentrating into safe-haven (macro↑)": "dòng tiền đang rút khỏi tài sản rủi ro, chuyển sang nhóm phòng thủ",
+    "risk_off: flow concentrating into safe-haven (macro↑)": "dòng tiền đang rút khỏi tài sản rủi ro, chuyển sang nhóm phòng thủ",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
     "concentration: flow↑ breadth↓ — money narrowing": "dòng tiền đang thu hẹp vào nhóm nhỏ cổ phiếu",
     "speculative_spread: breadth↑ flow↓ — money diffusing": "dòng tiền đang lan tỏa mang tính đầu cơ",
     "panic_flow: volatility↑ with flow↑ — possible capitulation": "dòng tiền đang tháo chạy mạnh, có dấu hiệu đầu hàng",
     "uncertainty: volatility dominating — no clear flow": "thị trường đang dao động mạnh, chưa xác định được dòng tiền",
-    "safe_haven_rotation: macro↑ flow↓ — capital leaving equities": "dòng tiền đang chuyển sang tài sản an toàn, rút khỏi cổ phiếu",
+    "safe_haven_rotation: macro↑ flow↓ — capital leaving equities": "dòng tiền đang chuyển sang tài sản an toàn, rút khỏi cổ phiếu",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
 }
 
 DRIFT_GAP_TEMPLATES: dict[str, str] = {

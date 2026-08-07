@@ -40,8 +40,8 @@ if sys.platform == "win32":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except OSError, AttributeError, ValueError:
+                logging.getLogger(__name__).debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 LOG_DIR = PROJECT_ROOT / "backend" / "logs"
@@ -240,7 +240,7 @@ def _fetch_lich_su(symbol: str, start: str, end: str) -> tuple:
 
                 provider = VnstockProvider(source=src)
                 box["df"] = provider.history(symbol, start=start, end=end, pause=0)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 box["err"] = e
 
         t = threading.Thread(target=_run, daemon=True)
@@ -431,7 +431,7 @@ def backfill(
                 try:
                     with get_connection() as conn:
                         save_data_upsert("daily_ohlcv", df, conn)
-                except Exception:
+                except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                     that_bai += 1
                     blacklist[symbol] = time.time()
                     break
@@ -457,7 +457,7 @@ def backfill(
                     print(f"\r  [{idx}/{tong}] {symbol}: ✅ +{dong_moi} dòng ({dong_truoc}→{dong_sau}) [src={src}]")
                 break
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 logger.warning(f"  [{idx}/{tong}] {symbol}: ⚠ Lỗi lần {lan_thu + 1}/{TOI_DA_THU_LAI}: {e}")
                 if lan_thu < TOI_DA_THU_LAI - 1:
                     thoi_gian_cho = COOLDOWN_LOI * (2**lan_thu)

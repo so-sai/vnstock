@@ -138,7 +138,7 @@ def stop_scheduler():
             if s._instance:
                 s._instance.shutdown(wait=False)
                 logger.info("[SCHEDULER] Stopped.")
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
 
 

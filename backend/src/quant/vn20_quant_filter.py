@@ -135,7 +135,7 @@ def _latest_market_regime(conn) -> str:
     """
     try:
         row = conn.execute("SELECT status FROM regime_history ORDER BY date DESC, rowid DESC LIMIT 1").fetchone()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return "RANGING"
     if not row or not row["status"]:
         return "RANGING"
@@ -179,7 +179,7 @@ def _periods_n_years(period: str, n: int = N_YEARS) -> list[str]:
         y, q = period.split("Q")
         y = int(y)
         q = int(q)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return []
     out = []
     for yy in range(y - n + 1, y + 1):
@@ -527,7 +527,7 @@ def compute_sector_context(conn, sector: str, lookback: int = 90) -> dict:
         if zs:
             cheap = sum(1 for z in zs if z < -0.5) / len(zs)
             val_pct = round(1.0 - cheap, 4)  # high = expensive
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
 
     return {"sector": sector, "momentum": momentum, "valuation_pct": val_pct}
@@ -537,7 +537,7 @@ def _load_symbol_industry(conn) -> dict[str, str]:
     try:
         rows = conn.execute("SELECT symbol, icb_name3 FROM symbol_industry").fetchall()
         return {r["symbol"]: r["icb_name3"] for r in rows}
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -552,7 +552,7 @@ def _load_steel_symbols(conn) -> set:
             "SELECT DISTINCT symbol FROM symbol_industry WHERE icb_name4 LIKE '%Thép%' OR icb_name4 LIKE '%thép%'"
         ).fetchall()
         return {r["symbol"] for r in rows}
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return set()
 
 

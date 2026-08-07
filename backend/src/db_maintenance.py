@@ -173,7 +173,7 @@ def run_full_maintenance():
         report["table_stats_after"] = get_table_stats()
         report["status"] = "SUCCESS"
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.critical(f"💥 MAINTENANCE FAILED: {e}")
         report["status"] = f"FAILED: {str(e)}"
     finally:
@@ -205,7 +205,7 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")

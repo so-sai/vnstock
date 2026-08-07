@@ -198,7 +198,7 @@ def get_active_ipos(days_back: int = 90):
             )
             for row in rows
         ]
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return []
 
 
@@ -231,7 +231,7 @@ def get_aftermarket_returns(days_back: int = 90):
                 ).fetchall()
 
         return {symbol: float(ret or 0.0) for symbol, ret in rows}
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -265,6 +265,6 @@ def calculate_breadth_velocity(current_breadth, days=5, target_date=None):
             )
 
         return velocity
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         # Table might not exist yet on very first run
         return 0.0

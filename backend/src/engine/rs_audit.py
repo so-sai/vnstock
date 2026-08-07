@@ -44,7 +44,9 @@ Lưu ý:
 """
 
 import json
+import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -74,8 +76,8 @@ if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except OSError, AttributeError, ValueError:
+                logging.getLogger(__name__).debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import pandas as pd
@@ -83,6 +85,8 @@ import pandas as pd
 import src.config
 from src.database.db_core import get_connection
 from src.engine.universe import SECTOR_MAP
+
+logger = logging.getLogger(__name__)
 
 # ── Mapping ICB → tên ngành rút gọn ──────────────────────────
 ICB_ALIAS = {
@@ -151,7 +155,8 @@ def _load_icb_sectors() -> dict[str, str]:
         with get_connection() as conn:
             df = pd.read_sql("SELECT symbol, icb_name2 FROM symbol_industry", conn)
         return dict(zip(df["symbol"], df["icb_name2"]))
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.warning("_load_icb_sectors: không đọc được symbol_industry — fallback map rỗng")
         return {}
 
 

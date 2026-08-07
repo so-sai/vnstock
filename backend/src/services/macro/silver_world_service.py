@@ -82,7 +82,7 @@ def _get_30d_median() -> float | None:
         if df.empty:
             return None
         return float(df["value"].median())
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return None
 
 
@@ -97,7 +97,7 @@ def _check_flat_line() -> bool:
         if len(df) < FLAT_LINE_WINDOW:
             return False
         return len(set(df["value"].tolist())) == 1
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return False
 
 
@@ -117,7 +117,7 @@ def _silver_fallback_from_db() -> float | None:
             if SILVER_CACHE["flat_line"]:
                 logger.warning(f"Silver time series FLAT: last {FLAT_LINE_WINDOW} values identical ({val})")
             return val
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Silver DB fallback failed: {e}")
     return None
 
@@ -152,7 +152,7 @@ def fetch_world_silver_live() -> float | None:
                 logger.warning(f"XAGUSD {latest} deviates {deviation * 100:.0f}% from 30d median {median:.2f} — CONFLICTED")
 
         return latest
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"World silver fetch failed: {e}")
         return _silver_fallback_from_db()
 
@@ -177,7 +177,7 @@ def fetch_world_silver_history(period: str = "1y") -> pd.DataFrame:
         df.columns = [c.lower().strip() for c in df.columns]
         df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
         return df[["date", "close"]]
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"World silver history fetch failed: {e}")
         return pd.DataFrame()
 
@@ -224,6 +224,6 @@ def seed_world_silver_to_db(period: str = "1y") -> bool:
             logger.warning(f"World silver seed: all {rejects} rows rejected by canonical validator")
 
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"World silver seed failed: {e}")
         return False

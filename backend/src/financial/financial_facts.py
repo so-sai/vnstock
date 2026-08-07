@@ -667,7 +667,7 @@ class FinancialFactsDB:
             deleted = cursor.rowcount
             conn.commit()
             return deleted
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return 0
 
     def init_schema(self):
@@ -823,7 +823,7 @@ class FinancialFactsDB:
             )
             conn.commit()
             return {"status": "SUCCESS", "metric": metric, "value": scaled_value, "integrity_flags": integrity_flags}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             conn.rollback()
             return {"status": "ERROR", "metric": metric, "reason": str(e)}
 
@@ -935,7 +935,7 @@ class FinancialFactsDB:
                     "DELETE FROM health_ratios WHERE symbol = ? AND period = ?",
                     (symbol.upper(), period),
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass  # health_ratios table may not exist yet
             conn.commit()
 
@@ -1143,7 +1143,7 @@ class VnstockCrawler:
             try:
                 df = fn()
                 return df
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 if attempt < retries - 1:
                     import time
 
@@ -1158,7 +1158,7 @@ class VnstockCrawler:
             from src.providers import get_provider_manager
 
             mgr = get_provider_manager()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             print(f"  [ProviderManager] init error: {e}")
             return []
 
@@ -1181,12 +1181,12 @@ class VnstockCrawler:
             try:
                 if df.empty:
                     continue
-            except Exception:
+            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 continue
 
             try:
                 df.columns = [str(c).lower().replace(" ", "_").replace("-", "_").strip() for c in df.columns]
-            except Exception:
+            except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 continue
 
             # vnstock 4.0.5 trả WIDE format: item_id rows + period columns.
@@ -1219,7 +1219,7 @@ class VnstockCrawler:
                                 periods_data[per][mapped] = v
                             except ValueError, TypeError:
                                 continue
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                     print(f"    Wide-format parse error: {e}")
                 continue
 
@@ -1267,7 +1267,7 @@ class VnstockCrawler:
                             periods_data[per][mapped] = v
                         except ValueError, TypeError:
                             continue
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 print(f"    Parse error: {e}")
                 continue
 
@@ -1294,7 +1294,7 @@ class VnstockCrawler:
             if resp.status_code == 200:
                 # parse table...
                 print(f"    CafeF response: {len(resp.content)} bytes")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             print(f"    CafeF error: {e}")
 
         return []

@@ -207,7 +207,7 @@ def _check_sbv_alert() -> bool:
         from src.services.macro.interbank_seeder import _is_sbv_alert_active
 
         return _is_sbv_alert_active()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return False
 
 
@@ -262,7 +262,7 @@ def assess_interbank_risk() -> dict:
 
         last_dt = datetime.strptime(last_date, "%Y-%m-%d")
         hours_stale = (datetime.now() - last_dt).total_seconds() / 3600
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
     stale_override = hours_stale >= 48 and abs(z_fast) > 10
 
@@ -348,7 +348,7 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")

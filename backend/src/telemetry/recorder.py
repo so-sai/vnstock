@@ -39,7 +39,7 @@ def _get_vnindex_level() -> float:
             row = conn.execute("SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 1").fetchone()
             if row:
                 return float(row[0])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[TELEMETRY] Cannot fetch VNINDEX level: %s", e)
     return 0.0
 
@@ -51,7 +51,7 @@ def _get_opportunity_symbols() -> list:
         signals = run_screener()
         if isinstance(signals, list):
             return [s.get("symbol", "") for s in signals[:10] if isinstance(s, dict)]
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[TELEMETRY] Cannot fetch opportunities: %s", e)
     return []
 
@@ -66,7 +66,7 @@ def _get_holdings_health() -> str | None:
         elif heat > 50:
             return "CAUTIOUS"
         return "HEALTHY"
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[TELEMETRY] Cannot fetch holdings health: %s", e)
     return None
 
@@ -75,7 +75,7 @@ def _get_market_regime() -> str:
     try:
         verdict = detect_regime()
         return verdict.get("status", "UNKNOWN")
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return "UNKNOWN"
 
 
@@ -107,7 +107,7 @@ def record_engine_fault(engine_name: str, error: str, date: str | None = None):
                 "INSERT INTO engine_faults (engine, error, date) VALUES (?, ?, ?)", (engine_name, error[:500], fault_date)
             )
         logger.info("[TELEMETRY] Recorded engine fault: %s | %s", engine_name, error[:80])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[TELEMETRY] Cannot record engine fault: %s", e)
 
 
@@ -139,6 +139,6 @@ def record_decision(decision_dict: dict) -> str | None:
                 snapshot.confidence,
             )
             return snapshot.decision_id
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error("[TELEMETRY] record_decision failed: %s", e)
     return None

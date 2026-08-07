@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import sys
 from pathlib import Path
 
@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -38,10 +38,17 @@ _ACTION_MAP = {
 }
 
 _SECTOR_VI = {
-    "BANK": "Ngân hàng", "RE": "Bất động sản", "SEC": "Chứng khoán",
-    "STEEL": "Thép", "CONSUMER": "Tiêu dùng", "TECH": "Công nghệ",
-    "OIL": "Dầu khí", "TRANS": "Vận tải", "CONST": "Xây dựng",
-    "FOOD": "Thực phẩm", "UTILITY": "Tiện ích / Điện",
+    "BANK": "Ngân hàng",
+    "RE": "Bất động sản",
+    "SEC": "Chứng khoán",
+    "STEEL": "Thép",
+    "CONSUMER": "Tiêu dùng",
+    "TECH": "Công nghệ",
+    "OIL": "Dầu khí",
+    "TRANS": "Vận tải",
+    "CONST": "Xây dựng",
+    "FOOD": "Thực phẩm",
+    "UTILITY": "Tiện ích / Điện",
 }
 
 
@@ -71,26 +78,28 @@ def phan_loai_danh_muc(danh_sach: list, report: dict) -> list:
         la_yeu = any(s in sym for sym in nhom_yeu)
         la_sector_manh = sector_code in nhom_manh_sector
 
-        action = _quyet_dinh(sector_code, la_manh, la_yeu, la_sector_manh,
-                             cap_do_canh_bao, ket_luan_xac_nhan,
-                             ma_quyet_dinh, xep_loai_rui_ro)
+        action = _quyet_dinh(
+            sector_code, la_manh, la_yeu, la_sector_manh, cap_do_canh_bao, ket_luan_xac_nhan, ma_quyet_dinh, xep_loai_rui_ro
+        )
 
         info = _ACTION_MAP[action]
-        ket_qua.append({
-            "symbol": symbol,
-            "sector_vn": sector_vi,
-            "sector_code": sector_code,
-            "hanh_dong": info["ten"],
-            "ky_hieu": info["ky_hieu"],
-            "ma": action,
-        })
+        ket_qua.append(
+            {
+                "symbol": symbol,
+                "sector_vn": sector_vi,
+                "sector_code": sector_code,
+                "hanh_dong": info["ten"],
+                "ky_hieu": info["ky_hieu"],
+                "ma": action,
+            }
+        )
 
     return ket_qua
 
 
-def _quyet_dinh(sector_code, la_manh, la_yeu, la_sector_manh,
-                cap_do_canh_bao, ket_luan_xac_nhan,
-                ma_quyet_dinh, xep_loai_rui_ro):
+def _quyet_dinh(
+    sector_code, la_manh, la_yeu, la_sector_manh, cap_do_canh_bao, ket_luan_xac_nhan, ma_quyet_dinh, xep_loai_rui_ro
+):
 
     if ma_quyet_dinh == "HOẢNG_LOẠN":
         return "TRÁNH_XA"

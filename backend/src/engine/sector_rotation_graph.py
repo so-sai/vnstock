@@ -69,7 +69,8 @@ def _sanitize_float(val, default=0.0):
         if val is None or pd.isna(val) or np.isinf(val):
             return default
         return float(val)
-    except Exception:
+    except TypeError, ValueError, AttributeError, KeyError, IndexError:
+        logger.debug("_sanitize_float: giá trị %r không chuyển được — fallback %s", val, default)
         return default
 
 

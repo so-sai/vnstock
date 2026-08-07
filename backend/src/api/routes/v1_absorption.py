@@ -52,7 +52,7 @@ async def get_symbol_absorption(ticker: str):
         ticker = ticker.upper()
         detector = PerSymbolAbsorption(ticker)
         raw = detector.analyze()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=str(e))
 
     if raw.get("status") not in ("OK", "LOW_DATA"):
@@ -77,11 +77,11 @@ async def get_symbol_absorption(ticker: str):
             "localization": {
                 "vi": {
                     "name": "Spectral Dominance Index (SDI)",
-                    "tooltip": "Đo lường sự thống trị của thành phần chính trong ma trận thanh khoản. SDI cao = thị trường một chiều.",
+                    "tooltip": "Đo lường sự thống trị của thành phần chính trong ma trận thanh khoản. SDI cao = thị trường một chiều.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                 },
                 "en": {
                     "name": "Spectral Dominance Index (SDI)",
-                    "tooltip": "Measures dominance of the principal component in the liquidity matrix. High SDI = one-sided market.",
+                    "tooltip": "Measures dominance of the principal component in the liquidity matrix. High SDI = one-sided market.",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                 },
             },
         },

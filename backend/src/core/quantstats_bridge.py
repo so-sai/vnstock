@@ -9,13 +9,17 @@ Không dùng để ngắm backtest, mà để đo độ lệch giữa kỳ vọn
   - RANDOM: Monte Carlo vectorized → random baseline phân vị 95%
 """
 
+import logging
 import math
+import sqlite3
 from datetime import datetime, timedelta
 from typing import Any
 
 import numpy as np
 
 from src.database.db_core import get_connection
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_WINDOW_DAYS = 30
 N_RANDOM_SIMULATIONS = 100
@@ -113,8 +117,8 @@ class QuantStatsBridge:
             self._cache["cumulative_ig"] = get_cumulative_information_gain()
             if len(returns) > 0:
                 return returns
-        except Exception:
-            pass
+        except ImportError, AttributeError, TypeError, KeyError:
+            logger.debug("fetch_rejected_signals_archive: không đọc được Evidence Ledger — fallback rỗng")
         return np.array([])
 
     # ── 2. METRICS ENGINE ─────────────────────────────────────────────
@@ -336,7 +340,8 @@ class QuantStatsBridge:
             from src.database.rejected_signals import fetch_doc_returns
 
             pairs = fetch_doc_returns(window_days=self.window_days)
-        except Exception:
+        except ImportError, AttributeError, TypeError, KeyError:
+            logger.debug("compute_doc_index: không đọc được DOC returns — fallback rỗng")
             pairs = []
 
         if len(pairs) < 3:
@@ -547,6 +552,6 @@ class QuantStatsBridge:
                 row = conn.execute("SELECT * FROM quantstats_calibration ORDER BY id DESC LIMIT 1").fetchone()
             if row:
                 return dict(row)
-        except Exception:
-            pass
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.debug("load_last_from_db: không đọc được bản ghi quantstats — fallback None")
         return None

@@ -1,14 +1,15 @@
-﻿"""
+"""
 Liquidity Wave Engine (Phase 11 — Asia Adaptation Layer).
 Measures retail chase velocity, volume acceleration, leader propagation, turnover shock.
 VN/KR/TW markets are liquidity-driven, not efficiently priced.
 """
+
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -25,6 +26,7 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 import logging
@@ -40,7 +42,8 @@ def get_volume_profile(symbol: str, lookback: int = 60) -> dict:
     with get_connection() as conn:
         df = pd.read_sql(
             f"SELECT date, close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT {lookback}",
-            conn, params=(symbol,)
+            conn,
+            params=(symbol,),
         )
     if df.empty or len(df) < 30:
         return {"status": "INSUFFICIENT_DATA", "symbol": symbol}
@@ -101,8 +104,7 @@ def get_volume_profile(symbol: str, lookback: int = 60) -> dict:
 def scan_liquidity_waves(top_n: int = 30) -> list:
     with get_connection() as conn:
         universe = pd.read_sql(
-            "SELECT DISTINCT symbol FROM daily_ohlcv WHERE date >= date('now', '-60 days') AND volume > 0",
-            conn
+            "SELECT DISTINCT symbol FROM daily_ohlcv WHERE date >= date('now', '-60 days') AND volume > 0", conn
         )
     results = []
     for sym in universe["symbol"].head(200):
@@ -120,7 +122,7 @@ def get_market_liquidity_health() -> dict:
         df = pd.read_sql(
             "SELECT date, SUM(volume) as total_vol, AVG(close * volume * 1000 / 1e9) as avg_value_bn "
             "FROM daily_ohlcv WHERE date >= date('now', '-30 days') GROUP BY date ORDER BY date",
-            conn
+            conn,
         )
     if df.empty or len(df) < 5:
         return {"status": "INSUFFICIENT_DATA"}
@@ -130,26 +132,33 @@ def get_market_liquidity_health() -> dict:
     vol_trend = (latest["total_vol"] / df["vol_ma5"].iloc[-2] - 1) if len(df) >= 2 and df["vol_ma5"].iloc[-2] > 0 else 0
 
     df["value_ma5"] = df["avg_value_bn"].rolling(5).mean()
-    value_trend = (latest["avg_value_bn"] / df["value_ma5"].iloc[-2] - 1) if len(df) >= 2 and df["value_ma5"].iloc[-2] > 0 else 0
+    value_trend = (
+        (latest["avg_value_bn"] / df["value_ma5"].iloc[-2] - 1) if len(df) >= 2 and df["value_ma5"].iloc[-2] > 0 else 0
+    )
 
     liquid_assets = pd.read_sql(
-        "SELECT symbol, date, close, volume FROM daily_ohlcv "
-        "WHERE date = (SELECT MAX(date) FROM daily_ohlcv) AND volume > 0",
-        conn
+        "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv) AND volume > 0",
+        conn,
     )
     total_value_bn = (liquid_assets["close"] * liquid_assets["volume"] * 1000 / 1e9).sum()
 
     top_10_pct = int(len(liquid_assets) * 0.1) or 1
     sorted_by_vol = liquid_assets.sort_values("volume", ascending=False)
-    concentration = sorted_by_vol.head(top_10_pct)["volume"].sum() / liquid_assets["volume"].sum() if liquid_assets["volume"].sum() > 0 else 0
+    concentration = (
+        sorted_by_vol.head(top_10_pct)["volume"].sum() / liquid_assets["volume"].sum()
+        if liquid_assets["volume"].sum() > 0
+        else 0
+    )
 
     return {
         "total_market_value_bn": round(total_value_bn, 0),
         "volume_trend_5d": round(vol_trend, 3),
         "value_trend_5d": round(value_trend, 3),
         "top10_concentration_pct": round(concentration * 100, 1),
-        "liquidity_phase": "EXPANDING" if vol_trend > 0.05 and value_trend > 0.05
-        else "CONTRACTING" if vol_trend < -0.05 and value_trend < -0.05
+        "liquidity_phase": "EXPANDING"
+        if vol_trend > 0.05 and value_trend > 0.05
+        else "CONTRACTING"
+        if vol_trend < -0.05 and value_trend < -0.05
         else "NEUTRAL",
     }
 
@@ -157,9 +166,7 @@ def get_market_liquidity_health() -> dict:
 def detect_retail_chase(threshold_vol_ratio: float = 1.8) -> list:
     with get_connection() as conn:
         df = pd.read_sql(
-            "SELECT symbol, date, close, volume FROM daily_ohlcv "
-            "WHERE date >= date('now', '-5 days') ORDER BY date",
-            conn
+            "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= date('now', '-5 days') ORDER BY date", conn
         )
     if df.empty:
         return []
@@ -171,14 +178,13 @@ def detect_retail_chase(threshold_vol_ratio: float = 1.8) -> list:
     latest = df[df["date"] == df.groupby("symbol")["date"].transform("max")]
     chasers = latest[latest["vol_ratio"] >= threshold_vol_ratio].copy()
     chasers = chasers.sort_values("vol_ratio", ascending=False)
-    chasers["retail_chase"] = chasers["vol_ratio"].apply(
-        lambda r: "EXTREME" if r > 3.0 else "HIGH" if r > 2.5 else "MODERATE"
-    )
+    chasers["retail_chase"] = chasers["vol_ratio"].apply(lambda r: "EXTREME" if r > 3.0 else "HIGH" if r > 2.5 else "MODERATE")
     return chasers[["symbol", "vol_ratio", "value_bn", "retail_chase"]].head(20).to_dict("records")
 
 
 if __name__ == "__main__":
     import json
+
     health = get_market_liquidity_health()
     print(f"Market Health: {json.dumps(health, ensure_ascii=False, indent=2)}")
     waves = scan_liquidity_waves(5)

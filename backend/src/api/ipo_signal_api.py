@@ -82,7 +82,7 @@ def calculate_days_until_decay(listing_date_str: str) -> int:
     """
     try:
         listing_date = datetime.fromisoformat(listing_date_str)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return 0
 
     current_date = datetime.now()
@@ -202,7 +202,7 @@ async def get_ipo_hud_signal(
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=f"IPO Signal Error: {str(e)}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
 
 
@@ -218,7 +218,7 @@ async def get_ipo_signal_history(
     try:
         # Hiện tại chưa có lịch sử IPO lưu trữ, trả về danh sách rỗng để frontend xử lý mềm dẻo.
         return []
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 

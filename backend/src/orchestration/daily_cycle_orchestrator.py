@@ -24,6 +24,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from src.core.errors import GovernorDecisionError
+
 
 # ── Sentinel v2.2 (AGENTS.md Anchor) ─────────────────────────────────
 def _hydrate_path():
@@ -70,7 +72,7 @@ def _cycle_db_path() -> str:
 # ════════════════════════════════════════════════════════════════════
 
 
-class GraphCycleError(ValueError):
+class GraphCycleError(GovernorDecisionError, ValueError):
     """Phát hiện vòng lặp trong ExecutionGraph."""
 
 
@@ -152,7 +154,7 @@ class ExecutionGraph:
                     out = {}
                 out = dict(out)
                 out.setdefault("status", "OK")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 out = {"status": "FAILED", "error": f"{type(e).__name__}: {e}"}
             results[nid] = out
             ctx[nid] = out

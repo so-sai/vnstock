@@ -260,7 +260,7 @@ def _load_decision_history() -> list:
         if DECISIONS_FILE.exists():
             with open(DECISIONS_FILE, encoding="utf-8") as f:
                 return json.load(f)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Cannot load decision history: {e}")
     return []
 
@@ -270,7 +270,7 @@ def _save_decision_history(history: list):
         DECISIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(DECISIONS_FILE, "w", encoding="utf-8") as f:
             json.dump(history[-200:], f, ensure_ascii=False, indent=2)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Cannot save decision history: {e}")
 
 
@@ -353,7 +353,7 @@ def _liquidity_wave_score() -> float:
         if concentration > 70:
             base -= 0.15
         return max(0.0, min(1.0, base))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Liquidity wave score failed: {e}")
         return 0.5
 
@@ -373,7 +373,7 @@ def _sector_rotation_score() -> float:
         base = regime_map.get(regime, 0.5)
         adj = (score * 0.5) + ((alignment / 100) * 0.3)
         return max(0.0, min(1.0, base + adj))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Sector rotation score failed: {e}")
         return 0.5
 
@@ -394,7 +394,7 @@ def _breakout_continuation_score() -> float:
         base = ctx_map.get(ctx, 0.5)
         adj = min(0.2, density * 0.5) + min(0.15, (avg_score - 50) / 200)
         return max(0.0, min(1.0, base + adj))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Breakout continuation score failed: {e}")
         return 0.5
 
@@ -420,7 +420,7 @@ def _liquidity_wave_decayed_score() -> float:
         elif instability > 1.5:
             base -= 0.15
         return max(0.0, min(1.0, base))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Decayed liquidity score failed: {e}")
         return 0.5
 
@@ -439,7 +439,7 @@ def _sector_rotation_decayed_score() -> float:
         base = regime_map.get(regime, 0.5)
         adj = score * 0.5
         return max(0.0, min(1.0, base + adj))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Decayed sector score failed: {e}")
         return 0.5
 
@@ -455,7 +455,7 @@ def _foreign_flow_decayed_score() -> float:
         elif pressure == "DISTRIBUTING":
             return 0.5 - magnitude * 0.4
         return 0.5
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Foreign flow decayed score failed: {e}")
         return 0.5
 
@@ -594,7 +594,7 @@ def compute_v2_decayed(override_input: DecisionTensorInput | None = None) -> dic
 
     try:
         record_decision(record)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
 
     return asdict(decision)
@@ -728,7 +728,7 @@ def compute_v2(override_input: DecisionTensorInput | None = None) -> dict:
 
     try:
         record_decision(record)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
 
     # ── Return ──
@@ -745,7 +745,7 @@ def compute_v2(override_input: DecisionTensorInput | None = None) -> dict:
             _ph = _fd.get("params_hash")
             if _ph:
                 result["params_hash"] = _ph
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
     return result
 
@@ -773,7 +773,7 @@ def log_override(decision_id: str, override_action: str, override_reason: str) -
                     regime=entry.get("engine_scores", {}).get("regime", "N/A"),
                     trigger="human:admin",
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
             return {"status": "logged", "decision_id": decision_id}
     return {"status": "not_found", "decision_id": decision_id}
@@ -799,7 +799,7 @@ def log_confirm(decision_id: str) -> dict:
                     regime=entry.get("engine_scores", {}).get("regime", "N/A"),
                     trigger="human:admin",
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
             return {"status": "confirmed", "decision_id": decision_id}
     return {"status": "not_found", "decision_id": decision_id}

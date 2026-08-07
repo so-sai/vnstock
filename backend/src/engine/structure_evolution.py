@@ -15,6 +15,7 @@ Usage:
 
 import json
 import logging
+import sqlite3
 import sys
 import warnings
 from datetime import datetime
@@ -205,7 +206,7 @@ class WassersteinEngine:
                     self.numerical_diagnostics["emd2_exact"] += 1
                     return max(w1, 0.0), "emd2_exact"
                 logger.debug(f"[SEL_OT] emd2 returned non-finite/negative: {w1}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 logger.debug(f"[SEL_OT] emd2 primary raised: {e}")
 
         # --- FALLBACK: Sinkhorn stabilized với reg tăng dần ---
@@ -214,7 +215,7 @@ class WassersteinEngine:
                 try:
                     val = ot.sinkhorn2(p, q, M, reg=reg, numItermax=2000, stopThr=1e-9, method="sinkhorn_stabilized")
                     w1 = float(np.asarray(val).ravel()[0])
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                     logger.debug(f"[SEL_OT] Sinkhorn fallback reg={reg} raised: {e}")
                     continue
             if np.isfinite(w1) and w1 >= -self.EPS:
@@ -291,15 +292,15 @@ class DynamicThresholding:
                 data = json.loads(W1_LIBRARY_FILE.read_text(encoding="utf-8"))
                 self.w1_history = data.get("w1_history", [])
                 self._update_thresholds()
-            except Exception:
-                pass
+            except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError) as e:
+                logger.debug("[SEL] W1 library load failed: %s", e)
 
     def _save_history(self):
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         try:
             W1_LIBRARY_FILE.write_text(json.dumps({"w1_history": self.w1_history[-500:]}), encoding="utf-8")
-        except Exception:
-            pass
+        except (OSError, TypeError, ValueError) as e:
+            logger.debug("[SEL] W1 library save failed: %s", e)
 
     def _update_thresholds(self):
         if len(self.w1_history) >= 10:
@@ -389,7 +390,8 @@ class StationarityValidator:
         try:
             adf_stat, adf_pvalue, _, _, critical_values, _ = adfuller(samples, maxlag=10)
             adf_stationary = adf_pvalue < 0.05
-        except Exception:
+        except (ValueError, TypeError, FloatingPointError, RuntimeError) as e:
+            logger.debug("[SEL] ADF test failed: %s", e)
             adf_stationary = False
             adf_stat = 0.0
             adf_pvalue = 1.0
@@ -558,7 +560,7 @@ class StructureEvolutionLayer:
                 row = conn.execute("SELECT MAX(date) FROM macro_history WHERE value IS NOT NULL").fetchone()
             if row and row[0]:
                 return str(row[0])
-        except Exception as e:
+        except (sqlite3.Error, TypeError, ValueError) as e:
             logger.debug(f"[SEL] _resolve_as_of fallback: {e}")
         return datetime.now().strftime("%Y-%m-%d")
 
@@ -568,7 +570,8 @@ class StructureEvolutionLayer:
         if REGIME_LIBRARY_FILE.exists():
             try:
                 self.regime_library = json.loads(REGIME_LIBRARY_FILE.read_text(encoding="utf-8"))
-            except Exception:
+            except (json.JSONDecodeError, OSError, TypeError, KeyError) as e:
+                logger.debug("[SEL] Regime library load failed: %s", e)
                 self.regime_library = dict(INITIAL_REFERENCE_REGIMES)
         else:
             self.regime_library = dict(INITIAL_REFERENCE_REGIMES)
@@ -585,8 +588,8 @@ class StructureEvolutionLayer:
                         d[key] = d[key][:7]
                 saveable[name] = d
             REGIME_LIBRARY_FILE.write_text(json.dumps(saveable, indent=2, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
+        except (OSError, TypeError, ValueError, KeyError) as e:
+            logger.debug("[SEL] Regime library save failed: %s", e)
 
     # --- State Vector Construction ---
 
@@ -670,7 +673,8 @@ class StructureEvolutionLayer:
                 if column == "active_model":
                     return 20.0 if val == "NONE" else 30.0
                 return float(val) if val is not None else None
-            except Exception:
+            except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
+                logger.debug("[SEL] _fetch_engine_metric failed: %s", e)
                 return None
 
     def _build_historical_sample(self) -> np.ndarray | None:

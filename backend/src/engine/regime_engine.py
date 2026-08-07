@@ -1,9 +1,13 @@
+import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 # Sentinel v2.1 (Anchor Fix)
@@ -65,7 +69,7 @@ def _ll(label: str, lang_mode: str = "compact") -> str:
         from src.core.canonical_output_adapter import localize_label
 
         return localize_label(label, lang_mode)
-    except Exception:
+    except ImportError, AttributeError, TypeError, KeyError:
         return label
 
 
@@ -303,7 +307,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     if prev_date_str:
         try:
             dt_days = (current_date - pd.to_datetime(prev_date_str)).days
-        except Exception:
+        except TypeError, ValueError, OverflowError, AttributeError:
             dt_days = 1
     else:
         dt_days = 1
@@ -350,8 +354,8 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             gamma = 1.0
             velocity_penalty = gamma * max(0.0, min(0.20, abs(roc_5d) / 100.0))
             regime_score = max(0.0, min(1.0, regime_score - velocity_penalty))
-    except Exception:
-        pass
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError) as e:
+        logger.debug("[REGIME] Momentum velocity computation failed: %s", e)
 
     # WHY: Ngưỡng 0.65/0.35 đối xứng quanh 0.5 tạo vùng RANGING rộng (0.35-0.65) — chỉ
     # phân loại TRENDING/CRISIS khi tín hiệu đủ mạnh, tránh gọi mỗi nhiễu nhỏ là đảo chiều.
@@ -383,7 +387,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             with get_connection() as conn:
                 if target_date:
                     df_b = pd.read_sql(
-                        f"SELECT date, breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",
+                        f"SELECT date, breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                         conn,
                     )
                 else:
@@ -402,8 +406,8 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
                     dxy_today = float(df_dxy["value"].iloc[0])
                     dxy_5d = float(df_dxy["value"].iloc[-1])
                     dxy_roc = ((dxy_today / dxy_5d) - 1) * 100
-            except Exception:
-                pass
+            except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
+                logger.debug("[REGIME] DXY ROC computation failed: %s", e)
 
             # Asia cross-asset rotation — spectral signal from Phase 4
             rotation_angle = None
@@ -414,8 +418,8 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
                 rotation = tsa.compute_asia_rotation()
                 if rotation and isinstance(rotation, dict):
                     rotation_angle = rotation.get("rotation_angle_deg")
-            except Exception:
-                pass
+            except (ImportError, TypeError, ValueError, KeyError, AttributeError) as e:
+                logger.debug("[REGIME] Asia rotation computation failed: %s", e)
 
             # Gold premium — Black Swan flag, DOES NOT count toward RPA total
             gold_premium = None
@@ -425,8 +429,8 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
 
                 gp = analyze_domestic_premium()
                 gold_premium = gp.get("premium_pct", 0)
-            except Exception:
-                pass
+            except (ImportError, TypeError, ValueError, KeyError, AttributeError) as e:
+                logger.debug("[REGIME] Gold premium computation failed: %s", e)
 
             # ── Risk Points Accumulation ──
             risk_points = 0
@@ -466,8 +470,8 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
                 rad["activated"] = True
                 rad["override_status"] = "CRISIS_WARNING"
                 rad["reason"] = f"RPA≥2 (points={risk_points})"
-    except Exception:
-        pass
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError, sqlite3.Error, ImportError) as e:
+        logger.debug("[REGIME] RAD computation failed: %s", e)
 
     verdict = {
         "date": current_date.strftime("%Y-%m-%d"),
@@ -616,7 +620,7 @@ def backfill_regime_history(target_date=None, batch_size=30):
                     f"  [{i + 1}/{len(missing)}] ✅ {d}  score={row['regime_score']}  ({elapsed:.0f}s elapsed, ETA {eta:.0f}s)"
                 )
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             print(f"  [{i + 1}/{len(missing)}] ❌ {d}: {exc}")
         processed += 1
 

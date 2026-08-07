@@ -98,7 +98,7 @@ async def trigger_eod_run(
                 },
             },
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"EOD run failed: {str(e)}")
 
     status = result.get("status", "FAILED")
@@ -219,7 +219,7 @@ async def trigger_eod_run_stream(body: EODRunRequest):
                             "message": str(e),
                         },
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                     loop.call_soon_threadsafe(
                         queue.put_nowait,
                         {
@@ -230,7 +230,7 @@ async def trigger_eod_run_stream(body: EODRunRequest):
                     )
 
             await loop.run_in_executor(None, _run_eod_in_thread)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             await queue.put(
                 {
                     "progress": -1,

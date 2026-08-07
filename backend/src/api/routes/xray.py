@@ -35,5 +35,5 @@ async def xray_endpoint(symbol: str, timeframe: str = Query("D", pattern="^(D|W|
         loop = asyncio.get_event_loop()
         data = await loop.run_in_executor(None, get_xray_data, symbol, timeframe)
         return localize_output(data)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"X-Ray error: {str(e)}")

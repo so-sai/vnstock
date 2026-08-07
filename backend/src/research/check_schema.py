@@ -34,5 +34,5 @@ for table in ["symbols", "sector_history", "market_breadth"]:
     try:
         df = pd.read_sql(f"SELECT * FROM {table} LIMIT 1", conn)
         print(f"\nTable {table} columns: {df.columns.tolist()}")
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"\nTable {table} not found or empty.")

@@ -7,6 +7,7 @@ PURE AGGREGATION: no scoring, no recommendation, no interpretation.
 import json
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -181,7 +182,8 @@ def _load_cash() -> float:
     try:
         with open(PORTFOLIO_PATH, encoding="utf-8") as f:
             return json.load(f).get("cash", 0)
-    except Exception:
+    except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
+        logger.debug("_load_cash: không đọc được portfolio — fallback 0.0")
         return 0.0
 
 
@@ -190,7 +192,8 @@ def _load_sector_map() -> dict:
         with get_connection() as conn:
             df = pd.read_sql("SELECT symbol, icb_name2 FROM symbol_industry", conn)
         return {row["symbol"]: row["icb_name2"] or "Khác" for _, row in df.iterrows()}
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.debug("_load_sector_map: không đọc được symbol_industry — fallback rỗng")
         return {}
 
 
@@ -201,7 +204,8 @@ def _load_current_prices() -> dict:
                 "SELECT symbol, adj_close FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv)", conn
             )
         return {row["symbol"]: float(row["adj_close"]) for _, row in df.iterrows()}
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.debug("_load_current_prices: không đọc được giá hiện tại — fallback rỗng")
         return {}
 
 
@@ -214,7 +218,8 @@ def _load_volume_profiles() -> dict:
         df = df.assign(adv_20d=df.groupby("symbol")["volume"].transform(lambda x: x.rolling(20, min_periods=5).mean()))
         latest = df[df["date"] == df.groupby("symbol")["date"].transform("max")]
         return {row["symbol"]: {"adv_20d": float(row["adv_20d"] or 0)} for _, row in latest.iterrows()}
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.debug("_load_volume_profiles: không đọc được volume profile — fallback rỗng")
         return {}
 
 
@@ -227,8 +232,8 @@ def _is_high_beta(symbol: str) -> bool:
             if not df.empty:
                 sector = str(df.iloc[0]["icb_name2"] or "")
                 return sector in high_beta_sectors
-    except Exception:
-        pass
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.debug("_is_high_beta: không đọc được ngành — fallback False")
     return False
 
 

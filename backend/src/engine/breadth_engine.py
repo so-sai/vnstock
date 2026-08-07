@@ -22,6 +22,7 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 import json
+import logging
 
 import pandas as pd
 
@@ -94,8 +95,8 @@ def run_breadth_analysis(target_date: str | None = None):
             _cal_path = Path(__file__).resolve().parent.parent / "config" / "weekend_holidays.json"
             with open(_cal_path, encoding="utf-8") as _f:
                 _holidays = set(_json.load(_f).get("holidays", []))
-        except Exception:
-            pass
+        except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
+            logging.getLogger(__name__).debug("breadth_engine: không đọc được lịch nghỉ — bỏ qua")
         _is_holiday = _today.isoformat() in _holidays
         if _is_weekend or _is_holiday:
             _reason = "cuối tuần" if _is_weekend else "ngày lễ"

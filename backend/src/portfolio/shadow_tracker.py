@@ -47,7 +47,7 @@ def _load_portfolio() -> dict | None:
     try:
         with open(PORTFOLIO_PATH, encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"❌ [LOI] File JSON bi hong: {e}")
         return None
 
@@ -67,7 +67,7 @@ def _get_latest_price_from_vault(symbol: str) -> float | None:
             )
             row = cursor.fetchone()
             return row[0] if row else None
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return None
 
 

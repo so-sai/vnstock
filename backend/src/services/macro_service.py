@@ -114,7 +114,7 @@ def _get_latest_macro_values() -> dict:
 
         result["macro_stale"] = macro_stale
         return result
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Error fetching macro history: {e}")
         return {"macro_stale": False}
 
@@ -192,13 +192,13 @@ def get_macro_status(target_date: str | None = None) -> dict:
     """
     try:
         regime = registry.regime_engine.detect_regime(target_date=target_date)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Regime engine failed: {e}")
         regime = None
 
     try:
         breadth = registry.breadth_engine.run_breadth_analysis()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Breadth engine failed: {e}")
         breadth = None
 
@@ -352,6 +352,6 @@ def get_regime_history(limit: int = 90, start_date: str | None = None, end_date:
 
         df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
         return df.to_dict(orient="records")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Error fetching regime history: {e}")
         return []

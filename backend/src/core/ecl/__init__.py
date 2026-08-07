@@ -1,4 +1,4 @@
-﻿"""Execution Contract Layer v1 — Deployment determinism boundary."""
+"""Execution Contract Layer v1 — Deployment determinism boundary."""
 
 EXECUTION_CONTRACT_VERSION = "ECL_v1.0.0"
 

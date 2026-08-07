@@ -1,4 +1,4 @@
-﻿"""Data Quality Monitor Layer — epistemic foundation for CAO.
+"""Data Quality Monitor Layer — epistemic foundation for CAO.
 
 Turns data-integrity issues into first-class CAO signals instead of silent
 suppressions or passive logs.  Three layers:

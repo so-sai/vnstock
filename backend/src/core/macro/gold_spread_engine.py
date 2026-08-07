@@ -15,6 +15,7 @@ Bổ sung v1.2: get_premium_driver() — phân tích nguyên nhân premium thay 
 """
 
 import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -97,8 +98,8 @@ def analyze_domestic_premium() -> dict:
                 )
                 if not df.empty:
                     usd_vnd = float(df.iloc[0]["value"])
-        except Exception:
-            pass
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.debug("USD_VND không đọc được từ DB — fallback canonical")
 
         # Validate via canonical registry; use spec mid-range as fallback
         spec = _CANON.get("USD_VND")
@@ -146,7 +147,7 @@ def analyze_domestic_premium() -> dict:
         }
         result["display"] = _vi_display(result)
         return result
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Premium analysis failed: {e}")
         return _default_premium()
 
@@ -255,8 +256,8 @@ def get_premium_driver(lookback_days: int = 5) -> dict:
                 )
                 if len(dates) > lookback_days:
                     base_date = dates.iloc[lookback_days]["date"]
-        except Exception:
-            pass
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.debug("get_premium_driver: không đọc được baseline date — fallback default")
 
         if not base_date:
             return _default_driver()
@@ -276,8 +277,8 @@ def get_premium_driver(lookback_days: int = 5) -> dict:
                         xau_base = float(row["value"])
                     elif row["variable"] == "USD_VND":
                         usd_base = float(row["value"])
-        except Exception:
-            pass
+        except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+            logger.debug("get_premium_driver: không đọc được baseline value — fallback default")
 
         if xau_base is None or usd_base is None:
             return _default_driver()
@@ -336,7 +337,7 @@ def get_premium_driver(lookback_days: int = 5) -> dict:
         }
         result["display"] = _vi_driver_display(result)
         return result
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Premium driver analysis failed: {e}")
         return _default_driver()
 

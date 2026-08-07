@@ -1,4 +1,4 @@
-﻿"""fallback_resolver.py — 3-tầng Fallback Data Pipeline cho API ngoại vi.
+"""fallback_resolver.py — 3-tầng Fallback Data Pipeline cho API ngoại vi.
 
 Kiến trúc:
   Tầng 1: Stale Cache  — dữ liệu cũ trong daily_ohlcv (nếu staleness < MAX_STALE)
@@ -8,21 +8,15 @@ Kiến trúc:
 
 Khi is_synthetic=True → Governor nhận FORCE_LOCK_HDR (đóng băng giao dịch mới).
 """
-import json
+
 import logging
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-import numpy as np
 import pandas as pd
-
 from src.database.data_freshness import (
     MAX_STALE_HOURS,
     check_staleness,
-    ensure_table,
-    mark_api_status,
-    resolve_staleness_for_consumer,
     upsert_freshness,
 )
 from src.database.db_core import get_connection
@@ -36,7 +30,7 @@ _SYNTHETIC_VOLUME = 0  # volume = 0 cho synthetic bars
 
 def _get_project_root() -> Path:
     from pathlib import Path
-    import sys
+
     current = Path(__file__).resolve().parent
     while current != current.parent:
         if (current / "AGENTS.md").exists() and (current / "backend").is_dir():
@@ -53,7 +47,7 @@ def resolve(
     symbol: str,
     date: str,
     max_stale_hours: float = MAX_STALE_HOURS,
-) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """4-tầng Auto-Recovery Fallback Resolver.
 
     Args:
@@ -71,6 +65,7 @@ def resolve(
     # === TẦNG 0 + 0.5: Live Sources (Multi-Source Router) ===
     try:
         from src.data.multi_source_router import compute_confidence_penalty, route_live
+
         live_row, live_meta = route_live(symbol, date)
         if live_row is not None:
             meta = {
@@ -86,7 +81,7 @@ def resolve(
                 "timeout_ms": live_meta.get("timeout_ms", 0),
             }
             return live_row, meta
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.debug(f"[TIER_0] route_live fail: {e}")
 
     # === TẦNG 1: Kiểm tra freshness ===
@@ -149,10 +144,10 @@ def resolve(
 
 
 def resolve_batch(
-    symbols: List[str],
+    symbols: list[str],
     date: str,
     max_stale_hours: float = MAX_STALE_HOURS,
-) -> Dict[str, Tuple[Optional[Dict[str, Any]], Dict[str, Any]]]:
+) -> dict[str, tuple[dict[str, Any] | None, dict[str, Any]]]:
     """Batch resolve — trả về dict {symbol: (row, metadata)}."""
     result = {}
     for sym in symbols:
@@ -160,21 +155,17 @@ def resolve_batch(
     return result
 
 
-def is_any_synthetic(results: Dict[str, Tuple]) -> bool:
+def is_any_synthetic(results: dict[str, tuple]) -> bool:
     """Kiểm tra nếu bất kỳ symbol nào trong batch bị synthetic."""
-    return any(
-        meta.get("is_synthetic", False)
-        for _, meta in results.values()
-    )
+    return any(meta.get("is_synthetic", False) for _, meta in results.values())
 
 
-def _fetch_from_ohlcv(symbol: str, date: str) -> Optional[Dict[str, Any]]:
+def _fetch_from_ohlcv(symbol: str, date: str) -> dict[str, Any] | None:
     """Tầng 1: Lấy từ daily_ohlcv (cache cũ cũng được)."""
     try:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT open, high, low, close, adj_close, volume "
-                "FROM daily_ohlcv WHERE symbol=? AND date=?",
+                "SELECT open, high, low, close, adj_close, volume FROM daily_ohlcv WHERE symbol=? AND date=?",
                 (symbol, date),
             ).fetchone()
         if row:
@@ -186,12 +177,12 @@ def _fetch_from_ohlcv(symbol: str, date: str) -> Optional[Dict[str, Any]]:
                 "adj_close": float(row[4]),
                 "volume": int(row[5]),
             }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.debug(f"[FALLBACK_T1] {symbol}/{date}: {e}")
     return None
 
 
-def _fetch_from_bootstrap(symbol: str, date: str) -> Optional[Dict[str, Any]]:
+def _fetch_from_bootstrap(symbol: str, date: str) -> dict[str, Any] | None:
     """Tầng 2: Bootstrap từ bootstraps/ (macro) hoặc lịch sử daily_ohlcv xa hơn.
 
     Với OHLCV: không có bootstrap file cố định. Bootstrap = dữ liệu lịch sử
@@ -205,7 +196,7 @@ def _fetch_from_bootstrap(symbol: str, date: str) -> Optional[Dict[str, Any]]:
             match = df[df["date"] == date]
             if not match.empty:
                 return match.iloc[0].to_dict()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.debug(f"[FALLBACK_T2] {symbol} bootstrap file: {e}")
 
     # Fallback chính: lấy bar gần nhất trước date từ daily_ohlcv
@@ -226,12 +217,12 @@ def _fetch_from_bootstrap(symbol: str, date: str) -> Optional[Dict[str, Any]]:
                 "adj_close": float(row[4]),
                 "volume": 0,
             }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.debug(f"[FALLBACK_T2] {symbol}/{date}: {e}")
     return None
 
 
-def _build_synthetic(symbol: str, date: str) -> Dict[str, Any]:
+def _build_synthetic(symbol: str, date: str) -> dict[str, Any]:
     """Tầng 3: Synthetic bar trong RAM — KHÔNG ghi vào daily_ohlcv.
 
     Dùng bar cuối cùng có thật × _SYNTHETIC_DECAY để tạo dữ liệu phẳng.
@@ -268,7 +259,7 @@ def consume_with_fallback(
     symbol: str,
     date: str,
     max_stale_hours: float = MAX_STALE_HOURS,
-) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Consumer-facing wrapper: resolve + ghi freshness + trả metadata.
 
     Đây là entry point duy nhất cho mọi consumer (daily_updater, engine, ...).
@@ -282,9 +273,11 @@ def consume_with_fallback(
         source=meta.get("source", "UNKNOWN"),
         api_status=meta.get("api_status", "UNKNOWN"),
         data_row=row,
-        metadata={"fallback": meta.get("fallback", False),
-                   "is_synthetic": meta.get("is_synthetic", False),
-                   "reason": meta.get("reason")},
+        metadata={
+            "fallback": meta.get("fallback", False),
+            "is_synthetic": meta.get("is_synthetic", False),
+            "reason": meta.get("reason"),
+        },
     )
 
     return row, meta

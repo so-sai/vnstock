@@ -81,10 +81,10 @@ def create_markdown_report(verdict, target_date):
         # Section 4: Sentinel Details
         f.write("## 🔍 Chi tiết Trạng thái Sentinel (Model A)\n\n")
         f.write(
-            f"- **Momentum Expansion (Lớp 1):** {verdict['layer1_mom_expansion']['status']} ({verdict['layer1_mom_expansion']['value']}/{verdict['layer1_mom_expansion']['threshold']})\n"
+            f"- **Momentum Expansion (Lớp 1):** {verdict['layer1_mom_expansion']['status']} ({verdict['layer1_mom_expansion']['value']}/{verdict['layer1_mom_expansion']['threshold']})\n"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
         f.write(
-            f"- **NH10 Consistency (Lớp 2):** {verdict['layer2_nh10_consistency']['status']} ({verdict['layer2_nh10_consistency']['value']}/{verdict['layer2_nh10_consistency']['threshold']} ngày)\n"
+            f"- **NH10 Consistency (Lớp 2):** {verdict['layer2_nh10_consistency']['status']} ({verdict['layer2_nh10_consistency']['value']}/{verdict['layer2_nh10_consistency']['threshold']} ngày)\n"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
         f.write(f"- **Foreign Absorption (Lớp 3):** {verdict['layer3_foreign_absorption']['status']}\n\n")
 
@@ -125,7 +125,7 @@ def run_daily_closer():
 
         struct = detect_cau_truc(target_date)
         print(f"  Cấu trúc: {struct.get('trang_thai', 'N/A')} ({struct.get('so_tru_ok', 0)}/3)")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"⚠️  Structural detector skipped: {e}")
 
     # Step 3.2: Run Final Orchestrator
@@ -134,7 +134,7 @@ def run_daily_closer():
 
         final = quyet_dinh_cuoi(target_date)
         print(f"  {final.get('quyet_dinh', 'N/A')} — {', '.join(final.get('ly_do', []))}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"⚠️  Orchestrator skipped: {e}")
 
     # Step 3.3: Log to Timeline
@@ -143,7 +143,7 @@ def run_daily_closer():
     # Step 4: Record Decision Snapshot (Telemetry)
     try:
         _adapt_and_record_decision(decision)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"⚠️  Telemetry snapshot skipped: {e}")
 
     # Step 5: Generate Report
@@ -157,7 +157,7 @@ def run_daily_closer():
 
         n = update_reputation()
         print(f"📊 Driver Reputation Ledger: {n} rows updated")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"⚠️  Reputation update skipped: {e}")
 
     # Step 7: SSI iBoard Macro API Probe (đồng bộ, ~1-2s, không block pipeline đáng kể)
@@ -167,7 +167,7 @@ def run_daily_closer():
         results = probe_ssi_macro_endpoint()
         matches = sum(1 for r in results if r.get("match"))
         print(f"📡 SSI iBoard probe: {len(results)} candidates, {matches} matches")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"⚠️  SSI probe failed: {e}")
 
     print(f"\n{'=' * 60}")

@@ -1,14 +1,15 @@
-﻿"""
+"""
 Capital Intelligence Engine v1.0
 Position sizing based on Conviction Score, Risk Unit (R) framework, and Regime Matrix.
 """
+
 import logging
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -25,31 +26,38 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 logger = logging.getLogger(__name__)
 
 REGIME_MATRIX = {
-    "CRISIS":   {"max_gross": 0.10, "risk_per_trade": 0.0025},
+    "CRISIS": {"max_gross": 0.10, "risk_per_trade": 0.0025},
     "RECOVERY": {"max_gross": 0.25, "risk_per_trade": 0.0040},
-    "RANGING":  {"max_gross": 0.35, "risk_per_trade": 0.0050},
+    "RANGING": {"max_gross": 0.35, "risk_per_trade": 0.0050},
     "TRENDING": {"max_gross": 1.00, "risk_per_trade": 0.0100},
 }
 
-def calculate_conviction_score(signal_quality: float, breadth_alignment: float,
-                                liquidity_rank: float, regime_confidence: float) -> float:
-    score = (0.35 * signal_quality
-           + 0.25 * breadth_alignment
-           + 0.20 * liquidity_rank
-           + 0.20 * regime_confidence)
+
+def calculate_conviction_score(
+    signal_quality: float, breadth_alignment: float, liquidity_rank: float, regime_confidence: float
+) -> float:
+    score = 0.35 * signal_quality + 0.25 * breadth_alignment + 0.20 * liquidity_rank + 0.20 * regime_confidence
     return round(score, 2)
 
-def compute_position_size(total_nav: float, cash_balance: float, active_regime: str,
-                          entry_price: float, stop_loss: float, symbol: str = "",
-                          conviction_score: float = 0.0,
-                          current_sector_exposure: float = 0.0,
-                          current_portfolio_heat: float = 0.0,
-                          liquidity_20d: float = 1e9) -> dict:
+
+def compute_position_size(
+    total_nav: float,
+    cash_balance: float,
+    active_regime: str,
+    entry_price: float,
+    stop_loss: float,
+    symbol: str = "",
+    conviction_score: float = 0.0,
+    current_sector_exposure: float = 0.0,
+    current_portfolio_heat: float = 0.0,
+    liquidity_20d: float = 1e9,
+) -> dict:
     if conviction_score < 0.4:
         return {"status": "REJECTED", "reason": "CONVICTION_TOO_LOW", "shares": 0, "value_vnd": 0}
     if current_sector_exposure >= 0.30:

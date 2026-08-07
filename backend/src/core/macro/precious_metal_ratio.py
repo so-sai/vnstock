@@ -10,6 +10,7 @@ Lịch sử:
 """
 
 import logging
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,6 @@ def get_gs_ratio_from_db() -> dict:
         result["xag_usd"] = xag
         return result
 
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         logger.error(f"GS ratio DB fetch failed: {e}")
         return assess_gs_ratio_regime(None)

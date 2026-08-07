@@ -102,7 +102,7 @@ async def get_composite_dashboard(
                 "data": data,
             }
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return localize_output(
             {
                 "status": "error",
@@ -145,7 +145,7 @@ async def get_data_density_audit(
                 "data": data,
             }
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return localize_output(
             {
                 "status": "error",
@@ -179,7 +179,7 @@ async def get_vn20_index():
                 "timestamp": datetime.now().isoformat(),
             }
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return localize_output(
             {
                 "status": "error",

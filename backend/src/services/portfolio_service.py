@@ -68,7 +68,7 @@ def _get_latest_price(symbol: str) -> float | None:
             )
             if not row.empty:
                 return float(row.iloc[0]["adj_close"])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Error fetching price for {symbol}: {e}")
     return None
 

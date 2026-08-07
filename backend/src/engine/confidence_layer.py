@@ -20,6 +20,7 @@ Nhiệm vụ:
 
 import json
 import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -52,8 +53,8 @@ if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except OSError, AttributeError, ValueError:
+                logger.debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding hiện tại")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import src.config
@@ -85,7 +86,8 @@ def _đọc_json(tên_file: str) -> dict | None:
         if p.exists():
             try:
                 return json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
+            except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
+                logger.warning("_đọc_json: đọc %s thất bại — fallback None", p)
                 return None
     return None
 
@@ -246,7 +248,8 @@ def _5_tín_hiệu_đáng_tin(trạng_thái: str) -> dict:
             lý_do.append(f"tín hiệu chủ đạo ({tên_driver}) từng cho kết quả tốt (đúng {độ_chính_xác:.0%})")
         else:
             lý_do.append("chưa có dữ liệu để đánh giá độ tin cậy của tín hiệu")
-    except Exception:
+    except ImportError, AttributeError, TypeError, KeyError:
+        logger.debug("_5_tín_hiệu_đáng_tin: không đọc được reputation — fallback điểm 0.50")
         điểm = 0.50
         lý_do.append("chưa có dữ liệu để đánh giá độ tin cậy của tín hiệu")
 
@@ -351,8 +354,8 @@ def _7_chất_lượng_vĩ_mô(db_path: str = "") -> dict:
             lý_do = [f"dữ liệu vĩ mô cũ — fresh_ratio={fresh:.0%}, terminal={terminal:.0%}"]
 
         return {"điểm": round(điểm, 3), "lý_do": lý_do}
-    except Exception as exc:
-        logger.warning("_7_chất_lượng_vĩ_mô: %s", exc)
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError, ImportError) as exc:
+        logger.warning("_7_chất_lượng_vĩ_mô: %s — fallback điểm 0.5", exc)
         return {"điểm": 0.5, "lý_do": ["không thể đánh giá chất lượng vĩ mô — dùng mặc định 0.5"]}
 
 
@@ -446,7 +449,8 @@ def đánh_giá_độ_tin_cậy(
             vnindex_ex_top10 = gi_fb.get("vnindex_ex_top10")
             vnindex_actual = gi_fb.get("vnindex_actual")
             top_contribution_pts = round(vnindex_actual - vnindex_ex_top10, 2) if vnindex_actual and vnindex_ex_top10 else None
-        except Exception:
+        except TypeError, ValueError, KeyError:
+            logger.debug("đánh_giá_độ_tin_cậy: không đọc được group_influence_report — fallback None")
             breadth = None
             dominant_contribution_pct = None
             top_contribution_pts = None

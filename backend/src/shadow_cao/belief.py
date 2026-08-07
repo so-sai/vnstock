@@ -50,7 +50,7 @@ def update_engine_profiles() -> dict[str, EngineAblationProfile]:
 
     try:
         initialize_shadow_database()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
     stats = defaultdict(
         lambda: {

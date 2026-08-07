@@ -26,6 +26,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.core.errors import AnalysisError
 from src.engine.money_flow_engine import MoneyFlowEngine
 from src.engine.rs_ranker import load_rs_data
 from src.engine.unit_normalizer import UnitNormalizer
@@ -45,7 +46,7 @@ class TacticalSignal:
     action: str
 
 
-class CommanderDataError(Exception):
+class CommanderDataError(AnalysisError):
     pass
 
 

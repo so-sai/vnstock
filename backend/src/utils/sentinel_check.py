@@ -31,7 +31,7 @@ def check_sentinels(target_dir="src"):
         try:
             with open(file_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             print(f"Warning: Could not read {file_path}: {e}")
             continue
 

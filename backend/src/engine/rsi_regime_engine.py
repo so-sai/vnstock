@@ -17,6 +17,7 @@ Architecture:
 import io
 import json
 import logging
+import sqlite3
 import sys
 import warnings
 from datetime import datetime
@@ -351,7 +352,7 @@ def scan_market_rsi_regime(
             result = analyze_rsi_regime(sym, target_date=target_date, preloaded_df=preloaded_df)
             if result.get("status") == "OK":
                 results.append(result)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"RSI regime failed for {sym}: {e}")
     results.sort(key=lambda x: -x.get("stability", 0))
     return results
@@ -490,7 +491,7 @@ def _store_report(report: dict):
             vals = ", ".join(["?"] * len(row))
             conn.execute(f"INSERT OR REPLACE INTO rsi_regime_history ({cols}) VALUES ({vals})", list(row.values()))
             conn.commit()
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError) as e:
         logger.warning(f"Store RSI report error: {e}")
 
 
@@ -537,8 +538,8 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
-                    pass
+                except OSError, AttributeError, ValueError:
+                    logger.debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     import argparse

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import warnings
 from pathlib import Path
@@ -12,17 +12,18 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
-pd.set_option('mode.chained_assignment', None)
+pd.set_option("mode.chained_assignment", None)
 
 # ChainedAssignmentError in pandas 2.x is raised as FutureWarning (not Warning subclass)
 # so we filter by message + FutureWarning category for maximum coverage
-warnings.filterwarnings('ignore', message='.*ChainedAssignmentError.*', category=FutureWarning)
-warnings.filterwarnings('ignore', message='.*chained assignment.*', category=FutureWarning)
-warnings.filterwarnings('ignore', message='Pyarrow will become a required dependency')
+warnings.filterwarnings("ignore", message=".*ChainedAssignmentError.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*chained assignment.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message="Pyarrow will become a required dependency")
 
 # Suppress vnstock/vnai version check noise in system output
 os.environ.setdefault("VNSTOCK_QUIET", "1")
 os.environ.setdefault("VNAI_QUIET", "1")
+
 
 # 1. Định vị tọa độ Gốc (Bất chấp ngài chạy lệnh từ thư mục nào hoặc đóng gói .exe)
 def _hydrate_path():
@@ -51,10 +52,11 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 # 2. Nạp cấu hình từ .env (Nếu tệp tồn tại)
-load_dotenv(PROJECT_ROOT / '.env')
+load_dotenv(PROJECT_ROOT / ".env")
 
 # 3. Phân bổ các khu vực chiến lược
 # ==============================================================================
@@ -111,7 +113,7 @@ if backend_dir.is_dir() and str(backend_dir) not in sys.path:
 RECOVERY_CONFIG = {
     "breadth_std_threshold": 8.0,
     "cooldown_days": 5,
-    "min_index_drawdown": -8.0  # Percent from peak
+    "min_index_drawdown": -8.0,  # Percent from peak
 }
 
 MODEL_B_CONFIG = {
@@ -120,22 +122,11 @@ MODEL_B_CONFIG = {
         "max_breadth_std": 14.0,
         "min_ma50_slope": -0.05,
         "slope_window": 5,
-        "momentum_window": 5
+        "momentum_window": 5,
     },
-    "pullback_range": {
-        "min_pct": -15.0,
-        "max_pct": -3.0
-    },
-    "breadth_expansion": {
-        "min_velocity": 0.0,
-        "min_adv_dec_ratio": 1.2
-    },
-    "adaptive_rsi": {
-        "low_vol": 42,
-        "mid_vol": 39,
-        "standard": 37
-    }
+    "pullback_range": {"min_pct": -15.0, "max_pct": -3.0},
+    "breadth_expansion": {"min_velocity": 0.0, "min_adv_dec_ratio": 1.2},
+    "adaptive_rsi": {"low_vol": 42, "mid_vol": 39, "standard": 37},
 }
 
 # [SAFEGUARD]: DO NOT REMOVE DEBUG PRINTS HERE - Use env var DEBUG=1 to enable
-

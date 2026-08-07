@@ -162,7 +162,7 @@ class DataIntegrityAuditor:
                     re_audited = self.audit_symbol(sym, start_year, end_year)
                     re_audited.healed = True
                     results[sym] = re_audited
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
 
         return results

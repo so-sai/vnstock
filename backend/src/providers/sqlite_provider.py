@@ -66,7 +66,7 @@ class SqliteCacheProvider(FinancialProvider):
             query += " ORDER BY period DESC, metric"
             df = pd.read_sql_query(query, conn, params=params)
             return df if not df.empty else None
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return None
         finally:
             conn.close()
@@ -109,7 +109,7 @@ class SqliteCacheProvider(FinancialProvider):
                 query += " ORDER BY date"
                 df = pd.read_sql_query(query, conn, params=params)
                 return df if not df.empty else None
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return None
 
     # ── Audit ──────────────────────────────────────────────────────────

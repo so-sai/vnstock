@@ -1,4 +1,5 @@
-﻿"""DataQuality event models — first-class CAO signals, not log lines."""
+"""DataQuality event models — first-class CAO signals, not log lines."""
+
 from __future__ import annotations
 
 import sys
@@ -39,11 +40,12 @@ class EventType(str, Enum):
 
 
 class EventSeverity(str, Enum):
-    TRACE = "TRACE"        # informational, no impact
-    MINOR = "MINOR"        # mild noise, single field
+    TRACE = "TRACE"  # informational, no impact
+    MINOR = "MINOR"  # mild noise, single field
     MODERATE = "MODERATE"  # degraded signal in one pipeline
-    SEVERE = "SEVERE"      # systemic degradation
+    SEVERE = "SEVERE"  # systemic degradation
     CRITICAL = "CRITICAL"  # pipeline fundamentally unreliable
+
 
 _SEVERITY_WEIGHTS = {
     EventSeverity.TRACE: 0.02,
@@ -60,8 +62,9 @@ class DataQualityEvent:
 
     Never raised — always emitted.  The CAO/monitor layer decides impact.
     """
-    source: str                     # vnstock / yfinance / internal
-    module: str                     # gold_price / regime_engine / etc.
+
+    source: str  # vnstock / yfinance / internal
+    module: str  # gold_price / regime_engine / etc.
     event_type: EventType
     severity: EventSeverity
     message: str = ""
@@ -90,6 +93,7 @@ class DataQualityEvent:
 @dataclass
 class DataQualitySnapshot:
     """Point-in-time health of the data pipeline (per source)."""
+
     source: str
     event_count: int = 0
     total_weight: float = 0.0
@@ -108,11 +112,12 @@ class DataIntegrityReport:
         of DIS over the last N snapshots.  High DIVI → unstable pipeline
         even if DIS looks acceptable.
     """
-    integrity_score: float           # weakest-link DIS ∈ [0, 1]
-    divi: float                      # Data Integrity Volatility Index ∈ [0, 1]
+
+    integrity_score: float  # weakest-link DIS ∈ [0, 1]
+    divi: float  # Data Integrity Volatility Index ∈ [0, 1]
     source_scores: dict[str, float]  # per-pipeline breakdown
     events_in_window: int
     dominant_severity: EventSeverity
-    recommendation: str              # narrative for CAO
+    recommendation: str  # narrative for CAO
     integrity_method: str = "weakest_link_10th_pct"
     timestamp: datetime = field(default_factory=datetime.now)

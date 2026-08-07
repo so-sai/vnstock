@@ -11,7 +11,7 @@ if sys.platform == "win32":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -87,7 +87,7 @@ def check_cognitive_modules() -> None:
         print(f"  ✅ Epistemic + Presentation + Guard layers OK (schema v{DECISION_VIEW_SCHEMA_VERSION})")
     except ImportError as e:
         print(f"  ⚠️  Cognitive module missing: {e}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"  ⚠️  Cognitive module error: {e}")
 
 
@@ -163,7 +163,7 @@ def cmd_run() -> None:
     if sys.platform == "win32":
         try:
             webbrowser.open(url)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")

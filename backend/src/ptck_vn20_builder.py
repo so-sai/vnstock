@@ -443,7 +443,7 @@ def get_vn20_api_data() -> dict:
     conn = _get_connection()
     try:
         rows = conn.execute(
-            "SELECT symbol, sector, epistemic_score, structural_fp, behavioural_fp, outcome_fp FROM ptck_vn20_index ORDER BY epistemic_score DESC"
+            "SELECT symbol, sector, epistemic_score, structural_fp, behavioural_fp, outcome_fp FROM ptck_vn20_index ORDER BY epistemic_score DESC"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         ).fetchall()
 
         symbols = [r["symbol"] for r in rows]

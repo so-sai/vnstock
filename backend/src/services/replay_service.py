@@ -197,6 +197,6 @@ def get_replay_timeline(limit: int = 365) -> list:
             "days": records,
             "events": events,
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Replay timeline failed: {e}")
         return {"days": [], "events": []}

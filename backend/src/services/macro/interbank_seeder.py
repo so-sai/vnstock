@@ -69,7 +69,7 @@ def _get_latest_from_db(variable: str) -> tuple[float, str] | tuple[None, None]:
             if row is None:
                 return None, None
             return float(row[0]), str(row[1])
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return None, None
 
 
@@ -173,7 +173,7 @@ def _log_sbv_alert(raw_html: str = ""):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
 
 
@@ -246,12 +246,12 @@ def _parse_sbv_dom(html_text: str) -> dict[str, float | None]:
         from lxml import html as lx
 
         tree = lx.fromstring(html_text)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         try:
             from lxml.html import fromstring as _hf
 
             tree = _hf(html_text)
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             return {}
 
     tables = tree.xpath("//table")
@@ -436,7 +436,7 @@ def _try_sbv(force: bool = False) -> dict:
             _log_sbv_alert(html_raw)
             return {"type": "STRUCTURE_CHANGED", "data": {}, "http_status": 200}
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"SBV Playwright thất bại: {e}")
         return {"type": "NETWORK_BLOCKED", "data": {}, "http_status": None}
 
@@ -461,7 +461,7 @@ def _try_vietnambiz() -> float | None:
             title = item.get("title", "")
             if "Lãi suất liên ngân hàng _ON" in title or "Lai suat lien ngan hang _ON" in title:
                 return _normalize(item.get("value"))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"VietnamBiz API không khả dụng: {e}")
     return None
 
@@ -496,7 +496,7 @@ def _doc_cooldown() -> float:
         if RECALL_STATE_PATH.exists():
             with open(RECALL_STATE_PATH, encoding="utf-8") as f:
                 return float(json.load(f).get("last_check_epoch", 0.0))
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
     return 0.0
 
@@ -516,7 +516,7 @@ def _ghi_cooldown_atomic(epoch: float) -> bool:
             json.dump({"last_check_epoch": epoch}, f)
         os.replace(tmp, RECALL_STATE_PATH)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return False
 
 
@@ -597,7 +597,7 @@ def refresh_interbank_rate() -> bool:
             try:
                 days_old = (datetime.now() - datetime.strptime(dt, "%Y-%m-%d")).days
                 logger.info(f"{var} hiện tại: {val} (từ {dt}, {days_old} ngày trước)")
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
 
     # --- Tầng 1: SBV website (Playwright) ---
@@ -655,6 +655,6 @@ def refresh_interbank_rate() -> bool:
         for row in rows:
             logger.info(f"Đã cập nhật {row['variable']}: {row['value']}% (nguồn: {source_tag})")
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Seed interbank rates thất bại: {e}")
         return False

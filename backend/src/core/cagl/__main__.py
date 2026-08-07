@@ -10,18 +10,18 @@ Verifies all registered FastAPI routes against the CAGL contract.
 from __future__ import annotations
 
 import io
+import logging
 import sys
 
 if isinstance(sys.stdout, io.TextIOWrapper):
     if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
             sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
+        except OSError, AttributeError, ValueError:
+            logging.getLogger("cagl_cli").debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
 elif hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import argparse
-import logging
 from pathlib import Path
 
 

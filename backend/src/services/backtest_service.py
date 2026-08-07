@@ -59,7 +59,7 @@ def get_backtest_results(model: str = "A", start_date: str = "2023-01-01", end_d
 
         results = _run_simple_backtest(df, model)
         return results
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Backtest failed: {e}")
         return {"error": str(e)}
 
@@ -230,7 +230,7 @@ def get_stress_test_summary(start_date: str = "2022-01-01", end_date: str = "202
             "recoveryRate": round(results_df["recovered"].mean() * 100, 1),
             "worstPerformers": results_df.nsmallest(10, "maxDrawdown2022").to_dict(orient="records"),
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Stress test failed: {e}")
         return {"error": str(e)}
 

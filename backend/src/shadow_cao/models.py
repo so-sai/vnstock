@@ -1,11 +1,12 @@
-﻿"""Shadow CAO — Data models (NO synthetic outcomes, only ablation)"""
+"""Shadow CAO — Data models (NO synthetic outcomes, only ablation)"""
+
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,12 +20,14 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 
 @dataclass
 class ShadowDecisionLog:
     """Logged at decision time — real engine scores + market state only."""
+
     decision_id: str
     timestamp: str
     posture: str
@@ -40,6 +43,7 @@ class ShadowDecisionLog:
 @dataclass
 class AblationResult:
     """Result of removing one engine's signal (perturb attribution, NOT market)."""
+
     engine_removed: str
     baseline_action: str
     baseline_confidence: float
@@ -53,6 +57,7 @@ class AblationResult:
 @dataclass
 class ShadowOutcomeLog:
     """Logged at evaluation time — REAL outcome + ablated counterfactuals."""
+
     decision_id: str
     horizon_days: int
     actual_outcome: float
@@ -63,6 +68,7 @@ class ShadowOutcomeLog:
 @dataclass
 class EngineAblationProfile:
     """Per-engine statistics accumulated over time (no weight update)."""
+
     engine: str
     total_decisions: int
     flip_count: int
@@ -74,6 +80,7 @@ class EngineAblationProfile:
 @dataclass
 class BeliefState:
     """Accumulated belief statistics — NOT used for weight updates."""
+
     engine_profiles: dict[str, EngineAblationProfile]
     regime_entropy_trace: list[float]
     stability_index: float
@@ -84,6 +91,7 @@ class BeliefState:
 @dataclass
 class AttributionPerturbation:
     """Perturbed attribution — same market outcome, re-calculated contribution."""
+
     decision_id: str
     horizon_days: int
     engine: str
@@ -100,6 +108,7 @@ class AttributionPerturbation:
 @dataclass
 class ShadowAttributionSummary:
     """Dry-run attribution result (never written to production)."""
+
     decision_id: str
     horizon_days: int
     engine: str

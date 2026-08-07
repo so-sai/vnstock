@@ -199,7 +199,7 @@ def _load_alpha_attribution(path: Path | None = None) -> dict[str, dict]:
                 result["FLOW"] = result["STRUCTURE"].copy()
                 result["BREADTH"] = result["STRUCTURE"].copy()
         return result
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Failed to load alpha attribution: %s", e)
         return {}
 
@@ -212,7 +212,7 @@ def _read_shadow_log_from_module() -> list[dict]:
         log = get_shadow_log()
         if log:
             return log
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
     return _build_shadow_from_telemetry_db()
 
@@ -395,7 +395,7 @@ def _build_shadow_from_telemetry_db() -> list[dict]:
 
         conn.close()
         return entries
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("Failed to build shadow entries from telemetry.db: %s", e)
         return []
 
@@ -459,7 +459,7 @@ def _compute_performance_drift(
 
         slope = np.polyfit(xs, ys, 1)[0]
         return round(-slope * 180, 4)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return None
 
 
@@ -580,7 +580,7 @@ def _get_db_path() -> Path:
         from src.config import DATA_DIR
 
         return Path(DATA_DIR) / "telemetry.db"
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return Path(__file__).resolve().parent.parent / "data" / "telemetry.db"
 
 

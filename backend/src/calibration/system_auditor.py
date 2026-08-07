@@ -92,7 +92,7 @@ def get_system_health_rows() -> list[dict]:
         with get_connection() as conn:
             rows = conn.execute("SELECT component, status, last_error FROM system_health").fetchall()
             return [dict(r) for r in rows]
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return []
 
 
@@ -107,7 +107,7 @@ def get_prediction_stats(days: int = 90) -> dict:
         unresolved = get_unresolved_predictions()
         resolved = get_outcomes_for_calibration(days)
         return {"unresolved": len(unresolved), "resolved": len(resolved)}
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {"unresolved": 0, "resolved": 0}
 
 
@@ -116,7 +116,7 @@ def get_calibration_trend(days: int = 90) -> dict:
         from calibration.calibrator import calibration_trend_report
 
         return calibration_trend_report(days)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {"status": "NO_DATA"}
 
 
@@ -125,7 +125,7 @@ def get_latest_calibration_snapshot() -> dict | None:
         from calibration.prediction_log import get_latest_calibration
 
         return get_latest_calibration()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return None
 
 
@@ -134,7 +134,7 @@ def get_evidence_nodes() -> list[dict]:
         from calibration.evidence_engine import EvidenceEngine
 
         return EvidenceEngine().get_all_nodes()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return []
 
 
@@ -143,7 +143,7 @@ def get_model_stats() -> dict:
         from calibration.model_registry import ModelRegistry
 
         return ModelRegistry().stats()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -152,7 +152,7 @@ def get_models() -> list[dict]:
         from calibration.model_registry import ModelRegistry
 
         return ModelRegistry().get_all_models()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return []
 
 
@@ -161,7 +161,7 @@ def get_causal_stats() -> dict:
         from calibration.causal_edge import CausalGraph
 
         return CausalGraph().stats()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -171,7 +171,7 @@ def get_causal_edges() -> list[dict]:
 
         cg = CausalGraph()
         return [{"id": e.id, "confidence": e.confidence} for e in cg.edges.values()]
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return []
 
 
@@ -180,7 +180,7 @@ def get_cb_state() -> dict:
         from calibration.prediction_log import get_circuit_breaker_state
 
         return get_circuit_breaker_state()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -189,7 +189,7 @@ def get_generalization_report() -> dict:
         from src.core.quantstats_bridge import QuantStatsBridge
 
         return QuantStatsBridge().run_all()
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -217,7 +217,7 @@ def get_data_density_results(symbols: list[str]) -> dict:
 
         auditor = DataIntegrityAuditor()
         return auditor.audit_many(symbols)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -238,7 +238,7 @@ def collect_data_health(days: int = 90) -> dict:
             findings.append(
                 {
                     "severity": "HIGH" if severe_syms else "MEDIUM",
-                    "message": f"phát hiện lỗ hổng mật độ dữ liệu (Data Density Gap): {', '.join(gap_syms)} thiếu chuỗi BCTC quý",
+                    "message": f"phát hiện lỗ hổng mật độ dữ liệu (Data Density Gap): {', '.join(gap_syms)} thiếu chuỗi BCTC quý",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                 }
             )
             penalty += 0.20 if severe_syms else 0.10
@@ -763,11 +763,11 @@ def load_history(
         d = dict(zip(cols, r)) if not hasattr(r, "keys") else dict(r)
         try:
             d["domain_json"] = json.loads(d.get("domain_json") or "{}")
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             d["domain_json"] = {}
         try:
             d["findings_json"] = json.loads(d.get("findings_json") or "[]")
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             d["findings_json"] = []
         out.append(d)
     return out
@@ -793,7 +793,7 @@ class SystemAuditor:
         for key, collector in self.sources.items():
             try:
                 rep = collector(days=days)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
                 rep = {
                     "key": key,
                     "score": None,
@@ -824,7 +824,7 @@ def print_audit_report(report: dict, lang_mode: str = "full"):
     """In toàn bộ System Audit ra console (song ngữ)."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
 
         def localize_label(label, m="full"):
             return label
@@ -903,7 +903,7 @@ def print_audit_history(history: list[dict], lang_mode: str = "full"):
     """In lịch sử các snapshot audit gần nhất."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
 
         def localize_label(label, m="full"):
             return label

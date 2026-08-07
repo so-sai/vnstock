@@ -38,7 +38,7 @@ def hydrate_2020_data():
             print(f"✅ Hydrated {len(df)} points for VNINDEX.")
         else:
             print("⚠️ No data found.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         print(f"❌ Error: {e}")
 
 

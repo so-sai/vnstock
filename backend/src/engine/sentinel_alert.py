@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -53,7 +54,7 @@ def evaluate_sentinel_status():
     try:
         # 1. Thu thập dữ liệu Độ rộng (NH10 & Consistency)
         pulse = run_breadth_analysis()
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         print(f"[Sentinel Alert] LỖI khi chạy run_breadth_analysis: {e}")
 
     nh10_val = 0
@@ -84,7 +85,7 @@ def evaluate_sentinel_status():
                     results["market_date"] = latest_date.strftime("%Y-%m-%d")
                     latest_mom = df_ohlcv[df_ohlcv["date"] == latest_date]
                     mom_expansion_count = int((latest_mom["return_6m"] > 0).sum())
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         print(f"[Sentinel Alert] LỖI khi tính toán layer1_mom_expansion: {e}")
 
     results["layer1_mom_expansion"]["value"] = mom_expansion_count
@@ -104,7 +105,7 @@ def evaluate_sentinel_status():
             recent_net = df_foreign["net_sum"].tolist()
             if all(val > -100 for val in recent_net):
                 foreign_3d_all_above_limit = True
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
         print(f"[Sentinel Alert] LỖI khi đọc market_foreign_history: {e}")
 
     layer2_breadth = nh10_val == 3
@@ -140,7 +141,7 @@ def evaluate_sentinel_status():
         os.makedirs(os.path.dirname(sentinel_path), exist_ok=True)
         with open(sentinel_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=4, ensure_ascii=False)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         print(f"[Sentinel Alert] Không thể ghi file sentinel_verdict.json: {e}")
 
     return results

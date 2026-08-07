@@ -35,7 +35,7 @@ if isinstance(sys.stdout, io.TextIOWrapper):
     if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
             sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 elif hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -128,7 +128,7 @@ TASKS = [
     {
         "name": "PTCK_VIETSTOCK_CRAWL",
         "description": "Crawl BCTC Vietstock Finance cho nhóm cổ phiếu trọng điểm (Thứ 2-6, 08:30)",
-        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" cafef-crawl --symbols FPT ACB HDB MBB VCB HPG BCM VRE VHM MWG --source vietstock --playwright',
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" cafef-crawl --symbols FPT ACB HDB MBB VCB HPG BCM VRE VHM MWG --source vietstock --playwright',  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "frequency": "WEEKLY",
         "schedule": "/D MON,TUE,WED,THU,FRI /ST 08:30",
         "run_level": "HIGHEST",
@@ -136,7 +136,7 @@ TASKS = [
     {
         "name": "PTCK_CAFEF_CRAWL",
         "description": "Crawl BCTC 20 quý CafeF (requests + Playwright fallback) — bổ sung CFO dòng tiền (Thứ 2-6, 09:00)",
-        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" cafef-crawl --symbols FPT ACB HDB MBB VCB --source cafef --playwright --delay 1',
+        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" cafef-crawl --symbols FPT ACB HDB MBB VCB --source cafef --playwright --delay 1',  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "frequency": "WEEKLY",
         "schedule": "/D MON,TUE,WED,THU,FRI /ST 09:00",
         "run_level": "HIGHEST",
@@ -151,7 +151,7 @@ TASKS = [
     },
     {
         "name": "PTCK_MORNING_CYCLE",
-        "description": "Daily Cycle — morning: SBV/Sensors → MacroState → Governor → System Audit (Thứ 2-6, 08:00 — SBV Fixture chạy trước 15 phút ở 07:45)",
+        "description": "Daily Cycle — morning: SBV/Sensors → MacroState → Governor → System Audit (Thứ 2-6, 08:00 — SBV Fixture chạy trước 15 phút ở 07:45)",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" morning --persist',
         "frequency": "WEEKLY",
         "schedule": "/D MON,TUE,WED,THU,FRI /ST 08:00",
@@ -178,7 +178,7 @@ TASKS = [
     },
     {
         "name": "PTCK_EARNINGS_CYCLE",
-        "description": "Daily Cycle — earnings: Crawl → Health v2 → Valuation → Governor → System Audit (Thứ 2, 08:20 — stale_window 7d tự skip nếu chưa tới mùa)",
+        "description": "Daily Cycle — earnings: Crawl → Health v2 → Valuation → Governor → System Audit (Thứ 2, 08:20 — stale_window 7d tự skip nếu chưa tới mùa)",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" earnings --persist',
         "frequency": "WEEKLY",
         "schedule": "/D MON /ST 08:20",

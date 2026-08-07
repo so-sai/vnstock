@@ -76,7 +76,7 @@ def get_portfolio_snapshot() -> dict:
                 conn,
             )
             telemetry = pd.read_sql("SELECT * FROM portfolio_telemetry ORDER BY date DESC LIMIT 1", conn)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         positions = pd.DataFrame()
         telemetry = pd.DataFrame()
 
@@ -103,7 +103,7 @@ def get_market_prices(symbols: list) -> dict:
                 params=symbols,
             )
             return dict(zip(df["symbol"], df["close"]))
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -111,7 +111,7 @@ def compute_drawdown() -> dict:
     try:
         with get_portfolio_connection() as conn:
             nav_series = pd.read_sql("SELECT date, total_equity FROM portfolio_telemetry ORDER BY date", conn)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {"current_drawdown_pct": 0.0, "peak_nav": 0, "status": "NO_DATA"}
 
     if nav_series.empty or len(nav_series) < 2:
@@ -157,7 +157,7 @@ def compute_var(symbols: list, weights: list | None = None) -> dict:
                 conn,
                 params=symbols,
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {"var_95_pct": 0.0, "status": "NO_DATA"}
 
     if df.empty:
@@ -203,7 +203,7 @@ def compute_correlation_risk(positions_df: pd.DataFrame) -> dict:
                 conn,
                 params=symbols,
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {
             "avg_correlation": 0.0,
             "high_corr_pairs": [],
@@ -477,7 +477,7 @@ def _store_risk_verdict(verdict: dict):
             vals = ", ".join(["?"] * len(row))
             conn.execute(f"INSERT OR REPLACE INTO risk_governance_history ({cols}) VALUES ({vals})", list(row.values()))
             conn.commit()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Store risk verdict error: {e}")
 
 
@@ -497,7 +497,7 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")

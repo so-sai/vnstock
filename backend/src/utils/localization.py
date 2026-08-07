@@ -329,7 +329,7 @@ def detect_terminal_utf8() -> bool:
             if "65001" in cp or "utf-8" in cp.lower() or "utf8" in cp.lower():
                 _TERMINAL_UTF8_CACHE = True
                 return True
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
     _TERMINAL_UTF8_CACHE = False
@@ -344,7 +344,7 @@ def force_utf8_stdout():
                 if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                     try:
                         sys.stdout.reconfigure(encoding="utf-8")
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                         pass
             elif hasattr(sys.stdout, "buffer"):
                 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -352,11 +352,11 @@ def force_utf8_stdout():
                 if getattr(sys.stderr, "encoding", "").lower() != "utf-8":
                     try:
                         sys.stderr.reconfigure(encoding="utf-8")
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                         pass
             elif hasattr(sys.stderr, "buffer"):
                 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
 

@@ -233,7 +233,7 @@ class EvidenceEngine:
                         (ai, now, nid),
                     )
                 conn_w.commit()
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
 
         conn = self._get_conn()
@@ -284,7 +284,7 @@ class EvidenceEngine:
         """
         try:
             from calibration.prediction_log import get_resolved_by_model
-        except Exception:
+        except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             from calibration.prediction_log import get_outcomes_for_calibration as _fallback
 
             # fallback: dùng resolved outcomes tổng, lọc theo model_id
@@ -390,7 +390,7 @@ def get_dynamic_evidence_weights(
         w = ee.get_dynamic_weights(macro_state, sector_phase, entropy)
         if w:
             return w
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass
     # Fallback: uniform
     return {nid: 1.0 / len(EVIDENCE_NODE_IDS) for nid in EVIDENCE_NODE_IDS}
@@ -400,7 +400,7 @@ def print_evidence_report(nodes: list[dict], weights: dict[str, float], lang_mod
     """Print evidence registry report to console."""
     try:
         from src.core.canonical_output_adapter import localize_label
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
 
         def localize_label(label, m="full"):
             return label

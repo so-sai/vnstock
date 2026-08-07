@@ -1,11 +1,11 @@
-﻿import sqlite3
+import sqlite3
 import sys
 from pathlib import Path
 
 
 # Sentinel v2.1 (Anchor Fix)
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -19,10 +19,12 @@ def _hydrate_path():
         sys.path.insert(0, str(root_path))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
+
 def check_coverage():
-    conn = sqlite3.connect('data/screener_cache.db')
+    conn = sqlite3.connect("data/screener_cache.db")
     cursor = conn.cursor()
 
     # 2020 COVID
@@ -45,6 +47,7 @@ def check_coverage():
         print("--- READY FOR STRESS TEST ---")
     else:
         print("--- DATA MISSING ---")
+
 
 if __name__ == "__main__":
     check_coverage()

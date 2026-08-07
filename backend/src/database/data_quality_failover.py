@@ -87,7 +87,7 @@ class DataQualityNormalizer:
             for col in ["open", "high", "low", "close"]:
                 normalized_df[col] = pd.to_numeric(normalized_df[col], errors="coerce")
             normalized_df["volume"] = pd.to_numeric(normalized_df["volume"], errors="coerce").fillna(0).astype(np.int64)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error(f"[CONVERSION_ERROR] Thất bại khi chuẩn hóa định dạng kiểu dữ liệu: {str(e)}")
             return pd.DataFrame()
 
@@ -178,7 +178,7 @@ class FailoverMultiSourceAdapter:
         except TimeoutError:
             logger.error(f"[TIMEOUT_GATE] Tác vụ gọi API vượt ngưỡng kiểm soát {timeout_sec} giây.")
             return None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error(f"[EXECUTION_ERROR] Lỗi thực thi tác vụ mạng: {str(e)}")
             return None
 
@@ -212,7 +212,7 @@ class FailoverMultiSourceAdapter:
                 """
                 df = pd.read_sql_query(query, conn, params=[symbol])
                 return df
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error(f"[DB_READ_ERROR] Thất bại khi truy xuất lịch sử cho {symbol}: {str(e)}")
             return pd.DataFrame()
 
@@ -229,7 +229,7 @@ class FailoverMultiSourceAdapter:
             if df_raw is not None and not df_raw.empty:
                 df_clean = self.normalizer.align_schema(df_raw, "vietcap")
                 return df_clean, "vietcap", False
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.warning(f"[PRIMARY_FAILED] Nguồn cấp Vietcap sập hoặc timeout: {str(e)}")
 
         try:
@@ -243,7 +243,7 @@ class FailoverMultiSourceAdapter:
                     primary_series=df_history, failover_series=df_fallback_aligned
                 )
                 return df_fallback_final, "ssi", False
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error(f"[FAILOVER_FAILED] Toàn bộ hệ thống nguồn cấp và dự phòng đều sập cho {symbol}: {str(e)}")
 
         return None, "none", True

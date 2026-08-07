@@ -9,6 +9,9 @@ So sánh trạng thái cấu trúc giữa T-1 và T-0 để xác định:
   - TAI_PHAT_BENH: hồi phục thất bại (lành→VỠ lại)
 """
 
+import logging
+import sqlite3
+
 from src.database.db_core import get_connection
 
 
@@ -23,20 +26,23 @@ def _truoc_do(current_date: str) -> str | None:
             )
             if not df.empty:
                 return str(df.iloc[0]["date"])
-    except Exception:
-        pass
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logging.getLogger(__name__).debug("_trước_đó: không đọc được ngày giao dịch trước — fallback None")
     return None
 
 
 def phan_tich_hoi_phuc(target_date: str) -> dict:
     """So sánh cấu trúc T-1 vs T-0 → xác định healing status.
 
-    Returns:
-        dict với keys:
-          - trang_thai_hoi_phuc: str (DANG_VO / BAT_DAU_LANH / DANG_LANH / DA_LANH / TAI_PHAT_BENH / CHUA_CO_DU_LIEU / KHONG_XAC_DINH)
-          - chuyen_doi: str (vd: "VỠ CẤU TRÚC→PHÂN KỲ CẤU TRÚC")
-          - so_tru_T0, so_tru_T1: int hoặc None
-          - entropy_T0, entropy_T1: float hoặc None
+        Returns:
+    dict với keys:
+              - trang_thai_hoi_phuc: str (
+                  DANG_VO / BAT_DAU_LANH / DANG_LANH / DA_LANH /
+                  TAI_PHAT_BENH / CHUA_CO_DU_LIEU / KHONG_XAC_DINH
+              )
+              - chuyen_doi: str (vd: "VỠ CẤU TRÚC→PHÂN KỲ CẤU TRÚC")
+              - so_tru_T0, so_tru_T1: int hoặc None
+              - entropy_T0, entropy_T1: float hoặc None
     """
     from src.engine.structural_detector import detect_cau_truc
 

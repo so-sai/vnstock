@@ -46,7 +46,7 @@ def run_daily_batch(verbose: bool = True) -> dict:
         print("=" * 56)
     try:
         initialize_shadow_database()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error("[SHADOW_CAO] DB init failed: %s", e)
         return {"error": str(e)}
     stats_before = get_shadow_stats()

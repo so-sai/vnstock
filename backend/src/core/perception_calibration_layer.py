@@ -1,4 +1,4 @@
-﻿"""
+"""
 perception_calibration_layer.py — Perception Calibration Layer.
 
 Reads shadow log + driver history, diagnoses systematic biases,
@@ -58,14 +58,16 @@ def _driver_switch_points(entries: list[dict]) -> list[dict]:
         if p_driver != c_driver:
             realized_prev = entries[i - 1].get("realized")
             realized_curr = entries[i].get("realized")
-            switches.append({
-                "from": p_driver,
-                "to": c_driver,
-                "from_actual": realized_prev["dominant_driver"] if realized_prev else "?",
-                "to_actual": realized_curr["dominant_driver"] if realized_curr else "?",
-                "date_from": entries[i - 1].get("date", "?"),
-                "date_to": entries[i].get("date", "?"),
-            })
+            switches.append(
+                {
+                    "from": p_driver,
+                    "to": c_driver,
+                    "from_actual": realized_prev["dominant_driver"] if realized_prev else "?",
+                    "to_actual": realized_curr["dominant_driver"] if realized_curr else "?",
+                    "date_from": entries[i - 1].get("date", "?"),
+                    "date_to": entries[i].get("date", "?"),
+                }
+            )
     return switches
 
 
@@ -135,12 +137,8 @@ def diagnose_calibration(shadow_entries: list[dict]) -> dict:
     matrix = _build_confusion_matrix(realized)
 
     # ── Accuracy ─────────────────────────────────────────────────
-    total = sum(
-        sum(v.values()) for v in matrix.values()
-    ) if matrix else 0
-    correct = sum(
-        v.get(k, 0) for k, v in matrix.items()
-    ) if matrix else 0
+    total = sum(sum(v.values()) for v in matrix.values()) if matrix else 0
+    correct = sum(v.get(k, 0) for k, v in matrix.items()) if matrix else 0
     accuracy = correct / total if total > 0 else 0.0
 
     # ── Regime sensitivity ───────────────────────────────────────
@@ -159,58 +157,57 @@ def diagnose_calibration(shadow_entries: list[dict]) -> dict:
             if actual_driver != pred_driver:
                 confusion_rate = count / total_pred if total_pred > 0 else 0.0
                 if confusion_rate >= 0.25:
-                    issues.append({
-                        "issue": "NHAM_VAI_TRO_DAN_DAT",
-                        "severity": round(confusion_rate, 4),
-                        "detail": (
-                            f"khi hệ dự đoán '{pred_driver}', "
-                            f"thực tế '{actual_driver}' xảy ra {count}/{total_pred} lần "
-                            f"({confusion_rate:.0%})"
-                        ),
-                        "recommendation": (
-                            f"cần hiệu chỉnh ranh giới giữa {pred_driver} và {actual_driver} "
-                            f"— đặc biệt trong giai đoạn rotation"
-                        ),
-                        "affected_driver_pair": [pred_driver, actual_driver],
-                    })
+                    issues.append(
+                        {
+                            "issue": "NHAM_VAI_TRO_DAN_DAT",
+                            "severity": round(confusion_rate, 4),
+                            "detail": (
+                                f"khi hệ dự đoán '{pred_driver}', "
+                                f"thực tế '{actual_driver}' xảy ra {count}/{total_pred} lần "
+                                f"({confusion_rate:.0%})"
+                            ),
+                            "recommendation": (
+                                f"cần hiệu chỉnh ranh giới giữa {pred_driver} và {actual_driver} "
+                                f"— đặc biệt trong giai đoạn rotation"
+                            ),
+                            "affected_driver_pair": [pred_driver, actual_driver],
+                        }
+                    )
 
     # Issue 2: Switch instability
     if switches:
-        false_switches = [
-            s for s in switches
-            if s["from"] == s["to_actual"] and s["to"] == s["from_actual"]
-        ]
+        false_switches = [s for s in switches if s["from"] == s["to_actual"] and s["to"] == s["from_actual"]]
         if false_switches:
-            issues.append({
-                "issue": "CHUYEN_MA_DUNG_SAI",
-                "severity": round(len(false_switches) / len(switches), 4),
-                "detail": (
-                    f"{len(false_switches)}/{len(switches)} lần chuyển driver là "
-                    f"nhiễu (hệ chuyển từ A→B nhưng thực tế B→A)"
-                ),
-                "recommendation": (
-                    "driver đang dao động giả — cần giảm độ nhạy chuyển driver "
-                    "trong rotation ngắn"
-                ),
-                "affected_driver_pair": ["FLOW", "BREADTH"],
-            })
+            issues.append(
+                {
+                    "issue": "CHUYEN_MA_DUNG_SAI",
+                    "severity": round(len(false_switches) / len(switches), 4),
+                    "detail": (
+                        f"{len(false_switches)}/{len(switches)} lần chuyển driver là "
+                        f"nhiễu (hệ chuyển từ A→B nhưng thực tế B→A)"
+                    ),
+                    "recommendation": ("driver đang dao động giả — cần giảm độ nhạy chuyển driver trong rotation ngắn"),
+                    "affected_driver_pair": ["FLOW", "BREADTH"],
+                }
+            )
 
     # Issue 3: Regime blind spot
     for regime, data in regime_sens.items():
         if data["total"] >= 3 and data["accuracy"] < 0.3:
-            issues.append({
-                "issue": "MU_REGIME",
-                "severity": round(1.0 - data["accuracy"], 4),
-                "detail": (
-                    f"accuracy={data['accuracy']:.0%} trong regime {regime} "
-                    f"({data['total']} mẫu) — hệ không nhìn thấy đúng driver trong chế độ này"
-                ),
-                "recommendation": (
-                    f"regime {regime} đang là điểm mù của hệ — "
-                    f"cần tăng trọng số VOLATILITY/MACRO trong chế độ này"
-                ),
-                "affected_driver_pair": [regime, "?"],
-            })
+            issues.append(
+                {
+                    "issue": "MU_REGIME",
+                    "severity": round(1.0 - data["accuracy"], 4),
+                    "detail": (
+                        f"accuracy={data['accuracy']:.0%} trong regime {regime} "
+                        f"({data['total']} mẫu) — hệ không nhìn thấy đúng driver trong chế độ này"
+                    ),
+                    "recommendation": (
+                        f"regime {regime} đang là điểm mù của hệ — cần tăng trọng số VOLATILITY/MACRO trong chế độ này"
+                    ),
+                    "affected_driver_pair": [regime, "?"],
+                }
+            )
 
     # ── Calibration score ────────────────────────────────────────
     if not issues:

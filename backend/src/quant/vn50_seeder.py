@@ -129,7 +129,7 @@ def execute_vn50_sprint(dry_run: bool = False, delay: float = 3.0) -> dict:
                 total_facts += n
                 results["ok"].append(sym)
                 print(f"  [{i + 1}/{len(targets)}] {sym} ({ent}): {n} facts")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             results["failed"].append(sym)
             print(f"  [{i + 1}/{len(targets)}] {sym} ({ent}): ERROR {type(e).__name__}: {str(e)[:120]}")
         if i > 0 and delay > 0:
@@ -144,7 +144,7 @@ def execute_vn50_sprint(dry_run: bool = False, delay: float = 3.0) -> dict:
             h = health_engine.compute_health(sym)
             if h.get("status") == "DONE" or h.get("total_ratios", 0) > 0:
                 health_ok.append(sym)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
     print("\n" + "=" * 72)

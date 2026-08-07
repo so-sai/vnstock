@@ -72,7 +72,7 @@ async def get_macro_status_v1(target_date: str | None = Query(None, description=
         # để client biết đây là tạm thời (retry), còn lỗi khác là 500 — phân biệt giúp
         # monitoring không gắn cờ nhầm một nguồn dữ liệu nghỉ lễ thành sự cố hệ thống.
         raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Macro engine error: {str(e)}")
 
     regime_score = data.get("regime_score", data.get("score"))

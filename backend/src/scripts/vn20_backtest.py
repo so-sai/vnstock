@@ -139,7 +139,7 @@ def run_backtest(start_q: str = "2022Q1", end_q: str = "2026Q2"):
         sector_map = {
             r["symbol"]: r["icb_name3"] for r in screen.execute("SELECT symbol, icb_name3 FROM symbol_industry").fetchall()
         }
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         sector_map = {}
 
     # Get universe (symbols with health data)

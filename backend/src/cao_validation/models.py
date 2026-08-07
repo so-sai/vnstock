@@ -1,15 +1,16 @@
-﻿"""CAO Trust Bridge — Data models for statistical validation layer.
+"""CAO Trust Bridge — Data models for statistical validation layer.
 
 This is NOT a threshold system. It is a distribution alignment validator
 + regime-aware promotion control system.
 """
+
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -22,6 +23,7 @@ def _hydrate_path():
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 
@@ -37,6 +39,7 @@ STRICTNESS_LEVELS = ["medium", "high", "very_high", "freeze"]
 @dataclass
 class RegimeThreshold:
     """Per-regime promotion threshold (NOT global)."""
+
     regime: str
     required_consistency: float
     required_samples: int
@@ -48,9 +51,11 @@ class RegimeThreshold:
 # CONSISTENCY DATA
 # ====================================================================
 
+
 @dataclass
 class EngineContribution:
     """Per-engine contribution comparison."""
+
     engine: str
     shadow_contribution: float
     real_contribution: float
@@ -63,6 +68,7 @@ class EngineContribution:
 @dataclass
 class ConsistencyScore:
     """Fine-grained consistency breakdown for one decision."""
+
     decision_id: str
     regime: str
     overall: float
@@ -79,9 +85,11 @@ class ConsistencyScore:
 # DISTRIBUTION EQUIVALENCE
 # ====================================================================
 
+
 @dataclass
 class DistributionTestResult:
     """Result of distribution equivalence test."""
+
     test_name: str
     statistic: float
     p_value: float
@@ -96,9 +104,11 @@ class DistributionTestResult:
 # TRUST STATE
 # ====================================================================
 
+
 @dataclass
 class TrustHistoryPoint:
     """Single point in trust accumulation history."""
+
     decision_id: str
     consistency: float
     regime: str
@@ -110,6 +120,7 @@ class TrustHistoryPoint:
 @dataclass
 class TrustState:
     """Current trust state per regime (NOT global — regime-aware)."""
+
     regime: str
     total_samples: int
     mean_consistency: float
@@ -125,9 +136,11 @@ class TrustState:
 # PROMOTION CONTEXT
 # ====================================================================
 
+
 @dataclass
 class PromotionContext:
     """Full context for promotion decision."""
+
     regime: str
     confidence: float
     threshold: float
@@ -160,6 +173,7 @@ class PromotionContext:
 @dataclass
 class PromotionVerdict:
     """Final promotion decision."""
+
     can_promote: bool
     regime: str
     gates: dict[str, bool]
@@ -172,9 +186,11 @@ class PromotionVerdict:
 # VALIDATION REPORT
 # ====================================================================
 
+
 @dataclass
 class CABValidationReport:
     """Full CAO Trust Bridge validation report."""
+
     timestamp: str
     regime_states: list[TrustState]
     promotion_verdicts: list[PromotionVerdict]

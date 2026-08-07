@@ -1,13 +1,14 @@
-﻿"""
+"""
 Risk Budget Controller v1.0
 Contextual exposure caps and Portfolio Heat gatekeeper.
 """
+
 import sys
 from pathlib import Path
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -24,20 +25,22 @@ def _hydrate_path():
         sys.path.insert(0, str(backend_dir))
     return root_path
 
+
 PROJECT_ROOT = _hydrate_path()
 
 EXPOSURE_CAPS = {
-    "CRISIS":   10.0,
+    "CRISIS": 10.0,
     "RECOVERY": 35.0,
-    "RANGING":  50.0,
+    "RANGING": 50.0,
     "TRENDING": 100.0,
 }
 
 MAX_PORTFOLIO_HEAT = 10.0
 
-def evaluate_gatekeeper(current_regime: str, current_net_exposure: float,
-                         current_portfolio_heat: float,
-                         next_position_exposure: float) -> tuple:
+
+def evaluate_gatekeeper(
+    current_regime: str, current_net_exposure: float, current_portfolio_heat: float, next_position_exposure: float
+) -> tuple:
     max_allowed = EXPOSURE_CAPS.get(current_regime, 0.0)
     new_total = current_net_exposure + next_position_exposure
 

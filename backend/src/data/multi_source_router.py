@@ -1,4 +1,4 @@
-﻿"""multi_source_router.py — Tier 0.5 Multi-Source Provider Failover Router.
+"""multi_source_router.py — Tier 0.5 Multi-Source Provider Failover Router.
 
 Kiến trúc:
   Tiến trình: Sequential, ngắt mạch sớm (Aggressive Failover Timeout)
@@ -12,13 +12,11 @@ Kiến trúc:
 
 Tổng timeout không vượt quá 16s (8 + 4 + 4).
 """
+
 import asyncio
 import logging
 import time
-from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import Any, Dict, List, Optional, Tuple
-
-import pandas as pd
+from typing import Any
 
 from src.data.schema_normalizer import (
     normalize_to_ptd_schema,
@@ -42,7 +40,7 @@ PROVIDER_CHAIN = [
 ]
 
 # Provider trust scores
-PROVIDER_TRUST: Dict[str, float] = {
+PROVIDER_TRUST: dict[str, float] = {
     "kbs": 0.95,
     "vci": 0.92,
     "ssi": 0.85,
@@ -55,7 +53,7 @@ def fetch_from_vnstock(
     date: str,
     source: str = "kbs",
     timeout: float = BACKUP_TIMEOUT,
-) -> Tuple[Optional[Dict[str, Any]], str]:
+) -> tuple[dict[str, Any] | None, str]:
     """Lấy dữ liệu từ vnstock Quote.history() với timeout.
 
     Returns:
@@ -63,6 +61,7 @@ def fetch_from_vnstock(
     """
     try:
         from vnstock import Quote
+
         q = Quote(symbol=symbol, source=source)
         # Lấy 5 phiên gần nhất để có đủ context
         df = q.history(start=date, end=date, pause=0)
@@ -77,7 +76,7 @@ def fetch_from_vnstock(
                 logger.warning(f"[{source.upper()}] {symbol}: OHLCV issues: {issues}")
             return norm, source
         logger.debug(f"[{source.upper()}] {symbol}: empty response")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         err = str(e)
         if "timeout" in err.lower() or "timed out" in err.lower():
             logger.warning(f"[{source.upper()}] {symbol}: timeout sau {timeout}s")
@@ -89,7 +88,7 @@ def fetch_from_vnstock(
 def fetch_from_ssi_failover(
     symbol: str,
     timeout: float = BACKUP_TIMEOUT,
-) -> Tuple[Optional[Dict[str, Any]], str]:
+) -> tuple[dict[str, Any] | None, str]:
     """SSI qua FailoverMultiSourceAdapter (async wrapper).
 
     Ghi chú: SSI provider hiện đang là stub (mock data).
@@ -97,22 +96,19 @@ def fetch_from_ssi_failover(
     """
     try:
         from src.database.data_quality_failover import FailoverMultiSourceAdapter
-        adapter = FailoverMultiSourceAdapter(
-            db_path=str(get_connection().__enter__())
-        )
-        df, source_used, is_stale = asyncio.run(
-            adapter.fetch_historical_ohlcv_safe(symbol)
-        )
+
+        adapter = FailoverMultiSourceAdapter(db_path=str(get_connection().__enter__()))
+        df, source_used, is_stale = asyncio.run(adapter.fetch_historical_ohlcv_safe(symbol))
         if df is not None and not df.empty:
             raw = df.iloc[-1].to_dict()
             norm, _ = normalize_to_ptd_schema(raw, source_label=source_used)
             return norm, source_used
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.debug(f"[SSI] {symbol}: {e}")
     return None, "ssi"
 
 
-def fetch_from_tcbs(symbol: str) -> Tuple[Optional[Dict[str, Any]], str]:
+def fetch_from_tcbs(symbol: str) -> tuple[dict[str, Any] | None, str]:
     """TCBS — schema mapping tồn tại, provider chưa implement.
 
     Hiện tại trả về None, log reminder. Khi có TCBS thật,
@@ -125,7 +121,7 @@ def fetch_from_tcbs(symbol: str) -> Tuple[Optional[Dict[str, Any]], str]:
 def route_live(
     symbol: str,
     date: str,
-) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Tier 0 + Tier 0.5: Route qua tất cả provider sống.
 
     Args:
@@ -189,9 +185,9 @@ def route_live(
 
 
 def route_batch_live(
-    symbols: List[str],
+    symbols: list[str],
     date: str,
-) -> Dict[str, Tuple[Optional[Dict[str, Any]], Dict[str, Any]]]:
+) -> dict[str, tuple[dict[str, Any] | None, dict[str, Any]]]:
     """Batch route — gọi route_live cho từng symbol.
 
     Sequential trong batch, batch tiếp theo cách 500ms.
@@ -204,7 +200,7 @@ def route_batch_live(
     return result
 
 
-def compute_confidence_penalty(meta: Dict[str, Any]) -> float:
+def compute_confidence_penalty(meta: dict[str, Any]) -> float:
     """Tính mức phạt confidence dựa trên source.
 
     PRIMARY: 0 (không phạt)

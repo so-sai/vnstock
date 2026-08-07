@@ -1,4 +1,4 @@
-﻿"""
+"""
 breadth_trap_detector.py — CUSUM-based Breadth Trap Detector.
 
 Phát hiện Breadth Trap và thời điểm suy yếu.
@@ -6,7 +6,6 @@ Phát hiện Breadth Trap và thời điểm suy yếu.
 CUSUM trên Δdivergence (tốc độ thay đổi) thay vì divergence tuyệt đối,
 giúp phát hiện sớm khi divergence bắt đầu hội tụ dù cấu trúc chưa hồi phục.
 """
-
 
 
 class BreadthTrapDetector:

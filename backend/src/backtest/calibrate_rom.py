@@ -159,7 +159,7 @@ def main():
     with kernel.patch_get_connection():
         with get_connection() as conn:
             all_ohlcv = pd.read_sql(
-                "SELECT date,symbol,open,high,low,close,volume FROM daily_ohlcv WHERE date>=? AND date<=? ORDER BY symbol,date",
+                "SELECT date,symbol,open,high,low,close,volume FROM daily_ohlcv WHERE date>=? AND date<=? ORDER BY symbol,date",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                 conn,
                 params=(start_date, end_date),
             )

@@ -129,7 +129,7 @@ def run_elite_scanner(deep_scan: bool = False) -> pd.DataFrame:
         for _, row in buy_list.iterrows():
             marker = "🔥" if row["In_Top_Sector"] else "  "
             print(
-                f"{marker} {row['symbol']:<6} | {int(row['rs_score']):>2} | {row['rvol']:>5.2f} | {row['foreign_10d_acc']:>8.2f} | {str(row['sector'])[:20]:<20} | {row['action']}"
+                f"{marker} {row['symbol']:<6} | {int(row['rs_score']):>2} | {row['rvol']:>5.2f} | {row['foreign_10d_acc']:>8.2f} | {str(row['sector'])[:20]:<20} | {row['action']}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
             )
         print("-" * 115)
 

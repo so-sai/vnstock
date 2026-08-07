@@ -48,6 +48,7 @@ PROJECT_ROOT = _hydrate_path()
 
 import json
 import logging
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -530,7 +531,7 @@ def _store_forecast(result: dict):
             vals = ", ".join(["?"] * len(row))
             conn.execute(f"INSERT OR REPLACE INTO flow_forecast_history ({cols}) VALUES ({vals})", list(row.values()))
             conn.commit()
-    except Exception as e:
+    except (sqlite3.Error, TypeError, ValueError, KeyError) as e:
         logger.warning(f"Store forecast error: {e}")
 
 
@@ -552,8 +553,8 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
-                    pass
+                except OSError, AttributeError, ValueError:
+                    logger.debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     run_forecast()

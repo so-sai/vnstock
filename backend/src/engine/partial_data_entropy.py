@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+import sqlite3
 import threading
 import time
 from datetime import datetime
@@ -56,7 +57,8 @@ def _inline_heartbeat_timestamp() -> float:
     try:
         data = json.loads(_COOLDOWN_PATH.read_text(encoding="utf-8"))
         return float(data.get("io_heartbeat_timestamp", 0.0))
-    except Exception:
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
+        logger.debug("[ENTROPY] Heartbeat read failed: %s", e)
         return 0.0
 
 
@@ -105,7 +107,8 @@ def _probe_disk_health() -> bool:
             readback = _PROBE_PATH.read_bytes()
             actual_hash = hashlib.sha256(readback).hexdigest()
             result[0] = actual_hash == expected_hash
-        except Exception:
+        except (OSError, TypeError, ValueError) as e:
+            logger.debug("[PROBE] Disk probe failed: %s", e)
             result[0] = False
         finally:
             done.set()
@@ -150,7 +153,7 @@ def _atomic_write_json(path: Path, data: dict, timeout: float = 5.0):
                 os.fsync(fd)
             finally:
                 os.close(fd)
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             result[0] = e
         finally:
             done.set()
@@ -205,8 +208,8 @@ def hours_since_last_scrape(tenor: str | None = None) -> float:
         if ts:
             dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
             return max(0.0, (datetime.now() - dt).total_seconds() / 3600)
-    except Exception:
-        pass
+    except (ImportError, sqlite3.Error, TypeError, ValueError, KeyError) as e:
+        logger.debug("[ENTROPY] Stale hours lookup failed: %s", e)
     return GRACE
 
 
@@ -464,7 +467,7 @@ def log_entropy_telemetry(H: float, stale_hours: dict[str, float] | None = None)
             else:
                 row += [0.0] * 6
             w.writerow(row)
-    except Exception as e:
+    except (OSError, PermissionError, TypeError, ValueError) as e:
         logger.debug(f"Telemetry write failed: {e}")
 
 
@@ -502,7 +505,7 @@ def cleanup_telemetry(max_rows: int = 1000):
             w = csv.writer(f)
             w.writerows(header + tail)
         logger.info("[GC] entropy_log.csv: %d → %d rows", len(reader), len(tail) + 1)
-    except Exception as e:
+    except (OSError, PermissionError, TypeError, ValueError, IndexError) as e:
         logger.warning("[GC] Telemetry cleanup failed: %s", e)
 
 
@@ -525,6 +528,6 @@ def _scrape_holidays() -> list[str]:
                 if date_str and "2026" in date_str:
                     holidays.append(date_str.strip())
         return sorted(set(holidays))
-    except Exception as e:
+    except (requests.RequestException, OSError, ValueError, KeyError) as e:
         logger.warning(f"Không scrape được lịch lễ: {e}")
         return []

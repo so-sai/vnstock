@@ -14,6 +14,8 @@ Nguyên tắc:
 """
 
 import json
+import logging
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -44,11 +46,13 @@ if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
         if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
-            except Exception:
-                pass
+            except OSError, AttributeError, ValueError:
+                logging.getLogger(__name__).debug("stdout.reconfigure(utf-8) không khả dụng — giữ nguyên encoding")
     elif hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import src.config
+
+logger = logging.getLogger(__name__)
 
 
 def _doc(ten_file: str) -> dict | None:
@@ -60,7 +64,8 @@ def _doc(ten_file: str) -> dict | None:
         if p.exists():
             try:
                 return json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
+            except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
+                logger.warning("_doc: đọc %s thất bại — fallback None", p)
                 return None
     return None
 
@@ -103,7 +108,8 @@ def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> 
         ew_cap_do = ew.get("cap_do_ma", "BÌNH_THƯỜNG")
         ew_diem = ew.get("tong_diem", 0)
         ew_canh_bao = ew.get("canh_bao", [])
-    except Exception:
+    except ImportError, AttributeError, TypeError, ValueError, KeyError, sqlite3.Error, IndexError:
+        logger.debug("tao_anh_chup: build_early_warning lỗi — fallback mặc định BÌNH_THƯỜNG")
         ew = {}
         ew_cap_do = "BÌNH_THƯỜNG"
         ew_diem = 0
@@ -114,7 +120,8 @@ def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> 
 
     try:
         reality = phan_tich_chi_so(target_date=target_date)
-    except Exception:
+    except ImportError, AttributeError, TypeError, ValueError, KeyError, sqlite3.Error, IndexError:
+        logger.debug("tao_anh_chup: phan_tich_chi_so lỗi — fallback rỗng")
         reality = {}
 
     # ── Bước 4b: Ảnh hưởng nhóm trụ (Group Influence) ──
@@ -123,7 +130,8 @@ def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> 
     try:
         gi = tinh_anh_huong_nhom(target_date=target_date)
         gi.group_contributions[0] if gi.group_contributions else None
-    except Exception:
+    except ImportError, AttributeError, TypeError, ValueError, KeyError, sqlite3.Error, IndexError:
+        logger.debug("tao_anh_chup: tinh_anh_huong_nhom lỗi — fallback None")
         gi = None
 
     # ── Bước 5: Các chỉ số thành phần ──
@@ -215,15 +223,15 @@ def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> 
                     coordinator = MarketMacroCoordinator()
                     coordinator.set_governor_confidence(0.0)
                     anh_chup["governor_confidence"] = 0.0
-                except Exception:
-                    pass
+                except ImportError, AttributeError, TypeError, ValueError, KeyError:
+                    logger.debug("tao_anh_chup: không hạ được governor_confidence — bỏ qua")
         else:
             anh_chup["asia_rotation"] = {
                 "angle_deg": None,
                 "status": asia_rot.get("status", "ERROR"),
                 "message": asia_rot.get("message", ""),
             }
-    except Exception as exc:
+    except (ImportError, AttributeError, TypeError, ValueError, KeyError, IndexError) as exc:
         anh_chup["asia_rotation"] = {
             "angle_deg": None,
             "status": "ERROR",
@@ -235,7 +243,8 @@ def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> 
 
     try:
         ddi = DeltaDivergenceIndex().calculate(anh_chup)
-    except Exception:
+    except TypeError, ValueError, AttributeError, KeyError, IndexError:
+        logger.debug("tao_anh_chup: DeltaDivergenceIndex lỗi — fallback mặc định")
         ddi = {"delta_sa": 0.0, "action_filter": "pass", "healing_illusion": False}
     anh_chup["delta_divergence"] = ddi
 
@@ -246,7 +255,8 @@ def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> 
     try:
         params_reg = build_params_registry()
         p_hash = make_params_hash(params_reg)
-    except Exception:
+    except TypeError, ValueError, AttributeError, KeyError, IndexError:
+        logger.debug("tao_anh_chup: params_hash lỗi — fallback 'unresolved'")
         params_reg = {}
         p_hash = "unresolved"
     anh_chup["params_registry"] = params_reg
@@ -273,8 +283,8 @@ def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> 
             idx_data = []
         idx_data.append(idx_entry)
         idx_path.write_text(json.dumps(idx_data, indent=2, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
+        logger.debug("tao_anh_chup: không ghi được snapshot_index.json — bỏ qua")
 
     return anh_chup
 
@@ -285,7 +295,8 @@ def _ll(label: str, lang_mode: str = "annotated") -> str:
         from src.core.canonical_output_adapter import localize_label
 
         return localize_label(label, lang_mode)
-    except Exception:
+    except ImportError, AttributeError, TypeError, KeyError:
+        logger.debug("_ll: localize_label lỗi — fallback label gốc")
         return label
 
 
@@ -350,8 +361,8 @@ def in_anh_chup(anh_chup: dict, lang_mode: str = "annotated"):
                 print(f"  {bt_label:{max_w}s} 🔴 SAU HON — CUSUM S+={td.S_plus:.1f} (h={td.h:.1f})")
             else:
                 print(f"  {bt_label:{max_w}s} ⚪ binh thuong (S-={td.S_minus:.1f}, S+={td.S_plus:.1f})")
-    except Exception:
-        pass
+    except ImportError, AttributeError, TypeError, KeyError:
+        logger.debug("in_anh_chup: breadth trap detector không đọc được — bỏ qua")
 
     # DDI
     ddi = anh_chup.get("delta_divergence", {})

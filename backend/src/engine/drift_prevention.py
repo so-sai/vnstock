@@ -1,4 +1,4 @@
-﻿"""
+"""
 drift_prevention.py — Cognitive drift detection for the control system.
 
 Detects when the narrative (explain_layer) diverges from the driver reality.
@@ -17,7 +17,6 @@ KERNEL LAYER — English terms are the kernel's internal language.
 UI layer (cognitive_drift_layer.py / cognitive_schema.py) maps to Vietnamese.
 narrative_truth_gap is in Vietnamese because it is UI-facing.
 """
-
 
 # ── Vietnamese risk/safety keywords from central schema ────────
 from backend.src.core.cognitive_schema import DRIVER_VI_LOWER, RISK_KEYWORDS, SAFETY_KEYWORDS
@@ -88,12 +87,7 @@ def _risk_tone_mismatch(
     entropy = driver_state.get("entropy", 0.5)
 
     # ── Determine if there is objective reason for risk-off ──────
-    danger_signals = (
-        vol_w > 0.25
-        or hazard_rate > 0.8
-        or entropy > 1.3
-        or regime_status == "CRISIS"
-    )
+    danger_signals = vol_w > 0.25 or hazard_rate > 0.8 or entropy > 1.3 or regime_status == "CRISIS"
 
     # Narrative is risk-on but danger signals are present → false safety
     if tone > 0.6 and danger_signals:

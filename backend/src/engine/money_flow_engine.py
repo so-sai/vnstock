@@ -66,7 +66,7 @@ class MoneyFlowEngine:
             snapshot = {"symbol": symbol, "date": datetime.now().strftime("%Y-%m-%d"), "foreign_vol": f_vol}
             self._session_cache[symbol] = snapshot
             return snapshot
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             err_str = str(e)
             if "429" in err_str or "Too Many" in err_str:
                 CircuitBreaker.report_failure(self.source)

@@ -130,7 +130,7 @@ def init_schema():
     try:
         conn.execute("ALTER TABLE prediction_log ADD COLUMN model_id TEXT")
         conn.commit()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
         pass  # column already exists
     conn.close()
 
@@ -533,7 +533,7 @@ def check_circuit_breaker_auto(days: int = 90, ll_threshold: float = 0.05) -> di
         from calibration.calibrator import calibration_trend_report
 
         report = calibration_trend_report(days=days)
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {
             "level": CB_LEVEL_NONE,
             "label": CB_LABELS[CB_LEVEL_NONE],

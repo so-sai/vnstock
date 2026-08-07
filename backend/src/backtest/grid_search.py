@@ -73,7 +73,7 @@ def precompute_scores(conn, dates, score_days):
         macro_result = None
         try:
             macro_result = macro_engine.compute(date)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
         sector_macro_eff = {}

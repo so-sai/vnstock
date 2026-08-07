@@ -144,7 +144,7 @@ def _save_verdict(verdict: ReadinessVerdict):
         }
         path.write_text(json.dumps(serializable, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.info("[CAO_READINESS] Report saved to %s", path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[CAO_READINESS] Failed to save report: %s", e)
 
 

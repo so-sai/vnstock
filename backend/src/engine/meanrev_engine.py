@@ -1,3 +1,5 @@
+import logging
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -23,6 +25,8 @@ def _hydrate_path():
 PROJECT_ROOT = _hydrate_path()
 import src.config
 from src.database.db_core import get_connection
+
+logger = logging.getLogger(__name__)
 
 
 def _compute_real_rds(target_date=None, window=20):
@@ -69,7 +73,8 @@ def _compute_real_rds(target_date=None, window=20):
         ratio_20_60 = (vol_20 / vol_60) if vol_60 > 0 else 1.0
         rds = (vol_up / vol_down) * ratio_20_60
         return round(rds, 3)
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.warning("_compute_real_rds: không tính được RDS — fallback 1.0")
         return 1.0
 
 
@@ -177,7 +182,8 @@ def run_meanrev_scan(regime_data=None, target_date=None):
                 tr_state = EconomicTransmissionEngine().get_latest() or EconomicTransmissionEngine().compute()
                 _credit_now = float(getattr(tr_state, "credit", 50.0) or 50.0)
                 d_credit_real = round(50.0 - _credit_now, 2)
-        except Exception:
+        except sqlite3.Error, AttributeError, TypeError, ValueError, KeyError:
+            logger.debug("ΔCredit không đọc được — fallback 0.0")
             d_credit_real = 0.0
 
         _rec_factor = compute_recovery_authenticity_lr(
@@ -197,7 +203,7 @@ def run_meanrev_scan(regime_data=None, target_date=None):
         )
     except ImportError:
         pass
-    except Exception as e:
+    except (TypeError, ValueError, AttributeError, KeyError) as e:
         print(f"[RECOVERY] gate skipped: {e}")
 
     # --- BREADTH EXPANSION CHECK ---

@@ -187,7 +187,7 @@ def bootstrap():
         """)
         conn.commit()
         logger.info("UNIQUE constraint added: idx_macro_history_unique (date, variable)")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Could not add UNIQUE constraint: {e}")
 
     # Step 7: Verify

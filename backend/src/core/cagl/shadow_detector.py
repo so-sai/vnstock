@@ -1,4 +1,5 @@
-﻿"""Shadow route detection — compare multiple sources to find drifts."""
+"""Shadow route detection — compare multiple sources to find drifts."""
+
 from __future__ import annotations
 
 import logging
@@ -47,12 +48,14 @@ class ShadowDetector:
         for oa_key in openapi_paths:
             if oa_key not in runtime_set:
                 method, path = oa_key.split(":", 1)
-                finding.append(ValidationFinding(
-                    severity="error",
-                    category="phantom",
-                    path=path,
-                    message=f"OpenAPI declares {method} {path} but no runtime route found",
-                ))
+                finding.append(
+                    ValidationFinding(
+                        severity="error",
+                        category="phantom",
+                        path=path,
+                        message=f"OpenAPI declares {method} {path} but no runtime route found",
+                    )
+                )
         return finding
 
     def detect_undocumented(self, runtime_routes: list[EndpointSpec], openapi_paths: set[str]) -> list[ValidationFinding]:
@@ -61,12 +64,14 @@ class ShadowDetector:
         runtime_set = {f"{r.method}:{r.path}" for r in runtime_routes}
         for key in runtime_set - openapi_paths:
             method, path = key.split(":", 1)
-            findings.append(ValidationFinding(
-                severity="warning",
-                category="undocumented",
-                path=path,
-                message=f"Runtime route {method} {path} is missing from OpenAPI schema",
-            ))
+            findings.append(
+                ValidationFinding(
+                    severity="warning",
+                    category="undocumented",
+                    path=path,
+                    message=f"Runtime route {method} {path} is missing from OpenAPI schema",
+                )
+            )
         return findings
 
     def detect_against_declared_list(
@@ -82,10 +87,12 @@ class ShadowDetector:
         runtime_paths = {r.path for r in runtime_routes}
         for decl_path in declared:
             if decl_path not in runtime_paths:
-                findings.append(ValidationFinding(
-                    severity="error",
-                    category="phantom",
-                    path=decl_path,
-                    message=f"Declared endpoint '{decl_path}' has no matching runtime route",
-                ))
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        category="phantom",
+                        path=decl_path,
+                        message=f"Declared endpoint '{decl_path}' has no matching runtime route",
+                    )
+                )
         return findings

@@ -14,6 +14,7 @@ Usage:
 
 import json
 import logging
+import sqlite3
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -273,7 +274,7 @@ class MacroStateClassifier:
         try:
             with get_connection() as conn:
                 rows = conn.execute(sql, params).fetchall()
-        except Exception as e:
+        except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             logger.warning(f"Macro query failed: {e} — using neutral vector")
             return np.zeros(7), {}
 
@@ -418,7 +419,7 @@ class MacroStateClassifier:
             aligner = TimeSeriesAligner()
             features = aligner.compute_eigenvalues(target_date=target_date)
             return features
-        except Exception as e:
+        except (ImportError, AttributeError, TypeError, KeyError, ValueError) as e:
             logger.debug(f"Aligner features unavailable: {e}")
             return None
 

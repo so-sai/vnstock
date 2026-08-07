@@ -72,7 +72,7 @@ def _get_price_at_date(symbol: str, target_date: str) -> float | None:
             row = conn.execute("SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?", (symbol, target_date)).fetchone()
             if row and row[0] is not None:
                 return float(row[0])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[PR] Price lookup fail %s @ %s: %s", symbol, target_date, e)
     return None
 
@@ -88,7 +88,7 @@ def _get_nearest_price(symbol: str, target_date: str, before: bool = True) -> fl
             ).fetchone()
             if row and row[0] is not None:
                 return float(row[0])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("[PR] Nearest price lookup fail %s @ %s: %s", symbol, target_date, e)
     return None
 
@@ -278,10 +278,10 @@ if __name__ == "__main__":
         for e in reversed(entries):
             if e.get("event") == "prediction":
                 print(
-                    f"  PREDICT {e['date']} {e['symbol']:6s} | RS={e['rs']:3d} score={e['diem_xac_nhan']:.2f} {e['phan_loai']:<20s} price={e['price_t0']:>8.1f}"
+                    f"  PREDICT {e['date']} {e['symbol']:6s} | RS={e['rs']:3d} score={e['diem_xac_nhan']:.2f} {e['phan_loai']:<20s} price={e['price_t0']:>8.1f}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                 )
             elif e.get("event") == "outcome":
                 print(
-                    f"  OUTCOME {e['date']} {e['symbol']:6s} | {e['horizon']:2d}ngày return={e['return_pct']:+.2f}% exit={e['exit_price']:>8.1f}"
+                    f"  OUTCOME {e['date']} {e['symbol']:6s} | {e['horizon']:2d}ngày return={e['return_pct']:+.2f}% exit={e['exit_price']:>8.1f}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                 )
         print("=" * 100)

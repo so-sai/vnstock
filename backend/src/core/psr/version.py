@@ -44,7 +44,8 @@ def _git_commit() -> str:
             cwd=Path(__file__).resolve().parent.parent.parent.parent.parent,
         )
         return result.stdout.strip() or "unknown"
-    except Exception:
+    except OSError, subprocess.SubprocessError, ValueError:
+        logger.debug("_git_commit: không lấy được commit — fallback 'unknown'")
         return "unknown"
 
 
@@ -57,8 +58,8 @@ def _hash_semantic_contract() -> str:
             text = py_file.read_text(encoding="utf-8", errors="ignore")
             if "label_vi" in text or "explanation_vi" in text:
                 hasher.update(text.encode())
-    except Exception:
-        pass
+    except OSError, TypeError, ValueError:
+        logger.debug("_hash_semantic_contract: quét code thất bại — dùng hash hiện có")
     return hasher.hexdigest()[:16]
 
 
@@ -72,8 +73,8 @@ def _hash_api_contract() -> str:
         scanner = RouteScanner()
         for spec in scanner.scan(app):
             hasher.update(f"{spec.method}:{spec.path}:{spec.module}:{spec.handler}".encode())
-    except Exception:
-        pass
+    except ImportError, AttributeError, TypeError, KeyError:
+        logger.debug("_hash_api_contract: không scan được API — dùng hash hiện có")
     return hasher.hexdigest()[:16]
 
 
@@ -115,7 +116,7 @@ class VersionFreeze:
             try:
                 data = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
                 return PSRVersion(**data)
-            except Exception as e:
+            except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
                 logger.warning("[PSR_VERSION] Manifest read failed: %s", e)
         return PSRVersion(
             version=DEFAULT_VERSION,
@@ -135,5 +136,6 @@ def get_current_version() -> str:
     """Convenience: returns the version string from the manifest."""
     try:
         return VersionFreeze().current().version
-    except Exception:
+    except OSError, json.JSONDecodeError, TypeError, ValueError, KeyError:
+        logger.debug("get_current_version: không đọc được manifest — fallback default")
         return DEFAULT_VERSION

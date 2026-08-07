@@ -87,8 +87,8 @@ def _is_holiday(d: date) -> bool:
 
             data = json.loads(cal_path.read_text(encoding="utf-8"))
             return d.isoformat() in data.get("holidays", [])
-    except Exception:
-        pass
+    except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
+        logger.debug("_is_holiday: không đọc được lịch nghỉ — mặc định không nghỉ")
     return False
 
 
@@ -119,7 +119,11 @@ def _compute_dynamic_gate(data_dir: Path) -> tuple[float, float]:
         row = cursor.fetchone()
         conn.close()
         total_value = row[0] if row and row[0] else 0.0
-    except Exception:
+    except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
+        logger.warning(
+            "_compute_dynamic_gate: không đọc được tổng GTGD — fallback ngưỡng tối thiểu %.0f tỷ",
+            CRISIS_HARD_LIQUIDITY_GATE_FLOOR,
+        )
         return (CRISIS_HARD_LIQUIDITY_GATE_FLOOR, 0.0)
 
     if total_value <= 0:
@@ -241,7 +245,7 @@ def phase2_proxy_scan(
     # Scan batch qua DB
     try:
         results = erl.scan_all(target_date=target_date, db_path=db_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning("ERL proxy scan failed: %s", e)
         results = []
 
@@ -419,7 +423,8 @@ def needs_catchup(data_dir: Path | None = None) -> bool:
             )
             return True
         return False
-    except Exception:
+    except OSError, TypeError, ValueError:
+        logger.warning("needs_catchup: không đọc được last_scan — mặc định cần catch-up")
         return True
 
 

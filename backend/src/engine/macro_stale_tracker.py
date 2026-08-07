@@ -279,7 +279,7 @@ class StaleTracker:
                 json.dumps({"warmup": self._warmup, "updated": datetime.now().isoformat()}),
                 encoding="utf-8",
             )
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.warning("StaleTracker: failed to save warmup state: %s", e)
 
     def _load_warmup(self):
@@ -288,5 +288,6 @@ class StaleTracker:
             if path.exists():
                 data = json.loads(path.read_text(encoding="utf-8"))
                 self._warmup = data.get("warmup", {})
-        except Exception:
+        except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
+            logger.debug("StaleTracker: không đọc được warmup state — khởi tạo lại rỗng")
             self._warmup = {}

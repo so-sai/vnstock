@@ -51,7 +51,7 @@ class GapAnalyzer:
     def close(self):
         try:
             self.conn.close()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
 
     def _get_cutoff(self):
@@ -90,7 +90,7 @@ class GapAnalyzer:
             rows = self.conn.execute("SELECT DISTINCT symbol FROM symbol_industry").fetchall()
             for r in rows:
                 from_industry.add(r[0])
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
         merged = from_db | from_industry
         self._expected_symbols = sorted(merged)

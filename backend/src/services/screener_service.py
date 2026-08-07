@@ -48,7 +48,7 @@ def _load_rs_data() -> dict:
         with open(rs_path, encoding="utf-8") as f:
             data = json.load(f)
         return {item["symbol"]: item for item in data}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Error loading RS data: {e}")
         return {}
 
@@ -59,7 +59,7 @@ def _get_sector_map() -> dict:
         with get_connection() as conn:
             df = pd.read_sql("SELECT symbol, icb_name3 as sector FROM symbol_industry", conn)
         return dict(zip(df["symbol"], df["sector"]))
-    except Exception:
+    except Exception:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         return {}
 
 
@@ -73,7 +73,7 @@ def get_screener_results(top_n: int = 50) -> list:
     """
     try:
         result_df = registry.screener_logic.run_screener()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.error(f"Screener logic failed: {e}")
         result_df = pd.DataFrame()
 

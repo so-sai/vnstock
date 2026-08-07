@@ -39,7 +39,7 @@ async def get_gold_data():
     """Lấy dữ liệu giá vàng SJC + BTMC + spread."""
     try:
         return localize_output(get_gold_dashboard())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Gold service error: {str(e)}")
 
 
@@ -51,7 +51,7 @@ async def get_gold_regime():
         macro = {}
         try:
             macro = get_macro_status()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
             pass
         cognition = cross_reference_with_market(macro)
         return localize_output(
@@ -60,7 +60,7 @@ async def get_gold_regime():
                 "cognition": cognition.get("gold_cognition", {}),
             }
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Gold regime error: {str(e)}")
 
 
@@ -74,7 +74,7 @@ async def get_world_gold():
         return localize_output({"xau_usd": price, "timestamp": int(__import__("time").time())})
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"World gold error: {str(e)}")
 
 
@@ -83,7 +83,7 @@ async def get_gold_premium():
     """Lấy Domestic Premium: SJC - XAUUSD quy đổi."""
     try:
         return localize_output(analyze_domestic_premium())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Gold premium error: {str(e)}")
 
 
@@ -92,7 +92,7 @@ async def get_gold_premium_driver(lookback_days: int = Query(5, description="S�
     """Phân tích nguyên nhân premium thay đổi: XAUUSD, USD/VND, hay SJC."""
     try:
         return localize_output(get_premium_driver(lookback_days=lookback_days))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Gold driver analysis error: {str(e)}")
 
 
@@ -101,7 +101,7 @@ async def get_gold_cognition():
     """Gold Cognition Layer — hợp nhất VN + Global + Premium."""
     try:
         return localize_output(get_gold_cognition_layer())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Gold cognition error: {str(e)}")
 
 
@@ -111,5 +111,5 @@ async def seed_world_gold():
     try:
         ok = seed_world_gold_to_db()
         return localize_output({"seeded": ok})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         raise HTTPException(status_code=500, detail=f"Gold seed error: {str(e)}")

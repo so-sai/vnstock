@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 
 def _hydrate_path():
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         root_path = Path(sys.executable).resolve().parent
     else:
         current = Path(__file__).resolve().parent
@@ -22,6 +22,7 @@ def _hydrate_path():
     if backend_dir.exists() and str(backend_dir) not in sys.path:
         sys.path.append(str(backend_dir))
     return root_path
+
 
 PROJECT_ROOT = _hydrate_path()
 import src.config
@@ -60,10 +61,7 @@ async def instant_search(
         return {
             "query": q,
             "count": len(rows),
-            "results": [
-                {"symbol": r[0], "icb_name2": r[1], "icb_name3": r[2], "icb_name4": r[3]}
-                for r in rows
-            ],
+            "results": [{"symbol": r[0], "icb_name2": r[1], "icb_name3": r[2], "icb_name4": r[3]} for r in rows],
         }
     except sqlite3.OperationalError as e:
         raise HTTPException(500, f"FTS5 query failed: {e}")
@@ -95,4 +93,4 @@ def _sanitize_fts_query(raw: str) -> str:
     if len(parts) == 1:
         safe = parts[0].replace('"', '""')
         return f'"{safe}"*'
-    return " AND ".join(f'"{p.replace(chr(34), chr(34)*2)}"*' for p in parts)
+    return " AND ".join(f'"{p.replace(chr(34), chr(34) * 2)}"*' for p in parts)

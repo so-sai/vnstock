@@ -85,7 +85,7 @@ class DecisionAuditTrail:
         try:
             with open(self._path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.error("[PSR_AUDIT] Write failed: %s", e)
         return entry
 
@@ -106,7 +106,8 @@ class DecisionAuditTrail:
                 try:
                     d = json.loads(line)
                     entry = PSRAuditEntry.from_dict(d)
-                except Exception:
+                except json.JSONDecodeError, TypeError, ValueError, KeyError:
+                    logger.debug("[PSR_AUDIT] dòng audit hỏng — bỏ qua")
                     continue
                 if since and entry.timestamp < since:
                     continue
@@ -119,7 +120,7 @@ class DecisionAuditTrail:
                     break
         except FileNotFoundError:
             pass
-        except Exception as e:
+        except (OSError, TypeError, ValueError, KeyError) as e:
             logger.error("[PSR_AUDIT] Read failed: %s", e)
         return entries
 
@@ -142,5 +143,6 @@ class DecisionAuditTrail:
             from src.core.psr.version import get_current_version
 
             return get_current_version()
-        except Exception:
+        except ImportError, AttributeError, TypeError, KeyError:
+            logger.debug("_get_version: không đọc được version — fallback 'dev'")
             return "dev"

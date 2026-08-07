@@ -195,7 +195,7 @@ def record_trade_memory(
         )
         conn.commit()
         return {"ok": True, "symbol": symbol}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         conn.rollback()
         return {"ok": False, "error": str(e)}
     finally:
@@ -253,7 +253,7 @@ def update_model_regime_stats(model: str, regime: str) -> dict:
             "avg_r": avg_r,
             "expectancy": expectancy,
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         conn.rollback()
         return {"ok": False, "error": str(e)}
     finally:

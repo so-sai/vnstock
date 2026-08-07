@@ -76,7 +76,7 @@ class WatchlistStateManager:
                 if "user_pins" in data:
                     self._state = data
                     return self._state
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                 pass
         self._state = self._get_default()
         self.save()
@@ -92,7 +92,7 @@ class WatchlistStateManager:
             with open(self.state_path, "w", encoding="utf-8") as f:
                 json.dump(self._state, f, indent=2, ensure_ascii=False)
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
             logger.error(f"Save watchlist state failed: {e}")
             return False
 
@@ -172,7 +172,7 @@ def _store_pin_history(symbol: str, action: str):
                 (symbol, action, datetime.now().isoformat()),
             )
             conn.commit()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
         logger.warning(f"Store pin history error: {e}")
 
 
@@ -211,7 +211,7 @@ if __name__ == "__main__":
             if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
                 try:
                     sys.stdout.reconfigure(encoding="utf-8")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - cố ý bắt rộng & bỏ qua phụ (fallback/phòng thủ)
                     pass
         elif hasattr(sys.stdout, "buffer"):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")

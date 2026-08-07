@@ -150,7 +150,7 @@ class StateSpaceValidator:
         for r in self.REGIMES:
             d = result["dwell_stats"][r]
             _p(
-                f"    {r:10s} count={d['count']:3d} mean={d['mean']:6.1f}d median={d['median']:4.1f}d range={d['min']}-{d['max']}"
+                f"    {r:10s} count={d['count']:3d} mean={d['mean']:6.1f}d median={d['median']:4.1f}d range={d['min']}-{d['max']}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
             )
 
         _p(f"\n  Persist Ratio:          {result['persist_ratio']:.2%}")
