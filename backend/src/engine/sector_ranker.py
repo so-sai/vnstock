@@ -45,7 +45,7 @@ def calculate_sector_stats():
     Alpha V4.4 - Sector Surveillance: Phan tich luan chuyen dong tien nganh (V4.4).
     """
     print("\n" + "=" * 65)
-    print("DEBUG: [ICB SECTOR SURVEILLANCE] Analyzing Industry Rotations")
+    print("[ICB SECTOR SURVEILLANCE] Analyzing Industry Rotations")
     print("=" * 65)
 
     # 1. Tải dữ liệu từ Vault
@@ -64,18 +64,8 @@ def calculate_sector_stats():
             ORDER BY o.symbol, o.date ASC
         """
         df_ohlcv = pd.read_sql(query, conn)
-        print(f"DEBUG: Joined Rows Count: {len(df_ohlcv)}")
-        if not df_ohlcv.empty:
-            print(f"DEBUG: First 5 Symbols Joined: {df_ohlcv['symbol'].unique()[:5]}")
 
     if df_ohlcv.empty:
-        # Diagnostic: Check raw counts separately
-        print("DEBUG: Checking raw table counts...")
-        with get_connection() as conn:
-            ohlcv_count = conn.execute("SELECT count(*) FROM daily_ohlcv").fetchone()[0]
-            ind_count = conn.execute("SELECT count(*) FROM symbol_industry").fetchone()[0]
-            print(f"DEBUG: raw daily_ohlcv: {ohlcv_count}")
-            print(f"DEBUG: raw symbol_industry: {ind_count}")
         print("⚠️ Vault trống hoặc chưa có mapping ngành.")
         return
 
@@ -172,7 +162,7 @@ def calculate_sector_stats():
             f"{row['Sector']:<25} | {row['RS 1M']:>6.1f} | {row['RS 3M']:>6.1f} | {row['Combined']:>6.1f} | {row['Diffusion (%)']:>5.0f}% | {row['Diamonds (>5B)']:>3}/{row['Total']:<3} {marker}"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
     print("=" * 80)
-    print("DEBUG: (*) Hoi tu (Diffusion Index >= 40%). Score: (RS 1M + RS 3M) / 2.")
+    print("(*) Hội tụ (Diffusion Index >= 40%). Score: (RS 1M + RS 3M) / 2.")
 
 
 if __name__ == "__main__":

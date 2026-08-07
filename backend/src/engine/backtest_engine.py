@@ -147,15 +147,6 @@ class BacktestAlpha:
                 df_ind = pd.read_sql("SELECT symbol, icb_name2 FROM symbol_industry", conn)
                 symbol_to_industry = dict(zip(df_ind["symbol"], df_ind["icb_name2"]))
 
-                print(f"DEBUG: Vault={db_path}")
-                print(f"DEBUG: StartDate={start_date} | Stocks={len(df_stocks)} | Bench={len(df_bench)}")
-                print(f"DEBUG: Industries Mapped={len(symbol_to_industry)}")
-
-                if df_bench.empty:
-                    # Forensic check why bench is empty
-                    exists = pd.read_sql("SELECT count(*) as cnt FROM daily_ohlcv WHERE symbol LIKE '%VNINDEX%'", conn)
-                    print(f"DEBUG: Total VNINDEX rows in Vault: {exists['cnt'][0]}")
-
                 conn.close()
                 if not df_bench.empty:
                     break
@@ -298,8 +289,6 @@ class BacktestAlpha:
 
         rebalance_dates = all_dates[:: self.rebalance_freq]
         daily_pct_change = pivot_price.pct_change(fill_method=None)
-
-        print(f"DEBUG: Mo phong qua {len(all_dates)} phien giao dich...")
 
         for i in range(1, len(all_dates)):
             today = all_dates[i]
