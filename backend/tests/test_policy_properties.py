@@ -130,7 +130,7 @@ class TestVn20GateBranchingProperties:
 
     Với MỌI bộ giá trị (ROE_q, CAPITAL_RATIO, NIM_q, NPL, D/E, volume) ngẫu nhiên
     trong lưới ngưỡng, kết quả gate phải khớp chính xác reference oracle:
-      - Bank (có CAPITAL_RATIO): cap>0.05 AND (NIM None OR NIM*4>0.018)
+      - Bank (có CAPITAL_RATIO): cap>=0.08 AND (NIM None OR NIM*4>0.018)
                                   AND (NPL None OR NPL<0.030)
       - Non-bank có D/E:          de<2.0
       - Không dữ liệu leverage:   bypass
@@ -156,11 +156,19 @@ class TestVn20GateBranchingProperties:
         self.conn.close()
 
     @staticmethod
+    def _prev_quarter(period):
+        """'2026Q3' → '2026Q2'; '2026Q1' → '2025Q4'."""
+        year, q = int(period[:4]), int(period[-1])
+        if q == 1:
+            return f"{year - 1}Q4"
+        return f"{year}Q{q - 1}"
+
+    @staticmethod
     def _reference_oracle(roe_q, cap, nim_q, npl, de, volume):
         """Spec chuẩn — nguồn chân lý để gate phải khớp."""
         roe_annual = roe_q * 4
         if cap is not None:
-            cap_ok = cap > 0.05
+            cap_ok = cap >= 0.08
             nim_ann = nim_q * 4 if nim_q is not None else None
             nim_ok = nim_ann > 0.018 if nim_ann is not None else True
             npl_ok = npl < 0.030 if npl is not None else True
@@ -189,7 +197,9 @@ class TestVn20GateBranchingProperties:
         for name, val in [("ROE", roe_q), ("CAPITAL_RATIO", cap), ("NIM", nim_q), ("NPL_RATIO", npl), ("DEBT_TO_EQUITY", de)]:
             if val is None:
                 continue
-            period = self._period("2026-08-05")
+            # PIT-strict: tại 2026-08-05 (thuộc 2026Q3), chỉ quý ĐÃ ĐÓNG (2026Q2)
+            # được dùng — chuẩn period < anchor_quarter.
+            period = self._prev_quarter(self._period("2026-08-05"))
             self.conn.execute(
                 "INSERT INTO fin.health_ratios VALUES (?, ?, ?, ?)",
                 (symbol, name, val, period),
@@ -216,7 +226,7 @@ class TestPolicyCapBoostProperties:
             event_type="KBNN_LDR_ADJUSTMENT",
             half_life_days=15.0,
             decay_window_days=90,
-            clusters={"SOCB_BIG3": 1.0},
+            clusters={"SOCB_BIG4": 1.0},
             delta_params={"ldr_relief_bps": ldr_bps},
         )
         engine = PolicyImpactEngine(events_path=Path(tmp_path) / "prop_events.json")

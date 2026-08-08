@@ -226,7 +226,7 @@ class LiquidityRecoveryIndex:
             conn.close()
 
     def _classify_regime_fuzzy(self, target_date: str | None = None) -> tuple:
-        """Classify regime using HMM and return fuzzy probabilities.
+        """Classify regime using HMM and return regime posterior probabilities.
 
         Returns (regime_label, regime_probs_dict, hmm_fitted).
         """
@@ -235,7 +235,7 @@ class LiquidityRecoveryIndex:
         return result.regime, result.probabilities, result.hmm_fitted
 
     def _compute_bayesian_bounds_fuzzy(self, values: list, regime_probs: dict) -> tuple:
-        """Compute Fuzzy Adaptive Bounds using regime probability vector.
+        """Compute Regime-Weighted Adaptive Bounds using regime probability vector.
 
         LAW-010: P90_eff = alpha * Observed + beta * sum(P(Regime_k) * Hist_k) + gamma * Policy
 
@@ -254,7 +254,7 @@ class LiquidityRecoveryIndex:
         beta = 1.0 - alpha - BAYESIAN_GAMMA_WEIGHT
         gamma = BAYESIAN_GAMMA_WEIGHT
 
-        # Fuzzy-weighted regime historical bounds
+        # Regime-weighted historical bounds (posterior-weighted, không phải fuzzy logic)
         regime_p10 = sum(regime_probs.get(r, 0.0) * REGIME_BOUNDS[r]["p10"] for r in REGIME_BOUNDS)
         regime_p90 = sum(regime_probs.get(r, 0.0) * REGIME_BOUNDS[r]["p90"] for r in REGIME_BOUNDS)
 

@@ -12,8 +12,9 @@ Moi su kien phap ly / tien te duoc dong goi thanh PolicyEvent:
   - Phan hoa theo cum (clusters) de tranh ro ri loi ich vao nhom khong duoc huong.
 
 Vi du thuc te: Quyet dinh 1743/QD-NHNN (30/07/2026, hieu luc 01/08/2026)
-  - Tang ty le tien gui KBNN tinh vao LDR tu 20% len 50%
-  - Big4 (VCB/CTG/BID) nam 99.59% tien gui KBNN -> Cluster A
+  - Dieu chinh MAU SO LDR: tang ty le tien gui KBNN co ky han tinh vao
+    nguon von huy dong tu 20% len 50% (khong phai 'noi tran LDR').
+  - Big4 (VCB/CTG/BID/AGR) nam ~554.000 ty tien gui KBNN -> Cluster A
 """
 
 import json
@@ -53,9 +54,12 @@ CLUSTER_B = "CLUSTER_B"
 CLUSTER_C = "CLUSTER_C"
 
 # Phan loai mac dinh theo do lon / so huu nha nuoc
+# SOCB_BIG4: 4 ngan hang thuong mai nha nuoc vi mo (Agribank/VCB/BID/CTG).
+# Agribank (AGR) thuoc cum BIG4 VI MO nhung KHONG thuoc vu tru giao dich
+# co phieu niem yet (chua len san) — danh dau UNLISTED_MACRO_ONLY de khong
+# bao gio roi vao danh sach ung cu co phieu tren san.
 BIG4_BANKS = {"VCB", "CTG", "BID", "AGR"}
-# Big3: 3 ngan hang nam 554.000 ty tien gui co ky han KBNN (QĐ 1743)
-BIG3_BANKS = {"VCB", "CTG", "BID"}
+UNLISTED_MACRO_ONLY = {"AGR"}  # Anh huong vi mo, khong giao dich tren san
 STATE_BANKS = BIG4_BANKS | {"MBB", "VPB", "HDB", "SHB"}
 LARGE_PRIVATE_BANKS = {
     "TCB",
@@ -131,8 +135,6 @@ class PolicyEvent:
 def _cluster_members(cluster_name: str) -> set:
     """Tra ve tap hop symbol thuoc cum. Bo sung logic theo loai hinh."""
     name = cluster_name.upper()
-    if "BIG3" in name:
-        return BIG3_BANKS
     if "BIG4" in name or name == "A":
         return BIG4_BANKS
     if "LARGE" in name or "TMCP" in name:

@@ -90,6 +90,22 @@ def clean_db():
     _clean_test_data()
 
 
+@pytest.fixture(autouse=True)
+def reset_global_caches():
+    """Test Contract 4 — Isolation Guard: xóa sạch cache toàn cục sau mỗi test.
+
+    Ngăn ô nhiễm trạng thái (State Contamination) làm kết quả test phụ thuộc
+    thứ tự chạy (test order dependency).
+    """
+    yield
+    try:
+        from src.utils.cache_guard import clear_all_caches
+
+        clear_all_caches()
+    except Exception:  # noqa: BLE001, S110 - isolation guard không được crash test
+        pass
+
+
 @pytest.fixture
 def seed_test_ohlcv(clean_db):
     """Bơm dữ liệu OHLCV giả lập cho TEST_SYMBOL trên TEST_DATES.

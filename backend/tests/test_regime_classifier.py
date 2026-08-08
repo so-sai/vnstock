@@ -229,11 +229,11 @@ class TestProbabilityContinuity:
         Path(db).unlink()
 
 
-# ── Test: Temperature Scaling ─────────────────────────────────────────
+# ── Test: Softmax Temperature Calibration ─────────────────────────────
 
 
 class TestTemperatureScaling:
-    """Test temperature scaling effect on probability distribution."""
+    """Test Softmax Temperature Calibration effect on posterior distribution."""
 
     def test_high_temperature_softens_distribution(self):
         """Higher temperature should produce more uniform distribution."""

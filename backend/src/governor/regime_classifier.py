@@ -15,10 +15,10 @@ Architecture (First Principles):
      - K=3 states: EXPANSION, NORMAL, CONTRACTION
      - covariance_type="full" for capturing correlations
      - reg_covar=1e-6 for overfitting protection
-  3. Probability Smoothing:
+  3. Probability Calibration:
      - Exponential moving average (EMA) of probability vectors
-     - Temperature scaling for softer transitions
-  4. Output: Fuzzy probability vector P(Regime) ∈ [0,1]^3
+     - Softmax Temperature Calibration for softer transitions
+  4. Output: Calibrated posterior probability vector P(Regime) ∈ [0,1]^3
 
 Overfitting Protection:
   - K=3 fixed (no model selection needed)
@@ -28,8 +28,8 @@ Overfitting Protection:
 
 Boundary Continuity:
   - EMA smoothing prevents abrupt probability jumps
-  - Temperature scaling softens hard boundaries
-  - Fuzzy weighting ensures smooth transitions
+  - Softmax Temperature Calibration softens hard boundaries
+  - Regime-weighted smoothing ensures smooth transitions
 
 Usage:
   classifier = RegimeClassifier(db_path)
@@ -118,8 +118,8 @@ class RegimeClassifier:
     First Principles Architecture:
       1. Extract stationary features from macro history
       2. Fit 3-state HMM with regularization
-      3. Smooth probability vectors via EMA
-      4. Return fuzzy regime probabilities
+      3. Calibrate posterior probabilities via EMA + Softmax Temperature
+      4. Return calibrated regime posterior probabilities
 
     LAW-10: All observations are evaluated conditional on regime:
       Score(x) = F(x | P(Regime_k))
@@ -327,15 +327,17 @@ class RegimeClassifier:
     # ── Probability Smoothing ─────────────────────────────────────────
 
     def _apply_temperature_scaling(self, probs: np.ndarray, temperature: float = TEMPERATURE) -> np.ndarray:
-        """Apply temperature scaling to soften probability distribution.
+        """Softmax Temperature Calibration áp trên posterior probabilities.
 
+        Chia logits (log-probabilities) cho tham số nhiệt độ T rồi softmax
+        để hiệu chỉnh độ tin cậy của phân phối xác suất hậu phương.
         Higher temperature → softer distribution (more uniform).
         Lower temperature → harder distribution (more peaked).
         """
         if temperature <= 0:
             return probs
 
-        # Scale logits by temperature
+        # Softmax Temperature Calibration: logits = log(p) / T
         logits = np.log(probs + 1e-10) / temperature
         scaled = np.exp(logits)
         return cast(np.ndarray, scaled / np.sum(scaled))
@@ -376,20 +378,20 @@ class RegimeClassifier:
         target_date: str | None = None,
         prob_history: list[np.ndarray] | None = None,
     ) -> RegimeResult:
-        """Classify current regime and return fuzzy probabilities.
+        """Classify current regime and return calibrated posterior probabilities.
 
         Args:
             target_date: PIT date for backtest safety
             prob_history: optional history of probability vectors for smoothing
 
         Returns:
-            RegimeResult with fuzzy probability vector
+            RegimeResult with calibrated posterior probability vector
 
         First Principles:
           1. Extract stationary features
           2. Fit HMM with regularization
           3. Compute posterior probabilities
-          4. Smooth via EMA + temperature scaling
+          4. Calibrate via EMA + Softmax Temperature Calibration
           5. Return P(Regime_k) ∈ [0,1]^3
         """
         # Extract stationary features
@@ -437,7 +439,7 @@ class RegimeClassifier:
             posteriors = cast("GaussianHMM", model).predict_proba(X)
             raw_probs = posteriors[-1]  # latest time step
 
-            # Apply temperature scaling
+            # Apply Softmax Temperature Calibration trên posterior probabilities
             scaled_probs = self._apply_temperature_scaling(raw_probs)
 
             # Smooth probability vector
@@ -477,7 +479,7 @@ def _heuristic_classify(avg_90d: float) -> dict:
     """Heuristic regime classification from 90-day average.
 
     Used as fallback when HMM cannot be fitted.
-    Returns fuzzy probabilities that taper at boundaries.
+    Returns calibrated probabilities that taper at boundaries.
     """
     probs = {"EXPANSION": 0.0, "NORMAL": 0.0, "CONTRACTION": 0.0}
 

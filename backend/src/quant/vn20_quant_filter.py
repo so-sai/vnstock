@@ -7,7 +7,8 @@ Tier 1 — BUFFETT QUALITY (static, long-term moat):
     STANDARD (sản xuất/thương mại): ROE >= 15% (3y), CFO > 0 (3y),
       D/E <= 1.0, Gross Margin >= 25%.
     BANK (ngân hàng — SBV-based, không dùng CFO/GM):
-      ROE >= 15% (3y), NPL <= 2.5%, NIM >= 1.8%, CAR >= 5.0%,
+      ROE >= 15% (3y), NPL <= 2.5%, NIM >= 1.8%, CAR >= 8.0%
+      (sàn pháp lý Thông tư 41/2016/TT-NHNN — Basel II),
       D/E <= 8.0 (nếu có).
 
 Tier 2 — GOVERNOR SHIELD (VN governance):
@@ -70,7 +71,12 @@ T1_GROSS_MARGIN_MIN_STEEL = 0.15  # 15% — ngoại lệ ngành Thép (commodity
 # ── Bank-specific T1 gate (BCTC ngân hàng không có CFO/GM/D/E theo chuẩn SBV) ──
 T1_BANK_NPL_MAX = 0.025  # NPL <= 2.5% (chuẩn SBV)
 T1_BANK_NIM_MIN = 0.018  # NIM >= 1.8%
-T1_BANK_CAR_MIN = 0.05  # Capital adequacy >= 5.0%
+# CAR >= 8.0% — sàn pháp lý bắt buộc theo Thông tư 41/2016/TT-NHNN (Basel II),
+# thay thế ngưỡng sai luật 5.0% cũ (Legal-Hardening Audit 2026-08-08).
+T1_BANK_CAR_MIN = 0.08  # Capital adequacy >= 8.0% (TT41/2016/TT-NHNN)
+# CAR_QUANT_SAFETY: ngân hàng đạt CAR >= 10.0% được cấp điểm tối đa (cờ an toàn
+# định lượng) ở Tầng 1 — vượt xa sàn pháp lý, phản ánh bộ đệm vốn lành mạnh.
+CAR_QUANT_SAFETY = 0.10
 T2_DILUTION_MAX = 0.05  # 5%/yr
 T2_RECEIVABLES_MAX = 0.25  # 25% of revenue
 T4_MOS_MIN = 0.25  # 25% margin of safety (VN premium)
@@ -232,7 +238,9 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: list[str
 
     DUAL-BRANCH (T1-Bank refactor 2026-08-06):
       - BANK:   BCTC ngân hàng không có CFO/GM/D/E ý nghĩa theo chuẩn Buffett.
-                Thay bằng bộ chỉ số SBV: NPL <= 2.5%, NIM >= 1.8%, CAR >= 5%.
+                Thay bằng bộ chỉ số SBV: NPL <= 2.5%, NIM >= 1.8%, CAR >= 8.0%
+                (sàn pháp lý Thông tư 41/2016/TT-NHNN — Basel II, sửa từ 5%).
+                CAR >= 10.0% (CAR_QUANT_SAFETY) → cờ an toàn định lượng.
                 D/E (nếu có) dùng ngưỡng lỏng 8.0; CFO/GM bỏ qua.
       - STANDARD: giữ nguyên tiêu chuẩn Buffett: CFO > 0 (3y), GM >= 25%,
                 D/E <= 1.0 (thiếu GM/D/E -> FAIL vì là doanh nghiệp thật).
@@ -257,6 +265,7 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: list[str
         "npl": None,
         "nim": None,
         "car": None,
+        "car_quant_safety": False,
         "reasons": [],
     }
 
@@ -295,6 +304,10 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: list[str
                 result["reasons"].append(f"Bank NIM {result['nim']:.1%} < {T1_BANK_NIM_MIN:.1%}")
         if result["car"] is not None and result["car"] < T1_BANK_CAR_MIN:
             result["reasons"].append(f"Bank CAR {result['car']:.1%} < {T1_BANK_CAR_MIN:.1%}")
+        # CAR_QUANT_SAFETY: CAR >= 10% → full mark Tầng 1 (cờ an toàn định lượng,
+        # vượt xa sàn pháp lý 8.0% — bộ đệm vốn lành mạnh).
+        if result["car"] is not None:
+            result["car_quant_safety"] = result["car"] >= CAR_QUANT_SAFETY
 
         # Banks: D/E missing is NOT a fail — capital adequacy (CAR) replaces it.
         de_series = _load_ratio_series(conn, symbol, "DEBT_TO_EQUITY", periods[-4:])

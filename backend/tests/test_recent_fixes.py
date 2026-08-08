@@ -396,13 +396,24 @@ class TestVN20GateBankSpecific:
             "INSERT INTO daily_ohlcv VALUES (?, ?, 100, 110, 90, 100, ?)",
             (symbol, date, volume),
         )
+        # PIT-strict: tại ngày `date`, chỉ quý ĐÃ KẾT THÚC được dùng. Gán period
+        # = quý liền TRƯỚC quý chứa date (dữ liệu đã công bố), không phải quý
+        # đang diễn ra (chuẩn period < anchor_quarter).
+        period = self._prev_quarter(self._period(date))
         for name, val in ratios.items():
-            period = self._period(date)
             self.fin_conn.execute(
                 "INSERT INTO health_ratios VALUES (?, ?, ?, ?)",
                 (symbol, name, val, period),
             )
         self.fin_conn.commit()
+
+    @staticmethod
+    def _prev_quarter(period):
+        """'2026Q3' → '2026Q2'; '2026Q1' → '2025Q4'."""
+        year, q = int(period[:4]), int(period[-1])
+        if q == 1:
+            return f"{year - 1}Q4"
+        return f"{year}Q{q - 1}"
 
     def test_bank_capital_ratio_pass(self):
         """Bank with Cap=8.9%, NIM=4.4%, ROE=17% → PASS."""
@@ -410,9 +421,16 @@ class TestVN20GateBankSpecific:
         assert self._gate(self.conn, "TPB", "2026-08-05") is True
 
     def test_bank_low_capital_ratio_fail(self):
-        """Bank with Cap=4.0% (< 5%) → FAIL."""
+        """Bank with Cap=4.0% (< 8% sàn pháp lý TT41) → FAIL."""
         self._insert("LOWCAP", "2026-08-05", volume=100_000, ROE=0.04, CAPITAL_RATIO=0.04, NIM=0.02)
         assert self._gate(self.conn, "LOWCAP", "2026-08-05") is False
+
+    def test_bank_below_legal_floor_fail(self):
+        """Bank Cap=5.5% (< 8% sàn pháp lý TT41/2016/TT-NHNN — Basel II) → FAIL.
+
+        Legal-Hardening Audit 2026-08-08: ngưỡng 5% cũ sai luật, nâng lên 8%."""
+        self._insert("SUB8", "2026-08-05", volume=500_000, ROE=0.03, CAPITAL_RATIO=0.055, NIM=0.005, NPL_RATIO=0.015)
+        assert self._gate(self.conn, "SUB8", "2026-08-05") is False
 
     def test_bank_low_nim_fail(self):
         """Bank with NIM quarterly=0.004 (annual 1.6% < 1.8%) → FAIL."""
@@ -425,8 +443,8 @@ class TestVN20GateBankSpecific:
         assert self._gate(self.conn, "BADNPL", "2026-08-05") is False
 
     def test_bank_state_owned_pass(self):
-        """State bank: Cap=5.5%, NIM quarterly=0.005 (annual 2.0%), NPL=1.5% → PASS."""
-        self._insert("STATEBANK", "2026-08-05", volume=500_000, ROE=0.03, CAPITAL_RATIO=0.055, NIM=0.005, NPL_RATIO=0.015)
+        """State bank (SOCB): Cap=11% (>= 8% TT41), NIM annual 2.0%, NPL=1.5% → PASS."""
+        self._insert("STATEBANK", "2026-08-05", volume=500_000, ROE=0.03, CAPITAL_RATIO=0.11, NIM=0.005, NPL_RATIO=0.015)
         assert self._gate(self.conn, "STATEBANK", "2026-08-05") is True
 
     def test_bank_missing_nim_npl_fallback(self):

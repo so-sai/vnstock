@@ -24,6 +24,7 @@ import sqlite3
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -66,6 +67,7 @@ from backtest.unified_system_replay import (
     _vn20_gate,
 )
 from governor.emergency_exit_engine import EmergencyExitEngine
+from governor.governor_layer import combine_alloc_multiplier
 from governor.interaction_engine import InteractionEngine
 from governor.macro_lag_engine import MacroLagEngine
 from governor.regional_influence_engine import RegionalInfluenceEngine
@@ -232,6 +234,7 @@ def run_backtest_with_guard(
     db_path: str | None = None,
     lri_cache: dict[str, float] | None = None,
     capture_trade_log: bool = False,
+    governor_cache: dict[str, dict] | None = None,
 ) -> dict:
     """Fast backtest with DecisionGuard (LRI + EmergencyExitEngine) integration.
 
@@ -241,6 +244,13 @@ def run_backtest_with_guard(
       - LRI PROBE (0.30-0.80): he_so = LRI (dimmer scaling).
       - LRI AGGRESSIVE (>= 0.80): full allocation.
       - Emergency tightened stop (-2%) applied to all holdings on DEFENSIVE days.
+
+    governor_cache: optional {date: {"u", "confidence", "shock",
+        "authority_modifier", "veto", "stress_index"}}. When provided, each
+        entry's he_so is further scaled by combine_alloc_multiplier (Uncertainty
+        Layer + Shock Detector + LAW-008 MarginStressNode via law_bridges).
+        Keys authority_modifier/veto absent → default 1.0/False (backward compat).
+        Absent → identical behaviour to LRI-only.
 
     capture_trade_log: True → bổ sung "trade_log" (có date) và "equity_curve" vào
     kết quả để xuất raw ledger (evidence — chống báo cáo không nguồn).
@@ -258,6 +268,7 @@ def run_backtest_with_guard(
     stocks_per_sector = params.get("stocks_per_sector", 2)
     max_positions = params.get("max_positions", 10)
     cash_reserve = params.get("cash_reserve", 0.05)
+    max_buys_per_year = params.get("max_buys_per_year", 0)
 
     if db_path is None:
         db_path = str(SCREENER_DB_PATH)
@@ -282,11 +293,15 @@ def run_backtest_with_guard(
     equity_curve = []
     score_set = set(score_days)
     lri_cache = lri_cache or {}
+    governor_cache = governor_cache or {}
 
     # Guard statistics
     buy_locked_days = 0
     emergency_exits = 0
     dimmer_days = 0
+
+    # Hard cap: tối đa N lệnh MUA trong cửa sổ trượt 365 ngày (0 = không giới hạn)
+    buy_dates: list[str] = []
 
     for i, date in enumerate(dates):
         # Build current prices
@@ -335,6 +350,22 @@ def run_backtest_with_guard(
             else:
                 he_so = 1.0
                 buy_locked = False
+
+            # ── Governor Layer: fuse Uncertainty U + Shock severity into he_so ──
+            if governor_cache:
+                g = governor_cache.get(date)
+                if g:
+                    he_so = combine_alloc_multiplier(
+                        he_so=he_so,
+                        confidence=g.get("confidence", 1.0),
+                        uncertainty=g.get("u", 0.0),
+                        shock=g.get("shock", 0.0),
+                        authority_modifier=g.get("authority_modifier", 1.0),
+                        veto=g.get("veto", False),
+                    )
+                    if he_so <= 0.0 and not buy_locked:
+                        buy_locked = True
+                        buy_locked_days += 1
 
             # Get top sectors
             sector_macro = {}
@@ -404,6 +435,14 @@ def run_backtest_with_guard(
                             seen_sectors[sect] = sector_count + 1
 
                 buy_candidates.sort(key=lambda x: x[1], reverse=True)
+
+                # Hard cap: dừng tuyển mua nếu đã vượt max_buys_per_year trong 365 ngày trượt
+                if max_buys_per_year > 0 and buy_dates:
+                    cutoff = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=365)).isoformat()
+                    buy_dates = [d for d in buy_dates if d >= cutoff]
+                    if len(buy_dates) >= max_buys_per_year:
+                        buy_candidates = []
+
                 for sym, composite, sect in buy_candidates[:max_positions]:
                     if len(tracker.positions) >= max_positions:
                         break
@@ -412,6 +451,7 @@ def run_backtest_with_guard(
                         current_prices[sym] = price
                         if tracker.buy(sym, price, composite, current_prices, alloc_multiplier=he_so, date=date):
                             entry_dates[sym] = date
+                            buy_dates.append(date)
 
         # Mark to market
         nav = tracker.nav(current_prices)

@@ -6,6 +6,7 @@ Run: python -m pytest backend/tests/test_governor_schemas.py -v
 
 import sys
 
+import pydantic
 import pytest
 from conftest import PROJECT_ROOT
 
@@ -32,7 +33,7 @@ class TestStrictBaseModel:
         class Dummy(StrictBaseModel):
             x: int = 1
 
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             Dummy(x=1, y=2)
 
     def test_frozen_immutability(self):
@@ -40,7 +41,7 @@ class TestStrictBaseModel:
             x: int = 1
 
         obj = Dummy(x=10)
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             obj.x = 20
 
 
@@ -55,19 +56,19 @@ class TestMacroRecordSchema:
         assert r.source == "vnstock"
 
     def test_rejects_invalid_date_format(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             MacroRecordSchema(variable="US10Y", date="2026/08/05", value=4.25)
 
     def test_rejects_empty_variable(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             MacroRecordSchema(variable="", date="2026-08-05", value=4.25)
 
     def test_rejects_non_numeric_value(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             MacroRecordSchema(variable="US10Y", date="2026-08-05", value="high")
 
     def test_rejects_extra_fields(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             MacroRecordSchema(variable="US10Y", date="2026-08-05", value=4.25, hack=True)
 
     def test_is_synthetic_default_zero(self):
@@ -84,11 +85,11 @@ class TestMacroVectorSchema:
         assert v.us10y == 0.5
 
     def test_rejects_out_of_range(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             MacroVectorSchema(us10y=1.5, vnd_usd=0.6, interbank=0.3, fii_flow=0.7, breadth=0.8)
 
     def test_rejects_negative(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             MacroVectorSchema(us10y=-0.1, vnd_usd=0.6, interbank=0.3, fii_flow=0.7, breadth=0.8)
 
 
@@ -102,11 +103,11 @@ class TestHealthRatioSchema:
         assert h.period == "2025Q3"
 
     def test_rejects_invalid_period(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             HealthRatioSchema(symbol="VCB", period="2025", roe=0.17)
 
     def test_rejects_period_without_q(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             HealthRatioSchema(symbol="VCB", period="202503", roe=0.17)
 
     def test_optional_fields_default_none(self):
@@ -116,7 +117,7 @@ class TestHealthRatioSchema:
         assert h.nim is None
 
     def test_rejects_npl_out_of_range(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             HealthRatioSchema(symbol="VCB", period="2025Q3", npl_ratio=1.5)
 
 
@@ -138,7 +139,7 @@ class TestCompanyHealthSnapshot:
         assert s.is_bank is True
 
     def test_rejects_invalid_date(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             CompanyHealthSnapshot(
                 symbol="VCB",
                 target_date="05-08-2026",
@@ -147,7 +148,7 @@ class TestCompanyHealthSnapshot:
             )
 
     def test_rejects_roe_extreme(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             CompanyHealthSnapshot(
                 symbol="VCB",
                 target_date="2026-08-05",
@@ -169,11 +170,11 @@ class TestDeltaParamsSchema:
         assert d.ldr_relief_bps is None
 
     def test_rejects_ldr_out_of_range(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             DeltaParamsSchema(ldr_relief_bps=5000.0)
 
     def test_rejects_negative_npl_boost(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             DeltaParamsSchema(nim_boost_bps=-200.0)
 
     def test_gate_relaxation_dict(self):
@@ -194,17 +195,17 @@ class TestPolicyEventInputSchema:
             event_type="KBNN_LDR_ADJUSTMENT",
             half_life_days=15.0,
             decay_window_days=90,
-            clusters={"SOCB_BIG3": 1.0},
+            clusters={"SOCB_BIG4": 1.0},
             delta_params={"ldr_relief_bps": 500.0},
         )
         assert e.id == "QD1743"
 
     def test_rejects_missing_required(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             PolicyEventInputSchema(id="X", title="X")
 
     def test_rejects_invalid_effective_date(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             PolicyEventInputSchema(
                 id="X",
                 title="X",
@@ -215,7 +216,7 @@ class TestPolicyEventInputSchema:
             )
 
     def test_rejects_invalid_delta_params_value(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             PolicyEventInputSchema(
                 id="X",
                 title="X",
@@ -227,7 +228,7 @@ class TestPolicyEventInputSchema:
             )
 
     def test_rejects_half_life_zero(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             PolicyEventInputSchema(
                 id="X",
                 title="X",
@@ -254,11 +255,11 @@ class TestVN20GateInput:
         assert g.capital_ratio == 0.098
 
     def test_rejects_empty_symbol(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             VN20GateInput(symbol="", target_date="2026-08-05", roe_quarterly=0.04)
 
     def test_rejects_negative_volume(self):
-        with pytest.raises(Exception):
+        with pytest.raises(pydantic.ValidationError):
             VN20GateInput(symbol="VCB", target_date="2026-08-05", roe_quarterly=0.04, volume=-1)
 
 

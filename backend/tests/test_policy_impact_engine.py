@@ -33,13 +33,13 @@ def qd1743_event():
         affected_variables=["LDR", "INTERBANK", "COF", "NIM"],
         transmission_lag_days=2,
         half_life_days=15.0,
-        clusters={"SOCB_BIG3": 1.0, "TMCP_LARGE": 0.2},
+        clusters={"SOCB_BIG4": 1.0, "TMCP_LARGE": 0.2},
         delta_params={
             "ldr_relief_bps": 500.0,
             "cof_relief_bps": 20.0,
             "interbank_shock_pct": -0.6,
             "nim_boost_bps": 10.0,
-            "gate_relaxation": {"CAPITAL_RATIO": 0.05},
+            "gate_relaxation": {"CAPITAL_RATIO": 0.08},
         },
     )
 
@@ -68,12 +68,14 @@ class TestPolicyEventLifecycle:
 
 
 class TestClusterClassification:
-    """Beneficiary clustering must be asymmetric (99.59% -> Big3)."""
+    """Beneficiary clustering phải bất đối xứng (SOCB_BIG4 -> toàn phần)."""
 
-    def test_big3_gets_full_benefit(self, qd1743_event):
+    def test_big4_gets_full_benefit(self, qd1743_event):
         assert qd1743_event.get_benefit_ratio("VCB") == 1.0
         assert qd1743_event.get_benefit_ratio("CTG") == 1.0
         assert qd1743_event.get_benefit_ratio("BID") == 1.0
+        # AGR thuộc BIG4 vĩ mô → hưởng lợi đầy đủ ở tầng chính sách
+        assert qd1743_event.get_benefit_ratio("AGR") == 1.0
 
     def test_large_private_gets_partial(self, qd1743_event):
         assert qd1743_event.get_benefit_ratio("TCB") == 0.2
@@ -82,9 +84,17 @@ class TestClusterClassification:
     def test_small_bank_gets_zero(self, qd1743_event):
         assert qd1743_event.get_benefit_ratio("SOME_SMALL_BANK") == 0.0
 
-    def test_cluster_for_big3(self, qd1743_event):
-        assert qd1743_event.cluster_for("VCB") == "SOCB_BIG3"
+    def test_cluster_for_big4(self, qd1743_event):
+        assert qd1743_event.cluster_for("VCB") == "SOCB_BIG4"
         assert qd1743_event.cluster_for("TCB") == "TMCP_LARGE"
+
+    def test_agribank_macro_only_flag(self):
+        """AGR thuộc BIG4 vĩ mô nhưng không thuộc vũ trụ giao dịch niêm yết."""
+        from src.governor.policy_impact_engine import UNLISTED_MACRO_ONLY
+
+        assert "AGR" in UNLISTED_MACRO_ONLY
+        # VCB/BID/CTG niêm yết — không nằm trong cờ macro-only
+        assert not (UNLISTED_MACRO_ONLY & {"VCB", "BID", "CTG"})
 
 
 class TestLDRReliefCalculation:
@@ -95,7 +105,7 @@ class TestLDRReliefCalculation:
         # After 5 days, half_life=15 -> transmission ~0.206
         result = engine.compute_impact("VCB", "2026-08-06")
         assert result.ldr_relief_bps > 0
-        assert result.cluster == "SOCB_BIG3"
+        assert result.cluster == "SOCB_BIG4"
         # Full benefit would be 500 bps; with trans~0.206 -> ~103 bps
         assert 50 < result.ldr_relief_bps < 500
 
@@ -138,7 +148,7 @@ class TestTransmissionLag:
             expiry_date="2027-12-31",
             event_type=EVENT_TYPE_NPL_EXTENSION,
             half_life_days=90.0,
-            clusters={"SOCB_BIG3": 1.0, "TMCP_LARGE": 0.5},
+            clusters={"SOCB_BIG4": 1.0, "TMCP_LARGE": 0.5},
             delta_params={},
         )
         engine.register_event(evt)
@@ -210,7 +220,7 @@ class TestImpactResultShape:
         result = engine.compute_impact("VCB", "2026-08-06")
         d = result.to_dict()
         assert json.dumps(d)  # must not raise
-        assert d["cluster"] == "SOCB_BIG3"
+        assert d["cluster"] == "SOCB_BIG4"
 
 
 class TestBayesianMandatePolicyContext:
@@ -260,7 +270,7 @@ class TestBayesianMandatePolicyContext:
             valuation_zone_peer="FAIR",
             valuation_zone_ts="FAIR",
             behavior_position="UNKNOWN",
-            policy_context={"cluster": "SOCB_BIG3", "ldr_relief_bps": 84.0},
+            policy_context={"cluster": "SOCB_BIG4", "ldr_relief_bps": 84.0},
             policy_cap_boost=0.0252,
         )
         assert m.policy_context["ldr_relief_bps"] == 84.0
@@ -293,7 +303,7 @@ class TestDecisionGuardPolicyBoost:
             "src.governor.liquidity_recovery_index.compute_lri",
             lambda *a, **k: _LRI(),
         )
-        policy = {"cap_boost": 0.05, "beneficiary_cluster": "SOCB_BIG3", "active_events": []}
+        policy = {"cap_boost": 0.05, "beneficiary_cluster": "SOCB_BIG4", "active_events": []}
         anh_chup = {
             "cau_truc": {"so_tru_ok": 3, "so_tru": 3},
             "phan_tich_chi_so": {"diem_thi_truong_that": 0.7, "do_lech_pha": "NONE"},
@@ -313,7 +323,7 @@ class TestDecisionGuardPolicyBoost:
     def test_guard_no_boost_when_blocked(self):
         from src.engine.decision_guard import kiem_tra_an_toan
 
-        policy = {"cap_boost": 0.05, "beneficiary_cluster": "SOCB_BIG3", "active_events": []}
+        policy = {"cap_boost": 0.05, "beneficiary_cluster": "SOCB_BIG4", "active_events": []}
         # Force veto via structure breakdown (so_tru <= 1) -> he_so forced 0.0
         anh_chup = {
             "cau_truc": {"so_tru_ok": 0, "so_tru": 0},
@@ -396,7 +406,7 @@ class TestPolicyDecay:
             event_type=EVENT_TYPE_KBNN_LDR,
             half_life_days=15.0,
             decay_window_days=90,
-            clusters={"SOCB_BIG3": 1.0},
+            clusters={"SOCB_BIG4": 1.0},
             delta_params={"ldr_relief_bps": 500.0},
         )
         engine.register_event(evt)
@@ -419,7 +429,7 @@ class TestPolicyDecay:
             event_type=EVENT_TYPE_KBNN_LDR,
             half_life_days=15.0,
             decay_window_days=90,
-            clusters={"SOCB_BIG3": 1.0},
+            clusters={"SOCB_BIG4": 1.0},
             delta_params={"ldr_relief_bps": 500.0},
         )
         engine.register_event(evt)

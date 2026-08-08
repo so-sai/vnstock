@@ -117,7 +117,7 @@ class TestTier1DualBranch:
 
     def test_t1_bank_pass_with_low_cfo_if_npl_nim_ok(self):
         """Bank CFO âm (mở rộng tín dụng) nhưng ROE > 15%, NPL < 2.5%,
-        NIM > 1.8%, CAR > 5% → PASS T1 (CFO không được dùng cho bank)."""
+        NIM > 1.8%, CAR >= 8% → PASS T1 (CFO không được dùng cho bank)."""
         conn = make_conn()
         qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
         seed_health(conn, "BANK1", "ROE", qs)
@@ -185,6 +185,48 @@ class TestTier1DualBranch:
 
         r = vf.tier1_buffett_quality(conn, "NOBANKMETRIC", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is True, f"Bank without NPL/NIM/CAR should pass on ROE alone, got {r['reasons']}"
+
+    def test_t1_bank_fail_low_car(self):
+        """Bank CAR 6.0% < 8.0% (sàn pháp lý TT41/2016/TT-NHNN — Basel II) → FAIL T1.
+
+        Legal-Hardening Audit 2026-08-08: ngưỡng cũ 5% sai luật; CAR phải >= 8.0%."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "LOWCAR", "ROE", qs)
+        seed_health(conn, "LOWCAR", "NPL_RATIO", [("2026Q2", 0.015)])
+        seed_health(conn, "LOWCAR", "NIM", [("2026Q2", 0.035)])
+        seed_health(conn, "LOWCAR", "CAPITAL_RATIO", [("2026Q2", 0.06)])
+
+        r = vf.tier1_buffett_quality(conn, "LOWCAR", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False, "Bank CAR 6% < 8% phải FAIL T1"
+        assert any("CAR" in x for x in r["reasons"])
+        assert r["car_quant_safety"] is False
+
+    def test_t1_bank_car_quant_safety_full_marks(self):
+        """Bank CAR 10.0% >= CAR_QUANT_SAFETY (0.10) → PASS + cờ an toàn định lượng."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "SAFE10", "ROE", qs)
+        seed_health(conn, "SAFE10", "NPL_RATIO", [("2026Q2", 0.015)])
+        seed_health(conn, "SAFE10", "NIM", [("2026Q2", 0.035)])
+        seed_health(conn, "SAFE10", "CAPITAL_RATIO", [("2026Q2", 0.10)])
+
+        r = vf.tier1_buffett_quality(conn, "SAFE10", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is True, f"Bank CAR 10% phải PASS T1, got {r['reasons']}"
+        assert r["car_quant_safety"] is True
+
+    def test_t1_bank_car_quant_safety_below_ten(self):
+        """Bank CAR 9.0% (>= 8% sàn pháp lý nhưng < 10%) → PASS nhưng KHÔNG cờ an toàn."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
+        seed_health(conn, "MIDCAR", "ROE", qs)
+        seed_health(conn, "MIDCAR", "NPL_RATIO", [("2026Q2", 0.015)])
+        seed_health(conn, "MIDCAR", "NIM", [("2026Q2", 0.035)])
+        seed_health(conn, "MIDCAR", "CAPITAL_RATIO", [("2026Q2", 0.09)])
+
+        r = vf.tier1_buffett_quality(conn, "MIDCAR", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is True, f"Bank CAR 9% >= 8% phải PASS T1, got {r['reasons']}"
+        assert r["car_quant_safety"] is False
 
     def test_t1_standard_fails_low_gross_margin(self):
         """Mã sản xuất (STANDARD) GM 19% < 25% → FAIL T1 dù ROE tốt."""

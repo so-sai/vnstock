@@ -395,7 +395,7 @@ def compute_gain_probability(
       - dynamic LR macro override (Giai đoạn 2)
       - dynamic evidence weights (LAW-004)
       - model_registry BMA evidence (Giai đoạn 7)
-      - sector_macro_lr (Step 1 — Causal DAG wiring)
+      - sector_macro_lr (Step 1 — Exponential Weighted Distributed-Lag wiring)
 
     Returns:
       (posterior_prob, log_posterior_odds, calibration_penalty)

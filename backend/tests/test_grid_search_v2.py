@@ -230,6 +230,81 @@ class TestGuardedBacktest:
             assert isinstance(result[key], int)
 
 
+# ── Tests: Governor Layer fusion in backtest ────────────────────────────────
+class TestGovernorFusion:
+    """governor_cache must scale allocations down (never up) and stay
+    backward-compatible (absent governor_cache == LRI-only behaviour)."""
+
+    def _run(self, db_path, lri, governor_cache=None, params=None):
+        conn = sqlite3.connect(db_path)
+        dates = [r[0] for r in conn.execute("SELECT DISTINCT date FROM daily_ohlcv ORDER BY date")]
+        score_days = dates[::3]
+        conn.close()
+        scores = _scores(score_days)
+        if params is None:
+            params = {
+                "w_fund": 0.45,
+                "w_macro": 0.20,
+                "w_alpha": 0.20,
+                "w_behav": 0.15,
+                "entry_thresh": 0.60,
+                "exit_thresh": 0.35,
+                "trailing_stop": 0.05,
+                "trailing_take": 0.20,
+                "min_hold_days": 5,
+            }
+        lri_cache = {d: lri for d in dates}
+        return run_backtest_with_guard(
+            scores, dates, score_days, params, db_path, lri_cache, governor_cache=governor_cache
+        )
+
+    def _dates_from_db(self, db_path):
+        conn = sqlite3.connect(db_path)
+        dates = [r[0] for r in conn.execute("SELECT DISTINCT date FROM daily_ohlcv ORDER BY date")]
+        conn.close()
+        return dates
+
+    def test_absent_governor_cache_matches_lri_only(self, tmp_path):
+        db_path = _build_test_db(tmp_path)
+        dates = self._dates_from_db(db_path)
+        baseline = self._run(db_path, lri=0.90)
+        fused = self._run(db_path, lri=0.90, governor_cache=None)
+        assert fused["total_trades"] == baseline["total_trades"]
+
+    def test_systemic_shock_freezes_all_buys(self, tmp_path):
+        db_path = _build_test_db(tmp_path)
+        dates = self._dates_from_db(db_path)
+        baseline = self._run(db_path, lri=0.90)
+        governor_cache = {
+            d: {"u": 0.0, "confidence": 1.0, "shock": 0.90} for d in dates
+        }
+        frozen = self._run(db_path, lri=0.90, governor_cache=governor_cache)
+        assert frozen["total_trades"] < baseline["total_trades"], (
+            f"Systemic shock must freeze buys: {frozen['total_trades']} >= {baseline['total_trades']}"
+        )
+
+    def test_high_uncertainty_reduces_trades(self, tmp_path):
+        db_path = _build_test_db(tmp_path)
+        dates = self._dates_from_db(db_path)
+        baseline = self._run(db_path, lri=0.90)
+        governor_cache = {
+            d: {"u": 0.95, "confidence": 1.0, "shock": 0.0} for d in dates
+        }
+        reduced = self._run(db_path, lri=0.90, governor_cache=governor_cache)
+        assert reduced["total_trades"] <= baseline["total_trades"]
+
+    def test_buy_locked_days_increment_on_freezes(self, tmp_path):
+        db_path = _build_test_db(tmp_path)
+        dates = self._dates_from_db(db_path)
+        governor_cache = {
+            d: {"u": 0.0, "confidence": 1.0, "shock": 0.90} for d in dates
+        }
+        result = self._run(db_path, lri=0.90, governor_cache=governor_cache)
+        assert result["buy_locked_days"] > 0, (
+            "Shock-induced freezes must be counted as buy_locked days"
+        )
+
+
 # ── Tests: LRI cache ───────────────────────────────────────────────────────
 class TestLriCache:
     def test_precompute_lri_cache_writes_and_loads(self, tmp_path, monkeypatch):

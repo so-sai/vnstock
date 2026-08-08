@@ -79,7 +79,11 @@ from backtest.grid_search_v2 import (
     run_grid_search,
 )
 from backtest.unified_system_replay import _date_to_period, _get_trading_days
+from calibration.causal_dag_engine import MarginStressNode
 from core.errors import DataIntegrityError
+from governor.law_bridges import shock_to_margin_inputs
+from governor.shock_detector import ShockDetector
+from governor.uncertainty_layer import UncertaintyLayer
 
 
 def _date_to_quarter(target_date: str) -> str:
@@ -184,6 +188,45 @@ def _slice_lri(lri_cache: dict[str, float], dates: list[str]) -> dict[str, float
     return {d: lri_cache.get(d, 1.0) for d in dates}
 
 
+def precompute_governor_cache(
+    dates: list[str],
+    db_path: str | None = None,
+) -> dict[str, dict]:
+    """Pre-compute PIT Governor signal per date (LAW bridges bật).
+
+    Returns {date: {"u", "confidence", "shock", "authority_modifier",
+    "veto", "stress_index"}}. Uncertainty U + confidence từ UncertaintyLayer,
+    Shock severity từ ShockDetector, và authority_modifier/veto/stress_index
+    từ MarginStressNode (LAW-008) nạp qua shock_to_margin_inputs (law_bridges).
+    Pure read-only; deterministic cho (date, DB). Instance engines giữ PIT
+    snapshot riêng nên lặp lại rẻ.
+    """
+    db = db_path or str(SCREENER_DB_PATH)
+    unc = UncertaintyLayer(db_path=db)
+    shock = ShockDetector(db_path=db)
+    cache: dict[str, dict] = {}
+    for d in dates:
+        u_res = unc.compute(d)
+        s_res = shock.detect(d)
+        raw = shock_to_margin_inputs(s_res)
+        margin = MarginStressNode().evaluate_node(
+            raw["system_margin_ratio"],
+            raw["breadth_stress_ratio"],
+            raw["cross_contagion_index"],
+            raw["margin_last_updated"],
+            raw["now_time"],
+        )
+        cache[d] = {
+            "u": u_res.u,
+            "confidence": u_res.components["C"],
+            "shock": s_res.severity,
+            "authority_modifier": margin.authority_modifier,
+            "veto": margin.veto_triggered,
+            "stress_index": margin.stress_index,
+        }
+    return cache
+
+
 def run_walk_forward(
     start: str = DEFAULT_START,
     end: str = DEFAULT_END,
@@ -194,10 +237,16 @@ def run_walk_forward(
     sample_every: int = 5,
     positions_max: int = 10,
     db_path: str | None = None,
+    max_buys_per_year: int = 0,
+    use_governor: bool = False,
 ) -> dict:
     """Chạy toàn bộ pipeline Walk-Forward: IS grid search → OOS blind replay.
 
     positions_max: số vị thế mở tối đa (khóa cứng, áp dụng cả IS replay lẫn OOS).
+    max_buys_per_year: ràng buộc cứng tối đa lệnh MUA trong cửa sổ trượt 365 ngày
+        (0 = không giới hạn, giữ nguyên hành vi cũ).
+    use_governor: True → kích hoạt Governor Layer (Uncertainty U + Shock severity
+        fusion vào alloc_multiplier). False → giữ nguyên LRI-only (mặc định).
 
     Returns dict báo cáo: split info, tham số khóa (IS), metrics IS + OOS,
     kết quả PIT audit, thời gian chạy.
@@ -229,6 +278,16 @@ def run_walk_forward(
     lri_is = _slice_lri(lri_all, is_dates)
     lri_oos = _slice_lri(lri_all, oos_dates)
 
+    # ── Phase 1b: PIT Governor cache (Uncertainty + Shock) — chỉ khi bật ──
+    gov_is = None
+    gov_oos = None
+    if use_governor:
+        print("\n[Phase 1b] Pre-computing PIT Governor cache (Uncertainty + Shock)...")
+        gov_all = precompute_governor_cache(dates, db_path=db_path)
+        gov_is = {d: gov_all[d] for d in is_dates if d in gov_all}
+        gov_oos = {d: gov_all[d] for d in oos_dates if d in gov_all}
+        print(f"    governor cache: IS={len(gov_is)} OOS={len(gov_oos)}")
+
     # ── Phase 2: IS — Grid Search V2 (tối ưu) ──
     print("\n[Phase 2] In-Sample grid search (tối ưu hóa tham số trên IS)...")
     conn = sqlite3.connect(db_path)
@@ -255,6 +314,8 @@ def run_walk_forward(
     is_metrics = {k: v for k, v in top[0].items() if k != "params"}
     # A/B parameter: max_positions được khóa cứng từ CLI, áp dụng cho IS replay + OOS
     locked_params["max_positions"] = positions_max
+    if max_buys_per_year > 0:
+        locked_params["max_buys_per_year"] = max_buys_per_year
     print("\n  LOCKED PARAMS (từ IS, dùng NGUYÊN VẸN cho OOS):")
     print(f"    {json.dumps(locked_params, ensure_ascii=False)}")
     print(
@@ -272,6 +333,7 @@ def run_walk_forward(
         db_path=db_path,
         lri_cache=lri_is,
         capture_trade_log=True,
+        governor_cache=gov_is,
     )
     is_trades = is_metrics.pop("trade_log", [])
     is_equity = is_metrics.pop("equity_curve", [])
@@ -294,6 +356,7 @@ def run_walk_forward(
         db_path=db_path,
         lri_cache=lri_oos,
         capture_trade_log=True,
+        governor_cache=gov_oos,
     )
     oos_trades = oos_metrics.pop("trade_log", [])
     oos_equity = oos_metrics.pop("equity_curve", [])
@@ -338,6 +401,8 @@ def run_walk_forward(
             "workers": workers,
             "sample_every": sample_every,
             "max_positions": positions_max,
+            "max_buys_per_year": max_buys_per_year,
+            "use_governor": use_governor,
         },
     }
 
@@ -403,6 +468,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=1, help="Số process song song (mặc định 1)")
     ap.add_argument("--sample-every", type=int, default=5, dest="sample_every", help="Lấy mẫu mỗi N phiên")
     ap.add_argument("--max-positions", type=int, default=10, dest="positions_max", help="Số vị thế mở tối đa (mặc định 10)")
+    ap.add_argument("--use-governor", action="store_true", help="Kích hoạt Governor Layer (Uncertainty + Shock fusion)")
     args = ap.parse_args()
     run_walk_forward(
         start=args.start,
@@ -413,6 +479,7 @@ def main() -> None:
         workers=args.workers,
         sample_every=args.sample_every,
         positions_max=args.positions_max,
+        use_governor=args.use_governor,
     )
 
 

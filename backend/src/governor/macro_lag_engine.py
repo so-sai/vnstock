@@ -6,6 +6,12 @@ LAW-009 (Causal Delay & Interaction Principle):
   for a sector is NOT the latest M vector, but a time-decay-weighted
   integral of historical M vectors.
 
+TERMINOLOGY (Math-Lexicon Audit 2026-08-08):
+  Công thức S_eff bên dưới là một Exponential Weighted Distributed-Lag
+  Model (EWDLM) — Mô hình trễ phân phối suy giảm mũ theo thời gian
+  (LAW-009). Đây KHÔNG phải Causal DAG: không có nút nhân quả rời rạc mà
+  là một chuỗi trễ phân phối liên tục theo thời gian với trọng số mũ.
+
 Architecture:
   Macro_Lag_Engine:
     1. Fetch historical M vectors (lookback = max_lag across all sectors)
@@ -13,12 +19,12 @@ Architecture:
        S_eff(sector, t) = Σ M(t-d) × 0.5^(d / HL_sector) / Σ 0.5^(d / HL_sector)
     3. Return lag-adjusted macro scores per sector
 
-Mathematical Formulation:
+Mathematical Formulation (EWDLM):
   Let M(t) = [m_US(t), m_CN(t), m_CM(t), m_DN(t)] be the macro vector at time t.
   Let HL_s = half_life of sector s (days until 50% signal decay).
   Let L_s = lag_range of sector s (min, max days of transmission).
 
-  Effective signal:
+  Effective signal (Exponential Weighted Distributed-Lag):
     S_eff(s, t) = (1/Z) × Σ_{d=0}^{L_max} M(t-d) × 0.5^(d / HL_s)
     where Z = Σ_{d=0}^{L_max} 0.5^(d / HL_s) is the normalization constant.
 
