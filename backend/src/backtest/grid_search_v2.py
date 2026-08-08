@@ -19,6 +19,7 @@ Usage: python -m backend.src.backtest.grid_search_v2 [--workers N] [--step SIZE]
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import sys
 import time
@@ -52,15 +53,25 @@ LRI_CACHE_PATH = DATA_DIR / "reports" / "ablation_studies" / "grid_lri_cache.jso
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from backtest.grid_search import precompute_scores
 from backtest.portfolio_tracker import PortfolioTracker, annualize_cagr
 from backtest.unified_system_replay import (
+    UNIVERSE,
     _date_to_period,
+    _get_behavioral_score,
     _get_close,
+    _get_fundamental_score,
+    _get_momentum_score,
     _get_sector,
     _get_trading_days,
+    _vn20_gate,
 )
 from governor.emergency_exit_engine import EmergencyExitEngine
+from governor.interaction_engine import InteractionEngine
+from governor.macro_lag_engine import MacroLagEngine
+from governor.regional_influence_engine import RegionalInfluenceEngine
+from governor.sector_exposure_matrix import SectorExposureMatrix
+
+logger = logging.getLogger(__name__)
 
 # ── Default parameter space (5-Layer High-Conviction Matrix) ────────────────
 DEFAULT_WEIGHT_RANGES = {
@@ -438,6 +449,104 @@ def run_backtest_with_guard(
         "dimmer_days": dimmer_days,
         **({"trade_log": tracker.trade_log, "equity_curve": [round(float(x), 2) for x in curve]} if capture_trade_log else {}),
     }
+
+
+def generate_full_weight_grid(step: float = 0.10) -> list[dict]:
+    """Generate ALL weight combinations in [0, 1] that sum to 1.0 (unbounded).
+
+    Legacy v1 grid — dùng làm tham chiếu "full grid" khi so sánh bounded grid.
+    """
+    weights = []
+    vals = np.arange(0, 1.0 + step, step)
+    for w1 in vals:
+        for w2 in vals:
+            for w3 in vals:
+                w4 = 1.0 - w1 - w2 - w3
+                if -0.01 <= w4 <= 1.01:
+                    weights.append(
+                        {
+                            "w_fund": round(w1, 2),
+                            "w_macro": round(w2, 2),
+                            "w_alpha": round(w3, 2),
+                            "w_behav": round(max(0, min(1, w4)), 2),
+                        }
+                    )
+    return weights
+
+
+def precompute_scores(conn, dates, score_days):
+    """Phase 1: Pre-compute all factor scores for all symbols on scoring days.
+
+    Returns dict: {date: {symbol: {"fund": float, "behav": float, "alpha": float,
+                                     "macro_eff": float, "sector": str}}}
+    """
+    macro_engine = RegionalInfluenceEngine()
+    lag_engine = MacroLagEngine()
+    ix_engine = InteractionEngine()
+    matrix = SectorExposureMatrix()
+
+    scores = {}
+    t0 = time.time()
+    total = len(score_days)
+
+    for idx, date in enumerate(score_days):
+        if (idx + 1) % 20 == 0:
+            elapsed = time.time() - t0
+            rate = (idx + 1) / elapsed if elapsed > 0 else 0
+            eta = (total - idx - 1) / rate if rate > 0 else 0
+            print(f"  Precompute {idx + 1}/{total} ({elapsed:.0f}s elapsed, ~{eta:.0f}s remaining)")
+
+        day_scores = {}
+
+        # Macro scores (per sector)
+        macro_result = None
+        try:
+            macro_result = macro_engine.compute(date)
+        except Exception:  # noqa: BLE001 - batch isolation: 1 ngày macro lỗi không dừng precompute
+            logger.debug("macro_engine.compute(%s) thất bại (bỏ qua, dùng score mặc định)", date)
+
+        sector_macro_eff = {}
+        if macro_result:
+            M = macro_result.macro_vector
+            sector_ranking = matrix.get_sector_ranking(M)
+            lag_results = lag_engine.compute_all_sectors(date)
+            ix_results = ix_engine.compute_all_sectors(M)
+
+            for sect, raw_score in sector_ranking:
+                eff = lag_results.get(sect)
+                eff_score = eff.effective_score if eff else raw_score
+                mult = ix_results.get(sect)
+                final_score = eff_score * (mult.multiplier if mult else 1.0)
+                sector_macro_eff[sect] = final_score
+
+        # Per-stock scores
+        for sym in UNIVERSE:
+            sector = _get_sector(conn, sym)
+            if not sector:
+                continue
+
+            # Check VN20 gate
+            if not _vn20_gate(conn, sym, date):
+                continue
+
+            fund = _get_fundamental_score(conn, sym, date)
+            behav = _get_behavioral_score(conn, sym, date)
+            alpha = _get_momentum_score(conn, sym, date)
+            macro_eff = sector_macro_eff.get(sector, 0.5)
+
+            day_scores[sym] = {
+                "fund": fund,
+                "behav": behav,
+                "alpha": alpha,
+                "macro_eff": macro_eff,
+                "sector": sector,
+            }
+
+        scores[date] = day_scores
+
+    elapsed = time.time() - t0
+    print(f"  Precompute done: {len(scores)} days, {elapsed:.1f}s")
+    return scores
 
 
 def generate_weight_grid(ranges: dict | None = None, step: float = 0.05) -> list[dict]:

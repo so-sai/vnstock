@@ -44,7 +44,7 @@ _CHECK_BACKTEST = (
     f"_fin={str(_BACKEND / 'data' / 'financial_facts.db')!r};"
     f"_lri={str(_BACKEND / 'data' / 'reports' / 'ablation_studies' / 'grid_lri_cache.json')!r};"
     f"_params={json.dumps(_LOCKED_PARAMS)};"
-    "from backtest.grid_search import precompute_scores;"
+    "from backtest.grid_search_v2 import precompute_scores;"
     "from backtest.grid_search_v2 import run_backtest_with_guard;"
     "from backtest.unified_system_replay import _get_trading_days;"
     "conn=sqlite3.connect(_db); conn.execute(\"ATTACH DATABASE '\"+_fin+\"' AS fin\");"

@@ -30,14 +30,14 @@ def _hydrate_path():
 
 _PROJECT_ROOT = _hydrate_path()
 
-from backtest.grid_search_v2 import (  # noqa: E402
+from backtest.grid_search_v2 import (
     LRI_DEFENSIVE,
     apply_emergency_exit,
     generate_weight_grid,
     precompute_lri_cache,
     run_backtest_with_guard,
 )
-from backtest.portfolio_tracker import PortfolioTracker  # noqa: E402
+from backtest.portfolio_tracker import PortfolioTracker
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ class TestWeightGrid:
             assert 0.10 <= c["w_behav"] <= 0.25, f"w_behav out of range: {c}"
 
     def test_bounded_grid_smaller_than_full_grid(self):
-        from backtest.grid_search import generate_weight_grid as full_grid
+        from backtest.grid_search_v2 import generate_full_weight_grid as full_grid
 
         full = full_grid(step=0.10)
         bounded = generate_weight_grid(step=0.10)

@@ -72,9 +72,9 @@ try:
 except AttributeError, OSError, ValueError:
     pass
 
-from backtest.grid_search import precompute_scores
 from backtest.grid_search_v2 import (
     precompute_lri_cache,
+    precompute_scores,
     run_backtest_with_guard,
     run_grid_search,
 )
