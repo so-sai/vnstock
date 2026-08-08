@@ -4291,6 +4291,83 @@ def cmd_pit_audit(args):
     return 0
 
 
+# ── evidence-ledger ────────────────────────────────────────────────
+def cmd_evidence_ledger(args):
+    """Evidence Ledger — decision candidates + budget + opportunity cost."""
+    import json
+
+    from calibration.evidence_ledger import (
+        get_decisions, get_budget_usage, init_schema,
+    )
+    from calibration.opportunity_cost import compute_opportunity_cost, resolve_outcomes
+
+    init_schema(getattr(args, "db", None) or None)
+    action = getattr(args, "action", "list")
+    db = getattr(args, "db", None) or None
+    price_db = getattr(args, "price_db", None) or None
+    hold_days = getattr(args, "hold_days", 20)
+    year = getattr(args, "year", None)
+    limit = getattr(args, "limit", 50)
+
+    if action == "resolve":
+        r = resolve_outcomes(db_path=db, price_db=price_db, hold_days=hold_days)
+        print(f"resolve: {r['n_resolved']} resolved, {r['n_skipped']} skipped")
+        return 0
+
+    if action == "opportunity-cost":
+        r = compute_opportunity_cost(db_path=db, price_db=price_db, hold_days=hold_days)
+        print(f"opportunity-cost: {r['n_opportunity_cost_updated']} updated, "
+              f"{r['n_no_alternative']} no-eligible-alternative")
+        return 0
+
+    if action == "stats":
+        rows = get_decisions(db)
+        year = year or int(__import__("datetime").datetime.now().year)
+        usage = get_budget_usage(db, year)
+        stats = {"decision_budget_year": year, **usage}
+        by_decision = {}
+        for r in rows:
+            k = r["decision"]
+            by_decision[k] = by_decision.get(k, 0) + 1
+        stats["by_decision"] = by_decision
+        if getattr(args, "json_out", False):
+            print(json.dumps(stats, ensure_ascii=False, default=str))
+        else:
+            print(f"Year {year}: used {stats['used']}/{stats['budget']} slots "
+                  f"(remaining {stats['remaining']})")
+            for k, v in sorted(by_decision.items()):
+                print(f"  {k:<8} {v}")
+        return 0
+
+    # default: list
+    rows = get_decisions(db)
+    if year:
+        rows = [r for r in rows if r["decision_budget_year"] == year]
+    rows = rows[-limit:] if limit else rows
+    if getattr(args, "json_out", False):
+        print(json.dumps([dict(r) for r in rows], ensure_ascii=False, default=str))
+        return 0
+    print("=" * 100)
+    print("  EVIDENCE LEDGER — decision candidates")
+    print("=" * 100)
+    print(f"{'ID':<5} {'DATE':<11} {'SYM':<8} {'ACT':<8} {'DEC':<8} {'Q':<6} "
+          f"{'N':<3} {'RET%':<8} {'OC%':<8} {'CF':<8} {'P_GAIN'}")
+    print("-" * 100)
+    for r in rows:
+        ret = r.get("return_pct")
+        oc = r.get("opportunity_cost")
+        print(
+            f"{r['decision_id']:<5} {r['date']:<11} {str(r['symbol']):<8} "
+            f"{str(r['action']):<8} {str(r['decision']):<8} "
+            f"{str(r['decision_quality']):<6} {r['n_independent_evidence']:<3} "
+            f"{'' if ret is None else f'{ret:+.2f}':<8} "
+            f"{'' if oc is None else f'{oc:+.2f}':<8} "
+            f"{str(r.get('counterfactual_symbol') or ''):<8} {r.get('p_gain') or ''}"
+        )
+    print("=" * 100)
+    return 0
+
+
 # ── grid-search ───────────────────────────────────────────────────
 def cmd_grid_search(args):
     """Grid Search V2: Multi-factor weight optimization with DecisionGuard integration."""
@@ -5183,6 +5260,24 @@ def build_parser():
     p_pit.add_argument("--limit", type=int, default=50, help="Giới hạn số bản ghi hiển thị")
     p_pit.add_argument("--json-out", action="store_true", dest="json_out", help="Xuất kèm JSON thô")
     p_pit.set_defaults(func=cmd_pit_audit)
+
+    p_el = sub.add_parser(
+        "evidence-ledger",
+        parents=[lang_parent],
+        help="Evidence Ledger — decision candidates + budget + opportunity cost (Step 11b/11c)",
+    )
+    p_el.add_argument(
+        "action", nargs="?", default="list",
+        choices=["list", "resolve", "opportunity-cost", "stats"],
+        help="list (mặc định) | resolve | opportunity-cost | stats",
+    )
+    p_el.add_argument("--db", default=None, help="Đường dẫn ledger DB (mặc định: tự động)")
+    p_el.add_argument("--price-db", dest="price_db", default=None, help="Đường dẫn price DB (screener_cache)")
+    p_el.add_argument("--hold-days", type=int, default=20, help="Số phiên giao dịch cho forward return (mặc định 20)")
+    p_el.add_argument("--year", type=int, default=None, help="Lọc theo năm budget")
+    p_el.add_argument("--limit", type=int, default=50, help="Giới hạn dòng hiển thị")
+    p_el.add_argument("--json-out", action="store_true", dest="json_out", help="Xuất JSON thô")
+    p_el.set_defaults(func=cmd_evidence_ledger)
 
     return parser
 

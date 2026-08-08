@@ -27,6 +27,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Archetype theo symbol là tĩnh theo quý BCTC → cache module-level để
+# replay không gọi lại ArchetypeEngine.classify() cho mỗi symbol/ngày.
+_ARCHETYPE_CACHE: dict[str, str] = {}
+
 # ── Sentinel v2.2 (AGENTS.md Anchor) ────────────────────────────────
 _candidate = Path(sys.executable).resolve().parent
 if Path(sys.executable).stem.lower().startswith("python"):
@@ -1126,6 +1130,118 @@ class BayesianGovernor:
         # Circuit breaker cache (lazy-loaded once per instance)
         self._cb_state: dict[str, Any] | None = None
 
+        # ── Replay / PIT caches ──
+        # WHY: khi replay lịch sử, các engine macro/regional/sector chỉ phụ
+        #   thuộc (sector, target_date) chứ KHÔNG phụ thuộc symbol → dư thừa
+        #   nếu tính lại cho từng symbol. Cache theo ngày + sector giúp giảm
+        #   ~458× số lần gọi. Ngoài ra _compute_sector_context còn là nơi
+        #   duy nhất truyền target_date xuống các engine (fix PIT bias).
+        self._sector_ctx_cache: dict[tuple[str, str | None], dict] = {}
+        self._regional_cache: dict[str | None, dict] = {}
+        self._macro_date_cache: dict[str, dict] = {}
+
+    def set_context_for_date(self, target_date: str) -> None:
+        """Cập nhật macro/transmission/sector context theo target_date (PIT).
+
+        Replay harness gọi 1 lần/ngày trước khi assess() từng symbol. Khi
+        không có dữ liệu lịch sử cho transmission/sector, giữ giá trị hiện tại
+        của instance (fallback an toàn) — không bịa dữ liệu.
+        """
+        if target_date in self._macro_date_cache:
+            self._macro = self._macro_date_cache[target_date]
+            return
+        try:
+            from src.core.macro.macro_state_classifier import MacroStateClassifier
+
+            state = MacroStateClassifier().classify(target_date)
+            macro = {
+                "state": state.macro_state,
+                "posterior": state.posterior,
+                "entropy": state.entropy,
+            }
+        except (ImportError, KeyError, TypeError, ValueError, sqlite3.Error) as e:
+            logger.warning("[GOV] MacroStateClassifier date=%s FAILED: %s — giữ macro hiện tại", target_date, e)
+            macro = dict(self._macro)
+        self._macro_date_cache[target_date] = macro
+        self._macro = macro
+
+    def _compute_regional(self, target_date: str | None) -> dict:
+        """RegionalInfluenceEngine.compute(target_date) — cache theo ngày."""
+        key = target_date
+        if key in self._regional_cache:
+            return self._regional_cache[key]
+        from .regional_influence_engine import RegionalInfluenceEngine
+
+        _engine = RegionalInfluenceEngine()
+        _macro_result = _engine.compute(target_date)
+        result = {
+            "macro_vector": _macro_result.macro_vector,
+            "momentum": _macro_result.momentum or {},
+            "confidence": _macro_result.confidence or {},
+        }
+        self._regional_cache[key] = result
+        return result
+
+    def _compute_sector_context(self, sector: str | None, target_date: str | None) -> dict:
+        """Toàn bộ sector-macro evidence (LAW-009 + Interaction) — cache theo (sector, date).
+
+        Thay thế block code trực tiếp trong assess() — đây là nơi DUY NHẤT
+        truyền target_date xuống RegionalInfluenceEngine / MacroLagEngine /
+        InteractionEngine, đảm bảo replay không đọc dữ liệu latest (fix PIT).
+        """
+        key = (sector, target_date)
+        if key in self._sector_ctx_cache:
+            return self._sector_ctx_cache[key]
+
+        ctx = {
+            "sector_macro_score": 0.0,
+            "sector_macro_lr": 1.0,
+            "sector_macro_score_eff": 0.0,
+            "sector_macro_lr_eff": 1.0,
+            "signal_deficit": 0.0,
+            "lag_hl": 0.0,
+            "interaction_mult": 1.0,
+            "interaction_synergies": [],
+            "momentum": {},
+            "confidence": {},
+            "persistence": 0.5,
+        }
+        if not sector:
+            return ctx
+
+        try:
+            from .interaction_engine import InteractionEngine
+            from .macro_lag_engine import MacroLagEngine
+            from .sector_exposure_matrix import SectorExposureMatrix
+
+            regional = self._compute_regional(target_date)
+            _M = regional["macro_vector"]
+            ctx["momentum"] = regional["momentum"]
+            ctx["confidence"] = regional["confidence"]
+            _matrix = SectorExposureMatrix()
+
+            _result = _matrix.compute_sector_macro_score(sector, _M)
+            ctx["sector_macro_score"] = _result.macro_score
+            ctx["sector_macro_lr"] = 0.3 + 1.7 * _result.macro_score
+
+            _lag_engine = MacroLagEngine()
+            _lag_result = _lag_engine.compute(sector, target_date)
+            ctx["sector_macro_score_eff"] = _lag_result.effective_score
+            ctx["sector_macro_lr_eff"] = 0.3 + 1.7 * _lag_result.effective_score
+            ctx["signal_deficit"] = _lag_result.signal_deficit
+            ctx["lag_hl"] = _lag_result.half_life
+            ctx["persistence"] = _lag_engine.compute_persistence(sector, target_date)
+
+            _ix_engine = InteractionEngine()
+            _ix_result = _ix_engine.compute(_M, sector)
+            ctx["interaction_mult"] = _ix_result.multiplier
+            ctx["interaction_synergies"] = _ix_result.active_synergies
+        except (ImportError, KeyError, TypeError, ValueError, sqlite3.Error, RecursionError) as e:
+            logger.warning("[GOV] SectorExposureMatrix FAILED for %s@%s: %s", sector, target_date, e)
+
+        self._sector_ctx_cache[key] = ctx
+        return ctx
+
     def _get_factor_engine(self) -> Any:
         if self._factor_engine is None:
             from src.business.factor_exposure import FactorExposureEngine, compute_lr_adjustment
@@ -1149,15 +1265,26 @@ class BayesianGovernor:
         return self._capital_engine
 
     def _get_archetype_prior(self, symbol: str) -> str:
-        """Map symbol to archetype prior key via Giai đoạn 1 classification."""
+        """Map symbol to archetype prior key via Giai đoạn 1 classification.
+
+        Cached MODULE-level (không phải instance): mỗi run_day tạo Governor
+        mới → cache instance trống mỗi ngày. Archetype theo symbol là tĩnh
+        (chỉ đổi theo quý BCTC) → cache module shared giữa mọi instance.
+        """
+        sym_key = symbol.upper().strip()
+        hit = _ARCHETYPE_CACHE.get(sym_key)
+        if hit is not None:
+            return hit
         try:
             from src.business.archetype import ArchetypeEngine
 
-            arch = ArchetypeEngine().classify(symbol)
-            return arch.archetype if arch else "UNKNOWN"
+            arch = ArchetypeEngine().classify(sym_key)
+            result = arch.archetype if arch else "UNKNOWN"
         except (ImportError, AttributeError, TypeError) as e:
             logger.debug("[GOV] archetype prior failed for %s: %s", symbol, e)
-            return "UNKNOWN"
+            result = "UNKNOWN"
+        _ARCHETYPE_CACHE[sym_key] = result
+        return result
 
     def _get_fair_engine(self) -> Any:
         if self._fair_engine is None:
@@ -1194,11 +1321,29 @@ class BayesianGovernor:
             self._cb_state = {"level": 0, "label": "BÌNH_THƯỜNG", "active": 0, "reason": "DEFAULT"}
         return self._cb_state
 
-    def assess(self, symbol: str) -> BayesianMandate:
-        """Compute Bayesian mandate v2 for a single symbol."""
+    def assess(
+        self,
+        symbol: str,
+        target_date: str | None = None,
+        ledger_db_path: str | None = None,
+        replay_mode: bool = False,
+        ledger_conn=None,
+    ) -> BayesianMandate:
+        """Compute Bayesian mandate v2 for a single symbol.
+
+        Args:
+            symbol: Mã cổ phiếu.
+            target_date: Mốc thời gian mô phỏng (YYYY-MM-DD) cho replay PIT.
+                Khi None, dùng context hiện tại (production). Khi cung cấp,
+                mọi engine con nhận target_date để tránh look-ahead bias.
+            ledger_db_path: DB cho decision_ledger (mặc định CALIB_DB).
+            replay_mode: bỏ qua ghi prediction_log (live calibration log).
+                Replay/backtest chỉ cần decision_ledger → giảm I/O ghi.
+            ledger_conn: connection dùng chung cho ledger insert (batch commit).
+        """
         # Per-symbol evidence
-        health = self.perception.load_health(symbol)
-        val = self.valuation.score_valuation(symbol)
+        health = self.perception.load_health(symbol, target_date)
+        val = self.valuation.score_valuation(symbol, target_date)
 
         # ── Fair Multiple Engine (absolute intrinsic valuation) ──
         fair = {}
@@ -1254,7 +1399,7 @@ class BayesianGovernor:
         try:
             from src.portfolio.decision_fusion import arbitrate
 
-            vp = self.behavior.get_volume_profile(symbol)
+            vp = self.behavior.get_volume_profile(symbol, target_date=target_date)
             if vp:
                 price = vp["price"]
                 vah = vp["vah"]
@@ -1284,7 +1429,7 @@ class BayesianGovernor:
                 fusion_action = fusion.get("action", "")
         except (ImportError, KeyError, TypeError, ValueError) as e:
             logger.debug("[GOV] Decision fusion failed for %s: %s", symbol, e)
-        beh = self.behavior.score_behavior(symbol, fusion_action=fusion_action)
+        beh = self.behavior.score_behavior(symbol, fusion_action=fusion_action, target_date=target_date)
 
         # ── Giai đoạn 1: Archetype-aware prior ──────────────
         arch_prior_key = self._get_archetype_prior(symbol)
@@ -1381,41 +1526,19 @@ class BayesianGovernor:
         _confidence: dict[str, float] = {}
         _persistence = 0.5
         try:
-            from governor.interaction_engine import InteractionEngine
-            from governor.macro_lag_engine import MacroLagEngine
-            from governor.regional_influence_engine import RegionalInfluenceEngine
-            from governor.sector_exposure_matrix import SectorExposureMatrix
-
             _sector_name = _symbol_sector(symbol)
-            if _sector_name:
-                _engine = RegionalInfluenceEngine()
-                _macro_result = _engine.compute()
-                _M = _macro_result.macro_vector
-                _momentum = _macro_result.momentum or {}
-                _confidence = _macro_result.confidence or {}
-                _matrix = SectorExposureMatrix()
-
-                # Raw score (snapshot)
-                _result = _matrix.compute_sector_macro_score(_sector_name, _M)
-                _sector_macro_score = _result.macro_score
-                _sector_macro_lr = 0.3 + 1.7 * _sector_macro_score
-
-                # Lag-adjusted score (LAW-009)
-                _lag_engine = MacroLagEngine()
-                _lag_result = _lag_engine.compute(_sector_name)
-                _sector_macro_score_eff = _lag_result.effective_score
-                _sector_macro_lr_eff = 0.3 + 1.7 * _sector_macro_score_eff
-                _signal_deficit = _lag_result.signal_deficit
-                _lag_hl = _lag_result.half_life
-
-                # Persistence (signal stability)
-                _persistence = _lag_engine.compute_persistence(_sector_name)
-
-                # Non-linear interaction (Step 3)
-                _ix_engine = InteractionEngine()
-                _ix_result = _ix_engine.compute(_M, _sector_name)
-                _interaction_mult = _ix_result.multiplier
-                _interaction_synergies = _ix_result.active_synergies
+            _ctx = self._compute_sector_context(_sector_name, target_date)
+            _sector_macro_score = _ctx["sector_macro_score"]
+            _sector_macro_lr = _ctx["sector_macro_lr"]
+            _sector_macro_score_eff = _ctx["sector_macro_score_eff"]
+            _sector_macro_lr_eff = _ctx["sector_macro_lr_eff"]
+            _signal_deficit = _ctx["signal_deficit"]
+            _lag_hl = _ctx["lag_hl"]
+            _persistence = _ctx["persistence"]
+            _interaction_mult = _ctx["interaction_mult"]
+            _interaction_synergies = _ctx["interaction_synergies"]
+            _momentum = _ctx["momentum"]
+            _confidence = _ctx["confidence"]
         except (ImportError, KeyError, TypeError, ValueError, sqlite3.Error, RecursionError) as e:
             logger.warning("[GOV] SectorExposureMatrix FAILED for %s: %s", symbol, e)
 
@@ -1498,58 +1621,16 @@ class BayesianGovernor:
                 if capped_alloc is not None:
                     allocation = capped_alloc
 
-        # P4 logging — combined BMA prediction
-        try:
-            _ensure_calib()
-            from calibration.prediction_log import insert_prediction
+        # P4 logging — combined BMA prediction (skip khi replay: log live-calibration)
+        if not replay_mode:
+            try:
+                _ensure_calib()
+                from calibration.prediction_log import insert_prediction
 
-            insert_prediction(
-                date_str=str(date.today()),
-                symbol=symbol,
-                p_gain=round(p_gain, 4),
-                eu=round(best_eu, 4),
-                kelly_alloc=round(allocation, 1),
-                action=best_action,
-                macro_state=self._macro["state"],
-                transmission_phase=self._transmission["phase"],
-                sector_phase=sector_phase,
-                health_archetype=health["archetype"],
-                valuation_zone=val.get("overall_zone", "FAIR"),
-                behavior_position=beh.get("position", "UNKNOWN"),
-            )
-            # P0: per-model predictions for BMA calibration
-            # WHY: store 3 separate rows (M1/M2/M3) so Step 11c can
-            #   resolve per-model outcomes independently, avoiding
-            #   Brier Score blur from feeding aggregate accuracy.
-            model_weights_map = {
-                "M1_MACRO": {"macro": 0.20, "transmission": 0.13, "sector": 0.10},
-                "M2_FUNDAMENTAL": {"health": 0.11, "capital_allocation": 0.13, "valuation": 0.09},
-                "M3_BEHAVIORAL": {"behavior": 0.09},
-            }
-            for mid, mw in model_weights_map.items():
-                total_w = sum(mw.values())
-                renormed = {k: v / total_w for k, v in mw.items()}
-                mp, _, _ = compute_gain_probability(
-                    macro_state=self._macro["state"],
-                    transmission_phase=self._transmission["phase"],
-                    sector_phase=sector_phase,
-                    health_archetype=health["archetype"],
-                    valuation_zone=val.get("overall_zone", "FAIR"),
-                    behavior_position=beh.get("position", "UNKNOWN"),
-                    capital_allocation=capital_arch,
-                    macro_entropy=self._macro["entropy"],
-                    transmission_credit=self._transmission["credit"],
-                    archetype_prior_key=arch_prior_key,
-                    lr_macro_override=lr_macro_dynamic,
-                    evidence_weights=renormed,
-                    model_registry_lr=None,
-                    recovery_authenticity_lr=recovery_authenticity_lr,
-                )
                 insert_prediction(
                     date_str=str(date.today()),
                     symbol=symbol,
-                    model_id=mid,
-                    p_gain=round(mp, 4),
+                    p_gain=round(p_gain, 4),
                     eu=round(best_eu, 4),
                     kelly_alloc=round(allocation, 1),
                     action=best_action,
@@ -1560,8 +1641,75 @@ class BayesianGovernor:
                     valuation_zone=val.get("overall_zone", "FAIR"),
                     behavior_position=beh.get("position", "UNKNOWN"),
                 )
+                # P0: per-model predictions for BMA calibration
+                # WHY: store 3 separate rows (M1/M2/M3) so Step 11c can
+                #   resolve per-model outcomes independently, avoiding
+                #   Brier Score blur from feeding aggregate accuracy.
+                model_weights_map = {
+                    "M1_MACRO": {"macro": 0.20, "transmission": 0.13, "sector": 0.10},
+                    "M2_FUNDAMENTAL": {"health": 0.11, "capital_allocation": 0.13, "valuation": 0.09},
+                    "M3_BEHAVIORAL": {"behavior": 0.09},
+                }
+                for mid, mw in model_weights_map.items():
+                    total_w = sum(mw.values())
+                    renormed = {k: v / total_w for k, v in mw.items()}
+                    mp, _, _ = compute_gain_probability(
+                        macro_state=self._macro["state"],
+                        transmission_phase=self._transmission["phase"],
+                        sector_phase=sector_phase,
+                        health_archetype=health["archetype"],
+                        valuation_zone=val.get("overall_zone", "FAIR"),
+                        behavior_position=beh.get("position", "UNKNOWN"),
+                        capital_allocation=capital_arch,
+                        macro_entropy=self._macro["entropy"],
+                        transmission_credit=self._transmission["credit"],
+                        archetype_prior_key=arch_prior_key,
+                        lr_macro_override=lr_macro_dynamic,
+                        evidence_weights=renormed,
+                        model_registry_lr=None,
+                        recovery_authenticity_lr=recovery_authenticity_lr,
+                    )
+                    insert_prediction(
+                        date_str=str(date.today()),
+                        symbol=symbol,
+                        model_id=mid,
+                        p_gain=round(mp, 4),
+                        eu=round(best_eu, 4),
+                        kelly_alloc=round(allocation, 1),
+                        action=best_action,
+                        macro_state=self._macro["state"],
+                        transmission_phase=self._transmission["phase"],
+                        sector_phase=sector_phase,
+                        health_archetype=health["archetype"],
+                        valuation_zone=val.get("overall_zone", "FAIR"),
+                        behavior_position=beh.get("position", "UNKNOWN"),
+                    )
+            except (ImportError, sqlite3.Error, KeyError, TypeError, ValueError) as e:
+                logger.debug("[GOV] Prediction insert failed for %s: %s", symbol, e)
+
+        # ── Evidence Ledger — decision candidate (best-effort, không đổi hành vi) ──
+        try:
+            from calibration.decision_budget import log_decision_candidate
+
+            log_decision_candidate(
+                date=target_date or str(date.today()),
+                symbol=symbol,
+                action=best_action,
+                db_path=ledger_db_path,
+                conn=ledger_conn,
+                commit=ledger_conn is None,
+                p_gain=round(p_gain, 4),
+                eu=round(best_eu, 4),
+                kelly_alloc=round(allocation, 1),
+                macro_state=self._macro["state"],
+                transmission_phase=self._transmission["phase"],
+                sector_phase=sector_phase,
+                health_archetype=health["archetype"],
+                valuation_zone=val.get("overall_zone", "FAIR"),
+                behavior_position=beh.get("position", "UNKNOWN"),
+            )
         except (ImportError, sqlite3.Error, KeyError, TypeError, ValueError) as e:
-            logger.debug("[GOV] Prediction insert failed for %s: %s", symbol, e)
+            logger.debug("[GOV] Evidence ledger insert failed for %s: %s", symbol, e)
 
         # ── Policy Impact Engine (PolicyEvent -> policy_context) ──
         # WHY: Chinh sach vi mo (QD 1743...) tac dong bat doi xung len tung cum.

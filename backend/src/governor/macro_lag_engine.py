@@ -55,12 +55,73 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 from core.errors import AnalysisError
 from governor.sector_exposure_matrix import SectorExposureMatrix
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=131072)
+def _cached_rolling_avg(db_path: str, variable: str, window: int, target_date: str | None) -> tuple[tuple[str, float], ...]:
+    """Module-level cache cho _fetch_rolling_avg_history.
+
+    WHY: khi replay, mỗi assess() tạo MacroLagEngine() mới → lru_cache trên
+    method sẽ miss mỗi lần (self khác nhau). Cache theo (db_path, variable,
+    window, target_date) — kết quả query chỉ phụ thuộc 4 key này, không phụ
+    thuộc engine instance. Replay nhiều ngày reuse cùng (variable, date).
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        if target_date:
+            rows = conn.execute(
+                """SELECT date, value FROM macro_history
+                   WHERE variable = ? AND date <= ?
+                   ORDER BY date DESC LIMIT ?""",
+                (variable, target_date, window),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT date, value FROM macro_history
+                   WHERE variable = ?
+                   ORDER BY date DESC LIMIT ?""",
+                (variable, window),
+            ).fetchall()
+        return tuple((r[0], r[1]) for r in rows if r[1] is not None)
+    except sqlite3.Error as e:
+        logger.warning("[LAG] Rolling avg fetch failed for %s: %s", variable, e)
+        return ()
+    finally:
+        conn.close()
+
+
+@lru_cache(maxsize=32768)
+def _cached_vnindex(db_path: str, lookback: int, target_date: str | None) -> tuple[tuple[str, float], ...]:
+    """Module-level cache cho _fetch_vnindex_history (keyed theo db_path)."""
+    conn = sqlite3.connect(db_path)
+    try:
+        if target_date:
+            rows = conn.execute(
+                """SELECT date, close FROM daily_ohlcv
+                   WHERE symbol = 'VNINDEX' AND date <= ?
+                   ORDER BY date DESC LIMIT ?""",
+                (target_date, lookback),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT date, close FROM daily_ohlcv
+                   WHERE symbol = 'VNINDEX'
+                   ORDER BY date DESC LIMIT ?""",
+                (lookback,),
+            ).fetchall()
+        return tuple((r[0], r[1]) for r in rows if r[1] is not None)
+    except sqlite3.Error as e:
+        logger.warning("[LAG] Failed to fetch VNINDEX: %s", e)
+        return ()
+    finally:
+        conn.close()
 
 
 def _hydrate_path() -> Path:
@@ -289,29 +350,8 @@ class MacroLagEngine:
             conn.close()
 
     def _fetch_vnindex_history(self, lookback: int, target_date: str | None = None) -> list[tuple[str, float]]:
-        """Fetch VNINDEX from daily_ohlcv (fallback for macro_history)."""
-        conn = sqlite3.connect(self.db_path)
-        try:
-            if target_date:
-                rows = conn.execute(
-                    """SELECT date, close FROM daily_ohlcv
-                       WHERE symbol = 'VNINDEX' AND date <= ?
-                       ORDER BY date DESC LIMIT ?""",
-                    (target_date, lookback),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT date, close FROM daily_ohlcv
-                       WHERE symbol = 'VNINDEX'
-                       ORDER BY date DESC LIMIT ?""",
-                    (lookback,),
-                ).fetchall()
-            return [(r[0], r[1]) for r in rows if r[1] is not None]
-        except sqlite3.Error as e:
-            logger.warning("[LAG] Failed to fetch VNINDEX: %s", e)
-            return []
-        finally:
-            conn.close()
+        """Fetch VNINDEX from daily_ohlcv (module-level cached)."""
+        return list(_cached_vnindex(self.db_path, lookback, target_date))
 
     def _reconstruct_historical_vectors(self, lookback: int, target_date: str | None = None) -> list[dict[str, float]]:
         """Reconstruct historical M vectors for the lookback window.
@@ -417,29 +457,8 @@ class MacroLagEngine:
     def _fetch_rolling_avg_history(
         self, variable: str, window: int, target_date: str | None = None
     ) -> list[tuple[str, float]]:
-        """Fetch raw values for rolling average computation."""
-        conn = sqlite3.connect(self.db_path)
-        try:
-            if target_date:
-                rows = conn.execute(
-                    """SELECT date, value FROM macro_history
-                       WHERE variable = ? AND date <= ?
-                       ORDER BY date DESC LIMIT ?""",
-                    (variable, target_date, window),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT date, value FROM macro_history
-                       WHERE variable = ?
-                       ORDER BY date DESC LIMIT ?""",
-                    (variable, window),
-                ).fetchall()
-            return [(r[0], r[1]) for r in rows if r[1] is not None]
-        except sqlite3.Error as e:
-            logger.warning("[LAG] Rolling avg fetch failed for %s: %s", variable, e)
-            return []
-        finally:
-            conn.close()
+        """Fetch raw values for rolling average computation (module-level cached)."""
+        return list(_cached_rolling_avg(self.db_path, variable, window, target_date))
 
     def _compute_decay_weights(self, lookback: int, half_life: float) -> dict[int, float]:
         """Compute exponential decay weights for each day offset.
