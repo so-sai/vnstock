@@ -36,11 +36,20 @@ jobs:
         run: ruff check --config backend/pyproject.toml backend/src
       - name: Ruff format check (backend/src)
         run: ruff format --check --config backend/pyproject.toml backend/src
+      - name: Dangling import check (AST)
+        run: |
+          pip install pytest
+          cd backend
+          python -m pytest tests/test_dangling_imports.py -q -p no:cacheprovider
 
   test:
     name: Full Test Suite
     runs-on: ubuntu-latest
     needs: lint
+    # Test Contract 1 (Determinism Guard): hash seed ngẫu nhiên mỗi lần chạy CI
+    # để bắt sớm mọi nondeterminism do thứ tự set/dict (như lỗi UNIVERSE=list(set())).
+    env:
+      PYTHONHASHSEED: random
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -69,6 +78,8 @@ jobs:
     name: Scoped Warning Gate (quant)
     runs-on: ubuntu-latest
     needs: lint
+    env:
+      PYTHONHASHSEED: random
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
