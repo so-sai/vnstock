@@ -26,7 +26,7 @@ FINANCIAL_DB_PATH = DATA_DIR / "financial_facts.db"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from backtest.portfolio_tracker import PortfolioTracker
+from backtest.portfolio_tracker import PortfolioTracker, annualize_cagr
 from backtest.unified_system_replay import (
     UNIVERSE,
     _get_behavioral_score,
@@ -220,16 +220,16 @@ def run_ablation(scores, dates, score_days, weights, label, entry=0.55, exit_t=0
     conn.close()
 
     # Compute metrics
-    curve = np.array(equity_curve) if equity_curve else np.array([100_000_000.0])
-    total_ret = (curve[-1] / curve[0]) - 1.0
+    curve = np.array(equity_curve) if equity_curve else np.array([tracker.initial_capital])
+    initial_cap = float(tracker.initial_capital)
+    total_ret = (curve[-1] / initial_cap) - 1.0
     daily_rets = np.diff(curve) / curve[:-1] if len(curve) > 1 else np.array([0.0])
     vol = float(np.std(daily_rets) * np.sqrt(252)) if len(daily_rets) > 1 else 0.0
     sharpe = float(np.mean(daily_rets) / np.std(daily_rets) * np.sqrt(252)) if np.std(daily_rets) > 0 else 0.0
     peak = np.maximum.accumulate(curve)
     dd = (curve - peak) / peak
     max_dd = float(np.min(dd))
-    years = max(len(dates) / 252, 0.01)
-    ann_ret = (1 + total_ret) ** (1 / years) - 1
+    ann_ret = annualize_cagr(total_ret, dates[0], dates[-1]) if len(dates) >= 2 else 0.0
 
     sells = [t for t in tracker.trade_log if t["action"] == "SELL"]
     wins = sum(1 for t in sells if t.get("pnl_pct", 0) > 0)

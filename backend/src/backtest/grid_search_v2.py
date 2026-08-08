@@ -53,7 +53,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from backtest.grid_search import precompute_scores
-from backtest.portfolio_tracker import PortfolioTracker
+from backtest.portfolio_tracker import PortfolioTracker, annualize_cagr
 from backtest.unified_system_replay import (
     _date_to_period,
     _get_close,
@@ -157,7 +157,7 @@ def _get_mos_pct(conn: sqlite3.Connection, symbol: str, target_date: str) -> flo
         period = _date_to_period(target_date)
         rows = conn.execute(
             "SELECT ratio_name, z_score FROM fin.valuation_scores "
-            "WHERE symbol=? AND ratio_name IN ('PE','PB') AND period<=? "
+            "WHERE symbol=? AND ratio_name IN ('PE','PB') AND period<? "
             "ORDER BY period DESC LIMIT 2",
             (symbol, period),
         ).fetchall()
@@ -220,6 +220,7 @@ def run_backtest_with_guard(
     params: dict,
     db_path: str | None = None,
     lri_cache: dict[str, float] | None = None,
+    capture_trade_log: bool = False,
 ) -> dict:
     """Fast backtest with DecisionGuard (LRI + EmergencyExitEngine) integration.
 
@@ -229,6 +230,9 @@ def run_backtest_with_guard(
       - LRI PROBE (0.30-0.80): he_so = LRI (dimmer scaling).
       - LRI AGGRESSIVE (>= 0.80): full allocation.
       - Emergency tightened stop (-2%) applied to all holdings on DEFENSIVE days.
+
+    capture_trade_log: True → bổ sung "trade_log" (có date) và "equity_curve" vào
+    kết quả để xuất raw ledger (evidence — chống báo cáo không nguồn).
     """
     w_fund = params["w_fund"]
     w_macro = params["w_macro"]
@@ -290,7 +294,7 @@ def run_backtest_with_guard(
                 price = _get_close(conn, sym, date)
                 if price:
                     current_prices[sym] = price
-                    tracker.sell(sym, price, 0.0, current_prices)
+                    tracker.sell(sym, price, 0.0, current_prices, date=date)
                     emergency_exits += 1
                     entry_dates.pop(sym, None)
             # Apply tightened stop to remaining holdings
@@ -301,7 +305,7 @@ def run_backtest_with_guard(
                 entry = tracker.entry_prices.get(sym)
                 if entry and (price - entry) / entry <= EMERGENCY_TIGHTENED_STOP:
                     current_prices[sym] = price
-                    tracker.sell(sym, price, 0.0, current_prices)
+                    tracker.sell(sym, price, 0.0, current_prices, date=date)
                     emergency_exits += 1
                     entry_dates.pop(sym, None)
 
@@ -365,7 +369,7 @@ def run_backtest_with_guard(
 
                 if should_sell:
                     current_prices[sym] = price
-                    tracker.sell(sym, price, composite, current_prices)
+                    tracker.sell(sym, price, composite, current_prices, date=date)
                     entry_dates.pop(sym, None)
                     current_prices = {s: current_prices[s] for s in tracker.positions if s in current_prices}
 
@@ -395,7 +399,7 @@ def run_backtest_with_guard(
                     price = _get_close(conn, sym, date)
                     if price:
                         current_prices[sym] = price
-                        if tracker.buy(sym, price, composite, current_prices, alloc_multiplier=he_so):
+                        if tracker.buy(sym, price, composite, current_prices, alloc_multiplier=he_so, date=date):
                             entry_dates[sym] = date
 
         # Mark to market
@@ -406,15 +410,15 @@ def run_backtest_with_guard(
 
     # ── Compute metrics ──
     curve = np.array(equity_curve) if equity_curve else np.array([100_000_000.0])
-    total_ret = (curve[-1] / curve[0]) - 1.0
+    initial_cap = float(tracker.initial_capital)
+    total_ret = (curve[-1] / initial_cap) - 1.0
     daily_rets = np.diff(curve) / curve[:-1] if len(curve) > 1 else np.array([0.0])
     vol = float(np.std(daily_rets) * np.sqrt(252)) if len(daily_rets) > 1 else 0.0
     sharpe = float(np.mean(daily_rets) / np.std(daily_rets) * np.sqrt(252)) if np.std(daily_rets) > 0 else 0.0
     peak = np.maximum.accumulate(curve)
     dd = (curve - peak) / peak
     max_dd = float(np.min(dd))
-    years = max(len(dates) / 252, 0.01)
-    ann_ret = (1 + total_ret) ** (1 / years) - 1
+    ann_ret = annualize_cagr(total_ret, dates[0], dates[-1]) if len(dates) >= 2 else 0.0
 
     sells = [t for t in tracker.trade_log if t["action"] == "SELL"]
     wins = sum(1 for t in sells if t.get("pnl_pct", 0) > 0)
@@ -432,6 +436,7 @@ def run_backtest_with_guard(
         "buy_locked_days": buy_locked_days,
         "emergency_exits": emergency_exits,
         "dimmer_days": dimmer_days,
+        **({"trade_log": tracker.trade_log, "equity_curve": [round(float(x), 2) for x in curve]} if capture_trade_log else {}),
     }
 
 

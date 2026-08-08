@@ -50,6 +50,7 @@ class PortfolioTracker:
         score: float,
         prices: dict[str, float],
         alloc_multiplier: float = 1.0,
+        date: str = "",
     ) -> bool:
         """Execute BUY. Returns True if executed.
 
@@ -57,6 +58,7 @@ class PortfolioTracker:
             alloc_multiplier: Scale factor for position sizing (0.0-1.0).
                 Used by DecisionGuard he_so_giam_ty_trong (dimmer scaling).
                 1.0 = full allocation, 0.5 = half, 0.0 = no position.
+            date: ISO date of execution — ghi vào trade_log để xuất ledger thật.
         """
         if symbol in self.positions:
             return False
@@ -80,6 +82,7 @@ class PortfolioTracker:
         self.entry_prices[symbol] = exec_price
         self.trade_log.append(
             {
+                "date": date,
                 "symbol": symbol,
                 "action": "BUY",
                 "price": exec_price,
@@ -90,8 +93,11 @@ class PortfolioTracker:
         )
         return True
 
-    def sell(self, symbol: str, price: float, score: float, prices: dict[str, float]) -> bool:
-        """Execute SELL. Returns True if executed."""
+    def sell(self, symbol: str, price: float, score: float, prices: dict[str, float], date: str = "") -> bool:
+        """Execute SELL. Returns True if executed.
+
+        date: ISO date of execution — ghi vào trade_log để xuất ledger thật.
+        """
         if symbol not in self.positions:
             return False
 
@@ -108,6 +114,7 @@ class PortfolioTracker:
         self.invested -= original_cost
         self.trade_log.append(
             {
+                "date": date,
                 "symbol": symbol,
                 "action": "SELL",
                 "price": exec_price,
@@ -135,3 +142,27 @@ class PortfolioTracker:
         if score < self.exit_threshold:
             return True
         return False
+
+
+def annualize_cagr(
+    total_ret: float,
+    start_date: str,
+    end_date: str,
+) -> float:
+    """Annualized CAGR theo năm LỊCH: (1+r)^(365.25/elapsed_days) - 1.
+
+    Dùng ngày lịch thực (không phải 252 ngày giao dịch) để khớp chuẩn tài chính
+    (NAV_đầu/NAV_cuối)^(1/năm) - 1 với năm = thời gian lịch trôi qua.
+    """
+    from datetime import date
+
+    try:
+        d0 = date.fromisoformat(start_date)
+        d1 = date.fromisoformat(end_date)
+        elapsed_days = max((d1 - d0).days, 1)
+    except TypeError, ValueError:
+        return 0.0
+    years = elapsed_days / 365.25
+    if years <= 0:
+        return 0.0
+    return (1 + total_ret) ** (1 / years) - 1

@@ -4247,6 +4247,50 @@ def cmd_financial_search(args):
     print("=" * 60)
 
 
+# ── pit-audit ────────────────────────────────────────────────────
+def cmd_pit_audit(args):
+    """PIT Audit Report — đối soát Period End + Ingested cho từng bản ghi BCTC."""
+    import json
+    import sqlite3
+
+    from src.database.pit_queries import run_pit_audit
+
+    conn = sqlite3.connect(str(Path(__file__).resolve().parent / "backend" / "data" / "financial_facts.db"))
+    conn.row_factory = sqlite3.Row
+    result = run_pit_audit(
+        conn,
+        symbols=[s.strip() for s in (getattr(args, "symbols") or "").split(",") if s.strip()] or None,
+        as_of_date=getattr(args, "as_of", None) or None,
+        limit=getattr(args, "limit", 50),
+    )
+    conn.close()
+
+    if "error" in result:
+        print(f"ERROR: {result['error']}")
+        return 1
+
+    s = result["summary"]
+    print("=" * 78)
+    print("  PIT AUDIT REPORT — Period End vs Ingested (khong bia Publication Date)")
+    print("=" * 78)
+    print(f"  as_of_date      : {s['as_of_date'] or 'N/A (khong loc theo moc)'}")
+    print(f"  total_records   : {s['total_records']}")
+    print(f"  visible_at_asof : {s['visible_at_asof']}")
+    print(f"  blocked_by_period   : {s['blocked_by_period']}")
+    print(f"  blocked_by_ingested : {s['blocked_by_ingested']}")
+    print(f"  GHI CHU          : {s['note']}")
+    print("-" * 78)
+    print(f"{'SYMBOL':<8} {'PERIOD':<9} {'PERIOD_END':<12} {'INGESTED_DATE':<14} {'VISIBLE@ASOF'}")
+    print("-" * 78)
+    for rec in result["records"]:
+        print(f"{str(rec['symbol']):<8} {str(rec['period']):<9} {str(rec['period_end']):<12} "
+              f"{str(rec['ingested_date']):<14} {rec['visible_at_asof']}")
+    print("=" * 78)
+    if getattr(args, "json_out", False):
+        print(json.dumps(result, ensure_ascii=False, default=str))
+    return 0
+
+
 # ── grid-search ───────────────────────────────────────────────────
 def cmd_grid_search(args):
     """Grid Search V2: Multi-factor weight optimization with DecisionGuard integration."""
@@ -4258,6 +4302,23 @@ def cmd_grid_search(args):
         top_n=getattr(args, "top_n", 15),
         workers=getattr(args, "workers", 1),
         sample_every=getattr(args, "sample_every", 5),
+    )
+
+
+# ── walk-forward ─────────────────────────────────────────────────
+def cmd_walk_forward(args):
+    """Walk-Forward Validation: IS grid search → OOS blind replay (khóa tham số)."""
+    from src.backtest.walk_forward_harness import run_walk_forward
+
+    run_walk_forward(
+        start=getattr(args, "start", "2021-04-01"),
+        end=getattr(args, "end", "2026-08-07"),
+        split_date=getattr(args, "split_date", "2025-01-01"),
+        step=getattr(args, "step", 0.05),
+        top_n=getattr(args, "top_n", 15),
+        workers=getattr(args, "workers", 1),
+        sample_every=getattr(args, "sample_every", 5),
+        positions_max=getattr(args, "positions_max", 10),
     )
 
 
@@ -5097,6 +5158,31 @@ def build_parser():
     p_gs.add_argument("--sample-every", type=int, default=5, dest="sample_every",
                       help="Lấy mẫu mỗi N phiên (mặc định 5)")
     p_gs.set_defaults(func=cmd_grid_search)
+
+    # walk-forward (Walk-Forward Validation: IS grid search → OOS blind replay)
+    p_wf = sub.add_parser("walk-forward", parents=[lang_parent],
+                          help="Walk-Forward Validation — tối ưu IS (2021-2024), khóa tham số, "
+                               "blind replay OOS (2025-2026), PIT audit chống look-ahead bias")
+    p_wf.add_argument("--start", default="2021-04-01", help="Ngày bắt đầu (YYYY-MM-DD)")
+    p_wf.add_argument("--end", default="2026-08-07", help="Ngày kết thúc (YYYY-MM-DD)")
+    p_wf.add_argument("--split-date", default="2025-01-01", dest="split_date",
+                      help="Mốc chia IS/OOS (mặc định 2025-01-01)")
+    p_wf.add_argument("--step", type=float, default=0.05, help="Bước weight grid (mặc định 0.05)")
+    p_wf.add_argument("--top-n", type=int, default=15, dest="top_n", help="Số kết quả top (mặc định 15)")
+    p_wf.add_argument("--workers", type=int, default=1, help="Số process song song (mặc định 1)")
+    p_wf.add_argument("--sample-every", type=int, default=5, dest="sample_every",
+                      help="Lấy mẫu mỗi N phiên (mặc định 5)")
+    p_wf.add_argument("--max-positions", type=int, default=10, dest="positions_max",
+                      help="Số vị thế mở tối đa (mặc định 10)")
+    p_wf.set_defaults(func=cmd_walk_forward)
+
+    p_pit = sub.add_parser("pit-audit", parents=[lang_parent],
+                           help="PIT Audit Report — đối soát Period End + Ingested (Test Contract 2)")
+    p_pit.add_argument("--symbols", default="", help="Danh sách mã, phân tách dấu phẩy (mặc định: tất cả)")
+    p_pit.add_argument("--as-of", dest="as_of", default=None, help="Mốc thời gian mô phỏng (YYYY-MM-DD)")
+    p_pit.add_argument("--limit", type=int, default=50, help="Giới hạn số bản ghi hiển thị")
+    p_pit.add_argument("--json-out", action="store_true", dest="json_out", help="Xuất kèm JSON thô")
+    p_pit.set_defaults(func=cmd_pit_audit)
 
     return parser
 

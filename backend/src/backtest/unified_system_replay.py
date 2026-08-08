@@ -58,13 +58,16 @@ if str(SRC_DIR) not in sys.path:
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from backtest.portfolio_tracker import PortfolioTracker
+from backtest.portfolio_tracker import PortfolioTracker, annualize_cagr
 from governor.interaction_engine import InteractionEngine
 from governor.macro_lag_engine import SECTOR_TRANSMISSION, MacroLagEngine
 from governor.regional_influence_engine import RegionalInfluenceEngine
 from governor.sector_exposure_matrix import SectorExposureMatrix
 
-UNIVERSE = list(
+# SORTED: set() iteration order phụ thuộc PYTHONHASHSEED → bất định giữa các
+# process → backtest không tái lập được. sorted() khóa thứ tự lặp cố định
+# (Reproducibility Audit 2026-08-08 — walk-forward OOS phải deterministic).
+UNIVERSE = sorted(
     set(
         [
             "HPG",
@@ -285,15 +288,15 @@ def _mark_to_market(state, conn, date):
 
 def _build_result(state, scenario, start, end, days):
     curve = np.array(state.equity_curve) if state.equity_curve else np.array([state.initial_capital])
-    total_ret = (curve[-1] / curve[0]) - 1.0
+    initial_cap = float(state.initial_capital)
+    total_ret = (curve[-1] / initial_cap) - 1.0
     daily_rets = np.diff(curve) / curve[:-1] if len(curve) > 1 else np.array([0.0])
     vol = float(np.std(daily_rets) * np.sqrt(252)) if len(daily_rets) > 1 else 0.0
     sharpe = float(np.mean(daily_rets) / np.std(daily_rets) * np.sqrt(252)) if np.std(daily_rets) > 0 else 0.0
     peak = np.maximum.accumulate(curve)
     dd = (curve - peak) / peak
     max_dd = float(np.min(dd))
-    years = max(days / 252, 0.01)
-    ann_ret = (1 + total_ret) ** (1 / years) - 1
+    ann_ret = annualize_cagr(total_ret, start, end) if start and end else 0.0
     sells = [t for t in state.trade_log if t["action"] == "SELL"]
     wins = sum(1 for t in sells if t.get("pnl_pct", 0) > 0)
     win_rate = wins / len(sells) if sells else 0.0
@@ -881,7 +884,7 @@ def _get_financial_score(conn, symbol, target_date, metric_names, weights=None):
         for m in metric_names:
             row = conn.execute(
                 "SELECT ratio_value FROM fin.health_ratios "
-                "WHERE symbol=? AND ratio_name=? AND period<=? "
+                "WHERE symbol=? AND ratio_name=? AND period<? "
                 "ORDER BY period DESC LIMIT 1",
                 (symbol, m, _date_to_period(target_date)),
             ).fetchone()
@@ -984,7 +987,8 @@ def _vn20_gate(conn, symbol, target_date):
 
     Non-banks: D/E < 2.0
     Banks (identified by CAPITAL_RATIO presence):
-      - CAPITAL_RATIO >= 5% (Basel III Tier 1 minimum, Thông tư 41/2016/TT-NHNN)
+      - CAPITAL_RATIO >= 8% (sàn pháp lý Thông tư 41/2016/TT-NHNN — Basel II,
+        sửa từ ngưỡng sai luật 5% theo Legal-Hardening Audit 2026-08-08)
       - NIM >= 1.8% annualized (DB stores quarterly → ×4)
       - NPL < 3.0% if available (NHNN threshold)
     If neither D/E nor CAPITAL_RATIO exists, skip leverage check.
@@ -993,27 +997,27 @@ def _vn20_gate(conn, symbol, target_date):
         period = _date_to_period(target_date)
         roe_row = conn.execute(
             "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
-            " AND ratio_name='ROE' AND period<=? ORDER BY period DESC LIMIT 1",
+            " AND ratio_name='ROE' AND period<? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         de_row = conn.execute(
             "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
-            " AND ratio_name='DEBT_TO_EQUITY' AND period<=? ORDER BY period DESC LIMIT 1",
+            " AND ratio_name='DEBT_TO_EQUITY' AND period<? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         cap_row = conn.execute(
             "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
-            " AND ratio_name='CAPITAL_RATIO' AND period<=? ORDER BY period DESC LIMIT 1",
+            " AND ratio_name='CAPITAL_RATIO' AND period<? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         nim_row = conn.execute(
             "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
-            " AND ratio_name='NIM' AND period<=? ORDER BY period DESC LIMIT 1",
+            " AND ratio_name='NIM' AND period<? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         npl_row = conn.execute(
             "SELECT ratio_value FROM fin.health_ratios WHERE symbol=?"
-            " AND ratio_name='NPL_RATIO' AND period<=? ORDER BY period DESC LIMIT 1",
+            " AND ratio_name='NPL_RATIO' AND period<? ORDER BY period DESC LIMIT 1",
             (symbol, period),
         ).fetchone()
         vol_row = conn.execute(
@@ -1031,7 +1035,7 @@ def _vn20_gate(conn, symbol, target_date):
 
         is_bank = cap is not None
         if is_bank:
-            cap_ok = cap > 0.05
+            cap_ok = cap >= 0.08  # TT41/2016/TT-NHNN — Basel II sàn pháp lý CAR 8%
             nim_ann = (nim_raw * 4) if nim_raw is not None else None
             nim_ok = (nim_ann > 0.018) if nim_ann is not None else True
             npl_ok = (npl < 0.030) if npl is not None else True
@@ -1313,15 +1317,15 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
 
     # Build result from equity curve
     curve = np.array(equity_curve) if equity_curve else np.array([tracker.initial_capital])
-    total_ret = (curve[-1] / curve[0]) - 1.0
+    initial_cap = float(tracker.initial_capital)
+    total_ret = (curve[-1] / initial_cap) - 1.0
     daily_rets = np.diff(curve) / curve[:-1] if len(curve) > 1 else np.array([0.0])
     vol = float(np.std(daily_rets) * np.sqrt(252)) if len(daily_rets) > 1 else 0.0
     sharpe = float(np.mean(daily_rets) / np.std(daily_rets) * np.sqrt(252)) if np.std(daily_rets) > 0 else 0.0
     peak = np.maximum.accumulate(curve)
     dd = (curve - peak) / peak
     max_dd = float(np.min(dd))
-    years = max(len(dates) / 252, 0.01)
-    ann_ret = (1 + total_ret) ** (1 / years) - 1
+    ann_ret = annualize_cagr(total_ret, start, end) if start and end else 0.0
     sells = [t for t in tracker.trade_log if t["action"] == "SELL"]
     wins = sum(1 for t in sells if t.get("pnl_pct", 0) > 0)
     win_rate = wins / len(sells) if sells else 0.0

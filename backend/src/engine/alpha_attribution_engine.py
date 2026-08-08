@@ -231,9 +231,12 @@ def _simulate_pnl(
         if dd > max_dd:
             max_dd = dd
 
-    n_days = len(realized)
     total_return = (equity - 1.0) * 100.0
-    ann_return = ((equity ** (252 / n_days)) - 1.0) * 100.0 if n_days > 0 else 0.0
+    _start_date = realized[0].get("date")
+    _end_date = realized[-1].get("date")
+    from backtest.portfolio_tracker import annualize_cagr
+
+    ann_return = annualize_cagr(total_return / 100.0, _start_date, _end_date) * 100.0
 
     daily_returns = []
     for i in range(1, len(equity_curve)):
