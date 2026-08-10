@@ -148,7 +148,7 @@ async def _fetch_cme_fedwatch_async() -> tuple[float, float, str]:
                 ),
                 locale="en-US",
             )
-            ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+            await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
             page = await ctx.new_page()
 
             # Block junk resources — we only need the `.cmeTable` DOM.
