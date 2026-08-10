@@ -70,6 +70,10 @@ CREATE TABLE IF NOT EXISTS decision_ledger (
     governor_version     TEXT    NOT NULL,
     evidence_cluster_version TEXT NOT NULL,
     decision_budget      INTEGER NOT NULL,
+    transmission_provenance TEXT,
+    transmission_coverage REAL,
+    sector_provenance    TEXT,
+    sector_coverage      REAL,
     created_at           TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_dl_date      ON decision_ledger(date);
@@ -105,6 +109,16 @@ def init_schema(db_path: str | None = None) -> None:
             cols = [r[1] for r in conn.execute("PRAGMA table_info(decision_ledger)").fetchall()]
             if col not in cols:
                 conn.execute(f"ALTER TABLE decision_ledger ADD COLUMN {col} REAL")
+        # Migration: provenance/coverage columns (idempotent).
+        for col, ctype in (
+            ("transmission_provenance", "TEXT"),
+            ("transmission_coverage", "REAL"),
+            ("sector_provenance", "TEXT"),
+            ("sector_coverage", "REAL"),
+        ):
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(decision_ledger)").fetchall()]
+            if col not in cols:
+                conn.execute(f"ALTER TABLE decision_ledger ADD COLUMN {col} {ctype}")
         conn.commit()
     finally:
         conn.close()
@@ -133,6 +147,10 @@ def insert_decision(
     policy_version: str = POLICY_VERSION,
     governor_version: str = GOVERNOR_VERSION,
     evidence_cluster_version: str = EVIDENCE_CLUSTER_VERSION,
+    transmission_provenance: str | None = None,
+    transmission_coverage: float | None = None,
+    sector_provenance: str | None = None,
+    sector_coverage: float | None = None,
     conn: sqlite3.Connection | None = None,
     commit: bool = True,
 ) -> int:
@@ -161,8 +179,9 @@ def insert_decision(
                 decision_budget_type, decision_budget_year,
                 slot_consumed, slot_index, entry_price,
                 policy_version, governor_version, evidence_cluster_version,
-                decision_budget
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW_CAPITAL_DEPLOYMENT', ?, ?, ?, ?, ?, ?, ?, ?)
+                decision_budget, transmission_provenance, transmission_coverage,
+                sector_provenance, sector_coverage
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW_CAPITAL_DEPLOYMENT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _now(),
@@ -186,6 +205,10 @@ def insert_decision(
                 governor_version,
                 evidence_cluster_version,
                 decision_budget,
+                transmission_provenance,
+                transmission_coverage,
+                sector_provenance,
+                sector_coverage,
             ),
         )
         if commit:

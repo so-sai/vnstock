@@ -17,6 +17,7 @@ Multiprocessing: chia theo ngày, mỗi process xử lý 1 ngày (universe ADV>=
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import sys
 import time
@@ -94,45 +95,180 @@ def get_universe_adv20(date: str, db_path=None) -> list[str]:
 def run_day(date: str, universe: list[str], ledger_db: str, budget: int) -> dict:
     """Worker: replay 1 ngày — set_context_for_date + assess từng symbol.
 
-    Trả về thống kê decision (EXECUTE/WATCH/REJECT) đọc từ ledger sau replay.
+    Dùng SQLite IN-MEMORY (:memory:) — KHÔNG tạo file .db tạm trên đĩa.
+    Loại bỏ hoàn toàn Disk I/O contention / File Lock Thrashing khi nhiều
+    worker chạy song song. Trả về toàn bộ decision rows qua future result
+    (In-Memory Queue), main process ghi 1 lần executemany().
+
+    Budget: mỗi ngày mặc định còn đủ 20 slot (budget tracking xuyên ngày do
+    bước truncation trong merge_day_dbs xử lý).
     """
-    from calibration.evidence_ledger import get_conn, get_decisions, init_schema
+    from calibration.evidence_ledger import SCHEMA_SQL
     from src.governor.company_state import BayesianGovernor
 
-    init_schema(ledger_db)
+    # In-memory SQLite — không ghi đĩa
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA_SQL)
+
     governor = BayesianGovernor()
     governor.set_context_for_date(date)
 
-    n_before = len(get_decisions(ledger_db, date_from=date, date_to=date))
-    conn = get_conn(ledger_db)
     try:
         for sym in universe:
             try:
                 governor.assess(
                     sym,
                     target_date=date,
-                    ledger_db_path=ledger_db,
                     replay_mode=True,
                     ledger_conn=conn,
                 )
             except AttributeError, TypeError, ValueError, sqlite3.Error, KeyError:
-                # assess() đã self-heal bằng try/except nội bộ; nếu vẫn lỗi → bỏ qua
                 continue
-        conn.commit()  # 1 commit duy nhất cho cả ngày
+        conn.commit()
     finally:
-        conn.close()
+        pass
 
-    rows = get_decisions(ledger_db, date_from=date, date_to=date)
-    new_rows = rows[n_before:] if n_before <= len(rows) else rows
+    # Đọc toàn bộ rows của ngày từ in-memory
+    rows = conn.execute(
+        "SELECT * FROM decision_ledger WHERE date = ? ORDER BY decision_id",
+        (date,),
+    ).fetchall()
+    cols = [d[1] for d in conn.execute("PRAGMA table_info(decision_ledger)").fetchall()]
+    day_rows = [tuple(r) for r in rows]
+    conn.close()
+
+    n_execute = sum(1 for r in day_rows if r[cols.index("decision")] == "EXECUTE")
     stats = {
         "date": date,
         "n_symbols": len(universe),
-        "n_recorded": len(new_rows),
-        "n_execute": sum(1 for r in new_rows if r["decision"] == "EXECUTE"),
-        "n_watch": sum(1 for r in new_rows if r["decision"] == "WATCH"),
-        "n_reject": sum(1 for r in new_rows if r["decision"] == "REJECT"),
+        "n_recorded": len(day_rows),
+        "n_execute": n_execute,
+        "n_watch": sum(1 for r in day_rows if r[cols.index("decision")] == "WATCH"),
+        "n_reject": sum(1 for r in day_rows if r[cols.index("decision")] == "REJECT"),
+        "_cols": cols,
+        "_rows": day_rows,
     }
     return stats
+
+
+def merge_day_dbs(day_dbs: list[str], target_db: str, budget: int = 20) -> None:
+    """Merge per-day temp DBs into target ledger DB.
+
+    After merge, applies budget constraint: keeps only first N EXECUTE per year
+    (by date order), converting excess EXECUTE to WATCH.
+    """
+    conn = sqlite3.connect(target_db)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+
+    # Get max existing decision_id to avoid conflicts
+    max_id = conn.execute("SELECT COALESCE(MAX(decision_id), 0) FROM decision_ledger").fetchone()[0]
+
+    for db_path in day_dbs:
+        if not os.path.exists(db_path):
+            continue
+        try:
+            day_conn = sqlite3.connect(db_path)
+            rows = day_conn.execute("SELECT * FROM decision_ledger").fetchall()
+            cols = [d[1] for d in day_conn.execute("PRAGMA table_info(decision_ledger)").fetchall()]
+            day_conn.close()
+            if rows:
+                # Re-number decision_id to avoid conflicts
+                id_col_idx = cols.index("decision_id") if "decision_id" in cols else 0
+                renumbered = []
+                for row in rows:
+                    row_list = list(row)
+                    max_id += 1
+                    row_list[id_col_idx] = max_id
+                    renumbered.append(tuple(row_list))
+
+                placeholders = ",".join(["?"] * len(cols))
+                col_names = ",".join(cols)
+                conn.executemany(
+                    f"INSERT INTO decision_ledger ({col_names}) VALUES ({placeholders})",
+                    renumbered,
+                )
+            os.remove(db_path)
+        except (sqlite3.Error, OSError, TypeError, ValueError, KeyError) as e:
+            print(f"  Warning: failed to merge {os.path.basename(db_path)}: {e}")
+            continue
+    conn.commit()
+
+    # Apply budget constraint: keep only first `budget` EXECUTE per year
+    for year in range(2018, 2030):
+        exe_rows = conn.execute(
+            "SELECT rowid, date FROM decision_ledger WHERE decision='EXECUTE' AND decision_budget_year=? ORDER BY date",
+            (year,),
+        ).fetchall()
+        if len(exe_rows) > budget:
+            excess_rowids = [r[0] for r in exe_rows[budget:]]
+            placeholders = ",".join(["?"] * len(excess_rowids))
+            conn.execute(
+                f"UPDATE decision_ledger SET decision='WATCH' WHERE rowid IN ({placeholders})",
+                excess_rowids,
+            )
+            print(f"  Year {year}: {len(exe_rows)} EXECUTE -> kept {budget}, converted {len(excess_rowids)} to WATCH")
+    conn.commit()
+    conn.close()
+
+
+def write_ledger_once(all_day_results: list[dict], ledger_db: str, budget: int = 20) -> None:
+    """Ghi toàn bộ rows từ In-Memory Queue vào ledger bằng 1 executemany().
+
+    Không có file .db trung gian — data đi thẳng từ worker → main process.
+    Sau ghi, áp budget constraint (giữ N EXECUTE đầu tiên theo ngày).
+    """
+    conn = sqlite3.connect(ledger_db)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+
+    cols = None
+    max_id = conn.execute("SELECT COALESCE(MAX(decision_id), 0) FROM decision_ledger").fetchone()[0]
+    total_written = 0
+
+    for st in all_day_results:
+        day_cols = st.get("_cols")
+        day_rows = st.get("_rows", [])
+        if not day_rows:
+            continue
+        if cols is None:
+            cols = day_cols
+        # Re-number decision_id to avoid PK conflicts
+        id_idx = day_cols.index("decision_id")
+        renumbered = []
+        for row in day_rows:
+            row_list = list(row)
+            max_id += 1
+            row_list[id_idx] = max_id
+            renumbered.append(tuple(row_list))
+        placeholders = ",".join(["?"] * len(cols))
+        col_names = ",".join(cols)
+        conn.executemany(
+            f"INSERT INTO decision_ledger ({col_names}) VALUES ({placeholders})",
+            renumbered,
+        )
+        total_written += len(renumbered)
+
+    conn.commit()
+    print(f"  Wrote {total_written} rows to {ledger_db} (single executemany, no temp files)")
+
+    # Apply budget constraint: keep only first `budget` EXECUTE per year
+    for year in range(2018, 2030):
+        exe_rows = conn.execute(
+            "SELECT rowid, date FROM decision_ledger WHERE decision='EXECUTE' AND decision_budget_year=? ORDER BY date",
+            (year,),
+        ).fetchall()
+        if len(exe_rows) > budget:
+            excess_rowids = [r[0] for r in exe_rows[budget:]]
+            placeholders = ",".join(["?"] * len(excess_rowids))
+            conn.execute(
+                f"UPDATE decision_ledger SET decision='WATCH' WHERE rowid IN ({placeholders})",
+                excess_rowids,
+            )
+            print(f"  Year {year}: {len(exe_rows)} EXECUTE -> kept {budget}, converted {len(excess_rowids)} to WATCH")
+    conn.commit()
+    conn.close()
 
 
 def replay(
@@ -164,12 +300,15 @@ def replay(
     t0 = time.time()
     done = 0
     per_day_stats = []
+    day_dbs = []
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(run_day, d, day_universe[d], ledger_db, budget): d for d in days}
         for f in as_completed(futures):
             try:
                 st = f.result()
                 per_day_stats.append(st)
+                if "_day_db" in st:
+                    day_dbs.append(st["_day_db"])
             except (AttributeError, TypeError, ValueError, sqlite3.Error, KeyError, RuntimeError) as e:
                 per_day_stats.append({"date": futures[f], "error": str(e)})
             done += 1
@@ -177,6 +316,10 @@ def replay(
                 elapsed = time.time() - t0
                 rate = done / elapsed if elapsed > 0 else 0
                 print(f"  {done}/{len(futures)} days, {rate:.1f} days/s, ETA {(len(futures) - done) / rate:.0f}s", flush=True)
+
+    # In-Memory Queue: ghi toàn bộ rows qua 1 executemany, không có temp file
+    if any("_rows" in s for s in per_day_stats):
+        write_ledger_once(per_day_stats, ledger_db, budget)
 
     total = time.time() - t0
     n_sym = sum(s.get("n_symbols", 0) for s in per_day_stats)

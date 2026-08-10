@@ -93,26 +93,32 @@ TASKS = [
     },
     {
         "name": "PTCK_WEEKLY_MAINTENANCE",
-        "description": "Bảo trì DB hàng tuần (Chủ nhật, 02:00)",
+        # WIN11: Chủ nhật 08:00 (thay vì 02:00 ban đêm) — máy tắt vào ban đêm
+        # nên task cũ không bao giờ chạy. Chạy ban ngày khi máy bật.
+        "description": "Bảo trì DB hàng tuần (Chủ nhật, 08:00 — máy bật ban ngày)",
         "action": f'"{PYTHON_EXE}" "{DB_MAINTENANCE}" --full',
         "frequency": "WEEKLY",
-        "schedule": "/D SUN /ST 02:00",
+        "schedule": "/D SUN /ST 08:00",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_WEEKLY_MACRO",
-        "description": "Cập nhật dữ liệu Vĩ mô hàng tuần (Chủ nhật, 03:00)",
+        # WIN11: Chủ nhật 09:00 — sau PTCK_WEEKLY_MAINTENANCE (08:00) 1 giờ
+        # để tránh đụng khóa DB. Máy bật ban ngày nên chạy được.
+        "description": "Cập nhật dữ liệu Vĩ mô hàng tuần (Chủ nhật, 09:00 — máy bật ban ngày)",
         "action": f'"{PYTHON_EXE}" "{PROJECT_ROOT / "backend" / "screener.py"}" --mode macro',
         "frequency": "WEEKLY",
-        "schedule": "/D SUN /ST 03:00",
+        "schedule": "/D SUN /ST 09:00",
         "run_level": "HIGHEST",
     },
     {
         "name": "PTCK_DAILY_BACKUP",
-        "description": "Database Guardian — Integrity Check + Online Backup mỗi tối (23:00)",
+        # WIN11: 16:30 — chạy sau PTCK_FLOW_MAP_REPORT (16:00), khi EOD đã xong.
+        # Trước đây để 23:00 nhưng máy tắt lúc đi ngủ nên task không bao giờ chạy.
+        "description": "Database Guardian — Integrity Check + Online Backup (16:30, sau close cycle)",
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" db backup',
         "frequency": "DAILY",
-        "schedule": "/ST 23:00",
+        "schedule": "/ST 16:30",
         "run_level": "HIGHEST",
     },
     {
@@ -170,14 +176,6 @@ TASKS = [
         "run_level": "HIGHEST",
     },
     {
-        "name": "PTCK_BACKFILL_NOW",
-        "description": "On-demand backfill: thu thập dữ liệu bù lịch sử 100% mật độ 30 quý (2019Q1–2026Q2)",
-        "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" backfill-history --full --quarters 30',
-        "frequency": "ONCE",
-        "schedule": "",
-        "run_level": "HIGHEST",
-    },
-    {
         "name": "PTCK_EARNINGS_CYCLE",
         "description": "Daily Cycle — earnings: Crawl → Health v2 → Valuation → Governor → System Audit (Thứ 2, 08:20 — stale_window 7d tự skip nếu chưa tới mùa)",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         "action": f'"{PYTHON_EXE}" "{PTCK_CLI}" earnings --persist',
@@ -186,6 +184,14 @@ TASKS = [
         "run_level": "HIGHEST",
     },
 ]
+
+# NOTE: PTCK_BACKFILL_NOW đã bị gỡ khỏi danh sách task tự động đăng ký.
+# Backfill 30 quý là công việc on-demand (bảo trì chủ động), không có tính
+# chu kỳ → không phù hợp đăng ký vào Windows Task Scheduler.
+# Khi cần chạy, kích hoạt trực tiếp qua CLI:
+#   python ptck.py backfill-history --full --quarters 30
+# (Config cũ dùng /SC ONCE + schedule rỗng gây lỗi schtasks "No value
+#  specified for /ST option" — đã loại bỏ để --setup không bao giờ fail.)
 
 
 def _build_args(task: dict) -> list:

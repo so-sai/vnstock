@@ -85,6 +85,10 @@ def log_decision_candidate(
     behavior_position: str | None = None,
     shock_band: str | None = None,
     coverage: float | None = None,
+    transmission_provenance: str | None = None,
+    transmission_coverage: float | None = None,
+    sector_provenance: str | None = None,
+    sector_coverage: float | None = None,
     decision_budget: int = 20,
     db_path: str | None = None,
     strict_quality: bool = False,
@@ -106,7 +110,8 @@ def log_decision_candidate(
         insert_decision,
     )
 
-    init_schema(db_path)
+    if conn is None:
+        init_schema(db_path)
     cluster = cluster_evidence(
         {
             "macro_state": macro_state,
@@ -140,6 +145,10 @@ def log_decision_candidate(
         slot_consumed=pol["slot_consumed"],
         decision_budget=decision_budget,
         evidence_cluster_version=cluster["version"],
+        transmission_provenance=transmission_provenance,
+        transmission_coverage=transmission_coverage,
+        sector_provenance=sector_provenance,
+        sector_coverage=sector_coverage,
         conn=conn,
         commit=commit,
     )

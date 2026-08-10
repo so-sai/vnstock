@@ -136,10 +136,16 @@ PRIOR_DEFAULT = 1.0 / 3.0
 class ModelRegistry:
     """Competing Hypotheses Engine — manages 3 models with Bayesian Model Averaging."""
 
-    def __init__(self, conn: sqlite3.Connection | None = None):
+    def __init__(self, conn: sqlite3.Connection | None = None, readonly: bool = False):
         self._conn = conn
-        self._init_schema()
-        self._seed_defaults()
+        self._readonly = readonly
+        if not readonly:
+            # Schema + seed only cần khi WRITE. Replay (offline deterministic)
+            # dùng readonly → bỏ _log_transition ghi history → hết "database
+            # is locked" khi 12 workers cùng khởi tạo, và không ô nhiễm
+            # calibration.db live.
+            self._init_schema()
+            self._seed_defaults()
 
     # ── Schema ──────────────────────────────────────────────────────────
 
@@ -294,6 +300,8 @@ class ModelRegistry:
         Likelihood: P(D | M_k) = 1 - |p_gain - y_true|  (accuracy proxy)
         Posterior: P(M_k | D) = P(D | M_k) × prior / evidence
         """
+        if self._readonly:
+            return
         conn = self._get_conn()
         row = conn.execute(
             "SELECT posterior, n_trades, n_wins, brier_accum, log_loss_accum, state FROM model_registry WHERE model_id=?",
@@ -371,6 +379,8 @@ class ModelRegistry:
 
     def _renormalize_posteriors(self) -> None:
         """Ensure all model posteriors sum to 1.0."""
+        if self._readonly:
+            return
         conn = self._get_conn()
         rows = conn.execute("SELECT model_id, posterior, state FROM model_registry").fetchall()
         # Only normalize across ACTIVE models
@@ -388,6 +398,8 @@ class ModelRegistry:
 
     def _log_transition(self, model_id: str, state: str, posterior: float, reason: str = "") -> None:
         """Log state transition to model_registry_history."""
+        if self._readonly:
+            return
         conn = self._get_conn()
         try:
             conn.execute(
@@ -399,6 +411,8 @@ class ModelRegistry:
             logger.debug("Ghi model_registry_history lỗi (bảng chưa tồn tại, bỏ qua): %s", _e)
 
     def activate(self, model_id: str, reason: str = "") -> None:
+        if self._readonly:
+            return
         conn = self._get_conn()
         now = datetime.now().isoformat()
         conn.execute(
@@ -409,6 +423,8 @@ class ModelRegistry:
         self._log_transition(model_id, STATE_ACTIVE, PRIOR_DEFAULT, reason)
 
     def suspend(self, model_id: str, reason: str = "") -> None:
+        if self._readonly:
+            return
         conn = self._get_conn()
         now = datetime.now().isoformat()
         row = conn.execute("SELECT posterior FROM model_registry WHERE model_id=?", (model_id,)).fetchone()
@@ -421,6 +437,8 @@ class ModelRegistry:
         self._log_transition(model_id, STATE_DORMANT, posterior, reason)
 
     def retire(self, model_id: str, reason: str = "") -> None:
+        if self._readonly:
+            return
         conn = self._get_conn()
         now = datetime.now().isoformat()
         conn.execute(
@@ -432,6 +450,8 @@ class ModelRegistry:
         self._log_transition(model_id, STATE_RETIRED, 0.01, reason)
 
     def revive(self, model_id: str, reason: str = "") -> None:
+        if self._readonly:
+            return
         conn = self._get_conn()
         now = datetime.now().isoformat()
         conn.execute(

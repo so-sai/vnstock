@@ -937,9 +937,18 @@ class PerceptionLoader:
             with open(path, encoding="utf-8") as f:
                 report = json.load(f)
             chain = report.get("rotation_chain", [])
-            top_phase = chain[-1] if chain else "NEUTRAL"
+            # BUGFIX: top_phase phải là phase THẬT của top_sector.
+            #   Trước đây lấy chain[-1] = "Flow direction: MID" → không match
+            #   SECTOR_MODULATORS (EARLY/MID/LATE/WEAKENING/NEUTRAL) → sector
+            #   modulation luôn là dead code (mult=1.0). Tra từ report.sectors.
+            top_sector = report.get("top_sector", "UNKNOWN")
+            top_phase = "NEUTRAL"
+            for _s in report.get("sectors", []):
+                if _s.get("sector") == top_sector and _s.get("phase"):
+                    top_phase = _s["phase"]
+                    break
             return {
-                "top_sector": report.get("top_sector", "UNKNOWN"),
+                "top_sector": top_sector,
                 "n_healthy": report.get("n_sectors_healthy", 0),
                 "n_weak": report.get("n_sectors_weak", 19),
                 "chain": chain,
@@ -1143,13 +1152,17 @@ class BayesianGovernor:
     def set_context_for_date(self, target_date: str) -> None:
         """Cập nhật macro/transmission/sector context theo target_date (PIT).
 
-        Replay harness gọi 1 lần/ngày trước khi assess() từng symbol. Khi
-        không có dữ liệu lịch sử cho transmission/sector, giữ giá trị hiện tại
-        của instance (fallback an toàn) — không bịa dữ liệu.
+        Replay harness gọi 1 lần/ngày trước khi assess() từng symbol.
+        Transmission đọc từ transmission_pit table (PIT-correct, có provenance).
+        Sector giữ fallback (chưa PIT-correct — cần backfill riêng).
         """
         if target_date in self._macro_date_cache:
             self._macro = self._macro_date_cache[target_date]
+            self._transmission = self._load_transmission_pit(target_date)
+            self._sector = self._load_sector_pit(target_date)
             return
+
+        # ── Macro state (PIT) ──
         try:
             from src.core.macro.macro_state_classifier import MacroStateClassifier
 
@@ -1160,10 +1173,106 @@ class BayesianGovernor:
                 "entropy": state.entropy,
             }
         except (ImportError, KeyError, TypeError, ValueError, sqlite3.Error) as e:
-            logger.warning("[GOV] MacroStateClassifier date=%s FAILED: %s — giữ macro hiện tại", target_date, e)
+            logger.warning("[GOV] MacroStateClassifier date=%s FAILED: %s", target_date, e)
             macro = dict(self._macro)
         self._macro_date_cache[target_date] = macro
         self._macro = macro
+
+        # ── Transmission phase (PIT from transmission_pit table) ──
+        self._transmission = self._load_transmission_pit(target_date)
+
+        # ── Sector phase (PIT from sector_pit table) ──
+        self._sector = self._load_sector_pit(target_date)
+
+    def _load_sector_pit(self, target_date: str) -> dict:
+        """Load PIT sector rotation from sector_pit table, with LRU cache.
+
+        Falls back to latest JSON when the table has no row for the date.
+        """
+        if not hasattr(self, "_sector_pit_cache"):
+            self._sector_pit_cache: dict[str, dict] = {}
+        if target_date in self._sector_pit_cache:
+            return self._sector_pit_cache[target_date]
+
+        default = {
+            "top_sector": "UNKNOWN",
+            "n_healthy": 0,
+            "n_weak": 19,
+            "chain": [],
+            "top_phase": "NEUTRAL",
+            "coverage": 0.0,
+            "provenance": "FALLBACK",
+        }
+        result = dict(default)
+        try:
+            from src.database.db_core import get_connection
+
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT top_sector, top_phase, n_healthy, n_weak, rotation_chain_json, coverage, provenance_json "
+                    "FROM sector_pit WHERE date = ?",
+                    (target_date,),
+                ).fetchone()
+            if row:
+                result = {
+                    "top_sector": row[0],
+                    "top_phase": row[1],
+                    "n_healthy": row[2],
+                    "n_weak": row[3],
+                    "chain": json.loads(row[4]),
+                    "coverage": row[5],
+                    "provenance": row[6] or "FALLBACK",
+                }
+            else:
+                result = dict(default)
+        except (sqlite3.Error, TypeError, ValueError, json.JSONDecodeError) as e:
+            logger.warning("[GOV] sector_pit date=%s FAILED: %s", target_date, e)
+            result = dict(default)
+
+        self._sector_pit_cache[target_date] = result
+        return result
+
+    def _load_transmission_pit(self, target_date: str) -> dict:
+        """Load PIT transmission from transmission_pit table, with LRU cache."""
+        if not hasattr(self, "_transmission_cache"):
+            self._transmission_cache: dict[str, dict] = {}
+        if target_date in self._transmission_cache:
+            return self._transmission_cache[target_date]
+
+        default = {
+            "phase": "FRAGILE_STABILITY",
+            "liquidity": 50,
+            "credit": 50,
+            "confidence": 50,
+            "coverage": 0.0,
+            "provenance": "FALLBACK",
+        }
+        try:
+            from src.database.db_core import get_connection
+
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT transmission_phase, liquidity, credit, confidence, coverage, provenance_json "
+                    "FROM transmission_pit WHERE date = ?",
+                    (target_date,),
+                ).fetchone()
+            if row:
+                result = {
+                    "phase": row[0],
+                    "liquidity": row[1],
+                    "credit": row[2],
+                    "confidence": row[3],
+                    "coverage": row[4],
+                    "provenance": row[5] or "FALLBACK",
+                }
+            else:
+                result = dict(default)
+        except (sqlite3.Error, TypeError, ValueError) as e:
+            logger.warning("[GOV] transmission_pit date=%s FAILED: %s", target_date, e)
+            result = dict(default)
+
+        self._transmission_cache[target_date] = result
+        return result
 
     def _compute_regional(self, target_date: str | None) -> dict:
         """RegionalInfluenceEngine.compute(target_date) — cache theo ngày."""
@@ -1299,7 +1408,7 @@ class BayesianGovernor:
         if self._model_registry is None:
             from calibration.model_registry import ModelRegistry
 
-            self._model_registry = ModelRegistry()
+            self._model_registry = ModelRegistry(readonly=getattr(self, "_replay_mode", False))
         return self._model_registry
 
     def _check_circuit_breaker(self) -> dict[str, Any]:
@@ -1341,6 +1450,8 @@ class BayesianGovernor:
                 Replay/backtest chỉ cần decision_ledger → giảm I/O ghi.
             ledger_conn: connection dùng chung cho ledger insert (batch commit).
         """
+        if replay_mode:
+            self._replay_mode = True
         # Per-symbol evidence
         health = self.perception.load_health(symbol, target_date)
         val = self.valuation.score_valuation(symbol, target_date)
@@ -1707,6 +1818,10 @@ class BayesianGovernor:
                 health_archetype=health["archetype"],
                 valuation_zone=val.get("overall_zone", "FAIR"),
                 behavior_position=beh.get("position", "UNKNOWN"),
+                transmission_provenance=self._transmission.get("provenance"),
+                transmission_coverage=self._transmission.get("coverage"),
+                sector_provenance=self._sector.get("provenance"),
+                sector_coverage=self._sector.get("coverage"),
             )
         except (ImportError, sqlite3.Error, KeyError, TypeError, ValueError) as e:
             logger.debug("[GOV] Evidence ledger insert failed for %s: %s", symbol, e)
