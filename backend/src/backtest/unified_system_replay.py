@@ -987,8 +987,13 @@ def _vn20_gate(conn, symbol, target_date):
 
     Non-banks: D/E < 2.0
     Banks (identified by CAPITAL_RATIO presence):
-      - CAPITAL_RATIO >= 8% (sàn pháp lý Thông tư 41/2016/TT-NHNN — Basel II,
-        sửa từ ngưỡng sai luật 5% theo Legal-Hardening Audit 2026-08-08)
+      - CAPITAL_RATIO >= WARNING threshold of the *proxy* (Equity/Total Assets)
+        NGỮ NGHĨA AUDIT 2026-08-11: health_ratios.CAPITAL_RATIO là PROXY
+        Equity/TotalAssets (company_health_engine.RATIO_META), KHÔNG phải CAR RWA
+        pháp lý (Thông tư 41) để so với sàn 8%. Trước đây gate hardcode 0.08
+        áp lên proxy → ngân hàng có vốn thực ~12% vẫn bị loại giả. Sửa sang
+        dùng ngưỡng WARNING của chính proxy (0.07) từ RATIO_META — một nguồn
+        sự thật, không hardcode.
       - NIM >= 1.8% annualized (DB stores quarterly → ×4)
       - NPL < 3.0% if available (NHNN threshold)
     If neither D/E nor CAPITAL_RATIO exists, skip leverage check.
@@ -1035,7 +1040,16 @@ def _vn20_gate(conn, symbol, target_date):
 
         is_bank = cap is not None
         if is_bank:
-            cap_ok = cap >= 0.08  # TT41/2016/TT-NHNN — Basel II sàn pháp lý CAR 8%
+            # CAPITAL_RATIO là PROXY Equity/TotalAssets — dùng ngưỡng WARNING của
+            # proxy từ RATIO_META (0.07), KHÔNG phải sàn CAR RWA 8% (TT41).
+            # Import lazy để tránh phụ thuộc vòng (financial -> backtest).
+            try:
+                from financial.company_health_engine import RATIO_META
+
+                cap_floor = RATIO_META["CAPITAL_RATIO"]["thresholds"]["WARNING"]
+            except ImportError, KeyError, TypeError, ValueError:
+                cap_floor = 0.07
+            cap_ok = cap >= cap_floor
             nim_ann = (nim_raw * 4) if nim_raw is not None else None
             nim_ok = (nim_ann > 0.018) if nim_ann is not None else True
             npl_ok = (npl < 0.030) if npl is not None else True
