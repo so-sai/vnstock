@@ -105,7 +105,7 @@ def metrics(trades: list[dict]) -> dict:
 
 def main() -> None:
     print("=" * 78)
-    print("ATTRIBUTION & PERFORMANCE — TOÀN CHU KỲ 2022-2025 (80 slots EXECUTE)")
+    print("ATTRIBUTION & PERFORMANCE — TOÀN CHU KỲ 2022-2025 (Selection v0, budget ceiling 20/năm)")
     print(f"Base vốn: {BASE_CAPITAL:.0f} VND | PIT strict | Budget 20/năm | H=20/60/120")
     print("READ-ONLY audit | 2022-2024 = IS evidence | 2025 = DESCRIPTIVE (OOS)")
     print("=" * 78, flush=True)
@@ -123,7 +123,7 @@ def main() -> None:
         all_trades.extend(trades)
         badge = "DESCRIPTIVE" if y == "2025" else "IS"
         print(
-            f"  {y} [{badge}]: resolved={n_resolved}/20 | {m['n']} trades | "
+            f"  {y} [{badge}]: resolved={n_resolved} | {m['n']} trades | "
             f"WinRate={m['win_rate']:.1f}% | Ret={m['total_return']:+.1f}% | "
             f"Sharpe={m['sharpe']:.3f} | MaxDD={m['max_drawdown']:.1f}% | "
             f"PF={m['profit_factor']:.2f} | Exp={m['expectancy']:+.2f}pp | "
