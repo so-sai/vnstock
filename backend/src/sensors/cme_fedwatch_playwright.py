@@ -52,8 +52,15 @@ WINDOWS_LAUNCH_FLAGS = [
 ]
 
 # Timeouts
-NAVIGATION_TIMEOUT_MS = 30_000
+# WHY 60s (2026-08-11): CME page ~5MB trước chặn resource; mạng giật lag khiến
+# `Page.goto` timeout 30s → defaults mỗi phiên. 60s dung hòa giữa độ trễ WAF
+# render và không chặn EOD pipeline quá lâu (có retry 1 lần bên dưới).
+NAVIGATION_TIMEOUT_MS = 60_000
 TABLE_WAIT_TIMEOUT_MS = 20_000
+
+# Retry: số lần thử lại tối đa khi `_fetch_cme_fedwatch_async` trả defaults
+# (timeout/đứt mạng tạm thời) — không retry vô hạn để EOD không treo.
+FETCH_RETRIES = 2  # 1 lần chạy đầu + 1 lần retry
 
 
 def _extract_fedwatch_from_table(table_el) -> tuple[float, float, str]:
@@ -191,24 +198,39 @@ async def _fetch_cme_fedwatch_async() -> tuple[float, float, str]:
                 logger.debug("Đóng Chromium browser thất bại (bỏ qua)")
 
 
-def fetch_cme_fedwatch() -> tuple[float, float, str, str]:
-    """Sync entry point used by world_sensor + tests.
-
-    Returns:
-        (implied_rate, hike_probability, next_meeting_label, source_tag)
-        source_tag = "cme_pw" on success, "default" on failure.
-    """
+def _run_async_once() -> tuple[float, float, str]:
+    """Chạy `_fetch_cme_fedwatch_async` một lần, chấp nhận caller trong event loop."""
     try:
-        rate, prob, meeting = asyncio.run(_fetch_cme_fedwatch_async())
+        return asyncio.run(_fetch_cme_fedwatch_async())
     except RuntimeError as e:
         # Caller already inside an event loop (e.g. some test runners) —
         # fall back to a manual run via asyncio.new_event_loop.
         logger.debug(f"asyncio.run blocked ({e}); using new event loop")
         loop = asyncio.new_event_loop()
         try:
-            rate, prob, meeting = loop.run_until_complete(_fetch_cme_fedwatch_async())
+            return loop.run_until_complete(_fetch_cme_fedwatch_async())
         finally:
             loop.close()
+
+
+def fetch_cme_fedwatch() -> tuple[float, float, str, str]:
+    """Sync entry point used by world_sensor + tests.
+
+    Retry loop (WHY 2026-08-11): `Page.goto` timeout/đứt mạng tạm thời trả
+    defaults ngay lần đầu — retry 1 lần với browser mới để né lag tạm thời.
+    Giới hạn `FETCH_RETRIES` để EOD không treo (resilience, không retry vô hạn).
+
+    Returns:
+        (implied_rate, hike_probability, next_meeting_label, source_tag)
+        source_tag = "cme_pw" on success, "default" on failure.
+    """
+    rate, prob, meeting = DEFAULT_FED_RATE, DEFAULT_HIKE_PROB, DEFAULT_MEETING
+    for attempt in range(1, FETCH_RETRIES + 1):
+        rate, prob, meeting = _run_async_once()
+        if not (meeting == DEFAULT_MEETING and prob == DEFAULT_HIKE_PROB):
+            break
+        if attempt < FETCH_RETRIES:
+            logger.warning(f"CME FedWatch attempt {attempt}/{FETCH_RETRIES} trả defaults — retry browser mới")
 
     if meeting == DEFAULT_MEETING and prob == DEFAULT_HIKE_PROB:
         return (rate, prob, meeting, "default")

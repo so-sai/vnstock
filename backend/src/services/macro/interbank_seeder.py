@@ -379,7 +379,11 @@ def _try_sbv(force: bool = False) -> dict:
             )
             ctx.add_init_script("""Object.defineProperty(navigator, 'webdriver', { get: () => undefined });""")
             page = ctx.new_page()
-            resp = page.goto(SBV_INTERBANK_URL, timeout=30000, wait_until="networkidle")
+            # WHY domcontentloaded thay vì networkidle (2026-08-11): SBV duy trì
+            # kết nối ngầm (long-lived/keep-alive) khiến `networkidle` không bao
+            # giờ đạt → Timeout 30s mỗi phiên. Chỉ cần DOM + JS render xong bảng;
+            # giữ wait_for_timeout(5000) bên dưới để JS render tĩnh hoàn tất.
+            resp = page.goto(SBV_INTERBANK_URL, timeout=30000, wait_until="domcontentloaded")
             page.wait_for_timeout(5000)
 
             # ── Bước 1: Kiểm tra HTTP status ──
