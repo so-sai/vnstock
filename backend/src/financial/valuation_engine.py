@@ -323,10 +323,13 @@ class ValuationEngine:
         latest_price = None
 
         for rname in ratio_names:
-            # Collect all values across periods
-            # WHY: z-score tính theo CHUỖI LỊCH SỬ nội tại của chính symbol (mean/std của mọi
-            # kỳ) thay vì ngưỡng tĩnh — mục tiêu là phát hiện "symbol đang rẻ hơn bình thường
-            # của chính nó", phù hợp cả với cổ phiếu tăng trưởng cao vốn có P/E luôn lớn.
+            # Collect all values across periods (sorted ascending)
+            # WHY: z-score tính theo CHUỖI LỊCH SỬ nội tại của chính symbol (mean/std của
+            # các kỳ) thay vì ngưỡng tĩnh — mục tiêu là phát hiện "symbol đang rẻ hơn bình
+            # thường của chính nó", phù hợp cả với cổ phiếu tăng trưởng cao vốn có P/E luôn
+            # lớn. QUAN TRỌNG (PIT): dùng EXPANDING WINDOW — mỗi kỳ chỉ tính mean/std/
+            # percentile trên các kỳ <= kỳ hiện tại, KHÔNG dùng tương lai → replay đọc
+            # period <= target_date nhận được z-score không nhiễm look-ahead.
             period_values = []
             for period in sorted(all_period_ratios.keys()):
                 v = all_period_ratios[period].get(rname)
@@ -336,12 +339,11 @@ class ValuationEngine:
             if len(period_values) < 1:
                 continue
 
-            vals = [v for _, v in period_values]
-            mean, std, n = self._compute_stats(vals)
-
-            for period, val in period_values:
+            for i, (period, val) in enumerate(period_values):
+                window = [v for _, v in period_values[: i + 1]]
+                mean, std, n = self._compute_stats(window)
                 z = (val - mean) / std if std > 0 else 0.0
-                pct = self._percentile(vals, val)
+                pct = self._percentile(window, val)
                 zone = self._classify_zone(rname, z)
                 price = all_period_ratios[period].get("_price")
                 if price:

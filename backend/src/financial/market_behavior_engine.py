@@ -94,19 +94,36 @@ class MarketBehaviorEngine:
         conn.close()
         print("  Schema OK: volume_profile + active_demand tables")
 
-    def get_ohlcv(self, symbol: str, days: int = 250) -> list[dict]:
+    def get_ohlcv(self, symbol: str, days: int = 250, as_of_date: str | None = None) -> list[dict]:
+        """Lấy OHLCV gần nhất (days) của symbol, tăng dần theo date.
+
+        PIT-safe: khi as_of_date được cung cấp, chỉ lấy các phiên <= as_of_date —
+        không nhìn tương lai (cần cho replay/backfill lịch sử).
+        """
         conn = self.screener_conn()
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT date, open, high, low, close, adj_close, volume
-            FROM daily_ohlcv
-            WHERE symbol = ?
-            ORDER BY date DESC
-            LIMIT ?
-        """,
-            (symbol.upper(), days),
-        )
+        if as_of_date:
+            cur.execute(
+                """
+                SELECT date, open, high, low, close, adj_close, volume
+                FROM daily_ohlcv
+                WHERE symbol = ? AND date <= ?
+                ORDER BY date DESC
+                LIMIT ?
+            """,
+                (symbol.upper(), as_of_date, days),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT date, open, high, low, close, adj_close, volume
+                FROM daily_ohlcv
+                WHERE symbol = ?
+                ORDER BY date DESC
+                LIMIT ?
+            """,
+                (symbol.upper(), days),
+            )
         rows = cur.fetchall()
         conn.close()
         result = []
@@ -135,8 +152,8 @@ class MarketBehaviorEngine:
             trs.append(max(hl, hc, lc))
         return sum(trs) / len(trs)
 
-    def compute_volume_profile(self, symbol: str, window: int = 60) -> dict | None:
-        data = self.get_ohlcv(symbol, days=window + 200)
+    def compute_volume_profile(self, symbol: str, window: int = 60, as_of_date: str | None = None) -> dict | None:
+        data = self.get_ohlcv(symbol, days=window + 200, as_of_date=as_of_date)
         if len(data) < window:
             return None
 
@@ -264,12 +281,12 @@ class MarketBehaviorEngine:
             "range_pct": (vah - val) / val * 100 if val > 0 else 0,
         }
 
-    def scan_active_demand(self, symbol: str, lookback: int = 20) -> list[dict]:
-        data = self.get_ohlcv(symbol, days=lookback + 60)
+    def scan_active_demand(self, symbol: str, lookback: int = 20, as_of_date: str | None = None) -> list[dict]:
+        data = self.get_ohlcv(symbol, days=lookback + 60, as_of_date=as_of_date)
         if len(data) < 60:
             return []
 
-        vp = self.compute_volume_profile(symbol)
+        vp = self.compute_volume_profile(symbol, as_of_date=as_of_date)
         if not vp:
             return []
 
