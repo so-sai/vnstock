@@ -119,12 +119,17 @@ def main() -> None:
     ap.add_argument("--budget", type=int, default=BUDGET)
     ap.add_argument("--daily-cap", type=int, default=DAILY_CAP)
     ap.add_argument("--p-gain-min", type=float, default=P_GAIN_MIN)
+    ap.add_argument(
+        "--db-prefix",
+        default="replay",
+        help="Tiền tố tên DB trong data/replays (vd 'replay_58' -> replay_58_2022.db)",
+    )
     args = ap.parse_args()
 
     years = YEARS if args.years == "all" else tuple(y for y in args.years.split(",") if y in YEARS)
 
     for y in years:
-        db = DATA / f"replay_{y}.db"
+        db = DATA / f"{args.db_prefix}_{y}.db"
         if not db.exists():
             print(f"[SKIP] {db.name} không tồn tại")
             continue

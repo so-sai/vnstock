@@ -43,6 +43,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 SCREENER_DB = DATA_DIR / "screener_cache.db"
 LEDGER_DB = DATA_DIR / "calibration.db"
+FINANCIAL_FACTS_DB = DATA_DIR / "financial_facts.db"
 ADV_MIN = 50000
 MAX_WORKERS_DEFAULT = 12
 
@@ -279,6 +280,7 @@ def replay(
     workers: int = MAX_WORKERS_DEFAULT,
     sample_every: int = 1,
     db_path=None,
+    fixed_universe: list[str] | None = None,
 ) -> dict:
     """Replay toàn bộ window. Returns summary dict."""
     from calibration.evidence_ledger import init_schema
@@ -293,9 +295,9 @@ def replay(
     # Pre-compute universe per day (single-pass, avoids recompute in workers)
     day_universe = {}
     for d in days:
-        day_universe[d] = get_universe_adv20(d, db_path)
+        day_universe[d] = fixed_universe if fixed_universe else get_universe_adv20(d, db_path)
     total_calls = sum(len(v) for v in day_universe.values())
-    print(f"Total assess calls: {total_calls} (universe ADV>={ADV_MIN})")
+    print(f"Total assess calls: {total_calls} (universe={'FIXED_58' if fixed_universe else f'ADV>={ADV_MIN}'})")
 
     t0 = time.time()
     done = 0
@@ -354,7 +356,30 @@ if __name__ == "__main__":
     ap.add_argument("--budget", type=int, default=20)
     ap.add_argument("--workers", type=int, default=MAX_WORKERS_DEFAULT)
     ap.add_argument("--sample-every", type=int, default=1, help="Chỉ chạy mỗi N phiên")
+    ap.add_argument(
+        "--core-58",
+        action="store_true",
+        help="Giới hạn universe về mã có BCTC (financial_facts.db), loại mã không có OHLCV trong cửa sổ replay",
+    )
     args = ap.parse_args()
+
+    fixed_universe = None
+    if args.core_58:
+        _conn = sqlite3.connect(str(FINANCIAL_FACTS_DB))
+        candidates = [r[0] for r in _conn.execute("SELECT DISTINCT symbol FROM financial_facts ORDER BY symbol")]
+        _conn.close()
+        # Chỉ giữ mã có ít nhất 1 phiên OHLCV trong [start, end] — loại mã mới
+        # niêm yết không có lịch sử (DMX) theo luật no-data=không xét.
+        _price_conn = sqlite3.connect(str(SCREENER_DB))
+        fixed_universe = []
+        for sym in candidates:
+            has = _price_conn.execute(
+                "SELECT 1 FROM daily_ohlcv WHERE symbol=? AND date BETWEEN ? AND ? LIMIT 1",
+                (sym, args.start, args.end),
+            ).fetchone()
+            if has:
+                fixed_universe.append(sym)
+        _price_conn.close()
     replay(
         args.start,
         args.end,
@@ -362,4 +387,5 @@ if __name__ == "__main__":
         budget=args.budget,
         workers=args.workers,
         sample_every=args.sample_every,
+        fixed_universe=fixed_universe,
     )

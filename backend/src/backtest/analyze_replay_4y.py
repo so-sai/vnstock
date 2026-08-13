@@ -20,6 +20,7 @@ Output assumptions:
 
 from __future__ import annotations
 
+import argparse
 import math
 import sqlite3
 import sys
@@ -104,6 +105,9 @@ def metrics(trades: list[dict]) -> dict:
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(description="Attribution & Performance 2022-2025")
+    ap.add_argument("--db-prefix", default="replay", help="Tiền tố DB trong data/replays")
+    args = ap.parse_args()
     print("=" * 78)
     print("ATTRIBUTION & PERFORMANCE — TOÀN CHU KỲ 2022-2025 (Selection v0, budget ceiling 20/năm)")
     print(f"Base vốn: {BASE_CAPITAL:.0f} VND | PIT strict | Budget 20/năm | H=20/60/120")
@@ -112,7 +116,7 @@ def main() -> None:
 
     all_trades = []
     for y in YEARS:
-        db = DATA / f"replay_{y}.db"
+        db = DATA / f"{args.db_prefix}_{y}.db"
         if not db.exists():
             print(f"  [SKIP] {db.name} không tồn tại", flush=True)
             continue
