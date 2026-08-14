@@ -192,6 +192,10 @@ LR_VALUATION = {
     "FAIR": 1.00,
     "EXPENSIVE": 0.60,
     "ULTRA_EXPENSIVE": 0.30,
+    # NO_DATA phải KHÁC FAIR về evidence: thiếu dữ liệu định giá (chưa đủ 12 quý
+    # history / không có ratio) không được trở thành tín hiệu trung tính giả LR=1.0.
+    # Đặt LR < 1 để kéo posterior xuống (giảm kỳ vọng khi không có bằng chứng định giá).
+    "NO_DATA": 0.85,
 }
 
 # ── MoS Zone taxonomy (CSI v2 — Absolute Value First) ───────────

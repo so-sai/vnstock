@@ -208,13 +208,30 @@ class ValuationEngine:
         eps = period_metrics.get("EPS")
         shares = period_metrics.get("SHARES_OUT")
         bvps = period_metrics.get("BOOK_VALUE_PS")
+        # SHARES_OUT proxy từ vốn điều lệ (BS): mệnh giá chuẩn TTCK VN = 10.000đ/cp.
+        # WHY: vnstock VCI/KBS không trả item "số cổ phiếu lưu hành" trực tiếp trong BCTC
+        # (probe 2026-08-14), nhưng BS có charter_capital/paid_in_capital. Chia cho mệnh
+        # giá 10.000đ → số cổ phiếu. Chỉ dùng khi metric gốc vắng; nếu cả 2 đều thiếu →
+        # shares=None → PB/PS không tính được (NO_DATA, không bịa).
+        if not shares:
+            cc = period_metrics.get("CHARTER_CAPITAL")
+            if cc and cc > 0:
+                shares = cc / 10000.0
         # Fallback BVPS = Equity / Shares
         if not bvps and shares:
             eq = period_metrics.get("TOTAL_EQUITY")
             if eq:
                 bvps = eq / shares
         revenue = period_metrics.get("REVENUE") or period_metrics.get("NII")
+        # EBITDA proxy = OPERATING_PROFIT + DEPRECIATION_AMORTIZATION (CF).
+        # WHY: VCI/KBS IS không có item ebitda (probe 2026-08-14) — mapping đã tồn tại
+        # nhưng payload không trả. EBIT + D&A là công thức chuẩn; D&A lấy từ cashflow.
         ebitda = period_metrics.get("EBITDA")
+        if not ebitda:
+            op = period_metrics.get("OPERATING_PROFIT")
+            da = period_metrics.get("DEPRECIATION_AMORTIZATION")
+            if op and da:
+                ebitda = op + da
         cash = period_metrics.get("CASH_EQUIV") or period_metrics.get("CASH_AND_BALANCES")
         debt = period_metrics.get("TOTAL_DEBT")
 
@@ -339,6 +356,30 @@ class ValuationEngine:
             if len(period_values) < 1:
                 continue
 
+            # Time-series z-score (TS) — intrinsic valuation vs symbol's own history.
+            # WHY: TS là PRIMARY valuation method theo thiết kế (44a8cf1) nhưng từng bị
+            # clear khi backfill chạy clear_scores() + compute_valuation() vì engine không
+            # bao giờ điền cột TS. Khôi phục tại nguồn:
+            #   z_ts,t = (x_t - mu_{<t}) / sigma_{<t}   (STRICTLY-PAST window)
+            # với mu/sigma tính trên các kỳ TRƯỚC period hiện tại (KHÔNG gồm observation
+            # hiện tại), yêu cầu >= 12 quý history. Khác với CS expanding inclusive
+            # (z_score) → TS đo "rẻ/đắt so với quá khứ của chính nó tại thời điểm đó",
+            # tạo dispersion thật thay vì trùng z_score. Nếu chưa đủ history -> NULL
+            # (NO_DATA), KHÔNG fallback giả thành FAIR — thiếu dữ liệu phải là tín hiệu
+            # khác biệt, không phải trung tính giả.
+            TS_MIN_QUARTERS = 12
+            ts_stats = {}
+            for idx, (_per, _v) in enumerate(period_values):
+                past = [v for _, v in period_values[:idx]]
+                if len(past) >= TS_MIN_QUARTERS:
+                    m, s, nn = self._compute_stats(past)
+                    if s > 0:
+                        ts_stats[_per] = (round(m, 4), round(s, 4), nn)
+                    else:
+                        ts_stats[_per] = (None, None, nn)
+                else:
+                    ts_stats[_per] = (None, None, len(past))
+
             for i, (period, val) in enumerate(period_values):
                 window = [v for _, v in period_values[: i + 1]]
                 mean, std, n = self._compute_stats(window)
@@ -349,6 +390,15 @@ class ValuationEngine:
                 if price:
                     latest_price = price
 
+                # TS z-score tại period này (strictly-past window, PIT-safe)
+                ts_mean, ts_std, ts_n = ts_stats.get(period, (None, None, None))
+                if ts_mean is not None and ts_std is not None:
+                    z_ts = round((val - ts_mean) / ts_std, 4)
+                    zone_ts = self._classify_zone(rname, z_ts)
+                else:
+                    z_ts = None
+                    zone_ts = None  # NO_DATA: chưa đủ 12 quý history, không ép FAIR
+
                 fy = int(period[:4])
                 fq = int(period[5:6])
                 conn.execute(
@@ -356,8 +406,9 @@ class ValuationEngine:
                     INSERT OR REPLACE INTO valuation_scores
                         (symbol, period, fiscal_year, fiscal_quarter,
                          entity_type, ratio_name, ratio_value, z_score,
-                         percentile, mean, std, count, zone, price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         percentile, mean, std, count, zone, price,
+                         z_score_ts, zone_ts, mean_5y, std_5y, count_5y)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         symbol.upper(),
@@ -374,6 +425,11 @@ class ValuationEngine:
                         n,
                         zone,
                         price,
+                        z_ts,
+                        zone_ts,
+                        ts_mean,
+                        ts_std,
+                        ts_n,
                     ),
                 )
                 results.append(
@@ -384,6 +440,9 @@ class ValuationEngine:
                         "z_score": round(z, 2),
                         "percentile": round(pct, 1),
                         "zone": zone,
+                        "z_score_ts": z_ts,
+                        "zone_ts": zone_ts,
+                        "ts_count": ts_n,
                     }
                 )
 
