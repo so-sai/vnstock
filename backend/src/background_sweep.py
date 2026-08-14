@@ -22,7 +22,7 @@ def _hydrate_path():
 
 
 PROJECT_ROOT = _hydrate_path()
-from src.database.db_core import get_connection
+from src.database.db_core import get_connection, save_data_upsert
 from src.providers.vnstock_provider import VnstockProvider
 
 
@@ -77,9 +77,10 @@ def run_background_sweep():
                     cols = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
                     df_hist = df_hist[cols]
 
-                    # Persistence
+                    # Persistence — dùng save_data_upsert (INGESTION SCALE GUARD
+                    # ép VND-scale ×1000 tại biên nạp; to_sql raw trước đây bypass guard).
                     with get_connection() as conn:
-                        df_hist.to_sql("daily_ohlcv", conn, if_exists="append", index=False)
+                        save_data_upsert("daily_ohlcv", df_hist, conn)
 
                     success_count += 1
                     print("✅", flush=True)
