@@ -17,8 +17,8 @@ import statistics
 YEARS = ("2022", "2023", "2024", "2025")
 
 
-def load(year: str) -> list[dict]:
-    conn = sqlite3.connect(str(DATA / f"replay_58_{year}.db"))
+def load(year: str, db_prefix: str = "replay_58") -> list[dict]:
+    conn = sqlite3.connect(str(DATA / f"{db_prefix}_{year}.db"))
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
@@ -53,8 +53,14 @@ def summarize(rows, label):
 
 
 def main() -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Selection diagnostic (READ-ONLY)")
+    ap.add_argument("--db-prefix", default="replay_58", help="Tiền tố DB trong data/replays")
+    args = ap.parse_args()
+
     for y in YEARS:
-        rows = load(y)
+        rows = load(y, args.db_prefix)
         print("=" * 80)
         print(f"  {y} — total rows={len(rows)}")
         deploy = [r for r in rows if r["action"] in ("OPEN", "SCALE_IN")]
