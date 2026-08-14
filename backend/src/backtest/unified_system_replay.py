@@ -170,6 +170,75 @@ def _get_sector(conn: sqlite3.Connection, symbol: str) -> str | None:
     return VIETNAMESE_SECTOR_MAP.get(row[0])
 
 
+# ── GATE 2 (Fundamental Spread Gate) — Steel Crack Spread bottom confirmation ──
+# Chỉ kích hoạt cho nhóm Thép/Kim loại (sector STEEL). Ngành khác pass-through.
+STEEL_SECTOR = "STEEL"
+SPREAD_BOTTOM_MIN_POINTS = 3  # ~3 mốc công bố (= 3-4 tuần với chu kỳ tuần)
+
+
+def _steel_spread_series_pit(conn: sqlite3.Connection, as_of_date: str, lookback_points: int = 20) -> list[tuple[str, float]]:
+    """Build a PIT-clean (date, crack_spread) series, latest <= as_of_date.
+
+    Each distinct macro_history date forms a candidate point; the spread at that
+    date reflects the component values as-of that date (no look-ahead).
+    """
+    from src.services.macro.commodity_service import (
+        DEFAULT_COAL_VAR,
+        DEFAULT_HRC_VAR,
+        DEFAULT_ORE_VAR,
+        get_steel_crack_spread,
+    )
+
+    rows = conn.execute(
+        "SELECT DISTINCT date FROM macro_history WHERE variable IN (?,?,?) AND date <= ? ORDER BY date",
+        (DEFAULT_HRC_VAR, DEFAULT_ORE_VAR, DEFAULT_COAL_VAR, as_of_date),
+    ).fetchall()
+    if not rows:
+        return []
+    series: list[tuple[str, float]] = []
+    for (d,) in rows[-lookback_points:]:
+        res = get_steel_crack_spread(conn, as_of_date=d, is_live=False)
+        if res is not None:
+            series.append((d, res.crack_spread))
+    return series
+
+
+def _spread_bottom_confirmed(series: list[tuple[str, float]], min_points: int = SPREAD_BOTTOM_MIN_POINTS) -> bool:
+    """Confirm a bottom: spread stopped falling and expanded >= min_points mốc liên tiếp.
+
+    Rules (PIT, fail-closed):
+      - need >= min_points+1 points in the trailing window
+      - the window minimum must sit >= min_points positions before the latest point
+      - latest value must be strictly above the low (recovery, not new-low)
+      - every point after the low must be >= its predecessor (sustained expansion)
+    """
+    if len(series) < min_points + 1:
+        return False
+    window = [s for _, s in series[-(min_points + 1) :]]
+    low = min(window)
+    low_idx = window.index(low)
+    if (len(window) - 1) - low_idx < min_points:
+        return False
+    if window[-1] <= low:
+        return False
+    rebound = window[low_idx:]
+    return all(rebound[i] >= rebound[i - 1] for i in range(1, len(rebound)))
+
+
+def _steel_spread_gate(conn: sqlite3.Connection, sector: str | None, as_of_date: str) -> bool:
+    """Gate 2 entry: only STEEL sector is gated; others pass-through.
+
+    Returns False (INSUFFICIENT_DATA / fail-closed) when spread data is missing
+    or no bottom confirmed — never blocks non-steel symbols.
+    """
+    if sector != STEEL_SECTOR:
+        return True
+    series = _steel_spread_series_pit(conn, as_of_date)
+    if not series:
+        return False
+    return _spread_bottom_confirmed(series)
+
+
 def _compute_scores_for_date(conn, target_date, macro_engine, lag_engine, ix_engine, matrix, macro_cache):
     """Compute A/B/C scores for all sectors on one date."""
     if macro_cache and macro_cache["date"] == target_date:
@@ -1268,6 +1337,12 @@ def run_multi_factor_backtest(start="2021-04-01", end="2026-08-04", db_path=None
                         stocks = [s for s in UNIVERSE if _get_sector(conn, s) == sect]
                         for sym in stocks[:2]:
                             if _vn20_gate(conn, sym, date):
+                                # GATE 2 (Fundamental Spread Gate): Steel-only bottom
+                                # confirmation. Fail-closed: thiếu dữ liệu spread hoặc
+                                # chưa xác nhận đáy >= 3 mốc => chặn mua ngành Thép.
+                                sym_sector = _get_sector(conn, sym)
+                                if not _steel_spread_gate(conn, sym_sector, date):
+                                    continue
                                 fund_score = _get_fundamental_score(conn, sym, date)
                                 behav_score = _get_behavioral_score(conn, sym, date)
                                 alpha_score = _get_momentum_score(conn, sym, date)
