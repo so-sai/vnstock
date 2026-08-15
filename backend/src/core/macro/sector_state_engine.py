@@ -122,8 +122,12 @@ class SectorStateEngine:
         report = engine.analyze()
     """
 
-    def __init__(self):
+    def __init__(self, fin_db_path: Path | None = None):
         self._dir = SECTOR_DIR
+        # Injectable để test với DB tạm; mặc định là financial_facts.db thật.
+        # WHY: trước đây cứng hóa path bên trong _compute_health/_compute_valuation
+        # khiến không thể test cô lập và dễ lệch path khi cấu trúc repo đổi.
+        self._fin_db_path = Path(fin_db_path) if fin_db_path else (DATA_DIR / "financial_facts.db")
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -179,13 +183,13 @@ class SectorStateEngine:
             momentum = self._compute_momentum(conn, symbols)
 
             # 2. Health: aggregate from financial_facts health_ratios
-            health = self._compute_health(conn, symbols)
+            health = self._compute_health(symbols)
 
             # 3. Flow: volume intensity relative to market
             flow = self._compute_flow(conn, symbols)
 
             # 4. Valuation: avg z-score from financial_facts valuation_scores
-            valuation = self._compute_valuation(conn, symbols)
+            valuation = self._compute_valuation(symbols)
 
             # 5. RS vs VNINDEX
             rs = self._compute_rs_vs_index(conn, symbols)
@@ -249,33 +253,85 @@ class SectorStateEngine:
         return float(np.clip(latest.mean(), -0.5, 0.5) / 0.5)  # normalize [-0.5,0.5] → [-1,1]
 
     @staticmethod
-    def _compute_health(conn, symbols: list[str]) -> float:
-        """Aggregate health scores from financial_facts health_ratios."""
+    def _period_at(now=None) -> str:
+        """Current quarter anchor 'YYYYQx' từ ngày hiện tại."""
+        dt = now or datetime.now()
+        return f"{dt.year}Q{(dt.month - 1) // 3 + 1}"
+
+    def _compute_health(self, symbols: list[str]) -> float:
+        """Aggregate health scores from financial_facts.health_ratios.
+
+        Schema thật: health_ratios(symbol, period, ratio_name, ratio_value).
+        Lấy kỳ báo cáo gần nhất <= anchor quarter (PIT), tổng hợp composite
+        từ các ratio cốt lõi (ROE annualized, GROSS_MARGIN, DEBT_TO_EQUITY)
+        theo cùng quy ước chuẩn hóa của _get_financial_score trong replay.
+
+        Fail-safe (BUG-001): thiếu bảng / thiếu dữ liệu → trả 0.0 (NEUTRAL),
+        không crash CLI. Trước đây truy vấn cột `score`/`date` không tồn tại.
+        """
         if not symbols:
             return 0.0
+        fin_path = self._fin_db_path
+        if not fin_path.exists():
+            logger.warning("_compute_health: financial_facts.db thiếu — NEUTRAL 0.0")
+            return 0.0
         placeholders = ",".join("?" * len(symbols))
+        anchor_q = self._period_at()
         try:
-            get_connection()  # same screener_cache, health_ratios in financial_facts.db
-            # health_ratios is in financial_facts.db, need separate connection
-            fin_conn = None
-            fin_path = Path(str(PROJECT_ROOT)) / "backend" / "data" / "financial_facts.db"
-            if fin_path.exists():
-                import sqlite3
-
-                fin_conn = sqlite3.connect(str(fin_path))
+            fin_conn = sqlite3.connect(str(fin_path))
+            try:
                 df = pd.read_sql(
-                    f"SELECT symbol, score FROM health_ratios "
-                    f"WHERE symbol IN ({placeholders}) "
-                    f"AND date = (SELECT MAX(date) FROM health_ratios WHERE symbol IN ({placeholders}))",
+                    f"SELECT symbol, period, ratio_name, ratio_value FROM health_ratios "
+                    f"WHERE symbol IN ({placeholders}) AND period <= ? "
+                    f"ORDER BY period",
                     fin_conn,
-                    params=symbols + symbols,
+                    params=symbols + [anchor_q],
                 )
+            finally:
                 fin_conn.close()
-                if not df.empty:
-                    return float(np.clip(df["score"].mean(), -1.0, 1.0))
         except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             logger.debug(f"Health fetch failed for sector: {e}")
-        return 0.0
+            return 0.0
+        if df.empty:
+            logger.warning("_compute_health: không có health_ratios cho ngành — NEUTRAL 0.0")
+            return 0.0
+
+        # Chỉ giữ kỳ báo cáo mới nhất cho từng (symbol, ratio_name) — PIT.
+        df = df.sort_values("period")
+        latest = df.groupby(["symbol", "ratio_name"]).last().reset_index()
+        latest["value"] = pd.to_numeric(latest["ratio_value"], errors="coerce")
+
+        def _norm(row):
+            r, v = row["ratio_name"], row["value"]
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                return None
+            if r == "ROE":
+                return float(np.clip(v * 4 / 0.30, 0.0, 1.0))  # quarterly → annualized
+            if r == "GROSS_MARGIN":
+                return float(np.clip(v / 0.50, 0.0, 1.0))
+            if r == "DEBT_TO_EQUITY":
+                return float(np.clip(1.0 - v / 3.0, 0.0, 1.0))
+            return None
+
+        latest["norm"] = latest.apply(_norm, axis=1)
+        latest = latest.dropna(subset=["norm"])
+
+        # Composite per symbol: ROE 0.4 + GM 0.3 + D/E 0.3 (đồng bộ replay).
+        weights = {"ROE": 0.4, "GROSS_MARGIN": 0.3, "DEBT_TO_EQUITY": 0.3}
+        per_symbol = []
+        for sym, grp in latest.groupby("symbol"):
+            wsum = sum(weights.get(r, 0.0) for r in grp["ratio_name"])
+            if wsum <= 0:
+                continue
+            comp = sum(weights.get(r, 0.0) * v for r, v in zip(grp["ratio_name"], grp["norm"])) / wsum
+            per_symbol.append(float(comp))
+        if not per_symbol:
+            logger.warning("_compute_health: ratios rỗng cho ngành — NEUTRAL 0.0")
+            return 0.0
+
+        # [0,1] → [-1,1] để đồng trục với các pillar khác.
+        composite = float(np.mean(per_symbol))
+        return float(np.clip(composite * 2.0 - 1.0, -1.0, 1.0))
 
     @staticmethod
     def _compute_flow(conn, symbols: list[str]) -> float:
@@ -314,35 +370,53 @@ class SectorStateEngine:
             logger.debug(f"Flow fetch failed: {e}")
             return 0.0
 
-    @staticmethod
-    def _compute_valuation(conn, symbols: list[str]) -> float:
-        """Average valuation z-score from financial_facts valuation_scores."""
+    def _compute_valuation(self, symbols: list[str]) -> float:
+        """Average valuation z-score from financial_facts.valuation_scores.
+
+        Schema thật: valuation_scores(symbol, period, ratio_name, z_score, ...).
+        Lấy z_score kỳ gần nhất <= anchor quarter (PIT), trung bình theo ngành.
+        z < 0 = rẻ → valuation dương; z > 0 = đắt → valuation âm.
+
+        Fail-safe (BUG-001): thiếu bảng / thiếu dữ liệu → trả 0.0 (NEUTRAL),
+        không crash CLI. Trước đây truy vấn cột `score`/`date` không tồn tại.
+        """
         if not symbols:
             return 0.0
+        fin_path = self._fin_db_path
+        if not fin_path.exists():
+            logger.warning("_compute_valuation: financial_facts.db thiếu — NEUTRAL 0.0")
+            return 0.0
         placeholders = ",".join("?" * len(symbols))
+        anchor_q = self._period_at()
         try:
-            fin_path = Path(str(PROJECT_ROOT)) / "backend" / "data" / "financial_facts.db"
-            if not fin_path.exists():
-                return 0.0
-            import sqlite3
-
             fin_conn = sqlite3.connect(str(fin_path))
-            df = pd.read_sql(
-                f"SELECT symbol, score FROM valuation_scores "
-                f"WHERE symbol IN ({placeholders}) "
-                f"AND date = (SELECT MAX(date) FROM valuation_scores WHERE symbol IN ({placeholders}))",
-                fin_conn,
-                params=symbols + symbols,
-            )
-            fin_conn.close()
-            if df.empty:
-                return 0.0
-            return float(np.clip(-df["score"].mean(), -1.0, 1.0))
-            # Negative: z-score < 0 = cheap → positive valuation score
-            # Positive: z-score > 0 = expensive → negative valuation score
+            try:
+                df = pd.read_sql(
+                    f"SELECT symbol, period, z_score FROM valuation_scores "
+                    f"WHERE symbol IN ({placeholders}) AND period <= ? "
+                    f"AND z_score IS NOT NULL ORDER BY period",
+                    fin_conn,
+                    params=symbols + [anchor_q],
+                )
+            finally:
+                fin_conn.close()
         except (sqlite3.Error, TypeError, ValueError, KeyError, IndexError) as e:
             logger.debug(f"Valuation fetch failed: {e}")
             return 0.0
+        if df.empty:
+            logger.warning("_compute_valuation: không có valuation_scores cho ngành — NEUTRAL 0.0")
+            return 0.0
+
+        # Chỉ giữ kỳ báo cáo mới nhất cho từng symbol — PIT.
+        latest = df.sort_values("period").groupby("symbol").last()
+        z_vals = pd.to_numeric(latest["z_score"], errors="coerce").dropna()
+        if z_vals.empty:
+            logger.warning("_compute_valuation: z_score rỗng cho ngành — NEUTRAL 0.0")
+            return 0.0
+        mean_z = float(np.mean(z_vals))
+        # Negative: z-score < 0 = cheap → positive valuation score
+        # Positive: z-score > 0 = expensive → negative valuation score
+        return float(np.clip(-mean_z, -1.0, 1.0))
 
     @staticmethod
     def _compute_rs_vs_index(conn, symbols: list[str]) -> float:
