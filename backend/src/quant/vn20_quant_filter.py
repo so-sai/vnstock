@@ -755,9 +755,13 @@ def run_vn20_filter(top_n: int | None = None, verbose: bool = True) -> dict:
 
     # Universe: all symbols with health data
     universe = [r["symbol"] for r in fin.execute("SELECT DISTINCT symbol FROM health_ratios ORDER BY symbol").fetchall()]
+    # WHY: entity_type phải lấy từ entity_registry (nguồn chuẩn 4 khung) thay vì
+    # health_ratios GROUP BY — health_ratios có thể lưu cả rows BANK lẫn STANDARD
+    # cho cùng symbol qua các lần compute khác nhau → GROUP BY trả entity_type
+    # không xác định (SQLite lấy row đầu), dẫn tới xét nhầm chuẩn non-bank cho
+    # ngân hàng. Registry là nguồn duy nhất đã được register_entity đảm bảo.
     entity_map = {
-        r["symbol"]: r["entity_type"]
-        for r in fin.execute("SELECT symbol, entity_type FROM health_ratios GROUP BY symbol").fetchall()
+        r["symbol"]: r["entity_type"] for r in fin.execute("SELECT symbol, entity_type FROM entity_registry").fetchall()
     }
 
     # Sector mapping (screener_cache)

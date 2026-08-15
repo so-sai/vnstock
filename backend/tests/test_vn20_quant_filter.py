@@ -662,3 +662,33 @@ class TestTier4DynamicMosIntegration:
         conn.execute("INSERT INTO valuation_scores VALUES ('DGC','2026Q2','PE',-1.5)")
         r = vf.tier4_valuation_mos(conn, "DGC")
         assert r["mos_threshold"] == vf.get_dynamic_mos_threshold("RANGING", None)
+
+
+# ── BUG: entity_map đọc health_ratios GROUP BY → ngân hàng bị xét chuẩn non-bank ──
+
+
+class TestEntityMapRegistrySource:
+    """entity_map phải lấy từ entity_registry (nguồn chuẩn 4 khung), không phải
+    health_ratios GROUP BY — health_ratios có thể chứa cả rows BANK lẫn STANDARD
+    cho cùng symbol qua các lần compute khác nhau khiến GROUP BY trả entity_type
+    không xác định, ngân hàng bị T1 xét chuẩn non-bank (D/E, Gross margin)."""
+
+    def test_bank_entity_uses_bank_standards_in_tier1(self):
+        """BANK: không yêu cầu CFO/D/E/GM — dùng NPL/NIM/CAR. ROE ≥15% → PASS."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.043) for y in (2024, 2025, 2026) for q in range(1, 5)]
+        seed_health(conn, "VCB", "ROE", qs)
+        # Bank chuẩn: không có GROSS_MARGIN/D/E — nhưng BANK branch không đòi.
+        r = vf.tier1_buffett_quality(conn, "VCB", "BANK", vf._periods_n_years("2026Q2", 3))
+        assert r["is_bank"] is True
+        assert r["pass"] is True, f"VCB(BANK) phải PASS, got {r['reasons']}"
+
+    def test_standard_entity_still_requires_cfo_de_gm(self):
+        """STANDARD: vẫn đòi CFO/D/E/GM — thiếu → FAIL (regression guard cho nhánh cũ)."""
+        conn = make_conn()
+        qs = [(f"{y}Q{q}", 0.065) for y in (2024, 2025, 2026) for q in range(1, 5)]
+        seed_health(conn, "FPT", "ROE", qs)
+        r = vf.tier1_buffett_quality(conn, "FPT", "STANDARD", vf._periods_n_years("2026Q2", 3))
+        assert r["is_bank"] is False
+        assert r["pass"] is False
+        assert any("missing" in reason for reason in r["reasons"]), r["reasons"]
