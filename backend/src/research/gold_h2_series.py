@@ -186,10 +186,15 @@ def validate_contract(conn: sqlite3.Connection) -> dict:
     ).fetchone()[0]
     checks["source_provenance"] = (bad == 0, f"{bad} violation(s)")
 
-    # 5. Duplicate (series, entity, obs, source) — chặn từ UNIQUE index
+    # 5. Duplicate (series, entity, obs, source, publication) — chặn từ UNIQUE
+    #    index. Vintage ladder (nhiều publication_date cho cùng obs) là HỢP LỆ
+    #    (guardrail 3: revision bảo toàn) → group theo COALESCE(pub,'').
     dup = conn.execute(
-        f"SELECT series, entity, observation_date, source, COUNT(*) c "
-        f"FROM {TABLE_NAME} GROUP BY series, entity, observation_date, source "
+        f"SELECT series, entity, observation_date, source, "
+        f"COALESCE(publication_date, ''), COUNT(*) c "
+        f"FROM {TABLE_NAME} "
+        f"GROUP BY series, entity, observation_date, source, "
+        f"COALESCE(publication_date, '') "
         f"HAVING c > 1"
     ).fetchall()
     checks["no_dup_obs_source"] = (len(dup) == 0, f"{len(dup)} duplicate group(s)")
