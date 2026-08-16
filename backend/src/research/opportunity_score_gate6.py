@@ -101,6 +101,7 @@ def simulate(
     dedup: bool = False,
     hold: int = HOLD,
     cost: float = TRANSACTION_COST,
+    pacing: dict | None = None,
 ) -> dict:
     """Chạy 1 config: selection theo M_value → mở position → giữ `hold` phiên.
 
@@ -111,6 +112,15 @@ def simulate(
         dedup: mỗi symbol EXECUTE tối đa 1 lần/năm (Branch B).
         hold: số phiên giữ position.
         cost: round-trip transaction cost (mặc định TRANSACTION_COST).
+        pacing: Temporal Slot Allocation (Gate 8) — dict chọn cơ chế pacing,
+            tất cả đều GIỮ budget là ceiling (không nới, không ép dùng hết):
+              {"quarter_cap": int}            → max EXECUTE/quý, không dồn quý sau.
+              {"min_spacing": int}            → tối thiểu N phiên giữa 2 EXECUTE.
+              {"hurdle": (start, end)}        → ngưỡng M_value lũy tiến theo
+                remaining/budget: còn nhiều slot → start (gắt), cạn → end (floor).
+              {"regime_month_cap": {reg: int}}→ max EXECUTE/tháng theo regime trong
+                ngày (RANGING chậm, CRISIS/TRENDING nhanh hơn).
+            Có thể kết hợp nhiều key; None = hành vi Gate 6/7 (baseline).
 
     Trả về dict tổng hợp (trade + NAV + concentration + regime + overlap).
     """
@@ -135,6 +145,13 @@ def simulate(
     remaining = budget if budget is not None else math.inf
     cur_year: str | None = None
 
+    # ── pacing state (Gate 8: Temporal Slot Allocation) ──────────────────
+    if pacing:
+        q_counter: dict[tuple[str, int], int] = defaultdict(int)  # (year, quarter)
+        m_counter: dict[tuple[str, int], int] = defaultdict(int)  # (year, month)
+        r_counter: dict[tuple[str, str, int], int] = defaultdict(int)  # (regime, year, month)
+        last_exec_idx: int | None = None  # index phiên EXECUTE gần nhất (min_spacing)
+
     for idx, date in enumerate(dates):
         g = by_date[date]
         if len(g) < MIN_SYMBOLS_PER_DAY:
@@ -148,17 +165,44 @@ def simulate(
             cur_year = year
             if budget is not None:
                 remaining = budget
+            last_exec_idx = None
 
         # ── selection ────────────────────────────────────────────────────
         top = g.sort_values("M_value_all", ascending=False)
         if dedup:
             top = top[~top["symbol"].isin(executed_year[year])]
 
+        # ── pacing gates (Gate 8: Temporal Slot Allocation) ──────────────
+        pacing_blocked = False
+        hurdle = None
+        if pacing:
+            month = int(date[5:7])
+            quarter = (month - 1) // 3 + 1
+            regime_today = str(g["regime"].iloc[0]) if "regime" in g.columns and g["regime"].notna().any() else "UNKNOWN"
+
+            if "quarter_cap" in pacing and q_counter[(year, quarter)] >= pacing["quarter_cap"]:
+                pacing_blocked = True
+            if not pacing_blocked and "min_spacing" in pacing and last_exec_idx is not None:
+                if idx - last_exec_idx < pacing["min_spacing"]:
+                    pacing_blocked = True
+            if not pacing_blocked and "regime_month_cap" in pacing:
+                cap = pacing["regime_month_cap"].get(regime_today)
+                if cap is not None and r_counter[(regime_today, year, month)] >= cap:
+                    pacing_blocked = True
+            if "hurdle" in pacing:
+                start, end = pacing["hurdle"]
+                frac = (remaining / budget) if (budget and remaining > 0) else 0.0
+                hurdle = start + (end - start) * (1.0 - frac)
+
         if budget is not None and remaining <= 0:
+            selected = top.iloc[0:0]
+        elif pacing_blocked:
             selected = top.iloc[0:0]
         else:
             cap = daily_cap if daily_cap is not None else k
             cap = min(cap, int(remaining)) if budget is not None else cap
+            if hurdle is not None:
+                top = top[top["M_value_all"] >= hurdle]
             selected = top.head(cap)
 
         # ── open new positions (buy at close[t]) ────────────────────────
@@ -171,6 +215,17 @@ def simulate(
                 executed_year[year].add(sym)
             if budget is not None:
                 remaining -= 1
+            if pacing:
+                last_exec_idx = idx
+                month = int(date[5:7])
+                quarter = (month - 1) // 3 + 1
+                q_counter[(year, quarter)] += 1
+                m_counter[(year, month)] += 1
+                if "regime_month_cap" in pacing:
+                    regime_today = (
+                        str(g["regime"].iloc[0]) if "regime" in g.columns and g["regime"].notna().any() else "UNKNOWN"
+                    )
+                    r_counter[(regime_today, year, month)] += 1
             n_entries += 1
 
         # ── close positions at hold ─────────────────────────────────────
@@ -246,6 +301,17 @@ def simulate(
         first_entries[str(year)] = int(doy.min())
         last_entries[str(year)] = int(doy.max())
 
+    # ── quarterly dispersion (Gate 8) ────────────────────────────────────
+    quarter_disp: dict[str, dict[str, int]] = {}
+    for year, g in t.groupby("year"):
+        q = pd.to_datetime(g["date"]).dt.quarter
+        quarter_disp[str(year)] = {
+            "Q1": int((q == 1).sum()),
+            "Q2": int((q == 2).sum()),
+            "Q3": int((q == 3).sum()),
+            "Q4": int((q == 4).sum()),
+        }
+
     # ── regime distribution ──────────────────────────────────────────────
     regime_stats: dict[str, dict] = {}
     for reg, g in t.groupby("regime"):
@@ -298,6 +364,7 @@ def simulate(
         "hhi_max": round(hhi_max, 4),
         "first_entry_doy": first_entries,
         "last_entry_doy": last_entries,
+        "quarter_disp": quarter_disp,
         "regime": regime_stats,
         "overlap": overlap,
         "per_year": per_year,
