@@ -84,7 +84,6 @@ BUDGET = 20  # ceiling năm — constraint, không tối ưu
 DAILY_CAP_ACTUAL = 1  # config Selection Layer thật (DEFAULT_DAILY_CAP)
 K_VALUES = (1, 3, 5, 10)
 CAP_VALUES = (1, 3, 5, 10)
-COST_PER_SIDE = TRANSACTION_COST / 2.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -101,6 +100,7 @@ def simulate(
     budget: int | None = None,
     dedup: bool = False,
     hold: int = HOLD,
+    cost: float = TRANSACTION_COST,
 ) -> dict:
     """Chạy 1 config: selection theo M_value → mở position → giữ `hold` phiên.
 
@@ -109,6 +109,8 @@ def simulate(
         daily_cap: tối đa EXECUTE/ngày (Branch B machinery).
         budget: tổng slot/năm (None = không giới hạn — Oracle A).
         dedup: mỗi symbol EXECUTE tối đa 1 lần/năm (Branch B).
+        hold: số phiên giữ position.
+        cost: round-trip transaction cost (mặc định TRANSACTION_COST).
 
     Trả về dict tổng hợp (trade + NAV + concentration + regime + overlap).
     """
@@ -193,7 +195,7 @@ def simulate(
                         "r20": r20,
                         "r60": r60,
                         "r120": r120,
-                        "net_r20": r20 - TRANSACTION_COST,
+                        "net_r20": r20 - cost,
                     }
                 )
                 del open_pos[sym]
@@ -210,7 +212,7 @@ def simulate(
                 open_ret.append(float(v))
         gross = float(np.mean(open_ret)) if open_ret else 0.0
         n_open_now = max(1, len(open_syms))
-        cost_drag = COST_PER_SIDE * (n_entries + n_exits) / n_open_now
+        cost_drag = (cost / 2.0) * (n_entries + n_exits) / n_open_now
         daily_gross.append(gross)
         daily_cost.append(cost_drag)
         daily_n_open.append(len(open_syms))
@@ -250,6 +252,7 @@ def simulate(
         regime_stats[str(reg)] = {
             "n": int(len(g)),
             "net_r20": round(float(g["net_r20"].mean()), 4),
+            "win_rate": round(float((g["net_r20"] > 0).mean() * 100), 1),
         }
 
     # ── overlap H20/H60/H120 (alpha có dai không?) ───────────────────────
@@ -264,12 +267,21 @@ def simulate(
         str(y): {
             "n": int(len(g)),
             "net_r20": round(float(g["net_r20"].mean()), 4),
+            "win_rate": round(float((g["net_r20"] > 0).mean() * 100), 1),
+            "sharpe": round(float(_per_trade_sharpe(g["net_r20"])), 2),
         }
         for y, g in t.groupby("year")
     }
 
     is_t = t[t["year"].isin(IS_YEARS)]
     oos_t = t[t["year"].isin(OOS_YEARS)]
+
+    # Sharpe retention (OOS/IS) — chỉ tính khi cả hai có đủ mẫu & IS sharpe > 0
+    is_sh = _per_trade_sharpe(is_t["net_r20"]) if len(is_t) >= 3 else float("nan")
+    oos_sh = _per_trade_sharpe(oos_t["net_r20"]) if len(oos_t) >= 3 else float("nan")
+    retention = None
+    if math.isfinite(is_sh) and math.isfinite(oos_sh) and is_sh > 0:
+        retention = round(float(oos_sh / is_sh * 100), 1)
 
     return {
         "n_trades": len(t),
@@ -291,7 +303,22 @@ def simulate(
         "per_year": per_year,
         "IS_net_r20": round(float(is_t["net_r20"].mean() * 100), 2) if len(is_t) else None,
         "OOS_net_r20": round(float(oos_t["net_r20"].mean() * 100), 2) if len(oos_t) else None,
+        "IS_sharpe": round(float(is_sh), 2) if math.isfinite(is_sh) else None,
+        "OOS_sharpe": round(float(oos_sh), 2) if math.isfinite(oos_sh) else None,
+        "retention_pct": retention,
     }
+
+
+def _per_trade_sharpe(net_ret: pd.Series) -> float:
+    """Per-trade Sharpe: mean / std của net return từng position (không annualize)."""
+    arr = np.asarray(net_ret, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if len(arr) < 3:
+        return float("nan")
+    std = arr.std(ddof=1)
+    if std <= 0:
+        return float("nan")
+    return float(arr.mean() / std)
 
 
 def _spearman(x, y) -> float | None:
