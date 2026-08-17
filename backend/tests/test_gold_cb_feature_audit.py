@@ -29,7 +29,9 @@ DATES = pd.date_range("2026-01-05", periods=8, freq="D")  # 01-05..01-12
 
 
 def _mk_rows():
-    """2 obs, obs 2 có 2 vintage (revision)."""
+    """2 obs, obs 2 có 2 vintage (revision).
+    Why: cần revision cùng obs để khẳng định _pit_latest_step giữ latest vintage
+    (pub cao nhất), không phải bản đầu tiên gặp."""
     return [
         ("2025-12-31", 10.0, "2026-01-01"),  # obs1, pub sớm
         ("2026-01-31", 20.0, "2026-02-01"),  # obs2 v1 (chưa pub trong DATES)
@@ -119,3 +121,33 @@ def test_spearman():
     b = np.array([2.0, 4.0, 6.0, 8.0, 10.0])
     assert abs(_spearman(a, b) - 1.0) < 1e-9
     assert np.isnan(_spearman(a, np.full(5, np.nan)))
+
+
+def test_per_year_auc_skips_single_class_year():
+    """Why: H120 có năm chỉ 1 class y_true → _accuracy trả auc=nan. Verdict dựa
+    trên per-year ΔAUC, nên năm NaN phải bị bỏ qua chứ không crash/tràn NaN."""
+    from src.research.gold_cb_feature_audit import _split_by_year
+
+    # mô phỏng: năm 2022 single-class (auc=nan), 2023 valid
+    # cả 2 frame cùng phủ 2022 & 2023 (split_by_year cần cả 2 có prediction mỗi năm)
+    idx1 = pd.date_range("2022-01-01", periods=5, freq="D").append(
+        pd.date_range("2023-01-01", periods=5, freq="D")
+    )
+    idx2 = idx1
+    o1 = pd.DataFrame(
+        {"y": [1, 1, 1, 1, 1] + [1, 0, 1, 0, 1], "prob": [0.6, 0.7, 0.6, 0.8, 0.9, 0.6, 0.4, 0.6, 0.4, 0.9],
+         "pred": [1, 1, 1, 1, 1] + [1, 0, 1, 0, 1]},
+        index=idx1,
+    )
+    o2 = pd.DataFrame(
+        {"y": [1, 1, 1, 1, 1] + [1, 0, 1, 0, 1], "prob": [0.6, 0.7, 0.6, 0.8, 0.9, 0.6, 0.4, 0.6, 0.4, 0.9],
+         "pred": [1, 1, 1, 1, 1] + [1, 0, 1, 0, 1]},
+        index=idx2,
+    )
+    # split_by_year tách 2 năm, _accuracy 2022 (single class) → auc nan → bị bỏ
+    out = {}
+    for yr, m1, m2 in _split_by_year(o1, o2):
+        a1, a2 = m1["auc"], m2["auc"]
+        if a1 is not None and a2 is not None and not np.isnan(a1) and not np.isnan(a2):
+            out[str(yr)] = a2 - a1
+    assert out == {"2023": 0.0}  # 2022 bị bỏ, không crash
