@@ -173,6 +173,29 @@ def parse_snapshot(path: Path) -> dict:
     }
 
 
+def entity_value(snap: dict, obs_ymd: str, lookup: str) -> float | None:
+    """Giá trị của MỘT entity (theo lookup substring) tại observation obs_ymd.
+
+    Dùng cho per-country extraction (vd 'China, P.R.: Mainland'). Trả về None
+    nếu entity không tồn tại hoặc chưa report giá trị tại cột đó (không suy
+    diễn 0 — chưa công bố ≠ 0 tấn). Khớp theo substring (giống EXCLUDE/entity
+    rule của sum_changes) để chống lệch tên.
+    """
+    col = next((c for c, o in snap["col_obs"].items() if o == obs_ymd), None)
+    if col is None:
+        return None
+    for name, r in snap["entities"]:
+        if lookup not in name:
+            continue
+        if col >= len(r):
+            return None
+        v = r[col]
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return round(float(v), 4)
+        return None
+    return None
+
+
 def sum_changes(snap: dict, obs_ymd: str) -> float | None:
     """Tổng monthly changes (tonnes) tại observation obs_ymd theo entity rule.
 
