@@ -927,7 +927,7 @@ def run_post_update_engines():
                 "phase": ar.get("phase"),
                 "hdr": ar.get("hdr"),
                 "sdi": ar.get("sdi"),
-                "vqa_class": ar.get("vqa", {}).get("classification"),
+                "vqa_class": (ar.get("vqa") or {}).get("classification"),
                 "governor_lock": ar.get("governor_lock", False),
             }
         results["per_symbol_absorption"] = abs_results

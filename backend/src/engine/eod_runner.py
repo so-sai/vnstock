@@ -324,8 +324,28 @@ def run_eod_pipeline(
     corr_id = None
 
     try:
+        # --- IDEMPOTENCY CHECK (trước transaction — chỉ đọc) ---
+        if not force and _is_already_processed(as_of_date, portfolio_id):
+            result.update(
+                {
+                    "status": "SKIPPED",
+                    "reason": "ALREADY_PROCESSED",
+                    "note": f"{as_of_date} đã xử lý — không chạy lại.",
+                }
+            )
+            logger.info(f"[EOD] {as_of_date}: already processed — skipped.")
+            return result
+
+        # --- ANALYTICS ENGINES (NGOÀI Global Transaction) ---
+        # Các engine phân tích/viễn trắc (breadth, RS, flow forecast, regime,
+        # absorption) tự mở kết nối ghi snapshot riêng. Nếu chạy trong
+        # global_transaction (BEGIN IMMEDIATE giữ write-lock), chúng tự tranh
+        # chấp khóa SQLite → "database is locked" (fix EOD 17/08/2026).
+        engine_results = run_post_update_engines()
+
         # Global Transaction: 1 connection, BEGIN IMMEDIATE, auto-rollback.
         # ResourceLockedException nếu tiến trình EOD khác đang chạy.
+        # CHỈ bao hạch toán kế toán (catch-up + paper trading) — KHÔNG bao engines.
         with global_transaction(as_of_date, portfolio_id) as (conn, corr):
             corr_id = corr.correlation_id
 
@@ -340,21 +360,8 @@ def run_eod_pipeline(
                         logger.exception(f"[EOD] catch-up thất bại (non-blocking): {e}")
                         result["catchup"] = {"error": str(e)}
 
-                # --- 2. IDEMPOTENCY (chống nhân đôi) ---
-                if not force and _is_already_processed(as_of_date, portfolio_id):
-                    result.update(
-                        {
-                            "status": "SKIPPED",
-                            "reason": "ALREADY_PROCESSED",
-                            "note": f"{as_of_date} đã xử lý — không chạy lại.",
-                        }
-                    )
-                    logger.info(f"[EOD] {as_of_date}: already processed — skipped.")
-                    return result
-
-                # --- 3. ENGINE PHI KẾ TOÁN (read-only / offline) + PAPER TRADING ---
-                logger.info(f"[EOD] {as_of_date}: chạy engines + paper trading (corr={corr_id})")
-                engine_results = run_post_update_engines()
+                # --- 3. PAPER TRADING (chỉ kế toán, nằm trong transaction) ---
+                logger.info(f"[EOD] {as_of_date}: chạy paper trading (corr={corr_id})")
                 paper = PaperTradingEngine.run_daily(decision_date=as_of_date, offline=True, conn=conn)
                 summary = paper.get("summary", {})
                 engine_results["paper_trading"] = {
