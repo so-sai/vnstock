@@ -543,11 +543,11 @@ def main() -> None:
         help="Action to perform (default: all = init+update+report; gate = alias report)",
     )
     flag = parser.add_mutually_exclusive_group()
-    flag.add_argument("--init", action="store_const", const="init", dest="action")
-    flag.add_argument("--update", action="store_const", const="update", dest="action")
-    flag.add_argument("--all", action="store_const", const="all", dest="action")
-    flag.add_argument("--report", action="store_const", const="report", dest="action")
-    flag.add_argument("--gate", action="store_const", const="gate", dest="action")
+    flag.add_argument("--init", action="store_const", const="init", dest="flag")
+    flag.add_argument("--update", action="store_const", const="update", dest="flag")
+    flag.add_argument("--all", action="store_const", const="all", dest="flag")
+    flag.add_argument("--report", action="store_const", const="report", dest="flag")
+    flag.add_argument("--gate", action="store_const", const="gate", dest="flag")
     parser.add_argument(
         "--db",
         type=Path,
@@ -558,7 +558,7 @@ def main() -> None:
     if args.db != LEDGER_DB:
         LEDGER_DB = args.db
 
-    sub = args.action
+    sub = args.flag or args.action
     panel = build_paper_panel()
     print(f"[paper] panel {panel.index.min().date()} -> {panel.index.max().date()} ({len(panel)} ngày)")
     forecasts = generate_forecasts(panel)
