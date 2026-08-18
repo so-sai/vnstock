@@ -5113,6 +5113,142 @@ def cmd_financial_search(args):
     print("=" * 60)
 
 
+# ── symbol-audit ────────────────────────────────────────────────
+def cmd_symbol_audit(args):
+    """Giải phẫu hội tụ 4 cổng cho 1 mã — 100% dữ liệu sống từ DB.
+
+    WHY: Tổng hợp bảng giải phẫu (Hàng hóa/Ngành → Chất lượng & Định giá →
+    Dòng tiền & Volume Profile → Kỹ thuật & Động lượng) mà không cần thao tác
+    thủ công. Zero-Hallucination: thiếu dữ liệu → NO_DATA, không bịa số.
+    """
+    import sys as _sys
+
+    if _sys.platform == "win32":
+        import io as _io
+
+        _sys.stdout = _io.TextIOWrapper(_sys.stdout.buffer, encoding="utf-8")
+
+    from datetime import datetime
+
+    from src.services.symbol_audit_service import build_symbol_audit
+    from src.financial.financial_facts import FinancialFactsDB
+    from src.database.db_core import get_connection
+
+    symbol = args.symbol.upper()
+
+    print("=" * 72)
+    print(f"  GIẢI PHẪU 4 CỔNG — {symbol}")
+    print(f"  Ngày: {datetime.now().strftime('%Y-%m-%d')}")
+    print("=" * 72)
+
+    fin = FinancialFactsDB().connect()
+    with get_connection() as scr:
+        audit = build_symbol_audit(symbol, fin, scr)
+    fin.close()
+
+    _print_gate1(audit)
+    _print_gate2(audit)
+    _print_gate3(audit)
+    _print_gate4(audit)
+    print("=" * 72)
+
+
+def _print_gate1(audit):
+    """Cổng 1: Hàng hóa & Ngành."""
+    g1 = audit["gate1"]
+    print("\n  ── CỔNG 1: HÀNG HÓA & NGÀNH ──")
+    print(f"  Ngành (ICB2): {g1['icb_name2'] or 'NO_DATA'}")
+    print(f"  Ngành (ICB3): {g1['icb_name3'] or 'NO_DATA'}")
+    if g1["crack_spread"]:
+        cs = g1["crack_spread"]
+        print(f"  Steel Crack Spread: {cs['crack_spread']:.2f} USD/t (as_of {cs['as_of_date']})")
+        print(
+            f"    HRC {cs['hrc_price']} | Iron Ore {cs['iron_ore_price']} | "
+            f"Coking Coal {cs['coking_coal_price']}"
+        )
+    else:
+        print("  Steel Crack Spread: NO_DATA (ngoài ngành thép/kim loại hoặc thiếu macro)")
+
+
+def _print_gate2(audit):
+    """Cổng 2: Chất lượng & Định giá VN20."""
+    g2 = audit["gate2"]
+    print("\n  ── CỔNG 2: CHẤT LƯỢNG & ĐỊNH GIÁ ──")
+    if g2["valuation"]:
+        print(f"  {'Metric':<16}{'Period':<10}{'Value':>10}  {'Z-Score':>8}{'Pct':>8}  {'Zone':<16}")
+        for r in g2["valuation"]:
+            z = r["z_score"] if r["z_score"] is not None else float("nan")
+            pct = r["percentile"] if r["percentile"] is not None else float("nan")
+            print(
+                f"  {r['ratio_name']:<16}{r['period']:<10}{r['ratio_value']:>10.4f}"
+                f"  {z:>8.4f}{pct:>8.2f}  {r['zone'] or 'NO_DATA':<16}"
+            )
+    else:
+        print("  Valuation: NO_DATA")
+    if g2["health"]:
+        health_txt = " | ".join(
+            f"{h['ratio_name']}={h['ratio_value']:.4f}" for h in g2["health"]
+        )
+        print(f"  Health: {health_txt}")
+    else:
+        print("  Health: NO_DATA")
+
+
+def _print_gate3(audit):
+    """Cổng 3: Dòng tiền & Volume Profile."""
+    g3 = audit["gate3"]
+    print("\n  ── CỔNG 3: DÒNG TIỀN & VOLUME PROFILE ──")
+    if g3["volume_profile"]:
+        vp = g3["volume_profile"]
+        print(f"  Giá hiện tại: {vp['price']:,.0f} | POC: {vp['poc']:,.0f} | VAH: {vp['vah']:,.0f} | VAL: {vp['val']:,.0f}")
+        print(f"  Volume ratio: {vp['volume_ratio']:.3f} | MA20: {vp['ma20']:,.1f} | MA50: {vp['ma50']:,.1f}")
+        pos = _position_text(vp)
+        if pos:
+            print(f"  Vị thế: {pos}")
+    else:
+        print("  Volume Profile: NO_DATA")
+    if g3["cfo"]:
+        print(f"  CFO ({g3['cfo']['period']}): {g3['cfo']['value']:,.0f}")
+    else:
+        print("  CFO: NO_DATA")
+
+
+def _position_text(vp):
+    """Vị thế giá so với Value Area — Zero-Hallucination: thiếu thì không đoán."""
+    if vp.get("price") is None or vp.get("val") is None or vp.get("vah") is None:
+        return None
+    if vp["price"] < vp["val"]:
+        return "DƯỚI Value Area (VAL)"
+    if vp["price"] > vp["vah"]:
+        return "TRÊN Value Area (VAH)"
+    return "TRONG Value Area"
+
+
+def _print_gate4(audit):
+    """Cổng 4: Kỹ thuật & Động lượng."""
+    g4 = audit["gate4"]
+    print("\n  ── CỔNG 4: KỸ THUẬT & ĐỘNG LƯỢNG ──")
+    close = g4["close"]
+    ma20 = g4["ma20"]
+    ma50 = g4["ma50"]
+    rsi = g4["rsi14"]
+    if close is None:
+        print("  NO_DATA (không đủ OHLCV)")
+        return
+    print(f"  Giá đóng cửa: {close:,.0f}")
+    print(f"  RSI14: {rsi:.1f}" if rsi is not None else "  RSI14: NO_DATA")
+    print(f"  MA20: {ma20:,.1f}" if ma20 is not None else "  MA20: NO_DATA")
+    print(f"  MA50: {ma50:,.1f}" if ma50 is not None else "  MA50: NO_DATA")
+    if close is not None and ma20 is not None:
+        print(f"  Giá so MA20: {'TRÊN' if close > ma20 else 'DƯỚI'}")
+    if close is not None and ma50 is not None:
+        print(f"  Giá so MA50: {'TRÊN' if close > ma50 else 'DƯỚI'}")
+    if g4["mom_20d"] is not None:
+        print(f"  Momentum 20d: {g4['mom_20d']:+.2f}%")
+    if g4["mom_1y"] is not None:
+        print(f"  Momentum 1Y: {g4['mom_1y']:+.2f}%")
+
+
 # ── pit-audit ────────────────────────────────────────────────────
 def cmd_pit_audit(args):
     """PIT Audit Report — đối soát Period End + Ingested cho từng bản ghi BCTC."""
@@ -7028,6 +7164,15 @@ def build_parser():
         "--max-value", type=float, default=None, dest="max_value", help="Giá trị tối đa"
     )
     p_fs.set_defaults(func=cmd_financial_search)
+
+    # symbol-audit (4-gate deep-dive)
+    p_sa = sub.add_parser(
+        "symbol-audit",
+        parents=[lang_parent],
+        help="Giải phẫu hội tụ 4 cổng cho 1 mã: Hàng hóa/Ngành → Định giá → Dòng tiền/Profile → Kỹ thuật",
+    )
+    p_sa.add_argument("--symbol", required=True, help="Mã cổ phiếu (VD: HPG)")
+    p_sa.set_defaults(func=cmd_symbol_audit)
 
     # grid-search (DecisionGuard-integrated weight optimization)
     p_gs = sub.add_parser(
