@@ -105,6 +105,64 @@ accumulation (M2) và monetary variables (M1) hay không?**
 - Không → narrative.
 - Có → bằng chứng RMB internationalization tạo cơ chế cầu vàng gián tiếp.
 
+## Why test RMB — not because the structural thesis predicts gold
+
+RMB is tested because internationalization can alter the monetary/funding
+architecture underlying reserve allocation and cross-border liquidity. This
+makes RMB a theoretically distinct candidate from M1/M2, but **theoretical
+relevance does not imply predictive power**. Therefore each RMB component must
+first pass an independent incremental OOS test conditional on M1+M2. Only
+components with stable incremental evidence may proceed to a composite; if the
+composite adds no incremental information, it is rejected.
+
+### Protocol khóa trước (component-wise, không gộp sớm)
+
+```
+M1
+ ↓
+M1 + M2
+ ↓
+M1 + M2 + RMB_1
+M1 + M2 + RMB_2
+...
+M1 + M2 + RMB_n
+ ↓
+incremental OOS?        (ΔAUC_OOS = AUC(M1+M2+RMB_i) - AUC(M1+M2) > 0)
+ ↓
+stable across years/regimes?
+ ↓
+redundancy / residual test
+ ↓
+Composite only if justified
+```
+
+Điều kiện tối thiểu: `ΔAUC_OOS > 0`, nhưng **ΔAUC > 0 đơn thuần chưa đủ** —
+cần stability theo năm/regime và không collapse khi kiểm tra redundancy.
+
+### Ba khả năng hoàn toàn khác nhau
+
+1. **RMB có latent factor riêng** → đáng đưa vào model.
+2. **RMB chỉ là proxy của M1/M2/China trade** → correlation cao nhưng
+   incremental ≈ 0 → loại.
+3. **Structural thesis đúng nhưng RMB không có predictive timing** → thesis
+   giữ nguyên, feature bị loại.
+
+**Trường hợp (3) quan trọng: loại feature không đồng nghĩa bác bỏ thesis
+kinh tế.** "Why test" ≠ "why believe" — RMB được kiểm định vì là candidate
+mechanism có thể đo lường, không phải vì đã tin nó sẽ dự báo vàng.
+
+Boundary tổng thể:
+
+```
+RMB internationalization
+  ⇏  RMB reserve dominance
+  ⇏  Gold price increase
+```
+
+Muốn nối ba vế thành evidence định lượng → phải qua PIT data + incremental
+OOS test. Note này không phải pseudo-model specification; protocol chỉ chuyển
+thành spec thực thi khi có dữ liệu mở Gold v1.x.
+
 ## Tương quan với research Gold hiện tại (evidence đã có)
 
 - M1 (DXY / real yields / monetary): baseline, **direction skill yếu**.
