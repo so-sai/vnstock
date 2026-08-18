@@ -336,12 +336,38 @@ class TestCrawlSymbol:
         self.db = FinancialFactsDB()
         self.db.init_schema()
         self.crawler = CafeFCrawler(self.db)
+        # WHY: DB thật là persistent — purge symbol test để chạy lại deterministic,
+        # không bị incremental filter (get_missing_or_active_quarters) skip.
+        import sqlite3 as _s
+        conn = _s.connect(self.db.db_path)
+        for table in ("financial_facts", "health_ratios", "balance_sheets"):
+            try:
+                conn.execute(f"DELETE FROM {table} WHERE symbol IN ('TEST', 'ZZNODATA')")
+            except _s.OperationalError:
+                pass
+        conn.commit()
+        conn.close()
+
+    def teardown_method(self):
+        import sqlite3 as _s
+        conn = _s.connect(self.db.db_path)
+        for table in ("financial_facts", "health_ratios", "balance_sheets"):
+            try:
+                conn.execute(f"DELETE FROM {table} WHERE symbol IN ('TEST', 'ZZNODATA')")
+            except _s.OperationalError:
+                pass
+        conn.commit()
+        conn.close()
 
     def test_crawl_source_synthetic(self):
-        """Source=synthetic → dùng synthetic data."""
+        """Source=synthetic → KHÔNG bịa dữ liệu (Zero-Hallucination, khóa từ 2026-08-04).
+
+        WHY: _generate_synthetic_base đã bị khóa vĩnh viễn trả [] — thà NO_DATA
+        còn hơn ghi số vẽ vào DB. crawl_symbol phải trả total_metrics=0, success=0.
+        """
         result = self.crawler.crawl_symbol("FPT", "STANDARD", source="synthetic")
-        assert result["total_metrics"] > 0
-        assert result["success"] >= 1
+        assert result["total_metrics"] == 0
+        assert result["success"] == 0
 
     def test_crawl_source_cafef_with_mock(self):
         """Source=cafef → dùng CafeF Bank API với mock."""
@@ -354,13 +380,22 @@ class TestCrawlSymbol:
             assert result["success"] >= 1
 
     def test_crawl_all_fail_fallback_synthetic(self):
-        """Tất cả API thất bại → fallback synthetic."""
+        """Tất cả API thất bại → fallback synthetic → NO_DATA (Zero-Hallucination).
+
+        WHY: _generate_synthetic_base đã khóa trả [] từ 2026-08-04 — thà NO_DATA
+        còn hơn ghi số vẽ vào DB. Mock toàn bộ tháp fallback (VCI → VNDirect →
+        TCBS → CafeF → NoteIndicator → Vietstock) để test deterministic, không phụ
+        thuộc mạng. crawl_symbol phải trả total_metrics=0, success=0.
+        """
         with patch.object(self.crawler, 'fetch_vci_bridge', return_value=[]):
-            with patch.object(self.crawler, 'fetch_cafef_bank_api', return_value=[]):
-                with patch.object(self.crawler, 'fetch_note_indicator', return_value=[]):
-                    result = self.crawler.crawl_symbol("FPT", "STANDARD", source="vci")
-                    assert result["total_metrics"] > 0
-                    assert result["success"] >= 1
+            with patch.object(self.crawler, 'fetch_vndirect_api', return_value=[]):
+                with patch.object(self.crawler, 'fetch_tcbs_api', return_value=[]):
+                    with patch.object(self.crawler, 'fetch_cafef_bank_api', return_value=[]):
+                        with patch.object(self.crawler, 'fetch_note_indicator', return_value=[]):
+                            with patch.object(self.crawler, 'fetch_vietstock_api', return_value=[]):
+                                result = self.crawler.crawl_symbol("ZZNODATA", "STANDARD", source="vci")
+                                assert result["total_metrics"] == 0
+                                assert result["success"] == 0
 
 
 # ===================================================================
@@ -472,6 +507,97 @@ class TestFinancialSearchCLI:
 
 
 # ===================================================================
+# TEST 8b: cmd_financial_search → valuation_scores (P/B, P/E, ROE)
+# ===================================================================
+
+class TestFinancialSearchValuationCLI:
+    """Kiểm tra CLI financial-search truy vấn được valuation_scores.
+
+    WHY: financial_facts chỉ lưu Facts BCTC thô (REVENUE, NET_INCOME...);
+    chỉ số định giá P/B, P/E, ROE nằm ở bảng valuation_scores. CLI cũ chỉ
+    đọc 1 bảng → "mù" toàn bộ hệ số định giá. Test này khóa contract mới:
+    --metric PB/PE/ROE phải trả về bản ghi từ valuation_scores.
+    """
+
+    def setup_method(self):
+        from src.financial.financial_facts import FinancialFactsDB
+        self.db = FinancialFactsDB()
+        conn = sqlite3.connect(self.db.db_path)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS valuation_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                period TEXT NOT NULL,
+                fiscal_year INTEGER,
+                fiscal_quarter INTEGER,
+                entity_type TEXT NOT NULL,
+                ratio_name TEXT NOT NULL,
+                ratio_value REAL,
+                z_score REAL,
+                percentile REAL,
+                mean REAL,
+                std REAL,
+                count INTEGER,
+                zone TEXT,
+                price REAL
+            )
+        """)
+        self._seeded = [
+            ("ZZVAL", "2026Q2", 2026, 2, "STANDARD", "PB", 1.39, 1.27, 91.18, "EXPENSIVE", 21000.0),
+            ("ZZVAL", "2026Q2", 2026, 2, "STANDARD", "PE", 9.50, -0.25, 45.0, "FAIR", 21000.0),
+            ("ZZVAL", "2026Q2", 2026, 2, "STANDARD", "ROE", 0.18, -0.17, 56.25, "FAIR", 21000.0),
+        ]
+        for (sym, period, fy, fq, etype, ratio, val, z, pct, zone, price) in self._seeded:
+            conn.execute(
+                "INSERT OR REPLACE INTO valuation_scores "
+                "(symbol, period, fiscal_year, fiscal_quarter, entity_type, ratio_name, "
+                "ratio_value, z_score, percentile, zone, price) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (sym, period, fy, fq, etype, ratio, val, z, pct, zone, price),
+            )
+        conn.commit()
+        conn.close()
+
+    def teardown_method(self):
+        import sqlite3 as _s
+        conn = _s.connect(self.db.db_path)
+        conn.execute("DELETE FROM valuation_scores WHERE symbol = 'ZZVAL'")
+        conn.commit()
+        conn.close()
+
+    def _run_cli(self, metric):
+        from subprocess import run
+        result = run(
+            [sys.executable, "-m", "ptck", "financial-search", "--symbol", "ZZVAL", "--metric", metric],
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
+            cwd=str(Path(__file__).parent.parent.parent),
+        )
+        assert result.returncode == 0, f"CLI failed: {result.stderr}"
+        return result.stdout
+
+    def test_search_pb(self):
+        """--metric PB → phải trả về P/B từ valuation_scores, không báo 'Không có dữ liệu'."""
+        out = self._run_cli("PB")
+        assert "Không có dữ liệu phù hợp" not in out
+        assert "PB" in out
+        assert "1.39" in out
+
+    def test_search_pe(self):
+        """--metric PE → phải trả về P/E từ valuation_scores."""
+        out = self._run_cli("PE")
+        assert "Không có dữ liệu phù hợp" not in out
+        assert "PE" in out
+        assert "9.5" in out
+
+    def test_search_roe(self):
+        """--metric ROE → phải trả về ROE từ valuation_scores."""
+        out = self._run_cli("ROE")
+        assert "Không có dữ liệu phù hợp" not in out
+        assert "ROE" in out
+        assert "0.18" in out
+
+
+# ===================================================================
 # TEST 9: _generate_synthetic_base
 # ===================================================================
 
@@ -484,20 +610,18 @@ class TestSyntheticBase:
         self.crawler = CafeFCrawler(FinancialFactsDB())
 
     def test_synthetic_fpt(self):
-        """Synthetic cho FPT → có dữ liệu."""
+        """Synthetic cho FPT → KHÔNG bịa dữ liệu (Zero-Hallucination, khóa từ 2026-08-04).
+
+        WHY: _generate_synthetic_base đã bị khóa vĩnh viễn trả [] — thà NO_DATA
+        còn hơn ghi số vẽ vào DB. Mọi symbol đều phải trả về [].
+        """
         result = self.crawler._generate_synthetic_base("FPT", "STANDARD")
-        assert len(result) > 0
-        assert isinstance(result[0], dict)
-        assert "_fiscal_year" in result[0]
-        assert "_fiscal_quarter" in result[0]
-        # Check REVENUE exists
-        assert "REVENUE" in result[0] or any("REVENUE" in k for k in result[0].keys())
+        assert result == []
 
     def test_synthetic_acb(self):
-        """Synthetic cho ACB (BANK) → có dữ liệu."""
+        """Synthetic cho ACB (BANK) → KHÔNG bịa dữ liệu (khóa Zero-Hallucination)."""
         result = self.crawler._generate_synthetic_base("ACB", "BANK")
-        assert len(result) > 0
-        assert isinstance(result[0], dict)
+        assert result == []
 
     def test_synthetic_unknown_symbol(self):
         """Symbol không có trong base_data → trả về []."""
@@ -505,9 +629,12 @@ class TestSyntheticBase:
         assert result == []
 
     def test_synthetic_20_quarters(self):
-        """Synthetic phải có đúng 20 quarters."""
+        """Synthetic KHÔNG CÒN sinh 20 quarters bịa (khóa Zero-Hallucination).
+
+        WHY: contract cũ (20 quý vẽ số) vi phạm Sắc lệnh 2026-08-04 — luôn trả [].
+        """
         result = self.crawler._generate_synthetic_base("FPT", "STANDARD")
-        assert len(result) == 20
+        assert result == []
 
 
 # ===================================================================

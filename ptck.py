@@ -4986,27 +4986,41 @@ def cmd_vgb10y(args):
 
 # ── financial-search ───────────────────────────────────────────
 def cmd_financial_search(args):
-    """Tra cứu dữ liệu tài chính từ financial_facts.db."""
+    """Tra cứu dữ liệu tài chính từ financial_facts.db + valuation_scores.
+
+    WHY: financial_facts chỉ lưu Facts BCTC thô (REVENUE, NET_INCOME...);
+    chỉ số định giá P/B, P/E, ROE nằm ở bảng valuation_scores. CLI cũ chỉ
+    đọc 1 bảng → "mù" toàn bộ hệ số định giá. Fix: metric thuộc
+    VALUATION_METRICS (hoặc query wildcard) → truy vấn thêm valuation_scores.
+    """
     from src.financial.financial_facts import FinancialFactsDB
     import pandas as pd
 
     db = FinancialFactsDB()
     conn = db.connect()
 
+    # Chỉ số định giá & tỷ suất — bảng valuation_scores (KHÔNG có trong financial_facts).
+    # WHY: nguồn chân lý duy nhất cho danh sách này là DISTINCT ratio_name của bảng
+    # valuation_scores (EV_EBITDA, PB, PE, PS, ROE) — thêm ROA vì health_ratios cũng có.
+    VALUATION_METRICS = {"PE", "PB", "PS", "EV_EBITDA", "ROE", "ROA"}
+
+    metric_arg = args.metric.upper() if args.metric else None
+    is_valuation = metric_arg in VALUATION_METRICS
+
     print("=" * 60)
     print("  TRA CỨU DỮ LIỆU TÀI CHÍNH")
     print("=" * 60)
 
-    # Build query
+    # ── 1. financial_facts (Facts BCTC thô) ───────────────────────────
     query = "SELECT symbol, period, metric, value, unit, source FROM financial_facts WHERE 1=1"
     params = []
 
     if args.symbol:
         query += " AND symbol IN (" + ",".join(["?"] * len(args.symbol)) + ")"
         params.extend([s.upper() for s in args.symbol])
-    if args.metric:
+    if metric_arg and not is_valuation:
         query += " AND metric = ?"
-        params.append(args.metric.upper())
+        params.append(metric_arg)
     if args.period:
         query += " AND period = ?"
         params.append(args.period)
@@ -5028,40 +5042,73 @@ def cmd_financial_search(args):
         print(f"  ❌ Query error: {e}")
         return
 
-    if df.empty:
+    # ── 2. valuation_scores (P/B, P/E, ROE, PS, EV/EBITDA) ────────────
+    # WHY: metric định giá/tỷ suất nằm ở bảng này; khi metric trùng (ROE) hoặc
+    # query wildcard (không --metric), gộp cả 2 bảng để tra cứu đầy đủ.
+    val_df = pd.DataFrame()
+    if is_valuation or not args.metric:
+        vquery = (
+            "SELECT symbol, period, ratio_name AS metric, ratio_value AS value, "
+            "z_score, percentile, zone, price "
+            "FROM valuation_scores WHERE 1=1"
+        )
+        vparams = []
+        if args.symbol:
+            vquery += " AND symbol IN (" + ",".join(["?"] * len(args.symbol)) + ")"
+            vparams.extend([s.upper() for s in args.symbol])
+        if is_valuation:
+            vquery += " AND ratio_name = ?"
+            vparams.append(metric_arg)
+        if args.period:
+            vquery += " AND period = ?"
+            vparams.append(args.period)
+        if args.min_value is not None:
+            vquery += " AND ratio_value >= ?"
+            vparams.append(args.min_value)
+        if args.max_value is not None:
+            vquery += " AND ratio_value <= ?"
+            vparams.append(args.max_value)
+        vquery += " ORDER BY symbol, period DESC, metric"
+        try:
+            val_df = pd.read_sql_query(vquery, conn, params=vparams)
+        except Exception as e:
+            print(f"  ❌ Valuation query error: {e}")
+
+    if df.empty and val_df.empty:
         print("  ❌ Không có dữ liệu phù hợp")
         return
 
-    print(f"\n  Kết quả: {len(df)} dòng")
-    print(f"  Symbols: {df['symbol'].nunique()}")
-    print(f"  Metrics: {df['metric'].nunique()}")
-    print()
-
-    # Display summary
-    print("  ── TỔNG QUAN ──")
-    summary = (
-        df.groupby(["symbol", "metric"])
-        .agg(
-            count=("value", "count"),
-            last_value=("value", "last"),
-            last_period=("period", "last"),
-            source=("source", "last"),
+    if not df.empty:
+        print(f"\n  Kết quả (BCTC): {len(df)} dòng | Symbols: {df['symbol'].nunique()} | Metrics: {df['metric'].nunique()}")
+        print()
+        print("  ── TỔNG QUAN ──")
+        summary = (
+            df.groupby(["symbol", "metric"])
+            .agg(
+                count=("value", "count"),
+                last_value=("value", "last"),
+                last_period=("period", "last"),
+                source=("source", "last"),
+            )
+            .reset_index()
         )
-        .reset_index()
-    )
+        pd.set_option("display.max_columns", None)
+        pd.set_option("display.width", 200)
+        pd.set_option("display.max_rows", 50)
+        pd.set_option("display.expand_frame_repr", False)
+        print(summary.to_string(index=False))
+        print()
+        if args.symbol and len(df) <= 100:
+            print("  ── CHI TIẾT ──")
+            print(df.to_string(index=False))
+            print()
 
-    pd.set_option("display.max_columns", None)
-    pd.set_option("display.width", 200)
-    pd.set_option("display.max_rows", 50)
-    pd.set_option("display.expand_frame_repr", False)
-
-    print(summary.to_string(index=False))
-    print()
-
-    # Show detailed if limited symbols
-    if args.symbol and len(df) <= 100:
-        print("  ── CHI TIẾT ──")
-        print(df.to_string(index=False))
+    if not val_df.empty:
+        print(f"  Kết quả (Định giá): {len(val_df)} dòng | Symbols: {val_df['symbol'].nunique()} | Metrics: {val_df['metric'].nunique()}")
+        print()
+        print("  ── ĐỊNH GIÁ (valuation_scores) ──")
+        print(val_df.to_string(index=False))
+        print()
 
     print("=" * 60)
 

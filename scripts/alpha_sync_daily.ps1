@@ -22,5 +22,4 @@ python src/engine/execution_widget.py
 
 Write-Host "`n" + "="*60 -ForegroundColor Green
 Write-Host "DAILY SYNC COMPLETED SUCCESSFULLY" -ForegroundColor Green
-Write-Host "Check 'orders_today.txt' for tactical commands." -ForegroundColor White
 Write-Host "="*60 + "`n" -ForegroundColor Green
