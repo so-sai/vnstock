@@ -67,14 +67,19 @@ from src.research.gold_forecast_engine_v01 import (
     walk_forward,
 )
 from src.research.gold_forecast_engine_v02 import CB_PRIMARY, _brier, _logloss, _spearman
+from src.research.gold_gvz_pi_v03c import GVZ_TO_LOG20
 from src.research.gold_magnitude_forecast_v03 import (
     H,
     add_log_return_target,
     walk_forward_regression,
 )
+from src.research.gvz_adapter import CACHE_FILE, load_gvz, pit_align, pit_series
 
 MODEL_VERSION = "v0.2-m1-cb-h20-frozen"
 INTERVAL_Z = 1.2816  # 80% descriptive interval (KHÔNG sizing)
+# PI GVZ v0.3C FROZEN (commit 7e52546): q fit trên calibration <= 2024-12-31.
+PI_Q80 = 1.073
+PI_Q90 = 1.507
 LEDGER_TABLE = "gold_paper_forecasts"
 
 _SCHEMA = f"""
@@ -89,6 +94,10 @@ CREATE TABLE IF NOT EXISTS {LEDGER_TABLE} (
     p_hat_20 REAL,
     lo80 REAL,
     hi80 REAL,
+    pi80_lower REAL,
+    pi80_upper REAL,
+    pi90_lower REAL,
+    pi90_upper REAL,
     is_backfill INTEGER DEFAULT 0,
     forecast_ts TEXT,
     mature_date TEXT,
@@ -99,14 +108,31 @@ CREATE TABLE IF NOT EXISTS {LEDGER_TABLE} (
 );
 """
 
+# Cột PI GVZ (v0.3C frozen) cần ALTER TABLE cho DB cũ đã tạo trước e766a1d.
+_PI_COLUMNS = {
+    "pi80_lower": "REAL",
+    "pi80_upper": "REAL",
+    "pi90_lower": "REAL",
+    "pi90_upper": "REAL",
+}
+
 
 def _connect() -> sqlite3.Connection:
     return sqlite3.connect(str(LEDGER_DB))
 
 
+def _ensure_pi_columns(conn: sqlite3.Connection) -> None:
+    """ALTER TABLE thêm cột PI GVZ cho DB cũ (idempotent)."""
+    have = {r[1] for r in conn.execute(f"PRAGMA table_info({LEDGER_TABLE})")}
+    for col, typ in _PI_COLUMNS.items():
+        if col not in have:
+            conn.execute(f"ALTER TABLE {LEDGER_TABLE} ADD COLUMN {col} {typ}")
+
+
 def init_ledger() -> None:
     conn = _connect()
     conn.execute(_SCHEMA)
+    _ensure_pi_columns(conn)
     conn.commit()
     conn.close()
     print(f"[ledger] schema ready: {LEDGER_DB} ({LEDGER_TABLE})")
@@ -192,6 +218,11 @@ def generate_forecasts(panel: pd.DataFrame) -> pd.DataFrame:
     reg = pd.concat([reg.dropna(subset=["pred"]), reg_ext])
     log = pd.concat([log.dropna(subset=["prob"]), log_ext])
 
+    # σ_dyn = GVZ PIT (pub = obs + 1 trading day), align ffill vào panel index.
+    gvz_pub = pit_series(load_gvz(CACHE_FILE))
+    gvz_aligned = pit_align(gvz_pub, panel.index)
+    sigma_gvz = (gvz_aligned * GVZ_TO_LOG20).reindex(panel.index)
+
     out = pd.DataFrame(index=panel.index)
     out["mu_hat"] = reg["pred"]
     out["p_up"] = log["prob"]
@@ -201,6 +232,12 @@ def generate_forecasts(panel: pd.DataFrame) -> pd.DataFrame:
     out["p_hat_20"] = out["gold_t"] * np.exp(out["mu_hat"])
     out["lo80"] = out["mu_hat"] - INTERVAL_Z * out["resid_std"]
     out["hi80"] = out["mu_hat"] + INTERVAL_Z * out["resid_std"]
+    # PI GVZ v0.3C frozen: PI_t = mu_hat ± q * σ_dyn,t
+    sig = sigma_gvz.clip(lower=1e-12)
+    out["pi80_lower"] = out["mu_hat"] - PI_Q80 * sig
+    out["pi80_upper"] = out["mu_hat"] + PI_Q80 * sig
+    out["pi90_lower"] = out["mu_hat"] - PI_Q90 * sig
+    out["pi90_upper"] = out["mu_hat"] + PI_Q90 * sig
     return out.dropna(subset=["mu_hat"])
 
 
@@ -212,10 +249,11 @@ def sync_ledger(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
     """Insert forecast mới (append-only) + điền realized đã mature. Trả stats."""
     conn = _connect()
     conn.execute(_SCHEMA)
+    _ensure_pi_columns(conn)
     cal = _trading_calendar(panel)
     pos = {d: i for i, d in enumerate(cal)}
     now = _dt.datetime.now().isoformat(timespec="seconds")
-    inserted = matured = 0
+    inserted = matured = pi_filled = 0
     existing = {
         r[0] for r in conn.execute(f"SELECT forecast_date FROM {LEDGER_TABLE} WHERE model_version=?", (MODEL_VERSION,))
     }
@@ -240,6 +278,10 @@ def sync_ledger(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
                 float(forecasts.at[date, "p_hat_20"]),
                 float(forecasts.at[date, "lo80"]),
                 float(forecasts.at[date, "hi80"]),
+                float(forecasts.at[date, "pi80_lower"]),
+                float(forecasts.at[date, "pi80_upper"]),
+                float(forecasts.at[date, "pi90_lower"]),
+                float(forecasts.at[date, "pi90_upper"]),
                 is_backfill,
                 now,
                 mature_date,
@@ -253,10 +295,33 @@ def sync_ledger(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
         conn.executemany(
             f"INSERT OR IGNORE INTO {LEDGER_TABLE} "
             f"(forecast_date, model_version, feature_vintage, gold_t, mu_hat, p_up, p_hat_20, "
-            f"lo80, hi80, is_backfill, forecast_ts, mature_date, realized_r20, realized_p20, realized_ts) "
-            f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            f"lo80, hi80, pi80_lower, pi80_upper, pi90_lower, pi90_upper, "
+            f"is_backfill, forecast_ts, mature_date, realized_r20, realized_p20, realized_ts) "
+            f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
+    # backfill PI GVZ cho các rows cũ (chưa có cột trước migration) — PIT-clean,
+    # cùng công thức frozen v0.3C, chỉ điền, KHÔNG đụng mu_hat/p_up/forecast_ts.
+    if forecasts["pi80_lower"].notna().any():
+        for r in conn.execute(
+            f"SELECT forecast_date FROM {LEDGER_TABLE} WHERE model_version=? AND pi80_lower IS NULL",
+            (MODEL_VERSION,),
+        ):
+            fd = pd.Timestamp(r[0])
+            if fd in forecasts.index and pd.notna(forecasts.at[fd, "pi80_lower"]):
+                conn.execute(
+                    f"UPDATE {LEDGER_TABLE} SET pi80_lower=?, pi80_upper=?, pi90_lower=?, pi90_upper=? "
+                    f"WHERE forecast_date=? AND model_version=?",
+                    (
+                        float(forecasts.at[fd, "pi80_lower"]),
+                        float(forecasts.at[fd, "pi80_upper"]),
+                        float(forecasts.at[fd, "pi90_lower"]),
+                        float(forecasts.at[fd, "pi90_upper"]),
+                        str(fd.date()),
+                        MODEL_VERSION,
+                    ),
+                )
+                pi_filled += 1
     # điền realized_p20 cho các forecast đã mature nhưng chưa có (roll over)
     for r in conn.execute(
         f"SELECT forecast_date, mature_date FROM {LEDGER_TABLE} "
@@ -273,7 +338,12 @@ def sync_ledger(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
             matured += 1
     conn.commit()
     conn.close()
-    return {"inserted": inserted, "matured_filled": matured, "total": len(existing) + inserted}
+    return {
+        "inserted": inserted,
+        "matured_filled": matured,
+        "pi_filled": pi_filled,
+        "total": len(existing) + inserted,
+    }
 
 
 def load_ledger() -> pd.DataFrame:
@@ -358,6 +428,20 @@ def report_gate(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
         last = float(np.mean(pred_err[-w:]))
         decay = {"roll20_first_mae": first, "roll20_last_mae": last, "dmae_20": float(last - first)}
 
+    # ── PI GVZ v0.3C coverage (frozen q80/q90) trên matured ──
+    pi_cov = {}
+    pi_m = matured.dropna(subset=["pi80_lower"])
+    if len(pi_m) >= 5:
+        in80 = ((pi_m["realized_r20"] >= pi_m["pi80_lower"]) & (pi_m["realized_r20"] <= pi_m["pi80_upper"])).mean()
+        in90 = ((pi_m["realized_r20"] >= pi_m["pi90_lower"]) & (pi_m["realized_r20"] <= pi_m["pi90_upper"])).mean()
+        pi_cov = {
+            "n": int(len(pi_m)),
+            "cov80": float(in80),
+            "cov90": float(in90),
+            "q80": PI_Q80,
+            "q90": PI_Q90,
+        }
+
     res.update(
         n_dir=len(pv),
         acc=acc,
@@ -376,6 +460,7 @@ def report_gate(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
         spearman=spearman,
         calibration=cal_rows,
         decay=decay,
+        pi=pi_cov,
         fwd=report_forward(matured_fwd, r20),
     )
     return res
@@ -443,6 +528,12 @@ def main() -> None:
                 )
             for c in res["calibration"]:
                 print(f"[gate] cal {c['bin']}: n={c['n']} P={c['p_mean']:.3f} freq={c['freq']:.3f}")
+            pi = res.get("pi", {})
+            if pi.get("n", 0) >= 5:
+                print(
+                    f"[gate] PI GVZ v0.3C: n={pi['n']} cov80={pi['cov80']:.3f} "
+                    f"cov90={pi['cov90']:.3f} (q80={pi['q80']}, q90={pi['q90']})"
+                )
         fwd = res.get("fwd", {})
         if fwd.get("n", 0) >= 3:
             print(f"[gate] FORWARD matured: n={fwd['n']} auc={fwd['auc']} mae={fwd['mae']:.4f} bias={fwd['bias']:+.4f}")

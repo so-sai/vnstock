@@ -15,15 +15,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-import pytest
-
+import src.research.gold_paper_ledger as _ledger_mod
 from src.research.gold_magnitude_forecast_v03 import add_log_return_target
 from src.research.gold_paper_ledger import (
-    LEDGER_DB,
     LEDGER_TABLE,
     H,
     _naive_expmean,
@@ -38,10 +37,9 @@ from src.research.gold_paper_ledger import (
 
 @pytest.fixture(autouse=True)
 def _clean_ledger(tmp_path, monkeypatch):
-    import src.research.gold_paper_ledger as m
-
-    monkeypatch.setattr(m, "LEDGER_DB", tmp_path / "gold_paper_ledger.db")
+    monkeypatch.setattr(_ledger_mod, "LEDGER_DB", tmp_path / "gold_paper_ledger.db")
     yield
+
 
 N = 500
 IDX = pd.date_range("2022-01-03", periods=N, freq="B")
@@ -70,7 +68,7 @@ def _mk_panel() -> pd.DataFrame:
 
 def test_init_ledger_schema():
     init_ledger()
-    conn = sqlite3.connect(str(LEDGER_DB))
+    conn = sqlite3.connect(str(_ledger_mod.LEDGER_DB))
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert LEDGER_TABLE in names
     conn.close()
@@ -84,11 +82,37 @@ def test_generate_forecasts_columns():
     assert np.isfinite(fc["gold_t"]).all()
     assert np.isfinite(fc["p_hat_20"]).all()
     assert (fc["lo80"] < fc["hi80"]).all()
+    # PI GVZ v0.3C frozen: hợp lệ, pi80 nằm trong pi90, không NaN
+    fin = fc.dropna(subset=["pi80_lower", "pi80_upper", "pi90_lower", "pi90_upper"])
+    assert (fin["pi80_lower"] <= fin["pi80_upper"]).all()
+    assert (fin["pi90_lower"] <= fin["pi90_upper"]).all()
+    assert len(fin) > 0
+    assert (fin["pi80_lower"] >= fin["pi90_lower"]).all()
+    assert (fin["pi80_upper"] <= fin["pi90_upper"]).all()
     # gold_t bằng đúng GOLD
     assert np.allclose(fc["gold_t"].values, panel["GOLD"].reindex(fc.index).values)
     # p_up nằm [0,1] nếu có
     pv = fc["p_up"].dropna()
     assert ((pv >= 0) & (pv <= 1)).all()
+
+
+def test_generate_forecasts_pi_formula():
+    """PI GVZ = mu_hat ± q * (GVZ_PIT * GVZ_TO_LOG20), q frozen v0.3C."""
+    from src.research.gold_gvz_pi_v03c import GVZ_TO_LOG20
+    from src.research.gold_paper_ledger import PI_Q80, PI_Q90
+    from src.research.gvz_adapter import load_gvz, pit_align, pit_series
+
+    panel = _mk_panel()
+    fc = generate_forecasts(panel)
+    if not fc["pi80_lower"].notna().any():
+        return  # gvz PIT chưa có cho synthetic panel index — skip (không crash)
+    gvz_pub = pit_series(load_gvz())
+    sig = pit_align(gvz_pub, panel.index) * GVZ_TO_LOG20
+    t = fc["pi80_lower"].dropna().index[0]
+    assert abs(fc.at[t, "pi80_lower"] - (fc.at[t, "mu_hat"] - PI_Q80 * sig.at[t])) < 1e-12
+    assert abs(fc.at[t, "pi80_upper"] - (fc.at[t, "mu_hat"] + PI_Q80 * sig.at[t])) < 1e-12
+    assert abs(fc.at[t, "pi90_lower"] - (fc.at[t, "mu_hat"] - PI_Q90 * sig.at[t])) < 1e-12
+    assert abs(fc.at[t, "pi90_upper"] - (fc.at[t, "mu_hat"] + PI_Q90 * sig.at[t])) < 1e-12
 
 
 def test_trading_calendar_unique_ordered():
@@ -117,6 +141,39 @@ def test_sync_ledger_backfill_matured_and_pending():
     sample = ledger.dropna(subset=["realized_r20"]).iloc[0]
     expect = panel["R20"].loc[pd.Timestamp(sample["forecast_date"])]
     assert abs(sample["realized_r20"] - expect) < 1e-9
+
+
+def test_sync_ledger_pi_columns_migrated_and_filled():
+    """DB cũ (không có cột PI) được ALTER + backfill PI mà không đụng mu_hat."""
+    panel = _mk_panel()
+    fc = generate_forecasts(panel)
+    # chọn 1 date có mu_hat (đầu panel chưa đủ train) để test migration
+    leg_date = str(fc.index[50].date())
+    conn = sqlite3.connect(str(_ledger_mod.LEDGER_DB))
+    conn.execute("DROP TABLE IF EXISTS gold_paper_forecasts")
+    conn.execute(
+        "CREATE TABLE gold_paper_forecasts ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, forecast_date TEXT, model_version TEXT, "
+        "feature_vintage TEXT, gold_t REAL, mu_hat REAL, p_up REAL, p_hat_20 REAL, "
+        "lo80 REAL, hi80 REAL, is_backfill INTEGER, forecast_ts TEXT, mature_date TEXT, "
+        "realized_r20 REAL, realized_p20 REAL, realized_ts TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO gold_paper_forecasts (forecast_date, model_version, mu_hat) VALUES (?, ?, 0.01)",
+        (leg_date, "v0.2-m1-cb-h20-frozen"),
+    )
+    conn.commit()
+    conn.close()
+    s = sync_ledger(panel, fc)
+    ledger = load_ledger()
+    rows = ledger[ledger["forecast_date"] == pd.Timestamp(leg_date)]
+    assert len(rows) == 1, (
+        f"expect 1 row for {leg_date}, got {len(rows)} | inserted={s['inserted']} pi_filled={s.get('pi_filled')}"
+    )
+    row = rows.iloc[0]
+    assert row["pi80_lower"] is not None
+    assert row["mu_hat"] == 0.01  # không đụng
+    assert "pi_filled" in s
 
 
 def test_sync_ledger_mature_date_20d():
@@ -152,6 +209,7 @@ def test_report_gate_no_crash():
     assert res["n_total"] == len(fc)
     assert res["n_matured"] == res["n_backfill"]
     assert res["n_pending"] >= 0
+    assert "pi" in res  # PI GVZ v0.3C metric luôn có mặt
     if res["n_matured"] >= 5:
         assert "mae_model" in res and "auc" in res and "spearman" in res
 
