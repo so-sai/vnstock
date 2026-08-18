@@ -172,6 +172,7 @@ def test_sync_ledger_pi_columns_migrated_and_filled():
     )
     row = rows.iloc[0]
     assert row["pi80_lower"] is not None
+    assert row["target_p80_low"] is not None
     assert row["mu_hat"] == 0.01  # không đụng
     assert "pi_filled" in s
 
@@ -188,6 +189,53 @@ def test_sync_ledger_mature_date_20d():
     i = cal.get_loc(fd)
     expect_md = cal[i + H]
     assert pd.Timestamp(row["mature_date"]) == expect_md
+
+
+def test_sync_ledger_settlement_covered():
+    panel = _mk_panel()
+    fc = generate_forecasts(panel)
+    init_ledger()
+    s = sync_ledger(panel, fc)
+    ledger = load_ledger()
+    settled = ledger.dropna(subset=["realized_p20"])
+    assert len(settled) == s["matured_filled"]
+    # rows có band target đầy đủ phải có is_covered; rows thiếu GVZ (band NULL) bị loại
+    with_band = settled.dropna(subset=["target_p80_low"])
+    assert with_band["is_covered_80"].notna().all()
+    assert with_band["is_covered_90"].notna().all()
+    for _, r in with_band.head(20).iterrows():
+        in80 = r["target_p80_low"] <= r["realized_p20"] <= r["target_p80_high"]
+        in90 = r["target_p90_low"] <= r["realized_p20"] <= r["target_p90_high"]
+        assert r["is_covered_80"] == int(in80)
+        assert r["is_covered_90"] == int(in90)
+    assert 0.5 <= settled["is_covered_80"].mean() <= 1.0
+    assert 0.6 <= settled["is_covered_90"].mean() <= 1.0
+
+
+def test_sync_ledger_covered_null_when_band_missing():
+    panel = _mk_panel()
+    fc = generate_forecasts(panel)
+    cal = _trading_calendar(panel)
+    init_ledger()
+    # xóa band target của 1 forecast đã mature -> is_covered phải NULL (loại khỏi mẫu)
+    victim = str(fc.index[100].date())
+    sync_ledger(panel, fc)
+    conn = sqlite3.connect(str(_ledger_mod.LEDGER_DB))
+    conn.execute(
+        "UPDATE gold_paper_forecasts SET target_p80_low=NULL, target_p80_high=NULL, "
+        "target_p90_low=NULL, target_p90_high=NULL WHERE forecast_date=?",
+        (victim,),
+    )
+    conn.execute(
+        "UPDATE gold_paper_forecasts SET is_covered_80=NULL, is_covered_90=NULL WHERE forecast_date=?",
+        (victim,),
+    )
+    conn.commit()
+    conn.close()
+    ledger = load_ledger()
+    row = ledger[ledger["forecast_date"] == pd.Timestamp(victim)].iloc[0]
+    assert pd.isna(row["is_covered_80"])
+    assert pd.isna(row["is_covered_90"])
 
 
 def test_naive_expmean_pit():

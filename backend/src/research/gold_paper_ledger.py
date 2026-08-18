@@ -98,6 +98,12 @@ CREATE TABLE IF NOT EXISTS {LEDGER_TABLE} (
     pi80_upper REAL,
     pi90_lower REAL,
     pi90_upper REAL,
+    target_p80_low REAL,
+    target_p80_high REAL,
+    target_p90_low REAL,
+    target_p90_high REAL,
+    is_covered_80 INTEGER,
+    is_covered_90 INTEGER,
     is_backfill INTEGER DEFAULT 0,
     forecast_ts TEXT,
     mature_date TEXT,
@@ -108,12 +114,18 @@ CREATE TABLE IF NOT EXISTS {LEDGER_TABLE} (
 );
 """
 
-# Cột PI GVZ (v0.3C frozen) cần ALTER TABLE cho DB cũ đã tạo trước e766a1d.
+# Cột PI GVZ (v0.3C frozen) + target price + settlement — ALTER cho DB cũ.
 _PI_COLUMNS = {
     "pi80_lower": "REAL",
     "pi80_upper": "REAL",
     "pi90_lower": "REAL",
     "pi90_upper": "REAL",
+    "target_p80_low": "REAL",
+    "target_p80_high": "REAL",
+    "target_p90_low": "REAL",
+    "target_p90_high": "REAL",
+    "is_covered_80": "INTEGER",
+    "is_covered_90": "INTEGER",
 }
 
 
@@ -238,6 +250,12 @@ def generate_forecasts(panel: pd.DataFrame) -> pd.DataFrame:
     out["pi80_upper"] = out["mu_hat"] + PI_Q80 * sig
     out["pi90_lower"] = out["mu_hat"] - PI_Q90 * sig
     out["pi90_upper"] = out["mu_hat"] + PI_Q90 * sig
+    # Target price-space (về mức giá P̂ ± band) — descriptive, KHÔNG sizing.
+    g = out["gold_t"]
+    out["target_p80_low"] = g * np.exp(out["pi80_lower"])
+    out["target_p80_high"] = g * np.exp(out["pi80_upper"])
+    out["target_p90_low"] = g * np.exp(out["pi90_lower"])
+    out["target_p90_high"] = g * np.exp(out["pi90_upper"])
     return out.dropna(subset=["mu_hat"])
 
 
@@ -282,6 +300,10 @@ def sync_ledger(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
                 float(forecasts.at[date, "pi80_upper"]),
                 float(forecasts.at[date, "pi90_lower"]),
                 float(forecasts.at[date, "pi90_upper"]),
+                float(forecasts.at[date, "target_p80_low"]),
+                float(forecasts.at[date, "target_p80_high"]),
+                float(forecasts.at[date, "target_p90_low"]),
+                float(forecasts.at[date, "target_p90_high"]),
                 is_backfill,
                 now,
                 mature_date,
@@ -296,8 +318,9 @@ def sync_ledger(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
             f"INSERT OR IGNORE INTO {LEDGER_TABLE} "
             f"(forecast_date, model_version, feature_vintage, gold_t, mu_hat, p_up, p_hat_20, "
             f"lo80, hi80, pi80_lower, pi80_upper, pi90_lower, pi90_upper, "
+            f"target_p80_low, target_p80_high, target_p90_low, target_p90_high, "
             f"is_backfill, forecast_ts, mature_date, realized_r20, realized_p20, realized_ts) "
-            f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
     # backfill PI GVZ cho các rows cũ (chưa có cột trước migration) — PIT-clean,
@@ -310,30 +333,45 @@ def sync_ledger(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
             fd = pd.Timestamp(r[0])
             if fd in forecasts.index and pd.notna(forecasts.at[fd, "pi80_lower"]):
                 conn.execute(
-                    f"UPDATE {LEDGER_TABLE} SET pi80_lower=?, pi80_upper=?, pi90_lower=?, pi90_upper=? "
+                    f"UPDATE {LEDGER_TABLE} SET pi80_lower=?, pi80_upper=?, pi90_lower=?, pi90_upper=?, "
+                    f"target_p80_low=?, target_p80_high=?, target_p90_low=?, target_p90_high=? "
                     f"WHERE forecast_date=? AND model_version=?",
                     (
                         float(forecasts.at[fd, "pi80_lower"]),
                         float(forecasts.at[fd, "pi80_upper"]),
                         float(forecasts.at[fd, "pi90_lower"]),
                         float(forecasts.at[fd, "pi90_upper"]),
+                        float(forecasts.at[fd, "target_p80_low"]),
+                        float(forecasts.at[fd, "target_p80_high"]),
+                        float(forecasts.at[fd, "target_p90_low"]),
+                        float(forecasts.at[fd, "target_p90_high"]),
                         str(fd.date()),
                         MODEL_VERSION,
                     ),
                 )
                 pi_filled += 1
-    # điền realized_p20 cho các forecast đã mature nhưng chưa có (roll over)
+    # điền realized_p20 + is_covered_80/90 cho các forecast đã mature (roll over).
+    # Settlement: realized_p20 (giá close tại t+20) nằm trong target band price-space.
+    cal_dates = {str(d.date()): d for d in cal}
     for r in conn.execute(
-        f"SELECT forecast_date, mature_date FROM {LEDGER_TABLE} "
+        f"SELECT forecast_date, mature_date, target_p80_low, target_p80_high, "
+        f"target_p90_low, target_p90_high FROM {LEDGER_TABLE} "
         f"WHERE model_version=? AND realized_r20 IS NOT NULL AND realized_p20 IS NULL",
         (MODEL_VERSION,),
     ):
-        fd, md = r
-        if md and md in {str(d.date()) for d in cal}:
-            p20 = float(panel["GOLD"].loc[cal[[str(d.date()) for d in cal].index(md)]])
+        fd, md, p80l, p80h, p90l, p90h = r
+        if md and md in cal_dates:
+            p20 = float(panel["GOLD"].loc[cal_dates[md]])
+            cov80 = 1 if (p80l is not None and p80l <= p20 <= p80h) else 0
+            cov90 = 1 if (p90l is not None and p90l <= p20 <= p90h) else 0
+            if p80l is None:
+                cov80 = None
+            if p90l is None:
+                cov90 = None
             conn.execute(
-                f"UPDATE {LEDGER_TABLE} SET realized_p20=?, realized_ts=? WHERE forecast_date=? AND model_version=?",
-                (p20, now, fd, MODEL_VERSION),
+                f"UPDATE {LEDGER_TABLE} SET realized_p20=?, realized_ts=?, is_covered_80=?, is_covered_90=? "
+                f"WHERE forecast_date=? AND model_version=?",
+                (p20, now, cov80, cov90, fd, MODEL_VERSION),
             )
             matured += 1
     conn.commit()
@@ -428,18 +466,17 @@ def report_gate(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
         last = float(np.mean(pred_err[-w:]))
         decay = {"roll20_first_mae": first, "roll20_last_mae": last, "dmae_20": float(last - first)}
 
-    # ── PI GVZ v0.3C coverage (frozen q80/q90) trên matured ──
+    # ── PI GVZ v0.3C coverage (settlement thực tế từ ledger is_covered_*) ──
     pi_cov = {}
-    pi_m = matured.dropna(subset=["pi80_lower"])
+    pi_m = matured.dropna(subset=["is_covered_80"])
     if len(pi_m) >= 5:
-        in80 = ((pi_m["realized_r20"] >= pi_m["pi80_lower"]) & (pi_m["realized_r20"] <= pi_m["pi80_upper"])).mean()
-        in90 = ((pi_m["realized_r20"] >= pi_m["pi90_lower"]) & (pi_m["realized_r20"] <= pi_m["pi90_upper"])).mean()
         pi_cov = {
             "n": int(len(pi_m)),
-            "cov80": float(in80),
-            "cov90": float(in90),
+            "cov80": float(pi_m["is_covered_80"].mean()),
+            "cov90": float(pi_m["is_covered_90"].mean()),
             "q80": PI_Q80,
             "q90": PI_Q90,
+            "settle_p20": "realized close t+20 vs target_p* band",
         }
 
     res.update(
