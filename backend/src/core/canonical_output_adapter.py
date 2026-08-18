@@ -315,6 +315,18 @@ def localize_output(data: dict) -> dict:
 # ====================================================================
 
 CLI_LABEL_MAP: dict[str, str] = {
+    # ── Gold Forecast ──
+    "GOLD FORECAST": "DỰ BÁO GIÁ VÀNG",
+    "Forecast date": "Ngày dự báo",
+    "Spot price": "Giá hiện tại",
+    "Expected 20d return E[logR20]": "Kỳ vọng lợi nhuận 20 phiên E[logR20]",
+    "Probability of up": "Xác suất tăng",
+    "Central target": "Mục tiêu trung tâm",
+    "PI80 price band": "Dải giá 80%",
+    "PI90 price band": "Dải giá 90%",
+    "Quantiles": "Phân vị frozen",
+    "Mature date": "Ngày đáo hạn t+20",
+    "No pending forecast": "Không có forecast chờ đáo hạn",
     # ── Engine & Regime ──
     "Regime": "Trạng thái vĩ mô",
     "ADX": "Xung lực",
