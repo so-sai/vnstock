@@ -29,6 +29,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import datetime as _dt
 import sqlite3
 import sys
@@ -532,11 +533,39 @@ def report_forward(matured_fwd: pd.DataFrame, all_r20: np.ndarray) -> dict:
 
 
 def main() -> None:
-    sub = sys.argv[1] if len(sys.argv) > 1 else "all"
+    global LEDGER_DB
+    parser = argparse.ArgumentParser(description="Gold Forward Paper Ledger Engine (FROZEN model)")
+    parser.add_argument(
+        "action",
+        nargs="?",
+        default="all",
+        choices=["all", "init", "update", "report", "gate"],
+        help="Action to perform (default: all = init+update+report; gate = alias report)",
+    )
+    flag = parser.add_mutually_exclusive_group()
+    flag.add_argument("--init", action="store_const", const="init", dest="action")
+    flag.add_argument("--update", action="store_const", const="update", dest="action")
+    flag.add_argument("--all", action="store_const", const="all", dest="action")
+    flag.add_argument("--report", action="store_const", const="report", dest="action")
+    flag.add_argument("--gate", action="store_const", const="gate", dest="action")
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=LEDGER_DB,
+        help="Path to SQLite ledger database (default: backend/data/gold_paper_ledger.db)",
+    )
+    args = parser.parse_args()
+    if args.db != LEDGER_DB:
+        LEDGER_DB = args.db
+
+    sub = args.action
     panel = build_paper_panel()
     print(f"[paper] panel {panel.index.min().date()} -> {panel.index.max().date()} ({len(panel)} ngày)")
     forecasts = generate_forecasts(panel)
     print(f"[paper] forecasts generated: {len(forecasts)} ngày")
+
+    if sub == "gate":
+        sub = "report"
 
     if sub in ("all", "init", "update"):
         stats = sync_ledger(panel, forecasts)
