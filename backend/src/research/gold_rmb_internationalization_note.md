@@ -163,6 +163,74 @@ Muốn nối ba vế thành evidence định lượng → phải qua PIT data + 
 OOS test. Note này không phải pseudo-model specification; protocol chỉ chuyển
 thành spec thực thi khi có dữ liệu mở Gold v1.x.
 
+## Japan Repatriation & Global Liquidity — Structural Watchlist
+
+RMB/Gold nói về cấu trúc reserve–funding; Japan repatriation nói về
+**transmission qua capital flows / global liquidity**. Đây là mắt xích bổ sung,
+không phải driver độc lập.
+
+Transmission hypothesis:
+
+```
+JGB30Y ↑
+   ↓
+FX hedge cost ↑
+   ↓
+Japanese insurer foreign-bond attractiveness ↓
+   ↓
+Foreign holdings ↓ / domestic allocation ↑
+   ↓
+UST marginal demand ↓
+   ↓
+Global term premium / liquidity conditions
+   ↓
+Gold transmission
+```
+
+**4 biến quan sát** (structural watchlist — chưa phải feature):
+
+1. JGB 30Y yield
+2. USD/JPY hedging cost
+3. Japanese insurer foreign-bond holdings/flows
+4. Japanese UST holdings/flows
+
+**Ba điều kiện khóa:**
+
+> **Headline yield ≠ repatriation.**
+> **Repatriation ≠ UST crisis.**
+> **UST selling ≠ automatically bullish gold.**
+
+Chỉ khi có **flow evidence + PIT vintage + incremental OOS H20** mới được phép
+nâng từ *structural hypothesis* → *candidate feature*. Cần đo **flow**, không
+phải headline yield; không dùng câu "Nhật là bên rút tiền gây khủng hoảng
+1997" (Asian Crisis có nhiều cơ chế đồng thời — USD peg, short-term FC debt,
+maturity mismatch, inflow reversal, banking fragility, reserve depletion).
+
+## Kiến trúc tổng thể (giữ nguyên)
+
+```
+EMPIRICAL
+M1 + M2 ──────────────→ Gold H20 signal
+GVZ ──────────────────→ uncertainty / PI
+
+STRUCTURAL
+Gold ── Reserve
+RMB ─── Funding
+CGB ─── Collateral
+Japan ─ Capital-flow transmission
+CIPS ── Infrastructure
+
+                 ↓
+          hypothesis layer
+                 ↓
+        NEVER explain forecast
+        retrospectively
+```
+
+Nguyên tắc vận hành: **Detect → Estimate → Stress → Update** — không tiên tri
+tương lai, xây hệ thống có lợi thế thống kê nhỏ, đo được, cập nhật khi state mới.
+Economic narrative ≠ forecasting system.
+
 ## Tương quan với research Gold hiện tại (evidence đã có)
 
 - M1 (DXY / real yields / monetary): baseline, **direction skill yếu**.
