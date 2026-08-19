@@ -31,6 +31,7 @@ Architecture:
 # ===================================================================
 """
 
+import csv
 import json
 import logging
 import os
@@ -97,6 +98,14 @@ CACHE_FILE = CACHE_DIR / "fed_policy_cache.json"
 
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 
+# ── FRED public CSV endpoint (Zero-Auth, no API key) ────────────────
+# WHY (2026-08-19): CME FedWatch WAF chặn cả requests lẫn Playwright ở tầng
+# mạng (ERR_CONNECTION_RESET). St. Louis Fed cung cấp endpoint `fredgraph.csv`
+# mở không cần auth — cùng pattern GVZCLS / FORTREASPOS41408. DFEDTARU = trần
+# biên độ lãi suất điều hành mục tiêu (daily). Fallback cuối trước defaults.
+FRED_GRAPH_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+DFEDTARU_SERIES = "DFEDTARU"
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -124,6 +133,59 @@ def _write_cache(data: dict):
         CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except (OSError, TypeError, ValueError) as e:
         logger.warning(f"World cache write failed: {e}")
+
+
+# ── FRED public CSV (Zero-Auth) helper ──────────────────────────────
+
+
+def fetch_fred_csv_latest(series_id: str = DFEDTARU_SERIES, timeout: float = 15.0) -> dict | None:
+    """Fetch the latest observation of a FRED series via the public CSV endpoint.
+
+    Zero-Auth: `https://fred.stlouisfed.org/graph/fredgraph.csv?id=<series_id>`
+    requires no API key (same pattern as GVZCLS / FORTREASPOS41408).
+
+    Skips rows with missing values ('.') and returns the latest valid observation.
+
+    Args:
+        series_id: FRED series ID (e.g. 'DFEDTARU').
+        timeout: request timeout in seconds.
+
+    Returns:
+        {"series_id", "date", "value"} or None on failure / no valid rows.
+    """
+    import io
+
+    try:
+        resp = requests.get(
+            FRED_GRAPH_CSV_URL.format(series_id=series_id),
+            headers=_browser_headers(),
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        content = resp.text
+    except (requests.RequestException, OSError) as e:
+        logger.warning(f"FRED CSV {series_id} fetch failed: {e}")
+        return None
+
+    latest_date = None
+    latest_val = None
+    try:
+        reader = csv.reader(io.StringIO(content.strip()))
+        next(reader, None)  # skip header
+        for row in reader:
+            if len(row) >= 2 and row[1].strip() not in ("", "."):
+                try:
+                    latest_date = row[0].strip()
+                    latest_val = float(row[1].strip())
+                except ValueError:
+                    continue
+    except (csv.Error, OSError, ValueError, StopIteration) as e:
+        logger.warning(f"FRED CSV {series_id} parse failed: {e}")
+        return None
+
+    if latest_date is not None and latest_val is not None:
+        return {"series_id": series_id, "date": latest_date, "value": latest_val}
+    return None
 
 
 # ── Block 1: CME FedWatch (30-Day FF Futures) ─────────────────────────
@@ -199,12 +261,17 @@ def _fetch_cme_fedwatch() -> tuple[float, float, str]:
 
 
 def _cme_fedwatch_playwright_fallback() -> tuple[float, float, str]:
-    """Fallback tier: Playwright headless crawl of `.cmeTable`.
+    """Fallback tier: Playwright crawl → FRED DFEDTARU → hardcoded defaults.
 
-    WHY fallback exists: since 2026-08 CME returns HTTP 403 to plain requests
-    (WAF TLS fingerprint + JS challenge). Playwright drives real Chromium so
-    the WAF serves the DOM. Kept in a separate function so world_sensor stays
-    import-light; the Playwright module is only imported lazily here.
+    WHY fallback exists: since 2026-08 CME returns HTTP 403/ERR_CONNECTION_RESET
+    to plain requests AND Playwright (WAF blocks at TLS/IP layer). Playwright
+    drives real Chromium so the WAF serves the DOM when reachable; kept in a
+    separate function so world_sensor stays import-light (module lazily imported).
+
+    WHY FRED DFEDTARU (2026-08-19): when CME is fully blocked, St. Louis Fed's
+    public CSV (Zero-Auth) still provides the authoritative Fed target rate
+    upper bound. hike_prob/meeting are NOT available from FRED, so they stay
+    at defaults — but the target rate becomes real data, not a hardcoded guess.
     """
     try:
         from src.sensors.cme_fedwatch_playwright import fetch_cme_fedwatch
@@ -214,10 +281,18 @@ def _cme_fedwatch_playwright_fallback() -> tuple[float, float, str]:
             logger.info("CME FedWatch via Playwright (cme_pw)")
             return (rate, prob, meeting)
         logger.warning("CME FedWatch Playwright returned defaults")
-        return (DEFAULT_FED_RATE, 0.0, "unknown")
-    except Exception as e:  # noqa: BLE001 - external provider resilience: Playwright fail → trả default
+    except Exception as e:  # noqa: BLE001 - external provider resilience: Playwright fail → thử FRED
         logger.warning(f"CME FedWatch Playwright fallback failed: {e}")
-        return (DEFAULT_FED_RATE, 0.0, "unknown")
+
+    # FRED DFEDTARU — real target rate, zero-auth. Prob/meeting stay defaults.
+    try:
+        fred = fetch_fred_csv_latest(DFEDTARU_SERIES)
+        if fred is not None and isinstance(fred.get("value"), (int, float)):
+            logger.info(f"CME FedWatch unavailable — FRED {DFEDTARU_SERIES} rate: {fred['value']}")
+            return (float(fred["value"]), 0.0, "unknown")
+    except Exception as e:  # noqa: BLE001 - external provider resilience: FRED fail → default
+        logger.warning(f"FRED {DFEDTARU_SERIES} fallback failed: {e}")
+    return (DEFAULT_FED_RATE, 0.0, "unknown")
 
 
 def _browser_headers() -> dict:

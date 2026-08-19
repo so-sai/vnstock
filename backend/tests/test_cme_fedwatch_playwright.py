@@ -317,5 +317,107 @@ def test_world_sensor_playwright_fallback_returns_defaults_on_error(monkeypatch)
     )
     monkeypatch.setitem(sys.modules, "src.sensors.cme_fedwatch_playwright", fake)
 
+    # CME fail + FRED DFEDTARU fail → defaults (không raise).
+    monkeypatch.setattr(ws, "fetch_fred_csv_latest", lambda *a, **k: None)
     rate, prob, meeting = ws._cme_fedwatch_playwright_fallback()
     assert (rate, prob, meeting) == (5.5, 0.0, "unknown")
+
+
+# ═══════════════════════════════════════════════════════════════
+# FRED public CSV (Zero-Auth) helper
+# ═══════════════════════════════════════════════════════════════
+
+
+class _FakeResp:
+    def __init__(self, text, status=200):
+        self._text = text
+        self.status = status
+
+    def raise_for_status(self):
+        if self.status != 200:
+            raise ConnectionError(f"HTTP {self.status}")
+        return None
+
+    @property
+    def text(self):
+        return self._text
+
+
+def test_fred_csv_latest_parses_valid_row(monkeypatch):
+    """Test 1: CSV chuẩn → parse đúng date + value float."""
+    import sensors.world_sensor as ws
+
+    csv_body = "observation_date,DFEDTARU\n2026-08-15,5.50\n2026-08-16,5.50\n2026-08-18,4.50\n"
+    monkeypatch.setattr(ws.requests, "get", lambda *a, **k: _FakeResp(csv_body))
+
+    out = ws.fetch_fred_csv_latest("DFEDTARU")
+    assert out is not None
+    assert out["series_id"] == "DFEDTARU"
+    assert out["date"] == "2026-08-18"
+    assert out["value"] == pytest.approx(4.5)
+
+
+def test_fred_csv_latest_skips_missing_values(monkeypatch):
+    """Test 2: dòng missing '.' → lấy dòng hợp lệ gần nhất."""
+    import sensors.world_sensor as ws
+
+    csv_body = "observation_date,DFEDTARU\n2026-08-15,5.50\n2026-08-16,.\n2026-08-18,.\n2026-08-19,4.50\n"
+    monkeypatch.setattr(ws.requests, "get", lambda *a, **k: _FakeResp(csv_body))
+
+    out = ws.fetch_fred_csv_latest("DFEDTARU")
+    assert out is not None
+    assert out["date"] == "2026-08-19"
+    assert out["value"] == pytest.approx(4.5)
+
+
+def test_fred_csv_latest_returns_none_on_timeout(monkeypatch):
+    """Test 3: network timeout / HTTP 500 → None, không raise."""
+    import sensors.world_sensor as ws
+
+    def _timeout(*a, **k):
+        raise ConnectionError("timed out")
+
+    monkeypatch.setattr(ws.requests, "get", _timeout)
+    assert ws.fetch_fred_csv_latest("DFEDTARU") is None
+
+    monkeypatch.setattr(ws.requests, "get", lambda *a, **k: _FakeResp("", 500))
+    assert ws.fetch_fred_csv_latest("DFEDTARU") is None
+
+
+def test_fred_csv_latest_returns_none_on_empty_body(monkeypatch):
+    """Body trống / chỉ header → None (không có row hợp lệ)."""
+    import sensors.world_sensor as ws
+
+    monkeypatch.setattr(ws.requests, "get", lambda *a, **k: _FakeResp("observation_date,DFEDTARU\n"))
+    assert ws.fetch_fred_csv_latest("DFEDTARU") is None
+
+
+# ═══════════════════════════════════════════════════════════════
+# Integration: FRED DFEDTARU fallback khi CME bị chặn hoàn toàn
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_playwright_fallback_uses_fred_rate_when_cme_blocked(monkeypatch):
+    """CME Playwright trả defaults + FRED có rate thật → rate từ FRED (4.5)."""
+    import sys
+
+    import sensors.world_sensor as ws
+
+    fake = type(
+        "FakeMod",
+        (),
+        {
+            "fetch_cme_fedwatch": staticmethod(lambda: (5.5, 0.0, "unknown", "default")),
+        },
+    )
+    monkeypatch.setitem(sys.modules, "src.sensors.cme_fedwatch_playwright", fake)
+    monkeypatch.setattr(
+        ws,
+        "fetch_fred_csv_latest",
+        lambda series_id: {"series_id": "DFEDTARU", "date": "2026-08-18", "value": 4.5},
+    )
+
+    rate, prob, meeting = ws._cme_fedwatch_playwright_fallback()
+    assert rate == pytest.approx(4.5)
+    assert prob == 0.0
+    assert meeting == "unknown"
