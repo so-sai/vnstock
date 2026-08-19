@@ -550,12 +550,12 @@ def compute_sector_context(conn, sector: str, lookback: int = 90) -> dict:
 
     df.loc[:, "ret"] = df.groupby("symbol")["close"].pct_change(fill_method=None)
     daily = df.groupby("date")["ret"].mean().reset_index().sort_values("date")
-    # Clean inf/NaN (broken prices produce inf pct_change → poisons cumprod)
-    # WHY: .loc[:, "ret"] thay vì daily["ret"]=... — chained assignment kích hoạt
-    # pandas FutureWarning (copy-vs-view); đây là lệnh gán đơn trên cột độc lập.
-    daily.loc[:, "ret"] = daily["ret"].replace([float("inf"), float("-inf")], pd.NA)
+    # Clean inf/NaN (broken prices produce inf pct_change → poisons cumprod).
+    # WHY: dùng NaN (float) thay pd.NA — pd.NA vào cột float64 gây FutureWarning
+    # "incompatible dtype" và chuỗi .fillna() sau đó gây cảnh báo downcast pandas 2.x.
+    daily["ret"] = daily["ret"].replace([float("inf"), float("-inf")], float("nan"))
     daily = daily.dropna(subset=["ret"])
-    daily.loc[:, "cum"] = (1 + daily["ret"].fillna(0.0)).cumprod()
+    daily["cum"] = (1 + daily["ret"]).cumprod()
     daily.loc[:, "ma5"] = daily["cum"].rolling(5).mean()
     daily.loc[:, "ma20"] = daily["cum"].rolling(20).mean()
     last5 = daily["ma5"].dropna()

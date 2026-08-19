@@ -3622,7 +3622,17 @@ def cmd_health_engine(args):
         print("  ✅ health_ratios schema initialized")
 
     elif action == "compute":
-        for sym in args.symbols:
+        symbols = list(args.symbols)
+        if getattr(args, "all", False):
+            import sqlite3 as _sqlite3
+
+            conn = _sqlite3.connect(str(engine.db_path))
+            symbols = [
+                r[0] for r in conn.execute("SELECT DISTINCT symbol FROM financial_facts ORDER BY symbol")
+            ]
+            conn.close()
+            print(f"  🌐 Compute toàn bộ {len(symbols)} symbols có financial_facts")
+        for sym in symbols:
             print(f"\n  [{sym}] Computing health ratios...")
             result = engine.compute_health(sym)
             if result.get("status") == "NO_DATA":
@@ -6454,6 +6464,11 @@ def build_parser():
             "GAS",
         ],
         help="Danh sách mã",
+    )
+    p_he.add_argument(
+        "--all",
+        action="store_true",
+        help="Compute cho toàn bộ symbol có financial_facts trong DB (thay thế --symbols)",
     )
     p_he.set_defaults(func=cmd_health_engine)
 
