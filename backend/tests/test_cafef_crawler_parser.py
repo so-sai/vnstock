@@ -322,6 +322,48 @@ class TestScaleCorruptionGuard:
         assert note == "OK"
         assert value == pytest.approx(17_205_000_000_000.0)
 
+    def test_net_income_million_unit_scales_to_billion(self):
+        """NET_INCOME raw=62 (đơn vị 'triệu đồng') phải scale ×1e9 = 62 tỷ.
+
+        WHY (lỗ hổng batch re-crawl): VCI trả NET_INCOME quý theo triệu đồng (vd 62)
+        cho nhiều mã. Dải NET_INCOME lo=0 khiến 62×1000=62,000 VND lọt vào
+        'plausible' → ghi 62 nghìn (rác) thay vì 62 tỷ. Nâng lo lên MIN_SCALE_SUSPECT
+        buộc auto_scale phải thử tiếp ×1e9.
+        """
+        value, note = DataIntegrityValidator.auto_scale_to_vnd(62.0, "NET_INCOME", "AAA")
+        assert note == "AUTO_SCALED_1000000000x"
+        assert value == pytest.approx(62_000_000_000.0)
+
+    def test_ebit_million_unit_scales_to_billion(self):
+        """EBIT raw=62 (triệu đồng) → ×1e9; EBIT KHÔNG có dải range hiện tại (trả True
+        vô điều kiện) nên 62×1000=62k bị ghi — cần range + nhóm abs để chặn."""
+        value, note = DataIntegrityValidator.auto_scale_to_vnd(62.0, "EBIT", "AAA")
+        assert note == "AUTO_SCALED_1000000000x"
+        assert value == pytest.approx(62_000_000_000.0)
+
+    def test_gross_profit_million_unit_scales_to_billion(self):
+        """GROSS_PROFIT raw=62 (triệu đồng) → ×1e9 (tương tự EBIT, thiếu dải range)."""
+        value, note = DataIntegrityValidator.auto_scale_to_vnd(62.0, "GROSS_PROFIT", "AAA")
+        assert note == "AUTO_SCALED_1000000000x"
+        assert value == pytest.approx(62_000_000_000.0)
+
+    def test_zero_value_keeps_ok_not_auto_scaled(self):
+        """Giá trị 0.0 giữ nguyên với note OK — KHÔNG bị đóng dấu AUTO_SCALED_1000x oan.
+
+        WHY: batch re-crawl FULL từng nhân 0×1000=0 và gắn AUTO_SCALED_1000x cho
+        >10,000 facts (LONG_TERM_DEBT/CAPEX/DEPRECIATION=0). 0 là trạng thái hợp lệ,
+        cấm suy đoán đơn vị trên số 0.
+        """
+        value, note = DataIntegrityValidator.auto_scale_to_vnd(0.0, "LONG_TERM_DEBT", "AAH")
+        assert value == 0.0
+        assert note == "OK"
+
+    def test_zero_net_income_keeps_ok(self):
+        """NET_INCOME=0.0 (placeholder) cũng giữ nguyên 0.0 với note OK — không AUTO_SCALED."""
+        value, note = DataIntegrityValidator.auto_scale_to_vnd(0.0, "NET_INCOME", "AME")
+        assert value == 0.0
+        assert note == "OK"
+
     def test_write_batch_skips_suspect_scale_corruption(self, tmp_path):
         """write_batch KHÔNG ghi REVENUE nghi scale sai (SKIP_SCALE_CORRUPTION)."""
         db_file = str(tmp_path / "t.db")

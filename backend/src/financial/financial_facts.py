@@ -481,6 +481,14 @@ class DataIntegrityValidator:
         # khoảng hợp lý (xác nhận bằng _in_plausible_range) thay vì đoán mò một mức.
         raw = value
 
+        # Giá trị 0.0 là trạng thái hợp lệ (VD CAPEX=0, LONG_TERM_DEBT=0) hoặc placeholder —
+        # KHÔNG được suy đoán đơn vị (0×1000=0 vô nghĩa). Giữ nguyên 0.0 với note OK để
+        # write_batch ghi đúng, không đóng dấu AUTO_SCALED_1000x oan.
+        # WHY: batch re-crawl FULL từng nhân 0×1000=0 và gắn nhãn AUTO_SCALED_1000x cho
+        # >10,000 facts nợ dài hạn/khấu hao/CAPEX — ô nhiễm integrity_flags vô nghĩa.
+        if raw == 0:
+            return 0.0, "OK"
+
         # Kiểm tra: value < 1,000 VND mà là item lớn → scale *1000 (triệu→VND)
         if abs(raw) < DataIntegrityValidator.MIN_VND_SCALE and metric not in scale_free_metrics:
             # Thử scale dần
@@ -530,7 +538,25 @@ class DataIntegrityValidator:
             # từng khiến BCM 422,000×1e9=4.22e14 lọt vào "plausible" → ghi sai
             # 422 nghìn tỷ thay vì 422 tỷ.
             "REVENUE": (1_000_000_000, 200_000_000_000_000),  # 1 tỷ → 200 nghìn tỷ
-            "NET_INCOME": (0, 45_000_000_000_000),  # 0 → 45 nghìn tỷ
+            "COGS": (100_000_000, 200_000_000_000_000),
+            "OPERATING_REVENUE": (100_000_000, 200_000_000_000_000),
+            "TOTAL_REVENUE": (100_000_000, 200_000_000_000_000),
+            "OPERATING_EXPENSE": (100_000_000, 200_000_000_000_000),
+            "NET_INCOME": (100_000_000, 45_000_000_000_000),  # 100 triệu → 45 nghìn tỷ
+            "EBIT": (100_000_000, 45_000_000_000_000),  # 100 triệu → 45 nghìn tỷ
+            "EBITDA": (100_000_000, 45_000_000_000_000),
+            "OPERATING_PROFIT": (100_000_000, 45_000_000_000_000),
+            "GROSS_PROFIT": (100_000_000, 45_000_000_000_000),  # 100 triệu → 45 nghìn tỷ
+            "CASH_EQUIV": (100_000_000, 500_000_000_000_000),
+            "INVENTORY": (100_000_000, 500_000_000_000_000),
+            "RECEIVABLES": (100_000_000, 500_000_000_000_000),
+            "SHORT_TERM_DEBT": (100_000_000, 500_000_000_000_000),
+            "LONG_TERM_DEBT": (100_000_000, 500_000_000_000_000),
+            "TOTAL_DEBT": (100_000_000, 500_000_000_000_000),
+            "CAPEX": (100_000_000, 500_000_000_000_000),
+            "DEPRECIATION_AMORTIZATION": (100_000_000, 500_000_000_000_000),
+            "INTEREST_EXPENSE": (100_000_000, 500_000_000_000_000),
+            "TOTAL_LIABILITIES": (100_000_000, 1_000_000_000_000_000),
             "TOTAL_ASSETS": (100_000_000_000, 1_000_000_000_000_000),  # 100 tỷ → 1 triệu tỷ
             "TOTAL_EQUITY": (10_000_000_000, 500_000_000_000_000),  # 10 tỷ → 500 nghìn tỷ
             "CURRENT_ASSETS": (10_000_000_000, 500_000_000_000_000),
@@ -539,8 +565,20 @@ class DataIntegrityValidator:
             "CUSTOMER_DEPOSITS": (100_000_000_000, 500_000_000_000_000),
             "CFO": None,  # Có thể âm
             "CFI": None,
-            "NII": (0, 100_000_000_000_000),
-            "PROVISION_EXPENSE": (0, 50_000_000_000_000),
+            "CFF": None,  # Có thể âm
+            "NII": (100_000_000, 100_000_000_000_000),
+            "NON_II": (100_000_000, 100_000_000_000_000),
+            "TOI": (100_000_000, 100_000_000_000_000),
+            "MARGIN_LOANS": (100_000_000, 100_000_000_000_000),
+            "MARGIN_INTEREST": (100_000_000, 100_000_000_000_000),
+            "NET_CLAIMS": (100_000_000, 100_000_000_000_000),
+            "NET_PREMIUM": (100_000_000, 100_000_000_000_000),
+            "TECHNICAL_RESERVES": (100_000_000, 100_000_000_000_000),
+            "INVESTMENT_INCOME": (100_000_000, 100_000_000_000_000),
+            "FVTPL_GAIN": (100_000_000, 100_000_000_000_000),
+            "AFS": (100_000_000, 500_000_000_000_000),
+            "FVTPL": (100_000_000, 500_000_000_000_000),
+            "PROVISION_EXPENSE": (100_000_000, 50_000_000_000_000),
         }
         if metric not in ranges:
             return True
@@ -548,7 +586,20 @@ class DataIntegrityValidator:
         if r is None:
             return True
         lo, hi = r
-        if metric.endswith("INCOME") or metric in ("REVENUE", "NII", "TOI", "NET_PROFIT"):
+        if metric.endswith("INCOME") or metric in (
+            "REVENUE",
+            "NII",
+            "TOI",
+            "NET_PROFIT",
+            "EBIT",
+            "EBITDA",
+            "GROSS_PROFIT",
+            "OPERATING_PROFIT",
+            "CAPEX",
+            "FVTPL_GAIN",
+            "INVESTMENT_INCOME",
+            "NET_CLAIMS",
+        ):
             # Income items thường không âm (lợi nhuận có thể âm)
             if value < -hi:
                 return False
