@@ -1269,6 +1269,74 @@ class TestProjectSyntax:
 
 
 # ============================================================
+# BUG 35: Valuation P/B basis mismatch (split-adjusted price vs period shares)
+# ============================================================
+class TestValuationBasisFix:
+    """Bug: price từ screener là split-adjusted nhưng BVPS fallback dùng shares
+    thời điểm đó → P/B lịch sử bị bóp méo khi công ty phát hành thêm cổ phiếu
+    (HPG 2018: PB=0.45 sai vs đúng 1.90). Fix: dùng shares HIỆN TẠI (latest
+    CHARTER_CAPITAL/10000) cho BVPS fallback."""
+
+    def _make_facts(self):
+        return {
+            "2018Q1": {
+                "_fiscal_year": 2018,
+                "_fiscal_quarter": 1,
+                "TOTAL_EQUITY": 34400000000000.0,
+                "CHARTER_CAPITAL": 15170000000000.0,  # 1.517B shares thời điểm đó
+                "REVENUE": 20000000000000.0,
+                "NET_INCOME": 5000000000000.0,
+            },
+            "2026Q2": {
+                "_fiscal_year": 2026,
+                "_fiscal_quarter": 2,
+                "TOTAL_EQUITY": 141516000000000.0,
+                "CHARTER_CAPITAL": 63962502000000.0,  # 6.396B shares hiện tại
+                "REVENUE": 55159000000000.0,
+                "NET_INCOME": 6424000000000.0,
+            },
+        }
+
+    def _make_engine(self):
+        from types import SimpleNamespace
+
+        from src.financial.valuation_engine import ValuationEngine
+
+        return ValuationEngine(facts_db=SimpleNamespace(db_path=":memory:"))
+
+    def test_get_latest_shares_uses_latest_charter(self, monkeypatch):
+        facts = self._make_facts()
+        eng = self._make_engine()
+        shares_now = eng._get_latest_shares(facts)
+        assert shares_now == pytest.approx(63962502000000.0 / 10000.0)
+
+    def test_bvps_fallback_uses_shares_now_not_period_shares(self, monkeypatch):
+        facts = self._make_facts()
+        eng = self._make_engine()
+        shares_now = eng._get_latest_shares(facts)
+        # Price adjusted: 2018Q1 giá ~10,220 (đã quy về shares hiện tại)
+        monkeypatch.setattr(eng, "_get_price_at_date", lambda sym, d: 10220.0)
+        ratios = eng.compute_ratios_for_period(
+            "HPG", "2018Q1", facts["2018Q1"], "STANDARD", shares_now=shares_now
+        )
+        # BVPS = equity / shares_now = 34.4T / 6.396B ≈ 5,377 → PB = 10220/5377 ≈ 1.90
+        # (KHÔNG còn 0.45 theo shares period 1.517B)
+        assert ratios["PB"] == pytest.approx(1.90, abs=0.05)
+
+    def test_latest_period_pb_unchanged_with_fix(self, monkeypatch):
+        facts = self._make_facts()
+        eng = self._make_engine()
+        shares_now = eng._get_latest_shares(facts)
+        monkeypatch.setattr(eng, "_get_price_at_date", lambda sym, d: 23300.0)
+        ratios = eng.compute_ratios_for_period(
+            "HPG", "2026Q2", facts["2026Q2"], "STANDARD", shares_now=shares_now
+        )
+        # Kỳ hiện tại: shares_now == shares period → fallback BVPS không đổi so với
+        # trước fix (PB = 23300 / (141.516T / 6.396B) ≈ 1.05), basis đã nhất quán.
+        assert ratios["PB"] == pytest.approx(1.053, abs=0.005)
+
+
+# ============================================================
 # BUG 34: ptck.py sys.path thiếu src_dir
 # ============================================================
 class TestPtcKSysPath:

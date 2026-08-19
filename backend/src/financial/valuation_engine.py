@@ -196,7 +196,29 @@ class ValuationEngine:
             return price * shares_out
         return None
 
-    def compute_ratios_for_period(self, symbol: str, period: str, period_metrics: dict, entity_type: str) -> dict:
+    def _get_latest_shares(self, facts: dict) -> float | None:
+        """Lấy số cổ phiếu hiện tại (latest CHARTER_CAPITAL/10000).
+
+        WHY (BASIS-FIX 2026-08-19): price từ screener_cache là split-adjusted
+        (quy về số cổ phiếu hiện tại). BVPS fallback phải dùng shares HIỆN TẠI,
+        không phải shares thời điểm đó, nếu không P/B lịch sử bị lệch basis
+        (HPG 2018: PB=0.45 sai vs đúng 1.90 do phát hành thêm cổ phiếu).
+        """
+        latest_cc = None
+        for period in sorted(facts):
+            cc = facts[period].get("CHARTER_CAPITAL")
+            if cc and cc > 0:
+                latest_cc = cc
+        return latest_cc / 10000.0 if latest_cc else None
+
+    def compute_ratios_for_period(
+        self,
+        symbol: str,
+        period: str,
+        period_metrics: dict,
+        entity_type: str,
+        shares_now: float | None = None,
+    ) -> dict:
         """Tính các valuation ratios cho 1 kỳ."""
         fy = period_metrics.get("_fiscal_year", int(period[:4]))
         fq = period_metrics.get("_fiscal_quarter", int(period[5:6]))
@@ -218,9 +240,13 @@ class ValuationEngine:
             if cc and cc > 0:
                 shares = cc / 10000.0
         # Fallback BVPS = Equity / Shares
-        if not bvps and shares:
+        # BASIS-FIX: price là split-adjusted → dùng shares hiện tại (shares_now)
+        # khi có; nếu không có, rơi về shares thời điểm đó (cũ, bảo toàn hành vi).
+        if not bvps:
             eq = period_metrics.get("TOTAL_EQUITY")
-            if eq:
+            if eq and shares_now:
+                bvps = eq / shares_now
+            elif eq and shares:
                 bvps = eq / shares
         revenue = period_metrics.get("REVENUE") or period_metrics.get("NII")
         # EBITDA proxy = OPERATING_PROFIT + DEPRECIATION_AMORTIZATION (CF).
@@ -322,11 +348,13 @@ class ValuationEngine:
         if not facts:
             return {"status": "NO_DATA", "symbol": symbol}
 
+        shares_now = self._get_latest_shares(facts)
+
         # For each period, compute valuation ratios
         all_period_ratios = {}  # {period: {ratio_name: value}}
         for period in sorted(facts.keys()):
             pm = facts[period]
-            ratios = self.compute_ratios_for_period(symbol, period, pm, entity_type)
+            ratios = self.compute_ratios_for_period(symbol, period, pm, entity_type, shares_now=shares_now)
             if ratios:
                 all_period_ratios[period] = ratios
 
