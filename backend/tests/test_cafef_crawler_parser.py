@@ -391,3 +391,88 @@ class TestScaleCorruptionGuard:
             "SELECT value FROM financial_facts WHERE symbol='BCM' AND period='2025Q3' AND metric='TOTAL_EQUITY'"
         ).fetchone()
         assert eq is not None, "metric hợp lệ khác vẫn phải được ghi"
+
+
+class TestProvenanceLock:
+    """Provenance Lock — cấm nguồn kém tin cậy (VCI/synthetic) ghi đè dữ liệu đã kiểm toán.
+
+    WHY (BƯỚC 3 — đảo ngược thứ bậc nạp dữ liệu): batch re-crawl VCI --full từng dùng
+    INSERT OR REPLACE ghi đè vô điều kiện, bơm 47,161 facts rác và đè lên các ô đã được
+    điền bằng nguồn đã kiểm toán (vietstock/vnstock/cafef_bctc_bank/...). Khóa này đảm
+    bảo: nếu 1 ô (symbol, period, metric) đã có source thuộc nhóm tin cậy thì VCI hoặc
+    synthetic KHÔNG được ghi đè — fail-closed, giữ nguyên vẹn dữ liệu đã xác minh.
+    """
+
+    def _mkdb(self, tmp_path) -> FinancialFactsDB:
+        db = FinancialFactsDB(db_path=str(tmp_path / "t.db"))
+        db.init_schema()
+        db.register_entity("FPT", "STANDARD")
+        return db
+
+    def _q(self, db, metric: str) -> tuple:
+        return db.connect().execute(
+            "SELECT value, source FROM financial_facts WHERE symbol='FPT' AND period='2025Q1' AND metric=?",
+            (metric,),
+        ).fetchone()
+
+    def test_protected_not_overwritten_by_vci(self, tmp_path):
+        """Source vietstock (đã kiểm toán) KHÔNG bị VCI ghi đè."""
+        db = self._mkdb(tmp_path)
+        db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 16_058_000_000_000.0},
+                       "STANDARD", source="vietstock")
+        res = db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 999_000_000_000.0},
+                             "STANDARD", source="vci")
+        assert any("SKIP_PROVENANCE_LOCK_REVENUE" in w for w in res["warnings"]), res["warnings"]
+        row = self._q(db, "REVENUE")
+        assert row[0] == pytest.approx(16_058_000_000_000.0)
+        assert row[1] == "vietstock"
+
+    def test_protected_not_overwritten_by_synthetic(self, tmp_path):
+        """Source vietstock KHÔNG bị synthetic (is_synthetic=1) ghi đè."""
+        db = self._mkdb(tmp_path)
+        db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 16_058_000_000_000.0},
+                       "STANDARD", source="vietstock")
+        res = db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 7_000_000_000_000.0},
+                             "STANDARD", source="synthetic", is_synthetic=1)
+        assert any("SKIP_PROVENANCE_LOCK_REVENUE" in w for w in res["warnings"]), res["warnings"]
+        assert self._q(db, "REVENUE")[1] == "vietstock"
+
+    def test_empty_cell_allows_vci(self, tmp_path):
+        """Ô trống (chưa có source) → VCI ghi được bình thường."""
+        db = self._mkdb(tmp_path)
+        res = db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 12_000_000_000_000.0},
+                             "STANDARD", source="vci")
+        assert res["status"] == "SUCCESS"
+        assert self._q(db, "REVENUE") == (12_000_000_000_000.0, "vci")
+
+    def test_protected_overwrites_non_protected(self, tmp_path):
+        """Nguồn đã kiểm toán (vietstock) được phép đè lên nguồn thô (vci)."""
+        db = self._mkdb(tmp_path)
+        db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 10_000_000_000_000.0},
+                       "STANDARD", source="vci")
+        res = db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 16_058_000_000_000.0},
+                             "STANDARD", source="vietstock")
+        assert res["status"] == "SUCCESS"
+        row = self._q(db, "REVENUE")
+        assert row[0] == pytest.approx(16_058_000_000_000.0)
+        assert row[1] == "vietstock"
+
+    def test_protected_prefix_bctc_hop_nhat_locked(self, tmp_path):
+        """Source dạng vietstock_bctc_hop_nhat_* (kiểm toán hợp nhất) cũng được khóa."""
+        db = self._mkdb(tmp_path)
+        db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 16_058_000_000_000.0},
+                       "STANDARD", source="vietstock_bctc_hop_nhat_2025q1")
+        res = db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 999_000_000_000.0},
+                             "STANDARD", source="vci")
+        assert any("SKIP_PROVENANCE_LOCK_REVENUE" in w for w in res["warnings"]), res["warnings"]
+        assert self._q(db, "REVENUE")[1] == "vietstock_bctc_hop_nhat_2025q1"
+
+    def test_vci_overwrites_vci(self, tmp_path):
+        """VCI ghi đè VCI (cùng nhóm nguồn thô) vẫn được phép — cập nhật số mới hơn."""
+        db = self._mkdb(tmp_path)
+        db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 10_000_000_000_000.0},
+                       "STANDARD", source="vci")
+        res = db.write_batch("FPT", {"_fiscal_year": 2025, "_fiscal_quarter": 1, "REVENUE": 12_000_000_000_000.0},
+                             "STANDARD", source="vci")
+        assert res["status"] == "SUCCESS"
+        assert self._q(db, "REVENUE") == (12_000_000_000_000.0, "vci")

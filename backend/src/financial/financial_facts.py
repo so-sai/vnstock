@@ -694,6 +694,30 @@ class DataIntegrityValidator:
 class FinancialFactsDB:
     """Quản lý financial_facts.db — Schema Kép."""
 
+    # ── Provenance Lock (BƯỚC 3) ─────────────────────────────────────────────
+    # Các nguồn ĐÃ KIỂM TOÁN / đã xác minh — dữ liệu quý từ các nguồn này được coi là
+    # "bất khả xâm phạm": VCI (crawler thô) hoặc synthetic KHÔNG được ghi đè lên.
+    # WHY: batch re-crawl VCI --full từng dùng INSERT OR REPLACE đè vô điều kiện, bơm
+    # 47,161 facts rác và đè lên các ô đã điền bằng vietstock/vnstock/cafef_bctc_bank...
+    # (FPT Q1-Q4, STB Q4, BCM Q3). Lock này giữ nguyên vẹn dữ liệu đã xác minh.
+    PROTECTED_SOURCES = frozenset({"vietstock", "vnstock", "api", "cafef", "audited_staging", "vndirect", "tcbs"})
+    PROTECTED_PREFIXES = (
+        "vietstock_bctc_hop_nhat_",
+        "cafef_bctc_bank_",
+        "sacombank_bctc_hop_nhat_",
+        "becamex_bctc_hop_nhat_",
+    )
+
+    @staticmethod
+    def _is_protected_source(source: str | None) -> bool:
+        """Nguồn đã kiểm toán (bất khả xâm phạm) hay không."""
+        if not source:
+            return False
+        s = source.strip().lower()
+        if s in FinancialFactsDB.PROTECTED_SOURCES:
+            return True
+        return any(s.startswith(p) for p in FinancialFactsDB.PROTECTED_PREFIXES)
+
     def __init__(self, db_path: str | None = None):
         self.db_path = db_path or str(FINANCIAL_DB_PATH)
         self.conn = None
@@ -980,6 +1004,21 @@ class FinancialFactsDB:
             if flags not in ("OK", ""):
                 warnings.append(flags)
             final_flags = f"{flags};{extra_flags}" if extra_flags else (flags if flags != "OK" else "")
+
+            # Provenance Lock (Đạo luật 1 — triệt tiêu silent fallback): nếu ô này đã có
+            # dữ liệu từ nguồn ĐÃ KIỂM TOÁN (vietstock/vnstock/cafef_bctc_bank/...) thì
+            # nguồn thô (VCI) hoặc synthetic KHÔNG được ghi đè — giữ nguyên vẹn dữ liệu đã
+            # xác minh, fail-closed. Nguồn protected mới vẫn được phép upsert (nâng cấp).
+            # WHY: INSERT OR REPLACE vô điều kiện từng cho phép VCI --full bơm rác lên các
+            # ô FPT/STB/BCM đã được vá bằng BCTC hợp nhất kiểm toán.
+            if not self._is_protected_source(source):
+                existing = cursor.execute(
+                    "SELECT source FROM financial_facts WHERE symbol=? AND period=? AND metric=?",
+                    (symbol.upper(), period, metric),
+                ).fetchone()
+                if existing is not None and self._is_protected_source(existing[0]):
+                    warnings.append(f"SKIP_PROVENANCE_LOCK_{metric}")
+                    continue
 
             cursor.execute(
                 """

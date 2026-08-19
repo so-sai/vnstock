@@ -257,7 +257,13 @@ class TestMetricLevelUpsert:
         }
 
     def test_metric_upsert_keeps_bs_is_from_previous_source(self, db):
-        """Nguồn mới (VCI) chỉ trả CFO → BS/IS cũ vẫn còn, CFO được ghi đè."""
+        """Nguồn mới (VCI) chỉ trả CFO → BS/IS cũ vẫn còn; CFO giữ nguyên bản kiểm toán.
+
+        WHY (Provenance Lock — BƯỚC 3): r1 ghi toàn bộ 6 metrics với source=vietstock
+        (đã kiểm toán). r2 đến từ source=vci (crawler thô) → CFO không được ghi đè lên
+        bản vietstock; các metric BS/IS khác cũng còn nguyên. Chỉ ô TRỐNG mới cho phép
+        nguồn thô điền vào.
+        """
         r1 = db.write_batch("TEST", self._full_batch(), "STANDARD", source="vietstock")
         assert r1["facts_written"] == 6
 
@@ -267,14 +273,15 @@ class TestMetricLevelUpsert:
             "STANDARD",
             source="vci",
         )
-        assert r2["facts_written"] == 1
+        assert r2["facts_written"] == 0, r2["warnings"]
+        assert any("SKIP_PROVENANCE_LOCK_CFO" in w for w in r2["warnings"]), r2["warnings"]
 
         facts = db.get_facts("TEST")
         assert "2026Q2" in facts
         q = facts["2026Q2"]
         assert q.get("REVENUE") == 4_000_000_000
         assert q.get("TOTAL_EQUITY") == 7_000_000_000
-        assert q.get("CFO") == 1_200_000_000
+        assert q.get("CFO") == 1_500_000_000, "CFO đã kiểm toán (vietstock) phải được giữ nguyên"
 
     def test_write_batch_empty_subset_does_not_purge_existing(self, db):
         """Batch chỉ có meta (không fact hợp lệ) → dữ liệu cũ không bị xóa."""
