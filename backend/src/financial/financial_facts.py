@@ -803,6 +803,21 @@ class FinancialFactsDB:
             PRIMARY KEY (symbol, period, metric)
         );
 
+        CREATE TABLE IF NOT EXISTS financial_facts_annual (
+            symbol          TEXT NOT NULL,
+            fiscal_year     INTEGER NOT NULL,
+            statement_type  TEXT NOT NULL,          -- 'IS' | 'BS' | 'CF'
+            metric          TEXT NOT NULL,
+            value           REAL,
+            unit            TEXT DEFAULT 'VND',
+            source          TEXT DEFAULT 'audited_staging',  -- nguồn kiểm toán (Provenance Lock)
+            is_synthetic    INTEGER DEFAULT 0,
+            integrity_flags TEXT DEFAULT '',
+            verification_status TEXT DEFAULT '',    -- '' | VERIFIED_BY_AUDITED_ANNUAL | MISMATCH_FAIL_CLOSED
+            ingested_at     TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (symbol, fiscal_year, metric)
+        );
+
         CREATE TABLE IF NOT EXISTS entity_registry (
             symbol          TEXT PRIMARY KEY,
             entity_type     TEXT NOT NULL,          -- 'STANDARD' | 'BANK'
@@ -844,6 +859,12 @@ class FinancialFactsDB:
         # ADD COLUMN đặt trong try/except để idempotent — chạy nhiều lần cũng không lỗi.
         try:
             cursor.execute("ALTER TABLE financial_facts ADD COLUMN is_synthetic INTEGER DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Cột đã tồn tại
+        # Migration: financial_facts_annual thêm cột verification_status (Audit Verification Gate).
+        try:
+            cursor.execute("ALTER TABLE financial_facts_annual ADD COLUMN verification_status TEXT DEFAULT ''")
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Cột đã tồn tại
