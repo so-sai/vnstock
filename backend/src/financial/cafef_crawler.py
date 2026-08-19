@@ -476,7 +476,7 @@ CAFEF_MAP_STANDARD = {
 
 CAFEF_MAP_BANK = {
     "Thu nhập lãi và các khoản thu nhập tương tự": "NII",
-    "Lợi nhuận sau thuế": "NET_PROFIT",
+    "Lợi nhuận sau thuế": "NET_INCOME",
     "Chi phí dự phòng rủi ro tín dụng": "PROVISION_EXPENSE",
     "Cho vay khách hàng": "CUSTOMER_LOANS",
     "Tiền gửi của khách hàng": "CUSTOMER_DEPOSITS",
@@ -643,8 +643,8 @@ class CafeFCrawler:
     # này quét 4 quý gần nhất, phát hiện quý thiếu >=3 core metrics và cào bù
     # từ nguồn phụ; kết hợp Cooldown Gate 24h chống spam request khi BCTC chưa
     # thực sự công bố (Zero-Hallucination: thiếu dữ liệu -> giữ NO_DATA).
-    FALLBACK_CORE_METRICS = ("REVENUE", "TOTAL_ASSETS", "NET_PROFIT", "CFO")
-    FALLBACK_CORE_METRICS_BANK = ("NET_PROFIT", "TOTAL_ASSETS", "CUSTOMER_DEPOSITS", "CUSTOMER_LOANS")
+    FALLBACK_CORE_METRICS = ("REVENUE", "TOTAL_ASSETS", "NET_INCOME", "CFO")
+    FALLBACK_CORE_METRICS_BANK = ("NET_INCOME", "TOTAL_ASSETS", "CUSTOMER_DEPOSITS", "CUSTOMER_LOANS")
     FALLBACK_MISSING_THRESHOLD = 3  # thiếu >= 3 core metrics thì đáng fallback
     FALLBACK_SCAN_QUARTERS = 4  # chỉ quét 4 quý gần nhất (dữ liệu mới)
 
@@ -682,7 +682,7 @@ class CafeFCrawler:
     def _merge_fallback_periods(target: dict, fallback: dict) -> dict:
         """Merge dữ liệu nguồn phụ vào quý thiếu — giữ metric cũ, điền metric mới.
 
-        WHY: nguồn phụ có thể trả thêm REVENUE/TOTAL_ASSETS/NET_PROFIT cho quý
+        WHY: nguồn phụ có thể trả thêm REVENUE/TOTAL_ASSETS/NET_INCOME cho quý
         mà nguồn chính chỉ có BOOK_VALUE_PS. KHÔNG ghi đè metric đã có (ưu tiên
         nguồn chính) — đúng tinh thần Metric-Level Upsert (cumulative merge).
         """
@@ -1185,7 +1185,7 @@ class CafeFCrawler:
                 data.update(
                     {
                         "NII": nii_adj,
-                        "NET_PROFIT": np_adj,
+                        "NET_INCOME": np_adj,
                         "PROVISION_EXPENSE": provision,
                         "TOTAL_ASSETS": assets,
                         "TOTAL_LIABILITIES": assets - equity,
@@ -1333,7 +1333,14 @@ class CafeFCrawler:
             # Parse rows — first row has headers (quarter labels)
             # Format: "Chỉ tiêu | Quý 2- 2025 | Quý 3- 2025"
             headers_row = rows[0].find_all(["td", "th"])
-            header_labels = [h.get_text(strip=True) for h in headers_row if h.get_text(strip=True)]
+            # WHY: chỉ giữ cột quý ("Quý 3- 2025"); bỏ cột nhãn "Chỉ tiêu" để
+            # header_labels khớp 1:1 với các cột giá trị. Bug cũ: header_labels
+            # giữ "Chỉ tiêu" (5 phần tử) nhưng data có 4 cột giá trị → enumerate
+            # start=1 đọc lệch cột +1 → STB 2025Q3 nhận -2,752,462 (số Q4/2025)
+            # thay vì +2,901,283 (số Q3/2025 thật).
+            header_labels = [
+                h.get_text(strip=True) for h in headers_row if re.search(r"Quý\s*\d+\s*-\s*\d{4}", h.get_text(strip=True))
+            ]
 
             # Extract metric rows (starting from row 2)
             # WHY: gom theo key "YYYYQ" rồi mới chuyển sang list — các metric của
@@ -1679,6 +1686,30 @@ class CafeFCrawler:
             if short_debt or long_debt:
                 period_data["TOTAL_DEBT"] = short_debt + long_debt
             period_data["_entity_type"] = entity_type
+
+        # Invariant guard (Đạo luật 2 — accounting invariant): REVENUE kỳ này
+        # < 50% REVENUE kỳ liền trước trong cùng batch (kỳ trước hợp nhất) →
+        # nghi nguồn phụ trả nhầm BCTC Công ty Mẹ → gắn cờ NEEDS_AUDIT, không
+        # silent ghi. WHY: FPT 2025 Q1/Q2 từng bị ghi 5.39T/6.12T (Công ty Mẹ)
+        # thay vì hợp nhất ~16T/quý.
+        periods.sort(key=lambda d: (d.get("_fiscal_year", 0), d.get("_fiscal_quarter", 0)))
+        prev_revenue = None
+        for period_data in periods:
+            revenue = period_data.get("REVENUE")
+            if (
+                entity_type == "STANDARD"
+                and revenue is not None
+                and prev_revenue is not None
+                and prev_revenue > 0
+                and revenue < 0.5 * prev_revenue
+            ):
+                period_data["_integrity_flags"] = "SUSPECTED_PARENT_STATEMENT"
+                logger.warning(
+                    f"VCI bridge: {symbol} {period_data.get('_fiscal_year')}Q{period_data.get('_fiscal_quarter')} "
+                    f"REVENUE sụp {prev_revenue:,.0f}→{revenue:,.0f} (<50% kỳ trước) — nghi BCTC Công ty Mẹ"
+                )
+            if revenue is not None:
+                prev_revenue = revenue
 
         logger.info(f"VCI bridge: {symbol} — {len(periods)} periods parsed")
         return periods

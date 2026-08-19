@@ -381,14 +381,14 @@ class TestPeriodLevelFallback:
     def test_bank_uses_bank_core_metrics(self, crawler):
         """Bank thiếu REVENUE/CFO (không tồn tại ở BCTC ngân hàng) → không fallback.
 
-        WHY: bank core metrics là NET_PROFIT/TOTAL_ASSETS/CUSTOMER_DEPOSITS/
+        WHY: bank core metrics là NET_INCOME/TOTAL_ASSETS/CUSTOMER_DEPOSITS/
         CUSTOMER_LOANS. Bank có đủ chúng nhưng thiếu REVENUE theo chuẩn STANDARD
         thì KHÔNG bị đánh dấu missing — tránh fallback vô ích mỗi chu kỳ."""
         periods = [
             {
                 "_fiscal_year": 2026,
                 "_fiscal_quarter": 2,
-                "NET_PROFIT": 5e11,
+                "NET_INCOME": 5e11,
                 "TOTAL_ASSETS": 2e12,
                 "CUSTOMER_DEPOSITS": 1.5e12,
                 "CUSTOMER_LOANS": 1.2e12,

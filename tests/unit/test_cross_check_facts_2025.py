@@ -16,6 +16,7 @@ import pytest
 
 from src.tools.cross_check_facts_2025 import (
     ENTITY_METRIC_MAP,
+    KNOWN_DATA_GAPS,
     METRIC_SEMANTICS,
     _normalize_item_name,
     build_cross_check,
@@ -326,3 +327,55 @@ class TestBuildCrossCheck:
         ][0]
         assert hpg_rev["delta_pct"] is None
         assert hpg_rev["status"] == "MATCH"
+
+
+# ===================================================================
+# TEST 6: KNOWN_DATA_GAPS — MISMATCH đã chứng minh được phân loại riêng
+# ===================================================================
+class TestKnownDataGaps:
+    """MISMATCH thuộc KNOWN_DATA_GAPS phải chuyển thành KNOWN_GAP_EXPLAINED.
+
+    WHY: Zero-Hallucination — MISMATCH còn lại (sau khi đã loại các ca đã chứng
+    minh nguyên nhân) phải phản ánh đúng lỗi thật cần audit. Các ca đã chứng minh:
+      - MBB NET_INCOME: vnf lấy LNST Cổ đông mẹ (27.38T) vs DB dùng LNST Hợp nhất
+        (28.96T) — định nghĩa kế toán khác nhau, không phải lỗi số liệu.
+    Ghi chú thêm về nguồn dữ liệu: MBB crawl từ vnstock (VCI hợp nhất) + cafef.
+    """
+
+    def _seed(self):
+        ff = {
+            "MBB": {"NET_INCOME": {"value": 28_957_668_000_000.0, "quarters": 4}},
+            "HPG": {"REVENUE": {"value": 100.0, "quarters": 4}},
+        }
+        vnf = {
+            "MBB": {"NET_INCOME": 27_382_978_000_000.0},
+            "HPG": {"REVENUE": 120.0},  # +20% -> MISMATCH thật
+        }
+        entities = {"MBB": "BANK", "HPG": "STANDARD"}
+        return ff, vnf, entities
+
+    def test_gap_in_registry_is_known_gap_explained(self):
+        ff, vnf, ent = self._seed()
+        rows = build_cross_check(ff, vnf, ent, year=2025, threshold=0.05)
+        mbb = [r for r in rows if r["symbol"] == "MBB"][0]
+        assert mbb["status"] == "KNOWN_GAP_EXPLAINED"
+        assert mbb["reason"].startswith("ACCOUNTING_DEFINITION_VARIANCE")
+
+    def test_registry_contains_only_verified_gaps(self):
+        assert KNOWN_DATA_GAPS
+        for (symbol, metric), (code, note) in KNOWN_DATA_GAPS.items():
+            assert code in (
+                "GROUND_TRUTH_INCOMPLETE",
+                "ACCOUNTING_DEFINITION_VARIANCE",
+            )
+            assert note
+
+    def test_mismatch_without_gap_stays_mismatch(self):
+        ff, vnf, ent = self._seed()
+        rows = build_cross_check(ff, vnf, ent, year=2025, threshold=0.05)
+        hpg = [
+            r
+            for r in rows
+            if r["symbol"] == "HPG" and r["metric"] == "REVENUE"
+        ][0]
+        assert hpg["status"] == "MISMATCH"

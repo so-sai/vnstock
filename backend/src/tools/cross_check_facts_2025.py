@@ -79,6 +79,25 @@ METRIC_SEMANTICS = {
 METRICS = ("REVENUE", "NET_INCOME", "TOTAL_EQUITY")
 FULL_YEAR_QUARTERS = 4
 
+# KNOWN_DATA_GAPS — ngoại lệ ĐÃ CHỨNG MINH: (symbol, metric) -> (mã lý do, ghi chú).
+# WHY (Zero-Hallucination): một số MISMATCH đến từ khác biệt định nghĩa kế toán
+# hoặc đối chứng, KHÔNG phải lỗi số liệu DB. Phân loại riêng KNOWN_GAP_EXPLAINED
+# để MISMATCH còn lại phản ánh đúng lỗi thật cần audit. Chỉ áp dụng khi trạng thái
+# hiện tại là MISMATCH (không biến MATCH/NO_DATA thành gap).
+#   - MBB NET_INCOME: vnf (vnfinancialdata) lấy LNST Cổ đông mẹ (27.38T) trong khi
+#     DB dùng LNST Hợp nhất (28.96T, nguồn vnstock VCI + cafef) — định nghĩa khác
+#     nhau, không phải lỗi. STB từng nằm ở đây với lý do "ground truth thiếu H2"
+#     NHƯNG probe CafeF Bank API (parser đã fix) chứng minh Q4/2025 thật = LỖ
+#     -2.75T (DB đang giữ số 2026Q1 lệch kỳ) → STB đã được vá, giờ MATCH — không
+#     được đưa lại vào gaps.
+KNOWN_DATA_GAPS: dict[tuple[str, str], tuple[str, str]] = {
+    ("MBB", "NET_INCOME"): (
+        "ACCOUNTING_DEFINITION_VARIANCE",
+        "vnf lấy LNST Cổ đông mẹ (27.38T) vs DB dùng LNST Hợp nhất (28.96T) — "
+        "định nghĩa kế toán khác nhau, không phải lỗi số liệu.",
+    ),
+}
+
 
 def _normalize_item_name(name: str) -> str:
     """'VỐN CHỦ SỞ HỮU' / 'Vốn chủ sở hữu' / 'Lãi/(lỗ) thuần sau thuế' -> chuẩn.
@@ -222,7 +241,13 @@ def build_cross_check(
             else:
                 delta = 100.0 * (nv - base) / abs(base)
                 status = "MATCH" if abs(delta) <= threshold * 100.0 else "MISMATCH"
-            rows.append(_row(symbol, entity, metric, base, nv, status, delta, None))
+            # KNOWN_DATA_GAPS: MISMATCH đã chứng minh nguyên nhân -> phân loại riêng
+            reason = None
+            gap = KNOWN_DATA_GAPS.get((symbol, metric))
+            if status == "MISMATCH" and gap is not None:
+                status = "KNOWN_GAP_EXPLAINED"
+                reason = f"{gap[0]}: {gap[1]}"
+            rows.append(_row(symbol, entity, metric, base, nv, status, delta, reason))
     return rows
 
 
@@ -246,21 +271,24 @@ def _fmt(v) -> str:
 
 
 def print_report(rows: list[dict]) -> None:
-    stats = {"MATCH": 0, "MISMATCH": 0, "NO_DATA": 0}
+    stats = {"MATCH": 0, "MISMATCH": 0, "KNOWN_GAP_EXPLAINED": 0, "NO_DATA": 0}
     for r in rows:
         stats[r["status"]] += 1
-    print(f"{'symbol':<6}{'entity':<11}{'metric':<12}{'ff_value':>18}{'vnf_value':>18}{'delta%':>9}  {'status':<9}{'reason'}")
-    print("-" * 100)
+    print(f"{'symbol':<6}{'entity':<11}{'metric':<12}{'ff_value':>18}{'vnf_value':>18}{'delta%':>9}  {'status':<20}{'reason'}")
+    print("-" * 110)
     for r in rows:
         d = "" if r["delta_pct"] is None else f"{r['delta_pct']:+.1f}"
         reason = r["reason"] or ""
         print(
             f"{r['symbol']:<6}{r['entity_type']:<11}{r['metric']:<12}"
             f"{_fmt(r['ff_value']):>18}{_fmt(r['vnf_value']):>18}{d:>9}  "
-            f"{r['status']:<9}{reason}"
+            f"{r['status']:<20}{reason}"
         )
-    print("-" * 100)
-    print(f"MATCH={stats['MATCH']}  MISMATCH={stats['MISMATCH']}  NO_DATA={stats['NO_DATA']}  (total={len(rows)})")
+    print("-" * 110)
+    print(
+        f"MATCH={stats['MATCH']}  MISMATCH={stats['MISMATCH']}  "
+        f"KNOWN_GAP_EXPLAINED={stats['KNOWN_GAP_EXPLAINED']}  NO_DATA={stats['NO_DATA']}  (total={len(rows)})"
+    )
 
 
 def main() -> int:

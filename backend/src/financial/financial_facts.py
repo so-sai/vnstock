@@ -79,6 +79,7 @@ BANK_METRICS = {
     # Income Statement
     "NII": ("Thu nhập lãi thuần", "IS"),
     "TOI": ("Tổng thu nhập hoạt động", "IS"),
+    "NET_INCOME": ("Lợi nhuận sau thuế", "IS"),
     "NET_PROFIT": ("Lợi nhuận sau thuế", "IS"),
     "PROVISION_EXPENSE": ("Chi phí dự phòng rủi ro", "IS"),
     "INTEREST_INCOME": ("Thu nhập lãi", "IS"),
@@ -198,8 +199,8 @@ VNSTOCK_METRIC_MAP_STANDARD = {
 VNSTOCK_METRIC_MAP_BANK = {
     "thu_nhap_lai_thuan": "NII",
     "netInterestIncome": "NII",
-    "loi_nhuan_sau_thue": "NET_PROFIT",
-    "netProfit": "NET_PROFIT",
+    "loi_nhuan_sau_thue": "NET_INCOME",
+    "netProfit": "NET_INCOME",
     "chi_phi_du_phong_rui_ro": "PROVISION_EXPENSE",
     "provisionExpense": "PROVISION_EXPENSE",
     "tong_cong_tai_san": "TOTAL_ASSETS",
@@ -388,6 +389,12 @@ class DataIntegrityValidator:
 
     MIN_VND_SCALE = 1_000  # Giá trị VND < 1,000 bị nghi ngờ
 
+    # Ngưỡng scale corruption: large-scale metric (REVENUE/NET_INCOME/TOTAL_ASSETS/...)
+    # có kết quả < 100 triệu VND là bất khả thi cho công ty niêm yết VN → nghi scale sai
+    # (vd 422 ngàn thay vì 422 tỷ). WHY: auto_scale_to_vnd từng ghi im lặng giá trị
+    # teo nhỏ này vào DB; guard mới gắn cờ để write_batch SKIP (fail-closed).
+    MIN_SCALE_SUSPECT = 100_000_000
+
     # Các chỉ số quy mô lớn (luôn là VND thật, không bao giờ < vài tỷ) — khi bị báo theo
     # đơn vị Tỷ đồng (giá trị nằm trong dải [MIN_VND_SCALE, 500,000]) cần ×10^9 về VND.
     # WHY: Nhiều bridge/nguồn trả REVENUE/TOTAL_ASSETS/TOTAL_EQUITY theo "tỷ đồng" (vd
@@ -498,6 +505,15 @@ class DataIntegrityValidator:
             if DataIntegrityValidator._in_plausible_range(scaled, metric, symbol):
                 return scaled, "AUTO_SCALED_1000000000x"
 
+        # Invariant guard (Đạo luật 2 — accounting invariant): large-scale metric
+        # (REVENUE/NET_INCOME/TOTAL_ASSETS/...) mà kết quả < 100 triệu VND là bất khả
+        # thi cho công ty niêm yết VN → nghi scale sai (vd 422 ngàn thay vì 422 tỷ).
+        # Cấm ghi im lặng — write_batch sẽ SKIP (fail-closed, fallback nguồn khác).
+        # WHY: BCM REVENUE từng bị ghi 422,000 do dải REVENUE quá rộng (5e14) khiến
+        # 422,000×1e9=4.22e14 lọt vào "plausible".
+        if metric in DataIntegrityValidator.LARGE_SCALE_METRICS and abs(raw) < DataIntegrityValidator.MIN_SCALE_SUSPECT:
+            return raw, "SUSPECTED_SCALE_CORRUPTION"
+
         return raw, "OK"
 
     @staticmethod
@@ -509,8 +525,12 @@ class DataIntegrityValidator:
         # CF métric để None vì dòng tiền hợp pháp có thể âm; income items kiểm tra theo
         # abs(value) để bỏ qua dấu (lợi nhuận âm vẫn hợp lệ về độ lớn).
         ranges = {
-            "REVENUE": (1_000_000_000, 500_000_000_000_000),  # 1 tỷ → 500 nghìn tỷ
-            "NET_INCOME": (0, 100_000_000_000_000),  # 0 → 100 nghìn tỷ
+            # WHY: dải thu hẹp theo thực tế mã niêm yết VN (max REVENUE ≈ MWG/HPG
+            # ~156T; max NET_INCOME ≈ VHM ~42T). Dải quá rộng (REVENUE tới 5e14)
+            # từng khiến BCM 422,000×1e9=4.22e14 lọt vào "plausible" → ghi sai
+            # 422 nghìn tỷ thay vì 422 tỷ.
+            "REVENUE": (1_000_000_000, 200_000_000_000_000),  # 1 tỷ → 200 nghìn tỷ
+            "NET_INCOME": (0, 45_000_000_000_000),  # 0 → 45 nghìn tỷ
             "TOTAL_ASSETS": (100_000_000_000, 1_000_000_000_000_000),  # 100 tỷ → 1 triệu tỷ
             "TOTAL_EQUITY": (10_000_000_000, 500_000_000_000_000),  # 10 tỷ → 500 nghìn tỷ
             "CURRENT_ASSETS": (10_000_000_000, 500_000_000_000_000),
@@ -600,6 +620,14 @@ class DataIntegrityValidator:
 
         # 3. Auto-scale
         scaled_value, scale_note = DataIntegrityValidator.auto_scale_to_vnd(value, metric, symbol)
+        if scale_note == "SUSPECTED_SCALE_CORRUPTION":
+            # Fail-closed: nghi scale sai → KHÔNG ghi, để nguồn khác (fallback) cấp số
+            # đúng. WHY: ghi 422,000 cho REVENUE BCM từng phá biến dạng mọi tỷ số.
+            return {
+                "pass": False,
+                "action": "SKIP_SCALE_CORRUPTION",
+                "reason": f"SCALE_CORRUPTION metric={metric} value={value}",
+            }
         if scale_note != "OK":
             if "AUTO_SCALED" in scale_note:
                 warnings.append(scale_note)
@@ -876,6 +904,9 @@ class FinancialFactsDB:
         integrity_pass = True
         error_detail = ""
         error_pct = None
+        # Invariant guard (Đạo luật 2): cờ nghi vấn do parser đặt (vd
+        # SUSPECTED_PARENT_STATEMENT) phải được lưu cùng bản ghi để audit.
+        extra_flags = period_metrics.get("_integrity_flags")
 
         for metric, value in period_metrics.items():
             if metric.startswith("_"):
@@ -889,7 +920,7 @@ class FinancialFactsDB:
 
             validation = DataIntegrityValidator.validate_integrity_before_write(symbol, period, metric, value, st, entity_type)
             if not validation["pass"]:
-                if validation["action"] == "SKIP_NONE" or validation["action"] == "SKIP_NAN":
+                if validation["action"] in ("SKIP_NONE", "SKIP_NAN", "SKIP_SCALE_CORRUPTION"):
                     warnings.append(f"SKIP_{metric}={value}")
                     continue
 
@@ -897,6 +928,7 @@ class FinancialFactsDB:
             flags = validation.get("scale_note", "")
             if flags not in ("OK", ""):
                 warnings.append(flags)
+            final_flags = f"{flags};{extra_flags}" if extra_flags else (flags if flags != "OK" else "")
 
             cursor.execute(
                 """
@@ -916,7 +948,7 @@ class FinancialFactsDB:
                     scaled,
                     source,
                     1 if is_synthetic else 0,
-                    flags if flags != "OK" else "",
+                    final_flags,
                 ),
             )
             total_written += 1
