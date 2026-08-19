@@ -27,7 +27,22 @@ def make_conn():
     conn.row_factory = sqlite3.Row
     conn.execute("CREATE TABLE health_ratios (symbol TEXT, period TEXT, ratio_name TEXT, ratio_value REAL)")
     conn.execute("CREATE TABLE financial_facts (symbol TEXT, period TEXT, metric TEXT, value REAL)")
+    conn.execute(
+        "CREATE TABLE financial_facts_annual ("
+        "symbol TEXT, fiscal_year INTEGER, statement_type TEXT, metric TEXT, value REAL, "
+        "source TEXT DEFAULT 'audited_staging', verification_status TEXT DEFAULT '')"
+    )
     return conn
+
+
+def seed_verified(conn, symbol, year=2025):
+    """Gắn cờ VERIFIED_BY_AUDITED_ANNUAL cho (symbol, year) — vượt Audit Gate Tầng 1."""
+    for metric in ("REVENUE", "NET_INCOME", "TOTAL_EQUITY"):
+        conn.execute(
+            "INSERT INTO financial_facts_annual (symbol, fiscal_year, statement_type, metric, value, verification_status) "
+            "VALUES (?,?,?,?,1,?)",
+            (symbol, year, "IS", metric, vf.VERIFIED_STATUS),
+        )
 
 
 def seed_health(conn, symbol, ratio, period_values):
@@ -64,6 +79,7 @@ class TestTier1RoeAnnualization:
         seed_fact(conn, "FPT", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
 
         periods = vf._periods_n_years("2026Q2", 3)
+        seed_verified(conn, "FPT")
         r = vf.tier1_buffett_quality(conn, "FPT", "STANDARD", periods)
         assert r["pass"] is True, f"FPT should pass with annualized ROE 26%, got {r['reasons']}"
         assert r["roe"] > 0.25  # 0.065 * 4 = 0.26
@@ -76,6 +92,8 @@ class TestTier1RoeAnnualization:
         seed_health(conn, "X", "DEBT_TO_EQUITY", [("2026Q2", 0.3)])
         seed_health(conn, "X", "GROSS_MARGIN", [("2026Q2", 0.30)])
         seed_fact(conn, "X", "CFO", [("2026Q2", 1e12)])
+
+        seed_verified(conn, "X")
 
         r = vf.tier1_buffett_quality(conn, "X", "STANDARD", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is False
@@ -90,6 +108,8 @@ class TestTier1RoeAnnualization:
         seed_health(conn, "VCB", "NPL_RATIO", [("2026Q2", 0.01)])
         seed_fact(conn, "VCB", "CFO", [("2026Q2", 1e12)])
 
+        seed_verified(conn, "VCB")
+
         r = vf.tier1_buffett_quality(conn, "VCB", "BANK", vf._periods_n_years("2026Q2", 3))
         # ROE 20% pass, D/E 2.0 < 8.0 pass. CFO only 1 quarter → fails CFO continuity.
         assert "D/E" not in " ".join(r["reasons"])
@@ -103,6 +123,8 @@ class TestTier1RoeAnnualization:
         seed_health(conn, "BID", "ROE", qs)
         seed_fact(conn, "BID", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
         seed_fact(conn, "BID", "NET_PROFIT", [(f"{y}Q{q}", 5e11) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        seed_verified(conn, "BID")
 
         r = vf.tier1_buffett_quality(conn, "BID", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is True, f"Bank should pass without D/E/GM, got {r['reasons']}"
@@ -127,6 +149,8 @@ class TestTier1DualBranch:
         # CFO âm liên tục — đáng lẽ rớt ở nhánh STANDARD nhưng bank được miễn
         seed_fact(conn, "BANK1", "CFO", [(f"{y}Q{q}", -1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
 
+        seed_verified(conn, "BANK1")
+
         r = vf.tier1_buffett_quality(conn, "BANK1", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is True, f"Bank should pass despite negative CFO, got {r['reasons']}"
         assert r["is_bank"] is True
@@ -139,6 +163,8 @@ class TestTier1DualBranch:
         seed_health(conn, "BADBK", "NPL_RATIO", [("2026Q2", 0.05)])
         seed_health(conn, "BADBK", "NIM", [("2026Q2", 0.035)])
         seed_health(conn, "BADBK", "CAPITAL_RATIO", [("2026Q2", 0.12)])
+
+        seed_verified(conn, "BADBK")
 
         r = vf.tier1_buffett_quality(conn, "BADBK", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is False, "Bank with NPL 5% must fail Tier 1"
@@ -156,6 +182,8 @@ class TestTier1DualBranch:
         seed_health(conn, "WEAK", "NIM", [("2026Q2", 0.004)])
         seed_health(conn, "WEAK", "CAPITAL_RATIO", [("2026Q2", 0.12)])
 
+        seed_verified(conn, "WEAK")
+
         r = vf.tier1_buffett_quality(conn, "WEAK", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is False, "Bank with NIM annual 1.6% must fail Tier 1"
         assert any("NIM" in x for x in r["reasons"])
@@ -172,6 +200,8 @@ class TestTier1DualBranch:
         seed_health(conn, "VCB", "NIM", [("2026Q2", 0.0097)])
         seed_health(conn, "VCB", "CAPITAL_RATIO", [("2026Q2", 0.12)])
 
+        seed_verified(conn, "VCB")
+
         r = vf.tier1_buffett_quality(conn, "VCB", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is True, f"VCB NIM annualized 3.88% should pass T1, got {r['reasons']}"
         assert r["nim"] == round(0.0097 * 4.0, 4)
@@ -182,6 +212,8 @@ class TestTier1DualBranch:
         conn = make_conn()
         qs = [(f"{y}Q{q}", 0.05) for y in (2024, 2025, 2026) for q in range(1, 5)]  # 20% annualized
         seed_health(conn, "NOBANKMETRIC", "ROE", qs)
+
+        seed_verified(conn, "NOBANKMETRIC")
 
         r = vf.tier1_buffett_quality(conn, "NOBANKMETRIC", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is True, f"Bank without NPL/NIM/CAR should pass on ROE alone, got {r['reasons']}"
@@ -197,6 +229,8 @@ class TestTier1DualBranch:
         seed_health(conn, "LOWCAR", "NIM", [("2026Q2", 0.035)])
         seed_health(conn, "LOWCAR", "CAPITAL_RATIO", [("2026Q2", 0.06)])
 
+        seed_verified(conn, "LOWCAR")
+
         r = vf.tier1_buffett_quality(conn, "LOWCAR", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is False, "Bank CAR 6% < 8% phải FAIL T1"
         assert any("CAR" in x for x in r["reasons"])
@@ -211,6 +245,8 @@ class TestTier1DualBranch:
         seed_health(conn, "SAFE10", "NIM", [("2026Q2", 0.035)])
         seed_health(conn, "SAFE10", "CAPITAL_RATIO", [("2026Q2", 0.10)])
 
+        seed_verified(conn, "SAFE10")
+
         r = vf.tier1_buffett_quality(conn, "SAFE10", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is True, f"Bank CAR 10% phải PASS T1, got {r['reasons']}"
         assert r["car_quant_safety"] is True
@@ -224,6 +260,8 @@ class TestTier1DualBranch:
         seed_health(conn, "MIDCAR", "NIM", [("2026Q2", 0.035)])
         seed_health(conn, "MIDCAR", "CAPITAL_RATIO", [("2026Q2", 0.09)])
 
+        seed_verified(conn, "MIDCAR")
+
         r = vf.tier1_buffett_quality(conn, "MIDCAR", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is True, f"Bank CAR 9% >= 8% phải PASS T1, got {r['reasons']}"
         assert r["car_quant_safety"] is False
@@ -236,6 +274,8 @@ class TestTier1DualBranch:
         seed_health(conn, "STEEL", "GROSS_MARGIN", [("2026Q2", 0.19)])
         seed_health(conn, "STEEL", "DEBT_TO_EQUITY", [("2026Q2", 0.5)])
         seed_fact(conn, "STEEL", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        seed_verified(conn, "STEEL")
 
         r = vf.tier1_buffett_quality(conn, "STEEL", "STANDARD", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is False, "Standard GM 19% must fail Tier 1"
@@ -259,6 +299,8 @@ class TestTier1SteelException:
         seed_health(conn, "HPG", "DEBT_TO_EQUITY", [("2026Q2", 0.9)])
         seed_fact(conn, "HPG", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
 
+        seed_verified(conn, "HPG")
+
         r = vf.tier1_buffett_quality(conn, "HPG", "STANDARD", vf._periods_n_years("2026Q2", 3), is_steel=True)
         assert r["pass"] is True, f"Steel GM 19% must pass T1 with steel exception, got {r['reasons']}"
 
@@ -270,6 +312,8 @@ class TestTier1SteelException:
         seed_health(conn, "NKG", "GROSS_MARGIN", [("2026Q2", 0.13)])
         seed_health(conn, "NKG", "DEBT_TO_EQUITY", [("2026Q2", 0.8)])
         seed_fact(conn, "NKG", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        seed_verified(conn, "NKG")
 
         r = vf.tier1_buffett_quality(conn, "NKG", "STANDARD", vf._periods_n_years("2026Q2", 3), is_steel=True)
         assert r["pass"] is False, "Steel GM 13% must still fail T1"
@@ -283,6 +327,8 @@ class TestTier1SteelException:
         seed_health(conn, "NONSTL", "GROSS_MARGIN", [("2026Q2", 0.19)])
         seed_health(conn, "NONSTL", "DEBT_TO_EQUITY", [("2026Q2", 0.5)])
         seed_fact(conn, "NONSTL", "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+        seed_verified(conn, "NONSTL")
 
         r = vf.tier1_buffett_quality(conn, "NONSTL", "STANDARD", vf._periods_n_years("2026Q2", 3))
         assert r["pass"] is False, "Non-steel GM 19% must fail T1 at 25% threshold"
@@ -679,6 +725,7 @@ class TestEntityMapRegistrySource:
         qs = [(f"{y}Q{q}", 0.043) for y in (2024, 2025, 2026) for q in range(1, 5)]
         seed_health(conn, "VCB", "ROE", qs)
         # Bank chuẩn: không có GROSS_MARGIN/D/E — nhưng BANK branch không đòi.
+        seed_verified(conn, "VCB")
         r = vf.tier1_buffett_quality(conn, "VCB", "BANK", vf._periods_n_years("2026Q2", 3))
         assert r["is_bank"] is True
         assert r["pass"] is True, f"VCB(BANK) phải PASS, got {r['reasons']}"
@@ -688,7 +735,65 @@ class TestEntityMapRegistrySource:
         conn = make_conn()
         qs = [(f"{y}Q{q}", 0.065) for y in (2024, 2025, 2026) for q in range(1, 5)]
         seed_health(conn, "FPT", "ROE", qs)
+        seed_verified(conn, "FPT")
         r = vf.tier1_buffett_quality(conn, "FPT", "STANDARD", vf._periods_n_years("2026Q2", 3))
         assert r["is_bank"] is False
         assert r["pass"] is False
         assert any("missing" in reason for reason in r["reasons"]), r["reasons"]
+
+
+# ── Audit Verification Gate: VERIFIED mới được duyệt T1 ──────────────
+class TestTier1VerificationGate:
+    """Kiến trúc 2 tầng: mã không có cờ VERIFIED_BY_AUDITED_ANNUAL bị VETO ngay T1.
+
+    WHY (Zero-Hallucination): cổ phiếu lỗi cào BCTC (scale/placeholder/lệch cột)
+    chưa vượt qua "Tòa án Kiểm toán annual" KHÔNG được lọt vào danh mục mua thật —
+    ngay cả khi ROE/GM/CFO nhìn tốt trên số liệu quý."""
+
+    def _seed_good_standard(self, conn, symbol):
+        qs = [(f"{y}Q{q}", 0.065) for y in (2024, 2025, 2026) for q in range(1, 5)]
+        seed_health(conn, symbol, "ROE", qs)
+        seed_health(conn, symbol, "GROSS_MARGIN", [("2026Q2", 0.35)])
+        seed_health(conn, symbol, "DEBT_TO_EQUITY", [("2026Q2", 0.4)])
+        seed_fact(conn, symbol, "CFO", [(f"{y}Q{q}", 1e12) for y in (2024, 2025, 2026) for q in (1, 4)])
+
+    def test_verified_passes_tier1(self):
+        """Mã có cờ VERIFIED_BY_AUDITED_ANNUAL + chất lượng tốt → PASS T1."""
+        conn = make_conn()
+        self._seed_good_standard(conn, "GOOD")
+        seed_verified(conn, "GOOD")
+        r = vf.tier1_buffett_quality(conn, "GOOD", "STANDARD", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is True, r["reasons"]
+        assert r["verification_status"] == vf.VERIFIED_STATUS
+
+    def test_mismatch_fail_closed_vetoes(self):
+        """Mã dính MISMATCH_FAIL_CLOSED → VETO T1 ngay cả khi chất lượng tốt."""
+        conn = make_conn()
+        self._seed_good_standard(conn, "BADAU")
+        conn.execute(
+            "INSERT INTO financial_facts_annual (symbol, fiscal_year, statement_type, metric, value, verification_status) "
+            "VALUES ('BADAU', 2025, 'IS', 'REVENUE', 1, ?)",
+            (vf.MISMATCH_STATUS,),
+        )
+        r = vf.tier1_buffett_quality(conn, "BADAU", "STANDARD", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False
+        assert any("VETO_UNVERIFIED_DATA" in x and vf.MISMATCH_STATUS in x for x in r["reasons"]), r["reasons"]
+
+    def test_no_flag_vetoes(self):
+        """Mã chưa có cờ kiểm định ('') → VETO T1 với NO_AUDIT_FLAG."""
+        conn = make_conn()
+        self._seed_good_standard(conn, "NOFLAG")
+        r = vf.tier1_buffett_quality(conn, "NOFLAG", "STANDARD", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False
+        assert any("VETO_UNVERIFIED_DATA" in x and "NO_AUDIT_FLAG" in x for x in r["reasons"]), r["reasons"]
+
+    def test_missing_annual_table_vetoes(self):
+        """DB chưa migrate bảng annual (không tồn tại) → fail-closed VETO, không im lặng."""
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE health_ratios (symbol TEXT, period TEXT, ratio_name TEXT, ratio_value REAL)")
+        conn.execute("CREATE TABLE financial_facts (symbol TEXT, period TEXT, metric TEXT, value REAL)")
+        self._seed_good_standard(conn, "NOANNTABLE")
+        r = vf.tier1_buffett_quality(conn, "NOANNTABLE", "STANDARD", vf._periods_n_years("2026Q2", 3))
+        assert r["pass"] is False
+        assert any("VETO_UNVERIFIED_DATA" in x for x in r["reasons"]), r["reasons"]

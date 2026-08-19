@@ -233,6 +233,38 @@ def _load_metric_years(conn, symbol: str, metric: str, periods: list[str]) -> di
     return out
 
 
+# ── Audit Verification Gate (kiến trúc 2 tầng) 2026-08-19 ──────────────
+# WHY: financial_facts_annual (BCTC Năm đã kiểm toán từ staging) là TÒA ÁN TỐI CAO.
+# Chỉ mã có cờ VERIFIED_BY_AUDITED_ANNUAL (Σ4 quý khớp annual ≤ 5%) được xét duyệt
+# vào Tầng 1. Mã MISMATCH_FAIL_CLOSED hoặc chưa có cờ ('') → VETO ngay (Zero-
+# Hallucination, không để cổ phiếu lỗi cào BCTC lọt vào danh mục mua thật).
+VERIFIED_STATUS = "VERIFIED_BY_AUDITED_ANNUAL"
+MISMATCH_STATUS = "MISMATCH_FAIL_CLOSED"
+_VERIFY_YEAR = 2025
+
+
+def _annual_verification(conn, symbol: str, year: int = _VERIFY_YEAR) -> str:
+    """Trạng thái kiểm định annual của (symbol, year) — fail-closed.
+
+    - Trả VERIFIED_STATUS nếu có ≥1 metric verified và KHÔNG có metric nào MISMATCH.
+    - Trả MISMATCH_STATUS nếu tồn tại bất kỳ metric MISMATCH (veto ngay).
+    - Trả '' nếu chưa có cờ (chưa đủ 4 quý để đối chiếu) — cũng bị veto.
+    Bảng chưa tồn tại (DB chưa migrate) → '' (fail-closed, không im lặng bỏ qua).
+    """
+    try:
+        rows = conn.execute(
+            "SELECT verification_status FROM financial_facts_annual WHERE symbol=? AND fiscal_year=?",
+            (symbol, year),
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - bảng thiếu/chưa migrate → fail-closed
+        return ""
+    if any(r[0] == MISMATCH_STATUS for r in rows):
+        return MISMATCH_STATUS
+    if any(r[0] == VERIFIED_STATUS for r in rows):
+        return VERIFIED_STATUS
+    return ""
+
+
 def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: list[str], is_steel: bool = False) -> dict:
     """Tier 1: Buffett quality gate. Returns pass/fail + metrics.
 
@@ -266,8 +298,18 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: list[str
         "nim": None,
         "car": None,
         "car_quant_safety": False,
+        "verification_status": None,
         "reasons": [],
     }
+
+    # Audit Verification Gate (Tòa án kiểm toán annual): mã chưa được đối chiếu
+    # với BCTC Năm đã kiểm toán (hoặc MISMATCH) → VETO ngay tại Tầng 1.
+    # WHY (Zero-Hallucination): không để cổ phiếu lỗi cào BCTC lọt vào danh mục mua.
+    verification = _annual_verification(conn, symbol)
+    result["verification_status"] = verification
+    if verification != VERIFIED_STATUS:
+        result["reasons"].append(f"VETO_UNVERIFIED_DATA: {verification or 'NO_AUDIT_FLAG'}")
+        return result
 
     # ROE: require >= 15% for last 3 years (mọi ngành — bắt buộc).
     # NOTE: health_ratios ROE is SINGLE-QUARTER (e.g. 0.065 for FPT/Q) →
