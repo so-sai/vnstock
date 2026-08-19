@@ -7,8 +7,8 @@ flow .25, valuation .15) but POINT-IN-TIME:
                 (window = last 90 calendar days before target_date)
   flow       <- daily_ohlcv: sector avg volume / market avg volume at the
                 latest trading day <= target_date
-  health     <- financial_facts.health_ratios WHERE period <= quarter(target_date)
-  valuation  <- financial_facts.valuation_scores WHERE period <= quarter(target_date)
+  health     <- financial_facts.health_ratios WHERE period < quarter(target_date)
+  valuation  <- financial_facts.valuation_scores WHERE period < quarter(target_date)
 
 Notes:
   - Live SectorStateEngine reads health/valuation with columns (date, score)
@@ -165,9 +165,10 @@ def _last_index_le(dates: list[str], target: str) -> int | None:
 
 
 def load_health_pit(fin: sqlite3.Connection, target_date: str) -> dict[str, float]:
-    """health score per symbol, PIT: latest period <= quarter(target_date).
+    """health score per symbol, PIT: latest period < quarter(target_date).
 
     Uses ratio_value mean across ratio_names for that symbol's latest period.
+    BCTC quý hiện tại CHƯA công bố tại mốc mô phỏng → period < (strict).
     """
     q = quarter_at(target_date)
     rows = fin.execute(
@@ -176,7 +177,7 @@ def load_health_pit(fin: sqlite3.Connection, target_date: str) -> dict[str, floa
             SELECT symbol, period, ratio_value,
                    ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY period DESC) AS rn
             FROM health_ratios
-            WHERE period <= ?
+            WHERE period < ?
         ) WHERE rn = 1
         GROUP BY symbol
         """,
@@ -186,7 +187,7 @@ def load_health_pit(fin: sqlite3.Connection, target_date: str) -> dict[str, floa
 
 
 def load_valuation_pit(fin: sqlite3.Connection, target_date: str) -> dict[str, float]:
-    """valuation z-score per symbol, PIT: latest period <= quarter(target_date)."""
+    """valuation z-score per symbol, PIT: latest period < quarter(target_date)."""
     q = quarter_at(target_date)
     rows = fin.execute(
         """
@@ -194,7 +195,7 @@ def load_valuation_pit(fin: sqlite3.Connection, target_date: str) -> dict[str, f
             SELECT symbol, period, z_score,
                    ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY period DESC) AS rn
             FROM valuation_scores
-            WHERE period <= ?
+            WHERE period < ?
         ) WHERE rn = 1
         GROUP BY symbol
         """,
