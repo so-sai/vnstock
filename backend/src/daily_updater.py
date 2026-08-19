@@ -941,6 +941,27 @@ def run_post_update_engines():
     # trong 1 Global Transaction (BEGIN IMMEDIATE) để đảm bảo tính nguyên tử
     # (ACID). Chạy ở đây sẽ gây double-write + phá vỡ ROLLBACK. Xem eod_runner.
 
+    # Gold Forward Paper Ledger (FROZEN model, research isolation):
+    # --update = tất toán t+20 + phát hành forecast mới. KHÔNG retrain/tune;
+    # chỉ append-only. Fail ở đây không được chặn pipeline cổ phiếu.
+    try:
+        from src.research.gold_paper_ledger import build_paper_panel, generate_forecasts, sync_ledger
+
+        panel = build_paper_panel()
+        forecasts = generate_forecasts(panel)
+        stats = sync_ledger(panel, forecasts)
+        results["gold_paper_ledger"] = stats
+        logger.info(
+            "✅ Gold Paper Ledger: inserted=%s matured_filled=%s total=%s",
+            stats["inserted"],
+            stats["matured_filled"],
+            stats["total"],
+        )
+    except Exception as e:
+        results["gold_paper_ledger"] = f"FAIL: {e}"
+        logger.exception("⚠️ Gold Paper Ledger: %s", e)
+        record_engine_fault("gold_paper_ledger", str(e))
+
     return results
 
 
