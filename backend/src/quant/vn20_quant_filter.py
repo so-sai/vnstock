@@ -83,7 +83,8 @@ T4_MOS_MIN = 0.25  # 25% margin of safety (VN premium)
 T4_TARGET_SIZE = 5  # 5-8 names
 T4_TARGET_SIZE_MAX = 8
 T4_MAX_WEIGHT = 0.25  # 25% max per name
-T4_MAX_SECTOR_WEIGHT = 0.50  # max 50% of portfolio in a single sector
+T4_MAX_SECTOR_WEIGHT = 0.40  # max 40% of portfolio in a single sector (hạ từ 50% — anti-clustering)
+ADV_20D_MIN = 50_000  # thanh khoản tối thiểu (AGENTS.md): ADV 20 phiên >= 50.000 CP
 N_YEARS = 3  # lookback for "3 consecutive years"
 
 # ── Sector cycle phases ──
@@ -166,6 +167,26 @@ def _screen_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(SCREEN_DB), timeout=60)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _liquid_universe(conn, min_adv: float = ADV_20D_MIN) -> set[str]:
+    """Bộ lọc thanh khoản tối thiểu: ADV_20D >= min_adv (AGENTS.md: >= 50,000 CP).
+
+    WHY (Anti-Illiquid Trap 2026-08-19): NTH lọt T1/T2 nhưng thiếu chuỗi giá 52 tuần
+    (small-cap kém thanh khoản) → rủi ro slippage/kẹt lệnh khi scale-in. Các engine
+    khác (regime/heatmap/meanrev) đã lọc avg_vol_20d>=50k; VN20 chưa → bổ sung.
+    Tính ADV_20d = trung bình khối lượng 20 phiên gần nhất (min_periods=5).
+    """
+    import pandas as _pd
+
+    df = _pd.read_sql(
+        "SELECT symbol, date, volume FROM daily_ohlcv WHERE volume IS NOT NULL ORDER BY symbol, date",
+        conn,
+    )
+    if df.empty:
+        return set()
+    adv = df.groupby("symbol")["volume"].rolling(20, min_periods=5).mean().groupby(level=0).last()
+    return {s for s, v in adv.items() if v is not None and v >= min_adv}
 
 
 def _latest_period(conn) -> str:
@@ -795,8 +816,12 @@ def run_vn20_filter(top_n: int | None = None, verbose: bool = True) -> dict:
     period = _latest_period(fin)
     periods = _periods_n_years(period, N_YEARS)
 
-    # Universe: all symbols with health data
+    # Universe: all symbols with health data, lọc thanh khoản tối thiểu.
+    # WHY: ADV_20D >= 50k (AGENTS.md) — loại small-cap kém thanh khoản (VD NTH) khỏi
+    # danh sách scale-in để tránh slippage/kẹt lệnh khi kích hoạt giải ngân.
     universe = [r["symbol"] for r in fin.execute("SELECT DISTINCT symbol FROM health_ratios ORDER BY symbol").fetchall()]
+    liquid = _liquid_universe(screen)
+    universe = [s for s in universe if s in liquid]
     # WHY: entity_type phải lấy từ entity_registry (nguồn chuẩn 4 khung) thay vì
     # health_ratios GROUP BY — health_ratios có thể lưu cả rows BANK lẫn STANDARD
     # cho cùng symbol qua các lần compute khác nhau → GROUP BY trả entity_type

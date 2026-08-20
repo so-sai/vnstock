@@ -586,6 +586,46 @@ class TestSectorConcentrationGate:
         for sec, sw in alloc["sector_weights"].items():
             assert sw <= vf.T4_MAX_SECTOR_WEIGHT + 0.001
 
+    def test_sector_cap_now_40_pct(self):
+        """T4_MAX_SECTOR_WEIGHT phải là 40% (anti-clustering, hạ từ 50%)."""
+        assert vf.T4_MAX_SECTOR_WEIGHT == 0.40
+
+    def test_all_banks_capped_below_40_pct(self):
+        """6 banks (100% picks) → banking sector phải <= 40%, thừa đổ cash."""
+        qualified = [{"symbol": f"BK{i}", "sector": "Ngân hàng", "score": 80 - i, "mos": 0.6} for i in range(6)]
+        alloc = vf.allocate(qualified)
+        assert alloc["sector_capped"] is True
+        assert alloc["sector_weights"].get("Ngân hàng", 0) <= 0.40 + 0.001
+        assert alloc["cash"] >= 0.4, f"cap 40% phải để lại >=40% cash, cash={alloc['cash']}"
+
+
+# ── Liquidity Gate: ADV_20D >= 50k (anti-illiquid trap) ─────────────
+class TestLiquidityUniverse:
+    def _mk(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE daily_ohlcv (symbol TEXT, date TEXT, volume REAL)")
+        return conn
+
+    def test_liquid_only_kept(self):
+        """Mã ADV_20D >= 50k giữ lại; mã kém thanh khoản bị loại."""
+        conn = self._mk()
+        # LQ: 100k CP × 20 phiên = ADV 100k >= 50k → giữ
+        for i in range(20):
+            d = f"2026-08-{i + 1:02d}"
+            conn.execute("INSERT INTO daily_ohlcv VALUES ('LQ', ?, 100000)", (d,))
+        # ILQ: 1k CP × 20 phiên = ADV 1k < 50k → loại
+        for i in range(20):
+            d = f"2026-08-{i + 1:02d}"
+            conn.execute("INSERT INTO daily_ohlcv VALUES ('ILQ', ?, 1000)", (d,))
+        liquid = vf._liquid_universe(conn)
+        assert "LQ" in liquid
+        assert "ILQ" not in liquid
+
+    def test_empty_db_returns_empty(self):
+        conn = self._mk()
+        assert vf._liquid_universe(conn) == set()
+
 
 # ── Dynamic MoS (Biên An Toàn Động) 2026-08-07 ──────────────────────
 
