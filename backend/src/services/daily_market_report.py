@@ -204,6 +204,11 @@ _BI = {
     "Có": "Yes",
     "Không": "No",
     "không rõ": "unknown",
+    # Flow status values
+    "MỞ_RỘNG": "Broadening",
+    "THU_HẸP": "Narrowing",
+    "PHÂN_HÓA": "Diverging",
+    "KHÔNG_RÕ": "Unknown",
     # Behavior / conclusions
     "Có thể tham gia": "Can participate",
     "Quan sát": "Watch",
@@ -238,6 +243,39 @@ def _bi(vi: str, lang_mode: str = "annotated") -> str:
     if mode == "full":
         return vi
     return f"{vi} ({en})"
+
+
+# Sector codes → (VI, EN). WHY: flow section in raw codes (SEC/UTILITY...) —
+# end-user cần tên ngành; dev cần mã để đối chiếu DB/log.
+_SECTOR_BI = {
+    "BANK": ("Ngân hàng", "Banking"),
+    "RE": ("Bất động sản", "Real Estate"),
+    "SEC": ("Chứng khoán", "Securities"),
+    "STEEL": ("Thép", "Steel"),
+    "CONSUMER": ("Tiêu dùng", "Consumer"),
+    "TECH": ("Công nghệ", "Technology"),
+    "OIL": ("Dầu khí", "Oil & Gas"),
+    "TRANS": ("Vận tải", "Transport"),
+    "CONST": ("Xây dựng", "Construction"),
+    "FOOD": ("Thực phẩm", "Food"),
+    "UTILITY": ("Tiện ích / Điện", "Utilities"),
+}
+
+
+def _sector_bi(code: str, lang_mode: str = "annotated") -> str:
+    """Localize 1 sector code: full="Chứng khoán", compact="Securities",
+    annotated/auto="Chứng khoán (SEC)". Code lạ → nguyên trạng."""
+    mode = _resolve_lang_mode(lang_mode)
+    norm = str(code).strip().upper()
+    pair = _SECTOR_BI.get(norm)
+    if not pair:
+        return code
+    vi, en = pair
+    if mode == "compact":
+        return en
+    if mode == "full":
+        return vi
+    return f"{vi} ({norm})"
 
 
 def _ket_luan_hanh_vi(regime_status, xep_loai, health_score, risk_appetite):
@@ -348,13 +386,15 @@ def build_daily_report():
     nhom_manh = leading_sectors[:3] if leading_sectors else []
     nhom_yeu = lagging_sectors[:3] if lagging_sectors else []
     tap_trung = "Có" if len(nhom_manh) <= 2 else "Không"
+    # ket_luan dùng tên ngành VI (không mã thô) — renderer sẽ localize thêm.
+    nhom_manh_vi = ", ".join(_SECTOR_BI.get(s, (s, s))[0] for s in nhom_manh) if nhom_manh else "không rõ"
 
     dong_tien = {
         "nhom_manh_nhat": nhom_manh,
         "nhom_yeu_nhat": nhom_yeu,
         "tap_trung_vai_nhom": tap_trung,
         "trang_thai_dong_tien": flow.get("status", "KHÔNG_RÕ"),
-        "ket_luan": f"Dòng tiền đang tập trung vào: {', '.join(nhom_manh) if nhom_manh else 'không rõ'}",
+        "ket_luan": f"Dòng tiền đang tập trung vào: {nhom_manh_vi}",
     }
 
     # ========================================
@@ -601,13 +641,15 @@ def in_bao_cao(report, lang_mode: str = "annotated"):
     print(f"\n  2. {_bi('DÒNG TIỀN ĐANG ĐI ĐÂU', lang_mode)}")
     print("  --")
     if dt["nhom_manh_nhat"]:
-        print(f"  {_bi('Nhóm mạnh nhất', lang_mode):{24}s} {', '.join(dt['nhom_manh_nhat'])}")
+        print(
+            f"  {_bi('Nhóm mạnh nhất', lang_mode):{24}s} {', '.join(_sector_bi(s, lang_mode) for s in dt['nhom_manh_nhat'])}"
+        )
     else:
         print(f"  {_bi('Nhóm mạnh nhất', lang_mode):{24}s} {_bi('không rõ', lang_mode)}")
     if dt["nhom_yeu_nhat"]:
-        print(f"  {_bi('Nhóm yếu nhất', lang_mode):{24}s} {', '.join(dt['nhom_yeu_nhat'])}")
+        print(f"  {_bi('Nhóm yếu nhất', lang_mode):{24}s} {', '.join(_sector_bi(s, lang_mode) for s in dt['nhom_yeu_nhat'])}")
     print(f"  {_bi('Tập trung vài nhóm', lang_mode):{24}s} {_bi(dt['tap_trung_vai_nhom'], lang_mode)}")
-    print(f"  {_bi('Trạng thái', lang_mode):{24}s} {dt['trang_thai_dong_tien']}")
+    print(f"  {_bi('Trạng thái', lang_mode):{24}s} {_bi(dt['trang_thai_dong_tien'], lang_mode)}")
     print(f"  → {dt['ket_luan']}")
 
     # 3. RỦI RO

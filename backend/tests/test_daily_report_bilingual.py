@@ -17,7 +17,7 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 
-from src.services.daily_market_report import _bi, in_bao_cao
+from src.services.daily_market_report import _bi, _sector_bi, in_bao_cao
 
 
 class TestBi:
@@ -41,6 +41,31 @@ class TestBi:
 
     def test_behavior_conclusion_bilingual(self):
         assert _bi("Nên đứng ngoài", "annotated") == "Nên đứng ngoài (Stay out)"
+
+
+class TestSectorBi:
+    """Sector codes phải được localize theo cùng contract 3 mode của _bi."""
+
+    def test_annotated_vi_with_code(self):
+        assert _sector_bi("SEC", "annotated") == "Chứng khoán (SEC)"
+        assert _sector_bi("UTILITY", "annotated") == "Tiện ích / Điện (UTILITY)"
+
+    def test_full_vi_only(self):
+        assert _sector_bi("SEC", "full") == "Chứng khoán"
+
+    def test_compact_en_only(self):
+        assert _sector_bi("SEC", "compact") == "Securities"
+        assert _sector_bi("UTILITY", "compact") == "Utilities"
+
+    def test_case_insensitive_and_trimmed(self):
+        assert _sector_bi(" sec ", "annotated") == "Chứng khoán (SEC)"
+
+    def test_unknown_code_passthrough(self):
+        assert _sector_bi("OTHER", "annotated") == "OTHER"
+
+    def test_flow_status_values_localized(self):
+        assert _bi("MỞ_RỘNG", "annotated") == "MỞ_RỘNG (Broadening)"
+        assert _bi("KHÔNG_RÕ", "compact") == "Unknown"
 
 
 class TestInBaoCao:
