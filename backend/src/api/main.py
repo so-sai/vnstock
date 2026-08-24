@@ -268,7 +268,18 @@ async def circuit_breaker(request: Request, call_next):
     path = request.url.path
 
     # Whitelist: luôn cho phép health + gate endpoints
-    if path in ("/health", "/api", "/api/system/gate", "/api/system/gate/open", "/api/system/gate/close"):
+    # WHY session-info trong whitelist: Frontend BackendGate block render
+    # đến khi endpoint này trả ok. Nếu để dưới van ngắt/rate-limit,
+    # user thấy white-screen vĩnh viễn dù backend đang sống (anti-pattern:
+    # health checks must never be rate-limited). Read-only 1 query DB.
+    if path in (
+        "/health",
+        "/api",
+        "/api/system/gate",
+        "/api/system/gate/open",
+        "/api/system/gate/close",
+        "/api/system/session-info",
+    ):
         return await call_next(request)
 
     # Nếu cửa sổ sync chưa mở, chặn mọi /api/* (trừ operations đã được xác nhận thủ công)
