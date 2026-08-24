@@ -73,10 +73,12 @@ entrypoints:
     cli: "python ptck.py serve"
     category: server
 
-  mcp_server:
-    description: "FastMCP Server — Cung cấp Native MCP Tools & Resources (ptck://reports) cho IDE AI Assistants qua stdio"
-    cli: "python backend/src/mcp_server.py"
-    category: server
+  # PLANNED (chưa implement — không có entrypoint):
+  #   mcp_server: FastMCP read-only layer cho IDE AI Assistants.
+  #   File backend/src/mcp_server.py chưa từng tồn tại; entry cũ đã bị gỡ
+  #   (2026-08-23) theo nguyên tắc Zero-Hallucination: manifest chỉ liệt kê
+  #   những gì code thật đang có. Spec MCP phải đi kèm contract read-only
+  #   (mô tả/classify, không bao giờ trả allocation action).
 
   # ── Database ─────────────────────────────────────────
   db_vacuum:
