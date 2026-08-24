@@ -46,14 +46,32 @@ def test_get_universe_adv20(price_db):
 
 
 def test_run_day_writes_ledger(tmp_path, price_db):
+    """Contract hiện hành (refactor in-memory queue, 836b4bb):
+
+    run_day ghi vào SQLite :memory: và trả rows qua stats["_rows"]/_cols;
+    việc ghi file ledger do write_ledger_once() đảm nhận (1 executemany,
+    worker không đụng disk → không lock contention khi multiprocessing).
+
+    Test phủ đủ pipeline: run_day (in-memory) → write_ledger_once (file)
+    → get_decisions đọc lại đúng PIT date.
+    """
     from calibration.evidence_ledger import get_decisions, init_schema
+    from backtest.replay_ledger_2022 import write_ledger_once
 
     ledger = str(tmp_path / "ledger.db")
     init_schema(ledger)
     st = run_day("2022-01-07", ["A", "B", "C"], ledger, budget=20)
     assert st["date"] == "2022-01-07"
     assert st["n_symbols"] == 3
+    # In-memory stage: run_day đã thu được 3 rows nhưng CHƯA ghi file
     assert st["n_recorded"] == 3
+    assert len(st["_rows"]) == 3
+
+    assert get_decisions(ledger, date_from="2022-01-07", date_to="2022-01-07") == []
+
+    # File stage: main process ghi 1 lần rồi áp budget constraint
+    write_ledger_once([st], ledger, budget=20)
+
     rows = get_decisions(ledger, date_from="2022-01-07", date_to="2022-01-07")
     assert len(rows) == 3
     for r in rows:
