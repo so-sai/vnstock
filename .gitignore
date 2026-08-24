@@ -268,3 +268,6 @@ releases/
 # opencode agent state (plans + node_modules)
 /.opencode/
 
+
+# UI visual audit artifacts (Playwright screenshots)
+frontend/ui_audit/
