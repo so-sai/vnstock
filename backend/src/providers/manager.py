@@ -364,15 +364,15 @@ class ProviderManager:
         Reads the materialized `forensic_scores` table via PRIMARY KEY lookup
         — O(1), zero recompute at request time. The table is refreshed by a
         post-backfill hook (:meth:`ForensicScoreCache.refresh`), never inside
-        a REST/SSE request path. Returns None when the cache is empty.
+        a REST/SSE request path. Returns None when the cache has not been
+        injected/materialized yet — request path MUST NOT lazily construct
+        the cache (would hit the production DB mid-request).
         """
+        if self._forensic_cache is None:
+            return None
         try:
-            if self._forensic_cache is None:
-                from src.financial.forensic_engine import ForensicScoreCache
-
-                self._forensic_cache = ForensicScoreCache()
             return self._forensic_cache.get(symbol)
-        except ImportError, AttributeError, TypeError, KeyError:
+        except AttributeError, TypeError, KeyError:
             return None
 
     def symbols(self, **kwargs: Any) -> list[str] | None:
