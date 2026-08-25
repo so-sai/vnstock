@@ -11,5 +11,6 @@ fn ptck_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(breadth::compute_rolling_breadth, m)?)?;
     m.add_function(wrap_pyfunction!(breadth::breadth_ratio, m)?)?;
     m.add_function(wrap_pyfunction!(simulation::simulation_placeholder, m)?)?;
+    m.add_function(wrap_pyfunction!(simulation::simulate_grid_parallel, m)?)?;
     Ok(())
 }
