@@ -165,7 +165,9 @@ export default function WeeklyCognitiveReport() {
             <StatRow label="Driver" value={gold.driver || 'N/A'} />
             <StatRow label="Chênh lệch vàng" value={gold.premium_regime || 'N/A'} />
             {gold.premium_pct != null && (
-              <StatRow label="Mức chênh" value={`${(gold.premium_pct * 100).toFixed(1)}%`} />
+              // Backend premium_pct ĐÃ là đơn vị % (gold_spread_engine ×100).
+              // KHÔNG nhân 100 nữa — trước đây hiển thị 154%/175% thay vì 1.5%/1.75%.
+              <StatRow label="Mức chênh" value={`${Number(gold.premium_pct).toFixed(1)}%`} />
             )}
             {gold.xau_usd != null && (
               <StatRow
