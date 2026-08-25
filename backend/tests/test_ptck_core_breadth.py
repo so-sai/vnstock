@@ -43,3 +43,38 @@ class TestRollingBreadthParity:
         above = np.array([1, 0, 1, 1, 0], dtype=np.uint8)
         assert abs(ptck_core.breadth_ratio(above) - 0.6) < 1e-12
         assert ptck_core.breadth_ratio(np.array([], dtype=np.uint8)) == 0.0
+
+
+class TestFusedBreadthParity:
+    def _pandas_fused(self, prices: np.ndarray, window: int = 20) -> np.ndarray:
+        import pandas as pd
+
+        df = pd.DataFrame(prices.T)
+        rolling = df.rolling(window, min_periods=window).mean()
+        return (df > rolling).mean(axis=1).values.astype(np.float64)
+
+    def test_fused_1700x60_matches_pandas(self):
+        rng = np.random.default_rng(123)
+        prices = rng.uniform(10, 30, size=(1700, 60)).astype(np.float64)
+        rust = np.asarray(ptck_core.compute_fused_breadth(prices, window=20))
+        ref = self._pandas_fused(prices, window=20)
+        assert np.allclose(rust, ref, atol=1e-10), f"max diff {np.max(np.abs(rust - ref))}"
+
+    def test_fused_small_known(self):
+        # 3 symbols × 5 days, window 3 — manual check
+        prices = np.array([[10, 11, 12, 13, 14], [20, 19, 21, 20, 22], [30, 30, 30, 30, 30]], dtype=np.float64)
+        rust = np.asarray(ptck_core.compute_fused_breadth(prices, window=3))
+        ref = self._pandas_fused(prices, window=3)
+        assert np.allclose(rust, ref, atol=1e-10)
+
+    def test_fused_window_larger_than_days(self):
+        prices = np.ones((5, 10), dtype=np.float64)
+        rust = np.asarray(ptck_core.compute_fused_breadth(prices, window=20))
+        assert np.all(rust == 0.0)
+
+    def test_fused_window_one(self):
+        rng = np.random.default_rng(7)
+        prices = rng.uniform(10, 30, size=(4, 8)).astype(np.float64)
+        rust = np.asarray(ptck_core.compute_fused_breadth(prices, window=1))
+        ref = self._pandas_fused(prices, window=1)
+        assert np.allclose(rust, ref, atol=1e-10)
