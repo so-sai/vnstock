@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import XRayDrawer from './XRayDrawer';
 import TacticalConsole from './TacticalConsole';
 import CommandPalette from './CommandPalette';
-import { Outlet } from 'react-router-dom';
+import ErrorBoundary from './ErrorBoundary';
 import { useUIStore } from '../stores/uiStore';
 import { Search, Calendar, AlertTriangle } from 'lucide-react';
 
@@ -19,7 +20,15 @@ interface SessionInfo {
   server_now: string;
 }
 
+/** Boundary cấp route: lỗi 1 trang không giết khung điều hướng. */
+const RouteErrorBoundary: React.FC = () => (
+  <ErrorBoundary>
+    <Outlet />
+  </ErrorBoundary>
+);
+
 const AppLayout: React.FC = () => {
+  const location = useLocation();
   const { xraySymbol, closeXRay, openXRay } = useUIStore();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -94,7 +103,10 @@ const AppLayout: React.FC = () => {
           )}
         </div>
         <TacticalConsole />
-        <Outlet />
+        {/* Finding #8 (audit 24/08): ErrorBoundary cấp app làm fallback thay
+            TOÀN BỘ layout khi 1 trang throw -> mất sidebar/navigation. Boundary
+            cấp route giữ khung điều hướng; key=pathname để reset khi đổi trang. */}
+        <RouteErrorBoundary key={location.pathname} />
       </main>
       <XRayDrawer symbol={xraySymbol} onClose={closeXRay} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
