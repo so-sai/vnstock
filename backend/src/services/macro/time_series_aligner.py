@@ -149,6 +149,13 @@ class VNSessionCalendar:
     def is_trading_day(self, d: date) -> bool:
         return not _is_weekend(d) and d not in self._holidays
 
+    def prev_trading_day(self, d: date) -> date:
+        """Phiên giao dịch hợp lệ gần nhất TRƯỚC d (session_resolver dùng)."""
+        d -= timedelta(days=1)
+        while not self.is_trading_day(d):
+            d -= timedelta(days=1)
+        return d
+
 
 # ── Business Date Tagging ─────────────────────────────────────────────
 

@@ -17,7 +17,6 @@ import json
 import logging
 import sqlite3
 import sys
-from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -66,8 +65,48 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
       3. Tính độ tin cậy — dùng chung ảnh chụp
       4. Lớp bảo vệ — kiểm tra an toàn cuối
     """
+    # ── Canonical session resolution (spec-frozen: session_resolver) ──
+    # Non-trading day -> PREVIOUS_TRADING_SESSION (INFO, có provenance);
+    # Trading day thiếu data -> DATA_STALE — KHÔNG silent fallback (I1).
+    # Explicit --date chỉ resolve lịch (I2), không che ingestion failure.
+    _requested_raw = target_date
     if target_date is None:
-        target_date = datetime.now().strftime("%Y-%m-%d")
+        from src.core.session_resolver import (
+            GATE_DATA_STALE,
+            GATE_PREVIOUS_TRADING_SESSION,
+            GATE_SAME_SESSION,
+            format_provenance,
+            resolve_session,
+        )
+
+        _res = resolve_session()
+        target_date = _res.effective_date
+        if _res.resolution != GATE_SAME_SESSION:
+            print(f"  {format_provenance(_res)}")
+        # DATA_STALE ở chế độ auto: đã có effective=latest + cờ; Guard
+        # tiếp tục phát hiện, nhưng CLI không còn false "0 mã".
+    elif _requested_raw is not None:
+        try:
+            from src.core.session_resolver import (
+                GATE_DATA_STALE,
+                GATE_PREVIOUS_TRADING_SESSION,
+                GATE_SAME_SESSION,
+                format_provenance,
+                resolve_session,
+            )
+
+            _res2 = resolve_session(_requested_raw)
+            if _res2.resolution == GATE_PREVIOUS_TRADING_SESSION:
+                target_date = _res2.effective_date
+                print(f"  {format_provenance(_res2)}")
+            elif _res2.resolution == GATE_DATA_STALE:
+                # Explicit date + thiếu data: KHÔNG override — cảnh báo rõ.
+                print(
+                    f"  ⚠️ {format_provenance(_res2)} — dữ liệu phiên yêu cầu "
+                    f"chưa sẵn sàng, giữ nguyên ngày yêu cầu để Guard phán xét"
+                )
+        except RuntimeError, ValueError, TypeError:
+            pass
 
     # ---- Bước 1: Ảnh chụp thị trường duy nhất ----
     from src.core.market_snapshot import tao_anh_chup
