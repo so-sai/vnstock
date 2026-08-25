@@ -20,13 +20,14 @@
  */
 
 import { chromium } from "playwright";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:5173";
-const OUT_DIR = resolve(process.env.OUT_DIR ?? join(HERE, "ui_audit"));
+// OUT_DIR mặc định: frontend/ui_audit (khớp .gitignore) — KHÔNG phải scripts/.
+const OUT_DIR = resolve(process.env.OUT_DIR ?? join(HERE, "..", "ui_audit"));
 
 // Routes từ App.tsx (react-router-dom). "/" và "/nhip-dap-vi-mo" cùng
 // MacroDashboard nhưng giữ nguyên như router khai báo.
@@ -48,14 +49,13 @@ const ROUTES = [
 ];
 
 /**
- * FINDING (audit 2026-08-24): App gate gọi /api/session-info nhưng endpoint
- * KHÔNG tồn tại trong FastAPI -> white-screen toàn app khi backend thiếu.
- * Harness mock endpoint này (gate chỉ cần res.ok) để chụp UI thật với
- * data từ các API khác. Fix root cause thuộc patch riêng.
+ * Block mọi request ngoài localhost: ảnh chụp deterministic (không phụ thuộc
+ * Google Fonts/CDN) và không trigger Windows Firewall prompt cho headless
+ * chromium. Font Inter sẽ fallback về sans-serif — chấp nhận cho audit.
  */
-async function mockHealthGate(context) {
-  await context.route("**/api/session-info", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
+async function blockExternalRequests(context) {
+  await context.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (route) =>
+    route.abort(),
   );
 }
 
@@ -64,13 +64,19 @@ const VIEWPORTS = [
   { w: 1280, h: 800, tag: "1280x800" },
 ];
 
-// App.tsx gate: block render tới khi health endpoint phản hồi (~15 retry).
-// Cho thêm thời gian chart/query settle; white-screen vẫn chụp để bắt lỗi.
+// App.tsx gate: block render tới khi /api/system/session-info phản hồi
+// (đã whitelist trong circuit breaker — commit e7a4f9b; KHÔNG mock ở đây:
+// harness phải phản chiếu behavior thật để bắt regression của chính gate).
+// state:'attached' — KHÔNG dùng default 'visible': react-aria overlay
+// (section ẩn) là element đầu tiên trong #root và làm visible-wait treo 30s.
 async function settle(page) {
   try {
-    await page.waitForSelector("#root > *", { timeout: 30_000 });
-    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
-    await page.waitForTimeout(1_500);
+    await page.waitForSelector("#root > *", {
+      state: "attached",
+      timeout: 20_000,
+    });
+    await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => {});
+    await page.waitForTimeout(2_500);
   } catch {
     /* white-screen case — vẫn chụp */
   }
@@ -87,7 +93,7 @@ async function main() {
       viewport: { width: vp.w, height: vp.h },
       deviceScaleFactor: 1,
     });
-    await mockHealthGate(context);
+    await blockExternalRequests(context);
     for (const route of ROUTES) {
       const page = await context.newPage();
       try {
@@ -97,9 +103,26 @@ async function main() {
         });
         await settle(page);
         const file = join(OUT_DIR, `${route.slug}_${vp.tag}.png`);
-        await page.screenshot({ path: file, fullPage: true });
-        captured++;
-        console.log(`[capture] ${route.name} @ ${vp.tag} -> ${file}`);
+        // White-screen guard: ảnh <40KB gần như chắc chắn #root rỗng
+        // (Vite/backend cold start). Retry tối đa 2 lần.
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (attempt > 0) {
+            console.log(`[retry] ${route.slug}@${vp.tag} attempt ${attempt + 1} (ảnh quá nhỏ = trắng)`);
+            await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+            await settle(page);
+          }
+          await page.screenshot({ path: file, fullPage: true });
+          const kb = statSync(file).size / 1024;
+          if (kb >= 40) {
+            captured++;
+            console.log(`[capture] ${route.name} @ ${vp.tag} -> ${file} (${Math.round(kb)}KB)`);
+            break;
+          }
+          if (attempt === 2) {
+            captured++;
+            console.log(`[warn] ${route.name} @ ${vp.tag} vẫn trắng sau 3 lần — giữ ảnh cuối (${Math.round(kb)}KB)`);
+          }
+        }
       } catch (e) {
         console.error(`[capture] FAIL ${route.path} @ ${vp.tag}: ${e.message?.split("\n")[0]}`);
       } finally {
