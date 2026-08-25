@@ -103,24 +103,37 @@ async function main() {
         });
         await settle(page);
         const file = join(OUT_DIR, `${route.slug}_${vp.tag}.png`);
-        // White-screen guard: ảnh <40KB gần như chắc chắn #root rỗng
-        // (Vite/backend cold start). Retry tối đa 2 lần.
-        for (let attempt = 0; attempt < 3; attempt++) {
+        // Content-based retry: rate-limit 15 req/60s đánh vào các route giữa/cuối
+        // (mỗi trang ~4-5 API). Phát hiện text 429/RATE_LIMITED trên page -> đợi
+        // 65s (window trượt hết) -> reload 1 lần. Ảnh trắng <40KB cũng retry.
+        for (let attempt = 0; attempt < 2; attempt++) {
           if (attempt > 0) {
-            console.log(`[retry] ${route.slug}@${vp.tag} attempt ${attempt + 1} (ảnh quá nhỏ = trắng)`);
+            console.log(`[retry] ${route.slug}@${vp.tag} attempt 2 (429/trắng) — đợi 65s cho rate-limit window hết`);
+            await new Promise((r) => setTimeout(r, 65_000));
             await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
             await settle(page);
           }
           await page.screenshot({ path: file, fullPage: true });
           const kb = statSync(file).size / 1024;
-          if (kb >= 40) {
+          const bodyText = await page
+            .evaluate(() => document.body.innerText)
+            .catch(() => "");
+          // Match cả error tiếng Việt của các trang (Weekly: "Không thể tải
+          // báo cáo tuần"; Epistemic: "Không thể truy cập"; ErrorBoundary:
+          // "đang bận hoặc chưa khởi động"; api.ts: "quá nhiều request").
+          const rateLimited =
+            /HTTP 429|RATE_LIMITED|quá nhiều request|Không thể tải|Không thể truy cập|đang bận hoặc chưa khởi động/i.test(
+              bodyText,
+            );
+          if (kb >= 40 && !rateLimited) {
             captured++;
             console.log(`[capture] ${route.name} @ ${vp.tag} -> ${file} (${Math.round(kb)}KB)`);
             break;
           }
-          if (attempt === 2) {
+          if (attempt === 1) {
             captured++;
-            console.log(`[warn] ${route.name} @ ${vp.tag} vẫn trắng sau 3 lần — giữ ảnh cuối (${Math.round(kb)}KB)`);
+            const why = rateLimited ? "429" : kb < 40 ? "trắng" : "ok";
+            console.log(`[warn] ${route.name} @ ${vp.tag} giữ ảnh cuối (${Math.round(kb)}KB, ${why})`);
           }
         }
       } catch (e) {
@@ -128,6 +141,10 @@ async function main() {
       } finally {
         await page.close();
       }
+      // Rate-limit backend = 15 req/60s sliding window. Mỗi trang bắn ~5-10 API
+      // (MacroDashboard ~10). Delay 35s/route giữ trung bình <15 req/60s —
+      // retry 65s chỉ là mạng lưới dự phòng cho trang nặng.
+      await new Promise((r) => setTimeout(r, 35_000));
     }
     await context.close();
   }
