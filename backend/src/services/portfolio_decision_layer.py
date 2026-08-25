@@ -37,18 +37,25 @@ _ACTION_MAP = {
     "TRÁNH_XA": {"ten": "Tránh xa / Thoát", "ky_hieu": "🔴"},
 }
 
+# Patch B1: derive từ canonical src/core/sector_labels.py (single source
+# of truth) — cấm giữ mapping VI copy riêng.
+from src.core.sector_labels import sector_label_vi as _sector_label_vi
+
 _SECTOR_VI = {
-    "BANK": "Ngân hàng",
-    "RE": "Bất động sản",
-    "SEC": "Chứng khoán",
-    "STEEL": "Thép",
-    "CONSUMER": "Tiêu dùng",
-    "TECH": "Công nghệ",
-    "OIL": "Dầu khí",
-    "TRANS": "Vận tải",
-    "CONST": "Xây dựng",
-    "FOOD": "Thực phẩm",
-    "UTILITY": "Tiện ích / Điện",
+    code: _sector_label_vi(code)
+    for code in (
+        "BANK",
+        "RE",
+        "SEC",
+        "STEEL",
+        "CONSUMER",
+        "TECH",
+        "OIL",
+        "TRANS",
+        "CONST",
+        "FOOD",
+        "UTILITY",
+    )
 }
 
 

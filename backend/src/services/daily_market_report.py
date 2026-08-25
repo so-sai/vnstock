@@ -245,37 +245,20 @@ def _bi(vi: str, lang_mode: str = "annotated") -> str:
     return f"{vi} ({en})"
 
 
-# Sector codes → (VI, EN). WHY: flow section in raw codes (SEC/UTILITY...) —
-# end-user cần tên ngành; dev cần mã để đối chiếu DB/log.
-_SECTOR_BI = {
-    "BANK": ("Ngân hàng", "Banking"),
-    "RE": ("Bất động sản", "Real Estate"),
-    "SEC": ("Chứng khoán", "Securities"),
-    "STEEL": ("Thép", "Steel"),
-    "CONSUMER": ("Tiêu dùng", "Consumer"),
-    "TECH": ("Công nghệ", "Technology"),
-    "OIL": ("Dầu khí", "Oil & Gas"),
-    "TRANS": ("Vận tải", "Transport"),
-    "CONST": ("Xây dựng", "Construction"),
-    "FOOD": ("Thực phẩm", "Food"),
-    "UTILITY": ("Tiện ích / Điện", "Utilities"),
-}
+# Sector codes → (VI, EN). Patch B1: re-export từ canonical
+# src/core/sector_labels.py (single source of truth — cấm copy mapping).
+# WHY giữ alias: caller cũ import _SECTOR_BI trực tiếp.
+from src.core.sector_labels import SECTOR_LABELS as _SECTOR_BI
+from src.core.sector_labels import sector_label
 
 
 def _sector_bi(code: str, lang_mode: str = "annotated") -> str:
-    """Localize 1 sector code: full="Chứng khoán", compact="Securities",
-    annotated/auto="Chứng khoán (SEC)". Code lạ → nguyên trạng."""
+    """Localize 1 sector code (delegate sang canonical sector_label).
+    full="Chứng khoán", compact="Securities", annotated/auto="Chứng khoán (SEC)".
+    Code lạ → nguyên trạng."""
     mode = _resolve_lang_mode(lang_mode)
-    norm = str(code).strip().upper()
-    pair = _SECTOR_BI.get(norm)
-    if not pair:
-        return code
-    vi, en = pair
-    if mode == "compact":
-        return en
-    if mode == "full":
-        return vi
-    return f"{vi} ({norm})"
+    canonical_mode = mode if mode in ("full", "compact") else "annotated"
+    return sector_label(code, canonical_mode)
 
 
 def _ket_luan_hanh_vi(regime_status, xep_loai, health_score, risk_appetite):

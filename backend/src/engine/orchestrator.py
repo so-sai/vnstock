@@ -885,6 +885,7 @@ def in_bao_cao(kq: dict):
     # ── Sector Macro Scores (Multi-Polar Exposure Matrix) ──
     try:
         from src.core.canonical_output_adapter import localize_label
+        from src.core.sector_labels import sector_label
         from src.governor.interaction_engine import InteractionEngine
         from src.governor.macro_lag_engine import MacroLagEngine
         from src.governor.regional_influence_engine import RegionalInfluenceEngine
@@ -945,7 +946,7 @@ def in_bao_cao(kq: dict):
             _adj_str = f"{_adj:+.2%}" if abs(_adj) > 0.01 else "  0.00%"
             _mult_str = f"×{_mult:.3f}" if abs(_mult - 1.0) > 0.005 else "  ×1.000"
             _row = (
-                f"    {_icon} {_i + 1}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  "
+                f"    {_icon} {_i + 1}. {sector_label(_sect):26s}: {_lbl_raw}={_sc:.2%}  "
                 f"{_lbl_eff}={_eff:.2%}  {_lbl_adj}={_adj_str}  {_lbl_hl}={_hl:.0f}d  {_mult_str}"
             )
             print(_row)
@@ -965,7 +966,7 @@ def in_bao_cao(kq: dict):
             _adj_str = f"{_adj:+.2%}" if abs(_adj) > 0.01 else "  0.00%"
             _mult_str = f"×{_mult:.3f}" if abs(_mult - 1.0) > 0.005 else "  ×1.000"
             _row = (
-                f"    {_icon} {len(_ranked) - 1 + _i}. {_sect:12s}: {_lbl_raw}={_sc:.2%}  "
+                f"    {_icon} {len(_ranked) - 1 + _i}. {sector_label(_sect):26s}: {_lbl_raw}={_sc:.2%}  "
                 f"{_lbl_eff}={_eff:.2%}  {_lbl_adj}={_adj_str}  {_lbl_hl}={_hl:.0f}d  {_mult_str}"
             )
             print(_row)
@@ -1007,7 +1008,8 @@ def in_bao_cao(kq: dict):
             for _fr in _fusion_results[:5]:
                 if _fr.action in ("BUY", "HOLD"):
                     _icon = "🟢" if _fr.action == "BUY" else "🟡"
-                    _fr_row = f"    {_icon} {_fr.symbol:12s}: {_fr.composite_score:.2%} {_fr.action} ({_fr.target_weight:.0%})"
+                    _lbl = sector_label(_fr.symbol)
+                    _fr_row = f"    {_icon} {_lbl:26s}: {_fr.composite_score:.2%} {_fr.action} ({_fr.target_weight:.0%})"
                     print(_fr_row)
             print(
                 "    Allocation: {:.0f}% | Cash: {:.0f}% | Positions: {}".format(
