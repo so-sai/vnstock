@@ -1,0 +1,17 @@
+{
+  "name": "lttb_wasm",
+  "type": "module",
+  "description": "LTTB downsampling for PTCK charts — Rust → WASM (60 FPS)",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "lttb_wasm_bg.wasm",
+    "lttb_wasm.js",
+    "lttb_wasm.d.ts"
+  ],
+  "main": "lttb_wasm.js",
+  "types": "lttb_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

@@ -1,0 +1,16 @@
+[package]
+name = "lttb_wasm"
+version = "0.1.0"
+edition = "2021"
+description = "LTTB downsampling for PTCK charts — Rust → WASM (60 FPS)"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true

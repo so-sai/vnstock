@@ -1,5 +1,21 @@
 import type { BarData } from 'lightweight-charts';
 
+// WASM fast path — graceful fallback to JS if pkg not loaded (Hybrid 80/20).
+// Build: wasm-pack build crates/lttb_wasm --target web --out-dir pkg-web
+// Vitest uses pkg-node for Node parity. Browser lazy-loads pkg-web via initWasmLttb().
+let wasmLttb: ((buf: Float64Array, count: number, target: number, stride: number) => Uint32Array) | null = null;
+let wasm4p: ((buf: Float64Array, count: number, target: number, stride: number) => Uint32Array) | null = null;
+export const isWasmLttbReady = () => wasmLttb !== null;
+export async function initWasmLttb(): Promise<boolean> {
+  if (wasmLttb) return true;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m: any = await import('./wasm/lttb_wasm/lttb_wasm.js');
+    await m.default?.();
+    wasmLttb = m.lttb_indices; wasm4p = m.downsample4point_indices; return true;
+  } catch { return false; }
+}
+
 /**
  * LTTB chuẩn hóa — vận hành trực tiếp trên Float64Array (stride ≥ 5: t,o,h,l,c,...)
  * Zero unpack allocation, đồng bộ hệ tọa độ X theo Unix Timestamp.
@@ -16,6 +32,16 @@ export function lttbTyped(
   target: number,
   stride = 6,
 ): BarData[] {
+  // Fast WASM path (after initWasmLttb)
+  if (wasmLttb) {
+    const idx = wasmLttb(buf, count, target, stride);
+    const out: BarData[] = new Array(idx.length);
+    for (let k = 0; k < idx.length; k++) {
+      const off = (idx[k] as number) * stride;
+      out[k] = { time: buf[off] as unknown as BarData['time'], open: buf[off + 1], high: buf[off + 2], low: buf[off + 3], close: buf[off + 4] };
+    }
+    return out;
+  }
   if (target >= count || target < 2) {
     const all: BarData[] = new Array(count);
     for (let i = 0; i < count; i++) {
@@ -123,6 +149,15 @@ export function downsample4Point(
   target: number,
   stride = 6,
 ): BarData[] {
+  if (wasm4p) {
+    const idx = wasm4p(buf, count, target, stride);
+    const out: BarData[] = new Array(idx.length);
+    for (let k = 0; k < idx.length; k++) {
+      const off = (idx[k] as number) * stride;
+      out[k] = { time: buf[off] as unknown as BarData['time'], open: buf[off + 1], high: buf[off + 2], low: buf[off + 3], close: buf[off + 4] };
+    }
+    return out;
+  }
   if (target >= count || target < 3) {
     return lttbTyped(buf, count, count, stride);
   }
