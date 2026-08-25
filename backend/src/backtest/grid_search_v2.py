@@ -29,6 +29,15 @@ from pathlib import Path
 
 import numpy as np
 
+# Hybrid Rust bridge (ptck_core) — optional, falls back to Python if not built
+try:
+    import ptck_core  # type: ignore
+
+    _HAS_RUST = True
+except ImportError:
+    ptck_core = None  # type: ignore
+    _HAS_RUST = False
+
 
 def _hydrate_path() -> Path:
     """Path Hydrator v2.2: Auto-locate Project Root (anchored on AGENTS.md + backend is_dir)."""
@@ -748,6 +757,87 @@ def run_grid_search(
     return valid[:top_n]
 
 
+def _scores_to_factor_matrix(scores: dict, score_days: list[str]) -> np.ndarray:
+    """Adapter: flatten scores dict → factor_matrix (n_days × 4) for Rust kernel.
+
+    Each day's 4 factors = mean(fund, macro_eff, alpha, behav) across symbols that pass VN20 gate.
+    Matches the composite weighting in run_backtest_with_guard but collapsed to market-average
+    for fast Rust sweep. Used only for Stage-1 pruning; top candidates re-run via Python full guard.
+    """
+    rows: list[list[float]] = []
+    for d in score_days:
+        day = scores.get(d, {})
+        if not day:
+            rows.append([0.5, 0.5, 0.5, 0.5])
+            continue
+        vals = list(day.values())
+        rows.append(
+            [
+                float(np.mean([v["fund"] for v in vals])),
+                float(np.mean([v["macro_eff"] for v in vals])),
+                float(np.mean([v["alpha"] for v in vals])),
+                float(np.mean([v["behav"] for v in vals])),
+            ]
+        )
+    return np.array(rows, dtype=np.float64)
+
+
+def _run_rust_batch(
+    combos: list[dict],
+    factor_matrix: np.ndarray,
+    done: dict[str, dict],
+    results: list[dict],
+    label: str,
+) -> list[dict]:
+    """Fast Rust Rayon sweep for Stage-1 weight pruning (no DB, no LRI — pure composite)."""
+    pending = [c for c in combos if _params_key(c) not in done]
+    if not pending:
+        return results
+    # Build weights_grid (n_pending × 4) in Rust order
+    weights_grid = np.array(
+        [[c["w_fund"], c["w_macro"], c["w_alpha"], c["w_behav"]] for c in pending],
+        dtype=np.float64,
+    )
+    # Single representative threshold set for fast sweep (Stage-1 defaults)
+    entry = float(pending[0].get("entry_thresh", 0.60))
+    exit_t = float(pending[0].get("exit_thresh", 0.35))
+    t0 = time.time()
+    rust_out: list[dict] = ptck_core.simulate_grid_parallel(  # type: ignore
+        factor_matrix,
+        weights_grid,
+        entry_thresh=entry,
+        exit_thresh=exit_t,
+        trailing_stop=0.05,
+        trailing_take=0.15,
+        min_hold=5,
+    )
+    elapsed = time.time() - t0
+    print(f"  {label} [RUST rayon {len(pending)} combos]: {elapsed:.2f}s ({elapsed / len(pending) * 1000:.1f} ms/combo)")
+
+    def _collect(r: dict, c: dict) -> None:
+        results.append(r)
+        done[_params_key(c)] = r
+
+    for c, r in zip(pending, rust_out, strict=True):
+        # Map Rust keys to grid_search result schema
+        mapped = {
+            "total_return": round(float(r["total_return"]) * 100, 2),
+            "annualized_return": round(float(r["cagr"]) * 100, 2),
+            "sharpe": round(float(r["sharpe"]), 4),
+            "max_drawdown": round(float(r["max_drawdown"]) * 100, 2),
+            "win_rate": round(float(r["win_rate"]) * 100, 1),
+            "total_trades": int(r["total_trades"]),
+            "final_nav": round(float(r["final_nav"]), 0),
+            "buy_locked_days": 0,
+            "emergency_exits": 0,
+            "dimmer_days": 0,
+            "params": c,
+            "_rust_fast": True,
+        }
+        _collect(mapped, c)
+    return results
+
+
 def _run_combo_batch(
     combos: list[dict],
     scores: dict,
@@ -761,7 +851,29 @@ def _run_combo_batch(
     checkpoint: Path | None,
     label: str,
 ) -> list[dict]:
-    """Run a batch of combos (parallel or sequential), updating done + results."""
+    """Run a batch of combos (parallel or sequential), updating done + results.
+
+    Hybrid: Stage-1 with many weight combos auto-routes to Rust rayon if available
+    (fast pruning). Stages 2-3 keep full Python guard (LRI + EmergencyExit).
+    Force Python path by setting env PTCK_NO_RUST=1.
+    """
+    import os as _os
+
+    # Auto-route Stage-1 weight sweep to Rust when beneficial
+    if (
+        _HAS_RUST
+        and _os.environ.get("PTCK_NO_RUST") != "1"
+        and label == "Stage 1"
+        and len(combos) >= 20
+        and scores
+        and score_days
+    ):
+        try:
+            fm = _scores_to_factor_matrix(scores, score_days)
+            return _run_rust_batch(combos, fm, done, results, label)
+        except Exception as exc:  # noqa: BLE001 — fallback to Python on any Rust adapter failure
+            print(f"  [WARN] Rust fast path failed ({exc}), falling back to Python")
+
     pending = [c for c in combos if _params_key(c) not in done]
     print(f"  {label}: {len(combos)} total, {len(pending)} pending (checkpoint: {len(done)} done)")
     if not pending:
