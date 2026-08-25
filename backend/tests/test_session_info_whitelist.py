@@ -67,3 +67,7 @@ def test_rate_limit_still_applies_to_data_endpoints(monkeypatch):
     codes = [client.get("/api/breadth/").status_code for _ in range(17)]
     # Sau 15 request trong cửa sổ 60s, các request kế tiếp phải 429
     assert 429 in codes, f"rate limit không kích hoạt: {codes}"
+    # Cleanup bắt buộc: _request_log là module-level sliding window — nếu không
+    # clear, 17 entries còn "tươi" 60s sẽ 429 các test API chạy SAU (test
+    # pollution: epistemic composite fail khi đứng sau test này trong full suite).
+    api_main._request_log.clear()
