@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Activity, RotateCw, Zap } from 'lucide-react';
@@ -46,7 +46,7 @@ const LiveSummaryBar: React.FC = () => {
   };
 
   return (
-    <div className="flex items-center gap-4 h-8 px-3 bg-white/40 backdrop-blur-md border border-japandi-muted-clay/30 rounded-lg text-[10px] font-mono overflow-x-auto">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-h-8 px-3 py-1 bg-white/40 backdrop-blur-md border border-japandi-muted-clay/30 rounded-lg text-[10px] font-mono">
       <span className="text-japandi-earth/50 tracking-wider">LIVE</span>
 
       <span className="text-japandi-muted-clay">|</span>

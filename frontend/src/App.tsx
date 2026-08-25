@@ -23,10 +23,12 @@ import VN20IndexDashboard from './pages/VN20IndexDashboard'
 // sidecar spawn returns immediately (child process created) but the Python
 // server takes 1-5 seconds to boot (uvicorn + import chain). Without this gate,
 // every API call fails with "Failed to fetch" and the entire UI is white.
-// BOUNDARY: Block rendering until backend responds on /api/session-info.
+// BOUNDARY: Block rendering until backend responds on /api/system/session-info
+// (system router mount prefix — AppLayout dùng cùng path; /api/session-info
+// không tồn tại -> gate treo vĩnh viễn = white-screen toàn app).
 // ==============================================================================
 const API_BASE = import.meta.env.DEV ? '/api' : 'http://localhost:17039/api'
-const HEALTH_URL = `${API_BASE}/session-info`
+const HEALTH_URL = `${API_BASE}/system/session-info`
 const MAX_RETRIES = 15
 const RETRY_DELAY = 2000
 

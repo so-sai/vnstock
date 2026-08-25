@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutGrid,
@@ -81,14 +81,14 @@ function SectorBar({ sector, count, max }: { sector: string; count: number; max:
   const pct = max > 0 ? (count / max) * 100 : 0;
   return (
     <div className="flex items-center gap-2 text-xs">
-      <span className="w-24 text-right text-slate-400 truncate">{sector}</span>
-      <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+      <span className="w-24 text-right text-japandi-earth/75 truncate">{sector}</span>
+      <div className="flex-1 h-2 bg-japandi-oat rounded-full overflow-hidden">
         <div
           className="h-full bg-gradient-to-r from-japandi-oat to-warm-sand rounded-full transition-all duration-500"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="w-6 text-right text-slate-300 font-mono">{count}</span>
+      <span className="w-6 text-right text-japandi-earth font-mono">{count}</span>
     </div>
   );
 }
@@ -174,7 +174,7 @@ export default function VN20IndexDashboard() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64 text-slate-400">
+      <div className="flex items-center justify-center h-64 text-japandi-earth/75">
         <RefreshCw className="w-6 h-6 animate-spin mr-2" />
         Loading PTCK_VN20...
       </div>
@@ -202,7 +202,7 @@ export default function VN20IndexDashboard() {
           <h1 className="text-2xl font-bold text-japandi-oat tracking-tight">
             {data.index}
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-japandi-earth/75 mt-1">
             {data.policy} · {data.count} constituents · Built {data.built_at}
           </p>
         </div>
@@ -226,7 +226,7 @@ export default function VN20IndexDashboard() {
           </span>
           <button
             onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50 text-slate-300 text-sm hover:bg-slate-700/60 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-japandi-warm-sand text-japandi-earth text-sm hover:bg-japandi-oat transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
@@ -236,24 +236,24 @@ export default function VN20IndexDashboard() {
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl p-3">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+        <div className="bg-white/70 border border-japandi-warm-sand rounded-xl p-3">
+          <div className="flex items-center gap-2 text-japandi-earth/75 text-xs mb-1">
             <Gauge className="w-3.5 h-3.5" /> Data Density
           </div>
           <div className="text-xl font-bold text-japandi-oat">
             {data.data_density_avg}%
           </div>
         </div>
-        <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl p-3">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+        <div className="bg-white/70 border border-japandi-warm-sand rounded-xl p-3">
+          <div className="flex items-center gap-2 text-japandi-earth/75 text-xs mb-1">
             <Zap className="w-3.5 h-3.5" /> Fallback Source
           </div>
           <div className="text-xl font-bold text-warm-sand uppercase">
             {data.fallback_active_source}
           </div>
         </div>
-        <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl p-3">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+        <div className="bg-white/70 border border-japandi-warm-sand rounded-xl p-3">
+          <div className="flex items-center gap-2 text-japandi-earth/75 text-xs mb-1">
             <Activity className="w-3.5 h-3.5" /> Silent Throttle
           </div>
           <div
@@ -267,19 +267,19 @@ export default function VN20IndexDashboard() {
             {activeThrottle?.is_throttled ? 'ACTIVE' : 'CLEAR'}
           </div>
         </div>
-        <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl p-3">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
+        <div className="bg-white/70 border border-japandi-warm-sand rounded-xl p-3">
+          <div className="flex items-center gap-2 text-japandi-earth/75 text-xs mb-1">
             <Clock className="w-3.5 h-3.5" /> Generated
           </div>
-          <div className="text-sm font-mono text-slate-300 mt-1">
+          <div className="text-sm font-mono text-japandi-earth mt-1">
             {data.generated_at ? new Date(data.generated_at).toLocaleTimeString('vi-VN') : '—'}
           </div>
         </div>
       </div>
 
       {/* Sector Distribution */}
-      <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl p-4">
-        <div className="flex items-center gap-2 text-slate-400 text-sm mb-3">
+      <div className="bg-white/70 border border-japandi-warm-sand rounded-xl p-4">
+        <div className="flex items-center gap-2 text-japandi-earth/75 text-sm mb-3">
           <PieChart className="w-4 h-4" /> Sector Distribution
         </div>
         <div className="space-y-1.5">
@@ -302,28 +302,28 @@ export default function VN20IndexDashboard() {
       )}
 
       {/* Constituent Table */}
-      <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl overflow-hidden">
+      <div className="bg-white/70 border border-japandi-warm-sand rounded-xl overflow-hidden">
         {/* Toolbar */}
-        <div className="flex items-center gap-3 p-3 border-b border-slate-700/40 flex-wrap">
-          <div className="flex items-center gap-2 text-slate-400 text-sm">
+        <div className="flex items-center gap-3 p-3 border-b border-japandi-muted-clay flex-wrap">
+          <div className="flex items-center gap-2 text-japandi-earth/75 text-sm">
             <LayoutGrid className="w-4 h-4" /> Constituents
-            <span className="text-slate-500">({filtered.length})</span>
+            <span className="text-japandi-earth/60">({filtered.length})</span>
           </div>
           <div className="flex-1" />
           <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-japandi-earth/60" />
             <input
               type="text"
               placeholder="Search symbol or sector..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 pr-3 py-1.5 bg-slate-800/60 border border-slate-700/40 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-japandi-oat/50 w-48"
+              className="pl-8 pr-3 py-1.5 bg-white border border-japandi-muted-clay rounded-lg text-sm text-japandi-earth placeholder-japandi-earth/50 focus:outline-none focus:border-japandi-oat/50 w-48"
             />
           </div>
           <select
             value={sectorFilter}
             onChange={(e) => setSectorFilter(e.target.value)}
-            className="px-2 py-1.5 bg-slate-800/60 border border-slate-700/40 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-japandi-oat/50"
+            className="px-2 py-1.5 bg-white border border-japandi-muted-clay rounded-lg text-sm text-japandi-earth focus:outline-none focus:border-japandi-oat/50"
           >
             <option value="all">All Sectors</option>
             {sectors.map(([s]) => (
@@ -336,7 +336,7 @@ export default function VN20IndexDashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-slate-400 text-xs uppercase tracking-wider border-b border-slate-700/40">
+              <tr className="text-japandi-earth/75 text-xs uppercase tracking-wider border-b border-japandi-muted-clay">
                 {[
                   { key: 'symbol', label: 'Symbol' },
                   { key: 'sector', label: 'Sector' },
@@ -379,31 +379,31 @@ export default function VN20IndexDashboard() {
               {filtered.map((c) => (
                 <tr
                   key={c.symbol}
-                  className="border-b border-slate-700/20 hover:bg-slate-800/40 transition-colors"
+                  className="border-b border-japandi-muted-clay/50 hover:bg-japandi-oat transition-colors"
                 >
                   <td className="px-3 py-2 font-mono font-semibold text-japandi-oat">
                     {c.symbol}
                   </td>
-                  <td className="px-3 py-2 text-slate-300">{c.sector}</td>
+                  <td className="px-3 py-2 text-japandi-earth">{c.sector}</td>
                   <td className="px-3 py-2">
                     <EpistemicBadge score={c.epistemic_score} />
                   </td>
-                  <td className="px-3 py-2 text-slate-300 font-mono">
+                  <td className="px-3 py-2 text-japandi-earth font-mono">
                     {c.structural_score.toFixed(3)}
                   </td>
-                  <td className="px-3 py-2 text-slate-300 font-mono">
+                  <td className="px-3 py-2 text-japandi-earth font-mono">
                     {c.behavioural_score.toFixed(3)}
                   </td>
-                  <td className="px-3 py-2 text-slate-300 font-mono">
+                  <td className="px-3 py-2 text-japandi-earth font-mono">
                     {c.outcome_score.toFixed(3)}
                   </td>
-                  <td className="px-3 py-2 text-slate-300 font-mono">
+                  <td className="px-3 py-2 text-japandi-earth font-mono">
                     {(c.coverage * 100).toFixed(1)}%
                   </td>
-                  <td className="px-3 py-2 text-slate-300 font-mono">
+                  <td className="px-3 py-2 text-japandi-earth font-mono">
                     {(c.coherence * 100).toFixed(1)}%
                   </td>
-                  <td className="px-3 py-2 text-slate-300 font-mono">
+                  <td className="px-3 py-2 text-japandi-earth font-mono">
                     {c.target_alloc_pct}%
                   </td>
                 </tr>

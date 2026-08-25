@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { 
   Card, 
   Text, 
@@ -70,7 +70,7 @@ const MacroDashboard: React.FC = () => {
         <Text className="text-japandi-earth/60">{systemMessage?.title ?? systemMessage}</Text>
         <div className="flex items-center gap-2 mt-1">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          <p className="text-[10px] text-japandi-muted-clay font-mono tracking-wider uppercase">
+          <p className="text-[10px] text-japandi-earth/70 font-mono tracking-wider uppercase">
             DỮ LIỆU PHIÊN: {breadth?.updatedAt ? new Date(breadth.updatedAt).toLocaleDateString('vi-VN') : '21/05/2026'} | SỔ CÁI ĐÃ KHÓA SẠCH
           </p>
         </div>
@@ -118,7 +118,7 @@ const MacroDashboard: React.FC = () => {
           />
           <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
             <div>
-              <Text className="text-japandi-muted-clay">Độ rộng (MA20)</Text>
+              <Text className="text-japandi-earth/70">Độ rộng (MA20)</Text>
               {isLoading ? (
                 <div className="animate-pulse h-6 bg-japandi-oat/50 rounded mt-1 w-16" />
               ) : (
@@ -126,7 +126,7 @@ const MacroDashboard: React.FC = () => {
               )}
             </div>
             <div>
-              <Text className="text-japandi-muted-clay">ADX</Text>
+              <Text className="text-japandi-earth/70">ADX</Text>
               {isLoading ? (
                 <div className="animate-pulse h-6 bg-japandi-oat/50 rounded mt-1 w-12" />
               ) : (
@@ -134,7 +134,7 @@ const MacroDashboard: React.FC = () => {
               )}
             </div>
             <div>
-              <Text className="text-japandi-muted-clay">ATR Ratio</Text>
+              <Text className="text-japandi-earth/70">ATR Ratio</Text>
               {isLoading ? (
                 <div className="animate-pulse h-6 bg-japandi-oat/50 rounded mt-1 w-12" />
               ) : (
@@ -255,26 +255,26 @@ const MacroDashboard: React.FC = () => {
           ) : (
             <>
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
-                <Text className="text-japandi-muted-clay">USD/CNH (Tỷ giá offshore)</Text>
+                <Text className="text-japandi-earth/70">USD/CNH (Tỷ giá offshore)</Text>
                 <Metric className="text-japandi-earth">{macro.usdCnh?.toFixed(4)}</Metric>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">Nhân dân tệ offshore</Text>
+                  <Text className="text-xs text-japandi-earth/70">Nhân dân tệ offshore</Text>
                 </Flex>
               </Card>
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
-                <Text className="text-japandi-muted-clay">USD/CNY (Tỷ giá onshore)</Text>
+                <Text className="text-japandi-earth/70">USD/CNY (Tỷ giá onshore)</Text>
                 <Metric className="text-japandi-earth">{macro.usdCny?.toFixed(4)}</Metric>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">Nhân dân tệ trên bờ</Text>
+                  <Text className="text-xs text-japandi-earth/70">Nhân dân tệ trên bờ</Text>
                 </Flex>
               </Card>
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
-                <Text className="text-japandi-muted-clay">Chỉ số DXY</Text>
+                <Text className="text-japandi-earth/70">Chỉ số DXY</Text>
                 <Metric className="text-japandi-earth">{macro.dxyIndex?.toFixed(2)}</Metric>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">Sức mạnh USD</Text>
+                  <Text className="text-xs text-japandi-earth/70">Sức mạnh USD</Text>
                 </Flex>
               </Card>
 
@@ -282,7 +282,7 @@ const MacroDashboard: React.FC = () => {
               <div className="backdrop-blur-md bg-white/60 border border-gray-200/50 rounded-lg p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow duration-200">
                 <div>
                   <div className="flex items-center justify-between">
-                    <Text className="text-japandi-muted-clay text-xs block">Lợi suất TPCP 10 Năm (VGB10Y)</Text>
+                    <Text className="text-japandi-earth/70 text-xs block">Lợi suất TPCP 10 Năm (VGB10Y)</Text>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                       macro.vgb10yDataQuality === 'REAL' ? 'bg-green-100 text-green-700' :
                       macro.vgb10yDataQuality === 'ESTIMATED' ? 'bg-yellow-100 text-yellow-700' :
@@ -310,17 +310,17 @@ const MacroDashboard: React.FC = () => {
               </div>
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
-                <Text className="text-japandi-muted-clay">Lãi suất Interbank O/N</Text>
+                <Text className="text-japandi-earth/70">Lãi suất Interbank O/N</Text>
                 <Metric className="text-japandi-earth">{macro.interbankRate != null ? `${macro.interbankRate.toFixed(2)}%` : '—'}</Metric>
                 <Flex className="mt-4">
-                  <Text className={`text-xs ${macro.interbankRate != null ? 'text-japandi-muted-clay' : 'text-gray-400 italic'}`}>
+                  <Text className={`text-xs ${macro.interbankRate != null ? 'text-japandi-earth/70' : 'text-gray-400 italic'}`}>
                     {macro.interbankRate != null ? 'Lãi suất VND qua đêm' : 'NO_DATA — Chờ seed Interbank'}
                   </Text>
                 </Flex>
               </Card>
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
-                <Text className="text-japandi-muted-clay">Lợi suất thực Mỹ (Real Yield)</Text>
+                <Text className="text-japandi-earth/70">Lợi suất thực Mỹ (Real Yield)</Text>
                 <div className="flex items-baseline gap-2 mt-1">
                   <Metric className="text-japandi-earth">
                     {macro.usRealYield != null ? `${macro.usRealYield.toFixed(2)}%` : '—'}
@@ -330,7 +330,7 @@ const MacroDashboard: React.FC = () => {
                   )}
                 </div>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">
+                  <Text className="text-xs text-japandi-earth/70">
                     {macro.usRealYield != null
                       ? macro.usRealYield > 2.5
                         ? 'Hạn chế (Restrictive) — Chi phí cơ hội vàng cao'
@@ -343,12 +343,12 @@ const MacroDashboard: React.FC = () => {
               </Card>
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
-                <Text className="text-japandi-muted-clay">Lạm phát kỳ vọng 10Y</Text>
+                <Text className="text-japandi-earth/70">Lạm phát kỳ vọng 10Y</Text>
                 <Metric className="text-japandi-earth">
                   {macro.breakevenInflation != null ? `${macro.breakevenInflation.toFixed(2)}%` : '—'}
                 </Metric>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">
+                  <Text className="text-xs text-japandi-earth/70">
                     {macro.breakevenInflation != null
                       ? macro.breakevenInflation > 3.5
                         ? 'Lo ngại lạm phát cao — Vàng hưởng lợi'
@@ -362,7 +362,7 @@ const MacroDashboard: React.FC = () => {
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <div className="flex items-center justify-between mb-2">
-                  <Text className="text-japandi-muted-clay">🟡 Vàng & Phòng thủ</Text>
+                  <Text className="text-japandi-earth/70">🟡 Vàng & Phòng thủ</Text>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${goldRegimeBg[macro.goldRegime ?? 'NEUTRAL'] ?? 'bg-gray-100 text-gray-600'}`}>
                     {goldRegimeLabel[macro.goldRegime ?? 'NEUTRAL'] ?? 'Trung tính'}
                   </span>
@@ -370,22 +370,22 @@ const MacroDashboard: React.FC = () => {
                 <Metric className="text-japandi-earth">${goldPrice?.toFixed(2) ?? 'N/A'}</Metric>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
                   <div>
-                    <Text className="text-japandi-muted-clay">Velocity</Text>
+                    <Text className="text-japandi-earth/70">Velocity</Text>
                     <span className="font-mono font-semibold">{(macro.goldVelocity ?? 0).toFixed(2)}</span>
                   </div>
                   <div>
-                    <Text className="text-japandi-muted-clay">Spread</Text>
+                    <Text className="text-japandi-earth/70">Spread</Text>
                     <span className="font-mono font-semibold">{(macro.goldSpreadPressure ?? 0).toFixed(2)}</span>
                   </div>
                   <div>
-                    <Text className="text-japandi-muted-clay">Bias</Text>
+                    <Text className="text-japandi-earth/70">Bias</Text>
                     <span className="font-mono font-semibold">{macro.goldMacroBias ?? 'N/A'}</span>
                   </div>
                 </div>
                 {goldScenarios && goldScenarios.length > 0 && (
                   <div className="mt-2 border-t border-gray-200 pt-2">
                     {goldScenarios.map((s, i) => (
-                      <p key={i} className="text-[10px] text-japandi-muted-clay leading-tight mb-0.5">• {s}</p>
+                      <p key={i} className="text-[10px] text-japandi-earth/70 leading-tight mb-0.5">• {s}</p>
                     ))}
                   </div>
                 )}
@@ -393,7 +393,7 @@ const MacroDashboard: React.FC = () => {
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
                 <div className="flex items-center justify-between mb-2">
-                  <Text className="text-japandi-muted-clay">🥈 Bạc & Tỷ lệ Vàng/Bạc</Text>
+                  <Text className="text-japandi-earth/70">🥈 Bạc & Tỷ lệ Vàng/Bạc</Text>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                     goldSilverRatio != null && goldSilverRatio > 80
                       ? 'bg-orange-100 text-orange-700'
@@ -412,11 +412,11 @@ const MacroDashboard: React.FC = () => {
                 </div>
                 <div className="flex items-baseline gap-4">
                   <div>
-                    <Text className="text-xs text-japandi-muted-clay">Bạc (XAG)</Text>
+                    <Text className="text-xs text-japandi-earth/70">Bạc (XAG)</Text>
                     <Metric className="text-japandi-earth">${silverPrice?.toFixed(2) ?? 'N/A'}</Metric>
                   </div>
                   <div className="border-l border-gray-200 pl-4">
-                    <Text className="text-xs text-japandi-muted-clay">Tỷ lệ Vàng/Bạc</Text>
+                    <Text className="text-xs text-japandi-earth/70">Tỷ lệ Vàng/Bạc</Text>
                     <div className="flex items-baseline gap-1">
                       <span className="text-2xl font-bold text-japandi-earth">{goldSilverRatio?.toFixed(1) ?? 'N/A'}</span>
                       <span className="text-[10px] text-gray-400">x</span>
@@ -424,7 +424,7 @@ const MacroDashboard: React.FC = () => {
                   </div>
                 </div>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">
+                  <Text className="text-xs text-japandi-earth/70">
                     {goldSilverRatio != null
                       ? goldSilverRatio > 90
                         ? 'Bạc rẻ bất thường — Định chế phòng thủ cực đoan'
@@ -439,18 +439,18 @@ const MacroDashboard: React.FC = () => {
               </Card>
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
-                <Text className="text-japandi-muted-clay">BTC/USD</Text>
+                <Text className="text-japandi-earth/70">BTC/USD</Text>
                 <Metric className="text-japandi-earth">${btcPrice?.toLocaleString() ?? 'N/A'}</Metric>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">Tiền mã hóa</Text>
+                  <Text className="text-xs text-japandi-earth/70">Tiền mã hóa</Text>
                 </Flex>
               </Card>
 
               <Card className={`${swuc('METRIC', 'macro')} border-none shadow-sm p-6`}>
-                <Text className="text-japandi-muted-clay">USD/VND</Text>
+                <Text className="text-japandi-earth/70">USD/VND</Text>
                 <Metric className="text-japandi-earth">{usdVnd?.toLocaleString() ?? 'N/A'}</Metric>
                 <Flex className="mt-4">
-                  <Text className="text-xs text-japandi-muted-clay">Tỷ giá hối đoái</Text>
+                  <Text className="text-xs text-japandi-earth/70">Tỷ giá hối đoái</Text>
                 </Flex>
               </Card>
             </>
@@ -486,15 +486,15 @@ const MacroDashboard: React.FC = () => {
             <Title className="text-japandi-earth">Độ rộng Thị trường</Title>
             <div className="mt-4 grid grid-cols-3 gap-4">
               <div>
-                <Text className="text-japandi-muted-clay text-xs">Mã tăng</Text>
+                <Text className="text-japandi-earth/70 text-xs">Mã tăng</Text>
                 <Metric className="text-stock-up">{breadth.advancers ?? 0}</Metric>
               </div>
               <div>
-                <Text className="text-japandi-muted-clay text-xs">Mã giảm</Text>
+                <Text className="text-japandi-earth/70 text-xs">Mã giảm</Text>
                 <Metric className="text-stock-down">{breadth.decliners ?? 0}</Metric>
               </div>
               <div>
-                <Text className="text-japandi-muted-clay text-xs">Tổng cộng</Text>
+                <Text className="text-japandi-earth/70 text-xs">Tổng cộng</Text>
                 <Metric className="text-japandi-earth">{breadth.totalActive ?? 0}</Metric>
               </div>
             </div>
