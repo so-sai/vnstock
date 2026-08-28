@@ -962,6 +962,20 @@ def run_post_update_engines():
         logger.exception("⚠️ Gold Paper Ledger: %s", e)
         record_engine_fault("gold_paper_ledger", str(e))
 
+    # Capitulation Paper Ledger (research-only): consume an explicit PIT EOD
+    # snapshot if the detector emitted one, and settle matured VNINDEX forwards.
+    # This hook never imports Governor or changes allocation parameters.
+    try:
+        from src.research.capitulation_paper_ledger import update_from_source
+
+        stats = update_from_source()
+        results["capitulation_paper_ledger"] = stats
+        logger.info("✅ Capitulation Paper Ledger: %s", stats)
+    except Exception as e:
+        results["capitulation_paper_ledger"] = f"FAIL: {e}"
+        logger.exception("⚠️ Capitulation Paper Ledger: %s", e)
+        record_engine_fault("capitulation_paper_ledger", str(e))
+
     return results
 
 

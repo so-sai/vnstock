@@ -5429,6 +5429,53 @@ def cmd_walk_forward(args):
     )
 
 
+# ── capitulation paper ledger (validation) ─────────────────────────
+def cmd_capitulation(args):
+    """Capitulation Paper Ledger — PIT-safe forward H+5/H+20/H+30 (read-only research)."""
+    from src.research.capitulation_paper_ledger import (
+        LEDGER_DB as _CAP_LEDGER,
+        init_ledger as _cap_init,
+        report as _cap_report,
+        update_from_source as _cap_update,
+    )
+
+    action = getattr(args, "action", "report")
+    db = getattr(args, "db", None) or _CAP_LEDGER
+    if action == "init":
+        _cap_init(db)
+        print(f"[capitulation] init OK: {db}")
+        return
+    if action == "update":
+        res = _cap_update(path=db)
+        print(f"[capitulation] update: {res}")
+        return
+    # report — zero-matured UX guard (avoid empty table / div-by-zero)
+    rows = _cap_report(db)
+    # Count matured snapshots (any horizon settled)
+    try:
+        import sqlite3 as _sql
+
+        with _sql.connect(str(db)) as _c:
+            matured = _c.execute(
+                "SELECT COUNT(*) FROM capitulation_snapshots WHERE ret_h5 IS NOT NULL OR ret_h20 IS NOT NULL OR ret_h30 IS NOT NULL"
+            ).fetchone()[0]
+            total = _c.execute("SELECT COUNT(*) FROM capitulation_snapshots").fetchone()[0]
+    except Exception:
+        matured, total = 0, len(rows)
+    print("[CAPITULATION PAPER LEDGER REPORT]")
+    print(f"Total Snapshots: {total} | Matured: {matured} | Pending: {total - matured}")
+    if matured == 0:
+        print("ℹ️ Chưa có snapshot nào đáo hạn H+5 (cần tối thiểu 5 phiên giao dịch).")
+        if rows:
+            import json as _json
+
+            print(_json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+    import json as _json
+
+    print(_json.dumps(rows, ensure_ascii=False, indent=2))
+
+
 # Module-level language mode — set by main() before dispatching
 _VERBOSE_LANG: str = "full"
 
@@ -5893,6 +5940,23 @@ def build_parser():
     p_drift_surprise.set_defaults(func=cmd_drift)
     p_drift_model = p_drift_sub.add_parser("model", help="Model Evidence & Retirement")
     p_drift_model.set_defaults(func=cmd_drift)
+
+    # capitulation (validation — PIT-safe paper ledger)
+    p_cap = sub.add_parser(
+        "capitulation",
+        parents=[lang_parent],
+        help="Capitulation Paper Ledger — forward H+5/H+20/H+30 theo vùng P_cap",
+    )
+    p_cap_sub = p_cap.add_subparsers(dest="action", required=True)
+    p_cap_report = p_cap_sub.add_parser("report", help="Xem báo cáo theo vùng P_cap (matured/pending)")
+    p_cap_report.add_argument("--db", type=str, default=None, help="Đường dẫn ledger DB (mặc định data/capitulation_ledger.db)")
+    p_cap_report.set_defaults(func=cmd_capitulation)
+    p_cap_update = p_cap_sub.add_parser("update", help="EOD hook: insert snapshot + settle forward")
+    p_cap_update.add_argument("--db", type=str, default=None, help="Đường dẫn ledger DB")
+    p_cap_update.set_defaults(func=cmd_capitulation)
+    p_cap_init = p_cap_sub.add_parser("init", help="Khởi tạo ledger (tạo bảng nếu chưa có)")
+    p_cap_init.add_argument("--db", type=str, default=None, help="Đường dẫn ledger DB")
+    p_cap_init.set_defaults(func=cmd_capitulation)
 
     # calibrate (P4 Meta-Cognition)
     p_cal = sub.add_parser(

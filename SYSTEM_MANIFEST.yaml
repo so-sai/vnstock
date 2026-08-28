@@ -626,6 +626,11 @@ entrypoints:
         description: "Model Evidence & Retirement — đánh giá tuổi thọ mô hình"
         cli: "python ptck.py drift model"
 
+  capitulation_ledger:
+    description: "Capitulation Paper Ledger — Theo dõi forward H+5/H+20/H+30 cho các vùng P_cap (0.30, 0.50, 0.70)"
+    cli: "python ptck.py capitulation {report|update|init} [--db PATH]"
+    category: validation
+
   # ── Governor Report ──────────────────────────────────
   governor_report:
     description: "Phân rã đóng góp 3 mô hình (Macro/Quant/Regime) vào position_level của DecisionGuard"
