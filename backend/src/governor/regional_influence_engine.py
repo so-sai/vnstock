@@ -76,9 +76,9 @@ NODE_COMPOSITE_WEIGHTS = {
         "DXY": 0.20,  # USD inverse correlation with commodities
     },
     "Domestic_Liquidity": {
-        "INTERBANK_ON": 0.50,
-        "VNINDEX": 0.30,  # Market breadth as liquidity proxy
-        "US10Y": 0.20,  # Global yield influence
+        "INTERBANK_ON": 0.65,
+        "VNINDEX": 0.35,  # Market breadth as domestic liquidity proxy
+        # US10Y removed — domestic liquidity reflects VN interbank/OMO, not US yields
     },
 }
 
@@ -227,21 +227,44 @@ class RegionalInfluenceEngine:
         indicator_scores: dict,
         data_quality: dict,
     ) -> float:
-        """Compute weighted average score for a macro node."""
-        weights = NODE_COMPOSITE_WEIGHTS.get(node_name, {})
-        total_weight = 0.0
-        weighted_sum = 0.0
+        """Compute weighted average score for a macro node.
 
-        for indicator, weight in weights.items():
+        Weight Capping Guard (fix-m-vector-inputs):
+          No single indicator may exceed 45% of node weight.
+          When data is missing, absent weight is neutralized at 0.50
+          (Bayesian marginalization) instead of being redistributed
+          proportionally to surviving indicators — prevents DXY 70%
+          distortion when FED_RATE is absent.
+        """
+        weights = NODE_COMPOSITE_WEIGHTS.get(node_name, {})
+        MAX_SINGLE_WEIGHT = 0.45
+        NEUTRAL = 0.50
+
+        # Step 1: cap individual weights at 45% of original total
+        capped_weights: dict[str, float] = {}
+        for ind, w in weights.items():
+            capped_weights[ind] = min(w, MAX_SINGLE_WEIGHT)
+
+        # Step 2: missing indicators contribute neutral score
+        weighted_sum = 0.0
+        total_weight = 0.0
+        missing_weight = 0.0
+        for indicator, weight in capped_weights.items():
             score = indicator_scores.get(indicator)
             has_data = data_quality.get(indicator, False)
             if has_data and score is not None:
                 weighted_sum += score * weight
                 total_weight += weight
+            else:
+                missing_weight += weight
 
-        if total_weight > 0:
+        # Step 3: neutralize missing mass at 0.50
+        if total_weight + missing_weight > 0:
+            # Include neutral contribution for missing
+            weighted_sum += NEUTRAL * missing_weight
+            total_weight += missing_weight
             return weighted_sum / total_weight
-        return 0.5  # neutral when no data
+        return NEUTRAL
 
     def compute(self, target_date: str | None = None) -> RegionalMacroResult:
         """Compute Macro State Vector M.
