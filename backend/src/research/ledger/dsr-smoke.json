@@ -1,0 +1,13 @@
+{
+  "dsr": 1.0,
+  "z": 15.65787581148363,
+  "expected_sr_null": 0.4552606186839514,
+  "sr_obs": 1.2,
+  "n_returns": 1000,
+  "skew": -0.3,
+  "kurt": 3.5,
+  "n_trials": 50,
+  "var_trials": 0.04,
+  "pass_threshold_095": true,
+  "data_scope": "OHLCV_only"
+}
