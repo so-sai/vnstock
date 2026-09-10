@@ -79,7 +79,7 @@ def run_combo(
     slip = cfg["costs"]["slip_bps"] / 10000.0
     lb = cfg["rate_lookback"]
     u_dates = sorted(us10y_d)
-    u_vals = [us10y_d(x) for x in u_dates]
+    u_vals = [us10y_d[x] for x in u_dates]
     u_idx = {x: i for i, x in enumerate(u_dates)}
     equity, in_gold, entry_px, peak, held = nav, False, 0.0, 0.0, 0
     eq_curve: list[float] = []

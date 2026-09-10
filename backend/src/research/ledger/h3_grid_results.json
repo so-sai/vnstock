@@ -1,0 +1,452 @@
+[
+ {
+  "event": "grid_trial",
+  "trial_id": 73,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.3,
+   "ma_g": 20,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 21,
+  "sharpe": -1.5875,
+  "profit_factor": 0.4003,
+  "mdd_pct": -19.098,
+  "win_rate": 0.2381,
+  "expectancy": -0.69808,
+  "total_net": -14659609.91,
+  "skew": -1.7943,
+  "kurt": 24.7516
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 74,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.3,
+   "ma_g": 20,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 21,
+  "sharpe": -1.5875,
+  "profit_factor": 0.4003,
+  "mdd_pct": -19.098,
+  "win_rate": 0.2381,
+  "expectancy": -0.69808,
+  "total_net": -14659609.91,
+  "skew": -1.7943,
+  "kurt": 24.7516
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 75,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.3,
+   "ma_g": 50,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 18,
+  "sharpe": -1.1053,
+  "profit_factor": 0.7183,
+  "mdd_pct": -13.959,
+  "win_rate": 0.2778,
+  "expectancy": -0.28362,
+  "total_net": -5105212.06,
+  "skew": -1.0528,
+  "kurt": 25.0175
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 76,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.3,
+   "ma_g": 50,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 18,
+  "sharpe": -1.1053,
+  "profit_factor": 0.7183,
+  "mdd_pct": -13.959,
+  "win_rate": 0.2778,
+  "expectancy": -0.28362,
+  "total_net": -5105212.06,
+  "skew": -1.0528,
+  "kurt": 25.0175
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 77,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.3,
+   "ma_g": 100,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 20,
+  "sharpe": -1.2874,
+  "profit_factor": 0.5737,
+  "mdd_pct": -17.169,
+  "win_rate": 0.25,
+  "expectancy": -0.46598,
+  "total_net": -9319597.42,
+  "skew": -1.1149,
+  "kurt": 23.1243
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 78,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.3,
+   "ma_g": 100,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 20,
+  "sharpe": -1.2874,
+  "profit_factor": 0.5737,
+  "mdd_pct": -17.169,
+  "win_rate": 0.25,
+  "expectancy": -0.46598,
+  "total_net": -9319597.42,
+  "skew": -1.1149,
+  "kurt": 23.1243
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 79,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.5,
+   "ma_g": 20,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 11,
+  "sharpe": -1.7595,
+  "profit_factor": 0.5708,
+  "mdd_pct": -12.397,
+  "win_rate": 0.3636,
+  "expectancy": -0.53966,
+  "total_net": -5936314.87,
+  "skew": -1.747,
+  "kurt": 48.2881
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 80,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.5,
+   "ma_g": 20,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 11,
+  "sharpe": -1.7595,
+  "profit_factor": 0.5708,
+  "mdd_pct": -12.397,
+  "win_rate": 0.3636,
+  "expectancy": -0.53966,
+  "total_net": -5936314.87,
+  "skew": -1.747,
+  "kurt": 48.2881
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 81,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.5,
+   "ma_g": 50,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 11,
+  "sharpe": -1.4033,
+  "profit_factor": 0.8202,
+  "mdd_pct": -10.419,
+  "win_rate": 0.3636,
+  "expectancy": -0.19442,
+  "total_net": -2138635.9,
+  "skew": -1.088,
+  "kurt": 42.6378
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 82,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.5,
+   "ma_g": 50,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 11,
+  "sharpe": -1.4033,
+  "profit_factor": 0.8202,
+  "mdd_pct": -10.419,
+  "win_rate": 0.3636,
+  "expectancy": -0.19442,
+  "total_net": -2138635.9,
+  "skew": -1.088,
+  "kurt": 42.6378
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 83,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.5,
+   "ma_g": 100,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 11,
+  "sharpe": -1.4033,
+  "profit_factor": 0.8202,
+  "mdd_pct": -10.419,
+  "win_rate": 0.3636,
+  "expectancy": -0.19442,
+  "total_net": -2138635.9,
+  "skew": -1.088,
+  "kurt": 42.6378
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 84,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.5,
+   "ma_g": 100,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 11,
+  "sharpe": -1.4033,
+  "profit_factor": 0.8202,
+  "mdd_pct": -10.419,
+  "win_rate": 0.3636,
+  "expectancy": -0.19442,
+  "total_net": -2138635.9,
+  "skew": -1.088,
+  "kurt": 42.6378
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 85,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.75,
+   "ma_g": 20,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 6,
+  "sharpe": -3.3652,
+  "profit_factor": 0.0547,
+  "mdd_pct": -11.35,
+  "win_rate": 0.1667,
+  "expectancy": -1.63632,
+  "total_net": -9817900.67,
+  "skew": -10.6914,
+  "kurt": 183.5802
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 86,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.75,
+   "ma_g": 20,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 6,
+  "sharpe": -3.3652,
+  "profit_factor": 0.0547,
+  "mdd_pct": -11.35,
+  "win_rate": 0.1667,
+  "expectancy": -1.63632,
+  "total_net": -9817900.67,
+  "skew": -10.6914,
+  "kurt": 183.5802
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 87,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.75,
+   "ma_g": 50,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 7,
+  "sharpe": -3.154,
+  "profit_factor": 0.0545,
+  "mdd_pct": -11.394,
+  "win_rate": 0.1429,
+  "expectancy": -1.40888,
+  "total_net": -9862182.41,
+  "skew": -8.8332,
+  "kurt": 143.4006
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 88,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.75,
+   "ma_g": 50,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 7,
+  "sharpe": -3.154,
+  "profit_factor": 0.0545,
+  "mdd_pct": -11.394,
+  "win_rate": 0.1429,
+  "expectancy": -1.40888,
+  "total_net": -9862182.41,
+  "skew": -8.8332,
+  "kurt": 143.4006
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 89,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.75,
+   "ma_g": 100,
+   "h_hold": 20
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 7,
+  "sharpe": -3.154,
+  "profit_factor": 0.0545,
+  "mdd_pct": -11.394,
+  "win_rate": 0.1429,
+  "expectancy": -1.40888,
+  "total_net": -9862182.41,
+  "skew": -8.8332,
+  "kurt": 143.4006
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 90,
+  "grid": "h3_gold",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "d_pp": 0.75,
+   "ma_g": 100,
+   "h_hold": 60
+  },
+  "window": [
+   "2021-01-01",
+   "2024-12-31"
+  ],
+  "n_days": 942,
+  "n_trades": 7,
+  "sharpe": -3.154,
+  "profit_factor": 0.0545,
+  "mdd_pct": -11.394,
+  "win_rate": 0.1429,
+  "expectancy": -1.40888,
+  "total_net": -9862182.41,
+  "skew": -8.8332,
+  "kurt": 143.4006
+ }
+]
