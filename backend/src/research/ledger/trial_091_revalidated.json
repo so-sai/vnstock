@@ -1,0 +1,22 @@
+{
+ "event": "trial_revalidation",
+ "trial_id": 91,
+ "engine": "portfolio_heat_capped_8pct",
+ "params": {
+  "rsi_max": 25,
+  "dry_up": 0.4,
+  "stop": 2.5,
+  "exit": "MA20"
+ },
+ "trial_counted": false,
+ "peak_heat": 0.0796,
+ "skew": 4.4481,
+ "kurt": 28.4926,
+ "n": 458,
+ "sharpe": -1.5928,
+ "profit_factor": 0.705,
+ "mdd_pct": -72.313,
+ "win_rate": 0.1921,
+ "expectancy": -0.06779,
+ "total_net": -31047061.26
+}
