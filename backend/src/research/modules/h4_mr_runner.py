@@ -227,6 +227,177 @@ def trade_moments(trades: list[dict], nav: float) -> tuple[float, float]:
     return (sum(((x - m) / sd) ** 3 for x in r) / n, sum(((x - m) / sd) ** 4 for x in r) / n)
 
 
+PORTFOLIO_HEAT_CAP = 0.08  # 8% NAV
+# heat_cap_rationale: prevent_naked_leverage_in_correlated_drawdown.
+# Cap ap dung TRUOC khi tru phi. Vuot cap => tu choi mo vi the moi
+# (khong downsize hien co, khong dong bot de mo cai moi).
+
+
+def compute_heat(open_positions: list[dict], nav: float) -> float:
+    """heat = sum(qty * stop_dist_money) / nav. stop_dist_money = qty*(fill-stop)."""
+    if nav <= 0:
+        return float("inf")
+    return sum(p["qty"] * (p["fill"] - p["stop"]) for p in open_positions) / nav
+
+
+def can_open_new(open_positions: list[dict], qty: float, stop_dist: float, nav: float) -> bool:
+    return (compute_heat(open_positions, nav) + qty * stop_dist / nav) <= PORTFOLIO_HEAT_CAP * (1 + 1e-9)
+
+
+def portfolio_simulate(
+    pres: dict[str, dict],
+    gate: dict[str, tuple[float, float]],
+    cfg: dict,
+    rsi_max: float,
+    dry_k: float,
+    stop_pct: float,
+    mode: str,
+    nav: float,
+) -> tuple[list[dict], dict[str, float]]:
+    """Mo phong portfolio-level: exits truoc, entries theo symbol sort,
+    gate heat 8% NAV. Tra ve (trades, heat_by_date)."""
+    fee = cfg["costs"]["fee_bps_side"] / 10000.0
+    tax = cfg["costs"]["tax_bps_sell"] / 10000.0
+    slip_b = cfg["costs"]["slip_base_bps"] / 10000.0
+    slip_p = cfg["costs"]["slip_per_pct_part_bps"] / 10000.0
+    gb, ga = cfg["market_gate_fixed"]["breadth_below"], cfg["market_gate_fixed"]["ad_ratio_below"]
+    max_hold = cfg["exits_fixed"]["max_hold"]
+    idx_of: dict[str, dict[str, int]] = {}
+    all_dates: set[str] = set()
+    for s, pc in pres.items():
+        idx_of[s] = {d: i for i, d in enumerate(pc["dates"])}
+        all_dates.update(pc["dates"])
+    dates = sorted(all_dates)
+    syms = sorted(pres)
+    opens: list[dict] = []
+    trades: list[dict] = []
+    heat_by_date: dict[str, float] = {}
+    equity = nav
+    for dt in dates:
+        for p in list(opens):
+            pc = pres[p["symbol"]]
+            i = idx_of[p["symbol"]].get(dt)
+            if i is None or i < 1:
+                continue
+            p["held"] += 1
+            h, lo, c = pc["high"][i], pc["low"][i], pc["close"][i]
+            s_hit = lo <= p["stop"]
+            if mode == "MA20":
+                k_hit = c >= pc["ma20"][i]
+            else:
+                k_hit = h >= p["take_rr"]
+            m_hit = p["held"] >= max_hold
+            if s_hit or k_hit or m_hit:
+                px = p["stop"] if s_hit else c
+                net = (px - p["fill"]) * p["qty"] - p["cost"] - p["qty"] * px * (fee + tax)
+                equity += net
+                trades.append(
+                    {
+                        "symbol": p["symbol"],
+                        "date_in": p["date_in"],
+                        "date_out": dt,
+                        "qty": p["qty"],
+                        "net": round(net, 2),
+                        "reason": "STOP" if s_hit else "TAKE" if k_hit else "TIME",
+                        "notional": round(p["notional"], 2),
+                    }
+                )
+                opens.remove(p)
+        g = gate.get(dt)
+        if g is None or not (g[0] < gb or g[1] < ga):
+            heat_by_date[dt] = compute_heat(opens, nav)
+            continue
+        for s in syms:
+            pc = pres[s]
+            i = idx_of[s].get(dt)
+            if i is None or i < 61 or i >= len(pc["dates"]) - 1:
+                continue
+            if any(p["symbol"] == s for p in opens):
+                continue
+            a20 = pc["adv"][i]
+            if a20 <= 0 or pc["close"][i] <= 0:
+                continue
+            if not (pc["close"][i] <= pc["bbl"][i] and pc["vol"][i] <= dry_k * a20 and pc["rsi"][i] <= rsi_max):
+                continue
+            entry = pc["open"][i + 1] or pc["close"][i]
+            if entry <= 0:
+                continue
+            sd = entry * stop_pct / 100.0
+            qty = int(equity * cfg["costs"]["risk_pct_nav"] / 100.0 / sd)
+            qty = max(0, min(qty, int(a20 * cfg["costs"]["adv_cap_pct"] / 100.0)))
+            if qty <= 0:
+                continue
+            if not can_open_new(opens, qty, sd, nav):
+                continue
+            part = qty / a20 * 100.0
+            fill = entry * (1 + slip_b + slip_p * part)
+            opens.append(
+                {
+                    "symbol": s,
+                    "qty": qty,
+                    "fill": fill,
+                    "cost": qty * entry * fee,
+                    "date_in": pc["dates"][i + 1],
+                    "stop": fill - sd,
+                    "take_rr": fill + 1.5 * sd,
+                    "held": 0,
+                    "notional": qty * fill,
+                }
+            )
+        heat_by_date[dt] = compute_heat(opens, nav)
+    return trades, heat_by_date
+
+
+def selftest_heat() -> dict:
+    """Test 1 (causal): heat tai T giong nhau giua full vs cat chuoi.
+    Test 2 (cap): 20 vi the gia dinh tong 10% NAV => phai co reject,
+    heat accepted khong vuot cap."""
+    syms = load_universe("2020-01-01", "2024-12-31")[:5]
+    bars = load_bars(syms, "2020-01-01", "2024-12-31")
+    pres = {s: precompute(bs) for s, bs in bars.items()}
+    gate = load_gate("2020-01-01", "2024-12-31")
+    cfg = {
+        "costs": {
+            "fee_bps_side": 15.0,
+            "tax_bps_sell": 10.0,
+            "slip_base_bps": 5.0,
+            "slip_per_pct_part_bps": 20.0,
+            "risk_pct_nav": 1.0,
+            "adv_cap_pct": 10.0,
+        },
+        "market_gate_fixed": {"breadth_below": -35.0, "ad_ratio_below": 0.35},
+        "exits_fixed": {"max_hold": 15},
+    }
+    _, heat_full = portfolio_simulate(pres, gate, cfg, 35, 0.6, 3.5, "MA20", 100_000_000.0)
+    cut = "2022-06-30"
+    pres_t = {
+        s: {k: (v[: sum(1 for d in pc["dates"] if d <= cut)] if isinstance(v, list) else v) for k, v in pc.items()}
+        for s, pc in pres.items()
+    }
+    gate_t = {d: v for d, v in gate.items() if d <= cut}
+    _, heat_tr = portfolio_simulate(pres_t, gate_t, cfg, 35, 0.6, 3.5, "MA20", 100_000_000.0)
+    causal_ok = all(abs(heat_full[d] - heat_tr[d]) < 1e-9 for d in heat_tr)
+    # 20 vi the gia dinh, moi vi the 0.5% NAV (tong 10%): phai reject truoc khi het,
+    # heat cua cac vi the duoc chap nhan khong vuot cap + eps float.
+    trial_opens: list[dict] = []
+    accepted = 0
+    max_heat = 0.0
+    for _ in range(20):
+        if can_open_new(trial_opens, 1000, 500.0, 100_000_000.0):
+            trial_opens.append({"qty": 1000, "fill": 10500.0, "stop": 10000.0})
+            accepted += 1
+            max_heat = max(max_heat, compute_heat(trial_opens, 100_000_000.0))
+    cap_ok = accepted < 20 and max_heat <= PORTFOLIO_HEAT_CAP + 1e-6
+    return {
+        "causal_ok": bool(causal_ok),
+        "checked_days": len(heat_tr),
+        "accepted": accepted,
+        "max_heat": round(max_heat, 6),
+        "cap_ok": bool(cap_ok),
+        "ok": bool(causal_ok and cap_ok),
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="H4 mean-reversion grid — Tier-2")
     ap.add_argument("--grid", required=True)
@@ -234,7 +405,14 @@ def main() -> int:
     ap.add_argument("--ledger", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--nav", type=float, default=100_000_000.0)
+    ap.add_argument("--selftest-heat", action="store_true")
+    ap.add_argument("--only-trial", type=int, default=None, help="Re-run 1 trial ID (bug-fix revalidation, 0 trial cost)")
+    ap.add_argument("--reval-out", default=None)
     a = ap.parse_args()
+    if a.selftest_heat:
+        r = selftest_heat()
+        print(json.dumps(r, ensure_ascii=False))
+        return 0 if r["ok"] else 1
     cfg = json.loads(Path(a.grid).read_text(encoding="utf-8"))
     if cfg["end"] >= "2025-01-01":
         print("ERROR: IS window cham OOS.", file=sys.stderr)
@@ -242,6 +420,33 @@ def main() -> int:
     combos = [
         (r, k, s, m) for r in cfg["rsi_max"] for k in cfg["dry_up_mult"] for s in cfg["stop_pct"] for m in cfg["exit_mode"]
     ]
+    if a.only_trial is not None:
+        rv, kv, sp, mo = combos[a.only_trial - 91]
+        syms = load_universe(cfg["start"], cfg["end"])
+        bars = load_bars(syms, cfg["start"], cfg["end"])
+        pres = {s: precompute(bs) for s, bs in bars.items()}
+        gate = load_gate(cfg["start"], cfg["end"])
+        trades, heat = portfolio_simulate(pres, gate, cfg, rv, kv, sp, mo, a.nav)
+        m = metrics(trades, a.nav)
+        sk, ku = trade_moments(trades, a.nav)
+        peak_heat = max(heat.values()) if heat else 0.0
+        rec = {
+            "event": "trial_revalidation",
+            "trial_id": a.only_trial,
+            "engine": "portfolio_heat_capped_8pct",
+            "params": {"rsi_max": rv, "dry_up": kv, "stop": sp, "exit": mo},
+            "trial_counted": False,
+            "peak_heat": round(peak_heat, 4),
+            "skew": round(sk, 4),
+            "kurt": round(ku, 4),
+            **m,
+        }
+        print(json.dumps(rec, ensure_ascii=False))
+        if a.reval_out:
+            p = Path(a.reval_out)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+        return 0
     if len(combos) != cfg["n_declared"]:
         print(f"ERROR: combos={len(combos)} != {cfg['n_declared']}.", file=sys.stderr)
         return 2
