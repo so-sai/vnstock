@@ -1,0 +1,34 @@
+{
+  "event": "gonogo_ablation_evaluated",
+  "date": "2026-09-14",
+  "variant": "ABLATION_NO_INTERBANK_NO_VIX",
+  "features": [
+    "US10Y_delta20",
+    "US10Y",
+    "DXY_roc20",
+    "USD_CNY_roc20",
+    "GOLD_roc20",
+    "breadth_pct",
+    "ad_ratio"
+  ],
+  "n": 1192,
+  "target_a": {
+    "n": 1192,
+    "prevalence": 0.2600671140939597,
+    "auc_real": 0.5134,
+    "auc_perm_mean": 0.4991,
+    "auc_perm_std": 0.0208,
+    "p_value": 0.26
+  },
+  "target_b": {
+    "n": 1192,
+    "prevalence": 0.35151006711409394,
+    "auc_real": 0.4641,
+    "auc_perm_mean": 0.5005,
+    "auc_perm_std": 0.0162,
+    "p_value": 0.98
+  },
+  "verdict": "NO_GO",
+  "trial_counted": false,
+  "governor_changes": 0
+}
