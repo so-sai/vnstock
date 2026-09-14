@@ -101,16 +101,51 @@ def create_markdown_report(verdict, target_date):
     return report_path
 
 
-def run_daily_closer():
-    """Quy trình đóng phiên tự động (The Dragon Shield Automation)"""
+def _check_data_freshness() -> None:
+    """Canh bao neu du lieu EOD qua han >24h (fail-safe: chi log, khong chan)."""
+    try:
+        import sqlite3
+        from datetime import datetime
+
+        db = src.config.DATA_DIR / "screener_cache.db"
+        if not db.exists():
+            print("  [WARNING] screener_cache.db khong ton tai — ket qua co the rong.")
+            return
+        con = sqlite3.connect(str(db))
+        row = con.execute("SELECT MAX(date) FROM daily_ohlcv").fetchone()
+        con.close()
+        if not row or not row[0]:
+            print("  [WARNING] daily_ohlcv rong — ket qua co the rong.")
+            return
+        age_h = (datetime.now() - datetime.strptime(row[0], "%Y-%m-%d")).total_seconds() / 3600
+        if age_h > 24:
+            print(
+                f"  [WARNING] Du lieu EOD cu: max(date)={row[0]} ({age_h:.0f}h truoc) — quyet dinh dua tren du lieu hien huu."
+            )
+        else:
+            print(f"  Du lieu EOD tuoi: max(date)={row[0]} ({age_h:.1f}h).")
+    except Exception as e:  # noqa: BLE001 - freshness check best-effort
+        print(f"  [WARNING] Khong kiem tra duoc do tuoi du lieu: {e}")
+
+
+def run_daily_closer(skip_sync: bool = False):
+    """Quy trình đóng phiên tự động (The Dragon Shield Automation).
+
+    skip_sync=True: bo qua Step 1 crawl mang, chi chay pipeline noi bo
+    (mac dinh False — giu hanh vi cu de tuong thich nguoc).
+    """
     target_date = datetime.now().strftime("%Y-%m-%d")
     print(f"\n{'=' * 60}")
     print(f"🐉 THE DRAGON SHIELD: DAILY CLOSER - {target_date}")
     # Step 0: Optimize/Init DB
     optimize_sqlite_engine()
 
-    # Step 1: Sync Data
-    run_daily_update(target_date)
+    # Step 1: Sync Data (co the bo qua khi --skip-sync)
+    if skip_sync:
+        print("[INFO] Bo qua crawl du lieu mang (--skip-sync). Chay pipeline dong nen noi bo tren du lieu hien huu.")
+        _check_data_freshness()
+    else:
+        run_daily_update(target_date)
 
     # Step 2: Run Sentinel (Model A)
     verdict = evaluate_sentinel_status()

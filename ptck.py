@@ -237,7 +237,7 @@ def cmd_daily_close(args):
     try:
         from src.daily_closer import run_daily_closer
 
-        run_daily_closer()
+        run_daily_closer(skip_sync=getattr(args, "skip_sync", False))
         print(f"  [{_ll('OK')}] {_ll('Daily closer')} hoàn tất.")
     except Exception as e:
         print(f"  [{_ll('FAIL')}] Lỗi: {e}")
@@ -5553,6 +5553,11 @@ def build_parser():
     # daily-close
     p_dc = sub.add_parser(
         "daily-close", parents=[lang_parent], help="Chạy daily closer pipeline"
+    )
+    p_dc.add_argument(
+        "--skip-sync",
+        action="store_true",
+        help="Bỏ qua crawl mạng (Step 1 run_daily_update), chỉ chạy pipeline nội bộ",
     )
     p_dc.set_defaults(func=cmd_daily_close)
 
