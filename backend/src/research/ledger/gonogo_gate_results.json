@@ -1,0 +1,35 @@
+{
+  "event": "gonogo_gate_evaluated",
+  "date": "2026-09-14",
+  "features": [
+    "US10Y_delta20",
+    "US10Y",
+    "DXY_roc20",
+    "USD_CNY_roc20",
+    "GOLD_roc20",
+    "VIX",
+    "breadth_pct",
+    "ad_ratio"
+  ],
+  "n_rows": 217,
+  "target_a_downside_dd5pct": {
+    "n": 217,
+    "prevalence": 0.31336405529953915,
+    "auc_real": 0.5831,
+    "auc_perm_mean": 0.5027,
+    "auc_perm_std": 0.0364,
+    "p_value": 0.01
+  },
+  "target_b_upside_thrust2pct": {
+    "n": 217,
+    "prevalence": 0.423963133640553,
+    "auc_real": 0.5954,
+    "auc_perm_mean": 0.5048,
+    "auc_perm_std": 0.0357,
+    "p_value": 0.01
+  },
+  "verdict": "GO_RESTRICTED",
+  "verdict_detail": "AUC(A)=0.5831 >= 0.58, p=0.0100 < 0.05. Macro useful for risk-sentinel (downside only). No buy signal capability.",
+  "trial_counted": false,
+  "governor_changes": 0
+}
