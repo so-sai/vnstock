@@ -1,0 +1,602 @@
+[
+ {
+  "event": "grid_trial",
+  "trial_id": 91,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 25,
+   "dry_up": 0.4,
+   "stop": 2.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 6.5237,
+  "kurt": 51.2956,
+  "n": 469,
+  "sharpe": -0.4838,
+  "profit_factor": 0.8845,
+  "mdd_pct": -38.36,
+  "win_rate": 0.1855,
+  "expectancy": -0.04376,
+  "total_net": -20523772.77
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 92,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 25,
+   "dry_up": 0.4,
+   "stop": 2.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 3.4233,
+  "kurt": 18.745,
+  "n": 446,
+  "sharpe": -1.4161,
+  "profit_factor": 0.75,
+  "mdd_pct": -45.93,
+  "win_rate": 0.2668,
+  "expectancy": -0.08582,
+  "total_net": -38274251.46
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 93,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 25,
+   "dry_up": 0.4,
+   "stop": 3.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 5.713,
+  "kurt": 42.7264,
+  "n": 468,
+  "sharpe": -1.1574,
+  "profit_factor": 0.7432,
+  "mdd_pct": -52.236,
+  "win_rate": 0.2051,
+  "expectancy": -0.09483,
+  "total_net": -44380834.72
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 94,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 25,
+   "dry_up": 0.4,
+   "stop": 3.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 2.4979,
+  "kurt": 12.4357,
+  "n": 445,
+  "sharpe": -2.1469,
+  "profit_factor": 0.6651,
+  "mdd_pct": -52.104,
+  "win_rate": 0.2674,
+  "expectancy": -0.11145,
+  "total_net": -49594897.31
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 95,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 25,
+   "dry_up": 0.6,
+   "stop": 2.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 5.7206,
+  "kurt": 39.7281,
+  "n": 692,
+  "sharpe": -0.9137,
+  "profit_factor": 0.7866,
+  "mdd_pct": -80.759,
+  "win_rate": 0.1618,
+  "expectancy": -0.10958,
+  "total_net": -75828219.89
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 96,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 25,
+   "dry_up": 0.6,
+   "stop": 2.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 2.9882,
+  "kurt": 14.5563,
+  "n": 672,
+  "sharpe": -2.2013,
+  "profit_factor": 0.6574,
+  "mdd_pct": -103.654,
+  "win_rate": 0.2396,
+  "expectancy": -0.15401,
+  "total_net": -103495030.55
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 97,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 25,
+   "dry_up": 0.6,
+   "stop": 3.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 4.8753,
+  "kurt": 30.7946,
+  "n": 687,
+  "sharpe": -1.605,
+  "profit_factor": 0.6861,
+  "mdd_pct": -107.214,
+  "win_rate": 0.1878,
+  "expectancy": -0.15735,
+  "total_net": -108101258.1
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 98,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 25,
+   "dry_up": 0.6,
+   "stop": 3.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 2.1805,
+  "kurt": 9.5334,
+  "n": 666,
+  "sharpe": -3.2188,
+  "profit_factor": 0.5711,
+  "mdd_pct": -127.787,
+  "win_rate": 0.2538,
+  "expectancy": -0.19153,
+  "total_net": -127561465.6
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 99,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 30,
+   "dry_up": 0.4,
+   "stop": 2.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 7.0352,
+  "kurt": 63.7166,
+  "n": 736,
+  "sharpe": -1.171,
+  "profit_factor": 0.7118,
+  "mdd_pct": -83.584,
+  "win_rate": 0.1698,
+  "expectancy": -0.10934,
+  "total_net": -80473230.78
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 100,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 30,
+   "dry_up": 0.4,
+   "stop": 2.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 3.4277,
+  "kurt": 20.5732,
+  "n": 712,
+  "sharpe": -2.2581,
+  "profit_factor": 0.626,
+  "mdd_pct": -99.091,
+  "win_rate": 0.257,
+  "expectancy": -0.12925,
+  "total_net": -92027689.66
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 101,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 30,
+   "dry_up": 0.4,
+   "stop": 3.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 5.7908,
+  "kurt": 47.7087,
+  "n": 732,
+  "sharpe": -1.9844,
+  "profit_factor": 0.6056,
+  "mdd_pct": -109.651,
+  "win_rate": 0.1913,
+  "expectancy": -0.15052,
+  "total_net": -110181738.22
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 102,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 30,
+   "dry_up": 0.4,
+   "stop": 3.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 2.3907,
+  "kurt": 12.5484,
+  "n": 709,
+  "sharpe": -3.2004,
+  "profit_factor": 0.5441,
+  "mdd_pct": -113.897,
+  "win_rate": 0.2567,
+  "expectancy": -0.15914,
+  "total_net": -112832567.91
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 103,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 30,
+   "dry_up": 0.6,
+   "stop": 2.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 6.0208,
+  "kurt": 47.3142,
+  "n": 1203,
+  "sharpe": -2.1033,
+  "profit_factor": 0.5843,
+  "mdd_pct": -275.095,
+  "win_rate": 0.1405,
+  "expectancy": -0.22867,
+  "total_net": -275094920.48
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 104,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 30,
+   "dry_up": 0.6,
+   "stop": 2.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 2.7849,
+  "kurt": 13.9005,
+  "n": 1188,
+  "sharpe": -3.2511,
+  "profit_factor": 0.5528,
+  "mdd_pct": -257.643,
+  "win_rate": 0.2323,
+  "expectancy": -0.21687,
+  "total_net": -257638334.23
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 105,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 30,
+   "dry_up": 0.6,
+   "stop": 3.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 4.9073,
+  "kurt": 34.0066,
+  "n": 1193,
+  "sharpe": -2.9001,
+  "profit_factor": 0.5279,
+  "mdd_pct": -303.105,
+  "win_rate": 0.1702,
+  "expectancy": -0.25407,
+  "total_net": -303105230.07
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 106,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 30,
+   "dry_up": 0.6,
+   "stop": 3.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 1.9482,
+  "kurt": 8.3932,
+  "n": 1180,
+  "sharpe": -4.0821,
+  "profit_factor": 0.5082,
+  "mdd_pct": -277.473,
+  "win_rate": 0.2517,
+  "expectancy": -0.23506,
+  "total_net": -277369468.51
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 107,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 35,
+   "dry_up": 0.4,
+   "stop": 2.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 6.8364,
+  "kurt": 63.6883,
+  "n": 1218,
+  "sharpe": -1.4596,
+  "profit_factor": 0.6715,
+  "mdd_pct": -146.75,
+  "win_rate": 0.1724,
+  "expectancy": -0.12699,
+  "total_net": -154668526.29
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 108,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 35,
+   "dry_up": 0.4,
+   "stop": 2.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 3.2847,
+  "kurt": 19.7749,
+  "n": 1190,
+  "sharpe": -2.5922,
+  "profit_factor": 0.5938,
+  "mdd_pct": -166.41,
+  "win_rate": 0.2479,
+  "expectancy": -0.14326,
+  "total_net": -170481332.8
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 109,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 35,
+   "dry_up": 0.4,
+   "stop": 3.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 5.4808,
+  "kurt": 46.0348,
+  "n": 1213,
+  "sharpe": -2.413,
+  "profit_factor": 0.5675,
+  "mdd_pct": -202.042,
+  "win_rate": 0.1979,
+  "expectancy": -0.17098,
+  "total_net": -207397733.02
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 110,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 35,
+   "dry_up": 0.4,
+   "stop": 3.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 2.1986,
+  "kurt": 11.3319,
+  "n": 1186,
+  "sharpe": -3.4934,
+  "profit_factor": 0.5299,
+  "mdd_pct": -199.819,
+  "win_rate": 0.2605,
+  "expectancy": -0.1705,
+  "total_net": -202211794.69
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 111,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 35,
+   "dry_up": 0.6,
+   "stop": 2.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 5.7823,
+  "kurt": 46.4035,
+  "n": 2043,
+  "sharpe": -2.4338,
+  "profit_factor": 0.5583,
+  "mdd_pct": -480.743,
+  "win_rate": 0.1488,
+  "expectancy": -0.24159,
+  "total_net": -493576140.87
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 112,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 35,
+   "dry_up": 0.6,
+   "stop": 2.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 2.9154,
+  "kurt": 16.9172,
+  "n": 2028,
+  "sharpe": -3.3075,
+  "profit_factor": 0.5518,
+  "mdd_pct": -434.451,
+  "win_rate": 0.2337,
+  "expectancy": -0.21578,
+  "total_net": -437604859.6
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 113,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 35,
+   "dry_up": 0.6,
+   "stop": 3.5,
+   "exit": "MA20"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 4.615,
+  "kurt": 32.4907,
+  "n": 2028,
+  "sharpe": -3.2577,
+  "profit_factor": 0.5102,
+  "mdd_pct": -523.39,
+  "win_rate": 0.1834,
+  "expectancy": -0.26198,
+  "total_net": -531298150.73
+ },
+ {
+  "event": "grid_trial",
+  "trial_id": 114,
+  "grid": "h4_meanreversion",
+  "data_scope": "OHLCV_only",
+  "params": {
+   "rsi_max": 35,
+   "dry_up": 0.6,
+   "stop": 3.5,
+   "exit": "RR1.5"
+  },
+  "window": [
+   "2020-01-01",
+   "2024-12-31"
+  ],
+  "skew": 1.9723,
+  "kurt": 9.4346,
+  "n": 2014,
+  "sharpe": -3.9552,
+  "profit_factor": 0.5256,
+  "mdd_pct": -455.456,
+  "win_rate": 0.2587,
+  "expectancy": -0.22609,
+  "total_net": -455352976.83
+ }
+]
