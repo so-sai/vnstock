@@ -1,0 +1,92 @@
+{
+ "window": [
+  "2021-04-01",
+  "2024-12-31"
+ ],
+ "n": 889,
+ "q5_japan": "UNTESTABLE (no JGB/JPY; $62B headline NOT imported)",
+ "q1_ic_gold_given_m": {
+  "5": {
+   "n": 885,
+   "r2_m": 0.0007,
+   "r2_m_gold": 0.0173
+  },
+  "20": {
+   "n": 870,
+   "r2_m": 0.0012,
+   "r2_m_gold": 0.0167
+  },
+  "60": {
+   "n": 831,
+   "r2_m": 0.0105,
+   "r2_m_gold": 0.0311
+  }
+ },
+ "q4_cny_beyond_gold": {
+  "5": {
+   "r2_m_gold_cny": 0.0461
+  },
+  "20": {
+   "r2_m_gold_cny": 0.0504
+  },
+  "60": {
+   "r2_m_gold_cny": 0.0562
+  }
+ },
+ "q3_subsample_2023_25": {
+  "G+V+": {
+   "n": 177,
+   "mean_fwd20": -0.0059,
+   "hit_rate": 0.401
+  },
+  "G+V-": {
+   "n": 128,
+   "mean_fwd20": 0.01255,
+   "hit_rate": 0.664
+  },
+  "G-V+": {
+   "n": 78,
+   "mean_fwd20": 0.03465,
+   "hit_rate": 0.808
+  },
+  "G-V-": {
+   "n": 81,
+   "mean_fwd20": -0.00234,
+   "hit_rate": 0.543
+  }
+ },
+ "q6_joint": {
+  "G+V+": {
+   "n": 298,
+   "mean_fwd20": -0.00114,
+   "hit": 0.45
+  },
+  "G+V-": {
+   "n": 224,
+   "mean_fwd20": 0.01083,
+   "hit": 0.629
+  },
+  "G-V+": {
+   "n": 156,
+   "mean_fwd20": 0.00621,
+   "hit": 0.615
+  },
+  "G-V-": {
+   "n": 192,
+   "mean_fwd20": -0.01684,
+   "hit": 0.464
+  },
+  "persistence": 0.794,
+  "freq": {
+   "G+V+": 0.345,
+   "G+V-": 0.252,
+   "G-V+": 0.186,
+   "G-V-": 0.217
+  }
+ },
+ "q2_transitions": {
+  "status_flips": 124,
+  "median_gold20d_before_flip": 0.01425,
+  "median_gold20d_all": 0.00818
+ }
+}
