@@ -2,3 +2,4 @@
 {"event": "parser_created", "module": "backend/src/ingestion/parsers/sbv_fx_parser.py", "track": 3, "fixes": "6/6 applied (source_url, bounds 22k-30k, PK document_id, tier-downgrade, audit_status, sha-verify)"}
 {"event": "dom_sha_verified", "file": "sbv_fx_20260914.html", "note": "probe body_hash bc92686a != file_sha 328fc26a (different artifacts); file sha locked in parser"}
 {"event": "parser_verified", "track": "track3_sbv_fx", "smoke": {"central_rate": 25607.0, "sbv_bid_rate": 24377.0, "sbv_ask_rate": 26837.0, "document_id": "379/TB-NHNN", "tier": "live", "audit": "PENDING"}, "bugs_fixed_during_smoke": ["cell-separator regex", "VN thousands-dot in _num"]}
+{"event": "goal_redefined", "date": "2026-09-14", "target": {"net_return": ">VNINDEX+8pct_annualized", "mdd": "<15pct", "max_trades_per_year": 25}, "rationale": "friction_0.4pct_round_trip_excludes_20trade_variant", "prior": "114_trials_4_fails_technical_price_only_dead", "path": "Missing_Quad_only"}
