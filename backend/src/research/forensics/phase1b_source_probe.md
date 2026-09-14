@@ -42,3 +42,22 @@ This is the first VERIFIED page with auction-content presence for Track 4
   report per approved split. Repo audit shows no existing SBV OMO/FX parser
   to reuse, so 1b-ii probe is justified whenever operator orders it.
 - Backfill tiers (live/forward/backfill) LOCKED per operator approval.
+
+## Phase 1b-ii results (2026-09-14, probe_helper exclusively)
+
+SBV homepage renders (tier live, server_time present) but thin: 6085 chars,
+0 tables — nav links only. Nav mining found 4 distinct targets, NO OMO
+section link anywhere in 250 homepage links.
+
+**SBV.1 Track 3 (Tỷ giá) → PASS (candidate CONFIRMED).**
+`sbv.gov.vn/tỷ-giá` renders 3 DOM tables: central rate 1 USD = 25,607 VND
+(doc 379/TB-NHNN, issued 14/09/2026 — same-day fresh); Sở GD reference
+(USD Mua 24,377 / Bán 26,837 + 6 currencies); 28-row cross-rate table.
+Tier live. intervention_type: NONE baseline derivable; SPOT/FORWARD only
+from separate announcements (not on this page) — documented, not assumed.
+
+**SBV.2 Track 2 (OMO) → FAIL this session.**
+`dttktt.sbv.gov.vn/` root: connection timeout (23.6s). Deep paths
+(lsttlnh etc. used by interbank_seeder) NOT tested — out of time-box.
+No OMO auction table located. Do NOT chase without new budget; OMO stays
+proxy-only until a reachable source is proven.
