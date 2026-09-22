@@ -125,6 +125,19 @@ additions.
 - **Breadth engine:** Active (ALL_EXCHANGES_UNWEIGHTED)
 - **Track 3:** Parser promoted to main. Staging DB local, not in repo.
 
+> **Errata / clarification (2026-09-22 — additive, original record above untouched):**
+> - "Cash 100%, no positions" = **live** book. A legacy **paper** book
+>   `SEL_PAPER_V1` (5 lots opened 2026-07-06: FPT/HPG/TCB/VCB/VNM, ~992.9M
+>   notional) exists independently; 0 lots opened after the 2026-09-17 lock.
+> - CA hygiene 2026-09-22: FPT STOCK_DIV 10:1 ex 2026-09-21 VERIFIED_G5
+>   (lot 2700→2970, capital conserved to the dong); VCB CASH_DIV 450d
+>   ex 2026-07-23 VERIFIED_G5 (cb −450, +1.44M dividend pending);
+>   HPG/TCB/VNM no events in holding window.
+>   Evidence: `backend/src/ingestion/ledger/ingestion-ledger.jsonl`.
+> - Known data-quality flag (no rewrite per freeze): VCB 2026-07-22 stored bar
+>   (C=55600, vol 3.2M) vs VCI 54.05 + KBS-live 54.10 (vol ~9.2M) —
+>   suspect stale intraday snapshot labeled EOD.
+
 ## 7. FTSE Russell review — 18/09/2026
 
 Natural experiment, not a model input. System will observe:
