@@ -93,6 +93,11 @@ outside a narrow window — not that the model is wrong.
 | Go/No-Go gate | `backend/src/research/modules/run_gonogo_gate.py` (archived branch) | Evidence |
 | Prior: strong negative | Throughout repo | Scientific asset |
 
+> **Known limitation (2026-09-22, infrastructure note — not a reopen):**
+> Corporate Action pipeline: `adjust_reference_price()` exists in code but is orphaned;
+> `paper_corporate_actions` = 0 rows; `adj_close = close` mirror across entire database.
+> Known infrastructure gap, strictly frozen and not reopened without conditions (a)(b)(c).
+
 ## 5. Reopen conditions
 
 R&D may ONLY be reopened when ALL of the following hold:
