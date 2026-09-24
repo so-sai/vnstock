@@ -375,6 +375,7 @@ BASELINE_MAP: dict[str, str] = {
     "BCM": "REAL_ESTATE_DEVELOPER",  # Becamex IDC — KCN/industrial park developer
     "VRE": "REIT_COMMERCIAL",  # Vincom Retail — ~95.5% revenue từ cho thuê TTTM, KHÔNG phải developer (override ICB BĐS)
     "MWG": "RETAIL_PLATFORM",
+    "PNJ": "RETAIL_PLATFORM",  # jewelry retail — SSS/inventory/gold price; NOT IT compounder
     "GAS": "REGULATED_UTILITY",
     # ── Satellite Universe (10 mã chờ, thêm 2026-07-30) ──
     "TCB": "FRANCHISE_BANK",  # Techcombank — CASA ~40%, premier franchise

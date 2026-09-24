@@ -1234,7 +1234,7 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         # Step 5: Governor Decision Matrix (EOD update)
         try:
             logger.info("🧠 Governor Decision Matrix — Đang cập nhật...")
-            target_symbols = ["HPG", "VHM", "DGC", "MWG", "GAS", "FPT", "ACB", "HDB", "MBB", "VCB"]
+            target_symbols = ["HPG", "VHM", "DGC", "MWG", "GAS", "FPT", "ACB", "HDB", "MBB", "VCB", "PNJ"]
 
             # L4: Rescan volume profile + active demand
             from src.financial.market_behavior_engine import MarketBehaviorEngine

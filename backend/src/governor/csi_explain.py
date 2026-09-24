@@ -14,7 +14,7 @@ behind a company's CSI score:
        │──(lag 1-10d)──> [US10Y_YIELD=4.66%]
        │
        ▼
-    [INTEREST_RATE] → [NIM] → [VCB CSI: 0.41 ↓ (DISCOUNT -18%)] (Conf: 0.63)
+    [INTEREST_RATE] → [NIM] → [VCB CSI: 0.41 ↓ (PREMIUM -18%)] (Conf: 0.63)
 
 Three First-Principles display contracts:
   1. Causal Trace Output — DAG path with per-hop lag + confidence.
@@ -551,7 +551,8 @@ def _liquid_symbols(min_vol: float = 100_000) -> list[str]:
 def _fmt_mos(mos: float | None) -> str:
     if mos is None:
         return "MoS: N/A"
-    zone = "DISCOUNT" if mos < 0 else "PREMIUM" if mos > 0 else "FAIR"
+    # MoS = (Fair - Current) / Fair → positive = undervalued (DISCOUNT)
+    zone = "DISCOUNT" if mos > 0 else "PREMIUM" if mos < 0 else "FAIR"
     return f"MoS: {mos:+.1f}% ({zone})"
 
 

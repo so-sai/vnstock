@@ -365,7 +365,6 @@ class ValuationEngine:
         ratio_names = ["PE", "PB", "PS", "EV_EBITDA", "ROE"]
         conn = self.connect()
         results = []
-        latest_price = None
 
         for rname in ratio_names:
             # Collect all values across periods (sorted ascending)
@@ -415,9 +414,6 @@ class ValuationEngine:
                 pct = self._percentile(window, val)
                 zone = self._classify_zone(rname, z)
                 price = all_period_ratios[period].get("_price")
-                if price:
-                    latest_price = price
-
                 # TS z-score tại period này (strictly-past window, PIT-safe)
                 ts_mean, ts_std, ts_n = ts_stats.get(period, (None, None, None))
                 if ts_mean is not None and ts_std is not None:
@@ -481,7 +477,17 @@ class ValuationEngine:
             return {"status": "NO_VALUATION_RESULTS", "symbol": symbol.upper()}
 
         # Summary: latest period zones
+        # WHY: latest_price phải theo latest_period — trước đây gán trong vòng lặp ratio
+        # (PE→PB→…→ROE) nên ratio cuối thiếu kỳ mới (VD ROE 2026Q1 khi PB có 2026Q2)
+        # overwrite giá kỳ cũ vào summary → latest_period=2026Q2 nhưng price=Q1-end.
         latest_period = sorted(results, key=lambda r: r["period"])[-1]["period"]
+        latest_price = all_period_ratios.get(latest_period, {}).get("_price")
+        if not latest_price:
+            for period in sorted(all_period_ratios.keys(), reverse=True):
+                p = all_period_ratios[period].get("_price")
+                if p:
+                    latest_price = p
+                    break
         latest_ratios = [r for r in results if r["period"] == latest_period]
         zones = {r["ratio"]: r["zone"] for r in latest_ratios}
         has_ultra_cheap = any(z == "ULTRA_CHEAP" for z in zones.values())

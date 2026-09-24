@@ -36,10 +36,31 @@ class TestICBSectorConstraint:
         assert engine.classify("VHM").archetype == "REAL_ESTATE_DEVELOPER"
 
     def test_non_real_estate_unchanged(self, engine):
-        """Non-BĐS symbols KHÔNG bị đổi archetype."""
+        """Non-BĐS symbols KHÔNG được đổi archetype."""
         assert engine.classify("MWG").archetype == "RETAIL_PLATFORM"
         assert engine.classify("FPT").archetype == "COMPOUNDER"
         assert engine.classify("SSI").archetype == "RETAIL_PLATFORM"
+
+    def test_pnj_baseline_retail_not_compounder(self):
+        """PNJ jewelry → RETAIL_PLATFORM (BASELINE), không rơi ratio→COMPOUNDER (D2)."""
+        from src.business.archetype import ArchetypeEngine
+
+        eng = ArchetypeEngine()
+        try:
+            assert eng.classify("PNJ").archetype == "RETAIL_PLATFORM"
+            assert "IT Outsource" not in eng.classify("PNJ").primary_driver
+            assert "AI_CAPEX" not in eng.classify("PNJ").macro_sensitivities
+        finally:
+            eng.close()
+
+    def test_hpg_baseline_cyclical(self):
+        from src.business.archetype import ArchetypeEngine
+
+        eng = ArchetypeEngine()
+        try:
+            assert eng.classify("HPG").archetype == "CYCLICAL_HEAVY"
+        finally:
+            eng.close()
 
     def test_banks_still_franchise_or_asset(self, engine):
         """Ngân hàng vẫn ra nhánh bank (không bị REAL_ESTATE_DEVELOPER chặn)."""
