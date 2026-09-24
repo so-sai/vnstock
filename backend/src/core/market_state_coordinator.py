@@ -47,6 +47,9 @@ def _hydrate_path():
     backend_dir = root_path / "backend"
     if backend_dir.is_dir() and str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
+    src_dir = backend_dir / "src"
+    if src_dir.is_dir() and str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
     return root_path
 
 

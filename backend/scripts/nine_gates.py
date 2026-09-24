@@ -88,17 +88,21 @@ def gate4_confidence() -> tuple[bool, str]:
             return (score >= 30.0, f"confidence.json={score} ts={ts or 'n/a'}")
         except Exception as e:
             return (False, f"confidence.json error: {e}")
-    # market_state.meta_state.confidence only if same-day; else NO_DATA
+    # market_state.meta_state.confidence only if same-day; else try danh_gia_tin_cay
     ms = _load_json("market_state.json")
     ts = str(ms.get("timestamp", ""))[:10]
     today = datetime.now().strftime("%Y-%m-%d")
-    if ts != today:
-        return (False, f"confidence NO_DATA (market_state ts={ts or 'MISSING'} != {today}) — run: python ptck.py confidence")
-    meta = (ms.get("meta_state") or {}).get("confidence")
-    if meta is None:
-        return (False, "confidence: NO_DATA")
-    score = float(meta) * 100 if float(meta) <= 1.5 else float(meta)
-    return (score >= 30.0, f"meta_state.confidence={score:.1f}%")
+    if ts == today:
+        meta = (ms.get("meta_state") or {}).get("confidence")
+        if meta is not None:
+            score = float(meta) * 100 if float(meta) <= 1.5 else float(meta)
+            return (score >= 30.0, f"meta_state.confidence={score:.1f}%")
+    cg = _load_json("output/danh_gia_tin_cay.json")
+    cg_day = str(cg.get("ngày", cg.get("date", "")))[:10]
+    if cg and cg_day == today and cg.get("điểm_tin_cậy") is not None:
+        score = float(cg["điểm_tin_cậy"]) * 100
+        return (score >= 30.0, f"danh_gia_tin_cay={score:.1f}% ts={cg_day}")
+    return (False, f"confidence NO_DATA (market_state ts={ts or 'MISSING'} != {today}) — run: python ptck.py confidence")
 
 
 def gate5_macro_fresh() -> tuple[bool, str]:
@@ -262,6 +266,19 @@ def main() -> int:
     print("-" * 72)
     print(f"  RESULT: {n_pass}/9 PASS  ->  {'UNLOCK CANDIDATE' if n_pass == 9 else 'KEEP 100% CASH / ENTRY LOCKED'}")
     print("=" * 72)
+    # Paper watch bid freeze (evidence from close vs hard levels)
+    pw = _load_json("paper_watch_state.json")
+    if pw:
+        print("  PAPER WATCH BIDS:")
+        for b in pw.get("bids", []):
+            print(
+                f"    {b.get('symbol')}: {b.get('status')} "
+                f"(close={b.get('last_close')}, hard={b.get('hard_drop_below')}) "
+                f"{b.get('reason') or ''}"
+            )
+        print(f"    as_of={pw.get('as_of')} entry_lock={pw.get('entry_lock')} cash={pw.get('cash_pct')}%")
+    else:
+        print("  PAPER WATCH BIDS: NO_DATA (run freeze_from_eod)")
     # hard invariants (paper)
     print("  INVARIANT (hard):")
     print("    PNJ break 35,275  -> drop from watch bid")

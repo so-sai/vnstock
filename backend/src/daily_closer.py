@@ -49,15 +49,24 @@ def create_markdown_report(verdict, target_date):
         if "decision" in verdict:
             d = verdict["decision"]
             f.write("## 🏛️ PHÁN QUYẾT BỘ CHỈ HUY (THE BOARDROOM)\n\n")
-            f.write(f"- **TRẠNG THÁI THỊ TRƯỜNG:** `{d['market_status']}` (Score: {d['regime_score']})\n")
-            f.write(f"- **MÔ HÌNH ƯU TIÊN:** `{d['active_model']}`\n")
-            f.write(f"- **PHÁN QUYẾT CUỐI CÙNG:** **{d['consensus']}**\n")
-            f.write(f"- **ĐỘ TIN CẬY (CONFIDENCE):** `{d['confidence'] * 100}%`\n\n")
+            f.write(
+                f"- **TRẠNG THÁI THỊ TRƯỜNG:** `{d.get('market_status', 'N/A')}` (Score: {d.get('regime_score', 'N/A')})\n"
+            )
+            f.write(f"- **MÔ HÌNH ƯU TIÊN:** `{d.get('active_model', 'N/A')}`\n")
+            f.write(f"- **PHÁN QUYẾT CUỐI CÙNG:** **{d.get('consensus', 'N/A')}**\n")
+            conf = d.get("confidence", 0)
+            try:
+                conf_txt = f"{float(conf) * 100}%"
+            except TypeError, ValueError:
+                conf_txt = str(conf)
+            f.write(f"- **ĐỘ TIN CẬY (CONFIDENCE):** `{conf_txt}`\n\n")
 
-            if d["model_b"]["top_picks"]:
+            if d.get("model_b", {}).get("top_picks"):
                 f.write("### 🎯 Danh sách Quan tâm (Mean Reversion Selection)\n")
                 for pick in d["model_b"]["top_picks"]:
-                    f.write(f"- {pick['symbol']} (Z-Score: {pick['z_score']}, RSI: {pick['rsi']})\n")
+                    z = pick.get("z_score", pick.get("distance_from_ma50", "N/A"))
+                    rsi = pick.get("rsi", "N/A")
+                    f.write(f"- {pick.get('symbol', '?')} (Z-Score: {z}, RSI: {rsi})\n")
                 f.write("\n")
 
         # Section 2: Decision Trajectory (Lighthouse)
@@ -72,27 +81,39 @@ def create_markdown_report(verdict, target_date):
 
         # Section 3: Ignition Switch (Recovery)
         if "decision" in verdict:
-            rec = verdict["decision"]["recovery"]
+            rec = verdict["decision"].get("recovery") or {}
+            details = rec.get("details") or {}
             f.write("## 🚀 BỘ ĐÁNH LỬA (IGNITION SWITCH)\n\n")
-            f.write(f"- **TRẠNG THÁI PHỤC HỒI:** `{rec['status']}`\n")
-            f.write(f"- **GIA TỐC ĐỘ RỘNG (5D):** `{rec['details']['velocity_5d']:+.1f}%` (Ngưỡng: +15%)\n")
-            f.write(f"- **XÁC NHẬN MA10:** `{'YES' if rec['ma10_reclaim'] else 'NO'}`\n\n")
+            vel = details.get("velocity_5d", 0.0)
+            try:
+                vel_txt = f"{float(vel):+.1f}%"
+            except TypeError, ValueError:
+                vel_txt = str(vel)
+            f.write(f"- **TRẠNG THÁI PHỤC HỒI:** `{rec.get('status', 'N/A')}`\n")
+            f.write(f"- **GIA TỐC ĐỘ RỘNG (5D):** `{vel_txt}` (Ngưỡng: +15%)\n")
+            f.write(f"- **XÁC NHẬN MA10:** `{'YES' if rec.get('ma10_reclaim') else 'NO'}`\n\n")
 
         # Section 4: Sentinel Details
         f.write("## 🔍 Chi tiết Trạng thái Sentinel (Model A)\n\n")
+        l1 = verdict.get("layer1_mom_expansion") or {}
+        l2 = verdict.get("layer2_nh10_consistency") or {}
+        l3 = verdict.get("layer3_foreign_absorption") or {}
         f.write(
-            f"- **Momentum Expansion (Lớp 1):** {verdict['layer1_mom_expansion']['status']} ({verdict['layer1_mom_expansion']['value']}/{verdict['layer1_mom_expansion']['threshold']})\n"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
+            f"- **Momentum Expansion (Lớp 1):** {l1.get('status', 'N/A')} ({l1.get('value', 'N/A')}/{l1.get('threshold', 'N/A')})\n"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
         f.write(
-            f"- **NH10 Consistency (Lớp 2):** {verdict['layer2_nh10_consistency']['status']} ({verdict['layer2_nh10_consistency']['value']}/{verdict['layer2_nh10_consistency']['threshold']} ngày)\n"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
+            f"- **NH10 Consistency (Lớp 2):** {l2.get('status', 'N/A')} ({l2.get('value', 'N/A')}/{l2.get('threshold', 'N/A')} ngày)\n"  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
         )
-        f.write(f"- **Foreign Absorption (Lớp 3):** {verdict['layer3_foreign_absorption']['status']}\n\n")
+        f.write(f"- **Foreign Absorption (Lớp 3):** {l3.get('status', 'N/A')}\n\n")
 
         # Section 5: Cognitive journal (Vietnamese, from vi_localizer)
         if "decision" in verdict:
             f.write("## 🧠 NHẬT KÝ NHẬN THỨC HỆ THỐNG\n\n")
             f.write("```\n")
-            f.write(render_cognitive_journal(verdict["decision"]))
+            try:
+                f.write(render_cognitive_journal(verdict["decision"]))
+            except (KeyError, TypeError, ValueError, AttributeError, ZeroDivisionError) as e:
+                f.write(f"(cognitive journal unavailable: {e})")
             f.write("\n```\n\n")
 
         f.write("---\n")
@@ -181,6 +202,18 @@ def run_daily_closer(skip_sync: bool = False):
     except Exception as e:  # noqa: BLE001 - batch isolation: 1 step EOD lỗi không dừng pipeline chính
         print(f"⚠️  Telemetry snapshot skipped: {e}")
 
+    # Step 4.1: Refresh market_state + G4/G7 artifacts (non-blocking)
+    try:
+        _export_g4_g7_artifacts(decision, target_date)
+    except Exception as e:  # noqa: BLE001 - batch isolation
+        print(f"⚠️  G4/G7 artifacts skipped: {e}")
+    try:
+        from src.core.market_state_coordinator import run_coordinator
+
+        run_coordinator()
+    except Exception as e:  # noqa: BLE001 - batch isolation
+        print(f"⚠️  market_state coordinator skipped: {e}")
+
     # Step 5: Generate Report
     if verdict:
         report_file = create_markdown_report(verdict, target_date)
@@ -208,6 +241,67 @@ def run_daily_closer(skip_sync: bool = False):
     print(f"\n{'=' * 60}")
     print("🏁 CLOSER COMPLETE. SENTINEL STANDING BY.")
     print(f"{'=' * 60}")
+
+
+def _export_g4_g7_artifacts(board: dict, target_date: str) -> None:
+    """Persist same-day confidence (G4) + governor target alloc (G7) for nine_gates."""
+    import json
+
+    conf_score = float(board.get("confidence", 0.0)) * 100.0
+    try:
+        cg_path = Path(str(src.config.DATA_DIR)) / "output" / "danh_gia_tin_cay.json"
+        if cg_path.exists():
+            cg = json.loads(cg_path.read_text(encoding="utf-8"))
+            if str(cg.get("ngày", "")) == target_date and cg.get("điểm_tin_cậy") is not None:
+                conf_score = float(cg["điểm_tin_cậy"]) * 100.0
+    except OSError, ValueError, TypeError, KeyError:
+        pass
+
+    conf_path = Path(str(src.config.DATA_DIR)) / "confidence.json"
+    conf_path.write_text(
+        json.dumps(
+            {
+                "date": target_date,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "score": round(conf_score, 2),
+                "confidence": round(conf_score, 2),
+                "source": "daily_closer",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    # Standing paper/live stance: ENTRY_LOCK + cash until 9/9 gates PASS.
+    final_alloc = 0.0
+    try:
+        fd_path = Path(str(src.config.DATA_DIR)) / "output" / "final_decision.json"
+        if fd_path.exists():
+            fd = json.loads(fd_path.read_text(encoding="utf-8"))
+            if str(fd.get("ngay", "")) == target_date:
+                final_alloc = float(fd.get("he_so_giam_ty_trong") or 0.0)
+    except OSError, ValueError, TypeError, KeyError:
+        final_alloc = 0.0
+
+    gov_path = Path(str(src.config.DATA_DIR)) / "governor_decision.json"
+    gov_path.write_text(
+        json.dumps(
+            {
+                "date": target_date,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "target_allocation_pct": final_alloc,
+                "consensus": board.get("consensus", ""),
+                "entry_lock": True,
+                "cash_pct": 100.0 if final_alloc <= 0 else round(100.0 - final_alloc, 2),
+                "source": "daily_closer",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"  G4/G7 artifacts: confidence={conf_score:.1f}%; target_alloc={final_alloc}%")
 
 
 def _adapt_and_record_decision(board: dict):

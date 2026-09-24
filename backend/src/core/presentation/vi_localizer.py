@@ -528,7 +528,10 @@ def _ets_label(score: float) -> str:
     return "cao"
 
 
-def _confidence_label(confidence: float) -> str:
+def _confidence_label(confidence: float | None) -> str:
+    if confidence is None:
+        return "thấp"
+    confidence = float(confidence)
     if confidence >= 0.7:
         return "cao"
     elif confidence >= 0.4:
@@ -592,9 +595,9 @@ def localize_cognitive_snapshot(snapshot: dict) -> dict:
     cm = snapshot.get("cognitive_modulation", {})
     if cm:
         cm_vi = dict(cm)
-        cm_vi["driver_confidence_vi"] = _confidence_label(cm.get("driver_confidence", 0.5))
+        cm_vi["driver_confidence_vi"] = _confidence_label(cm.get("driver_confidence") or 0.5)
         cm_vi["drift_status_vi"] = DRIFT_STATUS_VI.get(cm.get("drift_status", "NONE"), cm.get("drift_status", "NONE"))
-        cm_vi["ets_label_vi"] = _ets_label(cm.get("ets_score", 0.5))
+        cm_vi["ets_label_vi"] = _ets_label(cm.get("ets_score") or 0.5)
         result["cognitive_modulation"] = cm_vi
 
     return result
