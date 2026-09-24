@@ -66,9 +66,31 @@ def run_breadth_analysis(target_date: str | None = None):
     df.loc[:, "ma20"] = g["close"].transform(lambda x: x.rolling(20).mean())
     df.loc[:, "daily_change_pct"] = g["close"].transform(lambda x: x.pct_change(fill_method=None))
     df.loc[:, "avg_vol_20d"] = g["volume"].transform(lambda x: x.rolling(20).mean())
+    df.loc[:, "_prev_date"] = g["date"].shift(1)
+
+    # STALE_PREV guard: prev bar ≠ T-1 HOSE → daily_change_pct = NaN (NO_DATA),
+    # advancers/decliners không đếm delta multi-session như "1D".
+    from src.database.stale_prev_guard import expected_prev_trading_day
+
+    _cur_to_expected: dict = {}
+    for _d in df["date"].dropna().unique():
+        try:
+            _cur_to_expected[_d] = expected_prev_trading_day(_d.date() if hasattr(_d, "date") else _d)
+        except ValueError, TypeError:
+            continue
+    if _cur_to_expected:
+        df.loc[:, "_expected_prev"] = df["date"].map(_cur_to_expected)
+        _has_prev = df["_prev_date"].notna()
+        _prev_as_date = df["_prev_date"].map(lambda x: x.date() if hasattr(x, "date") else x)
+        _stale = _has_prev & (_prev_as_date != df["_expected_prev"])
+        df.loc[_stale, "daily_change_pct"] = float("nan")
+        df.drop(columns=["_prev_date", "_expected_prev"], inplace=True)
+    else:
+        df.drop(columns=["_prev_date"], inplace=True)
 
     # NEW METER: NH10 (New High 10D)
     # Price > Max(High in last 10 sessions excluding today)
+    g = df.groupby("symbol")
     df.loc[:, "high_10"] = g["high"].transform(lambda x: x.shift(1).rolling(10).max())
     df.loc[:, "is_nh10"] = (df["close"] > df["high_10"]) & (df["high_10"].notna())
 
