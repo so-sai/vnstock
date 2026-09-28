@@ -28,6 +28,10 @@ from calibration.scoring import brier_score, ece, log_loss, mce
 # Prior odds from P3 Governor (must match company_state.PRIOR_ODDS)
 PRIOR_ODDS = 0.53 / (1.0 - 0.53)
 
+# Beta prior cho mỗi evidence key: alpha = PRIOR_ALPHA + N_gains, beta = PRIOR_BETA + N_losses
+PRIOR_ALPHA = 1.0
+PRIOR_BETA = 1.0
+
 # Evidence keys map from evidence_column_name → (table_name in prediction_log, value_column)
 EVIDENCE_COLUMNS = [
     "macro_state",
@@ -272,7 +276,18 @@ def print_resolve_report(result: dict, lang_mode: str = "full"):
 
 
 def update_beta_posteriors(days_back: int = 90):
-    """Scan resolved predictions, update Beta(alpha, beta) per evidence level."""
+    """Scan resolved predictions, update Beta(alpha, beta) per evidence level.
+
+    IDEMPOTENT (E5, 2026-09-25):
+      Theo docstring đầu file: alpha = 1 + N_gains, beta = 1 + N_losses — tức
+      posterior là HÀM CỦA CỬA SỔ days_back, phải tính lại từ đầu mỗi lần gọi.
+
+      Bản cũ làm `alpha = old_alpha + counts` với counts = TOÀN BỘ outcomes trong
+      cửa sổ → mỗi lần daily-close lại cộng thêm CÙNG một cửa sổ 90 ngày
+      (3 lần chạy = alpha ×3) → LR bị thổi phồng dần về cực đoan.
+
+      Giữ nguyên hành vi với cửa sổ rỗng: không outcomes → không đụng posterior.
+    """
     outcomes = get_outcomes_for_calibration(days_back)
     if not outcomes:
         return
@@ -290,13 +305,12 @@ def update_beta_posteriors(days_back: int = 90):
             else:
                 counts[key] = (a, b + 1.0)
 
-    # Retrieve existing posteriors, add new counts, persist
-    existing = get_beta_posteriors()
-    for key, (add_a, add_b) in counts.items():
-        old_a, old_b = existing.get(key, (1.0, 1.0))
-        new_a = old_a + add_a
-        new_b = old_b + add_b
-        upsert_beta(key, new_a, new_b)
+    # Tính lại từ prior cho MỌI key trong cửa sổ ∪ key đang có trong DB.
+    # Key không còn outcome nào trong cửa sổ → lùi về prior (không evidence).
+    # => Gọi 1 lần hay 100 lần: kết quả y hệt.
+    for key in set(counts) | set(get_beta_posteriors()):
+        gains, losses = counts.get(key, (0.0, 0.0))
+        upsert_beta(key, PRIOR_ALPHA + gains, PRIOR_BETA + losses)
 
 
 def compute_lr_from_beta(alpha: float, beta: float) -> float:

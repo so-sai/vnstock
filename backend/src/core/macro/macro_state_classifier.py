@@ -520,7 +520,15 @@ class MacroStateClassifier:
     # ── Persistence ───────────────────────────────────────────────
 
     def _save_state(self, state: ClassifiedMacroState) -> None:
-        """Append state to history file."""
+        """Save state to history file — DEDUPE THEO DATE (E6, 2026-09-25).
+
+        WHY: append không điều kiện đã sinh 4 bản ghi 2026-09-24 (US10Y 5.006 vs
+        5.114, GOLD 4356 vs 4302 tranh chấp) và 31 bản ghi 2022-01-07 →
+        macro history ô nhiễm, "keep last 365" mất dần số ngày unique.
+
+        Rule: flush MỚI NHẤT trong ngày thay thế tại CHỖ bản ghi cũ cùng date
+        (giữ nguyên vị trí trong list → _load_latest()/records[-1] không đổi).
+        """
         path = self._dir / "macro_state_history.json"
         records = []
         if path.exists():
@@ -528,7 +536,12 @@ class MacroStateClassifier:
                 records = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError, ValueError:
                 records = []
-        records.append(asdict(state))
+        snap = asdict(state)
+        idx = next((i for i, r in enumerate(records) if r.get("date") == snap.get("date")), None)
+        if idx is None:
+            records.append(snap)
+        else:
+            records[idx] = snap
         # Keep last 365 entries
         if len(records) > 365:
             records = records[-365:]
