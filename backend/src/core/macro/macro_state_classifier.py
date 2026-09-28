@@ -78,6 +78,30 @@ STATE_LABELS = [
     "AI_BOOM",
 ]
 
+# E8 (2026-09-28): seed cố định cho BPIMM warmup.
+# Trước đây _warmup_bpimm dùng np.random.randn KHÔNG seed → cùng input cho ra
+# output khác nhau giữa các lần chạy (posterior AI_BOOM 0.4120/0.4117/0.4118) →
+# record trong macro_state_history.json không tái lập được (nguyên nhân gốc của
+# E6 content drift). Zero-Hallucination: không seed = không provenance.
+WARMUP_SEED = 20260925
+
+# E8: bộ asset dựng correlation matrix cho spectral features (PIT-bounded).
+# VNINDEX lấy từ daily_ohlcv, còn lại từ macro_history. Asset nào thiếu dữ liệu
+# sẽ bị loại trước khi tính correlation (không hard-code 1 bộ cố định vì
+# KOSPI/TAIEX/SHENZHEN chỉ có từ 2023-07, SP500/NASDAQ từ 2025-07).
+ALIGNER_ASSETS = (
+    "DXY",
+    "KOSPI",
+    "TAIEX",
+    "SHENZHEN",
+    "SH_COMP",
+    "HANG_SENG",
+    "SP500",
+    "NASDAQ",
+)
+ALIGNER_MIN_ASSETS = 3
+ALIGNER_MIN_DAYS = 60
+
 
 @dataclass
 class ClassifiedMacroState:
@@ -419,15 +443,98 @@ class MacroStateClassifier:
         return obs_norm, raw_drivers
 
     def _fetch_aligner_features(self, target_date: str | None = None) -> dict | None:
-        """Fetch TimeSeriesAligner features for spectral stress computation."""
+        """Spectral features (lambda_max/lambda_ratio/spectral_entropy) cho phase + stress.
+
+        E8 (2026-09-28): BUG NẶNG — code cũ gọi
+        `TimeSeriesAligner().compute_eigenvalues(target_date=target_date)` nhưng
+        signature thật là `compute_eigenvalues(corr_matrix: np.ndarray)`
+        (time_series_aligner.py:393) → TypeError bị nuốt bởi chính except clause
+        (TypeError nằm trong tuple) → LUÔN trả None → spectral_stress=UNKNOWN và
+        phase=UNCERTAIN/conf=0.0 ở TOÀN BỘ 328 record (từ commit 8d12e60, 2026-07-30).
+
+        Sửa: dựng correlation matrix PIT-bounded (date <= target) từ macro_history +
+        VNINDEX (daily_ohlcv), bỏ asset thiếu dữ liệu, rồi mới phân tích eigenvalue.
+        Không đủ dữ liệu → None (spectral=UNKNOWN, phase=UNCERTAIN như cũ, không ném lỗi).
+        """
         try:
+            import pandas as pd
+
             from src.services.macro.time_series_aligner import TimeSeriesAligner
 
-            aligner = TimeSeriesAligner()
-            features = aligner.compute_eigenvalues(target_date=target_date)
+            date_filter = ""
+            macro_params: list = list(ALIGNER_ASSETS)
+            vn_params: list = []
+            if target_date:
+                date_filter = "AND date <= ?"
+                macro_params.append(target_date)
+                vn_params.append(target_date)
+
+            ph = ",".join("?" for _ in ALIGNER_ASSETS)
+            # rn=1: chọn rowid mới nhất khi macro_history còn dòng trùng (date, variable)
+            sql_macro = f"""
+                SELECT date, variable, value FROM (
+                    SELECT date, variable, value,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY variable, date ORDER BY rowid DESC
+                           ) AS rn
+                    FROM macro_history
+                    WHERE variable IN ({ph}) {date_filter}
+                ) WHERE rn = 1
+            """
+            sql_vn = f"SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' {date_filter}"
+
+            with get_connection() as conn:
+                rows = conn.execute(sql_macro, macro_params).fetchall()
+                vn_rows = conn.execute(sql_vn, vn_params).fetchall()
+
+            if not rows and not vn_rows:
+                return None
+
+            frames = []
+            if rows:
+                df = pd.DataFrame(rows, columns=["date", "variable", "value"])
+                wide = df.pivot(index="date", columns="variable", values="value")
+                frames.append(wide)
+            if vn_rows:
+                vn = pd.DataFrame(vn_rows, columns=["date", "VNINDEX"]).drop_duplicates("date", keep="last").set_index("date")
+                frames.append(vn)
+
+            prices = pd.concat(frames, axis=1, join="outer").sort_index()
+            prices = prices.dropna(axis=1, how="all")
+
+            # Giữ asset có đủ điểm dữ liệu (pct_change mất 1 dòng đầu)
+            enough = prices.notna().sum() >= (ALIGNER_MIN_DAYS + 1)
+            prices = prices.loc[:, enough]
+            if prices.shape[1] < ALIGNER_MIN_ASSETS:
+                logger.debug(
+                    "Aligner: chỉ %d/%d asset đủ dữ liệu (cần %d) — bỏ qua spectral features",
+                    prices.shape[1],
+                    len(ALIGNER_ASSETS),
+                    ALIGNER_MIN_ASSETS,
+                )
+                return None
+
+            returns = prices.pct_change(fill_method=None).dropna(how="all")
+            if len(returns) < ALIGNER_MIN_DAYS:
+                logger.debug("Aligner: chỉ %d ngày return (cần %d) — bỏ qua", len(returns), ALIGNER_MIN_DAYS)
+                return None
+
+            corr = returns.corr(method="spearman").to_numpy()
+            if np.isnan(corr).any():
+                logger.debug("Aligner: correlation matrix chứa NaN — bỏ qua")
+                return None
+
+            features = TimeSeriesAligner().compute_eigenvalues(corr)
+            logger.debug(
+                "Aligner features: lambda_max=%s lambda_ratio=%s entropy=%s assets=%d",
+                features.get("lambda_max"),
+                features.get("lambda_ratio"),
+                features.get("spectral_entropy"),
+                prices.shape[1],
+            )
             return features
-        except (ImportError, AttributeError, TypeError, KeyError, ValueError) as e:
-            logger.debug(f"Aligner features unavailable: {e}")
+        except (ImportError, AttributeError, TypeError, KeyError, ValueError, IndexError, sqlite3.Error, OSError) as e:
+            logger.warning("Aligner features unavailable: %s", e)
             return None
 
     # ── PTD Warmup ────────────────────────────────────────────────
@@ -438,8 +545,11 @@ class MacroStateClassifier:
             return
 
         n_warm = self._warmup
+        # E8: RNG riêng, seed cố định → warmup deterministic.
+        rng = np.random.default_rng(WARMUP_SEED)
+        n_dim = int(getattr(self._engine, "n", obs.shape[0]))
         for i in range(n_warm):
-            noise = np.random.randn(7) * 0.01 * (n_warm - i) / n_warm
+            noise = rng.standard_normal(n_dim) * 0.01 * (n_warm - i) / n_warm
             self._engine.step(obs + noise)
 
         self._is_warm = True
