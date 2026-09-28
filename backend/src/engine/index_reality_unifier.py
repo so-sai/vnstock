@@ -39,6 +39,8 @@ import pandas as pd
 import src.config
 from src.database.db_core import get_connection
 
+OUTPUT_DIR = Path(src.config.DATA_DIR) / "output"
+
 logger = logging.getLogger(__name__)
 
 VINGROUP_SYMBOLS = {"VIC", "VHM", "VRE"}
@@ -302,7 +304,7 @@ def phan_tich_chi_so(target_date: str | None = None) -> dict:
         "dien_giai": "; ".join(interpretation_parts),
     }
 
-    out_path = Path(src.config.DATA_DIR) / "output" / "index_reality.json"
+    out_path = OUTPUT_DIR / "index_reality.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)

@@ -177,7 +177,7 @@ class TestReplayProducesTrades:
 
     @pytest.mark.slow
     @pytest.mark.integration
-    def test_cli_backtest_returns_nonzero_trades(self):
+    def test_cli_backtest_returns_nonzero_trades(self, tmp_path):
         """Tier 2 — Entry Point Smoke TDD: run the real CLI from project root.
 
         WHY: this is the ultimate guard. It exercises the exact invocation
@@ -197,11 +197,14 @@ class TestReplayProducesTrades:
             "--sample-every",
             "20",
         ]
+        env = dict(os.environ)
+        env["PTCK_REPORTS_DIR"] = str(tmp_path / "ablation_studies")
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
+            env=env,
             timeout=600,
         )
         assert proc.returncode == 0, f"CLI crashed:\n{proc.stderr[-2000:]}"
@@ -217,7 +220,7 @@ class TestReplayProducesTrades:
 
     @pytest.mark.slow
     @pytest.mark.integration
-    def test_cli_runs_with_clean_syspath(self):
+    def test_cli_runs_with_clean_syspath(self, tmp_path):
         """Tier 2 — Entry Point Smoke TDD (namespace hygiene): CLI from project
         root with backend/ STRIPPED from PYTHONPATH.
 
@@ -229,6 +232,7 @@ class TestReplayProducesTrades:
         """
         env = dict(os.environ)
         env["PYTHONPATH"] = ""  # strip everything; only CWD (project root) remains
+        env["PTCK_REPORTS_DIR"] = str(tmp_path / "ablation_studies")
         cmd = [
             sys.executable,
             "-m",

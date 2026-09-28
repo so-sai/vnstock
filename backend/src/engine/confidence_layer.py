@@ -59,6 +59,8 @@ if sys.platform == "win32" and getattr(sys.stdout, "encoding", "") != "utf-8":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import src.config
 
+OUTPUT_DIR = Path(src.config.DATA_DIR) / "output"
+
 # ── Ngưỡng đánh giá ─────────────────────────────────────
 NGƯỠNG = {
     "CAO": 0.70,
@@ -545,7 +547,7 @@ def đánh_giá_độ_tin_cậy(
     }
 
     # ── Lưu file ──
-    thư_mục_xuất = Path(src.config.DATA_DIR) / "output"
+    thư_mục_xuất = OUTPUT_DIR
     thư_mục_xuất.mkdir(parents=True, exist_ok=True)
     with open(thư_mục_xuất / "danh_gia_tin_cay.json", "w", encoding="utf-8") as f:
         json.dump(kết_quả, f, indent=2, ensure_ascii=False)

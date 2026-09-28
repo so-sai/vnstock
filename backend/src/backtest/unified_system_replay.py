@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import sys
 import time
@@ -42,7 +43,9 @@ PROJECT_ROOT = _hydrate_path()
 BACKEND_DIR = PROJECT_ROOT / "backend"
 SRC_DIR = BACKEND_DIR / "src"
 DATA_DIR = BACKEND_DIR / "data"
-REPORTS_DIR = DATA_DIR / "reports" / "ablation_studies"
+REPORTS_DIR = (
+    Path(os.environ["PTCK_REPORTS_DIR"]) if os.environ.get("PTCK_REPORTS_DIR") else DATA_DIR / "reports" / "ablation_studies"
+)
 CACHE_DIR = DATA_DIR / "cache"
 CACHE_FILE = CACHE_DIR / "macro_preload.parquet"
 

@@ -109,10 +109,15 @@ class TestE2PulseOutputPath:
         )
 
     def test_writer_path_is_under_data_dir(self):
+        import conftest
         import src.config
         from src.engine.breadth_engine import PULSE_OUTPUT_DIR
 
-        assert Path(PULSE_OUTPUT_DIR) == Path(str(src.config.DATA_DIR)) / "output"
+        expected = Path(str(src.config.DATA_DIR)) / "output"
+        shadow = conftest.sandbox_shadow()
+        if shadow is not None:
+            expected = shadow / "output"
+        assert Path(PULSE_OUTPUT_DIR) == expected
 
     def test_not_written_to_legacy_root_output(self):
         from src.engine import breadth_engine

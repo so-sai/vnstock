@@ -54,6 +54,8 @@ import src.config
 
 logger = logging.getLogger(__name__)
 
+SNAPSHOT_OUTPUT_DIR = Path(src.config.DATA_DIR) / "output"
+
 
 def _doc(ten_file: str) -> dict | None:
     paths = [
@@ -264,7 +266,7 @@ def tao_anh_chup(target_date: str | None = None, lang_mode: str = "compact") -> 
 
     # ── Ghi vào snapshot_index.json ──
     try:
-        out_dir = Path(src.config.DATA_DIR) / "output"
+        out_dir = SNAPSHOT_OUTPUT_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
         idx_path = out_dir / "snapshot_index.json"
         idx_entry = {
