@@ -133,10 +133,17 @@ class MacroStateClassifier:
 
     def __init__(
         self,
-        persistence_dir: Path = MACRO_STATE_DIR,
+        persistence_dir: Path | None = None,
         warmup_steps: int = 10,
     ):
-        self._dir = persistence_dir
+        # E7 (2026-09-28): default doc MACRO_STATE_DIR tại THỜI GỌI HÀM (không
+        # bind lúc def) để conftest redirect được sang tmp khi test.
+        # Trước đây `persistence_dir: Path = MACRO_STATE_DIR` bind giá trị lúc
+        # import → mọi MacroStateClassifier() trong test ghi thẳng vào
+        # backend/data/macro/macro_state_history.json THẬT (test_replay_ledger_2022
+        # → company_state._load_macro_pit → classify('2022-01-07') recompute
+        # record production mỗi lần chạy test).
+        self._dir = Path(persistence_dir) if persistence_dir is not None else MACRO_STATE_DIR
         self._warmup = warmup_steps
         self._engine: PTDEngine | None = None
         self._latest: ClassifiedMacroState | None = None

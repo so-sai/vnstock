@@ -106,6 +106,40 @@ def reset_global_caches():
         pass
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolate_macro_state_history(tmp_path_factory):
+    """P1 (E7, 2026-09-28) — test KHÔNG được ghi macro_state_history.json THẬT.
+
+    Nguồn phát hiện: 31 bản ghi trùng ngày 2022-01-07 trong
+    backend/data/macro/macro_state_history.json (đã dedupe ở E6).
+
+    Đường ghi:
+        test_replay_ledger_2022 → backtest.replay_ledger_2022.run_day
+        → governor.company_state.BayesianGovernor._load_macro_pit('2022-01-07')
+        → MacroStateClassifier().classify() → _save_state()
+        → ghi thẳng vào persistence_dir mặc định = backend/data/macro (PRODUCTION)
+
+    Hậu quả: mỗi lần chạy test, record 2022-01-07 bị recompute và ghi đè
+    (posterior flip-flop 0.324 → 0.3237 → 0.3242 qua các lần chạy) → đếm record
+    vẫn đúng nhưng NỘI DUNG bị nhiễu → provenance mất.
+
+    Cách ly: copy snapshot 1 lần/session vào tmp, redirect MACRO_STATE_DIR sang
+    đó. Test đọc được dữ liệu như thật, mọi ghi chỉ vào shadow copy.
+    """
+    import shutil
+
+    from src.core.macro import macro_state_classifier as msc
+
+    real_dir = msc.MACRO_STATE_DIR
+    shadow = tmp_path_factory.mktemp("macro_state_history_shadow")
+    real_file = real_dir / "macro_state_history.json"
+    if real_file.exists():
+        shutil.copy2(real_file, shadow / "macro_state_history.json")
+    msc.MACRO_STATE_DIR = shadow
+    yield
+    msc.MACRO_STATE_DIR = real_dir
+
+
 @pytest.fixture
 def seed_test_ohlcv(clean_db):
     """Bơm dữ liệu OHLCV giả lập cho TEST_SYMBOL trên TEST_DATES.
