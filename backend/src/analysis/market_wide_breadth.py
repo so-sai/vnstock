@@ -202,10 +202,22 @@ def selftest() -> dict:
     return {"ok": not mism, "cut": cut, "checked_days": len(part), "mismatches": mism[:5]}
 
 
+def latest_db_date() -> str | None:
+    """max(date) trong daily_ohlcv — thay cho --end hardcode (E4b)."""
+    con = sqlite3.connect(str(DB))
+    try:
+        row = con.execute("SELECT MAX(date) FROM daily_ohlcv").fetchone()
+    finally:
+        con.close()
+    return row[0] if row and row[0] else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Market-wide breadth — H1 Option B")
     ap.add_argument("--start", default="2020-01-01")
-    ap.add_argument("--end", default="2026-09-11")
+    # E4b (2026-09-25): default "2026-09-11" hardcode khiến bảng
+    # market_wide_breadth_daily đóng băng đúng tại 11/09. Mặc định = phiên mới nhất.
+    ap.add_argument("--end", default=None, help="Ngày cuối (mặc định: max(date) của daily_ohlcv)")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--backfill", action="store_true")
     ap.add_argument("--compare-date", default=None)
@@ -214,7 +226,11 @@ def main() -> int:
         r = selftest()
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r["ok"] else 1
-    bars = load_bars(a.start, a.end)
+    end = a.end or latest_db_date()
+    if not end:
+        print("ERR: daily_ohlcv rỗng — không xác định được --end.")
+        return 1
+    bars = load_bars(a.start, end)
     series = run_series(bars)
     print(
         f"days={len(series)} label={LABEL} "

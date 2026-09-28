@@ -29,6 +29,13 @@ import pandas as pd
 import src.config
 from src.database.db_core import get_connection
 
+# OUTPUT PATH CANONICAL (E2, 2026-09-25): market_state_coordinator đọc
+# src.config.DATA_DIR/"output" (DATA_DIR = backend/data). Ghi sang
+# PROJECT_ROOT/"data"/"output" khác 1 tầng → coordinator luôn đọc file CŨ (T-1),
+# breadth_state trễ 1 phiên. 3 engine còn lại (flow_forecast, risk_governance,
+# rsi_regime) đã ghi đúng DATA_DIR/output. Export để test writer == reader.
+PULSE_OUTPUT_DIR = os.path.join(str(src.config.DATA_DIR), "output")
+
 
 def run_breadth_analysis(target_date: str | None = None):
     if target_date:
@@ -175,7 +182,7 @@ def run_breadth_analysis(target_date: str | None = None):
         "nh10_consistency_3d": consistency_count,
     }
 
-    output_dir = os.path.join(src.config.PROJECT_ROOT, "data", "output")
+    output_dir = PULSE_OUTPUT_DIR
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, "market_pulse.json"), "w", encoding="utf-8") as f:
         json.dump(pulse_data, f, indent=4, ensure_ascii=False)

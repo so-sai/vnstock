@@ -214,6 +214,50 @@ def run_daily_closer(skip_sync: bool = False):
     except Exception as e:  # noqa: BLE001 - batch isolation
         print(f"⚠️  market_state coordinator skipped: {e}")
 
+    # Step 4.2: Paper watch EOD invalidation freeze (E3, non-blocking)
+    # WHY: freeze_from_eod() không có caller nào → paper_watch_state.json đóng băng
+    # tại phiên trước (25/09: HPG đã thủng 20,800 nhưng file vẫn as_of=24/09).
+    try:
+        from src.database.db_core import get_connection
+        from src.portfolio.paper_watch_state import freeze_from_eod, load_paper_watch
+
+        watch = load_paper_watch()
+        symbols = [b.get("symbol") for b in watch.get("bids", []) if b.get("symbol")]
+        closes: dict[str, float] = {}
+        if symbols:
+            marks = ",".join("?" * len(symbols))
+            with get_connection() as conn:
+                rows = conn.execute(
+                    f"SELECT symbol, close FROM daily_ohlcv WHERE date = ? AND close > 0 AND symbol IN ({marks})",
+                    [target_date, *symbols],
+                ).fetchall()
+            closes = {r["symbol"]: float(r["close"]) for r in rows}
+        frozen = freeze_from_eod(closes, as_of=target_date)
+        bids = frozen.get("bids", [])
+        dropped = [b.get("symbol") for b in bids if b.get("status") == "DROPPED"]
+        no_data = [s for s in symbols if s not in closes]
+        print(
+            f"  Paper watch freeze {target_date}: {len(bids)} bids | "
+            f"DROPPED={dropped or 'none'}" + (f" | NO_BAR={no_data}" if no_data else "")
+        )
+    except Exception as e:  # noqa: BLE001 - batch isolation: 1 step lỗi không dừng pipeline
+        print(f"⚠️  Paper watch freeze skipped: {e}")
+
+    # Step 4.3: Market-wide breadth refresh (E4b, non-blocking, ~3.4s)
+    # WHY: bảng market_wide_breadth_daily đóng băng tại 11/09 vì không có caller
+    # và --end mặc định hardcode. Breadth là REGIME INPUT, không phải alpha.
+    try:
+        from src.analysis.market_wide_breadth import backfill, latest_db_date, load_bars, run_series
+
+        _end = latest_db_date()
+        if _end:
+            _n = backfill(run_series(load_bars("2020-01-01", _end)))
+            print(f"  Market-wide breadth: refreshed → {_end} ({_n} rows)")
+        else:
+            print("⚠️  Market-wide breadth skipped: daily_ohlcv rỗng")
+    except Exception as e:  # noqa: BLE001 - batch isolation
+        print(f"⚠️  Market-wide breadth skipped: {e}")
+
     # Step 5: Generate Report
     if verdict:
         report_file = create_markdown_report(verdict, target_date)

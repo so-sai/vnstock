@@ -199,7 +199,9 @@ def resolve_pending_outcomes(
     accuracy = sum(ys) / len(ys)
 
     # Update Beta posteriors
-    update_beta_posteriors(days=lookback_days)
+    # E4a (2026-09-25): chữ ký hàm là days_back, không phải days — kwargs sai đã
+    # làm resolve_pending_outcomes() ném TypeError mỗi lần chạy daily-close.
+    update_beta_posteriors(days_back=lookback_days)
 
     # Record calibration history snapshot
     init_calibration_history()

@@ -299,6 +299,22 @@ def _fallback_fetch_single(symbol: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def drop_untraded_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """ZERO-ROW GUARD (E1, 2026-09-25) — bỏ mã không có giá thực trong phiên.
+
+    KBS price_board() trả TOÀN BỘ mã trong batch kể cả mã không giao dịch
+    (close_price=0, volume=0). Ghi không điều kiện đã sinh 594 dòng close=0
+    (24/09) và 527 dòng (25/09) → ô nhiễm pct_change / MA20 / advance-decline.
+    Khôi phục bất biến ≤23/09: chỉ phiên có close > 0 mới được lưu.
+
+    Idempotent, không impute: thiếu close (NULL) = thiếu bằng chứng = loại.
+    """
+    if df.empty or "close" not in df.columns:
+        return df
+    close_num = pd.to_numeric(df["close"], errors="coerce")
+    return df[~(close_num.isna() | (close_num <= 0))]
+
+
 @retry_with_backoff("update_market_batch", max_retries=2, base_delay=10)
 def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batch_size: int = 50, throttle_sec: float = 1.8):
     success = 0
@@ -362,6 +378,28 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                         "foreign_buy_volume": "foreign_vol",
                     }
                 )
+
+                # ZERO-ROW GUARD (E1): chỉ lưu phiên có giá thực.
+                _before = len(df_save)
+                df_save = drop_untraded_rows(df_save)
+                if len(df_save) != _before:
+                    logger.info(
+                        "ZERO_ROW_GUARD: bỏ %d/%d mã không giao dịch (close<=0/NULL) batch %d",
+                        _before - len(df_save),
+                        _before,
+                        batch_num,
+                    )
+                if df_save.empty:
+                    skipped += len(active_batch)
+                    logger.info(
+                        "📦 Batch %d/%d: không có mã nào giao dịch hôm nay — bỏ qua.",
+                        batch_num,
+                        total_batches,
+                    )
+                    _progress_bar(batch_num, total_batches, success, failed, skipped, start_time)
+                    armor.throttling(is_error=False)
+                    continue
+
                 df_save["adj_close"] = df_save["close"]
                 df_save["source"] = "kbs"
                 df_save["net_vol"] = df_save["foreign_vol"] - df_save["foreign_sell_volume"]
@@ -397,6 +435,19 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                             df_solo = df_solo.rename(columns={"total_trades": "volume"})
                         else:
                             df_solo["volume"] = 0
+                        # ZERO-ROW GUARD (E1): đường fallback cũng phải bỏ mã không
+                        # giao dịch — không thì lại bơm close=0 vào daily_ohlcv.
+                        _before = len(df_solo)
+                        df_solo = drop_untraded_rows(df_solo)
+                        if len(df_solo) != _before:
+                            logger.info(
+                                "[ZERO_ROW_GUARD] %s: bỏ %d dòng close<=0/NULL",
+                                s,
+                                _before - len(df_solo),
+                            )
+                        if df_solo.empty:
+                            skipped += 1
+                            continue
                         cols_ohlcv = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
                         if "is_stale" in df_solo.columns:
                             cols_ohlcv.append("is_stale")

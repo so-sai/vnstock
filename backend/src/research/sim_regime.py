@@ -49,8 +49,17 @@ def _calc_adx(df, period=14):
 
 
 def simulate():
-    output_dir = Path("data/output")
+    # Đọc market_pulse.json từ DATA_DIR/output (canonical, cùng nơi coordinator đọc);
+    # fallback về data/output cũ để không vỡ script nghiên cứu.
+    import src.config as _cfg
+
+    output_dir = Path(str(_cfg.DATA_DIR)) / "output"
     pulse_path = output_dir / "market_pulse.json"
+    if not pulse_path.exists():
+        legacy = Path("data/output/market_pulse.json")
+        if legacy.exists():
+            pulse_path = legacy
+            output_dir = legacy.parent
 
     if not pulse_path.exists():
         print("Missing market_pulse.json")
