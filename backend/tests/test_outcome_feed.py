@@ -8,14 +8,17 @@ TDD cho:
 
 Nguyên tắc: hàm thuần / read-DB qua function-level imports để monkeypatch được.
 """
+
 import pytest
 
 # ═══════════════════════════════════════════════════════════════
 # get_resolved_by_model — query helper
 # ═══════════════════════════════════════════════════════════════
 
+
 def test_get_resolved_by_model_returns_only_resolved_rows(tmp_path):
     import sqlite3
+    from datetime import datetime, timedelta
 
     import calibration.prediction_log as pl
 
@@ -32,12 +35,14 @@ def test_get_resolved_by_model_returns_only_resolved_rows(tmp_path):
             log_loss REAL
         );
     """)
+    # ngày tương đối (cách nay 10/5 ngày) — không hardcode để test không "hư" theo lịch
+    d1 = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+    d2 = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
     conn.executemany(
-        "INSERT INTO prediction_log (date, symbol, model_id, p_gain, outcome) "
-        "VALUES (?,?,?,?,?)",
+        "INSERT INTO prediction_log (date, symbol, model_id, p_gain, outcome) VALUES (?,?,?,?,?)",
         [
-            ("2026-07-01", "FPT", "M1_MACRO", 0.62, 1.0),
-            ("2026-07-02", "ACB", "M1_MACRO", 0.55, 0.0),
+            (d1, "FPT", "M1_MACRO", 0.62, 1.0),
+            (d2, "ACB", "M1_MACRO", 0.55, 0.0),
         ],
     )
     conn.commit()
@@ -56,6 +61,7 @@ def test_get_resolved_by_model_returns_only_resolved_rows(tmp_path):
 
 def test_get_resolved_by_model_filters_by_model_id(tmp_path):
     import sqlite3
+    from datetime import datetime, timedelta
 
     import calibration.prediction_log as pl
 
@@ -72,13 +78,14 @@ def test_get_resolved_by_model_filters_by_model_id(tmp_path):
             log_loss REAL
         );
     """)
+    d1 = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+    d2 = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
     conn.executemany(
-        "INSERT INTO prediction_log (date, symbol, model_id, p_gain, outcome) "
-        "VALUES (?,?,?,?,?)",
+        "INSERT INTO prediction_log (date, symbol, model_id, p_gain, outcome) VALUES (?,?,?,?,?)",
         [
-            ("2026-07-01", "FPT", "M1_MACRO", 0.6, 1.0),
-            ("2026-07-01", "FPT", "M2_FUNDAMENTAL", 0.7, 1.0),
-            ("2026-07-02", "FPT", "M1_MACRO", 0.6, None),  # unresolved -> bỏ
+            (d1, "FPT", "M1_MACRO", 0.6, 1.0),
+            (d1, "FPT", "M2_FUNDAMENTAL", 0.7, 1.0),
+            (d2, "FPT", "M1_MACRO", 0.6, None),  # unresolved -> bỏ
         ],
     )
     conn.commit()
@@ -98,6 +105,7 @@ def test_get_resolved_by_model_filters_by_model_id(tmp_path):
 # ═══════════════════════════════════════════════════════════════
 # _apply_outcome — batch-safe outcome application
 # ═══════════════════════════════════════════════════════════════
+
 
 def test_apply_outcome_updates_reliability_and_brier(tmp_path):
 
@@ -132,6 +140,7 @@ def test_apply_outcome_unknown_node_raises(tmp_path):
 # batch_update_from_resolved — feed resolved predictions vào nodes
 # ═══════════════════════════════════════════════════════════════
 
+
 def test_batch_update_maps_model_to_nodes(tmp_path, monkeypatch):
     from calibration import prediction_log
     from calibration.evidence_engine import EvidenceEngine
@@ -139,14 +148,13 @@ def test_batch_update_maps_model_to_nodes(tmp_path, monkeypatch):
     conn = _make_evidence_conn(tmp_path)
 
     resolved_rows = [
-        {"id": 1, "date": "2026-06-01", "symbol": "FPT", "model_id": "M1_MACRO",
-         "p_gain": 0.62, "outcome": 1.0},
-        {"id": 2, "date": "2026-06-01", "symbol": "FPT", "model_id": "M3_BEHAVIORAL",
-         "p_gain": 0.58, "outcome": 0.0},
+        {"id": 1, "date": "2026-06-01", "symbol": "FPT", "model_id": "M1_MACRO", "p_gain": 0.62, "outcome": 1.0},
+        {"id": 2, "date": "2026-06-01", "symbol": "FPT", "model_id": "M3_BEHAVIORAL", "p_gain": 0.58, "outcome": 0.0},
     ]
 
     monkeypatch.setattr(
-        prediction_log, "get_resolved_by_model",
+        prediction_log,
+        "get_resolved_by_model",
         lambda mid, days=90: [r for r in resolved_rows if r["model_id"] == mid],
     )
 
@@ -176,7 +184,8 @@ def test_batch_update_skips_unknown_model(tmp_path, monkeypatch):
     conn = _make_evidence_conn(tmp_path)
 
     monkeypatch.setattr(
-        prediction_log, "get_resolved_by_model",
+        prediction_log,
+        "get_resolved_by_model",
         lambda mid, days=90: [],  # không có resolved nào cho M1/M2/M3
     )
     ee = EvidenceEngine(conn=conn)
@@ -190,6 +199,7 @@ def test_batch_update_skips_unknown_model(tmp_path, monkeypatch):
 # CausalGraph.apply_time_decay — suy hao cạnh hỏng theo half-life
 # ═══════════════════════════════════════════════════════════════
 
+
 def test_apply_time_decay_reduces_old_edge_confidence():
     from datetime import datetime, timedelta
 
@@ -202,13 +212,23 @@ def test_apply_time_decay_reduces_old_edge_confidence():
     g = CausalGraph()
     g.edges = {
         "OLD_EDGE": CausalEdge(
-            id="OLD_EDGE", source="S", target="T", edge_type="MACRO→MACRO",
-            confidence=0.90, half_life=30.0, updated_at=old_ts,
+            id="OLD_EDGE",
+            source="S",
+            target="T",
+            edge_type="MACRO→MACRO",
+            confidence=0.90,
+            half_life=30.0,
+            updated_at=old_ts,
             created_at=old_ts,
         ),
         "FRESH_EDGE": CausalEdge(
-            id="FRESH_EDGE", source="S", target="T", edge_type="MACRO→MACRO",
-            confidence=0.80, half_life=30.0, updated_at=fresh_ts,
+            id="FRESH_EDGE",
+            source="S",
+            target="T",
+            edge_type="MACRO→MACRO",
+            confidence=0.80,
+            half_life=30.0,
+            updated_at=fresh_ts,
             created_at=fresh_ts,
         ),
     }
@@ -232,8 +252,13 @@ def test_apply_time_decay_respects_floor():
     g = CausalGraph()
     g.edges = {
         "VERY_OLD": CausalEdge(
-            id="VERY_OLD", source="S", target="T", edge_type="MACRO→MACRO",
-            confidence=0.90, half_life=10.0, updated_at=old_ts,
+            id="VERY_OLD",
+            source="S",
+            target="T",
+            edge_type="MACRO→MACRO",
+            confidence=0.90,
+            half_life=10.0,
+            updated_at=old_ts,
             created_at=old_ts,
         ),
     }
@@ -247,10 +272,8 @@ def test_retire_degraded_moves_below_threshold():
 
     g = CausalGraph()
     g.edges = {
-        "GOOD": CausalEdge(id="GOOD", source="S", target="T", edge_type="MACRO→MACRO",
-                           confidence=0.60),
-        "BAD": CausalEdge(id="BAD", source="S", target="T", edge_type="MACRO→MACRO",
-                          confidence=0.03),
+        "GOOD": CausalEdge(id="GOOD", source="S", target="T", edge_type="MACRO→MACRO", confidence=0.60),
+        "BAD": CausalEdge(id="BAD", source="S", target="T", edge_type="MACRO→MACRO", confidence=0.03),
     }
     g._rebuild_index()
     retired = g.retire_degraded(min_confidence=0.05)
@@ -264,8 +287,7 @@ def test_retire_degraded_returns_empty_when_all_healthy():
 
     g = CausalGraph()
     g.edges = {
-        "GOOD": CausalEdge(id="GOOD", source="S", target="T", edge_type="MACRO→MACRO",
-                           confidence=0.60),
+        "GOOD": CausalEdge(id="GOOD", source="S", target="T", edge_type="MACRO→MACRO", confidence=0.60),
     }
     g._rebuild_index()
     assert g.retire_degraded(min_confidence=0.05) == []
@@ -318,8 +340,10 @@ def test_remove_from_db_deletes_rows(tmp_path, monkeypatch):
 # helpers
 # ═══════════════════════════════════════════════════════════════
 
+
 def _conn_with_factory(db_path):
     import sqlite3
+
     c = sqlite3.connect(db_path)
     c.row_factory = sqlite3.Row
     return c
@@ -346,10 +370,10 @@ def _make_evidence_conn(tmp_path):
         );
     """)
     from calibration.evidence_engine import EVIDENCE_NODE_IDS
+
     for nid in EVIDENCE_NODE_IDS:
         conn.execute(
-            "INSERT INTO evidence_registry (node_id, alpha, beta, reliability) "
-            "VALUES (?, 10.0, 10.0, 0.5)",
+            "INSERT INTO evidence_registry (node_id, alpha, beta, reliability) VALUES (?, 10.0, 10.0, 0.5)",
             (nid,),
         )
     conn.commit()
