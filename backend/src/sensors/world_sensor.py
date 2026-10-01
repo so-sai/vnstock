@@ -114,12 +114,16 @@ def _ensure_cache_dir():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _read_cache() -> dict | None:
+def _read_cache(allow_stale: bool = True) -> dict | None:
     try:
         if CACHE_FILE.exists():
             data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
             age = time.time() - data.get("cached_at", 0)
             if age < CACHE_TTL_SECONDS:
+                return data
+            if allow_stale:
+                logger.debug(f"Cache expired ({age:.0f}s), fallback to stale cache")
+                data["_is_stale"] = True
                 return data
     except json.JSONDecodeError, OSError, TypeError, ValueError, KeyError:
         logger.debug("Cache file hỏng/thiếu — bỏ qua, fetch lại từ nguồn")

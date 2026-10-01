@@ -356,6 +356,62 @@ _reg(
     )
 )
 
+# Securities Broker: phí môi giới + lãi margin, đòn bẩy bảng cân đối cao là
+# nghiệp vụ (margin lending) chứ không phải distress. Doanh thu thuần theo
+# thanh khoản thị trường → cyclicality HIGH, pricing power thấp.
+_reg(
+    BusinessArchetype(
+        archetype="SECURITIES_BROKER",
+        label="Công ty Chứng khoán",
+        description="Môi giới, cho vay margin, tự doanh — doanh thu phí + lãi margin; đòn bẩy cao, thuần theo thanh khoản",
+        revenue_model=RevenueModel.FEE_BASED,
+        operating_leverage=OperatingLeverage.MEDIUM,
+        financial_leverage=OperatingLeverage.HIGH,
+        capex_intensity="LOW",
+        cyclicality=Cyclicality.HIGH,
+        pricing_power=PricingPower.LOW,
+        switching_cost="LOW",
+        network_effect="WEAK",
+        regulation="HIGH",
+        commodity_dependency="NONE",
+        recurring_ratio=0.35,
+        reinvestment_profile="MEDIUM",
+        typical_roic_range=(0.06, 0.18),
+        typical_pe_range=(8, 18),
+        typical_dividend_yield="2-5%",
+        macro_sensitivities=["MARKET_TURNOVER", "INTEREST_RATE", "MARGIN_BALANCE", "EQUITY_FLOW"],
+        primary_driver="Market Turnover × Commission Rate + Margin Balance × Lending Rate",
+    )
+)
+
+# Logistics Operator: doanh thu theo volume × rate (cước, container, tấn km),
+# opex cố định cao (tàu, bãi, đội xe) → operating leverage HIGH; nhạy
+# nhiên liệu và cầu thương mại toàn cầu.
+_reg(
+    BusinessArchetype(
+        archetype="LOGISTICS_OPERATOR",
+        label="Doanh nghiệp Vận tải & Logistics",
+        description="Cước vận tải, container/tấn, chuyển phát — doanh thu volume × rate, nhạy giá nhiên liệu",
+        revenue_model=RevenueModel.TRANSACTIONAL,
+        operating_leverage=OperatingLeverage.HIGH,
+        financial_leverage=OperatingLeverage.MEDIUM,
+        capex_intensity="HIGH",
+        cyclicality=Cyclicality.HIGH,
+        pricing_power=PricingPower.LOW,
+        switching_cost="LOW",
+        network_effect="WEAK",
+        regulation="LOW",
+        commodity_dependency="MEDIUM",
+        recurring_ratio=0.30,
+        reinvestment_profile="HIGH",
+        typical_roic_range=(0.06, 0.16),
+        typical_pe_range=(6, 14),
+        typical_dividend_yield="2-5%",
+        macro_sensitivities=["FREIGHT", "OIL_PRICE", "GLOBAL_DEMAND", "USD_VND"],
+        primary_driver="Volume × Freight Rate → Revenue",
+    )
+)
+
 
 # ═══════════════════════════════════════════════════════════════
 # 2. CLASSIFIER
@@ -390,6 +446,9 @@ BASELINE_MAP: dict[str, str] = {
     "BSR": "CYCLICAL_HEAVY",  # Binh Son Refining — oil refinery, crack-spread cyclical
     "QNS": "EXPORT_MANUFACTURER",  # Quang Ngai Sugar — commodity processor
     "TLG": "COMPOUNDER",  # Thien Long Group — stationery leader, strong brand
+    # ── Audit 2026-10-01 (frozen contract — ICB-truth) ──
+    "CTS": "SECURITIES_BROKER",  # ICB "Môi giới chứng khoán"; trước audit lệch REAL_ESTATE_DEVELOPER
+    "VTP": "LOGISTICS_OPERATOR",  # ICB "Vận tải / Chuyển phát nhanh"; trước audit lệch RETAIL_PLATFORM (CFO heuristic)
 }
 
 
@@ -501,6 +560,39 @@ class ArchetypeEngine:
         # nghĩa với mô hình phát triển dự án (PRESALES), bất kể ratio cụ thể.
         if self._icb_sector(symbol) == "Bất động sản":
             return ARCHETYPE_REGISTRY["REAL_ESTATE_DEVELOPER"]
+
+        # Hard Constraint 2b: SECURITIES không bao giờ là REAL_ESTATE_DEVELOPER.
+        # WHY: CTCK có D/E 3-4x là margin lending bình thường, không phải nợ BĐS.
+        # → SECURITIES_BROKER (audit 2026-10-01): metric đúng MARGIN/BROKERAGE;
+        # COMPOUNDER trước đó chặn được lỗi RE nhưng DNA/metric vẫn sai.
+        if entity_type == "SECURITIES":
+            return ARCHETYPE_REGISTRY["SECURITIES_BROKER"]
+
+        # Hard Constraint 2c: Vận tải/Chuyển phát không phải RETAIL_PLATFORM.
+        # WHY: VTP là logistics, không phải bán lẻ → metric SAME_STORE_SALES vô nghĩa.
+        # → LOGISTICS_OPERATOR (audit 2026-10-01): metric đúng FREIGHT/VOLUME;
+        # COMPOUNDER trước đó chặn được lỗi RETAIL nhưng DNA/metric vẫn sai.
+        # Ghi chú: nhóm "Vận tải hành khách & Du lịch" (ICB Du lịch) cũng khớp
+        # keyword — LOGISTICS_OPERATOR (cyclical, capex cao, nhạy nhiên liệu)
+        # vẫn mô tả đúng DNA hơn COMPOUNDER; tách sub-archetype khi có baseline.
+        try:
+            import sqlite3 as _sqlite
+
+            _conn = _sqlite.connect(str(DATA_DIR / "screener_cache.db"))
+            try:
+                _cur = _conn.cursor()
+                _cur.execute(
+                    "SELECT icb_name2, icb_name3, icb_name4 FROM symbol_industry WHERE symbol = ? LIMIT 1",
+                    (symbol,),
+                )
+                _row = _cur.fetchone()
+                _icb_all = " ".join(str(x) for x in _row if x) if _row else ""
+            finally:
+                _conn.close()
+        except sqlite3.Error, OSError:
+            _icb_all = ""
+        if "Vận tải" in _icb_all or "Chuyển phát" in _icb_all:
+            return ARCHETYPE_REGISTRY["LOGISTICS_OPERATOR"]
 
         if self._is_bank_symbol(symbol, entity_type):
             # Hard Constraint: thuộc ngành Ngân hàng → bắt buộc archetype ngân hàng.
