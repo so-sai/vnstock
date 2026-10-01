@@ -94,16 +94,27 @@ class TestRegistryAndMaps:
         assert BASELINE_MAP["VTP"] == "LOGISTICS_OPERATOR"
 
     def test_csi_maps_graceful_without_causal_edge(self, engine):
-        """CSI explain: 2 archetype mới CHƯA có causal edge → .get() trả None
-        (nhánh 'archetype không có causal edge' sẵn có), không KeyError."""
+        """CSI explain: SECURITIES_BROKER đã có causal chain (Sprint C2 PR1);
+        LOGISTICS_OPERATOR vẫn CHƯA có edge → .get() trả None, không KeyError."""
         from src.governor.csi_explain import ARCHETYPE_SOURCE_NODE, ARCHETYPE_TARGET_NODE
 
-        assert ARCHETYPE_TARGET_NODE.get("SECURITIES_BROKER") is None
+        assert ARCHETYPE_TARGET_NODE.get("SECURITIES_BROKER") == "MARGIN_INTEREST"
+        assert ARCHETYPE_SOURCE_NODE.get("SECURITIES_BROKER") == "INTEREST_RATE"
         assert ARCHETYPE_TARGET_NODE.get("LOGISTICS_OPERATOR") is None
-        assert ARCHETYPE_SOURCE_NODE.get("SECURITIES_BROKER") is None
         assert ARCHETYPE_SOURCE_NODE.get("LOGISTICS_OPERATOR") is None
         # sống: classifying đọc DNA từ registry — không ném lỗi, driver/sensitivities có dữ liệu
         for sym in ("CTS", "VTP"):
             arch = engine.classify(sym)
             assert arch.primary_driver
             assert arch.macro_sensitivities
+
+    def test_securities_broker_causal_chain_exists(self):
+        """Sprint C2 PR1: registry có ≥2 edge SECURITIES_BROKER, trace
+        INTEREST_RATE → MARGIN_INTEREST thông suốt (không phantom node)."""
+        from src.calibration.causal_edge import CausalGraph
+
+        cg = CausalGraph()
+        broker_edges = [e for e in cg.edges.values() if e.archetype == "SECURITIES_BROKER"]
+        assert len(broker_edges) >= 2
+        path = cg.trace_path("INTEREST_RATE", "MARGIN_INTEREST", "SECURITIES_BROKER")
+        assert path is not None and len(path) >= 1

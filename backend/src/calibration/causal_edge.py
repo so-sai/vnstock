@@ -794,6 +794,46 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         desc="Tariff policy → 3-13 weeks → export order book adjustment",
     )
 
+    # ═══════════════════════════════════════════════════════════════════
+    # SECURITIES_BROKER (CTS, VCI, VND, HCM — Sprint C2 PR1)
+    # ═══════════════════════════════════════════════════════════════════
+    # Primary chain: INTEREST_RATE → MARGIN_LOANS → MARGIN_INTEREST
+    # Endpoints reuse financial_facts.py (MARGIN_LOANS, MARGIN_INTEREST) —
+    # no phantom nodes. World→Macro hop (US10Y→INTEREST_RATE) already
+    # exists above, so full DAG: US10Y_YIELD → INTEREST_RATE →
+    # MARGIN_LOANS → MARGIN_INTEREST.
+    # Sensitivity: MARKET_TURNOVER, INTEREST_RATE, MARGIN_BALANCE, EQUITY_FLOW
+
+    _add(
+        "BROKER:INTEREST→MARGIN_LOANS",
+        "INTEREST_RATE",
+        "MARGIN_LOANS",
+        "MACRO→COMPANY",
+        lag_min=5,
+        lag_max=20,
+        confidence=0.85,
+        half_life=45,
+        attenuation=0.15,
+        arch="SECURITIES_BROKER",
+        factor="INTEREST_RATE",
+        desc="High rates → 1-4 weeks → lower margin loan demand (less leverage)",
+    )
+
+    _add(
+        "BROKER:MARGIN_LOANS→MARGIN_INTEREST",
+        "MARGIN_LOANS",
+        "MARGIN_INTEREST",
+        "COMPANY→METRIC",
+        lag_min=1,
+        lag_max=10,
+        confidence=0.90,
+        half_life=30,
+        attenuation=0.05,
+        arch="SECURITIES_BROKER",
+        factor="INTEREST_RATE",
+        desc="Margin book size → 1-10 days → margin interest income (volume-to-revenue)",
+    )
+
     return E
 
 
