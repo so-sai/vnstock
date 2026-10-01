@@ -4946,8 +4946,10 @@ def cmd_cafef_crawl(args):
         db, use_playwright=use_pw, delay=delay, incremental=incremental
     )
     if args.symbols:
-        entity_type = args.type or "STANDARD"
-        targets = [(s.upper(), entity_type) for s in args.symbols]
+        # WHY: resolve từng symbol (registry → static fallback) thay vì blanket
+        # STANDARD — scheduler chạy nightly KHÔNG có --type, blanket STANDARD
+        # từng đè VCB/ACB/HDB/MBB thành STANDARD (xem tests/test_resolve_crawl_targets).
+        targets = db.resolve_crawl_targets(args.symbols, args.type)
     else:
         targets = [
             ("FPT", "STANDARD"),

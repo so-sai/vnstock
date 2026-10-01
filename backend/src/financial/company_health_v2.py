@@ -514,8 +514,11 @@ class CompanyHealthV2:
             roe_z = self._z_score(roe_now, roe)
             scores.append(float(np.clip((roe_z + 2.0) / 4.0, 0, 1)))
 
-        # Asset turnover
-        if asset_turnover:
+        # Asset turnover — ONLY cho phi tài chính.
+        # WHY: AT ngân hàng ~0.02 (Doanh thu/Tổng tài sản 2 triệu tỷ) luôn bị
+        # clip về ~0.08 điểm, vô tình kéo Eff xuống "liệt" dù NIM/ROE khỏe —
+        # cấm tiệt AT cho nhóm tài chính (BANK), dùng NIM/ROE làm thước đo.
+        if asset_turnover and entity != "BANK":
             at = self._current_value(asset_turnover)
             scores.append(float(np.clip(at * 5, 0, 1)))
 

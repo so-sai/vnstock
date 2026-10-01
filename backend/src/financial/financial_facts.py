@@ -881,6 +881,22 @@ class FinancialFactsDB:
         # Fallback to static registry
         return ENTITY_TYPES.get(symbol.upper(), "STANDARD")
 
+    def resolve_crawl_targets(self, symbols: list[str], explicit_type: str | None = None) -> list[tuple[str, str]]:
+        """Build crawl targets [(symbol, entity_type)] không ghi đè registry.
+
+        WHY: `ptck cafef-crawl --symbols ...` chạy scheduler mỗi đêm mà không
+        truyền --type; cách cũ (`args.type or "STANDARD"`) đè STANDARD lên
+        ngân hàng (VCB/ACB/HDB/MBB) và crawl BCTC bằng khung metric sai.
+        Resolve từng symbol từ registry (fallback static ENTITY_TYPES) —
+        read-only, không gọi register_entity.
+        """
+        targets = []
+        for s in symbols:
+            sym = s.upper()
+            et = (explicit_type or self.get_entity_type(sym)).upper()
+            targets.append((sym, et))
+        return targets
+
     def register_entity(self, symbol: str, entity_type: str, full_name: str | None = None):
         """Đăng ký entity vào registry."""
         conn = self.connect()
