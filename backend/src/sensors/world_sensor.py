@@ -530,7 +530,8 @@ class WorldSensor:
 
         # ── Layer 2: FRED API (canonical US macro data) ─────────────
         fred = _fetch_fred_all()
-        qt_balance = _scale_fred_asset(fred.get("FED_ASSETS"))
+        qt_raw = fred.get("FED_ASSETS")
+        qt_balance = _scale_fred_asset(qt_raw)
         reserves = _scale_fred_reserves(fred.get("RESERVES"))
         us10y = fred.get("US10Y")
         usd_idx = fred.get("USD_INDEX")
@@ -554,6 +555,10 @@ class WorldSensor:
         dissent_factor = dissent / (max_historical_dissent + 1)
         qt_surprise = max(0.0, (8.0 - qt_balance) / 8.0) if qt_balance > 0 else 0.0
         fed_uncertainty = round(min(1.0, dissent_factor * 0.6 + qt_surprise * 0.4), 4)
+        # Provenance (Sprint C2 P1c): 0.00 nhập nhằng giữa consensus thật và
+        # missing data — khi QT leg thiếu (không FRED key), term thứ hai bị ép 0
+        # câm. Tag để tầng hiển thị không ngộ nhận thành "đồng thuận tuyệt đối".
+        unc_provenance = "MISSING_DATA" if qt_raw is None else "MEASURED"
 
         raw = {
             "fed_target_rate": fed_rate,
@@ -566,6 +571,7 @@ class WorldSensor:
             "implied_hike_prob": hike_prob,
             "next_meeting": meeting,
             "fed_uncertainty": fed_uncertainty,
+            "fed_uncertainty_provenance": unc_provenance,
         }
 
         _write_cache(raw)
@@ -585,6 +591,10 @@ class WorldSensor:
         raw.setdefault("implied_hike_prob", 0.0)
         raw.setdefault("next_meeting", "unknown")
         raw.setdefault("fed_uncertainty", 0.0)
+        # Cache cũ (pre-C2) không có key này → suy luận từ QT leg: balance
+        # thật không bao giờ = 0 (thực tế ~6-7T), nên qt falsy ⇒ leg thiếu.
+        if "fed_uncertainty_provenance" not in raw:
+            raw["fed_uncertainty_provenance"] = "MISSING_DATA" if not raw.get("qt_balance_tr") else "UNKNOWN"
         return raw
 
     def status(self) -> dict:
@@ -604,5 +614,6 @@ class WorldSensor:
                 "implied_hike_prob": 0.0,
                 "next_meeting": "unknown",
                 "fed_uncertainty": 0.0,
+                "fed_uncertainty_provenance": "MISSING_DATA",
             }
         )

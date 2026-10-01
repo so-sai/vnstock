@@ -8,7 +8,8 @@ WHY (lỗi lệch vệt nguyên nhân cần sửa):
     override + chain INTEREST_RATE → RENTAL_YIELD (15-40D) + cạnh
     CONSUMER_SPENDING → OCCUPANCY (10-30D).
   - QUAN TRỌNG: KHÔNG được đổi ARCHETYPE_TARGET_NODE[RETAIL_PLATFORM],
-    vì sẽ contaminate MWG/PNJ/SSI (shared archetype, trace_path filter theo archetype).
+    vì sẽ contaminate MWG/PNJ (shared archetype, trace_path filter theo archetype).
+    (SSI đã migrate sang SECURITIES_BROKER ở Sprint C2 PR4.)
 
 Run:  python -m pytest tests/test_reit_commercial.py -q   (từ backend/)
 """
@@ -33,9 +34,10 @@ class TestVREOverride:
         assert engine.classify("vre").archetype == "REIT_COMMERCIAL"
 
     def test_retail_platform_unchanged(self, engine):
-        """MWG/PNJ/SSI giữ RETAIL_PLATFORM — không bị REIT_COMMERCIAL đụng tới."""
+        """MWG/PNJ giữ RETAIL_PLATFORM — không bị REIT_COMMERCIAL đụng tới.
+        (SSI đã migrate sang SECURITIES_BROKER ở Sprint C2 PR4.)"""
         assert engine.classify("MWG").archetype == "RETAIL_PLATFORM"
-        assert engine.classify("SSI").archetype == "RETAIL_PLATFORM"
+        assert engine.classify("SSI").archetype == "SECURITIES_BROKER"
 
     def test_real_estate_developers_unchanged(self, engine):
         """BCM/VHM/SIP vẫn REAL_ESTATE_DEVELOPER."""

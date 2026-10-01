@@ -442,7 +442,7 @@ BASELINE_MAP: dict[str, str] = {
     "REE": "COMPOUNDER",  # Refrigeration Electrical — 40+ yr moat, diversified
     "GMD": "CYCLICAL_HEAVY",  # Gemadept — port operator, volume-cyclical
     "VGI": "REGULATED_UTILITY",  # Viettel Global — telecom infra, state-backed
-    "SSI": "RETAIL_PLATFORM",  # SSI Securities — brokerage platform
+    "SSI": "SECURITIES_BROKER",  # SSI Securities — brokerage platform (Sprint C2 PR4: causal chain MARGIN_* đã sẵn sàng)
     "BSR": "CYCLICAL_HEAVY",  # Binh Son Refining — oil refinery, crack-spread cyclical
     "QNS": "EXPORT_MANUFACTURER",  # Quang Ngai Sugar — commodity processor
     "TLG": "COMPOUNDER",  # Thien Long Group — stationery leader, strong brand

@@ -13,8 +13,8 @@ WHY (bug audit 2026-10-01):
     đổi target; BASELINE_MAP đóng băng CTS/VTP (audit-frozen contract).
 
 Invariant:
-  - Baseline (human-validated) thắng guard cấu trúc: SSI (RETAIL_PLATFORM),
-    GMD (CYCLICAL_HEAVY) KHÔNG đổi.
+  - Baseline (human-validated) thắng guard cấu trúc: SSI (SECURITIES_BROKER
+    từ Sprint C2 PR4), GMD (CYCLICAL_HEAVY) KHÔNG đổi.
   - Guard cấu trúc áp cho mã cùng ngành CHƯA có baseline (VCI/VND/HCM,
     VSC/HAH/PCT).
 
@@ -48,8 +48,8 @@ class TestSecuritiesBroker:
             assert engine.classify(sym).archetype == "SECURITIES_BROKER", sym
 
     def test_ssi_baseline_frozen_unchanged(self, engine):
-        """SSI giữ RETAIL_PLATFORM — baseline human-validated thắng guard."""
-        assert engine.classify("SSI").archetype == "RETAIL_PLATFORM"
+        """SSI → SECURITIES_BROKER (Sprint C2 PR4; trước đó RETAIL_PLATFORM scaffold)."""
+        assert engine.classify("SSI").archetype == "SECURITIES_BROKER"
 
 
 class TestLogisticsOperator:

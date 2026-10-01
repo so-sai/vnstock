@@ -36,10 +36,11 @@ class TestICBSectorConstraint:
         assert engine.classify("VHM").archetype == "REAL_ESTATE_DEVELOPER"
 
     def test_non_real_estate_unchanged(self, engine):
-        """Non-BĐS symbols KHÔNG được đổi archetype."""
+        """Non-BĐS symbols KHÔNG bị ICB constraint đổi archetype.
+        (SSI → SECURITIES_BROKER là đổi baseline có chủ ý ở Sprint C2 PR4.)"""
         assert engine.classify("MWG").archetype == "RETAIL_PLATFORM"
         assert engine.classify("FPT").archetype == "COMPOUNDER"
-        assert engine.classify("SSI").archetype == "RETAIL_PLATFORM"
+        assert engine.classify("SSI").archetype == "SECURITIES_BROKER"
 
     def test_pnj_baseline_retail_not_compounder(self):
         """PNJ jewelry → RETAIL_PLATFORM (BASELINE), không rơi ratio→COMPOUNDER (D2)."""

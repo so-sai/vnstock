@@ -180,6 +180,10 @@ class CSIExplainEngine:
         FED_UNCERTAINTY). This satisfies the Facts-vs-Surprise contract.
         """
         w = self._get_world()
+        # Provenance (Sprint C2 P1c): 0.00 trần từng ngộ nhận thành consensus —
+        # khi sensor tag MISSING_DATA thì render N/A thay vì số 0 giả.
+        _unc_missing = w.get("fed_uncertainty_provenance") == "MISSING_DATA"
+        _unc_val = None if _unc_missing else w.get("fed_uncertainty")
         nodes = [
             {
                 "node": "FED_TARGET_RATE",
@@ -220,8 +224,8 @@ class CSIExplainEngine:
                 "node": "FED_UNCERTAINTY",
                 "kind": "surprise",
                 "label": "Policy uncertainty (dissent)",
-                "value": w.get("fed_uncertainty"),
-                "display": f"{w.get('fed_uncertainty'):.2f}" if w.get("fed_uncertainty") is not None else "0.00",
+                "value": _unc_val,
+                "display": "N/A (thiếu DL)" if _unc_missing else (f"{_unc_val:.2f}" if _unc_val is not None else "0.00"),
             },
         ]
         return nodes

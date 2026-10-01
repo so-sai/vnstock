@@ -107,3 +107,49 @@ class TestMacroHistoryFallback:
         w = CSIExplainEngine()._get_world()
         assert w["usd_index"] == 0.0
         assert w["us10y_yield"] == 0.0
+
+
+class TestFedUncertaintyProvenance:
+    """Sprint C2 P1c: FED_UNCERTAINTY=0.00 phải phân biệt consensus thật vs
+    missing data (QT leg thiếu do không có FRED key)."""
+
+    def _fetch_with_fred(self, monkeypatch, fred_vals):
+        import src.sensors.world_sensor as ws
+
+        monkeypatch.setattr(ws, "_fetch_fred_all", lambda: dict(fred_vals))
+        monkeypatch.setattr(ws, "_fetch_yfinance_fallback", lambda: {})
+        monkeypatch.setattr(ws, "_fetch_cme_fedwatch", lambda: (5.5, 0.0, "unknown"))
+        monkeypatch.setattr(ws, "_fetch_fomc_dissent", lambda: 0)
+        monkeypatch.setattr(ws, "_write_cache", lambda data: None)
+        return ws.WorldSensor(use_cache=False).fetch(force_refresh=True)
+
+    def test_missing_qt_tags_missing_data(self, monkeypatch):
+        """FRED trả None (thiếu key) → tag MISSING_DATA, không phải MEASURED."""
+        state = self._fetch_with_fred(
+            monkeypatch,
+            {"FED_ASSETS": None, "RESERVES": None, "US10Y": None, "USD_INDEX": None},
+        )
+        assert state["fed_uncertainty"] == 0.0
+        assert state["fed_uncertainty_provenance"] == "MISSING_DATA"
+
+    def test_present_qt_tags_measured(self, monkeypatch):
+        """FRED có số → tag MEASURED."""
+        state = self._fetch_with_fred(
+            monkeypatch,
+            {"FED_ASSETS": 6747704.0, "RESERVES": 3100000.0, "US10Y": 4.2, "USD_INDEX": 100.5},
+        )
+        assert state["fed_uncertainty_provenance"] == "MEASURED"
+
+    def test_csi_renders_na_when_missing(self, monkeypatch):
+        """Provenance MISSING_DATA → _world_nodes render N/A, không render 0.00."""
+        from src.sensors.world_sensor import WorldSensor
+
+        def _status(self, *args, **kwargs):
+            d = _world_with()
+            d["fed_uncertainty_provenance"] = "MISSING_DATA"
+            return d
+
+        monkeypatch.setattr(WorldSensor, "status", _status)
+        nodes = {n["node"]: n for n in CSIExplainEngine()._world_nodes()}
+        assert nodes["FED_UNCERTAINTY"]["display"] == "N/A (thiếu DL)"
+        assert nodes["FED_UNCERTAINTY"]["value"] is None
