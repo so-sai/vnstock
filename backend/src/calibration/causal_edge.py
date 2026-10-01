@@ -834,6 +834,64 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         desc="Margin book size → 1-10 days → margin interest income (volume-to-revenue)",
     )
 
+    # ═══════════════════════════════════════════════════════════════════
+    # LOGISTICS_OPERATOR (VTP, VSC, HAH, PCT — Sprint C3)
+    # ═══════════════════════════════════════════════════════════════════
+    # Primary chain: GLOBAL_DEMAND → REVENUE → OPERATING_PROFIT
+    # Cost leg: OIL_PRICE → OPERATING_EXPENSE (fuel exposure).
+    # Endpoints reuse VTP standard facts (REVENUE, OPERATING_PROFIT,
+    # OPERATING_EXPENSE) — no phantom nodes. factor=None on demand legs:
+    # no registered FactorDef matches GLOBAL_DEMAND (GDP_GROWTH is
+    # VN-specific); honest None beats wrong linkage.
+    # NOTE (TH B): GLOBAL_DEMAND has no incoming World edge (orphan source,
+    # same precedent as OIL_PRICE for REGULATED_UTILITY) — company leg
+    # still traces standalone; world-leg continuity is C3-1 scope.
+
+    _add(
+        "LOGI:GLOBAL_DEMAND→REVENUE",
+        "GLOBAL_DEMAND",
+        "REVENUE",
+        "MACRO→COMPANY",
+        lag_min=5,
+        lag_max=20,
+        confidence=0.80,
+        half_life=90,
+        attenuation=0.20,
+        arch="LOGISTICS_OPERATOR",
+        factor=None,
+        desc="Trade demand (+) → 1-4 weeks → volume x rate → transport revenue",
+    )
+
+    _add(
+        "LOGI:REVENUE→OPERATING_PROFIT",
+        "REVENUE",
+        "OPERATING_PROFIT",
+        "COMPANY→METRIC",
+        lag_min=1,
+        lag_max=10,
+        confidence=0.85,
+        half_life=30,
+        attenuation=0.05,
+        arch="LOGISTICS_OPERATOR",
+        factor=None,
+        desc="Revenue (+) → 1-10 days → operating profit (earning transmission)",
+    )
+
+    _add(
+        "LOGI:OIL_PRICE→OPERATING_EXPENSE",
+        "OIL_PRICE",
+        "OPERATING_EXPENSE",
+        "MACRO→COMPANY",
+        lag_min=1,
+        lag_max=10,
+        confidence=0.80,
+        half_life=30,
+        attenuation=0.15,
+        arch="LOGISTICS_OPERATOR",
+        factor="OIL_PRICE",
+        desc="Fuel price (+) → 1-10 days → opex (regime-dependent: surcharge pass-through may mute margin impact)",
+    )
+
     return E
 
 

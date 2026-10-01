@@ -93,15 +93,17 @@ class TestRegistryAndMaps:
         assert BASELINE_MAP["CTS"] == "SECURITIES_BROKER"
         assert BASELINE_MAP["VTP"] == "LOGISTICS_OPERATOR"
 
-    def test_csi_maps_graceful_without_causal_edge(self, engine):
-        """CSI explain: SECURITIES_BROKER đã có causal chain (Sprint C2 PR1);
-        LOGISTICS_OPERATOR vẫn CHƯA có edge → .get() trả None, không KeyError."""
+    def test_csi_maps_archetype_coverage(self, engine):
+        """CSI explain: BROKER (C2) + LOGISTICS (C3) đã có mapping;
+        chỉ latent states (STEADY_EARNER/UNKNOWN) giữ None by-design."""
         from src.governor.csi_explain import ARCHETYPE_SOURCE_NODE, ARCHETYPE_TARGET_NODE
 
         assert ARCHETYPE_TARGET_NODE.get("SECURITIES_BROKER") == "MARGIN_INTEREST"
         assert ARCHETYPE_SOURCE_NODE.get("SECURITIES_BROKER") == "INTEREST_RATE"
-        assert ARCHETYPE_TARGET_NODE.get("LOGISTICS_OPERATOR") is None
-        assert ARCHETYPE_SOURCE_NODE.get("LOGISTICS_OPERATOR") is None
+        assert ARCHETYPE_TARGET_NODE.get("LOGISTICS_OPERATOR") == "OPERATING_PROFIT"
+        assert ARCHETYPE_SOURCE_NODE.get("LOGISTICS_OPERATOR") == "GLOBAL_DEMAND"
+        assert ARCHETYPE_TARGET_NODE.get("STEADY_EARNER") is None
+        assert ARCHETYPE_TARGET_NODE.get("UNKNOWN") is None
         # sống: classifying đọc DNA từ registry — không ném lỗi, driver/sensitivities có dữ liệu
         for sym in ("CTS", "VTP"):
             arch = engine.classify(sym)
@@ -117,4 +119,15 @@ class TestRegistryAndMaps:
         broker_edges = [e for e in cg.edges.values() if e.archetype == "SECURITIES_BROKER"]
         assert len(broker_edges) >= 2
         path = cg.trace_path("INTEREST_RATE", "MARGIN_INTEREST", "SECURITIES_BROKER")
+        assert path is not None and len(path) >= 1
+
+    def test_logistics_causal_chain_exists(self):
+        """Sprint C3: registry có ≥3 edge LOGISTICS_OPERATOR, trace
+        GLOBAL_DEMAND → OPERATING_PROFIT thông suốt (không phantom node)."""
+        from src.calibration.causal_edge import CausalGraph
+
+        cg = CausalGraph()
+        logi_edges = [e for e in cg.edges.values() if e.archetype == "LOGISTICS_OPERATOR"]
+        assert len(logi_edges) >= 3
+        path = cg.trace_path("GLOBAL_DEMAND", "OPERATING_PROFIT", "LOGISTICS_OPERATOR")
         assert path is not None and len(path) >= 1
