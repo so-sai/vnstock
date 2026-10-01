@@ -47,6 +47,7 @@ class CausalEdge:
       confidence:     [0, 1] — how certain the causal link is
       half_life:      days until effect decays 50%
       attenuation:    [0, 1] — information loss fraction per hop
+      polarity:      +1 (direct) | -1 (inverse) | 0 (unlabeled/regime-conditional) — C3-1
       archetype:      archetype this edge applies to (None = universal)
       factor_id:      linked FactorDef id (from factor_exposure.py)
       counter_examples: list of ISO date strings where link failed
@@ -62,6 +63,7 @@ class CausalEdge:
     confidence: float = 0.5
     half_life: float = 30.0
     attenuation: float = 0.0
+    polarity: int = 0
     archetype: str | None = None
     factor_id: str | None = None
     counter_examples: list[str] = field(default_factory=list)
