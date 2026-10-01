@@ -43,6 +43,25 @@ def crawler_full(db):
     return CafeFCrawler(db, incremental=False)
 
 
+class _FrozenDateTime(datetime):
+    """Clock frozen 2026-05-15 (giữa Q2/2026) — active season {2026Q2, 2026Q1}
+    giao với cửa sổ 20 quý (Q3/2021 → Q2/2026).
+
+    WHY: test phụ thuộc datetime.now() nổ từ 2026-10-01 (Q4): active season
+    {2026Q4, 2026Q3} nằm NGOÀI cửa sổ → seed đủ 20 quý → skip → fail.
+    Freeze clock để hành vi active-season tái crawl kiểm định được mọi ngày.
+    """
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 5, 15, 12, 0, 0)
+
+
+@pytest.fixture
+def frozen_active_season(monkeypatch):
+    monkeypatch.setattr("src.financial.cafef_crawler.datetime", _FrozenDateTime)
+
+
 def _seed_periods(db, symbol: str, periods: list, entity_type: str = "STANDARD"):
     """Seed financial_facts with dummy data for given periods."""
     conn = db.connect()
@@ -125,13 +144,13 @@ class TestGetMissingOrActiveQuarters:
         result = crawler_full.get_missing_or_active_quarters("FPT", quarters)
         assert result == quarters
 
-    def test_active_season_always_included(self, crawler, db):
+    def test_active_season_always_included(self, crawler, db, frozen_active_season):
         """Active-season quarters are always re-crawled even if they exist."""
         quarters = CafeFCrawler.generate_20_quarters()
         all_periods = [f"{y}Q{q}" for y, q in quarters]
         _seed_periods(db, "FPT", all_periods)
         result = crawler.get_missing_or_active_quarters("FPT", quarters)
-        now = datetime.now()
+        now = _FrozenDateTime.now()  # cùng đồng hồ với crawler (fixture frozen)
         current_q = (now.month - 1) // 3 + 1
         current_y = now.year
         # Q3/2026 is beyond the 20-quarter range (ends Q2/2026), so only Q2/2026
@@ -147,19 +166,19 @@ class TestGetMissingOrActiveQuarters:
 
 # ── Test: crawl_symbol incremental skip ───────────────────────
 class TestCrawlSymbolIncremental:
-    def test_skip_when_all_quarters_exist(self, crawler, db):
+    def test_skip_when_all_quarters_exist(self, crawler, db, frozen_active_season):
         """crawl_symbol skips non-active quarters; only active-season re-crawls."""
         quarters = CafeFCrawler.generate_20_quarters()
         all_periods = [f"{y}Q{q}" for y, q in quarters]
         _seed_periods(db, "FPT", all_periods)
         result = crawler.crawl_symbol("FPT", entity_type="STANDARD", source="synthetic")
-        # Active-season quarter (2026Q2) is always re-crawled, so the crawler
-        # does NOT skip entirely. It proceeds, finds no data from source (synthetic
-        # returns []), and reports empty.
+        # Active-season quarter (2026Q2, frozen clock) is always re-crawled, so
+        # the crawler does NOT skip entirely. It proceeds, finds no data from
+        # source (synthetic returns []), and reports empty.
         assert result.get("skipped_incremental") is not True
         # Verify the missing_quarters list only contains active-season quarters
         missing = crawler.get_missing_or_active_quarters("FPT", quarters)
-        now = datetime.now()
+        now = _FrozenDateTime.now()  # cùng đồng hồ với crawler (fixture frozen)
         current_q = (now.month - 1) // 3 + 1
         current_y = now.year
         # Active season: current quarter + previous quarter
