@@ -127,7 +127,39 @@ class CSIExplainEngine:
             except (KeyError, TypeError, ValueError, OSError) as e:
                 logger.warning("[CSI] WorldSensor load FAILED: %s — World layer empty", e)
                 self._world = {}
+            self._world = self._backfill_from_macro_history(self._world)
         return self._world
+
+    @staticmethod
+    def _backfill_from_macro_history(world: dict) -> dict:
+        """Lấp field world TRẢ VỀ falsy (0.0/None) từ macro_history mới nhất.
+
+        WHY: fed_policy_cache.json thiếu/hỏi (clone mới, xóa data, JSON hỏng)
+        → status() trả DEFAULT 0.0 → _world_nodes render "N/A" cho
+        DXY_USD/US10Y_YIELD, dù screener_cache.db (macro_history) có đủ
+        DXY/US10Y — nguồn EOD canonical (audit 2026-10-01, cụm 2).
+
+        Contract Zero-Hallucination: CHỈ lấp field falsy; giá trị cache thật
+        (truthy) không bao giờ bị ghi đè.
+        """
+        for key, variable in (("usd_index", "DXY"), ("us10y_yield", "US10Y")):
+            if world.get(key):
+                continue
+            try:
+                con = sqlite3.connect(f"file:{DATA_DIR / 'screener_cache.db'}?mode=ro", uri=True)
+                try:
+                    row = con.execute(
+                        "SELECT value FROM macro_history WHERE variable = ? AND value IS NOT NULL ORDER BY date DESC LIMIT 1",
+                        (variable,),
+                    ).fetchone()
+                finally:
+                    con.close()
+                if row and row[0]:
+                    world[key] = float(row[0])
+                    logger.debug("[CSI] world backfill %s=%s từ macro_history", key, row[0])
+            except (sqlite3.Error, TypeError, ValueError, OSError) as e:
+                logger.debug("[CSI] macro_history fallback %s failed: %s", variable, e)
+        return world
 
     def _get_perception(self) -> Any:
         if self._perception is None:
