@@ -104,6 +104,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence: float = 0.5,
         half_life: float = 30.0,
         attenuation: float = 0.0,
+        polarity: int = 0,
         arch: str | None = None,
         factor: str | None = None,
         desc: str = "",
@@ -118,6 +119,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
             confidence=confidence,
             half_life=half_life,
             attenuation=attenuation,
+            polarity=polarity,
             archetype=arch,
             factor_id=factor,
             description=desc,
@@ -166,6 +168,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.80,
         half_life=60,
         attenuation=0.10,
+        polarity=1,
         desc="Fed rate change → 1-30 days → USD index (rate differential channel)",
     )
 
@@ -179,6 +182,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.90,
         half_life=45,
         attenuation=0.05,
+        polarity=1,
         desc="Fed rate → 1-10 days → US 10Y yield (expectations channel)",
     )
 
@@ -192,6 +196,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.60,
         half_life=90,
         attenuation=0.15,
+        polarity=1,
         desc="FOMC dissent vote → 0-5 days → policy uncertainty premium",
     )
 
@@ -206,6 +211,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.70,
         half_life=120,
         attenuation=0.20,
+        polarity=-1,
         desc="Fed QT runoff → 2-8 weeks → global USD liquidity scarcity",
     )
 
@@ -219,6 +225,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.65,
         half_life=30,
         attenuation=0.10,
+        polarity=1,
         desc="Policy uncertainty → 0-3 days → risk-off flight-to-safety",
     )
 
@@ -233,6 +240,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.85,
         half_life=30,
         attenuation=0.08,
+        polarity=1,
         desc="USD strength → 1-10 days → VND depreciation pressure",
     )
 
@@ -246,6 +254,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.65,
         half_life=60,
         attenuation=0.20,
+        polarity=1,
         desc="US 10Y yield → 1-4 weeks → Vietnam domestic rate corridor",
     )
 
@@ -259,6 +268,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.60,
         half_life=45,
         attenuation=0.25,
+        polarity=-1,
         desc="Global liquidity → 3-21 days → Vietnam interbank liquidity tightness",
     )
 
@@ -272,6 +282,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.85,
         half_life=45,
         attenuation=0.10,
+        polarity=1,
         desc="Credit stress causes immediate liquidity hoarding at interbank",
     )
 
@@ -285,6 +296,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.70,
         half_life=30,
         attenuation=0.20,
+        polarity=-1,
         desc="Liquidity trap propagates to sector-level funding within 1-4 weeks",
     )
 
@@ -298,6 +310,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.90,
         half_life=20,
         attenuation=0.05,
+        polarity=1,
         desc="Credit stress instantly triggers risk-off behavior",
     )
 
@@ -311,6 +324,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.65,
         half_life=90,
         attenuation=0.15,
+        polarity=1,
         desc="Inflation shock feeds into overheating with 2-12 week lag",
     )
 
@@ -324,6 +338,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.75,
         half_life=120,
         attenuation=0.10,
+        polarity=1,
         desc="AI boom directly boosts IT sector demand within 1-6 weeks",
     )
 
@@ -337,6 +352,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.60,
         half_life=60,
         attenuation=0.20,
+        polarity=1,
         desc="Stable macro allows sector fundamentals to drive",
     )
 
@@ -350,6 +366,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.70,
         half_life=45,
         attenuation=0.15,
+        polarity=1,
         desc="Recovery triggers early-cycle sector rotation within 1-6 weeks",
     )
 
@@ -363,6 +380,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         confidence=0.85,
         half_life=25,
         attenuation=0.10,
+        polarity=1,
         desc="Risk-off instantly weakens most sector flows",
     )
 
@@ -384,6 +402,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.20,
         arch="COMPOUNDER",
         factor="AI_CAPEX",
+        polarity=1,
         desc="AI capex commitment → 1-4 months → IT service backlog build",
     )
 
@@ -399,6 +418,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.10,
         arch="COMPOUNDER",
         factor="AI_CAPEX",
+        polarity=1,
         desc="Backlog → 2-6 months → recognised revenue",
     )
 
@@ -414,6 +434,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.25,
         arch="COMPOUNDER",
         factor="GOV_IT_BUDGET",
+        polarity=1,
         desc="Gov IT budget approval → 1.5-5 months → backlog (slower procurement)",
     )
 
@@ -435,6 +456,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.10,
         arch="CYCLICAL_HEAVY",
         factor="STEEL_PRICE",
+        polarity=1,
         desc="Steel price change → 1-6 weeks → spread movement (HRC - raw)",
     )
 
@@ -450,6 +472,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.05,
         arch="CYCLICAL_HEAVY",
         factor="STEEL_PRICE",
+        polarity=1,
         desc="Spread converts to gross margin within 3-9 weeks (inventory turn)",
     )
 
@@ -465,6 +488,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.20,
         arch="CYCLICAL_HEAVY",
         factor="CONSTRUCTION",
+        polarity=1,
         desc="Construction activity → 3-12 weeks → steel order volume",
     )
 
@@ -480,6 +504,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.25,
         arch="CYCLICAL_HEAVY",
         factor="CHINA_DEMAND",
+        polarity=1,
         desc="China demand change → 3-21 days → HRC price (partially decoupled)",
     )
 
@@ -501,7 +526,9 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.10,
         arch="FRANCHISE_BANK",
         factor="INTEREST_RATE",
-        desc="Rate change → 3-12 weeks → NIM repricing (floating loans)",
+        polarity=0,
+        desc="Rate change -> 3-12 weeks -> NIM repricing (regime_conditional: "
+        "CASA-rich banks widen NIM in hikes; weak-funding banks get squeezed)",
     )
 
     _add(
@@ -516,6 +543,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.05,
         arch="FRANCHISE_BANK",
         factor="INTERBANK_ON",
+        polarity=1,
         desc="Interbank rate → instant to 1 week → bank funding cost",
     )
 
@@ -531,6 +559,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.15,
         arch="FRANCHISE_BANK",
         factor="CREDIT_GROWTH",
+        polarity=1,
         desc="SBV credit growth target → 2-9 weeks → loan book expansion",
     )
 
@@ -546,6 +575,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.20,
         arch="FRANCHISE_BANK",
         factor="NPL_CYCLE",
+        polarity=1,
         desc="NPL cycle deterioration → 1-4 months → provisioning expense",
     )
 
@@ -567,7 +597,9 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.15,
         arch="ASSET_BANK",
         factor="INTEREST_RATE",
-        desc="Rate change → 3-12 weeks → NIM repricing (asset bank, higher beta)",
+        polarity=0,
+        desc="Rate change -> 3-12 weeks -> NIM repricing (regime_conditional: "
+        "asset banks reprice faster but fund pricier; NIM direction CASA-dependent)",
     )
 
     _add(
@@ -582,6 +614,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.10,
         arch="ASSET_BANK",
         factor="INTERBANK_ON",
+        polarity=1,
         desc="Interbank rate → 1-10 days → bank funding cost (asset banks more sensitive)",
     )
 
@@ -597,6 +630,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.20,
         arch="ASSET_BANK",
         factor="CREDIT_STRESS",
+        polarity=1,
         desc="Credit stress → 1-3 months → NPL ratio deterioration (retail-heavy book)",
     )
 
@@ -618,6 +652,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.20,
         arch="REAL_ESTATE_DEVELOPER",
         factor="INTEREST_RATE",
+        polarity=-1,
         desc="Rate change → 1-4 months → buyer mortgage capacity → presales",
     )
 
@@ -633,6 +668,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.30,
         arch="REAL_ESTATE_DEVELOPER",
         factor="HOUSING_POLICY",
+        polarity=1,
         desc="Housing policy → 2-12 months → legal clearance → land bank release",
     )
 
@@ -654,6 +690,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.15,
         arch="RETAIL_PLATFORM",
         factor="CONSUMER_SPENDING",
+        polarity=1,
         desc="Consumer spending → 1-6 weeks → same-store sales growth",
     )
 
@@ -669,6 +706,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.20,
         arch="RETAIL_PLATFORM",
         factor="CONSUMER_SPENDING",
+        polarity=-1,
         desc="Inflation squeeze → 3-12 weeks → retail margin compression",
     )
 
@@ -691,6 +729,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.15,
         arch="REIT_COMMERCIAL",
         factor="INTEREST_RATE",
+        polarity=-1,
         desc="Rate change → 2-6 weeks → cap-rate/discount pressure → mall rental yield",
     )
 
@@ -706,6 +745,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.15,
         arch="REIT_COMMERCIAL",
         factor="CONSUMER_SPENDING",
+        polarity=1,
         desc="Consumer spending → 1-6 weeks → footfall → mall occupancy",
     )
 
@@ -727,6 +767,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.10,
         arch="REGULATED_UTILITY",
         factor="OIL_PRICE",
+        polarity=1,
         desc="Brent → 2-9 weeks → gas contract price (LNG/gas link)",
     )
 
@@ -742,6 +783,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.25,
         arch="REGULATED_UTILITY",
         factor="REGULATORY_TARIFF",
+        polarity=1,
         desc="Tariff decision → 1-6 months → revenue impact",
     )
 
@@ -763,6 +805,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.10,
         arch="EXPORT_MANUFACTURER",
         factor="USD_VND",
+        polarity=1,
         desc="USD/VND → 1-6 weeks → export gross margin",
     )
 
@@ -778,6 +821,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.15,
         arch="EXPORT_MANUFACTURER",
         factor="USD_VND",
+        polarity=1,
         desc="Freight cost → 1-4 weeks → logistics expense",
     )
 
@@ -793,6 +837,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.25,
         arch="EXPORT_MANUFACTURER",
         factor="USD_VND",
+        polarity=-1,
         desc="Tariff policy → 3-13 weeks → export order book adjustment",
     )
 
@@ -818,6 +863,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.15,
         arch="SECURITIES_BROKER",
         factor="INTEREST_RATE",
+        polarity=-1,
         desc="High rates → 1-4 weeks → lower margin loan demand (less leverage)",
     )
 
@@ -833,6 +879,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.05,
         arch="SECURITIES_BROKER",
         factor="INTEREST_RATE",
+        polarity=1,
         desc="Margin book size → 1-10 days → margin interest income (volume-to-revenue)",
     )
 
@@ -861,6 +908,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.20,
         arch="LOGISTICS_OPERATOR",
         factor=None,
+        polarity=1,
         desc="Trade demand (+) → 1-4 weeks → volume x rate → transport revenue",
     )
 
@@ -876,6 +924,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.05,
         arch="LOGISTICS_OPERATOR",
         factor=None,
+        polarity=1,
         desc="Revenue (+) → 1-10 days → operating profit (earning transmission)",
     )
 
@@ -891,6 +940,7 @@ def build_edge_registry() -> dict[str, CausalEdge]:
         attenuation=0.15,
         arch="LOGISTICS_OPERATOR",
         factor="OIL_PRICE",
+        polarity=1,
         desc="Fuel price (+) → 1-10 days → opex (regime-dependent: surcharge pass-through may mute margin impact)",
     )
 
