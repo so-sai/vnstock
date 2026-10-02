@@ -102,6 +102,36 @@ ARCHETYPE_SOURCE_NODE = {
 # log2(5) ≈ 2.322. Chain confidence = 1 - entropy / H_max.
 MAX_ENTROPY = 2.322
 
+# ── C3-6: action → hướng narrative để đối chiếu với dấu cấu trúc chuỗi ──
+# Chỉ action nào là khẳng định hướng mới được adjudicate; HOLD/WAIT/N/A
+# không có khẳng định để mâu thuẫn -> đứng ngoài (zero-hallucination).
+_ACTION_DIRECTION = {
+    "OPEN": "BULLISH",
+    "SCALE_IN": "BULLISH",
+    "REDUCE": "BEARISH",
+    "AVOID": "BEARISH",
+    "VETO": "BEARISH",
+}
+
+
+def _reconcile_action_polarity(symbol: str, trace: dict, action: str) -> Any:
+    """C3-6 hook (log-only): đối chiếu dấu cấu trúc chuỗi vs hướng của action.
+
+    Trả về ReconcileResult khi action là khẳng định hướng (mọi consumer đều
+    nhận warning POLARITY_NARRATIVE_CONFLICT khi xung đột); None khi không
+    có khẳng định để phán. Render KHÔNG đổi — cờ hiển thị là bước riêng.
+    """
+    from calibration.polarity_reconcile import calculate_path_sign, reconcile
+
+    narrative = _ACTION_DIRECTION.get(action)
+    if narrative is None:
+        return None
+    hops: list[dict] = []
+    for leg in (trace.get("world_to_vn"), trace.get("company_leg")):
+        if leg:
+            hops.extend(leg.get("hops") or [])
+    return reconcile(calculate_path_sign(hops), narrative, context=symbol)
+
 
 class CSIExplainEngine:
     """Build the causal DAG trace + confidence for a single symbol."""
@@ -446,6 +476,10 @@ class CSIExplainEngine:
                     hop_confidences.append(hop.get("compounded_confidence", 0.0))
         edge_chain_conf = hop_confidences[-1] if hop_confidences else chain_conf
         csi_confidence = round(0.7 * chain_conf + 0.3 * edge_chain_conf, 3)
+
+        # C3-6 — reconciliation hook (log-only): dấu cấu trúc vs hướng action.
+        # Conflict -> logger.warning POLARITY_MISMATCH; render giữ nguyên.
+        _reconcile_action_polarity(symbol, trace, csi.get("action", "N/A"))
 
         return {
             "symbol": symbol,

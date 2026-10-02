@@ -1082,6 +1082,7 @@ class CausalGraph:
                     "factor_id": e.factor_id,
                     "counter_examples": e.counter_examples,
                     "description": e.description,
+                    "polarity": e.polarity,
                 }
                 _dfs(e.target, target, next_conf, lag_min + e.lag_min, lag_max + e.lag_max, next_atten, path + [hop], visited)
             visited.remove(node)
