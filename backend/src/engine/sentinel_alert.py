@@ -97,7 +97,8 @@ def evaluate_sentinel_status():
         # 3. Thu thập dữ liệu Dòng tiền (Foreign Net)
         with get_connection() as conn:
             df_foreign = pd.read_sql(
-                "SELECT date, SUM(net_value) as net_sum FROM market_foreign_history GROUP BY date ORDER BY date DESC LIMIT 3",
+                "SELECT date, SUM(net_value) as net_sum FROM market_foreign_history "
+                "WHERE flow_kind = 'daily' GROUP BY date ORDER BY date DESC LIMIT 3",
                 conn,
             )
 

@@ -20,13 +20,13 @@ def _hydrate_path():
 
 
 PROJECT_ROOT = _hydrate_path()
-import sqlite3
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
 
 from src.database.db_core import get_connection, save_data_upsert
+from src.database.foreign_flow_guard import DAILY_FLOW_FILTER, guard_foreign_frame
 from src.providers.vnstock_provider import VnstockProvider
 from src.utils.defense import CircuitBreaker
 
@@ -61,9 +61,23 @@ class MoneyFlowEngine:
             stats = cp.trading_stats(symbol, show_log=self.show_log)
             if stats is None or stats.empty:
                 return None
-            f_vol_val = stats.iloc[0].get("foreign_volume", 0)
-            f_vol: int = int(f_vol_val)
-            snapshot = {"symbol": symbol, "date": datetime.now().strftime("%Y-%m-%d"), "foreign_vol": f_vol}
+            stats_row = stats.iloc[0]
+            f_buy = stats_row.get("foreign_buy_volume")
+            f_sell = stats_row.get("foreign_sell_volume")
+            if f_buy is not None and f_sell is not None:
+                # Dòng NGÀY: net = KL mua ngoại - KL bán ngoại
+                f_vol: int = int(f_buy)
+                net_vol: int = int(f_buy) - int(f_sell)
+            else:
+                # vnstock trading_stats(foreign_volume) = KL ngoại ròng của phiên
+                f_vol = int(stats_row.get("foreign_volume", 0) or 0)
+                net_vol = f_vol
+            snapshot = {
+                "symbol": symbol,
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "foreign_vol": f_vol,
+                "net_vol": net_vol,
+            }
             self._session_cache[symbol] = snapshot
             return snapshot
         except Exception as e:  # noqa: BLE001 - cố ý bắt rộng để fallback/phòng thủ an toàn
@@ -88,47 +102,41 @@ class MoneyFlowEngine:
         if not records:
             return pd.DataFrame()
         df_new: pd.DataFrame = pd.DataFrame(records)
+        if "net_vol" not in df_new.columns:
+            df_new["net_vol"] = 0
+        target_date = str(df_new["date"].iloc[0])
         with get_connection() as conn:
+            closes: dict[str, float] = {}
+            for sym in df_new["symbol"]:
+                r = conn.execute(
+                    "SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?",
+                    (str(sym), target_date),
+                ).fetchone()
+                closes[str(sym)] = float(r[0]) if r and r[0] else 0.0
+            df_new["close"] = [closes.get(str(s), 0.0) for s in df_new["symbol"]]
+            # net_value (tỷ đồng) = dòng NGÀY * giá / 1e9 — KHÔNG diff snapshot, KHÔNG ×1000
+            df_new["net_value"] = (df_new["net_vol"].astype(float) * df_new["close"]) / 1e9
+            clean, _rep = guard_foreign_frame(df_new, target_date)  # raise nếu dính chữ ký "level"
             save_data_upsert("market_foreign_history", df_new[["symbol", "date", "foreign_vol"]], conn)
-            for _, row in df_new.iterrows():
-                self._calculate_net_flow(
-                    symbol=str(row["symbol"]),
-                    date=str(row["date"]),
-                    current_vol=int(row["foreign_vol"]),
-                    conn=conn,
+            for _, row in clean.iterrows():
+                conn.execute(
+                    "UPDATE market_foreign_history SET net_vol = ?, net_value = ?, flow_kind = 'daily' "
+                    "WHERE symbol = ? AND date = ?",
+                    (int(row["net_vol"]), float(row["net_value"]), str(row["symbol"]), target_date),
                 )
-        return df_new
-
-    def _calculate_net_flow(self, symbol: str, date: str, current_vol: int, conn: sqlite3.Connection) -> None:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT foreign_vol FROM market_foreign_history WHERE symbol = ? AND date < ? ORDER BY date DESC LIMIT 1",
-            (symbol, date),
-        )
-        result = cursor.fetchone()
-        if result:
-            prev_vol_val: int = int(result[0])
-            net_vol: int = current_vol - prev_vol_val
-            cursor.execute("SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?", (symbol, date))
-            price_res = cursor.fetchone()
-            price: float = float(price_res[0]) if price_res else 0.0
-            net_value: float = (net_vol * price * 1000.0) / 1e9
-            cursor.execute(
-                "UPDATE market_foreign_history SET net_vol = ?, net_value = ? WHERE symbol = ? AND date = ?",
-                (net_vol, net_value, symbol, date),
-            )
             conn.commit()
+        return df_new
 
     def get_accumulation(self, symbol: str, days: int = 10) -> float:
         with get_connection() as conn:
-            query = (
-                f"SELECT SUM(net_value) FROM (SELECT net_value FROM market_foreign_history "
-                f"WHERE symbol = '{symbol}' ORDER BY date DESC LIMIT {days})"
-            )
             cursor = conn.cursor()
-            cursor.execute(query)
+            cursor.execute(
+                "SELECT SUM(net_value) FROM (SELECT net_value FROM market_foreign_history "
+                f"WHERE symbol = ? AND {DAILY_FLOW_FILTER} ORDER BY date DESC LIMIT ?)",
+                (symbol, days),
+            )
             result = cursor.fetchone()
-            return float(result[0]) if result[0] is not None else 0.0
+            return float(result[0]) if result and result[0] is not None else 0.0
 
 
 if __name__ == "__main__":

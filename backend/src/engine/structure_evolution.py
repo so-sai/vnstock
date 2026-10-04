@@ -645,7 +645,8 @@ class StructureEvolutionLayer:
         """Dòng vốn ngoại 10 phiên TÍNH ĐẾN T (không vượt quá as_of)."""
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT SUM(net_value) FROM market_foreign_history WHERE date <= ? AND date >= date(?, '-10 days')",
+                "SELECT SUM(net_value) FROM market_foreign_history "
+                "WHERE date <= ? AND date >= date(?, '-10 days') AND flow_kind = 'daily'",
                 (self.as_of, self.as_of),
             ).fetchone()
         return float(row[0]) if row and row[0] else 0.0

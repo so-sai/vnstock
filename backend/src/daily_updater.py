@@ -37,6 +37,7 @@ from src.database.data_freshness import ensure_table as ensure_freshness_table
 from src.database.data_freshness import upsert_freshness
 from src.database.data_quality_failover import FailoverMultiSourceAdapter
 from src.database.db_core import get_connection, optimize_sqlite_engine, safe_json_dump, save_data_upsert
+from src.database.foreign_flow_guard import ForeignFlowViolation, guard_foreign_frame
 
 # Canonical Asset Registry
 _LIBS = PROJECT_ROOT / "backend" / "libs"
@@ -317,6 +318,18 @@ def drop_untraded_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 @retry_with_backoff("update_market_batch", max_retries=2, base_delay=10)
 def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batch_size: int = 50, throttle_sec: float = 1.8):
+    # BACKFILL_BLOCKED (P0 2026-10-02): price_board() là snapshot real-time
+    # KHÔNG có date param — stamp `date = target_date` từng ghi 902/903 mã
+    # (close, volume) giống hệt nhau vào 30/09↔01/10 (silent poisoning).
+    # Ngày quá khứ BẮT BUỘC đi qua backfill_market_history() (G1/G2/G3 guard).
+    _today = datetime.now().strftime("%Y-%m-%d")
+    if target_date != _today:
+        logger.critical(
+            "BACKFILL_BLOCKED: update_market_batch(target=%s) chỉ hợp lệ với hôm nay (%s) — price_board không date-aware",
+            target_date,
+            _today,
+        )
+        return 0, len(symbols), 0
     success = 0
     failed = 0
     skipped = 0
@@ -405,12 +418,29 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                 df_save["net_vol"] = df_save["foreign_vol"] - df_save["foreign_sell_volume"]
                 df_save["net_value"] = (df_save["net_vol"] * df_save["close"]) / 1_000_000_000
 
+                # F3 guard: loại row vượt ngưỡng / sai bất biến đơn vị; chặn cả phiên nếu là "level"
+                df_foreign_clean = None
+                try:
+                    df_foreign_clean, _frep = guard_foreign_frame(
+                        df_save[["symbol", "date", "foreign_vol", "net_vol", "net_value", "close"]],
+                        target_date,
+                    )
+                    df_foreign_clean["flow_kind"] = "daily"
+                except ForeignFlowViolation as _fv:
+                    logger.critical(
+                        "FOREIGN_FLOW_BLOCKED target=%s: %s — BỎ ghi foreign batch này (missing > fake)",
+                        target_date,
+                        _fv,
+                    )
+                    df_foreign_clean = None
+
                 cols_ohlcv = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
-                cols_foreign = ["symbol", "date", "foreign_vol", "net_vol", "net_value"]
+                cols_foreign = ["symbol", "date", "foreign_vol", "net_vol", "net_value", "flow_kind"]
 
                 with get_connection() as conn:
                     save_data_upsert("daily_ohlcv", df_save[cols_ohlcv], conn)
-                    save_data_upsert("market_foreign_history", df_save[cols_foreign], conn)
+                    if df_foreign_clean is not None and not df_foreign_clean.empty:
+                        save_data_upsert("market_foreign_history", df_foreign_clean[cols_foreign], conn)
 
                 # Cache freshness: đánh dấu dữ liệu mới cho mỗi symbol
                 ensure_freshness_table()
@@ -1255,13 +1285,28 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         armor = EliteArmor()
         logger.info(f"📦 Tổng số mã cần cập nhật: {len(symbols_in_db)}")
 
-        success, failed, skipped = update_market_batch(
-            symbols_in_db,
-            target_date,
-            armor,
-            batch_size=batch_size,
-            throttle_sec=throttle_sec,
-        )
+        if target_date == datetime.now().strftime("%Y-%m-%d"):
+            report["market_path"] = "price_board_snapshot"
+            success, failed, skipped = update_market_batch(
+                symbols_in_db,
+                target_date,
+                armor,
+                batch_size=batch_size,
+                throttle_sec=throttle_sec,
+            )
+        else:
+            from src.services.market_backfill import backfill_market_history
+
+            report["market_path"] = "history_backfill"
+            logger.warning(
+                "⏪ Backfill %s: history-path + G1/G2/G3 guard (price_board BỊ CHẶN — BACKFILL_BLOCKED)",
+                target_date,
+            )
+            success, failed, skipped = backfill_market_history(
+                symbols_in_db,
+                target_date,
+                throttle_sec=throttle_sec,
+            )
         report["market_success"] = success
         report["market_failed"] = failed
         report["market_skipped"] = skipped

@@ -226,6 +226,7 @@ def optimize_sqlite_engine():
                 foreign_vol INTEGER,
                 net_vol INTEGER,
                 net_value REAL,
+                flow_kind TEXT DEFAULT 'daily',
                 PRIMARY KEY (symbol, date)
             )
         """)

@@ -282,7 +282,7 @@ class LiquidityRecoveryIndex:
                 row = conn.execute(
                     "SELECT SUM(net_value) FROM ("
                     "  SELECT date, net_value FROM market_foreign_history "
-                    "  WHERE symbol = 'TOTAL' AND date <= ? "
+                    "  WHERE symbol = 'TOTAL' AND date <= ? AND flow_kind = 'daily' "
                     "  ORDER BY date DESC LIMIT 10"
                     ")",
                     (target_date,),
@@ -291,7 +291,7 @@ class LiquidityRecoveryIndex:
                 row = conn.execute(
                     "SELECT SUM(net_value) FROM ("
                     "  SELECT date, net_value FROM market_foreign_history "
-                    "  WHERE symbol = 'TOTAL' "
+                    "  WHERE symbol = 'TOTAL' AND flow_kind = 'daily' "
                     "  ORDER BY date DESC LIMIT 10"
                     ")"
                 ).fetchone()
@@ -300,13 +300,14 @@ class LiquidityRecoveryIndex:
             if target_date:
                 row2 = conn.execute(
                     "SELECT SUM(net_value) FROM market_foreign_history "
-                    "WHERE date = (SELECT MAX(date) FROM market_foreign_history WHERE date <= ?)",
+                    "WHERE date = (SELECT MAX(date) FROM market_foreign_history "
+                    "WHERE date <= ? AND flow_kind = 'daily')",
                     (target_date,),
                 ).fetchone()
             else:
                 row2 = conn.execute(
                     "SELECT SUM(net_value) FROM market_foreign_history "
-                    "WHERE date = (SELECT MAX(date) FROM market_foreign_history)"
+                    "WHERE date = (SELECT MAX(date) FROM market_foreign_history WHERE flow_kind = 'daily')"
                 ).fetchone()
             return float(row2[0]) if row2 and row2[0] is not None else None
         except sqlite3.Error:

@@ -227,7 +227,7 @@ class PerSymbolAbsorption:
             self.foreign = pd.read_sql(
                 """SELECT date, foreign_vol, net_vol, net_value
                    FROM market_foreign_history
-                   WHERE symbol = ? AND date >= ?
+                   WHERE symbol = ? AND date >= ? AND flow_kind = 'daily'
                    ORDER BY date""",
                 conn,
                 params=[self.symbol, (datetime.now() - timedelta(days=LOOKBACK * 4)).strftime("%Y-%m-%d")],

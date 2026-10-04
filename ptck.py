@@ -218,10 +218,11 @@ def cmd_report(args):
             sys.argv += ["--month", month]
         if lang:
             sys.argv += ["--lang", lang]
-        exec(
-            open(
-                backend_dir / "src" / "tools" / "market_report.py", encoding="utf-8-sig"
-            ).read()
+        _mr_path = backend_dir / "src" / "tools" / "market_report.py"
+        _mr_ns = {"__name__": "__main__", "__file__": str(_mr_path)}
+        exec(  # noqa: S102 — chạy market_report.py như __main__ trong namespace riêng
+            compile(_mr_path.read_text(encoding="utf-8-sig"), str(_mr_path), "exec"),
+            _mr_ns,
         )
     else:
         print(

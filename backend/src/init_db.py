@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS symbol_industry (
 CREATE TABLE IF NOT EXISTS market_foreign_history (
     symbol TEXT NOT NULL, date TEXT NOT NULL,
     foreign_vol INTEGER, net_vol INTEGER, net_value REAL,
+    flow_kind TEXT DEFAULT 'daily',
     PRIMARY KEY (symbol, date)
 );
 CREATE TABLE IF NOT EXISTS macro_history (

@@ -8,7 +8,8 @@ _STATE_PATH = Path(__file__).resolve().parents[3] / "backend" / "data" / "system
 
 _DEFAULT = {
     "version": 2,
-    "portfolio_critical_lock": False,
+    # Fail-closed: mất state / lỗi đọc file JSON → KHÓA chặt (không bao giờ fail-open).
+    "portfolio_critical_lock": True,
     "total_stale_pct": 0.0,
     "escrow_balance": 0.0,
     "last_updated": None,
@@ -50,7 +51,7 @@ def _write(state: dict):
 
 
 def is_locked() -> bool:
-    return _read().get("portfolio_critical_lock", False)
+    return _read().get("portfolio_critical_lock", True)
 
 
 def lock(total_stale_pct: float):
@@ -69,7 +70,7 @@ def unlock():
 
 def get_state() -> dict:
     s = _read()
-    s["locked"] = s.get("portfolio_critical_lock", False)
+    s["locked"] = s.get("portfolio_critical_lock", True)
     return s
 
 

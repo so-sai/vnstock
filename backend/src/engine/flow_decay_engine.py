@@ -369,7 +369,8 @@ def build_foreign_decay(symbol: str, half_life_days: float = 10.0, regime: str |
     with get_connection() as conn:
         n_days = int(max(30, half_life_days * 3))
         df = pd.read_sql(
-            f"SELECT date, net_value FROM market_foreign_history WHERE symbol = ? ORDER BY date DESC LIMIT {n_days}",
+            "SELECT date, net_value FROM market_foreign_history "
+            f"WHERE symbol = ? AND flow_kind = 'daily' ORDER BY date DESC LIMIT {n_days}",
             conn,
             params=(symbol,),
         )

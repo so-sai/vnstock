@@ -26,11 +26,28 @@ def make_mgr(**kw):
 
 class TestSystemState:
     def test_lock_unlock(self, tmp_all):
-        assert is_locked() is False
-        lock(0.26)
+        # Fail-closed: state mới (chưa có file) → KHÓA chặt
         assert is_locked() is True
         unlock()
         assert is_locked() is False
+        lock(0.26)
+        assert is_locked() is True
+
+    def test_fail_closed_when_state_missing(self, tmp_path):
+        set_lock_path(tmp_path / "missing.json")
+        try:
+            assert is_locked() is True
+        finally:
+            set_lock_path(Path("backend/data/system_state.json"))
+
+    def test_fail_closed_when_state_malformed(self, tmp_path):
+        bad = tmp_path / "bad.json"
+        bad.write_text("{not-json", encoding="utf-8")
+        set_lock_path(bad)
+        try:
+            assert is_locked() is True
+        finally:
+            set_lock_path(Path("backend/data/system_state.json"))
 
     def test_lock_survives_reload(self, tmp_all):
         lock(0.30)

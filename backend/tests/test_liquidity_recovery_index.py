@@ -63,6 +63,7 @@ def _make_db(
             foreign_vol INTEGER,
             net_vol INTEGER,
             net_value REAL,
+            flow_kind TEXT DEFAULT 'daily',
             PRIMARY KEY (symbol, date)
         )
     """)
@@ -131,7 +132,7 @@ def _make_db(
         )
     if fii_flow is not None:
         conn.execute(
-            "INSERT INTO market_foreign_history (symbol, date, net_value) VALUES (?, ?, ?)",
+            "INSERT INTO market_foreign_history (symbol, date, net_value, flow_kind) VALUES (?, ?, ?, 'daily')",
             ("TOTAL", "2026-08-03", fii_flow),
         )
     if breadth is not None:

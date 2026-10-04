@@ -134,7 +134,7 @@ class MacroGovernor:
         with get_connection() as conn:
             row = conn.execute(
                 """SELECT SUM(net_value) FROM market_foreign_history
-                   WHERE date >= ? AND net_value IS NOT NULL""",
+                   WHERE date >= ? AND net_value IS NOT NULL AND flow_kind = 'daily'""",
                 (start,),
             ).fetchone()
         return float(row[0]) if row and row[0] is not None else 0.0
