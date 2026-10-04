@@ -201,3 +201,99 @@ class TestStructuralBlock:
 
         result = daily_updater.update_market_batch(["HPG"], TARGET, armor=None)
         assert result == (0, 1, 0)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# F-b — G2 fallback rolling median; REJECT khi không có tham chiếu nào
+# ════════════════════════════════════════════════════════════════════════════
+class TestFbRollingMedianFallback:
+    @pytest.fixture()
+    def conn(self, tmp_path):
+        c = _db(tmp_path)
+        # AAA: KHÔNG có phiên PREV (mất dấu) nhưng có 3 phiên cũ quanh 10_000
+        _seed(c, "AAA", "2026-09-18", 10_000.0)
+        _seed(c, "AAA", "2026-09-22", 10_100.0)
+        _seed(c, "AAA", "2026-09-24", 9_900.0)
+        c.execute("INSERT INTO ipo_calendar VALUES ('AAA', '2010-01-01', 'HOSE')")
+        c.commit()
+        yield c
+        c.close()
+
+    def test_uses_rolling_median_when_prev_missing(self, conn):
+        # 10.5 nghìn → ×1000 = 10_500; nằm trong band so median ~10_000
+        provider = FakeProvider(rows={"AAA": _kbs_row(TARGET, 10.5, 500_000)})
+        success, _f, _s = backfill_market_history(
+            ["AAA"], TARGET, provider=provider, conn_factory=lambda: conn
+        )
+        assert success == 1
+        close = conn.execute(
+            "SELECT close FROM daily_ohlcv WHERE symbol='AAA' AND date=?", (TARGET,)
+        ).fetchone()[0]
+        assert float(close) == pytest.approx(10_500.0)
+
+    def test_rejects_when_no_reference_at_all(self, conn):
+        provider = FakeProvider(rows={"NEW": _kbs_row(TARGET, 5.0, 500_000)})
+        success, _f, _s = backfill_market_history(
+            ["NEW"], TARGET, provider=provider, conn_factory=lambda: conn
+        )
+        assert success == 0
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# F-c — canary hạ 90% → 60%: 60/60 mã đứng giá → abort
+# ════════════════════════════════════════════════════════════════════════════
+class TestFcCanary60:
+    @pytest.fixture()
+    def conn(self, tmp_path):
+        c = _db(tmp_path)
+        for i in range(60):
+            s = f"S{i:02d}"
+            _seed(c, s, PREV, 10_000.0)
+            c.execute("INSERT INTO ipo_calendar VALUES (?, '2010-01-01', 'HOSE')", (s,))
+        c.commit()
+        yield c
+        c.close()
+
+    def test_60pct_flat_aborts_even_under_old_90pct(self, conn):
+        syms = [f"S{i:02d}" for i in range(60)]
+        rows = {s: _kbs_row(TARGET, 10.0, 100_000) for s in syms}  # đứng giá 100%
+        index = _kbs_row(TARGET, 1_750.0, 500_000)
+        provider = FakeProvider(rows=rows, index=index)
+        success, _f, _s = backfill_market_history(
+            syms, TARGET, provider=provider, conn_factory=lambda: conn
+        )
+        assert success == 0
+        n = conn.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE date=?", (TARGET,)).fetchone()[0]
+        assert n == 0
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# F-d — retry + exponential backoff khi provider trả None
+# ════════════════════════════════════════════════════════════════════════════
+class TestFdRetryBackoff:
+    def test_retries_until_provider_returns_data(self, tmp_path, monkeypatch):
+        import src.services.market_backfill as mb
+
+        monkeypatch.setattr(mb, "FETCH_BACKOFF_BASE", 0.0)
+        conn = _db(tmp_path)
+        _seed(conn, "HPG", PREV, 20_300.0)
+        conn.execute("INSERT INTO ipo_calendar VALUES ('HPG', '2011-01-01', 'HOSE')")
+        conn.commit()
+
+        class FlakyProvider:
+            def __init__(self):
+                self.calls = 0
+
+            def history(self, symbol, start=None, end=None, **kwargs):
+                self.calls += 1
+                if self.calls < 3:  # 2 lần đầu None → lần 3 mới có
+                    return None
+                return _kbs_row(TARGET, 20.15, 13_350_300)
+
+        p = FlakyProvider()
+        success, _f, _s = backfill_market_history(
+            ["HPG"], TARGET, provider=p, conn_factory=lambda: conn
+        )
+        assert success == 1
+        assert p.calls == 3
+        conn.close()

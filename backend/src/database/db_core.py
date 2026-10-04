@@ -434,6 +434,36 @@ def _recent_price_level(conn, symbol, min_date, limit=60):
     return True, float(rows[0]), float(rows[1] or 0.0)
 
 
+def _recent_price_median(conn, symbol, min_date, limit=60):
+    """Median close (>0) gần nhất (PIT, trước min_date) của symbol. None nếu không có."""
+    rows = conn.execute(
+        "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<? AND close>0 ORDER BY date DESC LIMIT ?",
+        (symbol, min_date, limit),
+    ).fetchall()
+    vals = sorted(float(r[0]) for r in rows if r[0] is not None)
+    if not vals:
+        return None
+    n = len(vals)
+    mid = n // 2
+    return vals[mid] if n % 2 else (vals[mid - 1] + vals[mid]) / 2.0
+
+
+def _recent_price_ref(conn, symbol, min_date, window=5):
+    """Mức giá tham chiếu GẦN NHẤT của mã (F-a): MAX của `window` phiên non-zero.
+
+    Dùng MAX (không dùng median) vì lịch sử một mã có thể LẪN scale (dòng cũ
+    nghìn đồng 1.7 xen dòng mới VND 1000) → median bị kéo về phía dòng sai scale
+    (VSG: median=1.7 nhưng mức đúng là 1000). MAX của vài phiên gần nhất phản ánh
+    mức VND-consistent do pipeline hiện hành ghi.
+    """
+    rows = conn.execute(
+        "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<? AND close>0 ORDER BY date DESC LIMIT ?",
+        (symbol, min_date, int(window)),
+    ).fetchall()
+    vals = [float(r[0]) for r in rows if r[0] is not None]
+    return max(vals) if vals else None
+
+
 def _adv20_from_df(df_symbol):
     """ADV_20d ước lượng từ volume 20 phiên gần nhất trong DF của 1 symbol."""
     vols = df_symbol["volume"].dropna().tail(20).astype(float).tolist()
@@ -470,41 +500,61 @@ def _ingestion_scale_guard(df, conn):
         if dates:
             min_date = min(dates)
 
+    drop_idx: set = set()
     for sym, grp in df_out.groupby("symbol", sort=False):
         idx = grp.index
         scale_needed = grp["close"].astype(float) < INGESTION_SCALE_THRESHOLD
         if not scale_needed.any():
             continue
         sym = str(sym)
-        if sym in universe_set:
+        has_hist = False
+        hist_ref = None
+        if min_date is not None:
+            has_hist, _hist_max, _hist_avg_vol = _recent_price_level(conn, sym, min_date)
+            if has_hist:
+                hist_ref = _recent_price_ref(conn, sym, min_date)
+
+        # ── F-a: PER-SYMBOL SCALE HISTORY GUARD ─────────────────────────
+        # So với mức giá gần nhất của CHÍNH mã, chọn cách hiểu (as-is vs ×1000)
+        # gần mức đó nhất; cả hai lệch >10× → REJECT row (missing > fake).
+        if hist_ref and hist_ref > 0:
+            raw = float(grp["close"].astype(float).median())
+            if raw <= 0:
+                drop_idx.update(idx)
+                continue
+            r_raw = raw / hist_ref
+            r_x1000 = (raw * 1000.0) / hist_ref
+            s_raw = max(r_raw, 1.0 / r_raw)
+            s_x1000 = max(r_x1000, 1.0 / r_x1000)
+            if min(s_raw, s_x1000) <= 10.0:
+                force = s_x1000 < s_raw
+                reason = f"RATIO_{'X1000' if force else 'ASIS'}_{min(s_raw, s_x1000):.2f}"
+            else:
+                drop_idx.update(idx)
+                logger.error(
+                    "INGESTION_SCALE_REJECT symbol=%s raw=%.4g hist_ref=%.4g ratio=%.3g x1000=%.3g — không khớp lịch sử mã",
+                    sym,
+                    raw,
+                    hist_ref,
+                    r_raw,
+                    r_x1000,
+                )
+                continue
+        elif sym in universe_set:
             force = True
             reason = "ACTIVE_UNIVERSE"
+        elif has_hist:
+            # Có lịch sử nhưng không suy được median (>0) → không đủ provenance.
+            force = False
+            reason = "NO_MEDIAN"
         elif min_date is not None:
-            has_hist, hist_max, hist_avg_vol = _recent_price_level(conn, sym, min_date)
-            if has_hist and hist_max >= INGESTION_SCALE_THRESHOLD and hist_avg_vol >= INGESTION_ADV20_LIQUID:
-                # Lịch sử VND-scale (close≥1000) + thanh khoản thật (avg vol≥50k)
-                # → đủ provenance là mã có scale VND, dữ liệu mới <1000 là lỗi.
+            adv = _adv20_from_df(grp)
+            if adv >= INGESTION_ADV20_LIQUID:
                 force = True
-                reason = "DB_HISTORY_VND"
-            elif has_hist and hist_max >= INGESTION_SCALE_THRESHOLD:
-                # close≥1000 nhưng volume THẤP (A32 100 cp, APT/DCS ~0): giá cao do
-                # thanh khoản mỏng — KHÔNG đủ bằng chứng là VND-scale → không nhân
-                # (tránh FP với penny giá 800 lịch sử lẫn close 1400).
-                force = False
-                reason = "DB_HISTORY_HIGH_PRICE_LOW_VOL"
-            elif has_hist:
-                # Lịch sử gần đây ĐỀU <1000 → penny thật (provenance đủ) → HARD.
-                force = False
-                reason = "KNOWN_PENNY"
+                reason = f"ADV20={adv:.0f}"
             else:
-                # Chưa từng có trong DB → cần bằng chứng thanh khoản.
-                adv = _adv20_from_df(grp)
-                if adv >= INGESTION_ADV20_LIQUID:
-                    force = True
-                    reason = f"ADV20={adv:.0f}"
-                else:
-                    force = False
-                    reason = "UNKNOWN_LOW_ADV"
+                force = False
+                reason = "UNKNOWN_LOW_ADV"
         else:
             force = False
             reason = "NO_DATE"
@@ -518,6 +568,9 @@ def _ingestion_scale_guard(df, conn):
                 n,
                 reason,
             )
+    if drop_idx:
+        keep = [i for i in df_out.index if i not in drop_idx]
+        df_out = df_out.loc[keep]
     return df_out
 
 

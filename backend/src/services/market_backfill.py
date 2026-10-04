@@ -38,9 +38,12 @@ logger = logging.getLogger(__name__)
 BAND_BY_EXCHANGE = {"HOSE": 0.07, "HNX": 0.10, "UPCOM": 0.15}
 BAND_DEFAULT = 0.15
 NEW_LISTING_EXEMPT_DAYS = 28
-CANARY_TC_LIMIT = 0.90
+CANARY_TC_LIMIT = 0.60  # F-c: hạ 90% → 60% (bắt bài flat-price / stale dump sớm hơn)
 CANARY_MIN_N = 50
 CANARY_INDEX_MOVED = 0.002
+ROLLING_REF_LOOKBACK = 20  # F-b: số phiên cho median tham chiếu dự phòng
+FETCH_MAX_ATTEMPTS = 3  # F-d: retry + exponential backoff
+FETCH_BACKOFF_BASE = 0.4
 OHLCV_COLS = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
 
 
@@ -115,6 +118,33 @@ def _prev_closes(conn, target_date):
         (str(target_date),),
     ).fetchall()
     return {str(r[0]): float(r[1]) for r in rows if r[1] is not None}
+
+
+def _rolling_median_refs(conn, target_date, lookback=ROLLING_REF_LOOKBACK):
+    """F-b: median close (>0) `lookback` phiên gần nhất TRƯỚC target, mọi symbol.
+
+    Dùng làm tham chiếu dự phòng khi phiên sạch gần nhất không có mã đó
+    (mã mới / mất dấu / phiên trước bị is_stale).
+    """
+    rows = conn.execute(
+        "SELECT symbol, close FROM ("
+        "  SELECT symbol, close,"
+        "         ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) rn"
+        "  FROM daily_ohlcv WHERE date < ? AND close > 0"
+        ") WHERE rn <= ?",
+        (str(target_date), int(lookback)),
+    ).fetchall()
+    buckets: dict[str, list[float]] = {}
+    for sym, close in rows:
+        if close is None:
+            continue
+        buckets.setdefault(str(sym), []).append(float(close))
+    out: dict[str, float] = {}
+    for sym, vals in buckets.items():
+        vals.sort()
+        n = len(vals)
+        out[sym] = vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2.0
+    return out
 
 
 def _vnindex_pct(provider, target_date, conn):
@@ -193,15 +223,32 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
     fetch_fail = 0
     with conn_factory() as conn:
         prev_map = _prev_closes(conn, target_date)
+        median_map = _rolling_median_refs(conn, target_date)  # F-b: tham chiếu dự phòng
         for i, sym in enumerate(symbols):
-            try:
-                raw = provider.history(sym, start=target_date, end=target_date)
-            except Exception as e:  # noqa: BLE001 - batch isolation: 1 mã lỗi không dừng backfill
-                logger.error("BACKFILL_FETCH_FAIL symbol=%s: %s", sym, e)
-                fetch_fail += 1
-                continue
-            df = normalize_history_df(raw, sym, target_date)
+            df = None
+            last_reason = "UNKNOWN"
+            for attempt in range(FETCH_MAX_ATTEMPTS):  # F-d: retry + exponential backoff
+                raw = None
+                try:
+                    raw = provider.history(sym, start=target_date, end=target_date)
+                except Exception as e:  # noqa: BLE001 - retry: 1 mã lỗi không dừng backfill
+                    last_reason = f"{type(e).__name__}: {e}"
+                if raw is not None and not raw.empty:
+                    df = normalize_history_df(raw, sym, target_date)
+                    if df is not None:
+                        break
+                    last_reason = "G1_DATE_MATCH_FAIL"
+                elif raw is not None:
+                    last_reason = "EMPTY"
+                if attempt < FETCH_MAX_ATTEMPTS - 1:
+                    time.sleep(FETCH_BACKOFF_BASE * (2**attempt))
             if df is None:
+                logger.error(
+                    "BACKFILL_FETCH_FAIL symbol=%s attempts=%d reason=%s",
+                    sym,
+                    FETCH_MAX_ATTEMPTS,
+                    last_reason,
+                )
                 fetch_fail += 1
                 continue
             frames.append(df)
@@ -231,25 +278,40 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
 
         kept = []
         band_reject = 0
+        no_ref = 0
         for _, row in out.iterrows():
             sym = str(row["symbol"])
+            limit = _band_limit(sym, target_date, conn)
+            if limit is None:
+                # Miễn trừ band (niêm yết mới) — không cần tham chiếu.
+                kept.append(row)
+                continue
             prev = prev_map.get(sym)
-            if prev is not None and prev > 0:
-                limit = _band_limit(sym, target_date, conn)
-                if limit is not None:
-                    pct = (float(row["close"]) - prev) / prev
-                    if abs(pct) > limit + 1e-9:
-                        logger.error(
-                            "G2_BAND_REJECT symbol=%s close=%.0f prev=%.0f pct=%.2f%% limit=%.0f%% target=%s",
-                            sym,
-                            float(row["close"]),
-                            prev,
-                            pct * 100,
-                            limit * 100,
-                            target_date,
-                        )
-                        band_reject += 1
-                        continue
+            ref = prev if (prev is not None and prev > 0) else median_map.get(sym)
+            ref_kind = "prev_close" if (prev is not None and prev > 0) else "rolling_median"
+            if not ref or ref <= 0:
+                logger.error(
+                    "G2_NO_REFERENCE symbol=%s target=%s — REJECT (không có giá tham chiếu)",
+                    sym,
+                    target_date,
+                )
+                no_ref += 1
+                band_reject += 1
+                continue
+            pct = (float(row["close"]) - ref) / ref
+            if abs(pct) > limit + 1e-9:
+                logger.error(
+                    "G2_BAND_REJECT symbol=%s close=%.0f ref=%.0f(%s) pct=%.2f%% limit=%.0f%% target=%s",
+                    sym,
+                    float(row["close"]),
+                    ref,
+                    ref_kind,
+                    pct * 100,
+                    limit * 100,
+                    target_date,
+                )
+                band_reject += 1
+                continue
             kept.append(row)
 
         if not kept:
@@ -291,11 +353,12 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
 
         written = len(final)
         logger.info(
-            "BACKFILL_DONE target=%s written=%d/%d band_reject=%d fetch_fail=%d",
+            "BACKFILL_DONE target=%s written=%d/%d band_reject=%d no_ref=%d fetch_fail=%d",
             target_date,
             written,
             len(symbols),
             band_reject,
+            no_ref,
             fetch_fail,
         )
         return written, len(symbols) - written, 0

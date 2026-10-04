@@ -124,13 +124,48 @@ class TestKnownPennyNoScale:
         out = db_core._ingestion_scale_guard(df, conn)
         assert out["close"].iloc[0] == pytest.approx(500.0)
 
-    def test_high_price_low_volume_not_scaled(self, tmp_path):
-        """Close≥1000 nhưng volume mỏng (A32: 100 cp, giá 30k) → thiếu provenance → KHÔNG nhân."""
+    def test_high_price_low_volume_scaled_by_own_history(self, tmp_path):
+        """F-a (2026-10-04): quyết định theo median lịch sử CỦA CHÍNH MÃ.
+
+        A32 history ~29.350, input 5.0 → ×1000 = 5.000 (tỉ lệ 0.17× so median,
+        trong ngưỡng 10×) → NHÂN ×1000. Luật cũ ('giá cao + volume mỏng → không
+        nhân') chính là lỗi đã ghi nhầm PXA 0.6 và ABR 10 vào store.
+        """
         _, conn = _make_ohlcv_db(tmp_path)
         _seed_history(conn, "A32", [29000.0, 29700.0], vol=200)
         df = _ohlcv_df("A32", ["2026-08-14"], [5.0], vols=[200])
         out = db_core._ingestion_scale_guard(df, conn)
-        assert out["close"].iloc[0] == pytest.approx(5.0)
+        assert out["close"].iloc[0] == pytest.approx(5000.0)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# F-a — Per-Symbol Scale History Guard: chọn cách hiểu gần median của chính mã
+#      Cả hai cách đều lệch >10× → REJECT row (missing > fake)
+# ════════════════════════════════════════════════════════════════════════════
+class TestFaIngestionScaleRatioGuard:
+    def test_nghin_input_scaled_for_low_price_symbol(self, tmp_path):
+        """PXA: history ~600, nguồn trả 0.6 (nghìn) → ×1000 = 600 (bug thật 02/10)."""
+        _, conn = _make_ohlcv_db(tmp_path)
+        _seed_history(conn, "PXA", [600.0, 600.0], vol=2200)
+        df = _ohlcv_df("PXA", ["2026-10-02"], [0.6], vols=[2200])
+        out = db_core._ingestion_scale_guard(df, conn)
+        assert out["close"].iloc[0] == pytest.approx(600.0)
+
+    def test_true_penny_value_kept(self, tmp_path):
+        """Penny thật: history 600, input 600 → giữ nguyên (không nhân mù)."""
+        _, conn = _make_ohlcv_db(tmp_path)
+        _seed_history(conn, "PXB", [600.0, 600.0], vol=2200)
+        df = _ohlcv_df("PXB", ["2026-10-02"], [600.0], vols=[2200])
+        out = db_core._ingestion_scale_guard(df, conn)
+        assert out["close"].iloc[0] == pytest.approx(600.0)
+
+    def test_rejects_when_neither_interpretation_matches(self, tmp_path):
+        """Cả as-is lẫn ×1000 đều lệch >10× so median → REJECT row."""
+        _, conn = _make_ohlcv_db(tmp_path)
+        _seed_history(conn, "ZZZ", [600.0, 600.0], vol=2200)
+        df = _ohlcv_df("ZZZ", ["2026-10-02"], [0.0000006], vols=[2200])
+        out = db_core._ingestion_scale_guard(df, conn)
+        assert len(out) == 0
 
 
 # ════════════════════════════════════════════════════════════════════════════
