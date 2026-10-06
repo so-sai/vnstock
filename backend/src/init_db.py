@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS market_foreign_history (
     symbol TEXT NOT NULL, date TEXT NOT NULL,
     foreign_vol INTEGER, net_vol INTEGER, net_value REAL,
     flow_kind TEXT DEFAULT 'daily',
+    source TEXT DEFAULT 'unknown', fetched_at TEXT, is_verified INTEGER DEFAULT 0,
     PRIMARY KEY (symbol, date)
 );
 CREATE TABLE IF NOT EXISTS macro_history (
