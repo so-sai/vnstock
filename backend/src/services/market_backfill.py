@@ -25,6 +25,7 @@ có dữ liệu ngoại → market_foreign_history để THIẾU cho ngày backf
 
 import json
 import logging
+import os
 import sqlite3
 import time
 from datetime import datetime
@@ -42,7 +43,9 @@ CANARY_TC_LIMIT = 0.60  # F-c: hạ 90% → 60% (bắt bài flat-price / stale d
 CANARY_MIN_N = 50
 CANARY_INDEX_MOVED = 0.002
 ROLLING_REF_LOOKBACK = 20  # F-b: số phiên cho median tham chiếu dự phòng
-FETCH_MAX_ATTEMPTS = 3  # F-d: retry + exponential backoff
+# F-d: retry + exponential backoff. Hạ qua env cho lượt dọn dữ liệu lịch sử:
+#   PTCK_BACKFILL_ATTEMPTS=1 → mã không có dữ liệu chỉ tốn 1 lần fetch (~3s thay vì ~10s)
+FETCH_MAX_ATTEMPTS = max(1, int(os.environ.get("PTCK_BACKFILL_ATTEMPTS", "3")))
 FETCH_BACKOFF_BASE = 0.4
 OHLCV_COLS = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
 
