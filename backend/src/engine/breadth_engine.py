@@ -55,6 +55,7 @@ def run_breadth_analysis(target_date: str | None = None):
             SELECT symbol, date, close, volume, high
             FROM daily_ohlcv
             WHERE date >= date('{ref_date}', '-60 days') AND date <= '{ref_date}'
+              AND COALESCE(is_stale, 0) = 0
         """,
             conn,
         )
