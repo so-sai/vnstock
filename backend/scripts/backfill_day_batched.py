@@ -27,28 +27,56 @@ def main() -> int:
     ap.add_argument("--date", required=True)
     ap.add_argument("--start-idx", type=int, default=0)
     ap.add_argument("--count", type=int, default=300)
+    ap.add_argument(
+        "--skip-done",
+        action="store_true",
+        help="bỏ qua mã đã có dòng SẠCH (is_stale=0) cho ngày đó → gọi lại tự tiếp tục việc còn dở.",
+    )
+    ap.add_argument(
+        "--symbols",
+        default="",
+        help="danh sách mã cụ thể (phẩy) — bỏ qua --start-idx/--count. Dùng cho 'nạp mục tiêu' watchlist.",
+    )
     args = ap.parse_args()
 
     from src.database.db_core import get_connection
     from src.services.market_backfill import backfill_market_history
 
-    with get_connection() as conn:
-        syms = [
-            str(r[0])
-            for r in conn.execute(
-                "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol <> 'VNINDEX' ORDER BY symbol"
-            )
-        ]
-    total = len(syms)
-    chunk = syms[args.start_idx : args.start_idx + args.count]
-    if not chunk:
-        print(f"LÁT RỖNG: start_idx={args.start_idx} >= tổng {total}")
-        return 1
-    print(f"=== BACKFILL LÁT {args.start_idx}..{args.start_idx + len(chunk) - 1} / {total} mã — ngày {args.date} ===")
-    print(f"    ({chunk[0]} .. {chunk[-1]})")
+    if args.symbols:
+        chunk = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+        total = len(chunk)
+        print(f"=== BACKFILL MỤC TIÊU {len(chunk)} mã — ngày {args.date} ===")
+    else:
+        with get_connection() as conn:
+            syms = [
+                str(r[0])
+                for r in conn.execute(
+                    "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol <> 'VNINDEX' ORDER BY symbol"
+                )
+            ]
+            if args.skip_done:
+                done = {
+                    str(r[0])
+                    for r in conn.execute(
+                        "SELECT symbol FROM daily_ohlcv WHERE date = ? AND COALESCE(is_stale, 0) = 0",
+                        (str(args.date),),
+                    )
+                }
+                pending = [s for s in syms if s not in done]
+                print(f"    (--skip-done: bỏ {len(syms) - len(pending)} mã đã sạch, còn {len(pending)} mã cần làm)")
+                syms = pending
+        total = len(syms)
+        chunk = syms[args.start_idx : args.start_idx + args.count]
+        if not chunk:
+            print(f"LÁT RỖNG: start_idx={args.start_idx} >= tổng {total}")
+            return 1
+        print(f"=== BACKFILL LÁT {args.start_idx}..{args.start_idx + len(chunk) - 1} / {total} mã — ngày {args.date} ===")
+        print(f"    ({chunk[0]} .. {chunk[-1]})")
+
     written, failed, skipped = backfill_market_history(chunk, str(args.date))
     print(f"→ written={written} failed={failed} skipped={skipped} (lát này)")
-    print(f"→ còn lại: start_idx={args.start_idx + args.count} (nếu < {total})")
+    if not args.symbols:
+        print(f"→ còn lại: start_idx={args.start_idx + args.count} (nếu < {total})")
     return 0
 
 
