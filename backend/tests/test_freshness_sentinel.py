@@ -54,10 +54,15 @@ def test_weekend():
 
 # ── 2. Ngày lễ (dùng calendar THẬT + weekend_holidays.json) ────────────
 def test_holiday():
-    # 2026-09-02 và 09-03 là ngày lễ trong config → lùi về 2026-09-01
-    assert fs.expected_trading_date(now=_dt(2026, 9, 3, 10, 0)) == "2026-09-01"
-    # Ngày lễ mà SAU cutoff vẫn không được coi là phiên có dữ liệu
-    assert fs.expected_trading_date(now=_dt(2026, 9, 3, 17, 0)) == "2026-09-01"
+    # Kỳ nghỉ Quốc khánh 2026 (sau khi sửa lịch): 31/08 + 01/09 (hoán đổi) + 02/09.
+    # 09-02 là ngày lễ → lùi về phiên liền trước = Thứ Sáu 2026-08-28.
+    assert fs.expected_trading_date(now=_dt(2026, 9, 2, 10, 0)) == "2026-08-28"
+    # TRƯỚC cutoff, Thứ Năm 03/09 là NGÀY GIAO DỊCH (thị trường mở lại) → vẫn lùi
+    # về phiên trước = 02/09 là lễ ⇒ 08-28.
+    assert fs.expected_trading_date(now=_dt(2026, 9, 3, 10, 0)) == "2026-08-28"
+    # SAU cutoff, 03/09 là ngày giao dịch ⇒ kỳ vọng chính hôm đó (chứng minh 09-03
+    # KHÔNG còn bị coi là ngày lễ như config cũ).
+    assert fs.expected_trading_date(now=_dt(2026, 9, 3, 17, 0)) == "2026-09-03"
 
 
 # ── 3. Ngày thường TRƯỚC 16:30 ─────────────────────────────────────────

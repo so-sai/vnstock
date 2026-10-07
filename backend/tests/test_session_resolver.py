@@ -56,12 +56,15 @@ class TestNonTradingDayFallback:
 
     def test_vn_holiday_resolves_back(self):
         # 02/09/2026 (Quốc khánh) — Thứ Tư, là ngày nghỉ VN.
+        # Lịch đã sửa (audit 07/10): kỳ nghỉ Quốc khánh 2026 gồm 31/08 + 01/09
+        # (nghỉ hoán đổi) + 02/09. Nên phiên giao dịch liền trước 02/09 là 28/08
+        # (Thứ Sáu) — KHÔNG phải 01/09 như giả định cũ.
         cal = VNSessionCalendar()
         if cal.is_trading_day(date(2026, 9, 2)):
             pytest.skip("weekend_holidays.json chưa có 02/09 — không test được")
         res = resolve_session("2026-09-02", latest_available_date="2026-09-01")
         assert res.resolution == GATE_PREVIOUS_TRADING_SESSION
-        assert res.effective_date == "2026-09-01"
+        assert res.effective_date == "2026-08-28"
         assert res.reason == "holiday"
 
 
