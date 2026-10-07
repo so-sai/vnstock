@@ -101,12 +101,13 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             df_all = pd.read_sql(
                 f"SELECT symbol, date, close, volume FROM daily_ohlcv "
                 f"WHERE date <= '{target_date}' AND date >= date('{target_date}', '-60 days') "
-                f"AND symbol != 'VNINDEX'",
+                f"AND symbol != 'VNINDEX' AND COALESCE(is_stale, 0) = 0",
                 conn,
             )
         else:
             df_all = pd.read_sql(
-                "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-10-01' AND symbol != 'VNINDEX'",
+                "SELECT symbol, date, close, volume FROM daily_ohlcv "
+                "WHERE date >= '2025-10-01' AND symbol != 'VNINDEX' AND COALESCE(is_stale, 0) = 0",
                 conn,
             )
 
