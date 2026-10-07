@@ -5530,6 +5530,15 @@ def build_parser():
         dest="verbose_lang",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--force-stale",
+        action="store_true",
+        default=False,
+        help=(
+            "Ghi đè cổng Freshness Sentinel khi dữ liệu cũ hơn phiên kỳ vọng "
+            "(ghi ledger backend/data/stale_override_ledger.jsonl). Chỉ dùng cho debug/backtest."
+        ),
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     # market
@@ -7393,7 +7402,46 @@ def build_parser():
     )
     p_el.set_defaults(func=cmd_evidence_ledger)
 
+    # Freshness Sentinel: cho phép `--force-stale` ở CẢ HAI vị trí (trước và sau
+    # subcommand). Gắn bằng vòng lặp thay vì sửa tay ~100 subparser.
+    for _sub in sub.choices.values():
+        try:
+            _sub.add_argument(
+                "--force-stale",
+                action="store_true",
+                default=argparse.SUPPRESS,
+                help="Ghi đè cổng Freshness Sentinel cho lệnh này (ghi ledger).",
+            )
+        except argparse.ArgumentError:
+            pass
+
     return parser
+
+
+# ── Freshness Sentinel Gate (Giải pháp C) ──────────────────────────────
+# Whitelist = các lệnh ĐƯỢC PHÉP chạy trên dữ liệu cũ (ingestion/ops/fix).
+# Mọi lệnh khác — kể cả lệnh thêm sau này — đều đi qua cổng (fail-closed).
+BYPASS_COMMANDS = {
+    "daily-update", "daily-close", "backfill-history", "backfill-macro",
+    "backfill-regime", "db", "cleanup", "restore-backup", "check-calendar",
+    "init-agent", "hooks-install", "status", "stale", "twap", "break-glass",
+    "serve", "telemetry", "gap-analyzer", "data-quality", "symbol-audit",
+    "pit-audit", "evidence-ledger", "fetch-macro", "sbv-update",
+    "fetch-financials", "import-financials", "cafef-crawl", "forensic-fpr",
+}
+
+
+def _freshness_gate(command: str, args) -> None:
+    """Chặn lệnh phân tích khi DB cũ hơn phiên kỳ vọng (exit 2)."""
+    if command in BYPASS_COMMANDS:
+        return
+    from src.core.freshness_sentinel import EXIT_CODE_STALE, DataStaleHalt, assert_fresh
+
+    try:
+        assert_fresh(command, force_stale=bool(getattr(args, "force_stale", False)))
+    except DataStaleHalt as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(EXIT_CODE_STALE)
 
 
 def main():
@@ -7414,6 +7462,7 @@ def main():
     if sp in sys.path:
         sys.path.remove(sp)
     sys.path.insert(0, sp)
+    _freshness_gate(getattr(args, "command", ""), args)
     args.func(args)
 
 
