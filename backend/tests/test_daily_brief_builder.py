@@ -120,8 +120,19 @@ def memdb():
     c.close()
 
 
+def _seed_session(c, date, n=300):
+    for i in range(n):
+        c.execute(
+            "INSERT INTO daily_ohlcv (symbol,date,close,volume,is_stale) VALUES (?,?,?,?,0)",
+            (f"{date.replace('-','')}{i:04d}", date, 10000.0, 1000.0),
+        )
+    c.commit()
+
+
 def test_foreign_chi_cong_flow_kind_daily(memdb):
     mod = _load()
+    _seed_session(memdb, "2026-10-08")
+    _seed_session(memdb, "2026-10-07")
     # legacy_level có |net_value| khổng lồ — nếu lọt vào tổng thì vô nghĩa
     memdb.executemany(
         "INSERT INTO market_foreign_history (symbol,date,net_value,flow_kind) VALUES (?,?,?,?)",
@@ -138,11 +149,30 @@ def test_foreign_chi_cong_flow_kind_daily(memdb):
     assert fo["streak"] == 2 and fo["direction"] == "bán ròng"
 
 
+def test_streak_dut_khi_thieu_phien_ngoai(memdb):
+    """BUG đã sửa: thiếu ngoại 1 phiên thì chuỗi phải ĐỨT, không đếm vắt qua lỗ hổng."""
+    mod = _load()
+    for d in ("2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"):
+        _seed_session(memdb, d)
+    memdb.executemany(
+        "INSERT INTO market_foreign_history (symbol,date,net_value,flow_kind) VALUES (?,?,?,?)",
+        [
+            ("AAA", "2026-10-08", -100.0, "daily"),
+            ("AAA", "2026-10-07", -200.0, "daily"),
+            # 2026-10-06 THIẾU dòng ngoại
+            ("AAA", "2026-10-05", -300.0, "daily"),
+        ],
+    )
+    memdb.commit()
+    fo = mod.fetch_foreign(memdb, "2026-10-08")
+    assert fo["streak"] == 2, "chuỗi phải đứt tại 10-06, không được là 3"
+    assert fo["n_days"] == 2
+    assert fo["gap_after"] is True
+
+
 def test_latest_clean_date_theo_nguong_300(memdb):
     mod = _load()
-    for i in range(300):
-        memdb.execute("INSERT INTO daily_ohlcv (symbol,date,close,volume,is_stale) VALUES (?,?,?,?,0)",
-                      (f"S{i:04d}", "2026-10-08", 10000.0, 1000.0))
+    _seed_session(memdb, "2026-10-08")
     for i in range(50):  # ngày chỉ có 50 dòng sạch → không đủ ngưỡng
         memdb.execute("INSERT INTO daily_ohlcv (symbol,date,close,volume,is_stale) VALUES (?,?,?,?,0)",
                       (f"T{i:04d}", "2026-10-09", 10000.0, 1000.0))

@@ -85,14 +85,41 @@ def fetch_regime(conn: sqlite3.Connection, as_of: str) -> dict | None:
 
 
 def fetch_foreign(conn: sqlite3.Connection, as_of: str, window: int = CONSEC_WINDOW) -> dict | None:
-    rows = conn.execute(
-        "SELECT date, SUM(net_value) FROM market_foreign_history "
-        "WHERE date <= ? AND flow_kind = ? GROUP BY date ORDER BY date DESC LIMIT ?",
-        (as_of, FOREIGN_KIND, window),
-    ).fetchall()
-    if not rows:
+    """Chuỗi ngoại chỉ tính là LIÊN TIẾP nếu KHÔNG thiếu phiên nào.
+
+    BUG đã sửa: bản đầu lấy "N ngày gần nhất CÓ dòng ngoại" rồi coi là liên tiếp
+    → store thiếu ngoại cho 30/09, 01/10, 02/10 nên nó báo "5 phiên liên tiếp"
+    trong khi thực tế các ngày đó (28,29/09 + 05,06,07/10) cách nhau cả tuần.
+    Mốc so sánh phải là PHIÊN GIAO DỊCH THẬT (daily_ohlcv), không phải ngày có
+    dòng ngoại.
+    """
+    sessions = [
+        r[0]
+        for r in conn.execute(
+            "SELECT date FROM daily_ohlcv WHERE date <= ? AND COALESCE(is_stale, 0) = 0 "
+            "GROUP BY date HAVING COUNT(*) >= ? ORDER BY date DESC LIMIT ?",
+            (as_of, MIN_CLEAN_ROWS, window),
+        )
+    ]
+    if not sessions:
         return None
-    days = [(d, round(float(v or 0.0), 1)) for d, v in rows]
+    marks = ",".join("?" * len(sessions))
+    fmap = {
+        d: float(v or 0.0)
+        for d, v in conn.execute(
+            f"SELECT date, SUM(net_value) FROM market_foreign_history "
+            f"WHERE date IN ({marks}) AND flow_kind = ? GROUP BY date",
+            (*sessions, FOREIGN_KIND),
+        )
+    }
+    days: list[tuple[str, float]] = []
+    for d in sessions:
+        if d not in fmap:  # thiếu ngoại cho chính phiên này → chuỗi ĐỨT
+            break
+        days.append((d, round(fmap[d], 1)))
+    if not days:
+        return None
+
     d1_date, d1_val = days[0]
     sign = (d1_val > 0) - (d1_val < 0)
     streak = 0
@@ -112,6 +139,7 @@ def fetch_foreign(conn: sqlite3.Connection, as_of: str, window: int = CONSEC_WIN
         "streak": streak,
         "direction": direction,
         "sign": sign,
+        "gap_after": len(sessions) > len(days),
     }
 
 
