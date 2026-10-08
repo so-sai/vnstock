@@ -285,7 +285,39 @@ agree_t  = 1 nếu sign(Δy_{t+k}) == exposure_sign[x,y] * sign(Δx_t), ngược
 hit_rate = mean(agree_t)   trên các t hợp lệ
 ```
 
-Kích hoạt khi **`hit_rate ≥ 0.60`** và **số mẫu hiệu dụng ≥ 30**.
+Kích hoạt khi **`hit_rate ≥ 0.60`** (0,65 với tiên nghiệm LOW) **và số mẫu độc lập ≥ 30**.
+
+> ⚠️ **SỬA LUẬT (2026-10-08, khi triển khai):** không dùng điểm ước lượng để kết luận.
+> Bản đầu ghi "hit_rate < 0.50 ⇒ REJECT_TICKER" — **sai về thống kê**: với n=50, SE ≈ 0,07,
+> nên hr = 0,46 **không phân biệt được** với tung đồng xu; tuyên bố "ngược dấu" là nói quá
+> bằng chứng. Luật đúng dùng **khoảng tin cậy Wilson 95%**:
+> - **CONFIRMED** ⟺ `CI_low > 0.50` **và** `hit_rate ≥ ngưỡng`
+> - **REJECT_TICKER** (dấu ngược) ⟺ `CI_high < 0.50`
+> - còn lại → **NOT_CONFIRMED** (không kết luận được — vẫn fail-closed: cổng không mở)
+
+### 12.1.1 Kết quả đo thật (BRENT_OIL, 2021-04 → 2026-10, toàn bộ lịch sử)
+
+| mã | sign | k (phiên) | N độc lập | hit-rate | CI 95% | verdict |
+|---|---|---|---|---|---|---|
+| BSR | +1 | 20 | 61 | 0,492 | [0,371 ; 0,614] | NOT_CONFIRMED |
+| GAS | +1 | 30 | 41 | 0,463 | [0,321 ; 0,613] | NOT_CONFIRMED |
+| PVD | +1 | 25 | 50 | 0,460 | [0,330 ; 0,596] | NOT_CONFIRMED |
+| PVS | +1 | 25 | 51 | 0,471 | [0,341 ; 0,605] | NOT_CONFIRMED |
+| PLX | +1 | 5 | 225 | 0,529 | [0,464 ; 0,593] | NOT_CONFIRMED |
+| PVT | −1 | 10 | 120 | 0,575 | [0,486 ; 0,660] | NOT_CONFIRMED |
+
+**KHÔNG một mã nào qua cổng.** Mọi CI đều vắt qua 0,50.
+
+### 12.1.2 Hệ quả — Track 2 KHÔNG được bật
+
+Tiền đề của Track 2 ("giá dầu dẫn dắt rổ dầu khí theo một dấu khai báo trước, trong 20–30 phiên")
+**không được dữ liệu ủng hộ**. Do đó, theo mục 8 (tiên quyết), **Track 2 giữ nguyên OFF**;
+`ENTRY_LOCK` vẫn là chốt chặn duy nhất và 100% tiền mặt vẫn đúng.
+
+Điều này **không** nói rằng "không tồn tại quan hệ" — chỉ nói rằng **đặc tả này không chứng minh được nó**.
+Đặc tả khác (hồi quy theo lợi suất, dùng WTI, horizon khác, bỏ lọc lag) có thể cho kết quả khác,
+nhưng thử nhiều đặc tả rồi chọn cái đẹp nhất **chính là data-snooping** — muốn thử phải
+**đăng ký trước** (pre-register) đặc tả và giữ nguyên tiêu chí.
 
 ### 12.2 ⚠️ Phản biện quan trọng: "30 mẫu" với cửa sổ trượt là **sai thống kê**
 
