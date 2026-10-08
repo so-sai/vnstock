@@ -219,9 +219,129 @@ Quy tắc:
 
 ---
 
-## 10. CÂU HỎI MỞ (cần chủ hệ thống chốt trước khi code)
+## 10. CÂU HỎI MỞ — **ĐÃ CHỐT** (2026-10-08)
 
-1. **Nguồn giá dầu:** hệ thống đã có chuỗi Brent/WTI lịch sử + provenance chưa? Nếu chưa, C2 bất khả thi và Track 2 phải hoãn tới khi có.
-2. **Pha P1 dùng tiền thật hay paper?** Đề xuất: **paper 1 tháng** trước, vì Track 2 chưa có track record nào.
-3. **Trần 5% NAV của P1** — tính trên NAV tổng hay trên phần tiền mặt khả dụng? Đề xuất: NAV tổng, để nhất quán với Track 1.
-4. Ai duyệt việc chuyển pha P1→P2: tự động theo Sharpe hay cần duyệt tay? Đề xuất: **duyệt tay** (đúng tiền lệ GO/NO-GO của hệ thống).
+| # | Quyết định | Lý do đã chốt |
+|---|---|---|
+| 1 | **P1 chạy PAPER 1 tháng trước (bắt buộc)** | Track 2 chưa có OOS trên tài khoản thực; không dùng tiền thật để test kiến trúc chưa có ≥20–30 phiên paper kiểm soát drawdown |
+| 2 | **Trần tính trên NAV TỔNG** | Nếu tính trên tiền mặt khả dụng, cùng một rủi ro lại ra 2 số khác nhau tuỳ mức giải ngân của Track 1 → phá tính nhất quán của risk budgeting |
+| 3 | **Chuyển pha P1→P2 = DUYỆT TAY** | Sharpe chỉ là điều kiện *cần*; nâng trần phải qua audit slippage + chi phí thanh khoản + độ ổn định API |
+
+---
+
+## 11. ADDENDUM A — `exposure_sign`: định nghĩa & cách tính
+
+### 11.1 Định nghĩa
+
+```
+exposure_sign[symbol, factor] ∈ {-1, 0, +1}
+  +1 : factor tăng ⇒ kỳ vọng phía target (biên/doanh thu) TĂNG
+  -1 : factor tăng ⇒ kỳ vọng phía target GIẢM  (PVT: dầu = chi phí)
+   0 : không có phơi nhiễm rõ ràng ⇒ KHÔNG vào universe (fail-closed)
+```
+
+### 11.2 `exposure_sign` là **GIẢ THUYẾT KHAI BÁO TRƯỚC**, không phải kết quả đo
+
+Đây là điểm tôi **phản biện lại đề xuất trong review**: đề xuất viết test
+`assert exposure_sign["PLX","OIL_PRICE"] == +1`. **Không nên**, vì PLX là **nhà phân phối xăng dầu** (ICB ghi "Sản xuất Dầu khí" nhưng kinh tế học là mua–bán lại): giá dầu tăng có thể **nén** biên do độ trễ chuyển giá. Dấu của PLX **không hiển nhiên** — hard-code `+1` vào test là khoá cứng một giả thuyết chưa chứng minh.
+
+Thiết kế đúng:
+1. Mỗi mã trong U1/U2 khai báo `exposure_sign` **kèm nguồn** (ICB + lập luận), lưu trong file cấu hình có version — **khai trước khi đo**.
+2. C2 (mục 4) **kiểm chứng** giả thuyết đó trên dữ liệu thật.
+3. Nếu dấu đo được **ngược** dấu khai báo ⇒ **LOẠI mã khỏi Track 2 + mở ticket**, **KHÔNG tự động lật dấu** (lật theo dữ liệu = fit vào nhiễu).
+
+Nguồn compute:
+- **P1:** thủ công cho U1/U2, mỗi dòng kèm `source` (ICB + cạnh nhân quả tương ứng).
+- **P2+:** suy từ dấu đường `symbol → GROSS_MARGIN` trong `causal_edge`, **đối chiếu** với bản thủ công.
+
+### 11.3 Test bắt buộc
+
+```python
+def test_pvt_oil_la_chi_phi():
+    """Duy nhất ca không thể tranh cãi: ICB Vận tải Thủy, dầu là nhiên liệu."""
+    assert exposure_sign["PVT", "OIL_PRICE"] == -1
+
+def test_moi_ma_trong_universe_deu_co_dau_va_nguon():
+    for s in UNIVERSE_U1 + UNIVERSE_U2:
+        assert sign[s] in (-1, +1) and sign_source[s], "thiếu dấu/nguồn ⇒ loại khỏi universe"
+
+def test_dau_do_nguoc_khai_bao_thi_loai_ma():
+    """Giả thuyết bị phản bác ⇒ loại, KHÔNG lật dấu."""
+    assert decide(declared=+1, measured_sign=-1).excluded is True
+```
+
+---
+
+## 12. ADDENDUM B — định nghĩa chính xác `hit_rate`
+
+### 12.1 Công thức
+
+Cho cạnh `x → y` với `lag_min..lag_max` (lấy từ `causal_edge`), `k = (lag_min+lag_max)//2`, cửa sổ cuộn `W = 120` phiên:
+
+```
+Δx_t     = x_t − x_{t−k}
+Δy_{t+k} = y_{t+k} − y_t
+agree_t  = 1 nếu sign(Δy_{t+k}) == exposure_sign[x,y] * sign(Δx_t), ngược lại 0
+hit_rate = mean(agree_t)   trên các t hợp lệ
+```
+
+Kích hoạt khi **`hit_rate ≥ 0.60`** và **số mẫu hiệu dụng ≥ 30**.
+
+### 12.2 ⚠️ Phản biện quan trọng: "30 mẫu" với cửa sổ trượt là **sai thống kê**
+
+Cửa sổ trượt làm các mẫu **tự tương quan**: với `k = 12`, 120 mẫu trượt chỉ chứa **~10 quan sát độc lập**, không phải 120. Đếm `n ≥ 30` theo kiểu trượt là **đếm ảo** → hit-rate trông chắc chắn hơn thực tế.
+
+**Sửa:** lấy mẫu **không chồng lấn**, bước `step = k+1` ⇒ số mẫu độc lập thật. Nếu số mẫu độc lập `< 30` ⇒ **không kích hoạt** (fail-closed), dù hit_rate cao.
+
+### 12.3 Test bắt buộc
+
+```python
+def test_hit_rate_random_xap_xi_50pct():
+    x, y = np.random.randn(2000), np.random.randn(2000)
+    assert 0.45 < compute_hit_rate(x, y, lag=5) < 0.55
+
+def test_hit_rate_y_bang_x_thi_100pct():
+    x = np.random.randn(2000)
+    assert compute_hit_rate(x, x, lag=5) > 0.99
+
+def test_dem_mau_doc_lap_khong_chong_lan():
+    """120 mẫu trượt với k=12 KHÔNG được coi là 120 mẫu độc lập."""
+    assert independent_n(n_sliding=120, k=12) < 30
+```
+
+---
+
+## 13. ADDENDUM C — thứ tự ưu tiên kill switch (chống "half-kill")
+
+Nhiều trigger cùng lúc mà không có thứ tự ⇒ hệ thống có thể đóng 50% trong khi ngoại đang xả — **tệ hơn không kill** (giữ lại đúng phần đang xấu nhất).
+
+**Luật: xét từ trên xuống, trigger đầu tiên khớp thì THI HÀNH, dừng.**
+
+| Ưu tiên | Trigger | Hành động |
+|---|---|---|
+| 1 | K3 — drawdown > 8% | **Đóng 100% ngay** |
+| 2 | K5 — `ENTRY_LOCK` bật lại | **Đóng 100% ngay** |
+| 3 | K1 — ngoại đảo chiều ≥ 3 phiên | **Đóng 100% ngay** |
+| 4 | K2 — hit_rate < 0.40 | Đóng 50% |
+| 5 | K4 — regime xấu đi (CRISIS + breadth giảm 3 phiên) | **Không mở mới** (giữ vị thế hiện có) |
+
+Bổ sung bắt buộc (auditability):
+- Log ghi **TẤT CẢ** trigger đang bật, không chỉ trigger được thi hành.
+- Log ghi `trigger_id` đã quyết định hành động ⇒ truy vết được vì sao đóng/mở.
+- Thứ tự ưu tiên là **hằng số trong code, có test** — không hard-code rải rác.
+
+```python
+def test_uu_tien_k3_thang_k2():
+    """K3 (drawdown) và K2 (hit-rate) cùng bật ⇒ đóng 100%, không phải 50%."""
+    assert decide_exit([K3, K2]).action == "CLOSE_FULL"
+
+def test_khong_bao_gio_chi_dong_50pct_khi_co_trigger_uu_tien_cao():
+    for trig in ([K3, K1], [K5, K2], [K1, K2]):
+        assert decide_exit(trig).action == "CLOSE_FULL"
+```
+
+---
+
+## 14. NGOÀI PHẠM VI (cập nhật)
+
+Giữ nguyên mục 9, bổ sung: 3 addendum trên **phải hoàn tất trước khi viết dòng code Track 2 nào** (ưu tiên B → F → D trong mục 8).
