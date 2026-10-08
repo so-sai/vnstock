@@ -69,7 +69,9 @@ def danh_gia_chat_luong_du_lieu() -> pd.DataFrame:
         print("  ⚠ Không có dữ liệu trong DB.")
         return pd.DataFrame()
 
-    df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed")
+    # pandas 3: `.loc[:, "date"] = <DatetimeArray>` raise TypeError khi cột đang là str
+    # (column_setitem cố giữ dtype 'str' rồi thất bại). Gán trực tiếp LUÔN thay cột.
+    df["date"] = pd.to_datetime(df["date"], format="mixed")
 
     stats = []
     for symbol, group in df.groupby("symbol"):

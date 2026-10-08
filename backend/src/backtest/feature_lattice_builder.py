@@ -24,8 +24,8 @@ class FeatureLatticeBuilder:
         Output: Feature Lattice DataFrame (moi dong = (date, symbol) + chi bao)
         """
         result = df.sort_values(["symbol", "date"]).copy()
-        parsed = pd.to_datetime(result["date"], format="mixed")
-        result.loc[:, "date"] = parsed
+        # pandas 3: gán DatetimeArray vào cột str qua .loc[:, col] sẽ raise TypeError → gán trực tiếp.
+        result["date"] = pd.to_datetime(result["date"], format="mixed")
 
         # ===== PRICE FEATURES =====
         grp = result.groupby("symbol")["close"]

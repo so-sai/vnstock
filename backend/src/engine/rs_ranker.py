@@ -87,7 +87,8 @@ def calculate_rs_score():
 
     # --- SENTINEL SAFE PATTERN ---
     df = df.copy()
-    df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed")
+    # pandas 3: gán DatetimeArray vào cột str qua .loc[:, col] sẽ raise TypeError → dùng gán trực tiếp.
+    df["date"] = pd.to_datetime(df["date"], format="mixed")
 
     # Lọc chỉ giữ các mã đủ dữ liệu tin cậy
     before_count = df["symbol"].nunique()

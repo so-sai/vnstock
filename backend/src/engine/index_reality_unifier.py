@@ -80,7 +80,8 @@ def _tinh_median_return(target_date: str) -> dict:
         )
     if df.empty or df_idx.empty:
         return {"weighted_return": 0, "median_return": 0, "divergence": 0, "idx_return": 0}
-    df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed", errors="coerce")
+    # pandas 3: gán DatetimeArray vào cột str qua .loc[:, col] sẽ raise TypeError → dùng gán trực tiếp.
+    df["date"] = pd.to_datetime(df["date"], format="mixed", errors="coerce")
     df = df.dropna(subset=["date"])
     target_dt = pd.to_datetime(target_date)
     latest = df[df["date"] == target_dt].copy()
@@ -141,7 +142,8 @@ def _tinh_vingroup_contribution(target_date: str) -> dict:
     if df.empty:
         return {"vingroup_pct": 0, "vingroup_weight": 0, "top_symbols": []}
 
-    df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed", errors="coerce")
+    # pandas 3: gán DatetimeArray vào cột str qua .loc[:, col] sẽ raise TypeError → dùng gán trực tiếp.
+    df["date"] = pd.to_datetime(df["date"], format="mixed", errors="coerce")
     df = df.dropna(subset=["date"])
     recent = df[df["date"] >= end - pd.Timedelta(days=20)].copy()
     recent.loc[:, "traded_value"] = recent["close"] * recent["volume"]
