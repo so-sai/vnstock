@@ -234,8 +234,10 @@ runtime_call_graph.json
 # Root data (generated/exported)
 data/
 
-# Generated reports (daily brief + audit trail — sinh tự động, không commit)
-backend/reports/
+# Generated reports (daily brief + audit trail ĐỘNG — sinh tự động, không commit)
+# Ngoại lệ: audit_archive/ = snapshot BẤT BIẾN theo tháng → PHẢI commit (compliance)
+backend/reports/*
+!backend/reports/audit_archive/
 
 # Negative cache
 .negative_cache.json
