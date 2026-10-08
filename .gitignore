@@ -234,6 +234,9 @@ runtime_call_graph.json
 # Root data (generated/exported)
 data/
 
+# Generated reports (daily brief + audit trail — sinh tự động, không commit)
+backend/reports/
+
 # Negative cache
 .negative_cache.json
 backend/.negative_cache.json
