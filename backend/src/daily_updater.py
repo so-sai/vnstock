@@ -1038,6 +1038,12 @@ def run_post_update_engines():
             stats["matured_filled"],
             stats["total"],
         )
+    except ImportError as e:
+        # Thiếu dependency TUỲ CHỌN (vd scikit-learn cho Ridge regression) KHÔNG phải
+        # lỗi engine — đánh dấu SKIPPED để chuỗi post-update không đỏ vì một extra
+        # chưa cài, nhưng vẫn nhìn thấy được (không im lặng).
+        results["gold_paper_ledger"] = f"SKIPPED: thiếu dependency ({e})"
+        logger.warning("⏭️ Gold Paper Ledger: SKIPPED — thiếu dependency: %s", e)
     except Exception as e:
         results["gold_paper_ledger"] = f"FAIL: {e}"
         logger.exception("⚠️ Gold Paper Ledger: %s", e)
