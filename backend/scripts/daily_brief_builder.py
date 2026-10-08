@@ -113,8 +113,10 @@ def fetch_foreign(conn: sqlite3.Connection, as_of: str, window: int = CONSEC_WIN
         )
     }
     days: list[tuple[str, float]] = []
-    for d in sessions:
+    missing: list[str] = []
+    for i, d in enumerate(sessions):
         if d not in fmap:  # thiếu ngoại cho chính phiên này → chuỗi ĐỨT
+            missing = sessions[i:]
             break
         days.append((d, round(fmap[d], 1)))
     if not days:
@@ -140,6 +142,7 @@ def fetch_foreign(conn: sqlite3.Connection, as_of: str, window: int = CONSEC_WIN
         "direction": direction,
         "sign": sign,
         "gap_after": len(sessions) > len(days),
+        "missing_sessions": missing,
     }
 
 
@@ -180,10 +183,24 @@ def fetch_entry_lock() -> bool:
             return True
 
 
+def expected_trading_date_safe() -> str | None:
+    """Phiên kỳ vọng theo Freshness Sentinel (None nếu import lỗi — không bịa)."""
+    try:
+        from src.core.freshness_sentinel import expected_trading_date
+
+        return expected_trading_date()
+    except Exception:  # noqa: BLE001 - thiếu calendar/import → để None, không đoán
+        return None
+
+
 def fetch_inputs(conn: sqlite3.Connection, date: str | None = None) -> dict:
     as_of = date or latest_clean_date(conn)
+    expected = expected_trading_date_safe()
+    stale = bool(as_of and expected and as_of < expected)
     inputs: dict = {
         "as_of": as_of,
+        "expected_date": expected,
+        "is_stale": stale,
         "generated_at": datetime.now(VN_TZ).isoformat(),
         "sources": [],
         "regime": None,
@@ -244,6 +261,13 @@ def render_brief(inp: dict) -> str:
     reg = inp["regime"]
     fo = inp["foreign"]
     L = [f"# Daily Brief — {inp['as_of'] or 'N/A'}", f"*sinh lúc {inp['generated_at']}*", ""]
+    if inp.get("is_stale"):
+        L += [
+            f"> ⚠️ **CẢNH BÁO KIỂM TOÁN (DATA STALE):** báo cáo sinh trên dữ liệu as-of "
+            f"**{inp['as_of']}** trong khi phiên kỳ vọng là **{inp['expected_date']}**. "
+            f"EOD chưa nạp / thiếu dữ liệu ⇒ **KHÔNG dùng để ra quyết định**.",
+            "",
+        ]
 
     L.append("## 1. Trạng thái thị trường")
     if reg:
@@ -266,6 +290,12 @@ def render_brief(inp: dict) -> str:
             f"lũy kế {fo['n_days']} phiên: {_n(fo['sum'], ' tỷ')})  "
             f"*(market_foreign_history:{fo['days'][-1][0]}..{fo['days'][0][0]}, flow_kind=daily)*"
         )
+        if fo.get("missing_sessions"):
+            miss = ", ".join(reversed(fo["missing_sessions"]))
+            L.append(
+                f"  *Ghi chú chuỗi dữ liệu:* khuyết dòng ngoại cho {miss} (nguyên tắc **Missing > Fake**) "
+                f"⇒ streak đứt tại lỗ hổng, chỉ tính từ **{fo['days'][-1][0]}**; lũy kế chỉ gồm {fo['n_days']} phiên liền mạch."
+            )
     else:
         L.append(f"- Dòng ngoại: **N/A** (lý do: {_reason(inp, 'market_foreign_history')})")
 
@@ -327,9 +357,11 @@ def build_audit_record(inp: dict, command: str = "daily_brief_builder") -> dict:
             "regime": None if not reg else {"date": reg["date"], "status": reg["status"],
                                             "score": reg["score"], "breadth_pct": reg["breadth_pct"]},
             "foreign": None if not fo else {"d1": fo["d1"], "streak": fo["streak"],
-                                            "sum": fo["sum"], "days_available": fo["n_days"]},
+                                            "sum": fo["sum"], "days_available": fo["n_days"],
+                                            "missing_sessions": fo.get("missing_sessions", [])},
             "freshness": {"latest_clean": inp["as_of"],
-                          "is_stale": inp["as_of"] != (datetime.now(VN_TZ).date().isoformat())},
+                          "expected": inp.get("expected_date"),
+                          "is_stale": bool(inp.get("is_stale"))},
         },
         "gates": inp["gates"],
         "failed_gates": inp["failed_gates"],
@@ -338,11 +370,44 @@ def build_audit_record(inp: dict, command: str = "daily_brief_builder") -> dict:
     }
 
 
-def append_audit(record: dict, path: Path = AUDIT_PATH) -> Path:
+def _fingerprint(record: dict) -> str:
+    """Danh tính bản ghi = (as_of, command, decision, inputs). Không gồm ts (ts luôn khác)."""
+    payload = {
+        "as_of": record.get("as_of"),
+        "command": record.get("command"),
+        "decision": record.get("decision"),
+        "inputs": record.get("inputs"),
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def append_audit(record: dict, path: Path = AUDIT_PATH, dedup: bool = True) -> tuple[Path, bool]:
+    """Append 1 dòng JSONL. dedup=True: bỏ qua nếu bản ghi tương đương đã tồn tại.
+
+    Idempotency: chạy builder 3 lần cho cùng (as_of, inputs) → vẫn chỉ 1 dòng
+    official; tránh audit trail bị nhiễu bởi các lần chạy lại để debug.
+
+    Returns: (path, written)
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    if dedup and path.exists():
+        fp = _fingerprint(record)
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        if _fingerprint(json.loads(line)) == fp:
+                            return path, False
+                    except json.JSONDecodeError:
+                        continue  # dòng hỏng không được chặn việc ghi mới
+        except OSError:
+            pass
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return path
+    return path, True
 
 
 # ── Kiểm chứng (invariant #2 và #3) ────────────────────────────────────
@@ -379,6 +444,9 @@ def main() -> int:
     ap.add_argument("--date", default=None, help="as_of (mặc định: ngày sạch mới nhất)")
     ap.add_argument("--db", default=str(DB_PATH))
     ap.add_argument("--verify", action="store_true")
+    ap.add_argument("--strict", action="store_true",
+                    help="Fail-closed: từ chối sinh brief nếu dữ liệu stale (exit 2)")
+    ap.add_argument("--no-dedup", action="store_true", help="Tắt idempotency của audit trail")
     ap.add_argument("--no-audit", action="store_true")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--out", default=None)
@@ -396,9 +464,16 @@ def main() -> int:
 
     brief = render_brief(inp)
 
+    if args.strict and inp.get("is_stale"):
+        print(
+            f"🔴 [DATA_STALE_HALT] as-of {inp['as_of']} < phiên kỳ vọng {inp.get('expected_date')} "
+            f"— từ chối sinh brief (--strict)."
+        )
+        return 2
+
     if not args.no_audit:
-        p = append_audit(build_audit_record(inp))
-        print(f"[audit] +1 dòng → {p}")
+        p, written = append_audit(build_audit_record(inp), dedup=not args.no_dedup)
+        print(f"[audit] {'+1 dòng' if written else 'no-op (bản ghi tương đương đã có)'} → {p}")
 
     out = Path(args.out) if args.out else REPORTS_DIR / f"daily_brief_{inp['as_of'] or 'NA'}.md"
     out.parent.mkdir(parents=True, exist_ok=True)

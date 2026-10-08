@@ -73,6 +73,10 @@ Quy tắc:
 - `entry_lock` đọc từ `system_state` (fail-closed: file mất/hỏng → `true`).
 - `foreign` **chỉ tính `flow_kind='daily'`** — nếu tính cả `legacy_level` thì tổng sẽ vô nghĩa.
 - `narrative_contradiction`: `true` nếu câu chữ sinh ra nói ngược cờ quyết định (xem mục 6.3).
+- **Idempotency**: danh tính bản ghi = `(as_of, command, decision, inputs)` — KHÔNG gồm `ts`. Chạy lại
+  builder nhiều lần cho cùng một phiên ⇒ **no-op**, không làm nhiễu audit trail. (`--no-dedup` để tắt.)
+- `freshness.is_stale` = `as_of < expected_trading_date()` (theo Sentinel), KHÔNG phải "as_of != hôm nay".
+- `foreign.missing_sessions` liệt kê các phiên trong cửa sổ bị khuyết dòng ngoại.
 
 ## 6. Output B — `daily_brief_YYYY-MM-DD.md`
 
@@ -134,6 +138,8 @@ Ví dụ luật cứng: nếu `entry_lock=true` mà phần "Lý do" không nêu 
 python backend/scripts/daily_brief_builder.py              # brief cho as_of mới nhất + ghi audit
 python backend/scripts/daily_brief_builder.py --date 2026-10-08
 python backend/scripts/daily_brief_builder.py --verify      # chạy kiểm chứng
+python backend/scripts/daily_brief_builder.py --strict      # fail-closed: stale ⇒ exit 2, không sinh brief
+python backend/scripts/daily_brief_builder.py --no-dedup    # tắt idempotency audit
 python backend/scripts/daily_brief_builder.py --no-audit    # chỉ render
 python backend/scripts/daily_brief_builder.py --json        # in ReportInputs
 ```

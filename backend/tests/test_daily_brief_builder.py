@@ -35,12 +35,15 @@ def _load():
 def _inputs(**over):
     base = {
         "as_of": "2026-10-08",
+        "expected_date": "2026-10-08",
+        "is_stale": False,
         "generated_at": "2026-10-08T15:00:00+07:00",
         "sources": ["daily_ohlcv:as_of=2026-10-08", "regime_history:2026-10-08"],
         "regime": {"date": "2026-10-08", "status": "CRISIS", "score": 0.28,
                    "breadth_pct": 31.1, "status_streak": 4, "breadth_delta": 3.0},
         "foreign": {"date": "2026-10-08", "d1": -942.7, "days": [("2026-10-08", -942.7)],
-                    "sum": -3042.0, "n_days": 3, "streak": 3, "direction": "bán ròng", "sign": -1},
+                    "sum": -3042.0, "n_days": 3, "streak": 3, "direction": "bán ròng", "sign": -1,
+                    "missing_sessions": []},
         "watchlist": [{"symbol": "HPG", "net_value": 63.5, "close": 20500.0, "volume": 1.3e7}],
         "entry_lock": True,
         "gates": {"regime_ok": False, "breadth_ok": False, "foreign_ok": False},
@@ -168,6 +171,50 @@ def test_streak_dut_khi_thieu_phien_ngoai(memdb):
     assert fo["streak"] == 2, "chuỗi phải đứt tại 10-06, không được là 3"
     assert fo["n_days"] == 2
     assert fo["gap_after"] is True
+    assert fo["missing_sessions"] == ["2026-10-06", "2026-10-05"], "phải nêu rõ phiên khuyết"
+
+
+# ── Điểm 1: idempotency audit trail ────────────────────────────────────
+def test_audit_dedup_bo_qua_ban_ghi_tuong_duong(tmp_path):
+    mod = _load()
+    p = tmp_path / "audit_trail.jsonl"
+    rec = mod.build_audit_record(_inputs())
+    _, w1 = mod.append_audit(rec, path=p)
+    _, w2 = mod.append_audit(dict(rec, ts="2026-10-08T16:00:00+07:00"), path=p)  # chỉ khác ts
+    assert w1 is True and w2 is False, "lần 2 phải là no-op"
+    assert len(p.read_text(encoding="utf-8").strip().splitlines()) == 1
+
+
+def test_audit_van_ghi_khi_quyet_dinh_khac(tmp_path):
+    mod = _load()
+    p = tmp_path / "audit_trail.jsonl"
+    mod.append_audit(mod.build_audit_record(_inputs()), path=p)
+    mod.append_audit(mod.build_audit_record(_inputs(as_of="2026-10-09")), path=p)
+    assert len(p.read_text(encoding="utf-8").strip().splitlines()) == 2
+
+
+# ── Điểm 2 & 4: cảnh báo stale và ghi chú khoảng trống ─────────────────
+def test_stale_thi_co_canh_bao_dau_brief():
+    mod = _load()
+    b = mod.render_brief(_inputs(is_stale=True, as_of="2026-10-07", expected_date="2026-10-08"))
+    assert "CẢNH BÁO KIỂM TOÁN (DATA STALE)" in b
+    assert b.index("CẢNH BÁO KIỂM TOÁN") < b.index("## 1."), "cảnh báo phải ở ĐẦU brief"
+
+
+def test_khong_stale_thi_khong_co_canh_bao():
+    mod = _load()
+    assert "CẢNH BÁO KIỂM TOÁN" not in mod.render_brief(_inputs(is_stale=False))
+
+
+def test_gap_thi_co_ghi_chu_chuoi_du_lieu():
+    mod = _load()
+    b = mod.render_brief(
+        _inputs(foreign={"date": "2026-10-08", "d1": -900.0, "days": [("2026-10-08", -900.0)],
+                        "sum": -900.0, "n_days": 1, "streak": 1, "direction": "bán ròng", "sign": -1,
+                        "missing_sessions": ["2026-10-06", "2026-10-05"]})
+    )
+    assert "Ghi chú chuỗi dữ liệu" in b
+    assert "2026-10-05" in b and "Missing > Fake" in b
 
 
 def test_latest_clean_date_theo_nguong_300(memdb):
