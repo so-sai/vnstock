@@ -110,15 +110,17 @@ def _m3_behavioral(kq: dict, volume_profile: Any) -> dict:
     return section
 
 
-def _m4_alpha(rs: Any) -> dict:
+def _m4_alpha(rs: Any, n: int = 10) -> dict:
     """M4 — ALPHA / RS RATING (nguồn: rs_ranker result DataFrame/list)."""
     if rs is None:
         return {"status": "NO_DATA", "reason": "thiếu dữ liệu rs (radar RS chưa chạy)"}
     rows = []
     if hasattr(rs, "to_dict") and hasattr(rs, "head"):  # pandas DataFrame
-        items = rs.head(5).to_dict("records")
+        items = rs.head(n).to_dict("records")
+        n_total = len(rs)
     elif isinstance(rs, list):
-        items = rs[:5]
+        items = rs[:n]
+        n_total = len(rs)
     else:
         return {"status": "NO_DATA", "reason": "nguồn rs không đúng định dạng"}
     for item in items:
@@ -133,7 +135,7 @@ def _m4_alpha(rs: Any) -> dict:
             )
     if not rows:
         return {"status": "NO_DATA", "reason": "danh sách rs rỗng"}
-    return {"status": "OK", "top_rs": rows}
+    return {"status": "OK", "top_rs": rows, "n_total": n_total, "n_shown": len(rows)}
 
 
 def _m5_governor(kq: dict) -> dict:

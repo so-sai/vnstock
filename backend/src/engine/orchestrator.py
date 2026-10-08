@@ -682,6 +682,35 @@ def _fmt_ti(d: float | None) -> str:
     return f"{d:+,.0f}"
 
 
+def _load_rs_table_for_report() -> tuple[list[dict] | None, str | None]:
+    """Fallback cho M4 khi `kq` không mang 'rs_rating_table'.
+
+    Không ai SET khoá `rs_rating_table` trong `kq` (kiểm 2026-10-08: chỉ có 1 chỗ
+    ĐỌC, 0 chỗ GHI) ⇒ M4 luôn báo "radar RS chưa chạy" kể cả khi rs_ranker đã chạy
+    xong và market_rs.json vừa được ghi. Đọc thẳng nguồn chuẩn ở đây — cùng cách
+    mà vn20/volume_profile đã được nạp cho báo cáo.
+
+    ⚠️ market_rs.json KHÔNG chứa trường ngày ⇒ dùng mtime và gọi ĐÚNG tên nó là
+    mtime, không giả vờ đó là ngày dữ liệu.
+    """
+    try:
+        from datetime import datetime
+
+        import src.config as _cfg
+        from src.engine.rs_ranker import load_rs_data
+
+        data = load_rs_data()
+        if not data:
+            return None, None
+        rows = sorted(data.values(), key=lambda x: x.get("rs_rating") or -1, reverse=True)
+        path = Path(_cfg.DATA_DIR) / "market_rs.json"
+        as_of = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
+        return rows, as_of
+    except (ImportError, OSError, TypeError, ValueError, KeyError, AttributeError) as e:
+        logger.debug("[ORCH] RS fallback load failed: %s", e)
+        return None, None
+
+
 def _print_executive_report(kq: dict):
     """Render 5-Model Consolidated Executive Report từ dữ liệu THẬT.
 
@@ -710,6 +739,9 @@ def _print_executive_report(kq: dict):
         logger.debug("[ORCH] 5-model enrichment failed: %s", e)
 
     rs = kq.get("rs_rating_table")
+    rs_as_of = None
+    if rs is None:  # không ai set khoá này trong kq → đọc market_rs.json
+        rs, rs_as_of = _load_rs_table_for_report()
 
     from src.core.executive_report import xay_dung_bao_cao_5_mo_hinh
 
@@ -775,8 +807,10 @@ def _print_executive_report(kq: dict):
     m4 = report.get("M4_ALPHA", {})
     print("  [M4] ALPHA (RS RATING)")
     if m4.get("status") == "OK":
+        src_note = f"  (nguồn: market_rs.json, mtime {rs_as_of})" if rs_as_of else ""
+        print(f"      Xếp hạng {m4.get('n_total')} mã — top {m4.get('n_shown')}:{src_note}")
         for i, row in enumerate(m4.get("top_rs", []), 1):
-            print(f"      {i}. {row['symbol']:6s} RS {row.get('rs_rating', 'N/A')} giá {row.get('price', 'N/A')}")
+            print(f"      {i:2d}. {row['symbol']:6s} RS {row.get('rs_rating', 'N/A')} giá {row.get('price', 'N/A')}")
     else:
         print(f"      ⚠ {m4.get('reason', 'không có dữ liệu')}")
 
