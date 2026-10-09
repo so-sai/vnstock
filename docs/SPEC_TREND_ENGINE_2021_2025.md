@@ -2,7 +2,7 @@
 
 **Status:** 🔒 **FROZEN — v1.1 (khóa cứng)** — không được sửa sau khi nhìn thấy kết quả backtest
 **Date:** 2026-10-09
-**Version:** v1.1 · xem changelog §13.4 (không có v1.2; biến thể ⇒ file spec riêng)
+**Version:** v1.1.1 (v1.1 + **ERRATUM 1**) · xem changelog §13.4 (không có v1.2; biến thể ⇒ file spec riêng)
 **Related:** `SPEC_DUAL_TRACK_DECISION_2026-10.md`
 **Pre-registration anchor:** xem `SPEC_TREND_ENGINE_2021_2025.sha256` (hash tách rời, xem mục 0.1)
 
@@ -239,13 +239,20 @@ backend/scripts/backtest_trend_2021_2025.py # runner
 | Phiên bản | Commit | Nội dung |
 |---|---|---|
 | **v1.0** | `6279fcc` | Pre-registration khởi tạo |
-| **v1.1** | *(commit này)* | Mẫu số universe thực tế ~740 (giao điểm Giá + Organ) · bỏ tiêu chí sàn cứng, xấp xỉ bằng `ADV20 ≥ 500k` (§2.3) · chốt mục 15 |
+| **v1.1** | `eefc729` | Mẫu số universe thực tế ~740 (giao điểm Giá + Organ) · bỏ tiêu chí sàn cứng, xấp xỉ bằng `ADV20 ≥ 500k` (§2.3) · chốt mục 15 |
+| **v1.1.1** | *(commit này)* | **ERRATUM 1** — đính chính số MÔ TẢ ở §3.1: "~740" → đo thật **~575**. **Tham số KHÔNG đổi.** Xem ERRATUM 1 ở cuối tài liệu |
 
 🔒 **CAM KẾT BẤT BIẾN: TUYỆT ĐỐI KHÔNG CÓ BẢN v1.2.**
 
-Mọi điều chỉnh ngưỡng hoặc biến thể thuật toán sau thời điểm này **bắt buộc phải là một file spec mới**
-(`SPEC_TREND_ENGINE_VARIANT_B.md`) và chạy kiểm định độc lập. Sửa spec này thêm lần nữa sẽ làm
-pre-registration mất ý nghĩa — guard `test_preregistration_hash.py` (invariant #11) sẽ chặn về mặt kỹ thuật.
+Mọi điều chỉnh **tham số chiến lược** hoặc biến thể thuật toán sau thời điểm này **bắt buộc phải là một file spec mới**
+(`SPEC_TREND_ENGINE_VARIANT_B.md`) và chạy kiểm định độc lập.
+
+**Phân biệt rõ (để erratum không thành cửa sau):**
+- **Mô tả ≠ tham số.** ERRATUM chỉ sửa *con số mô tả dữ liệu* (mẫu số universe). Luật chọn mã
+  (`RS ≥ 90`, `Health ≠ DISTRESSED`, `BS ≥ 0.30`, `Eff ≥ 0.60`, `Moat ≥ 0.50`, breakout, volume) **không đổi một ký tự**.
+- Erratum phải **nằm ở section riêng**, giữ nguyên văn bản gốc — không viết lại lịch sử.
+- Structure test (`test_spec_structure.py`) enforce **cả hai**: erratum tồn tại **VÀ** các tham số gốc còn nguyên.
+  Ai sửa tham số dưới danh nghĩa "erratum" ⇒ test đỏ.
 
 ---
 
@@ -300,3 +307,52 @@ universe của (a) rộng hơn so với (b)/(c); **không được sửa spec đ
 **Trạng thái mục 15:** ✅ **ĐÃ CHỐT cả 15.1 và 15.2** (2026-10-09) tại bản **v1.1** — xem §13.4.
 Spec đã commit lại + **hash mới** trong sidecar, **vẫn TRƯỚC khi chạy backtest** nên pre-registration còn nguyên giá trị.
 Kể từ đây spec **KHÓA CỨNG**: không có v1.2, mọi biến thể là file spec riêng.
+
+---
+
+## ERRATUM 1 (2026-10-09, **TRƯỚC** backtest)
+
+### Đính chính số MÔ TẢ ở §3.1
+
+**§3.1 ghi:** universe thực tế ≈ **740 mã** (giao điểm Giá + Organ).
+**Số ĐO ĐƯỢC (runner preflight, trên DB thật):**
+
+| năm | có giá (≥200 phiên sạch) | có organ | **giao điểm** |
+|---|---|---|---|
+| 2021 | 903 | 738 | **575** |
+| 2022 | 915 | 738 | **572** |
+| 2023 | 906 | 750 | **567** |
+| 2024 | 855 | 750 | **570** |
+| 2025 | 879 | 744 | **583** |
+
+**⇒ Mẫu số đúng để báo cáo kết quả là ~575, KHÔNG phải ~740, càng không phải 903.**
+
+### Nguyên nhân sai
+
+Con số 740 có được bằng **PHÉP TRỪ thay vì PHÉP ĐO**: tôi giả định `organ ⊂ giá` rồi lấy
+`903 − 738` để suy ra số mã "có giá không organ". Giả định đó **sai** — lệch cả hai chiều:
+
+| Nhóm | Số mã | Diễn giải |
+|---|---|---|
+| Có giá, **không** organ | **328** | ≥200 phiên sạch nhưng không có dữ liệu tài chính |
+| Có organ, **không** đủ giá | **163** | Có dữ liệu tài chính nhưng < 200 phiên giá trong năm |
+| Giao điểm | **~575** | Universe thật |
+
+**740 không bằng 575 cộng với bất kỳ nhóm nào ở trên** — vì 740 chưa bao giờ là một phép đo,
+mà là một suy diễn từ giả định sai. Đúng ra: `903 − 738 = 165` chỉ là **hiệu của hai tập**,
+hoàn toàn không phải **phần bù**.
+
+### Phạm vi ảnh hưởng — GIỚI HẠN NGHIÊM NGẶT
+
+- ✅ **Tham số chiến lược KHÔNG đổi**: entry/exit, ngưỡng organ, sizing, invariants #8–#11, tiêu chí thành công §8.
+- ✅ **§3.1 không bị viết lại** — văn bản gốc giữ nguyên để thấy được sai lệch (không sửa lịch sử).
+- ✅ Chỉ **con số mô tả** (mẫu số dùng để báo cáo %) được đính chính.
+- ⚠️ Đây **không phải** thay đổi tham số trá hình: nếu sau này có ai sửa ngưỡng dưới danh nghĩa "erratum",
+  `test_spec_structure.py` sẽ **đỏ** (test khẳng định erratum tồn tại **và** các tham số gốc còn nguyên).
+
+### Ghi nhận phương pháp
+
+Sai lệch này do **runner preflight tự phát hiện** ở lần chạy đầu, trước khi bất kỳ kết quả backtest nào tồn tại.
+Bài học: **kiểm trước khi niêm phong** — niêm phong khuếch đại lỗi chứ không làm nó bớt sai.
+Hash guard (chứng minh file không đổi) và structure guard (chứng minh file đủ mục) **đều mù** với lớp lỗi
+"con số trong file có đúng không"; cần một guard thứ ba ở tầng ngữ nghĩa.

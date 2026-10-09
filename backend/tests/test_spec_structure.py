@@ -81,3 +81,46 @@ def test_khong_co_dau_hieu_spec_bi_cat_cut():
     blocks = re.split(r"^## \d+\.", text, flags=re.M)[1:]
     thin = [i for i, b in enumerate(blocks) if len(b.strip()) < 40]
     assert not thin, f"mục cấp 1 số {thin} gần như RỖNG — nghi bị xoá nội dung"
+
+
+# ── ERRATUM: phải tồn tại, VÀ tham số phải nguyên vẹn ──────────────────
+# Tham số chiến lược đã khóa. Erratum CHỈ được sửa số mô tả — nếu ai đó sửa
+# những chuỗi này dưới danh nghĩa "erratum", test phải đỏ.
+PARAMS_FROZEN = [
+    "RS ≥ 90",
+    "BS ≥ 0.30",
+    "Eff ≥ 0.60",
+    "Moat ≥ 0.50",
+    "ADV20 ≥ 500.000",
+    "Health ≠ DISTRESSED",
+    "Volume ≥ 1.3 × ADV20",
+    "→ CRISIS",  # exit khi Regime → CRISIS
+    "Sharpe OOS",
+]
+
+
+def _has_param(text: str, param: str) -> bool:
+    """Khớp bất chấp khoảng trắng (spec có chỗ dùng 2 space cho căn cột)."""
+    pat = re.escape(param).replace(r"\ ", r"\s+").replace(" ", r"\s+")
+    return re.search(pat, text) is not None
+
+
+def test_erratum_1_ton_tai():
+    text = _spec_text_lf()
+    assert "## ERRATUM 1" in text, "spec phải có ERRATUM 1 (đính chính universe ~740 → ~575)"
+    assert "~575" in text, "erratum phải nêu số ĐO ĐƯỢC (~575)"
+    assert "740" in text, "erratum KHÔNG được xoá dấu vết con số sai (không viết lại lịch sử)"
+
+
+def test_erratum_khong_duoc_doi_tham_so():
+    """Một erratum chỉ sửa SỐ MÔ TẢ. Tham số chiến lược phải còn nguyên từng chữ."""
+    text = _spec_text_lf()
+    broken = [p for p in PARAMS_FROZEN if not _has_param(text, p)]
+    assert not broken, f"THAM SỐ đã bị đổi/biến mất (erratum không được phép): {broken}"
+
+
+def test_erratum_khong_co_van_ban_goc_bi_viet_lai():
+    """§3.1 gốc phải còn nguyên văn '903', '737' và câu khẳng định ~740."""
+    text = _spec_text_lf()
+    assert "903" in text and "737" in text, "số liệu gốc của §3.1 đã bị sửa/xoá"
+    assert re.search(r"kỳ vọng:\s*⚠️?\s*\*?\*?~?740", text) or "~740" in text, "câu gốc về ~740 đã biến mất"

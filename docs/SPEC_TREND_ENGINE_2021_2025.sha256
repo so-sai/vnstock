@@ -9,12 +9,14 @@
 #
 # ĐỊNH DẠNG: <sha256>  <đường dẫn>
 
-909f8c98d08df57f5053bbea3b8daa1536addc894d0b489a291bc4b126b6be8e  docs/SPEC_TREND_ENGINE_2021_2025.md
+98274cd6993425d245d8a8ed6191c5e4141514e3ca8a41056e513b9a8593341c  docs/SPEC_TREND_ENGINE_2021_2025.md
 
-# spec_version: v1.1 (FROZEN — không có v1.2; biến thể => file spec riêng)
-# changelog: mang v1.1 có lý do CẢ HAI vấn đề tiền kiểm:
-#   (1) mẫu số universe thực tế ~740 (giao điểm Giá + Organ), không phải 903;
-#   (2) tiêu chí sàn HOSE/HNX bất khả thi (DB không có cột) => xấp xỉ ADV20 >= 500k.
-#   Mọi thay đổi threshold/variant SAU đây phải là file spec riêng (variant B).
+# spec_version: v1.1.1 (v1.1 + ERRATUM 1)
+# changelog:
+#   v1.1   : universe ~740 (SUY DIỄN — SAI), bỏ tiêu chí sàn => ADV20 >= 500k, chốt mục 15
+#   v1.1.1 : ERRATUM 1 — đính chính SỐ MÔ TẢ universe: ~740 => đo thật ~575.
+#            THAM SỐ CHIẾN LƯỢC KHÔNG ĐỔI. §3.1 gốc giữ nguyên (không viết lại lịch sử).
+#   KHÔNG CÓ v1.2: mọi thay đổi THAM SỐ/variant phải là file spec riêng.
 # v1.0_commit: 6279fcccefbea3b7f87d9646ad1875a2b56bf694
-# guard: backend/tests/test_preregistration_hash.py (invariant #11)
+# v1.1_commit: eefc729a9c058945be027ecdf65b90dc8e7cf600
+# guards: test_preregistration_hash.py (toàn vẹn) · test_spec_structure.py (đầy đủ + erratum + tham số bất biến)
