@@ -319,6 +319,17 @@ REQUIRED_MODULES = {
     "src.engine.trend_organ_filter": "lọc Health/organ BS/Eff/Moat (§3, §4)",
 }
 
+# Vòng lặp ngày chưa nối engine. CỜ NÀY LÀ SỰ THẬT, không phải ghi chú:
+# nó nằm trong `ready`, nên preflight KHÔNG thể báo "sẵn sàng" trong khi
+# run_backtest vẫn ném NotImplementedError. Một `ready=True` như vậy là tín hiệu
+# nói dối — đúng thứ nguyên tắc fail-closed phải chặn.
+LOOP_IMPLEMENTED = False
+LOOP_NOT_IMPLEMENTED = (
+    "vòng lặp ngày chưa nối engine: cần dựng features PIT (RS/breakout/ADV20/volume, "
+    "đỉnh 20 phiên KHÔNG gồm phiên hiện tại), nối trend_engine + trend_organ_filter + "
+    "trend_circuit_breaker + trend_sizing, rồi MTM"
+)
+
 
 def preflight() -> dict:
     """Kiểm mọi thứ cần có. KHÔNG sửa state, KHÔNG chạy backtest."""
@@ -366,7 +377,9 @@ def preflight() -> dict:
         "effective_universe": len(organ_ok),
         "universe_per_year": per_year,
         "notes": notes,
-        "ready": not missing and lock["ok"] and bool(days),
+        "ready": not missing and lock["ok"] and bool(days) and LOOP_IMPLEMENTED,
+        "loop_implemented": LOOP_IMPLEMENTED,
+        "pending": ([] if LOOP_IMPLEMENTED else [LOOP_NOT_IMPLEMENTED]),
     }
 
 
@@ -397,6 +410,9 @@ def run_backtest(force: bool = False) -> dict:
             "force=True không được hỗ trợ: chạy backtest trên engine chưa cài đặt sẽ tạo ra "
             "kết quả VÔ NGHĨA nhưng trông hợp lệ. Cài đủ module rồi chạy lại."
         )
+    if not LOOP_IMPLEMENTED:
+        # Đủ 4 module nhưng chưa nối vào vòng lặp. Vẫn TỪ CHỐI chạy, và nói rõ còn thiếu gì.
+        raise NotImplementedError(f"vòng lặp ngày chưa cài đặt — {LOOP_NOT_IMPLEMENTED}")
 
     # ── Vòng lặp ngày (chỉ tới đây khi mọi dependency đã có) ──
     days = load_trading_days()

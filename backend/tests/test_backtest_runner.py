@@ -29,14 +29,25 @@ def bt():
 
 
 # ── FAIL-CLOSED: không được trả về kết quả rỗng ───────────────────────
-def test_runner_tu_choi_chay_khi_thieu_module(bt):
-    """Phải RAISE, tuyệt đối không trả về dict Sharpe=0."""
+def test_runner_tu_choi_khi_thieu_module(bt, monkeypatch):
+    """Thiếu module ⇒ RuntimeError, tuyệt đối không trả về dict Sharpe=0."""
+    monkeypatch.setitem(bt.REQUIRED_MODULES, "src.engine.khong_ton_tai_xyz", "mô phỏng module thiếu")
     with pytest.raises(RuntimeError) as e:
         bt.run_backtest()
     msg = str(e.value)
     assert "KHÔNG ĐƯỢC CHẠY" in msg
-    assert "trend_engine" in msg
+    assert "khong_ton_tai_xyz" in msg
     assert "Sharpe=0" in msg, "thông báo phải giải thích vì sao không bịa số"
+
+
+def test_du_module_nhung_chua_noi_loop_thi_van_tu_choi(bt):
+    """Đủ 4 module mà chưa nối vòng lặp ⇒ NotImplementedError, KHÔNG ra số.
+
+    Đây là bài học từ `ready`: có đủ dependency không đồng nghĩa chạy được.
+    """
+    with pytest.raises(NotImplementedError) as e:
+        bt.run_backtest()
+    assert "chưa cài đặt" in str(e.value) or "chưa nối" in str(e.value)
 
 
 def test_force_khong_duoc_ho_tro(bt):
@@ -47,7 +58,7 @@ def test_force_khong_duoc_ho_tro(bt):
 
 def test_khong_co_trade_nao_dieu_kien_khong_du(bt):
     """Không được để lại dấu vết của một lần chạy giả."""
-    with pytest.raises(RuntimeError):
+    with pytest.raises((RuntimeError, NotImplementedError)):
         bt.run_backtest()
     assert not (PROJECT_ROOT / "backend" / "reports" / "backtest" / "backtest_summary.json").exists(), (
         "runner không được ghi file kết quả khi chưa chạy được"
@@ -212,11 +223,17 @@ def test_giao_diem_thuc_te_NHO_HON_uoc_tinh_trong_spec(bt):
     assert facts_only > 100, f"phải có mã cơ-bản-không-đủ-giá, được {facts_only}"
 
 
-def test_preflight_nhan_dien_thieu_module(bt):
+def test_preflight_thay_du_4_module_nhung_chua_ready(bt):
+    """4 module đã có ⇒ missing_modules rỗng. Nhưng `ready` vẫn False vì loop chưa nối.
+
+    Phân biệt này quan trọng: `ready=True` khi run_backtest còn ném lỗi là tín hiệu nói dối.
+    """
     pf = bt.preflight()
-    assert pf["ready"] is False
-    assert any("trend_engine" in m for m in pf["missing_modules"])
-    assert pf["preregistration"]["ok"] is True, "spec v1.1 phải khớp anchor"
+    assert pf["missing_modules"] == [], f"còn thiếu module: {pf['missing_modules']}"
+    assert pf["loop_implemented"] is False
+    assert pf["ready"] is False, "chưa nối vòng lặp thì KHÔNG được báo ready"
+    assert pf["pending"], "phải nêu rõ còn thiếu gì"
+    assert pf["preregistration"]["ok"] is True, "spec v1.1.1 phải khớp anchor"
 
 
 def test_runner_dung_chung_nguon_voi_test_hash(bt):
