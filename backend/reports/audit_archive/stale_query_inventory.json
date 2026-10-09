@@ -1,0 +1,1982 @@
+{
+  "generated_at": "2026-10-09T10:11:28.176196+07:00",
+  "scanner": "stale_query_inventory.py (AST, inventory-only)",
+  "scanned_files": 519,
+  "note": "INVENTORY-ONLY: script này không sửa code. UNFILTERED = có 'daily_ohlcv' trong SQL mà không thấy token 'is_stale'; token có mặt là điều kiện CẦN, không phải đủ (vẫn phải đọc để chắc là lọc ĐÚNG chiều).",
+  "summary": {
+    "total": 325,
+    "unfiltered": 263,
+    "filtered": 14,
+    "deliberate": 1,
+    "dynamic": 47,
+    "by_file_top": {
+      "backend/src/database/data_integrity.py": 13,
+      "backend/src/backtest/system_replay.py": 6,
+      "backend/src/backtest/unified_system_replay.py": 6,
+      "backend/src/core/macro/sector_state_engine.py": 6,
+      "backend/src/core/flow/liquidity_concentration_engine.py": 5,
+      "backend/src/engine/entity_resilience_layer.py": 5,
+      "backend/src/engine/liquidity_wave.py": 5,
+      "backend/src/engine/regime_engine.py": 5,
+      "backend/src/governor/unfreeze_gates_v2.py": 5,
+      "ptck.py": 5,
+      "backend/src/database/rejected_signals.py": 4,
+      "backend/src/engine/backfill_engine.py": 4,
+      "backend/src/engine/group_influence_engine.py": 4,
+      "backend/src/engine/meanrev_engine.py": 4,
+      "backend/src/engine/orchestrator.py": 4
+    }
+  },
+  "records": [
+    {
+      "file": "backend/scripts/adjustment_basis_detector.py",
+      "line": 43,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv ORDER BY date"
+    },
+    {
+      "file": "backend/scripts/adjustment_basis_detector.py",
+      "line": 58,
+      "kind": "FILTERED",
+      "snippet": "WITH s AS ( SELECT symbol, date, close, LAG(close) OVER (PARTITION BY symbol ORDER BY date) AS prev_close FROM daily_ohlcv WHERE COALESCE(is_stale, 0) = 0 AND close IS NOT NULL AN…"
+    },
+    {
+      "file": "backend/scripts/adjustment_basis_detector.py",
+      "line": 118,
+      "kind": "FILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=? AND COALESCE(is_stale,0)=0"
+    },
+    {
+      "file": "backend/scripts/audit_veto_returns.py",
+      "line": 95,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/scripts/audit_veto_returns.py",
+      "line": 85,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv ORDER BY date"
+    },
+    {
+      "file": "backend/scripts/backfill_day_batched.py",
+      "line": 54,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol <> 'VNINDEX' ORDER BY symbol"
+    },
+    {
+      "file": "backend/scripts/backfill_day_batched.py",
+      "line": 61,
+      "kind": "FILTERED",
+      "snippet": "SELECT symbol FROM daily_ohlcv WHERE date = ? AND COALESCE(is_stale, 0) = 0"
+    },
+    {
+      "file": "backend/scripts/daily_brief_builder.py",
+      "line": 53,
+      "kind": "FILTERED",
+      "snippet": "SELECT date FROM daily_ohlcv WHERE COALESCE(is_stale, 0) = 0 GROUP BY date HAVING COUNT(*) >= ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/scripts/daily_brief_builder.py",
+      "line": 99,
+      "kind": "FILTERED",
+      "snippet": "SELECT date FROM daily_ohlcv WHERE date <= ? AND COALESCE(is_stale, 0) = 0 GROUP BY date HAVING COUNT(*) >= ? ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/scripts/daily_brief_builder.py",
+      "line": 158,
+      "kind": "FILTERED",
+      "snippet": "SELECT close, volume FROM daily_ohlcv WHERE symbol = ? AND date = ? AND COALESCE(is_stale, 0) = 0"
+    },
+    {
+      "file": "backend/scripts/nine_gates.py",
+      "line": 222,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/scripts/poison_detector.py",
+      "line": 43,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv ORDER BY date"
+    },
+    {
+      "file": "backend/scripts/poison_detector.py",
+      "line": 50,
+      "kind": "FILTERED",
+      "snippet": "SELECT c.symbol FROM daily_ohlcv c JOIN daily_ohlcv p ON p.symbol = c.symbol AND p.date = ? WHERE c.date = ? AND COALESCE(c.is_stale, 0) = 0 AND c.close = p.close AND c.volume = p…"
+    },
+    {
+      "file": "backend/scripts/poison_detector.py",
+      "line": 67,
+      "kind": "FILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv c JOIN daily_ohlcv p ON p.symbol = c.symbol AND p.date = ? WHERE c.date = ? AND COALESCE(c.is_stale, 0) = 0 AND c.close IS NOT NULL AND c.volume I…"
+    },
+    {
+      "file": "backend/scripts/snapshot_price_board.py",
+      "line": 92,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol <> 'VNINDEX' ORDER BY symbol"
+    },
+    {
+      "file": "backend/scripts/verify_backfill_day.py",
+      "line": 34,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE date=?"
+    },
+    {
+      "file": "backend/scripts/verify_backfill_day.py",
+      "line": 35,
+      "kind": "DELIBERATE",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE date=? AND is_stale=1"
+    },
+    {
+      "file": "backend/scripts/verify_backfill_day.py",
+      "line": 40,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close, volume FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/alpha/forward_return_tagger.py",
+      "line": 112,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/analysis/market_wide_breadth.py",
+      "line": 67,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date>=? AND date<=? ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/analysis/market_wide_breadth.py",
+      "line": 209,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/background_sweep.py",
+      "line": 39,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/backtest/ab_test_models.py",
+      "line": 286,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date >= ? AND date <= ? AND symbol='VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/ab_test_models.py",
+      "line": 212,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE date > ? AND date <= date(?, '+10 days')"
+    },
+    {
+      "file": "backend/src/backtest/ab_test_models.py",
+      "line": 188,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX','VN30') AND date >= ? ORDER BY symbol LIMIT ?"
+    },
+    {
+      "file": "backend/src/backtest/backfill_behavior_pit.py",
+      "line": 71,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol=? AND substr(date,1,4) IN (?,?,?,?) ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/backfill_sector_pit.py",
+      "line": 93,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN ? AND ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/backfill_sector_pit.py",
+      "line": 109,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/backtest/backfill_transmission_pit.py",
+      "line": 72,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN ? AND ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/calibrate_hazard.py",
+      "line": 242,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date,symbol,open,high,low,close,volume FROM daily_ohlcv WHERE date>=? AND date<=? ORDER BY symbol,date"
+    },
+    {
+      "file": "backend/src/backtest/calibrate_hazard.py",
+      "line": 84,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date>=? AND date<=? AND symbol='VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/calibrate_rom.py",
+      "line": 162,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date,symbol,open,high,low,close,volume FROM daily_ohlcv WHERE date>=? AND date<=? ORDER BY symbol,date"
+    },
+    {
+      "file": "backend/src/backtest/calibrate_rom.py",
+      "line": 151,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date>=? AND date<=? AND symbol='VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/grid_search_v2.py",
+      "line": 148,
+      "kind": "UNFILTERED",
+      "snippet": "Static beta vs VNINDEX from daily_ohlcv (regression of returns)."
+    },
+    {
+      "file": "backend/src/backtest/grid_search_v2.py",
+      "line": 151,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT a.close, b.close FROM daily_ohlcv a JOIN daily_ohlcv b ON a.date=b.date AND b.symbol='VNINDEX' WHERE a.symbol=? ORDER BY a.date DESC LIMIT 120"
+    },
+    {
+      "file": "backend/src/backtest/grid_search_v2.py",
+      "line": 199,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT volume FROM daily_ohlcv WHERE symbol=? AND date<? ORDER BY date DESC LIMIT 20"
+    },
+    {
+      "file": "backend/src/backtest/hsr_coordinator.py",
+      "line": 37,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE date >= ? AND date <= ? AND volume > 0 ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/backtest/replay_ledger_2022.py",
+      "line": 55,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN ? AND ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/replay_ledger_2022.py",
+      "line": 71,
+      "kind": "UNFILTERED",
+      "snippet": "WITH recent AS ( SELECT symbol, date, volume, AVG(volume) OVER ( PARTITION BY symbol ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW ) AS adv20 FROM daily_ohlcv WHERE date…"
+    },
+    {
+      "file": "backend/src/backtest/replay_ledger_2022.py",
+      "line": 377,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT 1 FROM daily_ohlcv WHERE symbol=? AND date BETWEEN ? AND ? LIMIT 1"
+    },
+    {
+      "file": "backend/src/backtest/run_batch_validation.py",
+      "line": 82,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date,symbol,open,high,low,close,volume FROM daily_ohlcv WHERE date>=? AND date<=? ORDER BY symbol,date"
+    },
+    {
+      "file": "backend/src/backtest/run_batch_validation.py",
+      "line": 59,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date >= ? AND date <= ? AND symbol = 'VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/run_hsr.py",
+      "line": 120,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, symbol, open, high, low, close, volume FROM daily_ohlcv WHERE date >= ? AND date <= ? ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/backtest/run_hsr.py",
+      "line": 81,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date >= ? AND date <= ? AND symbol = 'VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 58,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT AVG(ABS(close - LAG(close, 1) OVER (ORDER BY date))) as atr14 FROM daily_ohlcv WHERE symbol = '' AND date <= '' ORDER BY date DESC LIMIT 14"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 73,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT close, volume FROM daily_ohlcv WHERE symbol = '' AND date < '' ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 225,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN '' AND '' ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 58,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT AVG(ABS(close - LAG(close, 1) OVER (ORDER BY date))) as atr14 FROM daily_ohlcv WHERE symbol = '"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 73,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close, volume FROM daily_ohlcv WHERE symbol = '"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 86,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol='' AND date = ''"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 116,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT close, volume, low FROM daily_ohlcv WHERE symbol='' AND date = ''"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 225,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN '"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 86,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol='"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 116,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close, volume, low FROM daily_ohlcv WHERE symbol='"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 276,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date = ''"
+    },
+    {
+      "file": "backend/src/backtest/system_replay.py",
+      "line": 276,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date = '"
+    },
+    {
+      "file": "backend/src/backtest/unified_system_replay.py",
+      "line": 145,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN ? AND ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/backtest/unified_system_replay.py",
+      "line": 152,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/backtest/unified_system_replay.py",
+      "line": 598,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN () AND date BETWEEN ? AND ? ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/backtest/unified_system_replay.py",
+      "line": 1020,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT volume, close FROM daily_ohlcv WHERE symbol=? AND date<? ORDER BY date DESC LIMIT 30"
+    },
+    {
+      "file": "backend/src/backtest/unified_system_replay.py",
+      "line": 1042,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<? ORDER BY date DESC LIMIT 40"
+    },
+    {
+      "file": "backend/src/backtest/unified_system_replay.py",
+      "line": 1101,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT volume FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/backtest/unified_system_replay.py",
+      "line": 598,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/backtest/walk_forward_harness.py",
+      "line": 172,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/calibration/calibrator.py",
+      "line": 132,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/calibration/calibrator.py",
+      "line": 149,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/calibration/opportunity_cost.py",
+      "line": 57,
+      "kind": "UNFILTERED",
+      "snippet": "WITH after_start AS ( SELECT date, close FROM daily_ohlcv WHERE symbol = ? AND date > ? ORDER BY date ), numbered AS ( SELECT date, close, ROW_NUMBER() OVER (ORDER BY date) AS rn …"
+    },
+    {
+      "file": "backend/src/calibration/opportunity_cost.py",
+      "line": 103,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/core/flow/liquidity_concentration_engine.py",
+      "line": 239,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) as md FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/core/flow/liquidity_concentration_engine.py",
+      "line": 244,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date = ? AND symbol NOT LIKE '%INDEX%'"
+    },
+    {
+      "file": "backend/src/core/flow/liquidity_concentration_engine.py",
+      "line": 249,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE date < ? AND symbol NOT LIKE '%INDEX%' ORDER BY date DESC LIMIT 1000"
+    },
+    {
+      "file": "backend/src/core/flow/liquidity_concentration_engine.py",
+      "line": 229,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date = ? AND symbol NOT LIKE '%INDEX%'"
+    },
+    {
+      "file": "backend/src/core/flow/liquidity_concentration_engine.py",
+      "line": 234,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE date < ? AND symbol NOT LIKE '%INDEX%' ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/core/freshness_sentinel.py",
+      "line": 112,
+      "kind": "FILTERED",
+      "snippet": "SELECT date FROM daily_ohlcv WHERE COALESCE(is_stale, 0) = 0 GROUP BY date HAVING COUNT(*) >= ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/core/holdings/exposure_engine.py",
+      "line": 204,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, adj_close FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv)"
+    },
+    {
+      "file": "backend/src/core/holdings/exposure_engine.py",
+      "line": 216,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, volume FROM daily_ohlcv WHERE date >= date('now', '-30 days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/core/macro/macro_state_classifier.py",
+      "line": 484,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX'"
+    },
+    {
+      "file": "backend/src/core/macro/macro_state_classifier.py",
+      "line": 484,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX'"
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 233,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN () AND date >= date('now', '-90 days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 430,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date >= date('now', '-40 days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 439,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol IN () AND date >= date('now', '-40 days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 233,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 439,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 349,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT AVG(volume) as avg_vol FROM daily_ohlcv WHERE symbol IN () AND date = (SELECT MAX(date) FROM daily_ohlcv)"
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 361,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT AVG(volume) as avg_vol FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv)"
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 349,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT AVG(volume) as avg_vol FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/core/macro/sector_state_engine.py",
+      "line": 350,
+      "kind": "UNFILTERED",
+      "snippet": ") AND date = (SELECT MAX(date) FROM daily_ohlcv)"
+    },
+    {
+      "file": "backend/src/core/session_resolver.py",
+      "line": 58,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/daily_closer.py",
+      "line": 136,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/daily_closer.py",
+      "line": 231,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, close FROM daily_ohlcv WHERE date = ? AND close > 0 AND symbol IN ()"
+    },
+    {
+      "file": "backend/src/daily_closer.py",
+      "line": 231,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, close FROM daily_ohlcv WHERE date = ? AND close > 0 AND symbol IN ("
+    },
+    {
+      "file": "backend/src/daily_updater.py",
+      "line": 1274,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30')"
+    },
+    {
+      "file": "backend/src/data/cache_warming.py",
+      "line": 44,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, MAX(date) FROM daily_ohlcv GROUP BY symbol"
+    },
+    {
+      "file": "backend/src/data/fallback_resolver.py",
+      "line": 169,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT open, high, low, close, adj_close, volume FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/data/fallback_resolver.py",
+      "line": 207,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT open, high, low, close, adj_close, volume FROM daily_ohlcv WHERE symbol=? AND date < ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/data/schema_normalizer.py",
+      "line": 191,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close, date FROM daily_ohlcv WHERE symbol=? AND close IS NOT NULL AND close > 0 ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/database/data_freshness.py",
+      "line": 144,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv WHERE symbol=?"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 42,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE date NOT GLOB ? AND date GLOB ?"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 70,
+      "kind": "UNFILTERED",
+      "snippet": "DELETE FROM daily_ohlcv WHERE date NOT GLOB ? AND date GLOB ? AND EXISTS ( SELECT 1 FROM daily_ohlcv AS plain WHERE plain.symbol = daily_ohlcv.symbol AND plain.date = substr(daily…"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 85,
+      "kind": "UNFILTERED",
+      "snippet": "UPDATE daily_ohlcv SET date = substr(date, 1, 10) WHERE date NOT GLOB ? AND date GLOB ? AND NOT EXISTS ( SELECT 1 FROM daily_ohlcv AS plain WHERE plain.symbol = daily_ohlcv.symbol…"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 48,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date FROM daily_ohlcv WHERE date NOT GLOB ? AND date GLOB ? ORDER BY date LIMIT 20"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 165,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol='VNINDEX' AND (close > 0 AND close <= 100 OR (close > 100 AND high > 0 AND high <= 100))"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 179,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol='VNINDEX' AND (close > 0 AND close <= 100 OR (close > 100 AND high > 0 AND high <= 100)) ORDER BY date"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 214,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol='VNINDEX' AND (close > 0 AND close <= 100 OR (close > 100 AND high > 0 AND high <= 100))"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 264,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol='VNINDEX'"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 267,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MIN(date), MAX(date) FROM daily_ohlcv WHERE symbol='VNINDEX'"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 271,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol='VNINDEX' AND close > 0 AND close <= 100"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 277,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MIN(close), MAX(close), AVG(close) FROM daily_ohlcv WHERE symbol='VNINDEX'"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 283,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(DISTINCT symbol) FROM daily_ohlcv WHERE symbol != 'VNINDEX' AND close > 0"
+    },
+    {
+      "file": "backend/src/database/data_integrity.py",
+      "line": 286,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(DISTINCT symbol) FROM daily_ohlcv WHERE symbol != 'VNINDEX'"
+    },
+    {
+      "file": "backend/src/database/data_quality_failover.py",
+      "line": 207,
+      "kind": "FILTERED",
+      "snippet": "SELECT date, symbol, open, high, low, close, volume FROM daily_ohlcv WHERE symbol = ? AND is_stale = 0 ORDER BY date DESC LIMIT 5"
+    },
+    {
+      "file": "backend/src/database/db_core.py",
+      "line": 429,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(close), AVG(volume) FROM ( SELECT close, volume FROM daily_ohlcv WHERE symbol=? AND date<? ORDER BY date DESC LIMIT ?)"
+    },
+    {
+      "file": "backend/src/database/db_core.py",
+      "line": 443,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<? AND close>0 ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/database/db_core.py",
+      "line": 463,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<? AND close>0 ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/database/rejected_signals.py",
+      "line": 321,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 20"
+    },
+    {
+      "file": "backend/src/database/rejected_signals.py",
+      "line": 334,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT high, low, close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 15"
+    },
+    {
+      "file": "backend/src/database/rejected_signals.py",
+      "line": 372,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/database/rejected_signals.py",
+      "line": 458,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, adj_close FROM daily_ohlcv WHERE date >= (SELECT MIN(date) FROM daily_ohlcv) ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/absorption_detector.py",
+      "line": 82,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, symbol, open, high, low, close, volume FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date >= ? AND date <= ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/backfill_engine.py",
+      "line": 201,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv WHERE symbol = ?"
+    },
+    {
+      "file": "backend/src/engine/backfill_engine.py",
+      "line": 316,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT 1 FROM daily_ohlcv WHERE symbol = ? LIMIT 1"
+    },
+    {
+      "file": "backend/src/engine/backfill_engine.py",
+      "line": 428,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol = ?"
+    },
+    {
+      "file": "backend/src/engine/backfill_engine.py",
+      "line": 441,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol = ?"
+    },
+    {
+      "file": "backend/src/engine/backtest_engine.py",
+      "line": 133,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close, adj_close, volume FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30') AND date >= '' AND date <= ''"
+    },
+    {
+      "file": "backend/src/engine/backtest_engine.py",
+      "line": 141,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, high, low, adj_close as bench_close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date >= '' AND date <= ''"
+    },
+    {
+      "file": "backend/src/engine/backtest_engine.py",
+      "line": 133,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, adj_close, volume FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30') AND date >= '"
+    },
+    {
+      "file": "backend/src/engine/backtest_engine.py",
+      "line": 141,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, high, low, adj_close as bench_close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date >= '"
+    },
+    {
+      "file": "backend/src/engine/backtest_engine.py",
+      "line": 165,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol LIKE '%INDEX%'"
+    },
+    {
+      "file": "backend/src/engine/breadth_engine.py",
+      "line": 54,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close, volume, high FROM daily_ohlcv WHERE date >= date('', '-60 days') AND date <= '' AND COALESCE(is_stale, 0) = 0"
+    },
+    {
+      "file": "backend/src/engine/breadth_engine.py",
+      "line": 54,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume, high FROM daily_ohlcv WHERE date >= date('"
+    },
+    {
+      "file": "backend/src/engine/breakout_continuation.py",
+      "line": 45,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume, high, low FROM daily_ohlcv WHERE date >= date('now', '-200 days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/breakout_continuation.py",
+      "line": 61,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, volume, high, low FROM daily_ohlcv WHERE symbol = ? AND date >= date('now', '-200 days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/capital_flow_forecasting_engine.py",
+      "line": 100,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= date('', '- days') AND date <= '' AND volume > 0 ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/capital_flow_forecasting_engine.py",
+      "line": 107,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= date('now', '- days') AND volume > 0 ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/capital_flow_forecasting_engine.py",
+      "line": 100,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= date('"
+    },
+    {
+      "file": "backend/src/engine/capital_flow_forecasting_engine.py",
+      "line": 107,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= date('now', '-"
+    },
+    {
+      "file": "backend/src/engine/commodity_hit_rate.py",
+      "line": 149,
+      "kind": "FILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = ? AND COALESCE(is_stale, 0) = 0 ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/engine/cross_market_flow_map.py",
+      "line": 146,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT 20"
+    },
+    {
+      "file": "backend/src/engine/data_quality.py",
+      "line": 60,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv ORDER BY symbol, date ASC"
+    },
+    {
+      "file": "backend/src/engine/data_quality.py",
+      "line": 222,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, open, high, low FROM daily_ohlcv WHERE date >= date('now', '-30 days') ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 135,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, SUM(volume) as total_vol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX','VN30') AND date BETWEEN date('', '-90 days') AND '' GROUP BY symbol ORDER BY total_vol DES…"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 237,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, volume, close FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 266,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, volume, close FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 303,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT high, low, close FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 135,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, SUM(volume) as total_vol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX','VN30') AND date BETWEEN date('"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 237,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, volume, close FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 266,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, volume, close FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 303,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT high, low, close FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/entity_resilience_layer.py",
+      "line": 114,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX','VN30')"
+    },
+    {
+      "file": "backend/src/engine/eod_runner.py",
+      "line": 99,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/engine/eod_runner.py",
+      "line": 182,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date <= ? ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/engine/erl_worker.py",
+      "line": 117,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT SUM(close * volume / 1e9) FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv)"
+    },
+    {
+      "file": "backend/src/engine/fast_exit_guard.py",
+      "line": 58,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT SUM(volume) as vol, AVG(close) as avg_close, AVG(high) as avg_high, AVG(low) as avg_low, AVG(open) as avg_open FROM daily_ohlcv WHERE date=? AND symbol IN ()"
+    },
+    {
+      "file": "backend/src/engine/fast_exit_guard.py",
+      "line": 65,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, SUM(volume) as total FROM daily_ohlcv WHERE date<? AND date>=date(?, '-27 days') AND symbol IN () GROUP BY date ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/fast_exit_guard.py",
+      "line": 58,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT SUM(volume) as vol, AVG(close) as avg_close, AVG(high) as avg_high, AVG(low) as avg_low, AVG(open) as avg_open FROM daily_ohlcv WHERE date=? AND symbol IN ("
+    },
+    {
+      "file": "backend/src/engine/fast_exit_guard.py",
+      "line": 65,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, SUM(volume) as total FROM daily_ohlcv WHERE date<? AND date>=date(?, '-27 days') AND symbol IN ("
+    },
+    {
+      "file": "backend/src/engine/flow_decay_engine.py",
+      "line": 235,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/flow_decay_engine.py",
+      "line": 311,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN () AND date >= date('now', '- days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/flow_decay_engine.py",
+      "line": 410,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, SUM(volume) as total_vol, AVG(close * volume * 1000 / 1e9) as avg_value_bn FROM daily_ohlcv WHERE date >= date('now', '-30 days') GROUP BY date ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/flow_decay_engine.py",
+      "line": 235,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/flow_decay_engine.py",
+      "line": 311,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/engine/group_influence_engine.py",
+      "line": 163,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT d.symbol, d.close, d.volume, d.open, d.high, d.low FROM daily_ohlcv d INNER JOIN ( SELECT symbol, MAX(date) as max_date FROM daily_ohlcv WHERE date <= ? GROUP BY symbol) m …"
+    },
+    {
+      "file": "backend/src/engine/group_influence_engine.py",
+      "line": 176,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT d.symbol, d.close as close_prev FROM daily_ohlcv d INNER JOIN ( SELECT symbol, MAX(date) as max_date FROM daily_ohlcv WHERE date < ? GROUP BY symbol) m ON d.symbol = m.symb…"
+    },
+    {
+      "file": "backend/src/engine/group_influence_engine.py",
+      "line": 188,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date=?"
+    },
+    {
+      "file": "backend/src/engine/group_influence_engine.py",
+      "line": 158,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) as d FROM daily_ohlcv WHERE symbol='VNINDEX'"
+    },
+    {
+      "file": "backend/src/engine/heatmap_engine.py",
+      "line": 41,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT p.symbol, p.date, p.close, p.volume, i.icb_name3 as sector FROM daily_ohlcv p JOIN symbol_industry i ON p.symbol = i.symbol WHERE p.date >= '2025-01-01'"
+    },
+    {
+      "file": "backend/src/engine/index_reality_unifier.py",
+      "line": 70,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol != 'VNINDEX' AND date >= ? AND date <= ? ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/engine/index_reality_unifier.py",
+      "line": 77,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close as idx_close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/index_reality_unifier.py",
+      "line": 136,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol != 'VNINDEX' AND date >= ? AND date <= ? ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/engine/leadership_tracker.py",
+      "line": 62,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/engine/leadership_tracker.py",
+      "line": 74,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol != 'VNINDEX' AND date >= ? ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/engine/leadership_tracker.py",
+      "line": 84,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close as idx_close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date >= ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/liquidity_wave.py",
+      "line": 140,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv) AND volume > 0"
+    },
+    {
+      "file": "backend/src/engine/liquidity_wave.py",
+      "line": 44,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/liquidity_wave.py",
+      "line": 107,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE date >= date('now', '-60 days') AND volume > 0"
+    },
+    {
+      "file": "backend/src/engine/liquidity_wave.py",
+      "line": 123,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, SUM(volume) as total_vol, AVG(close * volume * 1000 / 1e9) as avg_value_bn FROM daily_ohlcv WHERE date >= date('now', '-30 days') GROUP BY date ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/liquidity_wave.py",
+      "line": 169,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= date('now', '-5 days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/liquidity_wave.py",
+      "line": 44,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/market_structure.py",
+      "line": 55,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol != 'VNINDEX' AND date <= '' ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/engine/market_structure.py",
+      "line": 60,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, close as idx_close FROM daily_ohlcv WHERE symbol='VNINDEX' AND close > 100 AND date <= '' ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/market_structure.py",
+      "line": 55,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol != 'VNINDEX' AND date <= '"
+    },
+    {
+      "file": "backend/src/engine/market_structure.py",
+      "line": 60,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close as idx_close FROM daily_ohlcv WHERE symbol='VNINDEX' AND close > 100 AND date <= '"
+    },
+    {
+      "file": "backend/src/engine/meanrev_engine.py",
+      "line": 225,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date <= ? AND date >= date(?, '-400 days')"
+    },
+    {
+      "file": "backend/src/engine/meanrev_engine.py",
+      "line": 230,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-06-01'"
+    },
+    {
+      "file": "backend/src/engine/meanrev_engine.py",
+      "line": 48,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= ? ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/engine/meanrev_engine.py",
+      "line": 55,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/engine/money_flow_engine.py",
+      "line": 112,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?"
+    },
+    {
+      "file": "backend/src/engine/orchestrator.py",
+      "line": 155,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(DISTINCT symbol) as cnt FROM daily_ohlcv WHERE date=? AND volume>50000 AND symbol!='VNINDEX'"
+    },
+    {
+      "file": "backend/src/engine/orchestrator.py",
+      "line": 563,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' AND date IN (?, ?, ?) ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/orchestrator.py",
+      "line": 572,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, SUM(volume) as total FROM daily_ohlcv WHERE date<? AND date>=date(?, '-27 days') AND symbol='VNINDEX' GROUP BY date ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/orchestrator.py",
+      "line": 555,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date<? AND symbol='VNINDEX' ORDER BY date DESC LIMIT 2"
+    },
+    {
+      "file": "backend/src/engine/paper_mtm.py",
+      "line": 211,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date > ? ORDER BY date ASC LIMIT ?"
+    },
+    {
+      "file": "backend/src/engine/paper_mtm.py",
+      "line": 229,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date<=? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/engine/paper_mtm.py",
+      "line": 529,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(DISTINCT date) FROM daily_ohlcv WHERE date > ? AND date <= ?"
+    },
+    {
+      "file": "backend/src/engine/paper_trading_engine.py",
+      "line": 227,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT open, high, low, close, volume FROM daily_ohlcv WHERE symbol = ? AND date = ?"
+    },
+    {
+      "file": "backend/src/engine/paper_trading_engine.py",
+      "line": 237,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, open, high, low, close, volume FROM daily_ohlcv WHERE symbol = ? AND date > ? ORDER BY date ASC LIMIT 1"
+    },
+    {
+      "file": "backend/src/engine/paper_trading_engine.py",
+      "line": 249,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close, volume FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/engine/paper_trading_engine.py",
+      "line": 1064,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/engine/per_symbol_absorption.py",
+      "line": 220,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, open, high, low, close, volume FROM daily_ohlcv WHERE symbol = ? AND date >= ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/recovery_engine.py",
+      "line": 54,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= '' ORDER BY date DESC LIMIT 60"
+    },
+    {
+      "file": "backend/src/engine/recovery_engine.py",
+      "line": 60,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT 60"
+    },
+    {
+      "file": "backend/src/engine/recovery_engine.py",
+      "line": 54,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= '"
+    },
+    {
+      "file": "backend/src/engine/regime_engine.py",
+      "line": 552,
+      "kind": "UNFILTERED",
+      "snippet": "Backfill regime_history for dates missing from daily_ohlcv. Processes in reverse chronological order (latest first) so EMA seeds are available for each computation. Returns: (proc…"
+    },
+    {
+      "file": "backend/src/engine/regime_engine.py",
+      "line": 569,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/regime_engine.py",
+      "line": 102,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date <= '' AND date >= date('', '-60 days') AND symbol != 'VNINDEX' AND COALESCE(is_stale, 0) = 0"
+    },
+    {
+      "file": "backend/src/engine/regime_engine.py",
+      "line": 109,
+      "kind": "FILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= '2025-10-01' AND symbol != 'VNINDEX' AND COALESCE(is_stale, 0) = 0"
+    },
+    {
+      "file": "backend/src/engine/regime_engine.py",
+      "line": 169,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= '' ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/regime_engine.py",
+      "line": 175,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/regime_engine.py",
+      "line": 102,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date <= '"
+    },
+    {
+      "file": "backend/src/engine/regime_engine.py",
+      "line": 169,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= '"
+    },
+    {
+      "file": "backend/src/engine/rs_audit.py",
+      "line": 176,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) as d FROM daily_ohlcv WHERE symbol='VNINDEX'"
+    },
+    {
+      "file": "backend/src/engine/rs_audit.py",
+      "line": 182,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, close FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv WHERE date < ?)"
+    },
+    {
+      "file": "backend/src/engine/rs_audit.py",
+      "line": 186,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, close FROM daily_ohlcv WHERE date = ?"
+    },
+    {
+      "file": "backend/src/engine/rs_ranker.py",
+      "line": 69,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, adj_close as close, volume FROM daily_ohlcv ORDER BY symbol, date ASC"
+    },
+    {
+      "file": "backend/src/engine/rsi_regime_engine.py",
+      "line": 162,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/rsi_regime_engine.py",
+      "line": 272,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT"
+    },
+    {
+      "file": "backend/src/engine/rsi_regime_engine.py",
+      "line": 162,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = ?"
+    },
+    {
+      "file": "backend/src/engine/rsi_regime_engine.py",
+      "line": 272,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = ?"
+    },
+    {
+      "file": "backend/src/engine/screener.py",
+      "line": 105,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol != 'VNINDEX' ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/engine/screener.py",
+      "line": 114,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close as idx_close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/screener_logic.py",
+      "line": 39,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, open, high, low, adj_close AS close, volume FROM daily_ohlcv WHERE date >= '2025-01-01'"
+    },
+    {
+      "file": "backend/src/engine/sector_ranker.py",
+      "line": 59,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT o.symbol, o.date, o.close, o.volume, i.icb_name2 as industry FROM daily_ohlcv o JOIN symbol_industry i ON o.symbol = i.symbol WHERE o.symbol NOT IN ('VNINDEX', 'VN30') ORDE…"
+    },
+    {
+      "file": "backend/src/engine/sector_rotation_graph.py",
+      "line": 86,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN () AND date >= date('now', '- days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/sector_rotation_graph.py",
+      "line": 204,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, symbol, close, volume FROM daily_ohlcv WHERE date >= date('now', '- days') AND volume > 0 ORDER BY date"
+    },
+    {
+      "file": "backend/src/engine/sector_rotation_graph.py",
+      "line": 86,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/engine/sector_rotation_graph.py",
+      "line": 204,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, symbol, close, volume FROM daily_ohlcv WHERE date >= date('now', '-"
+    },
+    {
+      "file": "backend/src/engine/sentinel_alert.py",
+      "line": 71,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE date >= '2025-01-01'"
+    },
+    {
+      "file": "backend/src/engine/startup_reminder.py",
+      "line": 97,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(DISTINCT symbol) FROM daily_ohlcv WHERE date = ?"
+    },
+    {
+      "file": "backend/src/engine/startup_reminder.py",
+      "line": 102,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE date = ? AND symbol = 'VNINDEX'"
+    },
+    {
+      "file": "backend/src/engine/structural_detector.py",
+      "line": 75,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date=?"
+    },
+    {
+      "file": "backend/src/engine/structural_detector.py",
+      "line": 79,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, close, volume FROM daily_ohlcv WHERE date=? AND symbol!='VNINDEX' AND close>0"
+    },
+    {
+      "file": "backend/src/engine/structural_detector.py",
+      "line": 86,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT a.symbol, a.close as close_prev FROM daily_ohlcv a INNER JOIN ( SELECT symbol, MAX(date) as max_date FROM daily_ohlcv WHERE date<? AND symbol!='VNINDEX' AND close>0 GROUP B…"
+    },
+    {
+      "file": "backend/src/engine/structural_detector.py",
+      "line": 96,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date = (SELECT MAX(date) FROM daily_ohlcv WHERE date<? AND symbol='VNINDEX')"
+    },
+    {
+      "file": "backend/src/engine/structural_healing.py",
+      "line": 23,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date < ? AND symbol='VNINDEX' ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/execution/twap_executor.py",
+      "line": 220,
+      "kind": "UNFILTERED",
+      "snippet": "Fetch VN-Index intraday return from daily_ohlcv (latest session close). Returns % change of the most recent VNINDEX close versus previous session close, or None on failure."
+    },
+    {
+      "file": "backend/src/execution/twap_executor.py",
+      "line": 230,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 2"
+    },
+    {
+      "file": "backend/src/financial/market_behavior_engine.py",
+      "line": 107,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, open, high, low, close, adj_close, volume FROM daily_ohlcv WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/financial/market_behavior_engine.py",
+      "line": 118,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, open, high, low, close, adj_close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/financial/valuation_engine.py",
+      "line": 175,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol=? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/financial/valuation_engine.py",
+      "line": 187,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol=? ORDER BY date"
+    },
+    {
+      "file": "backend/src/financial/valuation_engine.py",
+      "line": 166,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/governor/csi_explain.py",
+      "line": 602,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, volume FROM daily_ohlcv WHERE date >= ?"
+    },
+    {
+      "file": "backend/src/governor/csi_explain.py",
+      "line": 595,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv ORDER BY date DESC LIMIT 30"
+    },
+    {
+      "file": "backend/src/governor/fair_multiple_engine.py",
+      "line": 160,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/governor/macro_lag_engine.py",
+      "line": 353,
+      "kind": "UNFILTERED",
+      "snippet": "Fetch VNINDEX from daily_ohlcv (module-level cached)."
+    },
+    {
+      "file": "backend/src/governor/macro_lag_engine.py",
+      "line": 107,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/governor/macro_lag_engine.py",
+      "line": 114,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/governor/regional_influence_engine.py",
+      "line": 167,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/governor/regional_influence_engine.py",
+      "line": 172,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/governor/shock_detector.py",
+      "line": 154,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date ASC"
+    },
+    {
+      "file": "backend/src/governor/shock_detector.py",
+      "line": 178,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, high, low, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC"
+    },
+    {
+      "file": "backend/src/governor/shock_detector.py",
+      "line": 226,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, volume FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC"
+    },
+    {
+      "file": "backend/src/governor/uncertainty_layer.py",
+      "line": 200,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date ASC"
+    },
+    {
+      "file": "backend/src/governor/unfreeze_gates_v2.py",
+      "line": 380,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol FROM daily_ohlcv WHERE date IN () GROUP BY symbol HAVING COUNT(DISTINCT date) ="
+    },
+    {
+      "file": "backend/src/governor/unfreeze_gates_v2.py",
+      "line": 380,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol FROM daily_ohlcv WHERE date IN ("
+    },
+    {
+      "file": "backend/src/governor/unfreeze_gates_v2.py",
+      "line": 371,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE date <= ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/governor/unfreeze_gates_v2.py",
+      "line": 384,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT date, SUM(close*volume)/1e9 FROM daily_ohlcv WHERE date IN () AND symbol IN () GROUP BY date ORDER BY date"
+    },
+    {
+      "file": "backend/src/governor/unfreeze_gates_v2.py",
+      "line": 392,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, volume, (close/LAG(close) OVER (ORDER BY date)-1)*100 FROM daily_ohlcv WHERE symbol='VNINDEX' AND date <= ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/governor/unfreeze_gates_v2.py",
+      "line": 384,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, SUM(close*volume)/1e9 FROM daily_ohlcv WHERE date IN ("
+    },
+    {
+      "file": "backend/src/governor/unfreeze_gates_v2.py",
+      "line": 504,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/portfolio/portfolio_recommendation_engine.py",
+      "line": 153,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date = (SELECT MAX(date) FROM daily_ohlcv) AND symbol != 'VNINDEX' AND volume > 0"
+    },
+    {
+      "file": "backend/src/portfolio/risk_governor_engine.py",
+      "line": 101,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, close FROM daily_ohlcv WHERE symbol IN () AND date = (SELECT MAX(date) FROM daily_ohlcv)"
+    },
+    {
+      "file": "backend/src/portfolio/risk_governor_engine.py",
+      "line": 157,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN () ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/portfolio/risk_governor_engine.py",
+      "line": 203,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN () ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/portfolio/risk_governor_engine.py",
+      "line": 101,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/portfolio/risk_governor_engine.py",
+      "line": 102,
+      "kind": "UNFILTERED",
+      "snippet": ") AND date = (SELECT MAX(date) FROM daily_ohlcv)"
+    },
+    {
+      "file": "backend/src/portfolio/risk_governor_engine.py",
+      "line": 157,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/portfolio/risk_governor_engine.py",
+      "line": 203,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/portfolio/shadow_tracker.py",
+      "line": 62,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT adj_close FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/providers/sqlite_provider.py",
+      "line": 97,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, open, high, low, close, adj_close, volume FROM daily_ohlcv WHERE symbol = ?"
+    },
+    {
+      "file": "backend/src/ptck_vn20_builder.py",
+      "line": 476,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, so_phien FROM daily_ohlcv WHERE symbol IN ()"
+    },
+    {
+      "file": "backend/src/ptck_vn20_builder.py",
+      "line": 476,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, so_phien FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/quant/vn20_quant_filter.py",
+      "line": 183,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, volume FROM daily_ohlcv WHERE volume IS NOT NULL ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/quant/vn20_quant_filter.py",
+      "line": 563,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN () AND date >= date('now', '- days') ORDER BY date"
+    },
+    {
+      "file": "backend/src/quant/vn20_quant_filter.py",
+      "line": 563,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/research/analyze_recovery.py",
+      "line": 34,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close FROM daily_ohlcv WHERE date BETWEEN '2022-01-01' AND '2024-12-31'"
+    },
+    {
+      "file": "backend/src/research/audit_2022.py",
+      "line": 31,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN '2022-10-01' AND '2022-12-31' ORDER BY date"
+    },
+    {
+      "file": "backend/src/research/capitulation_paper_ledger.py",
+      "line": 197,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close, high, low FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "backend/src/research/check_data.py",
+      "line": 31,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN '2020-01-01' AND '2020-06-30'"
+    },
+    {
+      "file": "backend/src/research/check_data.py",
+      "line": 35,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN '2022-10-01' AND '2022-12-31'"
+    },
+    {
+      "file": "backend/src/research/check_data.py",
+      "line": 39,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN '2023-01-01' AND '2023-12-31'"
+    },
+    {
+      "file": "backend/src/research/check_ohlcv.py",
+      "line": 29,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT COUNT(*) as count FROM daily_ohlcv WHERE date = '2022-11-21'"
+    },
+    {
+      "file": "backend/src/research/opportunity_score_research.py",
+      "line": 168,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol IN () AND date >= ? AND date <= ? ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/research/opportunity_score_research.py",
+      "line": 168,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE symbol IN ("
+    },
+    {
+      "file": "backend/src/research/sim_regime.py",
+      "line": 75,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, high, low, close FROM daily_ohlcv WHERE symbol=\"VNINDEX\" ORDER BY date"
+    },
+    {
+      "file": "backend/src/scripts/debug_vn20.py",
+      "line": 46,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT volume FROM daily_ohlcv WHERE symbol=? AND date=?"
+    },
+    {
+      "file": "backend/src/scripts/vn20_backtest.py",
+      "line": 117,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol=? AND date BETWEEN ? AND ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/scripts/vn20_backtest.py",
+      "line": 162,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date BETWEEN '2022-01-01' AND '2026-08-03' ORDER BY date"
+    },
+    {
+      "file": "backend/src/services/actionable_intelligence_service.py",
+      "line": 322,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close, date FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/services/backtest_service.py",
+      "line": 46,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT symbol, date, open, high, low, adj_close as close, volume FROM daily_ohlcv WHERE date >= '' AND date <= '' AND symbol NOT IN ('VNINDEX', 'VN30') ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/services/backtest_service.py",
+      "line": 182,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, adj_close as close FROM daily_ohlcv WHERE date >= ? AND date <= ? AND symbol NOT IN ('VNINDEX', 'VN30') ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/services/backtest_service.py",
+      "line": 46,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, open, high, low, adj_close as close, volume FROM daily_ohlcv WHERE date >= '"
+    },
+    {
+      "file": "backend/src/services/heatmap_service.py",
+      "line": 46,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, adj_close AS close FROM daily_ohlcv ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/services/heatmap_service.py",
+      "line": 139,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/services/heatmap_service.py",
+      "line": 147,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date >= ? ORDER BY symbol, date"
+    },
+    {
+      "file": "backend/src/services/macro/time_series_aligner.py",
+      "line": 542,
+      "kind": "UNFILTERED",
+      "snippet": "Fetch VNINDEX close data from daily_ohlcv."
+    },
+    {
+      "file": "backend/src/services/macro/time_series_aligner.py",
+      "line": 548,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close AS value FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date >= date('now', ?) ORDER BY date"
+    },
+    {
+      "file": "backend/src/services/market_backfill.py",
+      "line": 117,
+      "kind": "FILTERED",
+      "snippet": "SELECT d.symbol, d.close FROM daily_ohlcv d JOIN ( SELECT symbol, MAX(date) AS md FROM daily_ohlcv WHERE date < ? AND is_stale = 0 GROUP BY symbol) m ON d.symbol = m.symbol AND d.…"
+    },
+    {
+      "file": "backend/src/services/market_backfill.py",
+      "line": 133,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT symbol, close FROM ( SELECT symbol, close, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) rn FROM daily_ohlcv WHERE date < ? AND close > 0) WHERE rn <= ?"
+    },
+    {
+      "file": "backend/src/services/market_backfill.py",
+      "line": 156,
+      "kind": "FILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol='VNINDEX' AND date < ? AND is_stale = 0 ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/services/portfolio_service.py",
+      "line": 63,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT adj_close FROM daily_ohlcv WHERE symbol = '' ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/services/portfolio_service.py",
+      "line": 63,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT adj_close FROM daily_ohlcv WHERE symbol = '"
+    },
+    {
+      "file": "backend/src/services/replay_service.py",
+      "line": 162,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT d.date, d.open, d.high, d.low, d.close, d.volume, AVG(d.close) OVER (ORDER BY d.date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) as ma50, AVG(d.close) OVER (ORDER BY d.date …"
+    },
+    {
+      "file": "backend/src/services/replay_service.py",
+      "line": 162,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT d.date, d.open, d.high, d.low, d.close, d.volume, AVG(d.close) OVER (ORDER BY d.date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) as ma50, AVG(d.close) OVER (ORDER BY d.date …"
+    },
+    {
+      "file": "backend/src/services/symbol_audit_service.py",
+      "line": 116,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, close FROM daily_ohlcv WHERE symbol = ? ORDER BY date ASC"
+    },
+    {
+      "file": "backend/src/services/xray_service.py",
+      "line": 138,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, open, high, low, close, adj_close, volume FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT ?"
+    },
+    {
+      "file": "backend/src/telemetry/attribution.py",
+      "line": 51,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/telemetry/attribution.py",
+      "line": 56,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/telemetry/evaluator.py",
+      "line": 42,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date = ?"
+    },
+    {
+      "file": "backend/src/telemetry/evaluator.py",
+      "line": 55,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/telemetry/gap_analyzer.py",
+      "line": 76,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' AND date >= ? ORDER BY date"
+    },
+    {
+      "file": "backend/src/telemetry/gap_analyzer.py",
+      "line": 87,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE symbol NOT IN ('VNINDEX', 'VN30') AND date >= ?"
+    },
+    {
+      "file": "backend/src/telemetry/gap_analyzer.py",
+      "line": 104,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv WHERE date=? AND symbol NOT IN ('VNINDEX', 'VN30')"
+    },
+    {
+      "file": "backend/src/telemetry/gap_analyzer.py",
+      "line": 63,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    },
+    {
+      "file": "backend/src/telemetry/prediction_registry.py",
+      "line": 73,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = ? AND date = ?"
+    },
+    {
+      "file": "backend/src/telemetry/prediction_registry.py",
+      "line": 87,
+      "kind": "DYNAMIC",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = ? AND date ? ORDER BY date LIMIT 1"
+    },
+    {
+      "file": "backend/src/telemetry/prediction_registry.py",
+      "line": 87,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = ? AND date"
+    },
+    {
+      "file": "backend/src/telemetry/recorder.py",
+      "line": 40,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "backend/src/tools/data_baking_forge.py",
+      "line": 95,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MIN(date), MAX(date), COUNT(*) FROM daily_ohlcv WHERE symbol=?"
+    },
+    {
+      "file": "backend/src/tools/market_report.py",
+      "line": 99,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, high, low, adj_close as bench_close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date"
+    },
+    {
+      "file": "ptck.py",
+      "line": 2338,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, open, high, low, close, volume, source FROM daily_ohlcv WHERE symbol = ? ORDER BY date DESC LIMIT 5"
+    },
+    {
+      "file": "ptck.py",
+      "line": 2397,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT date, open, high, low, close, volume, LAG(close) OVER (ORDER BY date) as prev_close FROM daily_ohlcv WHERE symbol = ? AND date >= date((SELECT MAX(date) FROM daily_ohlcv), …"
+    },
+    {
+      "file": "ptck.py",
+      "line": 1427,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT close FROM daily_ohlcv WHERE symbol=? ORDER BY date DESC LIMIT 1"
+    },
+    {
+      "file": "ptck.py",
+      "line": 1333,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT DISTINCT symbol FROM daily_ohlcv ORDER BY symbol"
+    },
+    {
+      "file": "ptck.py",
+      "line": 2313,
+      "kind": "UNFILTERED",
+      "snippet": "SELECT MAX(date) FROM daily_ohlcv"
+    }
+  ]
+}
