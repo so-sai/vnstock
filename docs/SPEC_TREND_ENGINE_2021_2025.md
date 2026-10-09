@@ -149,6 +149,19 @@ phiên hợp lệ — đúng hành vi fail-closed.
 kề do trộn nguồn (vci trả *nghìn đồng*, kbs trả *đồng*). Các mã này **chưa** được coi là
 sạch cho tới khi hết lệch thang.
 
+> **CẬP NHẬT 2026-10-09 (sau khi rescale có kiểm soát):** đã cứu **4.633 dòng** vci (nhãn
+> `rescaled_vci_x1000`) và cách ly **1.482 dòng** không qua được guard
+> (`quarantine:scale_guard_fail` / `quarantine:single_anchor_edge_case`).
+> Bước nhảy > 5× giảm **228 → 56 mã**.
+>
+> **56 mã còn lại KHÔNG xử lý được bằng guard vci**, vì lệch thang nằm **TRONG một nguồn**:
+> ví dụ HHG có `kbs 1,10` (nghìn đồng, 2026-04-07) rồi `kbs 700–800` (đồng, từ 2026-06) ⇒
+> `r126 = 800/1,10 − 1 ≈ +66.566%`, một momentum GIẢ đưa HHG lên **RS 99, #1 toàn thị trường**.
+> **CỔNG RS ≥ 90 VẪN CHƯA ĐÁNG TIN cho tới khi xử lý lớp này.**
+> Cần guard mới, khác bản chất: **phát hiện bước nhảy giữa hai phiên KỀ NHAU bất kể nguồn**
+> (ngưỡng ví dụ >10× trong ≤5 ngày lịch) — vì ở khoảng cách vài phiên, biến động giá thật
+> không thể đạt 10×, nên tỷ lệ đo được là bằng chứng đủ mạnh, và hệ số đảo được chính xác.
+
 ---
 
 ## 5. EXIT RULES (FROZEN)
@@ -432,3 +445,26 @@ rác chỉ bỏ đi những mã vốn không nằm trong universe thật — nê
 không phải một con số phụ thuộc vào tình trạng nhiễm của store.
 
 **Phạm vi:** chỉ số **MÔ TẢ** "có giá" được đính chính. Tham số chiến lược vẫn không đổi.
+
+---
+
+## ERRATUM 4 (2026-10-09, **TRƯỚC** backtest) — mẫu số sau RESCALE có kiểm soát
+
+**Bối cảnh:** sau khi rescale **4.633 dòng** vci (×1000) và cách ly **1.482 dòng** không qua
+guard, số "mã có giá" và giao điểm dịch thêm **1 mã mỗi năm**.
+
+| năm | có giá | có organ | **giao điểm** |
+|---|---|---|---|
+| 2021 | **901** | 738 | **574** |
+| 2022 | **912** | 738 | **571** |
+| 2023 | **903** | 750 | **566** |
+| 2024 | **854** | 750 | **569** |
+| 2025 | **877** | 744 | **582** |
+
+**Ghi nhận phương pháp — đây là lần thứ BA guard ngữ nghĩa bắt được sự dịch chuyển:**
+mỗi lần dữ liệu được làm sạch, các con số mô tả trong spec lại lệch, và guard
+(`test_spec_claims_verified.py`) đỏ lên **trước khi** bất kỳ ai đọc phải con số cũ.
+Đây đúng là điều guard đó tồn tại để làm: con số phụ thuộc trạng thái dữ liệu thì phải
+được đo lại, không được tin vào bản chép tay.
+
+**Mẫu số báo cáo kết quả cuối cùng: ~566–582 mã/năm** (giảm nhẹ so với ~575 do dọn dữ liệu).

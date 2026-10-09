@@ -67,10 +67,11 @@ SUPERSEDED_BY_ERRATUM: dict[tuple[str, str], tuple[int, int]] = {
     # trong erratum. Khoá theo CẶP buộc phép tha phải đúng cặp đã được ghi nhận.
     ("2021", "facts"): (737, 738),  # ERRATUM 1: đo được thay vì suy diễn
     ("2022", "facts"): (737, 738),
-    ("2021", "price"): (903, 902),  # ERRATUM 3: sau khi cách ly dòng không hợp lệ
-    ("2022", "price"): (915, 913),
-    ("2023", "price"): (906, 904),
-    ("2025", "price"): (879, 878),
+    ("2021", "price"): (903, 901),  # ERRATUM 3 + 4: sau cách ly và rescale dữ liệu
+    ("2022", "price"): (915, 912),
+    ("2023", "price"): (906, 903),
+    ("2024", "price"): (855, 854),
+    ("2025", "price"): (879, 877),
 }
 
 
