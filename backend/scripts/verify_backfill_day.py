@@ -26,6 +26,8 @@ for _p in (PROJECT_ROOT, PROJECT_ROOT / "backend", PROJECT_ROOT / "backend" / "s
 DB = PROJECT_ROOT / "backend" / "data" / "screener_cache.db"
 DEFAULT_SAMPLES = ["HPG", "VNM", "SSI", "PNJ", "ACB"]
 
+from src.utils.price_scale import UNIT_THOUSAND_VND, compare_with_store  # noqa: E402
+
 
 def check_db(date: str, samples):
     conn = sqlite3.connect(str(DB))
@@ -71,12 +73,15 @@ def check_provider(date: str, samples, local_rows):
         if ref is None:
             print(f"    {s:5s} local={lc} | vci=không có  → bỏ qua")
             miss += 1
-        elif lc is not None and abs(ref * 1000 - lc) < 1:
-            print(f"    {s:5s} local={lc:,.0f} | vci={ref*1000:,.0f}  ✅")
-            ok += 1
         else:
-            print(f"    {s:5s} local={lc} | vci={ref*1000 if ref else None}  ❌ LỆCH")
-            bad += 1
+            # So sánh qua hàm chuẩn hoá duy nhất (vci trả NGHÌN đồng, store lưu ĐỒNG).
+            match, ref_vnd = compare_with_store(lc, ref, provider_unit=UNIT_THOUSAND_VND)
+            if match:
+                print(f"    {s:5s} local={lc:,.0f} | vci={ref_vnd:,.0f}  ✅")
+                ok += 1
+            else:
+                print(f"    {s:5s} local={lc} | vci={ref_vnd if ref_vnd else None}  ❌ LỆCH")
+                bad += 1
     print(f"    → khớp {ok} | lệch {bad} | không có dữ liệu {miss}")
     return ok, bad, miss
 
