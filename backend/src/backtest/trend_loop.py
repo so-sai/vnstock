@@ -41,10 +41,11 @@ for _p in (PROJECT_ROOT / "backend", PROJECT_ROOT / "backend" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from src.backtest.ablation_arms import ArmSwitches
 from src.engine import trend_circuit_breaker as cb
 from src.engine import trend_engine as te
 from src.engine import trend_sizing as ts
-from src.engine.trend_organ_filter import OrganFilter
+from src.engine.trend_organ_filter import OrganFilter, OrganVerdict
 
 DB = PROJECT_ROOT / "backend" / "data" / "screener_cache.db"
 BENCHMARK = "VNINDEX"
@@ -200,8 +201,15 @@ def simulate(
     min_sessions: int = 200,
     limit_days: int | None = None,
     verbose: bool = False,
+    arm: ArmSwitches | None = None,
 ) -> dict:
-    """Chạy vòng lặp ngày. Trả về dict thống kê tối thiểu để kiểm chứng."""
+    """Chạy vòng lặp ngày. Trả về dict thống kê tối thiểu để kiểm chứng.
+
+    `arm` = hai công tắc của Ablation Study (`docs/SPEC_TREND_ENGINE_ABLATION_STUDY.md`).
+    Mặc định `None` ⇒ `ArmSwitches(organ=True, regime=True)` = **đúng hành vi đã niêm phong**,
+    nên đường chạy baseline không đổi một bit.
+    """
+    arm = arm or ArmSwitches()
     ma, universe, regime, bench = prepare(start, end, min_sessions)
     all_days = ma.days
     end_i = len(all_days) if limit_days is None else min(len(all_days), ma.start_idx + limit_days)
@@ -230,7 +238,18 @@ def simulate(
     # đúng ở phiên kế tiếp ⇒ cắt 50% mỗi phiên ⇒ vị thế teo dần thành thoát toàn bộ, thứ
     # mà spec §5 không hề nói tới (spec nói "partial exit 50%", một lần).
     partial_done: set[str] = set()
-    stats = {"days": 0, "entries": 0, "exits": 0, "full_exits": 0, "partial": 0, "emergency": 0, "candidates": 0}
+    stats = {
+        "days": 0,
+        "entries": 0,
+        "exits": 0,
+        "full_exits": 0,
+        "partial": 0,
+        "emergency": 0,
+        "candidates": 0,
+        "days_with_positions": 0,
+        "sum_positions": 0,
+        "max_positions_held": 0,
+    }
 
     for i in range(ma.start_idx, end_i):
         T = all_days[i]
@@ -262,7 +281,8 @@ def simulate(
         # ── 2. Đánh giá tại CLOSE của T ──
         regime_today = regime.get(T, "RANGING")
         vn3 = _vnindex_drop_3d(bench, all_days, i)
-        emergency = regime_today == REGIME_CRISIS or vn3 <= -cb.VNINDEX_DROP_PCT
+        # regime_on=False (V1, V3): TẮT veto CRISIS và trigger K3 toàn thị trường (§3).
+        emergency = arm.regime and (regime_today == REGIME_CRISIS or vn3 <= -cb.VNINDEX_DROP_PCT)
 
         if emergency and portfolio.positions:
             px = _closes(ma, i)
@@ -318,6 +338,11 @@ def simulate(
                 if None in (c, h20, m20, v, a20):
                     continue
                 ov = organ.evaluate(sym, T)
+                if not arm.organ:
+                    # organ_on=False (V1, V2): bỏ CỔNG lọc nhưng GIỮ archetype làm đầu vào
+                    # sizing (§3). Không sửa `trend_engine`: chỉ trao một verdict luôn đạt —
+                    # khác biệt nằm tường minh ở đây, không nằm trong module đã niêm phong.
+                    ov = OrganVerdict(passed=True, reasons=[], organs=ov.organs, archetype=ov.archetype)
                 feat = te.TrendFeatures(
                     symbol=sym,
                     date=T,
@@ -339,6 +364,11 @@ def simulate(
         # ── 4. MTM tại close T ──
         portfolio.mark(T, _closes(ma, i))
         stats["days"] += 1
+        n_pos = len(portfolio.positions)
+        stats["sum_positions"] += n_pos
+        if n_pos:
+            stats["days_with_positions"] += 1
+        stats["max_positions_held"] = max(stats["max_positions_held"], n_pos)
         if verbose and i % 100 == 0:
             print(f"  {T}  nav={portfolio.nav_history[-1][1]:.2f}  vị thế={len(portfolio.positions)}")
 

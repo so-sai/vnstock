@@ -24,3 +24,6 @@
 # v1.1_commit: eefc729a9c058945be027ecdf65b90dc8e7cf600
 # v1.1.1_commit: 9bb7663
 # guards: test_preregistration_hash.py (toàn vẹn) · test_spec_structure.py (đầy đủ + erratum + tham số bất biến)
+
+# ablation study — DIAGNOSTIC ONLY, cấm promote (§0). Khoá TRƯỚC khi chạy ô nào.
+50ce7fd551d4d7a5d79776171e50a914bd422404a04fe5594e8fb43b09d524da  docs/SPEC_TREND_ENGINE_ABLATION_STUDY.md
