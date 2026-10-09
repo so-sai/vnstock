@@ -1,0 +1,511 @@
+{
+  "generated_at": "2026-10-09T14:07:58.145598+07:00",
+  "criteria": "hai phiên SẠCH liền kề lệch > 5.0× trong cửa sổ từ 2025-10-01; dòng is_stale=0 và hợp lệ",
+  "why": "Lệch thang giá chưa xử lý được (có thể nằm TRONG một nguồn, vd kbs nghìn đồng → kbs đồng) ⇒ mã KHÔNG được tham gia tập xếp hạng RS (§4.1) cho tới khi có dữ liệu sạch. Dữ liệu KHÔNG bị xoá: lịch sử hai bên điểm nối vẫn tự nhất quán.",
+  "symbols": {
+    "BHC": {
+      "date_before": "2026-07-03",
+      "close_before": 1000.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-18",
+      "close_after": 0.8,
+      "source_after": "vci",
+      "ratio": 1250.0
+    },
+    "BVN": {
+      "date_before": "2026-08-03",
+      "close_before": 18100.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-23",
+      "close_after": 25.0,
+      "source_after": "vci",
+      "ratio": 724.0
+    },
+    "CMP": {
+      "date_before": "2025-12-01",
+      "close_before": 8000.0,
+      "source_before": "VCI",
+      "date_after": "2026-09-18",
+      "close_after": 7.84,
+      "source_after": "vci",
+      "ratio": 1020.4
+    },
+    "DCS": {
+      "date_before": "2026-08-14",
+      "close_before": 600.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-21",
+      "close_after": 600000.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "DDG": {
+      "date_before": "2026-03-20",
+      "close_before": 1000.0,
+      "source_before": "VCI",
+      "date_after": "2026-03-27",
+      "close_after": 900000.0,
+      "source_after": "VCI",
+      "ratio": 900.0
+    },
+    "DFF": {
+      "date_before": "2025-10-21",
+      "close_before": 1000.0,
+      "source_before": "VCI",
+      "date_after": "2025-10-22",
+      "close_after": 900000.0,
+      "source_after": "VCI",
+      "ratio": 900.0
+    },
+    "DIC": {
+      "date_before": "2026-08-14",
+      "close_before": 700.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-21",
+      "close_after": 700000.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "DLD": {
+      "date_before": "2026-01-08",
+      "close_before": 4900.0,
+      "source_before": "VCI",
+      "date_after": "2026-09-18",
+      "close_after": 6.8,
+      "source_after": "vci",
+      "ratio": 720.6
+    },
+    "DSP": {
+      "date_before": "2026-08-20",
+      "close_before": 11900.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-18",
+      "close_after": 11.9,
+      "source_after": "vci",
+      "ratio": 1000.0
+    },
+    "DVG": {
+      "date_before": "2026-06-01",
+      "close_before": 1200.0,
+      "source_before": "kbs",
+      "date_after": "2026-06-19",
+      "close_after": 900000.0,
+      "source_after": "kbs",
+      "ratio": 750.0
+    },
+    "FTM": {
+      "date_before": "2026-08-07",
+      "close_before": 500000.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 500.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "HHG": {
+      "date_before": "2026-04-14",
+      "close_before": 1.0,
+      "source_before": "kbs",
+      "date_after": "2026-04-16",
+      "close_after": 900.0,
+      "source_after": "kbs",
+      "ratio": 900.0
+    },
+    "HSM": {
+      "date_before": "2026-07-28",
+      "close_before": 6.6,
+      "source_before": "kbs",
+      "date_after": "2026-08-11",
+      "close_after": 6700.0,
+      "source_after": "kbs",
+      "ratio": 1015.2
+    },
+    "ICC": {
+      "date_before": "2026-07-14",
+      "close_before": 28500.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-23",
+      "close_after": 29.0,
+      "source_after": "vci",
+      "ratio": 982.8
+    },
+    "ICI": {
+      "date_before": "2026-07-23",
+      "close_before": 10.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 10000.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "KSQ": {
+      "date_before": "2026-06-19",
+      "close_before": 1000.0,
+      "source_before": "vci",
+      "date_after": "2026-06-26",
+      "close_after": 900000.0,
+      "source_after": "vci",
+      "ratio": 900.0
+    },
+    "KVC": {
+      "date_before": "2026-09-28",
+      "close_before": 1000.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-29",
+      "close_after": 900000.0,
+      "source_after": "kbs",
+      "ratio": 900.0
+    },
+    "L61": {
+      "date_before": "2026-07-10",
+      "close_before": 1.3,
+      "source_before": "vci",
+      "date_after": "2026-08-12",
+      "close_after": 1400.0,
+      "source_after": "kbs",
+      "ratio": 1076.9
+    },
+    "LCM": {
+      "date_before": "2025-12-26",
+      "close_before": 1.0,
+      "source_before": "vci",
+      "date_after": "2026-01-16",
+      "close_after": 900.0,
+      "source_after": "vci",
+      "ratio": 900.0
+    },
+    "LM7": {
+      "date_before": "2026-07-17",
+      "close_before": 1.7,
+      "source_before": "vci",
+      "date_after": "2026-08-12",
+      "close_after": 1900.0,
+      "source_after": "kbs",
+      "ratio": 1117.6
+    },
+    "LMH": {
+      "date_before": "2026-07-24",
+      "close_before": 1000.0,
+      "source_before": "vci",
+      "date_after": "2026-07-31",
+      "close_after": 900000.0,
+      "source_after": "vci",
+      "ratio": 900.0
+    },
+    "LO5": {
+      "date_before": "2025-10-31",
+      "close_before": 1.0,
+      "source_before": "vci",
+      "date_after": "2025-11-28",
+      "close_after": 900.0,
+      "source_after": "vci",
+      "ratio": 900.0
+    },
+    "MA1": {
+      "date_before": "2026-07-21",
+      "close_before": 32.9,
+      "source_before": "vci",
+      "date_after": "2026-08-11",
+      "close_after": 31000.0,
+      "source_after": "kbs",
+      "ratio": 942.2
+    },
+    "MGG": {
+      "date_before": "2026-07-14",
+      "close_before": 23.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-11",
+      "close_after": 23000.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "MIE": {
+      "date_before": "2026-04-01",
+      "close_before": 8.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 6900.0,
+      "source_after": "kbs",
+      "ratio": 862.5
+    },
+    "NDC": {
+      "date_before": "2026-06-23",
+      "close_before": 157.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-17",
+      "close_after": 115800.0,
+      "source_after": "kbs",
+      "ratio": 737.6
+    },
+    "NOS": {
+      "date_before": "2025-10-17",
+      "close_before": 900000.0,
+      "source_before": "vci|rescaled_vci_x1000",
+      "date_after": "2025-10-31",
+      "close_after": 1100.0,
+      "source_after": "vci|rescaled_vci_x1000",
+      "ratio": 818.2
+    },
+    "PMT": {
+      "date_before": "2026-07-21",
+      "close_before": 6600.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-18",
+      "close_after": 8.5,
+      "source_after": "vci",
+      "ratio": 776.5
+    },
+    "PNP": {
+      "date_before": "2026-07-17",
+      "close_before": 19.5,
+      "source_before": "kbs",
+      "date_after": "2026-08-11",
+      "close_after": 19600.0,
+      "source_after": "kbs",
+      "ratio": 1005.1
+    },
+    "PPS": {
+      "date_before": "2026-07-24",
+      "close_before": 10.1,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 11000.0,
+      "source_after": "kbs",
+      "ratio": 1089.1
+    },
+    "PSN": {
+      "date_before": "2026-07-22",
+      "close_before": 9.3,
+      "source_before": "vci",
+      "date_after": "2026-08-11",
+      "close_after": 9300.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "PWS": {
+      "date_before": "2026-07-24",
+      "close_before": 14.0,
+      "source_before": "vci",
+      "date_after": "2026-08-12",
+      "close_after": 12900.0,
+      "source_after": "kbs",
+      "ratio": 921.4
+    },
+    "PXA": {
+      "date_before": "2026-01-09",
+      "close_before": 900.0,
+      "source_before": "kbs",
+      "date_after": "2026-01-16",
+      "close_after": 1.0,
+      "source_after": "kbs",
+      "ratio": 900.0
+    },
+    "PXI": {
+      "date_before": "2026-04-24",
+      "close_before": 1.0,
+      "source_before": "kbs",
+      "date_after": "2026-05-15",
+      "close_after": 800.0,
+      "source_after": "kbs",
+      "ratio": 800.0
+    },
+    "SAL": {
+      "date_before": "2026-07-06",
+      "close_before": 3.2,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 4400.0,
+      "source_after": "kbs",
+      "ratio": 1375.0
+    },
+    "SD7": {
+      "date_before": "2026-07-10",
+      "close_before": 2.6,
+      "source_before": "vci",
+      "date_after": "2026-08-12",
+      "close_after": 2300.0,
+      "source_after": "kbs",
+      "ratio": 884.6
+    },
+    "SDY": {
+      "date_before": "2026-03-13",
+      "close_before": 1.2,
+      "source_before": "vci",
+      "date_after": "2026-03-20",
+      "close_after": 900.0,
+      "source_after": "vci",
+      "ratio": 750.0
+    },
+    "SHC": {
+      "date_before": "2026-07-24",
+      "close_before": 10.6,
+      "source_before": "vci",
+      "date_after": "2026-08-12",
+      "close_after": 11500.0,
+      "source_after": "kbs",
+      "ratio": 1084.9
+    },
+    "SKN": {
+      "date_before": "2026-09-04",
+      "close_before": 7200.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-21",
+      "close_after": 7.2,
+      "source_after": "vci",
+      "ratio": 1000.0
+    },
+    "SPD": {
+      "date_before": "2026-07-03",
+      "close_before": 7600.0,
+      "source_before": "vci",
+      "date_after": "2026-09-18",
+      "close_after": 7.1,
+      "source_after": "vci",
+      "ratio": 1070.4
+    },
+    "SSH": {
+      "date_before": "2026-06-22",
+      "close_before": 61.7,
+      "source_before": "kbs",
+      "date_after": "2026-08-11",
+      "close_after": 61700.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "THM": {
+      "date_before": "2026-07-08",
+      "close_before": 9.2,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 9200.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "TSJ": {
+      "date_before": "2026-07-23",
+      "close_before": 21.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-11",
+      "close_after": 21100.0,
+      "source_after": "kbs",
+      "ratio": 1004.8
+    },
+    "TVH": {
+      "date_before": "2026-07-02",
+      "close_before": 122.9,
+      "source_before": "kbs",
+      "date_after": "2026-08-11",
+      "close_after": 135500.0,
+      "source_after": "kbs",
+      "ratio": 1102.5
+    },
+    "TW3": {
+      "date_before": "2026-03-23",
+      "close_before": 13000.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-18",
+      "close_after": 12.0,
+      "source_after": "vci",
+      "ratio": 1083.3
+    },
+    "V12": {
+      "date_before": "2026-07-09",
+      "close_before": 11.2,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 10200.0,
+      "source_after": "kbs",
+      "ratio": 910.7
+    },
+    "VDT": {
+      "date_before": "2026-06-17",
+      "close_before": 10.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 10000.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    },
+    "VIN": {
+      "date_before": "2026-07-27",
+      "close_before": 14.0,
+      "source_before": "kbs",
+      "date_after": "2026-08-11",
+      "close_after": 16000.0,
+      "source_after": "kbs",
+      "ratio": 1142.9
+    },
+    "VKC": {
+      "date_before": "2025-10-17",
+      "close_before": 1000.0,
+      "source_before": "kbs",
+      "date_after": "2025-10-24",
+      "close_after": 900000.0,
+      "source_after": "kbs",
+      "ratio": 900.0
+    },
+    "VLA": {
+      "date_before": "2026-07-30",
+      "close_before": 10.8,
+      "source_before": "kbs",
+      "date_after": "2026-08-11",
+      "close_after": 9800.0,
+      "source_after": "kbs",
+      "ratio": 907.4
+    },
+    "VNH": {
+      "date_before": "2026-05-15",
+      "close_before": 1.1,
+      "source_before": "vci",
+      "date_after": "2026-05-29",
+      "close_after": 800.0,
+      "source_after": "vci",
+      "ratio": 727.3
+    },
+    "VPA": {
+      "date_before": "2026-08-28",
+      "close_before": 2000.0,
+      "source_before": "kbs",
+      "date_after": "2026-09-18",
+      "close_after": 1.7,
+      "source_after": "vci",
+      "ratio": 1176.5
+    },
+    "VPC": {
+      "date_before": "2026-07-10",
+      "close_before": 2.9,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 3300.0,
+      "source_after": "kbs",
+      "ratio": 1137.9
+    },
+    "VSG": {
+      "date_before": "2026-07-24",
+      "close_before": 1.5,
+      "source_before": "vci",
+      "date_after": "2026-08-12",
+      "close_after": 1400.0,
+      "source_after": "kbs",
+      "ratio": 933.3
+    },
+    "VTJ": {
+      "date_before": "2026-07-03",
+      "close_before": 3.8,
+      "source_before": "vci",
+      "date_after": "2026-08-11",
+      "close_after": 4100.0,
+      "source_after": "kbs",
+      "ratio": 1078.9
+    },
+    "VVN": {
+      "date_before": "2026-07-10",
+      "close_before": 3.3,
+      "source_before": "kbs",
+      "date_after": "2026-08-12",
+      "close_after": 3300.0,
+      "source_after": "kbs",
+      "ratio": 1000.0
+    }
+  }
+}

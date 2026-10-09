@@ -51,6 +51,7 @@ nối vào `run_backtest()`.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 from dataclasses import dataclass, field
@@ -64,6 +65,11 @@ for _p in (PROJECT_ROOT / "backend", PROJECT_ROOT / "backend" / "src"):
         sys.path.insert(0, str(_p))
 
 DB_PATH = PROJECT_ROOT / "backend" / "data" / "screener_cache.db"
+# Danh sách mã có lệch thang giá CHƯA xử lý được (sinh bởi
+# backend/scripts/detect_scale_ambiguous.py). Đặt dưới reports/audit_archive/ vì đây là
+# artifact KIỂM TOÁN (cần truy vết được và phải vào git) — backend/data bị gitignore.
+# Các mã này bị LOẠI khỏi tập xếp hạng RS (§4.1) nhưng dữ liệu của chúng KHÔNG bị xoá.
+AMBIGUOUS_PATH = PROJECT_ROOT / "backend" / "reports" / "audit_archive" / "scale_ambiguous_symbols.json"
 
 # Cùng MỘT vị từ hợp lệ với tầng cách ly (src/database/data_validity.py):
 # (close > 0) ∧ (low ≤ close ≤ high) ∧ (volume ≥ 0). Phòng thủ nhiều lớp — nếu một
@@ -144,6 +150,29 @@ def _sessions_before(date: str, n: int, *, db: Path = DB_PATH) -> str:
     return str(rows[-1]["date"])
 
 
+def load_scale_ambiguous(path: Path | None = None) -> set[str]:
+    """Mã có lệch thang giá chưa xử lý được ⇒ loại khỏi tập xếp hạng RS (§4.1).
+
+    ⚠️ `path=None` rồi resolve trong thân, KHÔNG viết `path: Path = AMBIGUOUS_PATH`:
+    default của Python bind lúc ĐỊNH NGHĨA hàm, nên gán lại module attribute (kể cả
+    monkeypatch trong test) sẽ không có tác dụng — và test sẽ đỏ vì lý do chẳng liên
+    quan tới logic.
+
+    Thiếu file ⇒ trả về tập RỖNG và KHÔNG raise: file này là kết quả của một bước kiểm
+    dữ liệu riêng, không phải điều kiện tiên quyết để tính feature. Nhưng vì loại trừ
+    làm ĐỔI N_rank (và do đó đổi mọi percentile), sự vắng mặt của nó phải NHÌN THẤY ĐƯỢC
+    — `FeatureStore.excluded_symbols` để chỗ gọi in ra, thay vì im lặng.
+    """
+    p = path if path is not None else AMBIGUOUS_PATH
+    if not p.exists():
+        return set()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError, OSError:
+        return set()
+    return set(data.get("symbols", {}))
+
+
 class FeatureStore:
     """Kho feature PIT. Mọi giá trị trả về tại ngày T chỉ phụ thuộc dữ liệu ≤ T.
 
@@ -157,6 +186,8 @@ class FeatureStore:
         self.warmup_start = _sessions_before(start, warmup, db=db)
         self._panels: dict[str, pd.DataFrame] = {}
         self._cache: dict[str, pd.DataFrame] = {}
+        # Mã bị loại khỏi N_rank vì lệch thang chưa xử lý được (điền khi dựng _rs_frame).
+        self.excluded_symbols: list[str] = []
 
     # ── panel + feature (tính lười, mỗi thứ một lần) ──
     def panel(self, field_name: str) -> pd.DataFrame:
@@ -180,9 +211,24 @@ class FeatureStore:
             for n, w in RS_WEIGHTS.items():
                 ret = close / close.shift(n) - 1.0  # CHỈ đọc quá khứ
                 raw = raw + ret * w
+
+            # §4.1 — chỉ xếp hạng trên mã ĐÁNG TIN. Mã có lệch thang chưa xử lý được bị
+            # loại khỏi tập xếp hạng: bước nhảy 1000× tạo ra momentum giả và đẩy chúng
+            # lên ĐẦU bảng (HHG: r126 ≈ +66.566% ⇒ RS 99). Dữ liệu vẫn còn nguyên.
+            ambiguous = load_scale_ambiguous()
+            if ambiguous:
+                raw = raw.drop(columns=[c for c in ambiguous if c in raw.columns])
+                self.excluded_symbols = sorted(ambiguous & set(close.columns))
             # rank(axis=1) = xếp hạng THEO HÀNG (theo phiên), không đọc hàng tương lai.
             self._cache["rs"] = raw.rank(axis=1, pct=True) * RS_RANK_SCALE
         return self._cache["rs"]
+
+    def rs_universe(self, date: str) -> list[str]:
+        """Danh sách mã tham gia xếp hạng tại một phiên (N_rank) — để báo cáo được."""
+        frame = self._rs_frame()
+        if date not in frame.index:
+            return []
+        return [s for s in frame.columns if pd.notna(frame.at[date, s])]
 
     def _mean20(self, field_name: str) -> pd.DataFrame:
         key = f"mean20_{field_name}"

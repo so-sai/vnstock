@@ -149,18 +149,26 @@ phiên hợp lệ — đúng hành vi fail-closed.
 kề do trộn nguồn (vci trả *nghìn đồng*, kbs trả *đồng*). Các mã này **chưa** được coi là
 sạch cho tới khi hết lệch thang.
 
-> **CẬP NHẬT 2026-10-09 (sau khi rescale có kiểm soát):** đã cứu **4.633 dòng** vci (nhãn
-> `rescaled_vci_x1000`) và cách ly **1.482 dòng** không qua được guard
-> (`quarantine:scale_guard_fail` / `quarantine:single_anchor_edge_case`).
-> Bước nhảy > 5× giảm **228 → 56 mã**.
+> **CẬP NHẬT 2026-10-09 (sau khi rescale có kiểm soát + loại mã lệch thang):**
+> Đã cứu **4.633 dòng** vci (nhãn `rescaled_vci_x1000`) và cách ly **1.482 dòng** không qua
+> guard. Bước nhảy > 5× giảm **228 → 56 mã**. 56 mã còn lại (lệch thang **trong cùng một
+> nguồn**, cả hai chiều: DCS `kbs 600 → kbs 600.000`, DFF `VCI 1.000 → VCI 900.000`) được
+> **LOẠI KHỎI N_rank** — danh sách sinh tự động bởi `backend/scripts/detect_scale_ambiguous.py`
+> và tiêu thụ bởi `trend_features.load_scale_ambiguous()`.
 >
-> **56 mã còn lại KHÔNG xử lý được bằng guard vci**, vì lệch thang nằm **TRONG một nguồn**:
-> ví dụ HHG có `kbs 1,10` (nghìn đồng, 2026-04-07) rồi `kbs 700–800` (đồng, từ 2026-06) ⇒
-> `r126 = 800/1,10 − 1 ≈ +66.566%`, một momentum GIẢ đưa HHG lên **RS 99, #1 toàn thị trường**.
-> **CỔNG RS ≥ 90 VẪN CHƯA ĐÁNG TIN cho tới khi xử lý lớp này.**
-> Cần guard mới, khác bản chất: **phát hiện bước nhảy giữa hai phiên KỀ NHAU bất kể nguồn**
-> (ngưỡng ví dụ >10× trong ≤5 ngày lịch) — vì ở khoảng cách vài phiên, biến động giá thật
-> không thể đạt 10×, nên tỷ lệ đo được là bằng chứng đủ mạnh, và hệ số đảo được chính xác.
+> **Dữ liệu KHÔNG bị xoá.** Cách ly toàn bộ 56 mã theo mã sẽ xoá **50.794 dòng**, phần lớn là
+> lịch sử ĐÚNG (bước nhảy chỉ nằm ở một điểm nối; hai bên điểm nối vẫn tự nhất quán). Đó là
+> lý do loại khỏi **tập xếp hạng** thay vì cách ly, và có thể hoàn tác khi có dữ liệu sạch.
+>
+> **Kết quả đo:** HHG (trước là #1 với RS 99 nhờ `r126 ≈ +66.566%`) **đã rớt khỏi bảng xếp
+> hạng**. N_rank tại 2026-10-08: **614 → 613** — chỉ giảm 1, vì 55/56 mã đó vốn đã không có
+> RS tại phiên này (thiếu 252 phiên sạch); chi phí thật nhỏ hơn dự kiến nhiều.
+> Top-10 sau làm sạch: ASP 99 · MSR 98 · THD 98 · VVS 98 · PET 98 · PGS 98 · HII 98 ·
+> PVP 97 · VGR 97 · HDA 97.
+>
+> **CÒN LẠI (P1):** lớp lệch thang trong cùng một nguồn chưa có guard tự động. Cần
+> **nguồn thứ ba độc lập** làm tham chiếu — nếu không, mọi guard chỉ là heuristic dựa trên
+> "hai nguồn đồng thuận", mà cả hai nguồn đều có drift nội bộ.
 
 ---
 

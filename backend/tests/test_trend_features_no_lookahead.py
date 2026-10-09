@@ -295,6 +295,56 @@ def test_vi_tu_hop_le_dung_mot_nguon_voi_tang_cach_ly():
         assert need in dv.VALID_ROW_SQL, f"vị từ thiếu điều kiện {need!r}"
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 5. Loại mã lệch thang khỏi tập xếp hạng RS (§4.1)
+# ══════════════════════════════════════════════════════════════════════
+def test_ma_lech_thang_bi_loai_khoi_N_rank(db, tmp_path, monkeypatch):
+    """Mã nằm trong danh sách lệch thang KHÔNG được tham gia xếp hạng RS.
+
+    Bước nhảy 1000× tạo momentum giả và đẩy mã lên ĐẦU bảng — đúng lý do phải loại.
+    """
+    path, days = db
+    t = days[-1]
+    listing = tmp_path / "amb.json"
+    listing.write_text(
+        '{"symbols": {"AAA": {"ratio": 1000.0}}}', encoding="utf-8"
+    )
+    monkeypatch.setattr(tf, "AMBIGUOUS_PATH", listing)
+
+    store = tf.FeatureStore(days[260], days[-1], db=path)
+    assert store.rs("AAA", t) is None, "mã bị liệt vào danh sách vẫn tham gia xếp hạng"
+    assert store.rs("BBB", t) is not None, "mã không liệt danh sách phải còn xếp hạng"
+    assert "AAA" in store.excluded_symbols
+
+
+def test_thieu_danh_sach_thi_khong_loai_ai_va_khong_raise(tmp_path, monkeypatch):
+    """Thiếu file ⇒ tập rỗng, KHÔNG raise (nhưng chỗ gọi phải in ra được số bị loại)."""
+    monkeypatch.setattr(tf, "AMBIGUOUS_PATH", tmp_path / "khong_ton_tai.json")
+    assert tf.load_scale_ambiguous() == set()
+
+
+def test_file_danh_sach_hong_thi_coi_nhu_rong_khong_raise(tmp_path, monkeypatch):
+    bad = tmp_path / "hong.json"
+    bad.write_text("{ khong phai json", encoding="utf-8")
+    monkeypatch.setattr(tf, "AMBIGUOUS_PATH", bad)
+    assert tf.load_scale_ambiguous() == set()
+
+
+def test_danh_sach_lech_thang_that_su_co_va_ghi_ly_do():
+    """Artifact thật phải tồn tại, có tiêu chí và lý do — không phải một hằng số vô danh."""
+    import json as _json
+
+    p = tf.AMBIGUOUS_PATH
+    if not p.exists():  # máy chưa chạy detect → bỏ qua, không báo đỏ sai
+        pytest.skip("chưa sinh danh sách (chạy backend/scripts/detect_scale_ambiguous.py)")
+    data = _json.loads(p.read_text(encoding="utf-8"))
+    assert data["symbols"], "danh sách rỗng bất thường"
+    assert "criteria" in data and "why" in data, "thiếu tiêu chí/lý do ⇒ không truy vết được"
+    for sym, info in data["symbols"].items():
+        assert info["ratio"] > tf.__dict__.get("JUMP_RATIO", 5.0), f"{sym} không vượt ngưỡng?"
+        assert info["date_before"] < info["date_after"]
+
+
 def test_dong_nhiem_is_stale_khong_tham_gia(db, tmp_path):
     """Dòng is_stale=1 phải bị loại khỏi pivot — nếu không, giá nhiễm vào feature.
 
