@@ -239,6 +239,36 @@ class Portfolio:
         self.trades.append(tr)
         return tr
 
+    def reduce(self, symbol: str, price: float, date: str, reason: str, qty: float) -> Trade | None:
+        """Thoát MỘT PHẦN (§5: trailing −5% / ATR spike ⇒ bán 50%).
+
+        Ghi một Trade cho phần đã bán và giữ phần còn lại — nếu bán hết thì nó không còn
+        là "partial" nữa và phải là `exit()`. Bán một phần nhưng ghi như thoát toàn bộ sẽ
+        làm sai cả NAV lẫn thống kê trade.
+        """
+        pos = self.positions.get(symbol)
+        if pos is None or qty <= 0 or qty > pos.qty:
+            return None
+        notional = qty * price
+        self.apply_cost(notional, "sell")
+        self.cash += notional
+        pos.qty -= qty
+        tr = Trade(
+            symbol=symbol,
+            date_in=pos.entry_date,
+            date_out=date,
+            price_in=pos.entry_price,
+            price_out=price,
+            qty=qty,
+            pnl_pct=(price / pos.entry_price - 1.0) * 100.0,
+            hold_days=0,
+            exit_reason=reason,
+        )
+        self.trades.append(tr)
+        if pos.qty <= 1e-9:
+            del self.positions[symbol]
+        return tr
+
     def mark(self, date: str, prices: dict[str, float]):
         self.nav_history.append((date, self.nav(prices)))
 
@@ -323,12 +353,8 @@ REQUIRED_MODULES = {
 # nó nằm trong `ready`, nên preflight KHÔNG thể báo "sẵn sàng" trong khi
 # run_backtest vẫn ném NotImplementedError. Một `ready=True` như vậy là tín hiệu
 # nói dối — đúng thứ nguyên tắc fail-closed phải chặn.
-LOOP_IMPLEMENTED = False
-LOOP_NOT_IMPLEMENTED = (
-    "vòng lặp ngày chưa nối engine: cần dựng features PIT (RS/breakout/ADV20/volume, "
-    "đỉnh 20 phiên KHÔNG gồm phiên hiện tại), nối trend_engine + trend_organ_filter + "
-    "trend_circuit_breaker + trend_sizing, rồi MTM"
-)
+LOOP_IMPLEMENTED = True
+LOOP_NOT_IMPLEMENTED = "đã nối (2026-10-09) — xem src/backtest/trend_loop.py"
 
 
 def preflight() -> dict:
@@ -414,15 +440,19 @@ def run_backtest(force: bool = False) -> dict:
         # Đủ 4 module nhưng chưa nối vào vòng lặp. Vẫn TỪ CHỐI chạy, và nói rõ còn thiếu gì.
         raise NotImplementedError(f"vòng lặp ngày chưa cài đặt — {LOOP_NOT_IMPLEMENTED}")
 
-    # ── Vòng lặp ngày (chỉ tới đây khi mọi dependency đã có) ──
-    days = load_trading_days()
-    pf_obj = Portfolio()
-    for _d in days:
-        # 1. circuit breaker (§10) · 2. regime CRISIS ⇒ full exit (§7 #8)
-        # 3. sinh tín hiệu (§4) · 4. sizing (§6) · 5. thoát (§5) · 6. MTM
-        raise NotImplementedError("vòng lặp ngày chưa cài đặt — xem preflight()")
-    # pragma: no cover
-    return export_results(pf_obj, days, pf)
+    # ── Vòng lặp ngày: chạy CẢ HAI kịch bản chi phí (quyết định 2026-10-09) ──
+    # Không chọn một kịch bản: chọn một là data-snooping. `primary` theo spec §11,
+    # `robustness` thêm thuế TNCN ở chiều bán.
+    from src.backtest.trend_loop import simulate
+
+    summaries: dict[str, dict] = {}
+    for scenario, model in COST_SCENARIOS.items():
+        portfolio = Portfolio(cost=model)
+        stats = simulate(portfolio, start=WINDOW_START, end=WINDOW_END, min_sessions=MIN_SESSIONS_PER_YEAR)
+        days = [d for d, _ in portfolio.nav_history]
+        summaries[scenario] = export_results(portfolio, days, pf, scenario)
+        summaries[scenario]["loop_stats"] = stats
+    return export_comparison(summaries)
 
 
 def export_results(portfolio: Portfolio, days: list[str], preflight_info: dict, scenario: str = DEFAULT_SCENARIO) -> dict:

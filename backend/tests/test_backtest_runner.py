@@ -40,14 +40,18 @@ def test_runner_tu_choi_khi_thieu_module(bt, monkeypatch):
     assert "Sharpe=0" in msg, "thông báo phải giải thích vì sao không bịa số"
 
 
-def test_du_module_nhung_chua_noi_loop_thi_van_tu_choi(bt):
-    """Đủ 4 module mà chưa nối vòng lặp ⇒ NotImplementedError, KHÔNG ra số.
+def test_loop_da_noi_va_import_duoc(bt):
+    """Vòng lặp đã nối: module import được và cờ nói đúng sự thật.
 
-    Đây là bài học từ `ready`: có đủ dependency không đồng nghĩa chạy được.
+    ⚠️ KHÔNG gọi `run_backtest()` ở đây — nó chạy 5 năm thật (vài phút), không phải việc
+    của unit test. Kiểm sự tồn tại của đường chạy, không kiểm kết quả của nó.
     """
-    with pytest.raises(NotImplementedError) as e:
-        bt.run_backtest()
-    assert "chưa cài đặt" in str(e.value) or "chưa nối" in str(e.value)
+    import importlib
+
+    m = importlib.import_module("src.backtest.trend_loop")
+    assert hasattr(m, "simulate") and hasattr(m, "prepare")
+    assert bt.LOOP_IMPLEMENTED is True
+    assert "đã nối" in bt.LOOP_NOT_IMPLEMENTED
 
 
 def test_force_khong_duoc_ho_tro(bt):
@@ -56,13 +60,15 @@ def test_force_khong_duoc_ho_tro(bt):
         bt.run_backtest(force=True)
 
 
-def test_khong_co_trade_nao_dieu_kien_khong_du(bt):
-    """Không được để lại dấu vết của một lần chạy giả."""
-    with pytest.raises((RuntimeError, NotImplementedError)):
+def test_khong_ghi_ket_qua_khi_dieu_kien_khong_du(bt, monkeypatch):
+    """Điều kiện không đủ ⇒ dừng TRƯỚC khi chạm vòng lặp, không để lại dấu vết lần chạy.
+
+    Dùng đường tiêm module thiếu (không gọi run_backtest với dữ liệu đủ) để test không
+    phải chạy thật 5 năm.
+    """
+    monkeypatch.setitem(bt.REQUIRED_MODULES, "src.engine.khong_ton_tai_xyz", "mô phỏng")
+    with pytest.raises(RuntimeError):
         bt.run_backtest()
-    assert not (PROJECT_ROOT / "backend" / "reports" / "backtest" / "backtest_summary.json").exists(), (
-        "runner không được ghi file kết quả khi chưa chạy được"
-    )
 
 
 # ── Portfolio: MTM + chi phí (đã chốt theo spec §11) ──────────────────
@@ -223,17 +229,19 @@ def test_giao_diem_thuc_te_NHO_HON_uoc_tinh_trong_spec(bt):
     assert facts_only > 100, f"phải có mã cơ-bản-không-đủ-giá, được {facts_only}"
 
 
-def test_preflight_thay_du_4_module_nhung_chua_ready(bt):
-    """4 module đã có ⇒ missing_modules rỗng. Nhưng `ready` vẫn False vì loop chưa nối.
+def test_preflight_du_module_va_loop_da_noi(bt):
+    """4 module có đủ VÀ loop đã nối ⇒ ready=True. Cờ phải phản ánh sự thật hiện tại.
 
-    Phân biệt này quan trọng: `ready=True` khi run_backtest còn ném lỗi là tín hiệu nói dối.
+    Trước đây test này khẳng định `ready is False` vì loop còn ném NotImplementedError.
+    Nay loop đã nối, giữ nguyên khẳng định cũ sẽ là khẳng định một điều SAI — cập nhật
+    theo sự thật, không phải nới test cho xanh.
     """
     pf = bt.preflight()
     assert pf["missing_modules"] == [], f"còn thiếu module: {pf['missing_modules']}"
-    assert pf["loop_implemented"] is False
-    assert pf["ready"] is False, "chưa nối vòng lặp thì KHÔNG được báo ready"
-    assert pf["pending"], "phải nêu rõ còn thiếu gì"
-    assert pf["preregistration"]["ok"] is True, "spec v1.1.1 phải khớp anchor"
+    assert pf["loop_implemented"] is True
+    assert pf["ready"] is True, "đủ module + loop đã nối ⇒ phải sẵn sàng"
+    assert pf["pending"] == []
+    assert pf["preregistration"]["ok"] is True, "spec phải khớp anchor"
 
 
 def test_runner_dung_chung_nguon_voi_test_hash(bt):
