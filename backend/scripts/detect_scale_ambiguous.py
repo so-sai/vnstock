@@ -49,13 +49,39 @@ JUMP_RATIO = 5.0  # > 5× giữa hai phiên sạch liền kề
 WINDOW_START = "2025-10-01"  # cửa sổ ~252 phiên gần nhất
 
 
-def detect(db: Path) -> dict:
+def detect(
+    db: Path, *, symbols: list[str] | None = None, lookback: int | None = None
+) -> dict:
+    """Quét tìm điểm nối lệch thang.
+
+    symbols : chỉ quét các mã này (để verify một watchlist, vd top-10 RS).
+    lookback: chỉ xét `lookback` phiên SẠCH gần nhất của mỗi mã (mặc định theo WINDOW_START).
+    """
     con = sqlite3.connect(str(db))
-    rows = con.execute(
-        f"SELECT symbol, date, close, source FROM daily_ohlcv "
-        f"WHERE is_stale=0 AND {VALID_ROW_SQL} AND date >= ? ORDER BY symbol, date",
-        (WINDOW_START,),
-    ).fetchall()
+    sym_filter = ""
+    params: list[object] = []
+    if symbols:
+        sym_filter = " AND symbol IN (" + ",".join("?" * len(symbols)) + ")"
+        params.extend(s.upper() for s in symbols)
+
+    if lookback:
+        # ROW_NUMBER để lấy đúng N phiên sạch gần nhất của TỪNG mã.
+        sql = (
+            "SELECT symbol, date, close, source FROM ("
+            "  SELECT symbol, date, close, source,"
+            "         ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) AS rn"
+            f"  FROM daily_ohlcv WHERE is_stale=0 AND {VALID_ROW_SQL}{sym_filter}"
+            ") WHERE rn <= ? ORDER BY symbol, date"
+        )
+        rows = con.execute(sql, [*params, lookback]).fetchall()
+        window_desc = f"{lookback} phiên sạch gần nhất mỗi mã"
+    else:
+        rows = con.execute(
+            f"SELECT symbol, date, close, source FROM daily_ohlcv "
+            f"WHERE is_stale=0 AND {VALID_ROW_SQL}{sym_filter} AND date >= ? ORDER BY symbol, date",
+            [*params, WINDOW_START],
+        ).fetchall()
+        window_desc = f"cửa sổ từ {WINDOW_START}"
     con.close()
 
     seq: dict[str, list[tuple[str, float, str]]] = {}
@@ -82,9 +108,10 @@ def detect(db: Path) -> dict:
     return {
         "generated_at": datetime.now(VN_TZ).isoformat(),
         "criteria": (
-            f"hai phiên SẠCH liền kề lệch > {JUMP_RATIO}× trong cửa sổ từ {WINDOW_START}; "
+            f"hai phiên SẠCH liền kề lệch > {JUMP_RATIO}× trong {window_desc}; "
             "dòng is_stale=0 và hợp lệ"
         ),
+        "scanned_symbols": len(seq),
         "why": (
             "Lệch thang giá chưa xử lý được (có thể nằm TRONG một nguồn, vd kbs nghìn đồng → "
             "kbs đồng) ⇒ mã KHÔNG được tham gia tập xếp hạng RS (§4.1) cho tới khi có dữ liệu sạch. "
@@ -97,11 +124,14 @@ def detect(db: Path) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Sinh danh sách mã lệch thang (loại khỏi N_rank)")
     ap.add_argument("--db", type=Path, default=DB_PATH)
+    ap.add_argument("--symbols", nargs="*", default=None, help="chỉ quét các mã này")
+    ap.add_argument("--lookback", type=int, default=None, help="chỉ xét N phiên sạch gần nhất")
     ap.add_argument("--write", action="store_true", help="ghi file JSON (mặc định chỉ in)")
     a = ap.parse_args()
-    data = detect(a.db)
+    data = detect(a.db, symbols=a.symbols, lookback=a.lookback)
     n = len(data["symbols"])
-    print(f"mã lệch thang > {JUMP_RATIO}× trong cửa sổ: {n}")
+    total = data["scanned_symbols"]
+    print(f"quét {total} mã · lệch thang > {JUMP_RATIO}× : {n}")
     for sym, info in list(data["symbols"].items())[:8]:
         print(
             f"   {sym:<6} {info['date_before']} {info['close_before']:>12,.2f} [{info['source_before']}]"
@@ -110,10 +140,12 @@ def main() -> int:
         )
     if n > 8:
         print(f"   … và {n - 8} mã khác")
+    if n == 0 and a.symbols:
+        print("   ✅ 0 hit — không mã nào trong danh sách này có điểm nối lệch thang")
     if a.write:
         OUT_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\n✅ đã ghi {OUT_PATH}")
-    else:
+    elif not a.symbols:
         print("\n(chưa ghi — thêm --write)")
     return 0
 
