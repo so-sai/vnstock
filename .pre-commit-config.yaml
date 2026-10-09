@@ -25,3 +25,16 @@ repos:
         name: ruff format (backend/src)
         files: ^backend/src/
         args: ["--config", "backend/pyproject.toml"]
+
+  # Semantics the linter cannot see: pandas 3 refuses `.loc[:, col] =` when it
+  # would change an existing column's dtype (str from SQLite -> datetime), and
+  # ruff has no rule for it. That bug sat in data_quality.py and silently killed
+  # rs_ranker for four months, so it is guarded by an explicit hook.
+  - repo: local
+    hooks:
+      - id: pandas3-loc-dtype
+        name: pandas 3 — no .loc[:, col] dtype change
+        entry: python backend/scripts/check_pandas3_pattern.py
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: true

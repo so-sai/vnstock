@@ -33,12 +33,40 @@ def _staged_backend_files() -> list[str]:
     return [f for f in files if f.startswith("backend/src") and f.endswith(".py")]
 
 
+def _staged_backend_py() -> list[str]:
+    """Mọi .py staged trong backend/ (trừ .venv).
+
+    Phạm vi rộng hơn `_staged_backend_files()` (vốn chỉ backend/src) vì mẫu hình
+    pandas 3 nguy hiểm như nhau ở scripts/ và tests/.
+    """
+    raw = subprocess.check_output(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+        cwd=str(REPO_ROOT),
+    )
+    files = [f.strip() for f in raw.decode().splitlines() if f.strip()]
+    return [f for f in files if f.startswith("backend/") and f.endswith(".py") and ".venv" not in f]
+
+
 def _re_stage_touched(files: list[str]):
     """Re-stage files that ruff format/--fix may have modified."""
     subprocess.run(["git", "add"] + files, cwd=str(REPO_ROOT))
 
 
 def main() -> int:
+    # Phase 0 (2026-10-08): pandas 3 semantic gate — chạy TRƯỚC ruff vì:
+    #   (a) đây là lỗi NGỮ NGHĨA ruff không thấy được,
+    #   (b) phải chặn trước khi ruff format/--fix sửa file.
+    staged_py = _staged_backend_py()
+    if staged_py:
+        print(f"[pre-commit] pandas 3 pattern check on {len(staged_py)} staged backend file(s)...")
+        proc = subprocess.run(
+            [sys.executable, "backend/scripts/check_pandas3_pattern.py", *staged_py],
+            cwd=str(REPO_ROOT),
+        )
+        if proc.returncode != 0:
+            print("\n[BLOCKED] COMMIT BLOCKED by pandas 3 pattern check.")
+            return 1
+
     files = _staged_backend_files()
     if not files:
         return 0

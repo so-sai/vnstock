@@ -2,7 +2,7 @@
 
 Bối cảnh (root cause phiên 08/10):
     rs_ranker FAIL với `TypeError: Invalid value '<DatetimeArray>...' for dtype 'str'`
-    Nguồn: `df.loc[:, "date"] = pd.to_datetime(df["date"])` — pandas 3 (3.0.2) không
+    Nguồn: gán `pd.to_datetime(...)` vào cột `date` BẰNG `.loc[:, ...]` — pandas 3 (3.0.2) không
     còn cho `.loc[:, col]` ĐỔI DTYPE của một cột đã tồn tại: `column_setitem` cố giữ
     dtype 'str' rồi raise. Cột `date` từ SQLite là str → mọi site kiểu này vỡ.
 
@@ -33,7 +33,7 @@ def test_pandas3_loc_setitem_doi_dtype_thi_raise():
     assert df["date"].dtype == object or str(df["date"].dtype) == "str"
 
     with pytest.raises(TypeError, match="for dtype"):
-        df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed")
+        df.loc[:, "date"] = pd.to_datetime(df["date"], format="mixed")  # pandas3-ok: ca khẳng định pandas 3 raise
 
 
 def test_gan_truc_tiep_thi_thanh_cong():
@@ -43,7 +43,7 @@ def test_gan_truc_tiep_thi_thanh_cong():
 
 
 def test_khong_con_site_loc_date_datetime_trong_src():
-    """Guard: cấm tái xuất hiện `.loc[:, "date"] = ...` trong backend/src.
+    """Guard: cấm tái xuất hiện việc gán đổi dtype cột `date` qua `.loc[:, ...]` trong backend/src.
 
     (Đã sửa 4 site: data_quality.py, rs_ranker.py, index_reality_unifier.py x2.)
     """
