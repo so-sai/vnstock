@@ -67,6 +67,18 @@ def main() -> int:
             print("\n[BLOCKED] COMMIT BLOCKED by pandas 3 pattern check.")
             return 1
 
+        # Phase 0b (2026-10-09): numpy 2 semantic gate — cùng lý do, cùng họ lỗi.
+        # numpy 2 bỏ nhiều API 1.x (vd ndarray.ptp); chúng nổ đúng nhánh có dữ liệu
+        # nên linter/test đều im lặng. Chạy TRƯỚC ruff --fix để không bị sửa file trước.
+        print(f"[pre-commit] numpy 2 pattern check on {len(staged_py)} staged backend file(s)...")
+        proc = subprocess.run(
+            [sys.executable, "backend/scripts/check_numpy2_pattern.py", *staged_py],
+            cwd=str(REPO_ROOT),
+        )
+        if proc.returncode != 0:
+            print("\n[BLOCKED] COMMIT BLOCKED by numpy 2 pattern check.")
+            return 1
+
     files = _staged_backend_files()
     if not files:
         return 0
