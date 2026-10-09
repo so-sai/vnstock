@@ -74,11 +74,14 @@ def run_arm(name: str, scenario: str) -> dict:
         "avg_positions": round(stats["sum_positions"] / days, 4),
         "max_positions_held": stats["max_positions_held"],
         "pct_days_flat": round((1 - stats["days_with_positions"] / days) * 100, 4),
+        # ĐƠN VỊ: sharpe/calmar/profit_factor là TỈ LỆ; max_drawdown/cagr/win_rate ĐÃ là %.
+        # Nhân thêm 100 ở đây từng làm MaxDD hiện "323%" và khiến R1 đỏ OAN (2026-10-09) —
+        # suýt nữa thì đổ lỗi cho harness trong khi lỗi nằm ở chính script chấm điểm này.
         "sharpe": bt.sharpe(navs),
-        "max_drawdown_pct": bt.max_drawdown(navs) * 100,
+        "max_drawdown_pct": bt.max_drawdown(navs),
         "calmar": bt.calmar(navs, len(navs)),
-        "cagr_pct": bt.cagr(navs, len(navs)) * 100,
-        "win_rate_pct": bt.win_rate(portfolio.trades) * 100,
+        "cagr_pct": bt.cagr(navs, len(navs)),
+        "win_rate_pct": bt.win_rate(portfolio.trades),
         "profit_factor": bt.profit_factor(portfolio.trades),
         "total_return_pct": (navs[-1] / navs[0] - 1.0) * 100 if len(navs) > 1 else 0.0,
         "insufficient_sample": stats["entries"] < MIN_TRADES_FOR_CONCLUSION,
@@ -115,7 +118,9 @@ def main() -> int:
             ("sharpe", v4["sharpe"], base.get("sharpe")),
             ("calmar", v4["calmar"], base.get("calmar")),
             ("max_drawdown_pct", v4["max_drawdown_pct"], base.get("max_drawdown_pct")),
-            ("entries", v4["entries"], (base.get("loop_stats") or {}).get("entries")),
+            # `loop_stats` KHÔNG có trong file baseline (export_results ghi file TRƯỚC khi
+            # run_backtest gắn loop_stats vào dict trả về) ⇒ đối chiếu bằng số trade đã ghi.
+            ("trades", v4["trades"], base.get("total_trades")),
         ]
         for field, got, exp in pairs:
             if exp is None:
