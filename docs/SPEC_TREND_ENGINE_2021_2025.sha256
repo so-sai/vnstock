@@ -9,14 +9,18 @@
 #
 # ĐỊNH DẠNG: <sha256>  <đường dẫn>
 
-98274cd6993425d245d8a8ed6191c5e4141514e3ca8a41056e513b9a8593341c  docs/SPEC_TREND_ENGINE_2021_2025.md
+b5b76e5b3c4caa0a6c446ffb30088dbd548e9c5942dbc659345475811846d5a4  docs/SPEC_TREND_ENGINE_2021_2025.md
 
-# spec_version: v1.1.1 (v1.1 + ERRATUM 1)
+# spec_version: v1.1.2 (v1.1 + ERRATUM 1 & 2)
 # changelog:
 #   v1.1   : universe ~740 (SUY DIỄN — SAI), bỏ tiêu chí sàn => ADV20 >= 500k, chốt mục 15
 #   v1.1.1 : ERRATUM 1 — đính chính SỐ MÔ TẢ universe: ~740 => đo thật ~575.
 #            THAM SỐ CHIẾN LƯỢC KHÔNG ĐỔI. §3.1 gốc giữ nguyên (không viết lại lịch sử).
+#   v1.1.2 : ERRATUM 2 — §4.1 định nghĩa TƯỜNG MINH RS (tập xếp hạng >=252 phiên hợp lệ,
+#            công thức O'Neil, thiếu lịch sử => LOẠI chứ không gán 0, chỉ xếp hạng trên
+#            dòng hợp lệ). Thay thế tham chiếu mơ hồ tới market_rs.json. NGƯỠNG RS>=90 KHÔNG ĐỔI.
 #   KHÔNG CÓ v1.2: mọi thay đổi THAM SỐ/variant phải là file spec riêng.
 # v1.0_commit: 6279fcccefbea3b7f87d9646ad1875a2b56bf694
 # v1.1_commit: eefc729a9c058945be027ecdf65b90dc8e7cf600
+# v1.1.1_commit: 9bb7663
 # guards: test_preregistration_hash.py (toàn vẹn) · test_spec_structure.py (đầy đủ + erratum + tham số bất biến)

@@ -2,7 +2,7 @@
 
 **Status:** 🔒 **FROZEN — v1.1 (khóa cứng)** — không được sửa sau khi nhìn thấy kết quả backtest
 **Date:** 2026-10-09
-**Version:** v1.1.1 (v1.1 + **ERRATUM 1**) · xem changelog §13.4 (không có v1.2; biến thể ⇒ file spec riêng)
+**Version:** v1.1.2 (v1.1 + **ERRATUM 1 & 2**) · xem changelog §13.4 (không có v1.2; biến thể ⇒ file spec riêng)
 **Related:** `SPEC_DUAL_TRACK_DECISION_2026-10.md`
 **Pre-registration anchor:** xem `SPEC_TREND_ENGINE_2021_2025.sha256` (hash tách rời, xem mục 0.1)
 
@@ -107,6 +107,47 @@ TREND_BUY ⟺
 **`nguồn_chặn`:** nếu mã bị CSI REDUCE/VETO vì lý do **nội tại** (BS/Eff thấp, DISTRESSED) → loại. Nếu chỉ bị chặn vì **WORLD/MACRO** (lãi suất, transmission) → được phép.
 
 **Breakout:** `Close > max(High[1:20])` **AND** `Close > MA20`.
+
+### 4.1 ĐỊNH NGHĨA RS — CHUẨN TẮC HOÁ (ERRATUM 2, 2026-10-09)
+
+> **Vì sao cần mục này:** §4 dùng `RS ≥ 90` nhưng chưa từng định nghĩa RS. Trên thực tế
+> `RS` trỏ tới `market_rs.json` do `rs_ranker` sinh ra, và phép đo ngày 2026-10-09 cho
+> thấy giá trị đó **không tái lập được** từ dữ liệu: nó xếp hạng trên 1.507 mã (thiếu
+> lịch sử thì gán 0) và bị nhiễm bởi các dòng `close = 0`. Một ngưỡng không tái lập được
+> là một ngưỡng không kiểm được. Mục này định nghĩa RS **tường minh** và **thay thế vĩnh
+> viễn** tham chiếu mơ hồ tới `market_rs.json`.
+
+**Định nghĩa (áp dụng cho toàn bộ backtest):**
+
+```
+1. Tập xếp hạng N_rank(T) — mã có ĐỦ ≥ 252 phiên HỢP LỆ tính tới T
+   (hợp lệ ⟺ is_stale = 0 ∧ close > 0 ∧ low ≤ close ≤ high ∧ volume ≥ 0)
+
+2. Lợi suất (công thức O'Neil/IBD), yêu cầu mọi giá tham chiếu > 0:
+   RS_raw(T) = 0.4·r63 + 0.2·r126 + 0.2·r189 + 0.2·r252
+   với r_w = close(T)/close(T−w) − 1
+
+3. RS(T) = rank_pct(RS_raw trên N_rank(T)) × 99
+```
+
+**Ba tính chất bắt buộc:**
+
+| # | Tính chất | Lý do |
+|---|---|---|
+| 1 | **Point-in-time**: giá trị tại T chỉ dùng dữ liệu ≤ T | Không nhìn trộm tương lai |
+| 2 | **Thiếu lịch sử ⇒ LOẠI khỏi N_rank**, KHÔNG gán 0 | Gán 0 vừa chấm sai mã mới niêm yết, vừa **đẩy percentile của mọi mã khác lên giả tạo** |
+| 3 | **Chỉ xếp hạng trên dòng hợp lệ** | Giá ≤ 0 tạo lợi suất khổng lồ ⇒ mã rác nổi lên ĐẦU bảng, không phải đáy |
+
+**KHÔNG tái lập hành vi cũ.** Việc xếp hạng trên tập chắp vá (thiếu → 0) và để dòng
+nhiễm tham gia là **lỗi**, không phải đặc tả. Bản chuẩn tắc này thay thế nó.
+
+**Hệ quả đã đo (2026-10-08, sau khi cách ly 40.347 dòng không hợp lệ):** N_rank ≈ 614 mã;
+HKB/ACM (chuỗi `close = 0` xen `0.4`) **rớt hẳn khỏi bảng xếp hạng** vì không còn đủ 252
+phiên hợp lệ — đúng hành vi fail-closed.
+
+**Còn tồn (chưa xử lý, xem §15):** 228 mã có bước nhảy thang giá > 5× giữa hai phiên liền
+kề do trộn nguồn (vci trả *nghìn đồng*, kbs trả *đồng*). Các mã này **chưa** được coi là
+sạch cho tới khi hết lệch thang.
 
 ---
 
@@ -240,7 +281,8 @@ backend/scripts/backtest_trend_2021_2025.py # runner
 |---|---|---|
 | **v1.0** | `6279fcc` | Pre-registration khởi tạo |
 | **v1.1** | `eefc729` | Mẫu số universe thực tế ~740 (giao điểm Giá + Organ) · bỏ tiêu chí sàn cứng, xấp xỉ bằng `ADV20 ≥ 500k` (§2.3) · chốt mục 15 |
-| **v1.1.1** | *(commit này)* | **ERRATUM 1** — đính chính số MÔ TẢ ở §3.1: "~740" → đo thật **~575**. **Tham số KHÔNG đổi.** Xem ERRATUM 1 ở cuối tài liệu |
+| **v1.1.1** | `9bb7663` | **ERRATUM 1** — đính chính số MÔ TẢ ở §3.1: "~740" → đo thật **~575**. **Tham số KHÔNG đổi.** Xem ERRATUM 1 ở cuối tài liệu |
+| **v1.1.2** | *(commit này)* | **ERRATUM 2** — §4.1 định nghĩa TƯỜNG MINH `RS` (tập xếp hạng ≥252 phiên hợp lệ, công thức O'Neil, thiếu lịch sử ⇒ loại chứ không gán 0, chỉ xếp hạng trên dòng hợp lệ). Thay thế tham chiếu mơ hồ tới `market_rs.json`. **Ngưỡng `RS ≥ 90` KHÔNG đổi** — chỉ hết mơ hồ về việc RS *là gì* |
 
 🔒 **CAM KẾT BẤT BIẾN: TUYỆT ĐỐI KHÔNG CÓ BẢN v1.2.**
 
@@ -356,3 +398,37 @@ Sai lệch này do **runner preflight tự phát hiện** ở lần chạy đầ
 Bài học: **kiểm trước khi niêm phong** — niêm phong khuếch đại lỗi chứ không làm nó bớt sai.
 Hash guard (chứng minh file không đổi) và structure guard (chứng minh file đủ mục) **đều mù** với lớp lỗi
 "con số trong file có đúng không"; cần một guard thứ ba ở tầng ngữ nghĩa.
+
+---
+
+## ERRATUM 2 (2026-10-09, **TRƯỚC** backtest) — định nghĩa RS
+
+Xem §4.1. Tóm tắt: `RS` trước đây trỏ tới `market_rs.json` mà không được định nghĩa, và giá
+trị đó **không tái lập được** (xếp hạng trên 1.507 mã với thiếu-lịch-sử⇒0, bị nhiễm bởi
+`close = 0`). §4.1 định nghĩa RS tường minh và thay thế tham chiếu cũ. **Ngưỡng `RS ≥ 90`
+không đổi.**
+
+---
+
+## ERRATUM 3 (2026-10-09, **TRƯỚC** backtest) — mẫu số sau khi LÀM SẠCH dữ liệu
+
+**Bối cảnh:** cùng ngày, tầng hợp lệ dữ liệu phát hiện và cách ly **40.347 dòng OHLC không
+hợp lệ** đang mang `is_stale = 0` (34.157 dòng `close = 0`, 4.500 dòng rỗng hoàn toàn, 1.690
+dòng OHLC tự mâu thuẫn). Việc làm sạch này **thay đổi** số "mã có giá" ở §3.1.
+
+**Số ĐO LẠI sau làm sạch:**
+
+| năm | có giá (§3.1 ghi) | có giá (đo lại) | có organ | **giao điểm** |
+|---|---|---|---|---|
+| 2021 | 903 | **902** | 738 | 575 |
+| 2022 | 915 | **913** | 738 | 572 |
+| 2023 | 906 | **904** | 750 | 567 |
+| 2024 | 855 | 855 | 750 | 570 |
+| 2025 | 879 | **878** | 744 | 583 |
+
+**Điều quan trọng nhất:** **giao điểm KHÔNG đổi** (575/572/567/570/583). Việc dọn dữ liệu
+rác chỉ bỏ đi những mã vốn không nằm trong universe thật — nên **mẫu số báo cáo giữ nguyên
+~575**, đúng như ERRATUM 1 đã chốt. Đây là bằng chứng cho thấy mẫu số giao điểm là ổn định,
+không phải một con số phụ thuộc vào tình trạng nhiễm của store.
+
+**Phạm vi:** chỉ số **MÔ TẢ** "có giá" được đính chính. Tham số chiến lược vẫn không đổi.

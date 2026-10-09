@@ -251,6 +251,50 @@ def test_warmup_lam_ngay_dau_cua_so_co_du_lieu(db):
     assert store.rs("AAA", start) is not None, "thiếu warm-up ⇒ RS rỗng ở ngày đầu"
 
 
+def test_dong_khong_hop_le_is_stale_0_van_bi_loai(db, tmp_path):
+    """Phòng thủ nhiều lớp: dòng VI PHẠM HỢP LỆ nhưng lỡ mang is_stale=0 vẫn không lọt.
+
+    Đây là kịch bản đã xảy ra thật: 40.347 dòng `close = 0`, `low > high`, hoặc rỗng
+    hoàn toàn nằm trong tập "sạch" và làm RS của toàn thị trường sai. Cổng độ tươi đếm
+    SỐ DÒNG nên không thấy; vị từ hợp lệ ở tầng feature là lớp chặn thứ hai.
+    """
+    path = tmp_path / "invalid.db"
+    days = _make_db(path)
+    t, t_prev = days[350], days[349]
+    con = sqlite3.connect(str(path))
+    # (a) giá 0 dù is_stale=0 — nguồn gốc của "lợi suất" 749x
+    con.execute(
+        "INSERT INTO daily_ohlcv VALUES ('ZERO', ?, 1, 1, 1, 0, 0, 100, 'kbs', 0)", (t,)
+    )
+    # (b) OHLC tự mâu thuẫn, is_stale=0
+    con.execute(
+        "INSERT INTO daily_ohlcv VALUES ('BADC', ?, 1, 1, 999, 1, 1, 100, 'kbs', 0)", (t,)
+    )
+    # (c) dòng rỗng hoàn toàn, is_stale=0 — phải không phá pivot (aggfunc='last')
+    con.execute(
+        "INSERT INTO daily_ohlcv VALUES ('EMPT', ?, NULL, NULL, NULL, NULL, NULL, NULL, 'kbs', 0)",
+        (t_prev,),
+    )
+    con.commit()
+    con.close()
+
+    store = tf.FeatureStore(days[260], t, db=path)
+    assert store.close("ZERO", t) is None, "giá 0 lọt vào feature"
+    assert store.close("BADC", t) is None, "OHLC mâu thuẫn lọt vào feature"
+    assert store.close("EMPT", t_prev) is None, "dòng rỗng lọt vào feature"
+    # và không được ghi đè dữ liệu sạch của mã khác cùng phiên
+    assert store.close("AAA", t) is not None
+
+
+def test_vi_tu_hop_le_dung_mot_nguon_voi_tang_cach_ly():
+    """Feature phải dùng CHÍNH vị từ của data_validity — không tự viết biến thể."""
+    from src.database import data_validity as dv
+
+    assert tf.VALID_ROW_SQL == dv.VALID_ROW_SQL
+    for need in ("close > 0", "low <= close", "close <= high", "volume >= 0"):
+        assert need in dv.VALID_ROW_SQL, f"vị từ thiếu điều kiện {need!r}"
+
+
 def test_dong_nhiem_is_stale_khong_tham_gia(db, tmp_path):
     """Dòng is_stale=1 phải bị loại khỏi pivot — nếu không, giá nhiễm vào feature.
 

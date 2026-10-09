@@ -65,6 +65,11 @@ for _p in (PROJECT_ROOT / "backend", PROJECT_ROOT / "backend" / "src"):
 
 DB_PATH = PROJECT_ROOT / "backend" / "data" / "screener_cache.db"
 
+# Cùng MỘT vị từ hợp lệ với tầng cách ly (src/database/data_validity.py):
+# (close > 0) ∧ (low ≤ close ≤ high) ∧ (volume ≥ 0). Phòng thủ nhiều lớp — nếu một
+# dòng không hợp lệ lọt vào với is_stale = 0, nó vẫn không được tham gia tính feature.
+from src.database.data_validity import VALID_ROW_SQL
+
 # ── Định nghĩa RS — khớp production (rs_ranker.calculate_rs_score) ──
 # Khoá = số phiên lùi, giá trị = trọng số. Pin bằng test: sửa trọng số là sửa
 # định nghĩa RS, tức là sửa ngưỡng "RS ≥ 90" của spec theo một cách không ai thấy.
@@ -114,11 +119,11 @@ def load_pivot(field_name: str, start: str, end: str, *, db: Path = DB_PATH, cle
     """
     if field_name not in FEATURE_COLUMNS:
         raise ValueError(f"cột không hợp lệ: {field_name!r}; cho phép {FEATURE_COLUMNS}")
-    where = "AND is_stale = 0" if clean_only else ""
-    q = (
-        f"SELECT date, symbol, {field_name} AS v FROM daily_ohlcv "
-        f"WHERE date BETWEEN ? AND ? {where}"
-    )
+    # HAI điều kiện, không phải một: đã cách ly (is_stale=0) VÀ hợp lệ về giá trị.
+    # ⚠️ Chỉ dùng vị từ hợp lệ là SAI — dòng đã cách ly sẽ lọt trở lại (đúng lỗi mà
+    # test_dong_nhiem_is_stale_khong_tham_gia bắt được).
+    where = f"AND is_stale = 0 AND {VALID_ROW_SQL}" if clean_only else ""
+    q = f"SELECT date, symbol, {field_name} AS v FROM daily_ohlcv WHERE date BETWEEN ? AND ? {where}"
     with _connect(db) as con:
         df = pd.read_sql_query(q, con, params=[start, end])
     if df.empty:

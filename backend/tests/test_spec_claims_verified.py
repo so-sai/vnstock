@@ -49,14 +49,28 @@ SPEC_NARRATIVE_CLAIMS = [
     ("~165 mã có giá không cơ bản", 165),
 ]
 
-# Claim đã bị ERRATUM 1 thay thế — PHẢI KHAI BÁO TƯỜNG MINH, kèm số đúng.
+# Claim đã bị ERRATUM thay thế — PHẢI KHAI BÁO TƯỜNG MINH, kèm số đúng.
 #
 # Vì sao không "thấy số đo được trong erratum là tha": cách đó tha cả số bị tiêm vào,
 # vì mọi giá trị thật vốn đã có mặt trong erratum. Một ngoại lệ phải được NÊU TÊN, có
 # phạm vi (năm, loại), nếu không nó biến thành giấy thông hành chung.
-SUPERSEDED_BY_ERRATUM_1: dict[tuple[str, str], int] = {
-    ("2021", "facts"): 738,  # spec §3.1 ghi 737
-    ("2022", "facts"): 738,  # spec §3.1 ghi 737
+#
+#   facts 737→738 : ERRATUM 1 (đo được thay vì suy diễn)
+#   price 903→902…: ERRATUM 3 (sau khi cách ly 40.347 dòng OHLC không hợp lệ)
+# 2024 price (855) và facts 2023–2025 KHÔNG có mặt ở đây vì chúng vẫn khớp — thêm vào
+# sẽ thành entry thừa, và test_danh_sach_tha_khong_bi_muc_rua sẽ bắt.
+SUPERSEDED_BY_ERRATUM: dict[tuple[str, str], tuple[int, int]] = {
+    # (năm, loại): (SỐ SPEC GHI, SỐ ĐO ĐƯỢC)
+    #
+    # Ghi CẢ HAI phía là có chủ ý: nếu chỉ kiểm "số đo được có trong erratum không",
+    # guard sẽ tha mọi con số — kể cả số bịa tiêm vào — vì giá trị thật vốn luôn có mặt
+    # trong erratum. Khoá theo CẶP buộc phép tha phải đúng cặp đã được ghi nhận.
+    ("2021", "facts"): (737, 738),  # ERRATUM 1: đo được thay vì suy diễn
+    ("2022", "facts"): (737, 738),
+    ("2021", "price"): (903, 902),  # ERRATUM 3: sau khi cách ly dòng không hợp lệ
+    ("2022", "price"): (915, 913),
+    ("2023", "price"): (906, 904),
+    ("2025", "price"): (879, 878),
 }
 
 
@@ -92,10 +106,10 @@ def test_moi_con_so_bang_31_khop_do_duoc_hoac_duoc_erratum(pf):
             actual = measured[kind]
             if actual == claimed:
                 continue
-            # Sai lệch chỉ hợp lệ khi claim được NÊU TÊN trong danh sách đã thay thế,
-            # số đúng khớp, VÀ erratum thật sự nêu con số đó.
-            excused = SUPERSEDED_BY_ERRATUM_1.get((year, kind)) == actual
-            if excused and str(actual) in erratum:
+            # Sai lệch chỉ hợp lệ khi (số spec ghi, số đo được) KHỚP ĐÚNG cặp đã ghi nhận
+            # trong danh sách tha, VÀ erratum thật sự nêu con số đo được.
+            entry = SUPERSEDED_BY_ERRATUM.get((year, kind))
+            if entry == (claimed, actual) and str(actual) in erratum:
                 continue
             problems.append(
                 f"§3.1 {year} {kind}: spec ghi {claimed}, ĐO ĐƯỢC {actual}, "
@@ -111,13 +125,16 @@ def test_danh_sach_tha_khong_bi_muc_rua(pf):
     đầy entry thừa sẽ dần trở thành giấy thông hành chung. Test này buộc dọn.
     """
     stale = []
-    for (year, kind), excused_value in SUPERSEDED_BY_ERRATUM_1.items():
+    for (year, kind), (claimed_doc, measured_doc) in SUPERSEDED_BY_ERRATUM.items():
         claimed = SPEC_TABLE_3_1[year][kind]
         actual = pf["universe_per_year"][year][kind]
         if claimed == actual:
             stale.append(f"{year}.{kind}: spec đã khớp DB ({actual}) ⇒ bỏ entry tha")
-        elif excused_value != actual:
-            stale.append(f"{year}.{kind}: số tha {excused_value} ≠ đo được {actual}")
+        elif (claimed, actual) != (claimed_doc, measured_doc):
+            stale.append(
+                f"{year}.{kind}: cặp đã đổi — spec ghi {claimed} (ghi nhận {claimed_doc}), "
+                f"đo được {actual} (ghi nhận {measured_doc}) ⇒ cập nhật hoặc bỏ entry"
+            )
     assert not stale, "danh sách tha cần dọn:\n  " + "\n  ".join(stale)
 
 
