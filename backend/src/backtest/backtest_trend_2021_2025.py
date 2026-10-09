@@ -53,10 +53,26 @@ MIN_SESSIONS_PER_YEAR = 200
 MIN_ADV20 = 500_000
 TRADING_DAYS_PER_YEAR = 252
 
+
 # Spec §11: phí 0.15% + trượt giá 0.10% MỖI CHIỀU ⇒ 0.25%/chiều = 0.50% round-trip.
-# ⚠️ Xem cảnh báo DISCREPANCY ở preflight(): đề xuất itemize của chủ hệ thống
-#    (mua 0.25 / bán 0.35) cộng ra 0.60% round-trip, KHÔNG khớp con số 0.50% đã khóa.
-COST_PER_SIDE_PCT = 0.25
+# Chạy THÊM một kịch bản robustness theo thực tế Việt Nam (+0.10% thuế TNCN khi BÁN).
+# Không chọn một: chọn một là data-snooping — xem §8 spec và quyết định 2026-10-09.
+@dataclass(frozen=True)
+class CostModel:
+    buy_pct: float
+    sell_pct: float
+    label: str
+
+    @property
+    def round_trip_pct(self) -> float:
+        return self.buy_pct + self.sell_pct
+
+
+COST_SCENARIOS: dict[str, CostModel] = {
+    "primary": CostModel(0.25, 0.25, "spec §11 — 0.15% phí + 0.10% trượt giá mỗi chiều"),
+    "robustness": CostModel(0.25, 0.35, "+0.10% thuế TNCN khi bán (thực tế VN; spec thiếu)"),
+}
+DEFAULT_SCENARIO = "primary"
 
 MAX_POSITIONS = 4
 BASE_SIZE_PCT = 5.0
@@ -167,6 +183,7 @@ class Portfolio:
     """Tiền mặt + vị thế, MTM mỗi ngày theo giá close (spec §11 đã chốt MTM)."""
 
     initial_nav: float = 100.0
+    cost: CostModel = field(default_factory=lambda: COST_SCENARIOS[DEFAULT_SCENARIO])
     cash: float = field(init=False)
     positions: dict[str, Position] = field(default_factory=dict)
     trades: list[Trade] = field(default_factory=list)
@@ -176,9 +193,9 @@ class Portfolio:
         self.cash = self.initial_nav
 
     def apply_cost(self, notional: float, side: str) -> float:
-        """Phí + trượt giá: 0.25%/chiều (spec §11). Trả về tiền phí."""
-        _ = side  # cùng mức cho 2 chiều theo spec; đổi ⇒ variant B
-        fee = abs(notional) * COST_PER_SIDE_PCT / 100.0
+        """Phí + trượt giá theo kịch bản chi phí (bất đối xứng: thuế chỉ ở chiều BÁN)."""
+        rate = self.cost.buy_pct if side == "buy" else self.cost.sell_pct
+        fee = abs(notional) * rate / 100.0
         self.cash -= fee
         return fee
 
@@ -330,12 +347,10 @@ def preflight() -> dict:
         per_year[y] = {"price": len(p), "facts": len(f), "intersection": len(p & f)}
 
     notes = []
-    # DISCREPANCY đã phát hiện (không tự ý chọn thay chủ hệ thống)
     notes.append(
-        "COST MODEL: spec §11 khóa 'phí 0.15% + trượt giá 0.10% mỗi chiều' ⇒ 0.25%/chiều "
-        f"= {COST_PER_SIDE_PCT * 2:.2f}% round-trip. Đề xuất itemize của chủ hệ thống "
-        "(mua 0.25% / bán 0.35%) cộng ra 0.60% round-trip — KHÔNG khớp con số 0.50% đã khóa. "
-        "Runner đang dùng theo SPEC (0.50%). Muốn 0.60% ⇒ phải là variant B."
+        "COST MODEL: chạy CẢ HAI kịch bản (không chọn một — chọn một là data-snooping): "
+        + " · ".join(f"{k} = {v.round_trip_pct:.2f}% round-trip ({v.label})" for k, v in COST_SCENARIOS.items())
+        + ". primary theo spec §11 (0.50%); robustness thêm thuế TNCN ở chiều bán (0.60%)."
     )
     if len(bench) != len(days):
         notes.append(f"benchmark {len(bench)} phiên ≠ lịch {len(days)} phiên — cần đối chiếu.")
@@ -394,14 +409,18 @@ def run_backtest(force: bool = False) -> dict:
     return export_results(pf_obj, days, pf)
 
 
-def export_results(portfolio: Portfolio, days: list[str], preflight_info: dict) -> dict:
-    """Ghi JSON summary + CSV trade log. Không tự bịa số: dùng đúng dữ liệu truyền vào."""
+def export_results(portfolio: Portfolio, days: list[str], preflight_info: dict, scenario: str = DEFAULT_SCENARIO) -> dict:
+    """Ghi JSON summary + CSV trade log CHO MỘT kịch bản chi phí."""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     navs = [v for _, v in portfolio.nav_history]
     summary = {
         "generated_at": datetime.now(VN_TZ).isoformat(),
         "spec": preflight_info["preregistration"]["spec"],
         "spec_sha256": preflight_info["preregistration"]["sha256"],
+        "cost_scenario": scenario,
+        "cost_buy_pct": portfolio.cost.buy_pct,
+        "cost_sell_pct": portfolio.cost.sell_pct,
+        "cost_round_trip_pct": portfolio.cost.round_trip_pct,
         "window": [days[0], days[-1]] if days else None,
         "sessions": len(days),
         "effective_universe": preflight_info["effective_universe"],
@@ -414,10 +433,11 @@ def export_results(portfolio: Portfolio, days: list[str], preflight_info: dict) 
         "win_rate_pct": win_rate(portfolio.trades),
         "profit_factor": profit_factor(portfolio.trades),
         "total_trades": len(portfolio.trades),
-        "cost_per_side_pct": COST_PER_SIDE_PCT,
     }
-    (OUT_DIR / "backtest_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    with (OUT_DIR / "backtest_trades.csv").open("w", newline="", encoding="utf-8") as f:
+    (OUT_DIR / f"backtest_summary_{scenario}.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    with (OUT_DIR / f"backtest_trades_{scenario}.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["symbol", "date_in", "date_out", "price_in", "price_out", "qty", "pnl_pct", "hold_days", "exit_reason"])
         for t in portfolio.trades:
@@ -435,6 +455,42 @@ def export_results(portfolio: Portfolio, days: list[str], preflight_info: dict) 
                 ]
             )
     return summary
+
+
+def interpret_scenarios(summaries: dict[str, dict]) -> str:
+    """Đọc kết quả 2 kịch bản theo luật ĐÃ CHỐT TRƯỚC khi chạy.
+
+    strong pass | marginal pass | fail — luật này không được đổi sau khi thấy số.
+    """
+    thr = 0.5  # tiêu chí Sharpe §8
+    sh = {k: v.get("sharpe") for k, v in summaries.items()}
+    if not sh or any(v is None for v in sh.values()):
+        return "INCOMPLETE — thiếu kết quả ở ít nhất một kịch bản"
+    ok = {k: (v is not None and v >= thr) for k, v in sh.items()}
+    if all(ok.values()):
+        return "STRONG PASS — chiến lược không nhạy với giả định chi phí"
+    if ok.get("primary") and not ok.get("robustness"):
+        return "MARGINAL PASS — chỉ pass ở kịch bản spec; phải review giả định chi phí trước khi live"
+    return "FAIL — không implement, giữ nguyên kiến trúc veto"
+
+
+def export_comparison(summaries: dict[str, dict]) -> dict:
+    """Ghi file tổng hợp CẢ HAI kịch bản + delta + kết luận (báo cáo trung thực cả hai)."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    prim, rob = summaries.get("primary", {}), summaries.get("robustness", {})
+    delta = None
+    if prim.get("sharpe") is not None and rob.get("sharpe") is not None:
+        delta = prim["sharpe"] - rob["sharpe"]
+    payload = {
+        "generated_at": datetime.now(VN_TZ).isoformat(),
+        "note": "Chạy CẢ HAI kịch bản chi phí; không chọn một. Kết luận theo luật đã chốt trước khi chạy.",
+        "primary": prim,
+        "robustness": rob,
+        "delta_sharpe": delta,
+        "verdict": interpret_scenarios(summaries),
+    }
+    (OUT_DIR / "backtest_summary.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
 
 
 def main() -> int:

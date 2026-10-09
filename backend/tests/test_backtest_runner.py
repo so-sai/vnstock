@@ -64,13 +64,48 @@ def test_mtm_va_chi_phi_vao_lenh(bt):
     assert pf.nav({"AAA": 10.0}) == pytest.approx(100.0 - 0.125)
 
 
-def test_chi_phi_round_trip_dung_0_5_pct(bt):
+def test_chi_phi_round_trip_primary_dung_0_5_pct(bt):
     """Spec §11: 0.15% phí + 0.10% trượt giá mỗi chiều ⇒ 0.50% round-trip."""
     pf = bt.Portfolio(initial_nav=100.0)
+    assert pf.cost.round_trip_pct == 0.50
     pf.enter("AAA", price=10.0, date="2021-01-04", target_notional=50.0)
     pf.exit("AAA", price=10.0, date="2021-01-05", reason="test")
     loss = 100.0 - pf.cash
     assert loss / 50.0 == pytest.approx(0.005, rel=1e-6), "round-trip phải đúng 0.50% notional"
+
+
+def test_chi_phi_robustness_dung_0_6_pct_va_bat_doi_xung(bt):
+    """Kịch bản robustness: thuế TNCN chỉ ở chiều BÁN ⇒ 0.60% round-trip, bất đối xứng."""
+    rob = bt.COST_SCENARIOS["robustness"]
+    assert rob.round_trip_pct == pytest.approx(0.60)
+    assert rob.sell_pct > rob.buy_pct, "thuế chỉ cộng ở chiều bán"
+
+    pf = bt.Portfolio(initial_nav=100.0, cost=rob)
+    pf.enter("AAA", price=10.0, date="d1", target_notional=50.0)
+    cash_after_buy = pf.cash
+    assert (100.0 - cash_after_buy - 50.0) / 50.0 == pytest.approx(0.0025, rel=1e-6), "mua 0.25%"
+    pf.exit("AAA", price=10.0, date="d2", reason="t")
+    assert (100.0 - pf.cash) / 50.0 == pytest.approx(0.0060, rel=1e-6), "round-trip 0.60%"
+
+
+def test_co_du_hai_kich_ban_chi_phi(bt):
+    assert set(bt.COST_SCENARIOS) == {"primary", "robustness"}
+
+
+def test_interpret_scenarios_theo_luat_da_chot(bt):
+    """Luật đọc kết quả: strong pass / marginal pass / fail."""
+    assert bt.interpret_scenarios({"primary": {"sharpe": 0.9}, "robustness": {"sharpe": 0.7}}).startswith("STRONG PASS")
+    assert bt.interpret_scenarios({"primary": {"sharpe": 0.9}, "robustness": {"sharpe": 0.2}}).startswith("MARGINAL PASS")
+    assert bt.interpret_scenarios({"primary": {"sharpe": 0.3}, "robustness": {"sharpe": 0.2}}).startswith("FAIL")
+    assert bt.interpret_scenarios({"primary": {"sharpe": None}, "robustness": {"sharpe": 0.2}}).startswith("INCOMPLETE")
+
+
+def test_export_comparison_ghi_ca_hai(bt, tmp_path, monkeypatch):
+    monkeypatch.setattr(bt, "OUT_DIR", tmp_path)
+    p = bt.export_comparison({"primary": {"sharpe": 0.9}, "robustness": {"sharpe": 0.7}})
+    assert p["delta_sharpe"] == pytest.approx(0.2)
+    assert p["verdict"].startswith("STRONG PASS")
+    assert (tmp_path / "backtest_summary.json").exists()
 
 
 def test_nav_mtm_theo_gia_close(bt):
@@ -131,9 +166,16 @@ def test_export_khong_bia_so(bt, tmp_path, monkeypatch):
     s = bt.export_results(pf, ["2021-01-04", "2021-01-05"], info)
     assert s["total_trades"] == 0
     assert s["effective_universe"] == 7
-    assert s["cost_per_side_pct"] == 0.25
-    assert (tmp_path / "backtest_summary.json").exists()
-    assert (tmp_path / "backtest_trades.csv").exists()
+    assert s["cost_round_trip_pct"] == 0.50
+    assert (tmp_path / "backtest_summary_primary.json").exists()
+    assert (tmp_path / "backtest_trades_primary.csv").exists()
+
+
+def test_preflight_bao_chay_ca_hai_kich_ban_chi_phi(bt):
+    """Runner phải NÊU rõ chạy cả hai kịch bản, không tự chọn một."""
+    notes = " ".join(bt.preflight()["notes"])
+    assert "0.60%" in notes and "0.50%" in notes
+    assert "data-snooping" in notes and "CẢ HAI" in notes
 
 
 # ── Preflight: mẫu số universe phải khớp spec §3.1 ────────────────────
@@ -170,12 +212,6 @@ def test_giao_diem_thuc_te_NHO_HON_uoc_tinh_trong_spec(bt):
     assert facts_only > 100, f"phải có mã cơ-bản-không-đủ-giá, được {facts_only}"
 
 
-def test_preflight_bao_discrepancy_chi_phi(bt):
-    """Runner phải NÊU mâu thuẫn 0.50% (spec) vs itemize 0.60%, không tự chọn thay."""
-    notes = " ".join(bt.preflight()["notes"])
-    assert "0.60%" in notes and "0.50%" in notes and "variant B" in notes
-
-
 def test_preflight_nhan_dien_thieu_module(bt):
     pf = bt.preflight()
     assert pf["ready"] is False
@@ -184,7 +220,15 @@ def test_preflight_nhan_dien_thieu_module(bt):
 
 
 def test_runner_dung_chung_nguon_voi_test_hash(bt):
-    """Một nguồn sự thật cho việc băm — không cài lại logic LF-normalize lần thứ ba."""
+    """Một nguồn sự thật cho việc băm — runner gọi hàm của module chung, không cài lại.
+
+    ⚠️ Khẳng định HÀNH VI, không phải thuộc tính module: pre-commit chạy `ruff --fix`, và ruff
+    âm thầm XOÁ import "unused" (F401) — kể cả khi test khác đang chờ nó tồn tại. Kiểm
+    `hasattr(bt, "sha256_lf_normalized")` sẽ đỏ vì lý do chẳng liên quan tới tính đúng.
+    """
     from src.backtest.preregistration import sha256_lf_normalized
 
-    assert bt.sha256_lf_normalized is sha256_lf_normalized
+    assert bt.verify_preregistration_lock.__module__ == "src.backtest.preregistration"
+    assert sha256_lf_normalized.__module__ == "src.backtest.preregistration"
+    info = bt.verify_preregistration_lock(raise_on_fail=False)
+    assert info["ok"] is True and len(info["sha256"]) == 64
