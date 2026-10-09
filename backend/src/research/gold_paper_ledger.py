@@ -430,7 +430,7 @@ def report_gate(panel: pd.DataFrame, forecasts: pd.DataFrame) -> dict:
     try:
         from sklearn.metrics import roc_auc_score
 
-        auc = float(roc_auc_score(dv, pv)) if len(pv) >= 5 and dv.ptp() > 0 else np.nan
+        auc = float(roc_auc_score(dv, pv)) if len(pv) >= 5 and np.ptp(dv) > 0 else np.nan
     except ValueError:
         auc = np.nan
     base = float(dv.mean()) if len(dv) else np.nan
@@ -517,7 +517,7 @@ def report_forward(matured_fwd: pd.DataFrame, all_r20: np.ndarray) -> dict:
     try:
         from sklearn.metrics import roc_auc_score
 
-        auc = float(roc_auc_score(dvv, pv)) if len(pv) >= 5 and dvv.ptp() > 0 else np.nan
+        auc = float(roc_auc_score(dvv, pv)) if len(pv) >= 5 and np.ptp(dvv) > 0 else np.nan
     except ValueError:
         auc = np.nan
     return {
