@@ -1,7 +1,8 @@
 # SPEC: TREND ENGINE — PRE-REGISTERED (2021–2025)
 
-**Status:** 🔒 **FROZEN** — không được sửa sau khi nhìn thấy kết quả backtest
+**Status:** 🔒 **FROZEN — v1.1 (khóa cứng)** — không được sửa sau khi nhìn thấy kết quả backtest
 **Date:** 2026-10-09
+**Version:** v1.1 · xem changelog §13.4 (không có v1.2; biến thể ⇒ file spec riêng)
 **Related:** `SPEC_DUAL_TRACK_DECISION_2026-10.md`
 **Pre-registration anchor:** xem `SPEC_TREND_ENGINE_2021_2025.sha256` (hash tách rời, xem mục 0.1)
 
@@ -46,9 +47,19 @@ Kiểm định **Trend Engine độc lập** có tạo OOS alpha hay không — 
 
 ## 2. SCOPE
 
-**IN scope:** universe theo mục 3 · cửa sổ 2021-01-01 → 2025-12-31 · trend-following (RS + breakout) · shared risk budget với Track 2.
+### 2.1 IN scope
+Universe theo mục 3 · cửa sổ 2021-01-01 → 2025-12-31 · trend-following (RS + breakout) · shared risk budget với Track 2.
 
-**OUT of scope:** foreign flow (không có data) · dual-track integration (spec riêng) · live execution (chỉ backtest).
+### 2.2 OUT of scope
+Foreign flow (không có data) · dual-track integration (spec riêng) · live execution (chỉ backtest).
+
+### 2.3 Quy tắc lọc sàn giao dịch & thanh khoản — LIMITATION & APPROXIMATION
+
+- **LIMITATION:** cơ sở dữ liệu hiện tại **không lưu cột phân loại sàn** (HOSE / HNX / UPCoM). Đã kiểm cả `screener_cache.db` và `financial_facts.db` — `symbol_industry` chỉ có ICB.
+- **Giải pháp xấp xỉ:** loại bỏ tiêu chí kiểm tra tên sàn, thay hoàn toàn bằng lọc thanh khoản:
+  `ADV20 ≥ 500.000 cổ phiếu/phiên`
+- **Đánh giá rủi ro:** ngưỡng ADV20 ≥ 500k tự loại ~95% mã UPCoM thanh khoản thấp. Nếu vài mã UPCoM thanh khoản cao lọt qua → **chấp nhận là nhiễu cho phép (tolerable noise)**, **gắn cờ trong báo cáo backtest**, **TUYỆT ĐỐI không sửa lại spec**.
+- **Chiều sai an toàn:** nếu loại nhầm vài mã HOSE thanh khoản cao → mất cơ hội, **không mất vốn** (fail-closed).
 
 ---
 
@@ -63,7 +74,18 @@ Kiểm định **Trend Engine độc lập** có tạo OOS alpha hay không — 
 - `Health == DISTRESSED`
 - Thiếu organ data
 
-**Universe kỳ vọng:** ⚠️ **~740 mã**, KHÔNG phải 903 — xem mục 15.1 (ràng buộc thật là độ phủ dữ liệu tài chính).
+### 3.1 Mẫu số universe THỰC TẾ (~740 mã) — không phải 903
+
+| Nguồn | 2021 | 2022 | 2023 | 2024 | 2025 |
+|---|---|---|---|---|---|
+| Dữ liệu giá (`daily_ohlcv`, ≥200 phiên sạch/năm) | **903** | 915 | 906 | 855 | 879 |
+| Dữ liệu cơ bản (`financial_facts` / organ) | **737** | 737 | 750 | 750 | 744 |
+
+Entry rule **bắt buộc cả hai** nguồn ⇒ mẫu số thật là **giao điểm ≈ 740 mã**.
+**903 là cận trên lý thuyết về giá, không phải universe thực tế.**
+
+⇒ Mọi tỷ lệ phần trăm và kết quả backtest của Trend Engine **phải báo cáo trên mẫu số ~740** này.
+~165 mã (~18%) có giá nhưng không có cơ bản sẽ bị loại tự động — đó là hành vi fail-closed đúng, không phải lỗi.
 
 ---
 
@@ -212,6 +234,19 @@ backend/scripts/backtest_trend_2021_2025.py # runner
 2. **`POLARITY_MISMATCH`** — position discount × 0.5 + log warning, **không** block.
 3. **Foreign gate** — đã gỡ; nếu muốn test có cổng ngoại → **variant B pre-register riêng** (và cần bổ sung chuỗi ngoại lịch sử trước).
 
+### 13.4 Pre-registration CHANGELOG & Cam kết bất biến
+
+| Phiên bản | Commit | Nội dung |
+|---|---|---|
+| **v1.0** | `6279fcc` | Pre-registration khởi tạo |
+| **v1.1** | *(commit này)* | Mẫu số universe thực tế ~740 (giao điểm Giá + Organ) · bỏ tiêu chí sàn cứng, xấp xỉ bằng `ADV20 ≥ 500k` (§2.3) · chốt mục 15 |
+
+🔒 **CAM KẾT BẤT BIẾN: TUYỆT ĐỐI KHÔNG CÓ BẢN v1.2.**
+
+Mọi điều chỉnh ngưỡng hoặc biến thể thuật toán sau thời điểm này **bắt buộc phải là một file spec mới**
+(`SPEC_TREND_ENGINE_VARIANT_B.md`) và chạy kiểm định độc lập. Sửa spec này thêm lần nữa sẽ làm
+pre-registration mất ý nghĩa — guard `test_preregistration_hash.py` (invariant #11) sẽ chặn về mặt kỹ thuật.
+
 ---
 
 ## 14. SIGN-OFF
@@ -249,7 +284,9 @@ Kiểm tra tính khả thi 3 input của spec trên DB thật (2026-10-09). **2 
 - **(b) Proxy gián tiếp** — ví dụ dùng sự hiện diện trong VN30/VNINDEX constituents. *(không đầy đủ, chỉ phủ được blue-chip)*
 - **(c) Nạp dữ liệu sàn** từ nguồn ngoài. *(chính xác nhất, nhưng là hạng mục dữ liệu riêng, cần chủ hệ thống duyệt)*
 
-**Đề xuất của reviewer: (a)** — với ghi chú rằng đây là **xấp xỉ có chủ đích**, và nếu kết quả nằm sát ngưỡng pass thì phải xem lại vì tiêu chí (a) làm universe rộng hơn (b)/(c).
+**✅ ĐÃ CHỐT (2026-10-09): chọn (a)** — bỏ tiêu chí sàn, xấp xỉ bằng `ADV20 ≥ 500k` (§2.3).
+Đây là **xấp xỉ có chủ đích**: nếu kết quả backtest nằm sát ngưỡng pass, phải nêu rõ trong báo cáo rằng
+universe của (a) rộng hơn so với (b)/(c); **không được sửa spec để bù**.
 
 ### 15.3 ĐÃ KIỂM, DÙNG ĐƯỢC ✅
 | Input | Nguồn | Ghi chú |
@@ -260,4 +297,6 @@ Kiểm tra tính khả thi 3 input của spec trên DB thật (2026-10-09). **2 
 | Breakout `Close > max(High[1:20])` | `daily_ohlcv` OHLC | có |
 | ADV20 | `daily_ohlcv` volume | có (lưu ý 2020 volume 50% = 0, **ngoài cửa sổ** nên không ảnh hưởng) |
 
-**Trạng thái mục 15:** ⏳ **CHỜ CHỐT** (15.1 ghi nhận · 15.2 chọn (a)/(b)/(c)). Sau khi chốt, spec phải được commit lại + **hash mới**, vẫn trước khi chạy backtest.
+**Trạng thái mục 15:** ✅ **ĐÃ CHỐT cả 15.1 và 15.2** (2026-10-09) tại bản **v1.1** — xem §13.4.
+Spec đã commit lại + **hash mới** trong sidecar, **vẫn TRƯỚC khi chạy backtest** nên pre-registration còn nguyên giá trị.
+Kể từ đây spec **KHÓA CỨNG**: không có v1.2, mọi biến thể là file spec riêng.
