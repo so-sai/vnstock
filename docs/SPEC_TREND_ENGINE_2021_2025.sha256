@@ -1,0 +1,19 @@
+# Pre-registration anchor cho SPEC_TREND_ENGINE_2021_2025.md
+#
+# VÌ SAO TÁCH RỜI: nhúng hash vào chính spec sẽ làm nội dung đổi => hash tự vô hiệu.
+# Anchor nằm ở đây; file spec là BẤT BIẾN.
+#
+# ĐỊNH NGHĨA HASH: sha256 trên nội dung đã CHUẨN HOÁ LF (CRLF -> LF).
+#   Repo bật core.autocrlf=true nên checkout trên Windows đổi LF->CRLF trong
+#   working tree; băm thô sẽ lệch giữa các máy dù nội dung y hệt.
+#
+# ĐỊNH DẠNG: <sha256>  <đường dẫn>
+
+d9c47b2b79ba00d38eb5decf62f1508a76cb2f680a00bf4414afc088ed7215c5  docs/SPEC_TREND_ENGINE_2021_2025.md
+
+# git_commit: 6279fcccefbea3b7f87d9646ad1875a2b56bf694
+# committed_at: 2026-10-09T10:40:25+07:00
+# guard: backend/tests/test_preregistration_hash.py (invariant #11)
+# note: hash áp dụng cho bản spec CHƯA chốt mục 15. Khi chốt mục 15 (chọn phương
+#       án cho tiêu chí sàn) => commit lại spec + cập nhật hash MỚI, vẫn TRƯỚC
+#       khi chạy backtest. Test sẽ đỏ cho tới khi hash được cập nhật.
