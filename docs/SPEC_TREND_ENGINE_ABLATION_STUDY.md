@@ -1,8 +1,8 @@
 # SPEC — ABLATION STUDY cho TREND ENGINE (chẩn đoán, KHÔNG phải chiến lược mới)
 
-**Version:** v1.0
+**Version:** v1.1
 **Trạng thái:** pre-registered · **DIAGNOSTIC ONLY** · **cấm dùng để promote**
-**Ngày khóa:** 2026-10-09
+**Ngày khóa:** 2026-10-09 (v1.0) · 2026-10-10 (v1.1 — bổ sung Arm V5)
 **Chủ hệ thống:** chốt hướng (A) — Ablation Study, sau khi baseline FAIL.
 **Anchor:** `docs/SPEC_TREND_ENGINE_2021_2025.sha256` (cùng sidecar, cùng guard)
 
@@ -61,9 +61,31 @@ Hai công tắc: `organ_on` × `regime_on`. Momentum **luôn bật** ở cả 4 
 | **V2** | ✗ | ✓ | Momentum + Regime | tác nhân của regime |
 | **V3** | ✓ | ✗ | Momentum + Organ | tác nhân của organ |
 | **V4** | ✓ | ✓ | **Toàn phần = baseline** | **Ô kiểm chứng harness** (§6 R1) |
+| **V5** | ✓* | ✓ | **Distressed-only** | Tách "chặn phá sản" khỏi "lọc chất lượng khắt khe" (§2b) |
 
 Vì sao factorial: tách được **tác nhân chính** của từng cổng **và** **tương tác** giữa chúng.
 So sánh từng biến thể với một baseline duy nhất chỉ cho biết "có khác", không cho biết "ai gây ra".
+
+---
+
+## §2b. V5 — bổ sung ở v1.1 (KHÔNG nằm trong factorial 2×2)
+
+**Câu hỏi riêng:** hai thứ đang bị gộp chung trong cổng organ của V4 là *(i)* chặn doanh nghiệp
+kiệt quệ (rủi ro phá sản/lừa đảo) và *(ii)* lọc chất lượng khắt khe (BS≥0,30 ∧ Eff≥0,60 ∧
+Moat≥0,50). Ablation v1.0 đã chứng minh **(ii) phá hoại** (tác nhân −0,5283). Nhưng chưa ai
+đo **(i) riêng nó**.
+
+**V5** = V2 (momentum + regime) **+ chỉ** điều kiện `Health ≠ DISTRESSED`. Bỏ hoàn toàn ba
+ngưỡng vi mô. Công tắc: `organ_mode="distressed_only"` (đi cùng `organ=True, regime=True`).
+
+**V5 KHÔNG lấy chỗ của V4** trong ô kiểm chứng harness: V4 vẫn là ô (organ=ON, regime=ON,
+`organ_mode="full"`) và vẫn phải trái khớp baseline tới 12 chữ số (§6 R1).
+
+**Quy tắc khai báo trước cho `archetype` THIẾU dữ liệu:** điều kiện chốt là
+`archetype != "DISTRESSED"` ⇒ `None` (không rõ) **được đi qua**. Đây là cách đọc ĐÚNG NGUYÊN VĂN
+của luật "Health ≠ DISTRESSED" mà chủ hệ thống đã viết. Rủi ro đã biết: nếu phần lớn ứng viên
+có `archetype = None` thì V5 suy biến thành V2. Vì vậy bắt buộc đếm và báo cáo
+`số ứng viên archetype=None` (§4) để người đọc thấy ngay V5 có thực sự khác V2 hay không.
 
 ---
 
@@ -99,7 +121,9 @@ Mỗi ô báo cáo **đủ** các số sau — không được chọn lọc cái
 **Nhóm "đói hay no" (chẩn đoán chính):**
 `candidates` (số ngày×mã qua được công tắc vào lệnh) · `days_with_candidates` ·
 `entries` · `positions` · `trades` · `time_in_market_pct` (tỉ lệ phiên có ≥1 vị thế) ·
-`avg_hold_sessions` · `emergency_exits` · `partial_exits`.
+`avg_hold_sessions` · `emergency_exits` · `partial_exits` ·
+**`candidates_archetype_none`** (số lượt vào lệnh có `archetype = None` — bắt buộc có ở v1.1 để
+biết V5 có thực sự khác V2 hay chỉ suy biến thành V2, xem §2b).
 
 **Nhóm hiệu suất:** `sharpe` · `calmar` · `maxdd_pct` · `win_rate_pct` · `profit_factor` ·
 `total_return_pct` (primary) và chênh lệch so với robustness.
@@ -145,6 +169,19 @@ Có test khẳng định 4 ô chỉ khác nhau bởi **đúng hai công tắc**.
 Nếu cả 4 ô đều dưới ngưỡng, báo cáo là "động cơ đà không sinh alpha ở VN 2021–2025", KHÔNG phải
 "cần tinh chỉnh thêm". Nếu một ô vượt ngưỡng, báo cáo kèm **R2** và **cấm** gọi đó là "thành công".
 
+**R7 — Luật phán quyết cho V5 (chốt TRƯỚC khi chạy, v1.1).**
+So V5 với V2 (cùng momentum + regime; khác duy nhất ở việc thay cổng organ khắt khe bằng
+`≠ DISTRESSED`). Ba kịch bản loại trừ nhau:
+
+| | Điều kiện | Kết luận định trước |
+|---|---|---|
+| **A** | V5 ≈ V2 (chênh Sharpe trong ±0,05) | Chặn DISTRESSED **không mất cơ hội** ⇒ giữ làm bảo hiểm phá sản miễn phí |
+| **B** | V5 < V2 rõ rệt (chênh ≤ −0,05) | Ngay cả chặn DISTRESSED cũng bóp nghẹt cơ hội hồi phục ⇒ **bỏ sạch organ** |
+| **C** | V5 > V2 và Sharpe ≥ 0,50 | Loại doanh nghiệp kiệt quệ **tạo alpha** ⇒ tiền đề cho spec kế tiếp |
+
+Ngưỡng ±0,05 chốt ở đây, TRƯỚC khi thấy số. Vẫn phải kèm **R2** (V5 < 30 lệnh ⇒ KHÔNG ĐỦ LỰC)
+và **R4** (cấm promote) như mọi ô khác.
+
 ---
 
 ## §7. Hiện thực
@@ -177,3 +214,4 @@ nên file này tự động được bảo vệ bởi pre-commit hook + prefligh
 | Phiên bản | Nội dung |
 |---|---|
 | v1.0 | Bản gốc. Chốt trước khi chạy bất kỳ ô nào. |
+| **v1.1** | Bổ sung **Arm V5** (`organ_mode="distressed_only"`) + §2b + luật phán quyết **R7** (A/B/C, ngưỡng ±0,05) + số đo bắt buộc `candidates_archetype_none`. **KHÔNG đổi** bất kỳ tham số nào của V1–V4 ⇒ R1 của v1.0 vẫn phải giữ nguyên. |

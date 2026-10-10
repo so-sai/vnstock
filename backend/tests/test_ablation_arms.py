@@ -31,7 +31,12 @@ for _p in (PROJECT_ROOT / "backend", PROJECT_ROOT / "backend" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from src.backtest.ablation_arms import ARMS, HARNESS_CONTROL_ARM, ArmSwitches  # noqa: E402
+from src.backtest.ablation_arms import (  # noqa: E402
+    ARMS,
+    FACTORIAL_ARMS,
+    HARNESS_CONTROL_ARM,
+    ArmSwitches,
+)
 
 HARNESS_FILES = (
     PROJECT_ROOT / "backend" / "src" / "backtest" / "ablation_arms.py",
@@ -68,13 +73,32 @@ def test_v4_la_hanh_vi_mac_dinh():
     assert ARMS[HARNESS_CONTROL_ARM].regime is True
 
 
-def test_bon_o_la_bon_to_hop_cong_tac_khac_nhau():
+def test_bon_o_factorial_la_bon_to_hop_cong_tac_khac_nhau():
     """§2: factorial 2×2 ⇒ đúng 4 tổ hợp, không ô nào trùng."""
-    combos = {(a.organ, a.regime) for a in ARMS.values()}
-    assert len(ARMS) == 4
+    combos = {(ARMS[a].organ, ARMS[a].regime) for a in FACTORIAL_ARMS}
+    assert len(FACTORIAL_ARMS) == 4
     assert combos == set(product((False, True), repeat=2))
     # V1 phải là ô "tắt hết" — đó là đối chứng nền của study
     assert ARMS["V1_pure_momentum"] == ArmSwitches(organ=False, regime=False)
+
+
+def test_v5_chi_khac_v4_o_che_do_organ():
+    """§2b: V5 là phần MỞ RỘNG — không được lấn chỗ V4 (ô kiểm chứng harness R1)."""
+    assert ARMS["V5_distressed_only"] == ArmSwitches(
+        organ=True, regime=True, organ_mode="distressed_only"
+    )
+    v4, v5 = ARMS["V4_full_baseline"], ARMS["V5_distressed_only"]
+    assert (v4.organ, v4.regime) == (v5.organ, v5.regime), "V5 phải giữ nguyên hai công tắc của V4"
+    assert v4.organ_mode == "full"
+    assert HARNESS_CONTROL_ARM == "V4_full_baseline", "V4 vẫn là ô kiểm R1, V5 không thay thế"
+
+
+def test_cau_hinh_tu_mau_thuan_bi_tu_choi():
+    """organ=False mà organ_mode != 'full' ⇒ vô nghĩa, phải ném lỗi."""
+    with pytest.raises(ValueError):
+        ArmSwitches(organ=False, regime=True, organ_mode="distressed_only")
+    with pytest.raises(ValueError):
+        ArmSwitches(organ_mode="khong_ton_tai")
 
 
 def test_khong_co_nguong_sao_chep_trong_harness():

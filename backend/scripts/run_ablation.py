@@ -69,6 +69,7 @@ def run_arm(name: str, scenario: str) -> dict:
         "partial_exits": stats["partial"],
         "emergency_exits": stats["emergency"],
         "candidates": stats["candidates"],
+        "candidates_archetype_none": stats.get("candidates_archetype_none", 0),
         "days_with_positions": stats["days_with_positions"],
         "time_in_market_pct": round(stats["days_with_positions"] / days * 100, 4),
         "avg_positions": round(stats["sum_positions"] / days, 4),
@@ -154,6 +155,37 @@ def main() -> int:
     else:
         print("\n[R3] BỎ QUA — harness chưa đạt R1, diễn giải số bây giờ là vô nghĩa.")
 
+    # ── §6 R7: luật phán quyết cho V5 (chốt trước khi chạy, spec v1.1) ──
+    r7 = None
+    if r1["ok"]:
+        prim_ = {r["arm"]: r for r in results if r["cost_scenario"] == "primary"}
+        v2 = float(prim_["V2_momentum_regime"]["sharpe"])
+        v5 = float(prim_["V5_distressed_only"]["sharpe"])
+        delta = v5 - v2
+        if delta < -0.05:
+            key, verdict = "B", "chặn DISTRESSED bóp nghẹt cơ hội ⇒ BỎ SẠCH organ"
+        elif delta > 0.05 and v5 >= 0.50:
+            key, verdict = "C", "loại doanh nghiệp kiệt quệ TẠO ALPHA ⇒ tiền đề cho spec kế tiếp"
+        elif abs(delta) <= 0.05:
+            key, verdict = "A", "chặn DISTRESSED không mất cơ hội ⇒ giữ làm bảo hiểm phá sản"
+        else:
+            key, verdict = "D", "hướng dương nhưng chưa đạt ngưỡng niêm phong 0,50 — NGOÀI A/B/C"
+        n_none = prim_["V5_distressed_only"]["candidates_archetype_none"]
+        r7 = {
+            "scenario": key,
+            "verdict": verdict,
+            "v2_sharpe": v2,
+            "v5_sharpe": v5,
+            "delta": delta,
+            "threshold": 0.05,
+            "v5_candidates_archetype_none": n_none,
+            "degenerate_to_v2": n_none > 0 and abs(delta) < 1e-12,
+        }
+        print(f"\n[R7] V5 vs V2: V2={v2:.4f} · V5={v5:.4f} · Δ={delta:+.4f} (ngưỡng ±0,05)")
+        print(f"     KỊCH BẢN {key}: {verdict}")
+        print(f"     ứng viên archetype=None ở V5: {n_none}"
+              + ("  ⚠ V5 suy biến thành V2" if r7["degenerate_to_v2"] else ""))
+
     summary = {
         "generated_at": datetime.now().astimezone().isoformat(),
         "spec": "docs/SPEC_TREND_ENGINE_ABLATION_STUDY.md",
@@ -161,6 +193,7 @@ def main() -> int:
         "baseline_window": [bt.WINDOW_START, bt.WINDOW_END],
         "r1_harness_integrity": r1,
         "attribution": attribution,
+        "r7_v5_decision": r7,
         "arms": results,
     }
     with (OUT_DIR / "ablation_summary.json").open("w", encoding="utf-8") as f:

@@ -41,11 +41,11 @@ for _p in (PROJECT_ROOT / "backend", PROJECT_ROOT / "backend" / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from src.backtest.ablation_arms import ArmSwitches
+from src.backtest.ablation_arms import ORGAN_MODE_DISTRESSED_ONLY, ArmSwitches
 from src.engine import trend_circuit_breaker as cb
 from src.engine import trend_engine as te
 from src.engine import trend_sizing as ts
-from src.engine.trend_organ_filter import OrganFilter, OrganVerdict
+from src.engine.trend_organ_filter import DISTRESSED, OrganFilter, OrganVerdict
 
 DB = PROJECT_ROOT / "backend" / "data" / "screener_cache.db"
 BENCHMARK = "VNINDEX"
@@ -249,6 +249,7 @@ def simulate(
         "days_with_positions": 0,
         "sum_positions": 0,
         "max_positions_held": 0,
+        "candidates_archetype_none": 0,
     }
 
     for i in range(ma.start_idx, end_i):
@@ -343,6 +344,19 @@ def simulate(
                     # sizing (§3). Không sửa `trend_engine`: chỉ trao một verdict luôn đạt —
                     # khác biệt nằm tường minh ở đây, không nằm trong module đã niêm phong.
                     ov = OrganVerdict(passed=True, reasons=[], organs=ov.organs, archetype=ov.archetype)
+                elif arm.organ_mode == ORGAN_MODE_DISTRESSED_ONLY:
+                    # V5 (§2b spec v1.1): CHỈ chặn DISTRESSED, bỏ ba ngưỡng BS/Eff/Moat.
+                    # `archetype is None` ĐI QUA — đúng nguyên văn luật "Health != DISTRESSED"
+                    # đã khai báo trước; số lượt None đếm riêng để biết V5 có thực sự khác V2
+                    # hay chỉ suy biến thành V2.
+                    is_distressed = ov.archetype == DISTRESSED
+                    ov = OrganVerdict(
+                        passed=not is_distressed,
+                        reasons=["Health = DISTRESSED"] if is_distressed else [],
+                        organs=ov.organs,
+                        archetype=ov.archetype,
+                        archetype_confidence=ov.archetype_confidence,
+                    )
                 feat = te.TrendFeatures(
                     symbol=sym,
                     date=T,
@@ -357,6 +371,8 @@ def simulate(
                 )
                 if te.entry_verdict(feat).passed:
                     cands.append((r, sym))
+                    if arm.organ_mode == ORGAN_MODE_DISTRESSED_ONLY and ov.archetype is None:
+                        stats["candidates_archetype_none"] += 1
             cands.sort(key=lambda x: -x[0])
             stats["candidates"] += len(cands)
             pending_entries.extend(s for _, s in cands[:room])
