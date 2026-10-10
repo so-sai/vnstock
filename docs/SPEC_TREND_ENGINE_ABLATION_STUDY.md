@@ -123,7 +123,10 @@ Mỗi ô báo cáo **đủ** các số sau — không được chọn lọc cái
 `entries` · `positions` · `trades` · `time_in_market_pct` (tỉ lệ phiên có ≥1 vị thế) ·
 `avg_hold_sessions` · `emergency_exits` · `partial_exits` ·
 **`candidates_archetype_none`** (số lượt vào lệnh có `archetype = None` — bắt buộc có ở v1.1 để
-biết V5 có thực sự khác V2 hay chỉ suy biến thành V2, xem §2b).
+biết V5 có thực sự khác V2 hay chỉ suy biến thành V2, xem §2b) ·
+**`candidates_distressed_rejected`** (số lượt bị cổng `≠ DISTRESSED` chặn — đo MỨC ĐỘ tác động
+của cổng, tức V5 thực sự cắt bỏ bao nhiêu; là cận trên vì mã bị chặn có thể cũng trượt các
+điều kiện khác).
 
 **Nhóm hiệu suất:** `sharpe` · `calmar` · `maxdd_pct` · `win_rate_pct` · `profit_factor` ·
 `total_return_pct` (primary) và chênh lệch so với robustness.
@@ -215,3 +218,4 @@ nên file này tự động được bảo vệ bởi pre-commit hook + prefligh
 |---|---|
 | v1.0 | Bản gốc. Chốt trước khi chạy bất kỳ ô nào. |
 | **v1.1** | Bổ sung **Arm V5** (`organ_mode="distressed_only"`) + §2b + luật phán quyết **R7** (A/B/C, ngưỡng ±0,05) + số đo bắt buộc `candidates_archetype_none`. **KHÔNG đổi** bất kỳ tham số nào của V1–V4 ⇒ R1 của v1.0 vẫn phải giữ nguyên. |
+| **v1.1.1** | Thêm **số đo BÁO CÁO** `candidates_distressed_rejected`. **Khai báo trung thực về thứ tự:** số đo này được thêm SAU lần chạy V5 đầu tiên (lần đó lấy đủ số nhưng crash khi tính R3 nên chưa ghi artifact). Nó **không** đổi ô, không đổi công tắc, không đổi ngưỡng, không đổi luật R1–R7 — chỉ bổ sung một phép ĐO CƠ CHẾ (cùng loại với `candidates_archetype_none` đã yêu cầu ở v1.1), để trả lời "cổng `≠ DISTRESSED` thực sự cắt bỏ bao nhiêu" thay vì suy đoán từ chênh lệch Sharpe. |

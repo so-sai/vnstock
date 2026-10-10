@@ -250,6 +250,7 @@ def simulate(
         "sum_positions": 0,
         "max_positions_held": 0,
         "candidates_archetype_none": 0,
+        "candidates_distressed_rejected": 0,
     }
 
     for i in range(ma.start_idx, end_i):
@@ -350,6 +351,8 @@ def simulate(
                     # đã khai báo trước; số lượt None đếm riêng để biết V5 có thực sự khác V2
                     # hay chỉ suy biến thành V2.
                     is_distressed = ov.archetype == DISTRESSED
+                    if is_distressed:
+                        stats["candidates_distressed_rejected"] += 1
                     ov = OrganVerdict(
                         passed=not is_distressed,
                         reasons=["Health = DISTRESSED"] if is_distressed else [],

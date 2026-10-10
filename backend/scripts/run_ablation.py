@@ -29,7 +29,7 @@ for _p in (PROJECT_ROOT / "backend", PROJECT_ROOT / "backend" / "src"):
 
 from src.backtest import backtest_trend_2021_2025 as bt  # noqa: E402
 from src.backtest import trend_loop as tl  # noqa: E402
-from src.backtest.ablation_arms import ARMS, HARNESS_CONTROL_ARM  # noqa: E402
+from src.backtest.ablation_arms import ARMS, FACTORIAL_ARMS, HARNESS_CONTROL_ARM  # noqa: E402
 from src.backtest.preregistration import (  # noqa: E402
     sha256_lf_normalized,
     verify_preregistration_lock,
@@ -70,6 +70,7 @@ def run_arm(name: str, scenario: str) -> dict:
         "emergency_exits": stats["emergency"],
         "candidates": stats["candidates"],
         "candidates_archetype_none": stats.get("candidates_archetype_none", 0),
+        "candidates_distressed_rejected": stats.get("candidates_distressed_rejected", 0),
         "days_with_positions": stats["days_with_positions"],
         "time_in_market_pct": round(stats["days_with_positions"] / days * 100, 4),
         "avg_positions": round(stats["sum_positions"] / days, 4),
@@ -141,7 +142,7 @@ def main() -> int:
     attribution = None
     if r1["ok"]:
         prim = {r["arm"]: r["sharpe"] for r in results if r["cost_scenario"] == "primary"}
-        v1, v2, v3, v4 = (prim[k] for k in ARMS)
+        v1, v2, v3, v4 = (prim[k] for k in FACTORIAL_ARMS)
         attribution = {
             "organ_main_effect": (v3 + v4) / 2 - (v1 + v2) / 2,
             "regime_main_effect": (v2 + v4) / 2 - (v1 + v3) / 2,
