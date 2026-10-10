@@ -39,6 +39,30 @@ logger = logging.getLogger(__name__)
 BAND_BY_EXCHANGE = {"HOSE": 0.07, "HNX": 0.10, "UPCOM": 0.15}
 BAND_DEFAULT = 0.15
 NEW_LISTING_EXEMPT_DAYS = 28
+
+#: Sàn cho mã KHÔNG có dòng trong `ipo_calendar`. Hiện trạng: thiếu dòng ⇒ rơi vào
+#: BAND_DEFAULT (15 %) — LỎNG HƠN dải thật của HOSE (7 %), tức guard yếu đi âm thầm ở
+#: đúng những mã phổ biến nhất. Khai báo ở đây CHỈ khi đã kiểm chứng bằng dữ liệu
+#: (biên độ quan sát được của mã không vượt dải của sàn đó).
+KNOWN_EXCHANGE: dict[str, str] = {"HDB": "HOSE"}
+
+#: Sự kiện quyền (chia thưởng/cổ tức) — danh sách CÓ HỒ SƠ, mỗi mục phải nêu cách đo.
+#:
+#: VÌ SAO KHÔNG dùng cơ chế miễn trừ của `NEW_LISTING` (trả `None` = bỏ qua guard):
+#: bỏ qua guard sẽ cho lọt MỌI giá trị, kể cả một giá sai 10×. Sự kiện quyền không phải
+#: "không có tham chiếu" — nó có tham chiếu, chỉ khác GỐC GIÁ. Nên cách đúng là quy
+#: tham chiếu về gốc giá sau sự kiện rồi so như thường: guard VẪN hoạt động.
+#:
+#: Cơ sở bằng chứng: giá THÔ trong store so với chuỗi ĐÃ ĐIỀU CHỈNH của nhà cung cấp
+#: cho tỉ lệ hằng số 1.2990–1.2996 trên 120 phiên chồng lấn (2026-01 → 2026-10).
+CORPORATE_ACTION_EXEMPTIONS: dict[tuple[str, str], dict[str, float | str]] = {
+    ("HDB", "2026-10-09"): {
+        "factor": 1.2993,
+        "reason": "chia thưởng ~30% (30% stock dividend), ex-date 2026-10-09",
+        "measured": "store_raw/provider_adjusted, 120 phiên chồng lấn 2026-01→2026-10",
+    },
+}
+
 CANARY_TC_LIMIT = 0.60  # F-c: hạ 90% → 60% (bắt bài flat-price / stale dump sớm hơn)
 CANARY_MIN_N = 50
 CANARY_INDEX_MOVED = 0.002
@@ -96,6 +120,12 @@ def _band_limit(symbol, target_date, conn):
         logger.warning("BAND_LOOKUP_FAIL symbol=%s: %s", symbol, e)
         return BAND_DEFAULT
     if not row:
+        # Không có dòng ipo_calendar ⇒ mặc định cũ là 15 %, tức LỎNG HƠN dải thật của
+        # HOSE (7 %) ngay ở những mã phổ biến nhất. Tra bảng đã kiểm chứng trước.
+        known = KNOWN_EXCHANGE.get(symbol)
+        if known:
+            logger.info("G2_BAND_BY_KNOWN_EXCHANGE symbol=%s exchange=%s", symbol, known)
+            return BAND_BY_EXCHANGE.get(known, BAND_DEFAULT)
         return BAND_DEFAULT
     exchange = (row[0] or "").upper()
     listing_date = row[1]
@@ -292,6 +322,21 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
             prev = prev_map.get(sym)
             ref = prev if (prev is not None and prev > 0) else median_map.get(sym)
             ref_kind = "prev_close" if (prev is not None and prev > 0) else "rolling_median"
+            # Sự kiện quyền: quy tham chiếu về gốc giá SAU sự kiện rồi so như thường.
+            # Không bỏ qua guard (xem CORPORATE_ACTION_EXEMPTIONS): bỏ qua sẽ cho lọt cả
+            # một giá sai 10×, còn quy gốc giá thì vẫn bắt được mọi bất thường thật.
+            ca = CORPORATE_ACTION_EXEMPTIONS.get((sym, str(target_date)[:10]))
+            if ca and ref and ref > 0:
+                factor = float(ca["factor"])
+                ref = ref / factor
+                ref_kind = f"prev_close/{factor:.4f}(corp_action)"
+                logger.info(
+                    "G2_CORPORATE_ACTION_ADJUSTED symbol=%s factor=%.4f ref=%.0f — %s",
+                    sym,
+                    factor,
+                    ref,
+                    ca.get("reason", ""),
+                )
             if not ref or ref <= 0:
                 logger.error(
                     "G2_NO_REFERENCE symbol=%s target=%s — REJECT (không có giá tham chiếu)",
