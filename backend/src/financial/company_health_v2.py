@@ -138,13 +138,22 @@ class HealthLatentState:
 
 
 def _quarter_at(target_date: str) -> str:
-    """Convert YYYY-MM-DD → fiscal period key (YYYYQn) for point-in-time lookups."""
-    try:
-        y, m, _ = target_date.split("-")
-        q = (int(m) - 1) // 3 + 1
-        return f"{y}Q{q}"
-    except TypeError, ValueError, KeyError, IndexError:
-        return ""
+    """Quý DÙNG ĐƯỢC tại ngày đó (POINT-IN-TIME), khoá dạng 'YYYYQn'.
+
+    ĐÃ SỬA 2026-10-13 — XEM `docs/`: trước đây hàm trả về **quý CHỨA ngày đó**, nên một
+    phiên ngày 15/02 dùng báo cáo Q1/2021 (công bố ~tháng 4) = **NHÌN TRƯỚC ~2 tháng**. Lỗi
+    này làm nhiễm cả baseline niêm phong lẫn toàn bộ Ablation Study.
+
+    Nay uỷ nhiệm cho `get_pit_quarter`: chỉ trả về quý đã kết thúc đủ lâu để BCTC chắc chắn
+    đã công bố (Q1/Q2/Q3 ≥ 60 ngày, Q4 ≥ 120 ngày).
+
+    SỬA Ở ĐÂY LÀ SỬA CHO MỌI NƠI GỌI: 3 chỗ nội bộ trong file này (nạp ratios/facts) và
+    cache key trong `trend_organ_filter`, cùng mọi caller tương lai — vì tất cả đều đi qua
+    hàm này thay vì tự tính quý.
+    """
+    from src.engine.pit_quarter import get_pit_quarter
+
+    return get_pit_quarter(target_date)
 
 
 class CompanyHealthV2:
