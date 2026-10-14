@@ -50,9 +50,10 @@ def main() -> int:
         help="giây nghỉ giữa hai mã. 0 = không nghỉ (mặc định, giữ nguyên hành vi cũ). "
         "Nguồn vci/kbs rate-limit → vnstock RetryError → provider.history() nuốt exception trả None "
         "→ log chỉ ghi BACKFILL_FETCH_FAIL reason=UNKNOWN (không phân biệt được với 'mã không có dữ liệu'). "
-        "Đo thật 2026-10-13: throttle=2.0 ghi được 10/10 mã bluechip (VCB..HPG) + 2/2 PNJ,FPT cho phiên 12/10; "
-        "riêng dải mã A* (A32/ABC/ABR/ACM/ACS/AGE/AGF/AGM...) vẫn lỗi UNKNOWN với cùng throttle — "
-        "nguyên nhân thứ hai CHƯA tách được, đừng coi throttle là đủ.",
+        "Đo 2026-10-13: throttle=2.0 ghi được 10/10 mã bluechip (VCB..HPG) + 2/2 PNJ,FPT cho phiên 12/10 — "
+        "NHƯNG khi quét theo lô 100 mã thì throttle gần như KHÔNG cải thiện: lát 0 của 12/10 = 60/100 ghi được, "
+        "so với 58/100 của lát 0 ngày 13/10 khi throttle=0. Vậy có >= 2 cơ chế lỗi chồng nhau; throttle chỉ "
+        "giải quyết phần nhịp độ — đừng coi throttle là bản vá đủ.",
     )
     args = ap.parse_args()
 
