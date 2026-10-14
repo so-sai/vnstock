@@ -28,6 +28,12 @@ class VnstockProvider(FinancialProvider):
         self._finance_kwargs = finance_kwargs or {}
         self._quote_kwargs = quote_kwargs or {}
         self._module = None
+        # Chẩn đoán lỗi của lần gọi `history()` gần nhất. WHY: `history()` phải giữ
+        # hợp đồng "fail → None" cho mọi caller, nhưng nuốt exception ở đây từng làm
+        # log backfill chỉ ghi `reason=UNKNOWN`, không phân biệt được "nguồn không có
+        # dữ liệu / mã không hợp lệ" với "lỗi mạng/parser". Thuộc tính này là kênh
+        # phụ (không đổi giá trị trả về) để caller ghi được `FETCH_ERR:<ExceptionType>`.
+        self.last_history_error: str | None = None
 
     def _import(self):
         """Lazy import of vnstock (deferred until first use)."""
@@ -104,12 +110,19 @@ class VnstockProvider(FinancialProvider):
         end: str | None = None,
         **kwargs: Any,
     ) -> pd.DataFrame | None:
+        self.last_history_error = None
         try:
             q = self._quote(symbol)
             if start and end:
-                return q.history(start=start, end=end, **kwargs)
-            return q.history(**kwargs)
-        except Exception:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
+                df = q.history(start=start, end=end, **kwargs)
+            else:
+                df = q.history(**kwargs)
+            if df is None or len(df) == 0:
+                # Nguồn trả rỗng ≠ nguồn lỗi — tách mã để thống kê được về sau.
+                self.last_history_error = "EMPTY_DF"
+            return df
+        except Exception as e:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
+            self.last_history_error = f"FETCH_ERR:{type(e).__name__}"
             return None
 
     # ── Company info ───────────────────────────────────────────────────

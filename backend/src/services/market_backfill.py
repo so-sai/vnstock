@@ -266,13 +266,17 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
                     raw = provider.history(sym, start=target_date, end=target_date)
                 except Exception as e:  # noqa: BLE001 - retry: 1 mã lỗi không dừng backfill
                     last_reason = f"{type(e).__name__}: {e}"
-                if raw is not None and not raw.empty:
+                if raw is None:
+                    # Kênh chẩn đoán của provider (FETCH_ERR:<Type> / EMPTY_DF) — thay cho "UNKNOWN"
+                    # để sau khi quét xong còn thống kê được nguyên nhân, xem vnstock_provider.history().
+                    last_reason = getattr(provider, "last_history_error", None) or "UNKNOWN"
+                elif raw.empty:
+                    last_reason = "EMPTY"
+                else:
                     df = normalize_history_df(raw, sym, target_date)
                     if df is not None:
                         break
                     last_reason = "G1_DATE_MATCH_FAIL"
-                elif raw is not None:
-                    last_reason = "EMPTY"
                 if attempt < FETCH_MAX_ATTEMPTS - 1:
                     time.sleep(FETCH_BACKOFF_BASE * (2**attempt))
             if df is None:
