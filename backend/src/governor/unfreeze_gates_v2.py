@@ -506,9 +506,25 @@ def evaluate(db: Path, as_of: str | None = None) -> dict:
             con.close()
     data = load_market(db, as_of)
     shares = adv_share_series(data["breadth_rows"])
-    spreads = spread_series(
-        [(d, v) for d, v, _ in data["spread_rows"]],
-        [(d, u) for d, _, u in data["spread_rows"]],
+    # VGB10Y bị gắn cờ chuỗi SUY BIẾN (hằng số) → nhánh spread bị VÔ HIỆU, để gate coi như
+    # thiếu dữ liệu (fail-closed) thay vì tính trên một hằng số. Nhánh "bộ ba macro" không
+    # dùng VGB10Y nên vẫn được đánh giá bình thường.
+    # Import cục bộ: tương thích CẢ hai cách chạy —
+    #   `python -m governor.unfreeze_gates_v2` (backend/src trên sys.path)
+    #   `python backend/src/governor/unfreeze_gates_v2.py` (thêm backend/ vào sys.path)
+    try:
+        from src.database.series_quality import degenerate_info
+    except ModuleNotFoundError:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from src.database.series_quality import degenerate_info
+
+    spreads = (
+        []
+        if degenerate_info("VGB10Y") is not None
+        else spread_series(
+            [(d, v) for d, v, _ in data["spread_rows"]],
+            [(d, u) for d, _, u in data["spread_rows"]],
+        )
     )
     macro_raw = data.get("macro_latest") or {}
     macro = {k: (v[1] if v else None) for k, v in macro_raw.items()}

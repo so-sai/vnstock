@@ -215,9 +215,17 @@ class MacroGovernor:
         return min(score, 1.0), {"cum_10d_bn": round(cum_10d, 1), "cum_3d_bn": round(cum_3d, 1)}
 
     def _score_omo(self) -> tuple[float, dict]:
-        """Điểm rủi ro OMO [0, 1]."""
+        """Điểm rủi ro OMO [0, 1].
+
+        VGB10Y: hiện là chuỗi SUY BIẾN (56 bar / 1 giá trị 4.542) — xem src/data/series_quality.py.
+        Một hằng số không được phép đóng góp 40% trọng số điểm rủi ro thanh khoản, nên khi bị
+        gắn cờ thì thành phần yield bị loại và trọng số được chuẩn hoá lại về Interbank ON.
+        """
+        from src.database.series_quality import degenerate_info, is_degenerate
+
         df_on = self._fetch_macro_series("INTERBANK_ON")
         df_yield = self._fetch_macro_series("VGB10Y")
+        yield_excluded = is_degenerate("VGB10Y")
         score = 0.0
         details = {}
 
@@ -237,10 +245,11 @@ class MacroGovernor:
                     s_on = min(s_on + 0.10, 1.0)
             # WHY: Trọng số 0.6/0.4 cho Interbank ON vs VGB10Y vì lãi suất ngắn hạn phản ánh
             # áp lực thanh khoản tức thời, mạnh hơn lợi suất dài hạn vốn đã bao gồm kỳ vọng.
-            score += 0.6 * s_on
+            # Nếu VGB10Y bị gắn cờ suy biến thì phần 0.4 bị loại → chuẩn hoá lại về ON (1.0).
+            score += (1.0 if yield_excluded else 0.6) * s_on
             details["interbank_on"] = round(latest, 2)
 
-        if not df_yield.empty:
+        if not df_yield.empty and not yield_excluded:
             latest_y = float(df_yield["value"].iloc[-1])
             # WHY: VGB10Y trên 4.5% là tín hiệu chính phủ phải trả lãi cao (phát hành nhiều
             # hoặc lo ngại lạm phát); trên 5.5% được coi là bất thường so với mặt bằng lịch sử.
@@ -252,6 +261,9 @@ class MacroGovernor:
                 s_y = 0.0
             score += 0.4 * s_y
             details["vgb10y"] = round(latest_y, 2)
+        elif yield_excluded:
+            _vgb = degenerate_info("VGB10Y") or {}
+            details["vgb10y"] = f"EXCLUDED_{_vgb.get('code', 'DEGENERATE')}"
 
         return min(score, 1.0), details
 
