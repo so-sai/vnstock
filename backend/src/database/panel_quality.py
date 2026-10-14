@@ -58,7 +58,7 @@ def assert_panel_coverage(
 
 
 def assert_series_coverage(
-    series: Mapping[str, float],
+    series: Mapping[str, float] | Iterable[str],
     expected_sessions: Iterable[str],
     min_bar_ratio: float = DEFAULT_MIN_BAR_RATIO,
     label: str = "series",
@@ -66,9 +66,11 @@ def assert_series_coverage(
     """Cổng cho chuỗi ĐƠN (index/target): mọi phiên kỳ vọng phải có bar liền mạch.
 
     WHY tách riêng: chuỗi index với bar khuyết KHÔNG được phép coi return = 0 — nó không
-    phải "không đổi", nó là "không có dữ liệu". Đã xảy ra thật với VN30.
+    phải "không đổi", nó là "không có dữ liệu". Đã xảy ra thật với VN30 và VNINDEX (12/10).
+    Nhận cả Mapping (dùng .keys()) lẫn một Iterable ngày trực tiếp.
     """
-    return assert_panel_coverage(series.keys(), expected_sessions, min_bar_ratio, label)
+    present = series.keys() if isinstance(series, Mapping) else series
+    return assert_panel_coverage(present, expected_sessions, min_bar_ratio, label)
 
 
 def assert_market_breadth(
@@ -155,6 +157,62 @@ def balanced_panel_from_db(
     finally:
         con.close()
     return balanced_panel(presence, sessions, min_presence=min_presence)
+
+
+def assert_research_window(
+    date_from: str,
+    date_to: str,
+    index_symbol: str = "VNINDEX",
+    min_bar_ratio: float = DEFAULT_MIN_BAR_RATIO,
+    min_symbols_per_session: int | None = None,
+    db_path: str | Path | None = None,
+    label: str = "research-window",
+) -> float:
+    """Cổng dùng ở TẦNG CALLER cho mọi nghiên cứu/backtest đa mã trên một cửa sổ.
+
+    Kiểm 2 thứ mà store này thật sự hỏng (đo 2026-10):
+      (1) chuỗi index có bar cho MỌI phiên của cửa sổ — lỗi thật: VNINDEX thiếu bar 2026-10-12;
+      (2) (tuỳ chọn) mỗi phiên đủ số mã — nếu không thì mọi tỷ trọng cross-sectional là rác.
+    Trả coverage ratio. Raise PanelCoverageError khi trượt — KHÔNG có chế độ "cảnh báo rồi đi tiếp",
+    vì im lặng ở đây chính là cách một kết quả sai được sinh ra.
+
+    Gọi ở đầu `main()`/entry của script, KHÔNG gọi trong tầng thấp như `database/db_core.py`
+    (tránh phụ thuộc vòng).
+    """
+    import sqlite3
+
+    path = Path(db_path) if db_path else DB_PATH_FALLBACK
+    con = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+    try:
+        expected = [
+            str(r[0])
+            for r in con.execute(
+                "SELECT DISTINCT date FROM daily_ohlcv WHERE date BETWEEN ? AND ? ORDER BY date",
+                (date_from, date_to),
+            )
+        ]
+        have = [
+            str(r[0])
+            for r in con.execute(
+                "SELECT DISTINCT date FROM daily_ohlcv WHERE symbol = ? AND date BETWEEN ? AND ?",
+                (index_symbol, date_from, date_to),
+            )
+        ]
+        counts: dict[str, int] = {}
+        if min_symbols_per_session:
+            counts = {
+                str(r[0]): int(r[1])
+                for r in con.execute(
+                    "SELECT date, COUNT(*) FROM daily_ohlcv WHERE date BETWEEN ? AND ? GROUP BY date",
+                    (date_from, date_to),
+                )
+            }
+    finally:
+        con.close()
+    ratio = assert_series_coverage(have, expected, min_bar_ratio, f"{label}/{index_symbol}")
+    if min_symbols_per_session:
+        assert_market_breadth(counts, min_symbols=min_symbols_per_session, label=label)
+    return ratio
 
 
 def balanced_panel(
