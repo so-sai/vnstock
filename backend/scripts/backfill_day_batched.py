@@ -17,7 +17,13 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-for _p in (PROJECT_ROOT, PROJECT_ROOT / "backend", PROJECT_ROOT / "backend" / "src", PROJECT_ROOT / "backend" / "libs" / "vnstock"):
+_EXTRA_PATHS = (
+    PROJECT_ROOT,
+    PROJECT_ROOT / "backend",
+    PROJECT_ROOT / "backend" / "src",
+    PROJECT_ROOT / "backend" / "libs" / "vnstock",
+)
+for _p in _EXTRA_PATHS:
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
@@ -36,6 +42,17 @@ def main() -> int:
         "--symbols",
         default="",
         help="danh sách mã cụ thể (phẩy) — bỏ qua --start-idx/--count. Dùng cho 'nạp mục tiêu' watchlist.",
+    )
+    ap.add_argument(
+        "--throttle",
+        type=float,
+        default=0.0,
+        help="giây nghỉ giữa hai mã. 0 = không nghỉ (mặc định, giữ nguyên hành vi cũ). "
+        "Nguồn vci/kbs rate-limit → vnstock RetryError → provider.history() nuốt exception trả None "
+        "→ log chỉ ghi BACKFILL_FETCH_FAIL reason=UNKNOWN (không phân biệt được với 'mã không có dữ liệu'). "
+        "Đo thật 2026-10-13: throttle=2.0 ghi được 10/10 mã bluechip (VCB..HPG) + 2/2 PNJ,FPT cho phiên 12/10; "
+        "riêng dải mã A* (A32/ABC/ABR/ACM/ACS/AGE/AGF/AGM...) vẫn lỗi UNKNOWN với cùng throttle — "
+        "nguyên nhân thứ hai CHƯA tách được, đừng coi throttle là đủ.",
     )
     args = ap.parse_args()
 
@@ -73,8 +90,8 @@ def main() -> int:
         print(f"=== BACKFILL LÁT {args.start_idx}..{args.start_idx + len(chunk) - 1} / {total} mã — ngày {args.date} ===")
         print(f"    ({chunk[0]} .. {chunk[-1]})")
 
-    written, failed, skipped = backfill_market_history(chunk, str(args.date))
-    print(f"→ written={written} failed={failed} skipped={skipped} (lát này)")
+    written, failed, skipped = backfill_market_history(chunk, str(args.date), throttle_sec=args.throttle)
+    print(f"→ written={written} failed={failed} skipped={skipped} (lát này, throttle={args.throttle}s)")
     if not args.symbols:
         print(f"→ còn lại: start_idx={args.start_idx + args.count} (nếu < {total})")
     return 0
