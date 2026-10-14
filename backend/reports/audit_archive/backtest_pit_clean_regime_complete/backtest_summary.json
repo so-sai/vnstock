@@ -1,0 +1,82 @@
+{
+  "generated_at": "2026-10-14T16:35:11.177070+07:00",
+  "note": "Chạy CẢ HAI kịch bản chi phí; không chọn một. Kết luận theo luật đã chốt trước khi chạy.",
+  "primary": {
+    "generated_at": "2026-10-14T16:34:33.086033+07:00",
+    "spec": "docs/SPEC_TREND_ENGINE_2021_2025.md",
+    "spec_sha256": "7504d4f95b62d569d8d0b99fc7d55d535b8f430e1467b717a850bc9ed324c918",
+    "cost_scenario": "primary",
+    "cost_buy_pct": 0.25,
+    "cost_sell_pct": 0.25,
+    "cost_round_trip_pct": 0.5,
+    "window": [
+      "2021-01-04",
+      "2025-12-31"
+    ],
+    "sessions": 1245,
+    "effective_universe": 651,
+    "initial_nav": 100.0,
+    "final_nav": 97.97520110718872,
+    "total_return_pct": -2.024798892811275,
+    "sharpe": -0.2579647526122786,
+    "calmar": -0.08348232580582853,
+    "max_drawdown_pct": 4.949417773487429,
+    "win_rate_pct": 40.67796610169492,
+    "profit_factor": 0.9889659659245579,
+    "total_trades": 59,
+    "loop_stats": {
+      "days": 1245,
+      "entries": 38,
+      "exits": 28,
+      "full_exits": 28,
+      "partial": 21,
+      "emergency": 7,
+      "candidates": 38,
+      "days_with_positions": 461,
+      "sum_positions": 786,
+      "max_positions_held": 4,
+      "candidates_archetype_none": 0,
+      "candidates_distressed_rejected": 0
+    }
+  },
+  "robustness": {
+    "generated_at": "2026-10-14T16:35:11.172583+07:00",
+    "spec": "docs/SPEC_TREND_ENGINE_2021_2025.md",
+    "spec_sha256": "7504d4f95b62d569d8d0b99fc7d55d535b8f430e1467b717a850bc9ed324c918",
+    "cost_scenario": "robustness",
+    "cost_buy_pct": 0.25,
+    "cost_sell_pct": 0.35,
+    "cost_round_trip_pct": 0.6,
+    "window": [
+      "2021-01-04",
+      "2025-12-31"
+    ],
+    "sessions": 1245,
+    "effective_universe": 651,
+    "initial_nav": 100.0,
+    "final_nav": 97.80005657731357,
+    "total_return_pct": -2.1999434226864345,
+    "sharpe": -0.2805869891152444,
+    "calmar": -0.08943153273958698,
+    "max_drawdown_pct": 5.0233814513671495,
+    "win_rate_pct": 40.67796610169492,
+    "profit_factor": 0.9889659659245579,
+    "total_trades": 59,
+    "loop_stats": {
+      "days": 1245,
+      "entries": 38,
+      "exits": 28,
+      "full_exits": 28,
+      "partial": 21,
+      "emergency": 7,
+      "candidates": 38,
+      "days_with_positions": 461,
+      "sum_positions": 786,
+      "max_positions_held": 4,
+      "candidates_archetype_none": 0,
+      "candidates_distressed_rejected": 0
+    }
+  },
+  "delta_sharpe": 0.022622236502965798,
+  "verdict": "FAIL — không implement, giữ nguyên kiến trúc veto"
+}
