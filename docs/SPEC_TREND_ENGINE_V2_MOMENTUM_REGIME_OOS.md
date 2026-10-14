@@ -148,3 +148,4 @@ bởi chính guard đã có (`check_anchors()` duyệt mọi dòng của sidecar
 | Phiên bản | Nội dung |
 |---|---|
 | v1.0 | Bản gốc. Chốt trước khi chạy. Cửa sổ 2026 dùng một lần. |
+| **v1.0.1** | **KHAI BÁO CỬA SỔ ĐÃ BỊ CHẠM (theo §0 luật 3).** Lần chạy **thứ nhất** ra `C1 +1,0214 / C2 −0,7971` nhưng **VÔ HIỆU**: 53/190 phiên của cửa sổ (`2026-04-20 → 2026-09-23`) **thiếu dòng `regime_history`**, và `simulate` khi đó mặc định `RANGING` ⇒ **phanh CRISIS bị tắt im lặng** ở đúng vùng thị trường xấu ⇒ số bị thổi lên. Đã vá theo hướng **fail-closed** (thiếu regime ⇒ `raise`), nạp bù 53/53 phiên, rồi chạy lại. Lần chạy **thứ hai** (`C1 +0,8956 / C2 −0,6169`) có dữ liệu đầy đủ (guard không raise) ⇒ **là bản có hiệu lực, Nhánh 2**. Phán quyết không đổi qua hai lần chạy ⇒ kết luận bền với bản vá. Số của cả hai lần được ghi lại để đo quy mô sai lệch (0,13 Sharpe cho C1). |

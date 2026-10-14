@@ -202,15 +202,22 @@ def simulate(
     limit_days: int | None = None,
     verbose: bool = False,
     arm: ArmSwitches | None = None,
+    universe_factory=None,
 ) -> dict:
     """Chạy vòng lặp ngày. Trả về dict thống kê tối thiểu để kiểm chứng.
 
     `arm` = hai công tắc của Ablation Study (`docs/SPEC_TREND_ENGINE_ABLATION_STUDY.md`).
     Mặc định `None` ⇒ `ArmSwitches(organ=True, regime=True)` = **đúng hành vi đã niêm phong**,
     nên đường chạy baseline không đổi một bit.
+
+    `universe_factory(ma) -> object có .at(date) -> set[str]`: cho phép spec OOS 2026 dùng luật
+    universe **cửa sổ trượt** (≥200 phiên sạch trong 250 phiên gần nhất) thay cho luật đếm theo
+    năm dương lịch. `None` (mặc định) = giữ nguyên luật cũ ⇒ mọi đường chạy hiện có không đổi.
     """
     arm = arm or ArmSwitches()
     ma, universe, regime, bench = prepare(start, end, min_sessions)
+    if universe_factory is not None:
+        universe = universe_factory(ma)
     all_days = ma.days
     end_i = len(all_days) if limit_days is None else min(len(all_days), ma.start_idx + limit_days)
     rs = _rs_series(ma.close)
@@ -281,7 +288,18 @@ def simulate(
             pending_entries.remove(sym)
 
         # ── 2. Đánh giá tại CLOSE của T ──
-        regime_today = regime.get(T, "RANGING")
+        # FAIL-CLOSED: thiếu dòng regime ⇒ RAISE, tuyệt đối không mặc định RANGING.
+        # Lỗi thật 2026-10-14: 53/190 phiên của cửa sổ OOS 2026 (2026-04-20 → 2026-09-23)
+        # không có dòng regime. Mặc định RANGING đã TẮT PHANH CRISIS trong im lặng ở đúng
+        # vùng thị trường xấu ⇒ thổi phồng kết quả (C1 "+1,02" là số của một lần chạy
+        # KHÔNG có phanh). Một phanh vắng mặt không được đọc thành "đường thoáng".
+        if T not in regime:
+            raise RuntimeError(
+                f"THIẾU dòng regime tại {T} — dừng thay vì mặc định RANGING. "
+                "Mặc định RANGING sẽ tắt phanh CRISIS mà không báo gì (fail-open). "
+                "Nạp bù regime_history cho phiên này trước khi chạy lại."
+            )
+        regime_today = regime[T]
         vn3 = _vnindex_drop_3d(bench, all_days, i)
         # regime_on=False (V1, V3): TẮT veto CRISIS và trigger K3 toàn thị trường (§3).
         emergency = arm.regime and (regime_today == REGIME_CRISIS or vn3 <= -cb.VNINDEX_DROP_PCT)
