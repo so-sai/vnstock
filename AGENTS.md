@@ -9,3 +9,5 @@ Boot: `sentinel_check.py; kit recall`. CLI: `ptck.py`.
 - CAGR=calendar-year; PIT period-based only.
 - Entity BANK/SEC/INS/STD; params từ ICB.
 - Mã mới sau 16:00: cafef-crawl→backfill→analyze.
+- PANEL/`is_stale`: CẤM dùng `is_stale=0` làm bộ lọc panel lịch sử (median 619/1514 dòng/phiên bị gắn `is_stale=1` → rụng ~40% mẫu, `balanced_panel` suy biến còn 8 mã). Mọi truy vấn OHLCV hợp lệ đi qua `data_validity.VALID_ROW_SQL`; `is_stale` chỉ để kiểm toán độ tươi EOD trong ngày.
+- Coverage fail-fast: chuỗi Index/Target phải qua `panel_quality.assert_series_coverage` (VN30 thiếu 86/95 phiên = coverage 9,5%); phép toán toàn thị trường qua `assert_market_breadth` (median dòng HỢP LỆ chỉ ~865/phiên → KHÔNG dùng ngưỡng cứng 1000 mã, dùng `min_value_ratio`). Thiếu bar ⇒ DỪNG, cấm `fillna(0)`. Alpha/factor đa mã khởi tạo mẫu qua `balanced_panel(min_presence=0.98)`.
