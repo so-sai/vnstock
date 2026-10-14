@@ -19,6 +19,9 @@ Dùng:
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from pathlib import Path
+
+DB_PATH_FALLBACK = Path(__file__).resolve().parents[2] / "data" / "screener_cache.db"
 
 DEFAULT_MIN_BAR_RATIO = 0.95
 DEFAULT_MIN_BREADTH = 1000
@@ -74,10 +77,18 @@ def assert_market_breadth(
     label: str = "market-wide",
     min_value_ratio: float | None = None,
     value_by_date: Mapping[str, float] | None = None,
+    baseline: str = "rolling_median",
+    window: int = 20,
 ) -> None:
     """Cổng cho phép toán TOÀN THỊ TRƯỜNG: mỗi phiên phải đủ số mã (và/hoặc đủ tỷ lệ giá trị khớp).
 
-    min_value_ratio: nếu đặt, kiểm thêm tỷ lệ giá trị khớp so với phiên chuẩn (value_by_date).
+    `baseline` quyết định mẫu số của tỷ lệ giá trị:
+      - "rolling_median" (MẶC ĐỊNH, PIT-safe): so với median `window` phiên TRƯỚC đó. Đây là
+        cơ sở đúng để phát hiện LỖ HỔNG dữ liệu, vì nó bù cho biến động thanh khoản bình thường.
+      - "max": so với phiên đầy nhất — ĐÃ ĐO LÀ SAI: phạt mọi phiên thanh khoản thấp bình thường
+        (với min_value_ratio=0.85 thì chặn 72/74 phiên, 97%). Giữ lại chỉ để tương thích.
+    Đo 2026-06→10 với rolling median: ratio median 0,99 (p5 0,61). Ngưỡng 0,85 chặn 20/76 phiên
+    (26% — quá tay), 0,70 chặn 11/76, 0,50 chỉ chặn 1/76 (phiên 72 dòng thật sự hỏng).
     """
     bad = {d: n for d, n in count_by_date.items() if n < min_symbols}
     if bad:
@@ -86,16 +97,64 @@ def assert_market_breadth(
             f"[{label}] {len(bad)}/{len(count_by_date)} phiên có < {min_symbols} mã "
             f"(ví dụ {d0}={bad[d0]}). Phép toán toàn thị trường không hợp lệ trên các phiên này."
         )
-    if min_value_ratio is not None and value_by_date:
-        ref = max(value_by_date.values()) if value_by_date else 0.0
-        if ref > 0:
-            bad_v = {d: v / ref for d, v in value_by_date.items() if v / ref < min_value_ratio}
-            if bad_v:
-                d0 = sorted(bad_v)[0]
-                raise PanelCoverageError(
-                    f"[{label}] {len(bad_v)} phiên có tỷ lệ giá trị khớp < {min_value_ratio:.0%} "
-                    f"(ví dụ {d0}={bad_v[d0]:.1%}) so với phiên đầy nhất."
-                )
+    if min_value_ratio is None or not value_by_date:
+        return
+    dates = sorted(value_by_date)
+    for i, d in enumerate(dates):
+        if baseline == "max":
+            ref = max(value_by_date.values())
+        else:
+            prior = [value_by_date[x] for x in dates[max(0, i - window) : i]]
+            ref = float(sorted(prior)[len(prior) // 2]) if prior else 0.0
+        if ref > 0 and value_by_date[d] / ref < min_value_ratio:
+            raise PanelCoverageError(
+                f"[{label}] {d}: tỷ lệ giá trị khớp {value_by_date[d] / ref:.1%} < {min_value_ratio:.0%} "
+                f"(cơ sở {baseline}={ref:.2f} nghìn tỷ) — nghi thiếu bar, không phải ngày ít giao dịch."
+            )
+
+
+def balanced_panel_from_db(
+    db_path: str | Path | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_presence: float = 0.98,
+    validity_sql: str | None = None,
+    exclude: tuple[str, ...] = ("VNINDEX", "VN30", "HNXINDEX", "UPINDEX"),
+) -> list[str]:
+    """Bảng cân bằng lấy TRỰC TIẾP từ store — điểm neo cho mọi script alpha/factor đa mã.
+
+    `validity_sql` mặc định là vị từ hợp lệ chuẩn của hệ thống (data_validity.VALID_ROW_SQL),
+    KHÔNG phải `is_stale` — xem AGENTS.md: median 619/1514 dòng/phiên bị gắn is_stale=1 nên
+    lọc bằng is_stale làm rụng ~40% mẫu (đo thật: balanced panel từ 237 mã còn 8 mã).
+    """
+    import sqlite3
+
+    if validity_sql is None:
+        from src.database.data_validity import VALID_ROW_SQL
+
+        validity_sql = VALID_ROW_SQL
+    path = Path(db_path) if db_path else DB_PATH_FALLBACK
+    con = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+    try:
+        sql = f"SELECT symbol, date FROM daily_ohlcv WHERE {validity_sql}"
+        params: list[str] = []
+        if date_from:
+            sql += " AND date >= ?"
+            params.append(date_from)
+        if date_to:
+            sql += " AND date <= ?"
+            params.append(date_to)
+        if exclude:
+            sql += f" AND symbol NOT IN ({','.join('?' * len(exclude))})"
+            params.extend(exclude)
+        presence: dict[str, set[str]] = {}
+        sessions: set[str] = set()
+        for s, d in con.execute(sql, params):
+            presence.setdefault(str(s), set()).add(str(d))
+            sessions.add(str(d))
+    finally:
+        con.close()
+    return balanced_panel(presence, sessions, min_presence=min_presence)
 
 
 def balanced_panel(

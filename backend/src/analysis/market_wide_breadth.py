@@ -130,6 +130,34 @@ def run_series(bars: dict[str, list[tuple]]) -> list[dict]:
         med = sorted(win)[len(win) // 2] if win else r["total_active"]
         r["degraded"] = int(bool(win) and r["total_active"] < DEGRADED_RATIO * med)
         r["label"] = LABEL
+    # ── Cổng coverage (AGENTS.md) — hai mức, cố ý không đối xử như nhau ──
+    # (1) PHIÊN MỚI NHẤT = đường sống của pipeline: thiếu phủ ⇒ DỪNG (fail-fast).
+    # (2) Phiên cũ trong 60 phiên gần nhất: KHÔNG dừng cả chuỗi vì một phiên hỏng, nhưng
+    #     đánh dấu degraded=1 — tuyệt đối không fillna(0) để lấp chỗ trống.
+    # Ngưỡng hiệu chuẩn trên 2026-06..10: 750 mã (median dòng hợp lệ ~865; 1000 mã chặn 92/95 phiên);
+    # tỷ lệ giá trị so với MEDIAN TRƯỢT 20 phiên, ngưỡng 0,5 (so với phiên đầy nhất thì chặn 97%).
+    from src.database.panel_quality import PanelCoverageError, assert_market_breadth
+
+    counts = {r["date"]: r["total_active"] for r in out}
+    vals = {dt: sum((c or 0) * (v or 0) for c, v in by_date[dt].values()) / 1e12 for dt in dates}
+    newest = dates[-1]
+    assert_market_breadth({newest: counts[newest]}, min_symbols=750, label="market_wide_breadth/newest")
+    prior = sorted(vals[d] for d in dates[-21:-1])
+    ref = prior[len(prior) // 2] if prior else 0.0
+    if ref > 0 and vals[newest] / ref < 0.5:
+        raise PanelCoverageError(
+            f"[market_wide_breadth/newest] {newest}: giá trị khớp {vals[newest]:.2f} = "
+            f"{vals[newest] / ref:.0%} median 20 phiên trước ({ref:.2f}) — nghi thiếu bar."
+        )
+    stale_sessions = [d for d in dates[-60:] if counts[d] < 750]
+    for r in out:
+        if r["date"] in set(stale_sessions):
+            r["degraded"] = 1
+    if stale_sessions:
+        print(
+            f"[market_wide_breadth] {len(stale_sessions)} phiên không đủ phủ (<750 mã) "
+            f"-> degraded=1, KHÔNG lấp trống: {stale_sessions[:5]}"
+        )
     return out
 
 
