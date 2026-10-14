@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-10-09T15:38:58.764161+07:00",
+  "spec": "docs/SPEC_TREND_ENGINE_2021_2025.md",
+  "spec_sha256": "7504d4f95b62d569d8d0b99fc7d55d535b8f430e1467b717a850bc9ed324c918",
+  "cost_scenario": "primary",
+  "cost_buy_pct": 0.25,
+  "cost_sell_pct": 0.25,
+  "cost_round_trip_pct": 0.5,
+  "window": [
+    "2021-01-04",
+    "2025-12-31"
+  ],
+  "sessions": 1245,
+  "effective_universe": 651,
+  "initial_nav": 100.0,
+  "final_nav": 98.39803508737302,
+  "total_return_pct": -1.6019649126269853,
+  "sharpe": -0.25039807029638217,
+  "calmar": -0.1007918347482343,
+  "max_drawdown_pct": 3.237809489431867,
+  "win_rate_pct": 37.5,
+  "profit_factor": 0.8953987154515436,
+  "total_trades": 40
+}
