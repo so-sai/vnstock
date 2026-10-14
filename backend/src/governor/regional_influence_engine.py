@@ -162,6 +162,12 @@ class RegionalInfluenceEngine:
 
             # VNINDEX fallback: lives in daily_ohlcv, not macro_history
             if variable == "VNINDEX":
+                # Cổng ĐỘ TƯƠI (AGENTS.md): "chỉ số đứng im" là lỗi thật đã xảy ra (2026-10-05,
+                # VNINDEX không nhúc nhích 4 phiên, không exception, không log).
+                from src.database.panel_quality import assert_index_fresh
+
+                _d = conn.execute("SELECT MAX(date) FROM daily_ohlcv WHERE symbol='VNINDEX'").fetchone()
+                assert_index_fresh(_d[0] if _d else None, target_date or "9999-12-31", label="regional_influence/VNINDEX")
                 if target_date:
                     row = conn.execute(
                         "SELECT close FROM daily_ohlcv WHERE symbol = 'VNINDEX' AND date <= ? ORDER BY date DESC LIMIT 1",

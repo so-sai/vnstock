@@ -73,6 +73,12 @@ def simulate():
 
     conn = sqlite3.connect("data/screener_cache.db")
     df = pd.read_sql('SELECT date, high, low, close FROM daily_ohlcv WHERE symbol="VNINDEX" ORDER BY date', conn)
+    # Cổng coverage (AGENTS.md): MA200/ADX/ATR trên chuỗi thủng = chỉ báo sai âm thầm.
+    from src.database.panel_quality import assert_index_series
+
+    assert_index_series(
+        list(df["date"]), "2021-01-01", str(df["date"].iloc[-1]), label="sim_regime/VNINDEX", min_bar_ratio=0.90
+    )
 
     df["ma200"] = df["close"].rolling(200).mean()
     latest = df.iloc[-1]

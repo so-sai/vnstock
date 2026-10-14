@@ -159,6 +159,44 @@ def balanced_panel_from_db(
     return balanced_panel(presence, sessions, min_presence=min_presence)
 
 
+def expected_sessions(date_from: str, date_to: str, db_path: str | Path | None = None) -> list[str]:
+    """Lịch phiên của store trong [date_from, date_to] — MẪU SỐ CHUẨN cho mọi cổng coverage.
+
+    WHY: `daily_ohlcv` là nguồn duy nhất biết "hệ thống ĐÃ ĐỊNH nạp phiên nào". So chuỗi index
+    với lịch này phát hiện đúng loại lỗi thật đã xảy ra: phiên có bar cổ phiếu nhưng index
+    khuyết (2026-04→09: 41 phiên; 2026-05 chỉ 2/20).
+    """
+    import sqlite3
+
+    path = Path(db_path) if db_path else DB_PATH_FALLBACK
+    con = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+    try:
+        return [
+            str(r[0])
+            for r in con.execute(
+                "SELECT DISTINCT date FROM daily_ohlcv WHERE date BETWEEN ? AND ? ORDER BY date",
+                (date_from, date_to),
+            )
+        ]
+    finally:
+        con.close()
+
+
+def assert_index_series(
+    dates_present: Iterable[str],
+    date_from: str,
+    date_to: str,
+    label: str = "index-series",
+    min_bar_ratio: float = DEFAULT_MIN_BAR_RATIO,
+    db_path: str | Path | None = None,
+) -> float:
+    """Cổng cho chỗ ĐÃ nạp sẵn chuỗi index: so với lịch phiên của store trong cùng cửa sổ.
+
+    Dùng ngay sau câu SELECT trong governor/research — một dòng, không phải viết lại loader.
+    """
+    return assert_series_coverage(dates_present, expected_sessions(date_from, date_to, db_path), min_bar_ratio, label)
+
+
 def assert_research_window(
     date_from: str,
     date_to: str,
@@ -213,6 +251,31 @@ def assert_research_window(
     if min_symbols_per_session:
         assert_market_breadth(counts, min_symbols=min_symbols_per_session, label=label)
     return ratio
+
+
+def assert_index_fresh(
+    latest_index_date: str | None,
+    date_to: str,
+    symbol: str = "VNINDEX",
+    label: str = "index-fresh",
+    db_path: str | Path | None = None,
+) -> None:
+    """Cổng ĐỘ TƯƠI cho chỗ chỉ lấy 1 bar index (`ORDER BY date DESC LIMIT 1`).
+
+    Đo coverage trên một phần tử là vô nghĩa (luôn 1/1). Lỗi thật ở dạng này khác: chỉ số
+    ĐỨNG IM trong khi cổ phiếu vẫn chạy — đúng như ghi chú trong `load_index_today.py`
+    ("VNINDEX đứng ở 2026-10-05 suốt 4 phiên, không exception, không log"). Nên cổng so
+    ngày bar index với phiên mới nhất mà store đã nạp: lệch ⇒ RAISE.
+    """
+    sessions = expected_sessions("2000-01-01", date_to, db_path)
+    if not sessions:
+        return
+    newest = sessions[-1]
+    if latest_index_date != newest:
+        raise PanelCoverageError(
+            f"[{label}] {symbol} mới nhất = {latest_index_date} nhưng phiên mới nhất của store = "
+            f"{newest} — chỉ số đứng im (đã xảy ra thật 2026-10-05). Không dùng làm benchmark."
+        )
 
 
 def balanced_panel(

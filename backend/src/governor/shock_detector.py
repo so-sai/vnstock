@@ -159,6 +159,14 @@ class ShockDetector:
         closes = [(d, float(c)) for d, c in rows if c is not None]
         if len(closes) < MIN_SAMPLES + 1:
             return 0.0, "daily_ohlcv VNINDEX close (insufficient valid rows)"
+        # Cổng coverage + độ tươi (AGENTS.md): vol/spread/liquidity đều dựng trên chuỗi này;
+        # thiếu bar ⇒ baseline lệch; index đứng im ⇒ z-score vô nghĩa.
+        from src.database.panel_quality import assert_index_fresh, assert_index_series
+
+        assert_index_series(
+            [d for d, _ in closes], closes[0][0], closes[-1][0], label="shock_detector/VNINDEX", min_bar_ratio=0.90
+        )
+        assert_index_fresh(closes[-1][0], target_date, label="shock_detector/VNINDEX")
         returns = []
         for (d0, c0), (d1, c1) in zip(closes, closes[1:]):
             if c0 > 0:

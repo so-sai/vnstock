@@ -194,7 +194,14 @@ def report(path: str | Path = LEDGER_DB) -> list[dict]:
 
 
 def _load_prices(conn: sqlite3.Connection) -> pd.DataFrame:
-    return pd.read_sql_query("SELECT date, close, high, low FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date", conn)
+    df = pd.read_sql_query("SELECT date, close, high, low FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date", conn)
+    # Cổng coverage (AGENTS.md): H20 excursion/return tính trên chuỗi index thủng = sai âm thầm.
+    from src.database.panel_quality import assert_index_series
+
+    assert_index_series(
+        list(df["date"]), "2021-01-01", str(df["date"].iloc[-1]), label="capitulation/VNINDEX", min_bar_ratio=0.90
+    )
+    return df
 
 
 def update_from_source(source_db: str | Path = SCREENER_DB, path: str | Path = LEDGER_DB) -> dict:

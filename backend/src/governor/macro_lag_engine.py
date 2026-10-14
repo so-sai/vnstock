@@ -116,7 +116,16 @@ def _cached_vnindex(db_path: str, lookback: int, target_date: str | None) -> tup
                    ORDER BY date DESC LIMIT ?""",
                 (lookback,),
             ).fetchall()
-        return tuple((r[0], r[1]) for r in rows if r[1] is not None)
+        out = tuple((r[0], r[1]) for r in rows if r[1] is not None)
+        if out:
+            # Cổng coverage (AGENTS.md): chuỗi index thủng ⇒ mọi tính toán độ trễ đều lệch.
+            try:
+                from src.database.panel_quality import assert_index_series
+            except ModuleNotFoundError:  # module này chạy với root = backend/src (import core.*)
+                from database.panel_quality import assert_index_series
+
+            assert_index_series([d for d, _ in out], out[-1][0], out[0][0], label="macro_lag/VNINDEX", min_bar_ratio=0.90)
+        return out
     except sqlite3.Error as e:
         logger.warning("[LAG] Failed to fetch VNINDEX: %s", e)
         return ()

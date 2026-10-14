@@ -33,6 +33,12 @@ def audit_2022_q4():
         conn,
     )
 
+    # Cổng coverage (AGENTS.md) cho đúng cửa sổ audit 2022-Q4.
+    from src.database.panel_quality import assert_index_series
+
+    if not df.empty:
+        assert_index_series(list(df["date"]), "2022-10-01", "2022-12-31", label="audit_2022/VNINDEX", min_bar_ratio=0.80)
+
     if df.empty:
         print("❌ NO DATA FOUND for 2022-Q4.")
         return

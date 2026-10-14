@@ -200,6 +200,17 @@ class UncertaintyLayer:
                 "SELECT date, close FROM daily_ohlcv WHERE symbol = 'VNINDEX' ORDER BY date ASC"
             ).fetchall()
             vnindex_series = [(d, float(c)) for d, c in vnindex_rows if c is not None]
+            if vnindex_series:
+                # Cổng coverage (AGENTS.md) — chuỗi index thủng làm sai mọi z-score nền.
+                from src.database.panel_quality import assert_index_series
+
+                assert_index_series(
+                    [d for d, _ in vnindex_series],
+                    "2021-01-01",
+                    vnindex_series[-1][0],
+                    label="uncertainty_layer/VNINDEX",
+                    min_bar_ratio=0.90,
+                )
 
             regime_rows = conn.execute("SELECT date, atr_ratio, vol_score FROM regime_history ORDER BY date ASC").fetchall()
             regime_series = [(d, float(atr), float(vol or 0.0)) for d, atr, vol in regime_rows if atr is not None]
