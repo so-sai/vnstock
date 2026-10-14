@@ -27,3 +27,6 @@
 
 # ablation study — DIAGNOSTIC ONLY, cấm promote (§0). Khoá TRƯỚC khi chạy ô nào.
 937cab6249246c4e9780226f427ecab3143d8b29423c3ccd43ce961239be95ad  docs/SPEC_TREND_ENGINE_ABLATION_STUDY.md
+
+# spec V2 OOS — cua so 2026 dung MOT LAN (§0). Khoa TRUOC khi chay.
+16d4789f0059f4e388cc55cacd71b379690a864cf2416b96d66f20091968b7ba  docs/SPEC_TREND_ENGINE_V2_MOMENTUM_REGIME_OOS.md
