@@ -48,3 +48,6 @@ với các tiến trình live/cron khác. Rủi ro đã được chặn đứng 
 breadth), nên không còn đường nào *âm thầm* tiêu thụ dữ liệu kém phủ. Việc thêm cột
 `is_degraded` vào `regime_history` + ghi cờ tại writer được ghi vào **backlog tái cấu trúc
 schema dài hạn**, không thuộc chu kỳ nâng cấp hạ tầng này.
+
+→ Đã gom vào sổ nợ kỹ thuật duy nhất: `backend/src/research/tech_debt_backlog.md` (mục 1–4),
+cùng với ngưỡng Sentinel lỗi thời và pipeline BCTC Point-in-Time.
