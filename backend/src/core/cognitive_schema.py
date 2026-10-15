@@ -123,6 +123,7 @@ FLOW_STATE_VI: dict[str, str] = {
     "MỞ_RỘNG": "Mở rộng",
     "MO_RONG": "Mở rộng",
     "BROAD_EXPANSION": "Mở rộng diện rộng",
+    "VNINDEX_DATA_MISSING": "Thiếu dữ liệu VNINDEX",
     "NARROWING": "Thu hẹp",
     "CONCENTRATING": "Tập trung",
     "DISPERSING": "Phân tán",

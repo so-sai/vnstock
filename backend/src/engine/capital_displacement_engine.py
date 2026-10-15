@@ -520,28 +520,32 @@ def scan_liquidity_concentration(target_date=None, offline: bool = False):
     sector_share = {sec: round(vol / total_vol * 100, 1) for sec, vol in sorted(sector_vol.items(), key=lambda x: -x[1])}
 
     # 4. VNINDEX CONTEXT
+    # [WHY] "Không biết" PHẢI là None, không được là 0: số 0 là một GIÁ TRỊ ĐO ĐƯỢC, và nó
+    # lái thẳng nhánh quyết định ở Rule 7 (`vol_ratio 0 < 0,6` ⇒ LOW_VOLUME_REGIME + MEDIUM).
+    # [ROOT CAUSE] Bản cũ tự bịa {"close": 0, "chg": 0, "vol_ratio": 0} ở nhánh except và
+    # `else 0` cho chg/vol_ratio/ma20 khi lịch sử chưa đủ dài (bằng chứng: dòng 2026-06-30
+    # trong capital_displacement_history mang cả ba cột = 0.0).
+    # [INVARIANT] Trường không đo được ⇒ None xuyên suốt verdict → log → DB (SQL NULL).
+    vni_info: dict = {"close": None, "chg": None, "vol": None, "vol_ratio": None, "ma20": None}
     try:
         vni_q = VnstockProvider(source="vci")
         vni_df = vni_q.history("VNINDEX", start=(datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d"), end=today)
-        vni_info = {}
         if vni_df is not None and len(vni_df) > 0:
             last = vni_df.iloc[-1]
-            vni_info = {
-                "close": float(last["close"]),
-                "chg": round(
-                    (float(last["close"]) - float(vni_df.iloc[-2]["close"])) / float(vni_df.iloc[-2]["close"]) * 100, 2
-                )
-                if len(vni_df) > 1
-                else 0,
-                "vol": int(last["volume"]),
-                "vol_ratio": round(int(last["volume"]) / vni_df["volume"].tail(21).iloc[:-1].mean(), 2)
-                if len(vni_df) >= 21
-                else 0,
-                "ma20": round(vni_df["close"].tail(20).mean(), 2) if len(vni_df) >= 20 else 0,
-            }
+            vni_close = float(last["close"])
+            prev_close = float(vni_df.iloc[-2]["close"]) if len(vni_df) > 1 else None
+            vni_info["close"] = vni_close
+            vni_info["vol"] = int(last["volume"])
+            if prev_close:
+                vni_info["chg"] = round((vni_close - prev_close) / prev_close * 100, 2)
+            if len(vni_df) >= 21:
+                vol_baseline = float(vni_df["volume"].tail(21).iloc[:-1].mean())
+                if vol_baseline > 0:
+                    vni_info["vol_ratio"] = round(int(last["volume"]) / vol_baseline, 2)
+            if len(vni_df) >= 20:
+                vni_info["ma20"] = round(vni_df["close"].tail(20).mean(), 2)
     except (requests.RequestException, KeyError, TypeError, ValueError, IndexError, OSError) as e:
-        logger.warning("[CAPDISPL] VNINDEX context failed: %s", e)
-        vni_info = {"close": 0, "chg": 0, "vol_ratio": 0}
+        logger.warning("[CAPDISPL] VNINDEX context failed: %s — giữ nguyên None, KHÔNG bịa số 0", e)
 
     # 5. CLASSIFICATION RULES (market-wide, not watchlist)
     signals = []
@@ -610,6 +614,14 @@ def scan_liquidity_concentration(target_date=None, offline: bool = False):
     # Rule 6: Watchlist-specific displacement (informational, not classification)
     wl_concentration["top1"]["pct"]
 
+    # VNINDEX vol_ratio: None = KHÔNG ĐO ĐƯỢC (khác hẳn 0 = thanh khoản cạn kiệt).
+    # KHAI BÁO suy giảm thay vì im lặng rơi vào một default (bản cũ: default 1 ở nhánh LOW_VOLUME,
+    # default 0 ở nhánh BROAD_EXPANSION — cùng một trạng thái "không biết" mà hai kết cục khác nhau).
+    vni_vol_ratio = vni_info.get("vol_ratio")
+    if vni_vol_ratio is None:
+        signals.append("MISSING_VNI_VOL_RATIO")
+        logger.warning("[CAPDISPL] MISSING_VNI_VOL_RATIO: thiếu vol_ratio VNINDEX ⇒ KHÔNG suy ra chế độ thanh khoản.")
+
     # FINAL CLASSIFICATION
     # Market is "concentrated" only if top-10 > 60% AND top-1 > 12%
     if top10_pct > 60 and top1_pct > 12:
@@ -618,12 +630,17 @@ def scan_liquidity_concentration(target_date=None, offline: bool = False):
     elif bank_share > 35 and sector_breadth < 50:
         classification = "BANK_SHELTERING"
         conviction = "MEDIUM"
-    elif vni_info.get("vol_ratio", 1) < 0.6:
+    elif vni_vol_ratio is not None and vni_vol_ratio < 0.6:
         classification = "LOW_VOLUME_REGIME"
         conviction = "MEDIUM"
-    elif sector_breadth > 60 and vni_info.get("vol_ratio", 0) > 0.7:
+    elif sector_breadth > 60 and vni_vol_ratio is not None and vni_vol_ratio > 0.7:
         classification = "BROAD_EXPANSION"
         conviction = "HIGH"
+    elif vni_vol_ratio is None:
+        # [INVARIANT] Không đo được thanh khoản ⇒ KHÔNG được gán nhãn chế độ (MIXED_LIQUIDITY là
+        # một tuyên bố về thị trường). KHAI BÁO thiếu dữ liệu và hạ conviction xuống ZERO.
+        classification = "VNINDEX_DATA_MISSING"
+        conviction = "ZERO"
     else:
         classification = "MIXED_LIQUIDITY"
         conviction = "LOW"
@@ -680,12 +697,12 @@ def scan_liquidity_concentration(target_date=None, offline: bool = False):
     bottom_vi = ", ".join(SECTOR_LABELS.get(s, s) for s in bottom_sectors_ranked[:2])
     top_vi = ", ".join(SECTOR_LABELS.get(s, s) for s in top_sectors_ranked[:2])
     logger.info("Rotation from: [%s] -> Rotation to: [%s]", bottom_vi, top_vi)
-    logger.info(
-        "VNINDEX: %s (%s%%) | Vol ratio: %sx",
-        vni_info.get("close", 0),
-        f"{vni_info.get('chg', 0):+.2f}",
-        vni_info.get("vol_ratio", 0),
-    )
+    # Log VNINDEX: "N/A" khi không đo được — TUYỆT ĐỐI không in 0 như thể vừa đo được
+    # (bản cũ in "VNINDEX: 0 (0.00%) | Vol ratio: 0x" khi mất dữ liệu ⇒ người đọc tin đó là số thật).
+    vni_close_txt = f"{vni_info['close']:,.0f}" if vni_info.get("close") is not None else "N/A"
+    vni_chg_txt = f"{vni_info['chg']:+.2f}" if vni_info.get("chg") is not None else "N/A"
+    vni_vol_txt = f"{vni_info['vol_ratio']}x" if vni_info.get("vol_ratio") is not None else "N/A"
+    logger.info("VNINDEX: %s (%s%%) | Vol ratio: %s", vni_close_txt, vni_chg_txt, vni_vol_txt)
     logger.info("=" * 70)
 
     return verdict
@@ -710,9 +727,10 @@ def _store_reference_case(verdict):
         "bank_share": sf["bank_share"],
         "sector_breadth": sf["non_bank_breadth"],
         "defensive_avg_chg": 0,
-        "vnindex_close": vni.get("close", 0),
-        "vnindex_chg": vni.get("chg", 0),
-        "vnindex_vol_ratio": vni.get("vol_ratio", 0),
+        # None ⇒ SQL NULL (schema không có NOT NULL): không hạ cánh số 0 bịa ra xuống bảng.
+        "vnindex_close": vni.get("close"),
+        "vnindex_chg": vni.get("chg"),
+        "vnindex_vol_ratio": vni.get("vol_ratio"),
     }
     try:
         with get_connection() as conn:
