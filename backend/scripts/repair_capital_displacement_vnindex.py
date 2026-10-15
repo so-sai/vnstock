@@ -33,8 +33,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT / "backend") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
-from src.database.data_validity import VALID_ROW_SQL  # noqa: E402
-from src.database.db_core import get_connection  # noqa: E402
+from src.database.data_validity import VALID_ROW_SQL
+from src.database.db_core import get_connection
 
 BROKEN_PREDICATE = "(vnindex_close IS NULL OR vnindex_close = 0 OR vnindex_chg IS NULL OR vnindex_vol_ratio IS NULL)"
 # [Ca 3c] `defensive_avg_chg` chưa từng có nguồn tính: git chỉ có 2 lần chạm chuỗi này (2e9140d
@@ -110,7 +110,8 @@ def main() -> int:
             print("Không có dòng nào thiếu số đo VNINDEX (idempotent).")
         else:
             updates: list[tuple] = []
-            print(f"\n{'ngày':<12} {'close cũ':>10} {'chg cũ':>7} {'vol cũ':>7}   →  {'close':>10} {'chg':>7} {'vol':>7}  nguồn")
+            header = f"\n{'ngày':<12} {'close cũ':>10} {'chg cũ':>7} {'vol cũ':>7}   →"
+            print(header + f"  {'close':>10} {'chg':>7} {'vol':>7}  nguồn")
             for date, c_old, g_old, v_old in broken:
                 if date in measured:
                     close, chg, vol_ratio = measured[date]
