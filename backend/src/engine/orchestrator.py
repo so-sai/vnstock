@@ -629,6 +629,19 @@ def quyet_dinh_cuoi(target_date: str | None = None, lang_mode: str = "compact") 
                 ]
                 ket_qua["bi_chặn_bởi_bảo_vệ"] = False
                 ket_qua["lý_do_chặn"] = None
+
+            # [Ca 6] Fast-Exit Guard thiếu dữ liệu ⇒ KHAI BÁO, không im lặng.
+            # Thiếu dữ liệu KHÔNG phải là "không có phân phối": một lưới bảo vệ không đo được
+            # thì không được ghi vào hồ sơ như một xác nhận an toàn (AGENTS.md luật A).
+            if phan_phoi.get("du_lieu_thieu"):
+                logger.warning(
+                    "[ORCH] Fast-Exit Guard THIẾU DỮ LIỆU ở trụ: %s — KHÔNG xác nhận được 'không phân phối'",
+                    ", ".join(phan_phoi.get("tru_khong_ket_luan", [])),
+                )
+                if isinstance(ket_qua.get("ly_do"), list):
+                    ket_qua["ly_do"].append(
+                        "Fast-Exit Guard: thiếu dữ liệu trụ cột — không xác nhận an toàn (không phải tín hiệu xả)"
+                    )
         except (ImportError, TypeError, ValueError, KeyError, AttributeError) as e:
             logger.debug("[ORCH] Fast-exit guard failed: %s", e)
 
@@ -918,18 +931,22 @@ def in_bao_cao(kq: dict):
         chi_tiet_fg = fg.get("chi_tiet", {})
         print(f"  Fast-Exit:    {fg.get('muc_do', 'N/A')}")
         for ten_tru, st in chi_tiet_fg.items():
-            r = st.get("ratio", 0)
+            r = st.get("ratio")
+            r_txt = f"x{r}" if r is not None else "N/A"
             pa = st.get("price_direction", "?")
             if pa == "TANG":
                 icon_vol = "🟢"
                 pa_desc = "inflow"
+            elif pa == "KHONG_XAC_DINH":
+                icon_vol = "⚪"
+                pa_desc = "KHÔNG XÁC ĐỊNH (thiếu dữ liệu)"
             elif pa == "GIAM":
                 icon_vol = "🔴"
                 pa_desc = "xả"
             else:
                 icon_vol = "🟡"
                 pa_desc = "trung tính"
-            print(f"    {icon_vol} {ten_tru}: vol x{r} MA20 ({pa_desc})")
+            print(f"    {icon_vol} {ten_tru}: vol {r_txt} MA20 ({pa_desc})")
     # CLI continuous polling: check alert file every render
     try:
         from src.services.macro.interbank_seeder import _is_sbv_alert_active
