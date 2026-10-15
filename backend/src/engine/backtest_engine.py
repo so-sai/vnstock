@@ -379,8 +379,17 @@ class BacktestAlpha:
                     target_nav_ratio = 0.3
 
                 # Market Breadth Filter (L0.3)
-                current_breadth = market_breadth_df.get(yesterday, 0)
-                if current_breadth < 0.15:
+                # [WHY] Bản cũ `market_breadth_df.get(yesterday, 0)`: thiếu bản ghi ⇒ 0 % ⇒
+                # `0 < 0.15` ⇒ `target_nav_ratio = 0.0` ⇒ THANH LÝ TOÀN BỘ danh mục vì một
+                # thảm hoạ BỊA RA. Mất một dòng dữ liệu (lễ, cron lỗi) không phải là sập thị trường.
+                # [INVARIANT] Missing Data ≠ 0 % Breadth. Thiếu ⇒ BỎ QUA bộ lọc, không hạ exposure.
+                current_breadth = market_breadth_df.get(yesterday, None)
+                if current_breadth is None:
+                    logger.warning(
+                        "MISSING_BREADTH_RECORD %s: bỏ qua bộ lọc breadth (KHÔNG coi là 0%%)",
+                        yesterday,
+                    )
+                elif current_breadth < 0.15:
                     target_nav_ratio = 0.0
                 elif current_breadth < 0.35:
                     target_nav_ratio = 0.3
@@ -465,7 +474,9 @@ class BacktestAlpha:
             shadow_log.append(
                 {
                     "date": today.strftime("%Y-%m-%d"),
-                    "breadth_pct": float(current_breadth * 100),
+                    # Ca 2: khi breadth KHÔNG có (None) thì KHÔNG được ghi 0 % vào hồ sơ —
+                    # ghi 0 là tự tạo bằng chứng giả cho một thảm hoạ chưa từng xảy ra.
+                    "breadth_pct": float(current_breadth * 100) if current_breadth is not None else None,
                     "china_risk_active": bool(is_china_risk_active.get(today, False)),
                     "macro_safe_l1": bool(is_macro_safe_l1),
                     "target_nav_ratio": float(target_nav_ratio),
