@@ -726,12 +726,19 @@ def _store_reference_case(verdict):
         "top10_concentration": mw["top10_pct"],
         "bank_share": sf["bank_share"],
         "sector_breadth": sf["non_bank_breadth"],
-        "defensive_avg_chg": 0,
+        # [Ca 3c] Rổ phòng thủ KHÔNG có nguồn tính nào trong hệ thống ⇒ None (SQL NULL), KHÔNG 0.0%.
+        # 0.0% là một con số ĐO ĐƯỢC: nó tạo chênh lệch giả với các nhóm ngành khác và có thể
+        # kích hoạt tín hiệu dịch chuyển vốn sai lệch.
+        "defensive_avg_chg": None,
         # None ⇒ SQL NULL (schema không có NOT NULL): không hạ cánh số 0 bịa ra xuống bảng.
         "vnindex_close": vni.get("close"),
         "vnindex_chg": vni.get("chg"),
         "vnindex_vol_ratio": vni.get("vol_ratio"),
     }
+    if row["defensive_avg_chg"] is None:
+        logger.warning(
+            "[CAPDISPL] MISSING_DEFENSIVE_BASKET_DATA: rổ phòng thủ chưa có nguồn tính ⇒ ghi NULL (không ghi 0.0%)."
+        )
     try:
         with get_connection() as conn:
             cols = ", ".join(row.keys())

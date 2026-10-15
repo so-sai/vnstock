@@ -237,3 +237,42 @@ def test_store_reference_case_keeps_measured_values(monkeypatch):
         "SELECT vnindex_close, vnindex_chg, vnindex_vol_ratio FROM capital_displacement_history WHERE date='2026-07-15'"
     ).fetchone()
     assert row == (1000.0, 0.0, 0.9)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Ca 3c: `defensive_avg_chg` hard-code 0 ⇒ chênh lệch giả với các nhóm ngành khác
+# ─────────────────────────────────────────────────────────────────────────────
+def test_defensive_avg_chg_is_null_not_zero(monkeypatch):
+    """[WHY] `"defensive_avg_chg": 0` là một con số ĐO ĐƯỢC bị bịa ra: 0.0% ngụ ý "rổ phòng thủ
+    đi ngang", trong khi sự thật là KHÔNG có rổ phòng thủ nào được tính trong engine này.
+
+    [INVARIANT] Không có nguồn tính ⇒ SQL NULL. Bản ghi thiếu trường phải phân biệt được với
+    bản ghi có giá trị thật bằng 0.0 (nếu không thì không thể truy vết về sau).
+    """
+    verdict = _scan_missing_vnindex(monkeypatch, _RaisingProvider)
+    conn = _mem_conn()
+    _bind_mem_db(monkeypatch, conn)
+    verdict["date"] = "2026-06-30"
+    cde._store_reference_case(verdict)
+    row = conn.execute("SELECT defensive_avg_chg FROM capital_displacement_history WHERE date='2026-06-30'").fetchone()
+    assert row is not None, "Bản ghi không được ghi xuống (đường ghi DB đã vỡ)"
+    assert row[0] is None, f"FAIL: 0.0% bịa ra đã xuống DB: {row[0]!r}"
+
+
+def test_other_measured_columns_still_store_real_values(monkeypatch):
+    """[WHY] Chống vá quá tay: chỉ cột KHÔNG có nguồn mới thành NULL; các cột có số đo thật
+    (top1_concentration, bank_share, sector_breadth) phải giữ nguyên giá trị đo được.
+    """
+    verdict = _scan_missing_vnindex(monkeypatch, _RaisingProvider)
+    conn = _mem_conn()
+    _bind_mem_db(monkeypatch, conn)
+    verdict["date"] = "2026-07-02"
+    cde._store_reference_case(verdict)
+    row = conn.execute(
+        "SELECT top1_concentration, bank_share, sector_breadth, defensive_avg_chg"
+        " FROM capital_displacement_history WHERE date='2026-07-02'"
+    ).fetchone()
+    assert row[0] is not None and row[0] > 0, f"số đo thật bị NULL hoá: {row!r}"
+    assert row[1] is not None
+    assert row[2] is not None
+    assert row[3] is None
