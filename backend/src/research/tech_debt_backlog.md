@@ -86,6 +86,86 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   không được trộn vào chu kỳ dọn dẹp — cần lượt riêng có pre-registration.
 - **PHÁN QUYẾT:** ĐƯỢC CHẤP THUẬN vào backlog (2026-10-15). Chưa thực thi.
 
+## 5. Lớp lỗi fail-open `.get(khoá, giá_trị_lành)` trên dữ liệu thị trường
+
+- **WHAT:** phân loại và chuyển đổi mọi chỗ dùng default "lành" cho dữ liệu thị trường sang
+  `None` / raise fail-closed, kèm khai báo suy giảm (`*_MISSING`) ở tầng hiển thị.
+- **WHY (số đo 2026-10-15, `scan_timeseries_hazards.py --top 1000`):** **425 chỗ** (Mẫu hình 2).
+  Phân bố: `engine/` 105 · `services/` 96 · `core/` 82 · `portfolio/` 28 · `backtest/` 22 ·
+  `api/` 20 · `governor/` 16 · `telemetry/` 10 · `tools/` 7 · `alpha/` 6 · `financial/` 5 · còn lại 28.
+  Theo định nghĩa **"đường quyết định" = `engine/` + `services/` + `portfolio/` + `governor/` +
+  `alpha/`** ⇒ **251 chỗ**. (Con số 285 nêu trước đó dùng một định nghĩa rộng hơn, chưa cố định —
+  **phải chốt định nghĩa trước khi thi hành**, nếu không thì "DONE-WHEN" không đo được.)
+  Hiệu quả thật của lớp lỗi này đã kiểm chứng ở 4 ca: Ca 1 (`regime.get("RANGING")` ⇒ mở đường
+  breakout giữa CRISIS, lật OOS 2026 `+0,8956` → `−0,7839`), Ca 2 (`breadth` thiếu ⇒ 0% ⇒ tín
+  hiệu giả), Ca 3 (`vni_info` thiếu ⇒ `vol_ratio = 0` ⇒ nhãn `LOW_VOLUME_REGIME`), Ca 6 (`ratio = 0`
+  + `TRUNG_TINH` ⇒ lưới bảo vệ im lặng khi mất dữ liệu).
+- **WHERE:** theo module, ưu tiên nơi có tiền sử nhiễm và nơi ra quyết định/ra lệnh hạ tỷ trọng.
+- **DONE-WHEN:** mỗi chỗ trên đường quyết định được phân loại có ghi lý do (đo được · không đo
+  được ⇒ `None` · raise), mỗi module có test chống vá quá tay, và scanner chạy như **thước đo
+  trước/sau** (log-only, KHÔNG phải cổng cho tới khi số chỗ còn lại đạt ngưỡng chốt trước).
+- **RISK:** sửa hàng loạt dễ chặn oan nhánh hợp lệ ⇒ phải theo từng file, mỗi lát 1 commit, có
+  ca "dữ liệu HỢP LỆ đi qua nguyên vẹn"; nguy cơ thứ hai là làm số đẹp bằng cách đổi default từ
+  lành sang một default khác cũng không đo được (`None` giả) — cấm.
+- **PHÁN QUYẾT:** mở 2026-10-15, chờ GO theo lát.
+
+## 6. Truy vấn `daily_ohlcv` trần thiếu `VALID_ROW_SQL`
+
+- **WHAT:** bịt các đường đọc trực tiếp `daily_ohlcv` đi vòng qua lưới vị từ; chuyển sang hàm
+  DAO dùng chung (đọc "sạch") thay vì mỗi nơi tự viết `WHERE`.
+- **WHY (số đo 2026-10-15, cùng scanner):** **156 chỗ** (Mẫu hình 3) — trước bản vá Ca 6 là **158**;
+  hai chỗ của `fast_exit_guard.py` đã bịt ở commit `7545a2c` ⇒ hiệu quả đo được, không suy diễn.
+  Phân bố: `engine/` 60 · `backtest/` 15 · `database/` 14 · `core/` 11 · `services/` 10 ·
+  `governor/` 9 · `telemetry/` 7 · `portfolio/` 5 · `financial/` 5 · `research/` 4 · `calibration/` 4 ·
+  `scripts/` 3. Rủi ro định lượng: store có **41.998 dòng `is_stale = 1`**; trên 3 trụ cột, việc
+  nuốt dòng cách ly làm `AVG(close)` lệch **19–28%** và **LẬT HƯỚNG** giá (phiên 2026-06-15/16/18),
+  đủ để ra lệnh thoát vị thế oan (`fast_exit_guard`) hoặc chấm điểm sai.
+  File có mật độ cao đã xác minh: `engine/entity_resilience_layer.py` (134, 236, 265, 302),
+  `engine/flow_decay_engine.py` (234, 310, 409), `calibration/calibrator.py` (131, 148).
+- **WHERE:** toàn bộ Mẫu hình 3; lưu ý 14 chỗ trong `database/` (`data_validity`, quarantine)
+  nhiều khả năng là **cố ý** (chúng phải nhìn thấy dòng bẩn để cách ly) ⇒ phân loại trước, không
+  sửa máy móc.
+- **DONE-WHEN:** mỗi chỗ được gắn nhãn `PIT-live` (thêm `is_stale = 0 AND VALID_ROW_SQL`) hoặc
+  `panel` (chỉ `VALID_ROW_SQL`) hoặc `CỐ Ý` (có lý do ghi tại chỗ); scanner Mẫu hình 3 giảm và
+  không tăng lại; có test cho một file đường quyết định đại diện.
+- **RISK:** thêm `is_stale = 0` vào truy vấn **panel lịch sử** sẽ rụng ~40% mẫu (đúng lỗi đã
+  cấm trong AGENTS.md) ⇒ phải phân biệt chế độ đọc TRƯỚC khi sửa; sửa sai chế độ còn nguy hiểm
+  hơn không sửa.
+- **PHÁN QUYẾT:** mở 2026-10-15, chờ GO theo lát (mỗi lát 1 file/module + commit riêng).
+
+## 7. Đồng bộ hạ tầng công cụ: sàn Python · phạm vi hook · danh tính metadata
+
+- **WHAT:** (a) sàn Python khai báo phải khớp cú pháp thật; (b) hook pre-commit phải lint cả
+  `backend/scripts/`; (c) khối `[project]` trong `backend/pyproject.toml` phải mang danh tính
+  dự án thật, không phải bản sao upstream.
+- **WHY (số đo):**
+  (a) `requires-python` ghi `>=3.10` trong khi cây nguồn dùng **332 chỗ** cú pháp PEP 758
+  (`except A, B:` không ngoặc — hợp lệ từ 3.14). *Con số 93 nêu trước đó là grep thô; đã đính
+  chính bằng quét token (bỏ chuỗi + chú thích) trong `tests/test_python_floor_matches_syntax.py`.*
+  Hệ quả: `pip` cho cài trên 3.10–3.13 rồi `SyntaxError` ngay khi import — không test nào bắt
+  được vì mọi môi trường ở đây đều 3.14.
+  (b) Hook chỉ lint `backend/src` ⇒ **3 lỗi ruff** trong `scripts/repair_capital_displacement_vnindex.py`
+  lọt qua commit `aa1ff1d`, phải sửa ở commit riêng `b56b5a7` — cổng có lỗ hổng, không phải lỗi lẻ.
+  (c) Khối `[project]` vẫn là metadata upstream **vnstock v3.5.0** (`name`, `authors`, `license`,
+  deps) trong khi bản thật đang dùng là `backend/libs/vnstock` **v4.0.5** (gitignored) ⇒ sai danh
+  tính dự án và dễ gây hiểu nhầm khi ai đó đọc cấu hình.
+- **WHERE:** `backend/pyproject.toml`, `backend/scripts/pre_commit_hook.py`,
+  `backend/tests/test_python_floor_matches_syntax.py`, `backend/crates/ptck_core/pyproject.toml`.
+- **DONE-WHEN:**
+  - (a) **XONG** — commit `0db323f`: sàn `>=3.14` cho khai báo tracked + bỏ classifiers 3.10–3.13
+    + cổng `test_python_floor_matches_syntax.py` (5 test, có ca chống cổng rỗng và ca mô phỏng
+    điều kiện CI). Ghi chú: `backend/libs/vnstock/pyproject.toml` đã sửa trên máy nhưng **không
+    vào git** (gitignored) ⇒ tái vendor sẽ ghi đè.
+  - (b) `backend/scripts/` nằm trong phạm vi ruff check/format của hook, và **chứng minh hook
+    chặn thật** bằng một commit cố tình vi phạm bị từ chối.
+  - (c) khối `[project]` trùng được xoá hoặc đổi thành `name = "ptck"` (kèm quyết định:
+    `backend/libs/vnstock` có trở thành nguồn metadata duy nhất không).
+- **RISK:** (b) mở rộng phạm vi lint sẽ **ĐỎ hàng loạt file cũ ngay lần commit đầu** ⇒ phải đo
+  trước số file đang vướng; nếu lớn thì chia 2 bước (chặn file mới/đang sửa trước, dọn nợ cũ sau),
+  nếu không hook sẽ bị gỡ bỏ và mất luôn cổng. (c) đổi `name` có thể ảnh hưởng script cài đặt /
+  build ⇒ phải grep nơi đọc tên gói trước khi đổi.
+- **PHÁN QUYẾT:** mở 2026-10-15; **(a) đã thực thi** (`0db323f`); (b), (c) chờ GO.
+
 ---
 
 ## Ghi chú vận hành
@@ -94,3 +174,10 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   nhãn phán quyết, KHÔNG xóa (giữ lịch sử quyết định).
 - Ba hạng mục 1–3 là dọn dẹp nợ cũ trong một lượt; hạng mục 4 là **đường ống dữ liệu mới** nên
   phải tách lượt và phải có giả thuyết tiền đăng ký trước khi dùng cho bất kỳ cổng nào.
+- Ba hạng mục 5–7 là **nợ theo LỚP LỖI** (không theo từng ca), lộ ra sau chuỗi Ca 1–Ca 6: mục 5 và
+  6 phải thi hành theo lát (1 module = 1 commit, scanner làm thước đo trước-sau), mục 7 là hạ tầng
+  công cụ. Riêng 7(a) đã thực thi ở commit `0db323f`.
+- Số đo trong mục 5–7 là số ĐO ĐƯỢC tại 2026-10-15 bằng `scan_timeseries_hazards.py --top 1000`.
+  Khi thi hành phải đo LẠI và cập nhật số kèm ngày — không chép lại số cũ như thể còn đúng.
+- Mục 6 có bẫy chế độ đọc: `is_stale = 0` chỉ đúng cho đường PIT/live, CẤM cho panel lịch sử
+  (xem luật B trong `AGENTS.md`). Phân loại chế độ TRƯỚC khi sửa.
