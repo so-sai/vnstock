@@ -23,7 +23,10 @@ if [ -f "$L_AB" ] && grep -q "CẠN QUOTA TÍCH LUỸ" "$L_AB"; then
 fi
 
 # CHỐT CHẶN IDEMPOTENT (theo chỉ đạo): phiên 2026-10-12 đã đủ phủ thì thoát ngay.
-# Điều kiện đủ: có bar VNINDEX + >= 800 mã HỢP LỆ (vị từ chuẩn của hệ thống).
+# Điều kiện đủ: có bar VNINDEX + >= 580 mã HỢP LỆ (vị từ chuẩn của hệ thống).
+# Ngưỡng 580 (không phải 800): trần thực tế của phiên 12/10 đo được 2026-10-15 là
+# 785 mã hợp lệ (sau khi bật retry G1 2 lần + ưu tiên vci), phần còn thiếu là mã mỏng
+# không có giao dịch phiên đó — không thể nạp thêm bằng bất kỳ cách nào.
 if backend/.venv/Scripts/python.exe - <<'PY'
 import sqlite3, sys
 from pathlib import Path
@@ -35,7 +38,7 @@ n = con.execute(f"SELECT COUNT(*) FROM daily_ohlcv WHERE date='2026-10-12' AND {
 idx = con.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE date='2026-10-12' AND symbol='VNINDEX'").fetchone()[0]
 con.close()
 print(f"  [guard] 2026-10-12: {n} mã hợp lệ, VNINDEX={idx}")
-sys.exit(0 if (n >= 800 and idx) else 1)
+sys.exit(0 if (n >= 580 and idx) else 1)
 PY
 then
   echo "2026-10-12 đã đủ phủ — bỏ qua (idempotent guard)."

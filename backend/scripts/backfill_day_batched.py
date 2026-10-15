@@ -57,6 +57,7 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    from src.database.data_validity import VALID_ROW_SQL
     from src.database.db_core import get_connection
     from src.services.market_backfill import backfill_market_history
 
@@ -73,16 +74,25 @@ def main() -> int:
                 )
             ]
             if args.skip_done:
+                # Vị từ HỢP LỆ, không phải is_stale: is_stale=0 không bảo đảm dòng có giá trị
+                # (store có 4.428 dòng close=NULL mang is_stale=0 → bản cũ coi là "đã xong" và bỏ luôn).
                 done = {
                     str(r[0])
                     for r in conn.execute(
-                        "SELECT symbol FROM daily_ohlcv WHERE date = ? AND COALESCE(is_stale, 0) = 0",
+                        f"SELECT symbol FROM daily_ohlcv WHERE date = ? AND {VALID_ROW_SQL}",
                         (str(args.date),),
                     )
                 }
                 pending = [s for s in syms if s not in done]
-                print(f"    (--skip-done: bỏ {len(syms) - len(pending)} mã đã sạch, còn {len(pending)} mã cần làm)")
+                print(f"    (--skip-done: bỏ {len(syms) - len(pending)} mã đã có dòng HỢP LỆ, còn {len(pending)} mã cần làm)")
                 syms = pending
+        # Bỏ mã TREO/HỦY trước khi gọi API (đo 2026-10-15: 187 mã, ~190 request/lượt).
+        # PTCK_INCLUDE_DORMANT=1 để quét đầy đủ (lượt probe tuần — mã treo hồi sinh chỉ lộ ở đây).
+        from src.database.dormant_symbols import filter_sweep_symbols
+
+        syms, dead = filter_sweep_symbols(syms)
+        if dead:
+            print(f"    (dormant: bỏ {len(dead)} mã treo/hủy — không gọi API; PTCK_INCLUDE_DORMANT=1 để quét hết)")
         total = len(syms)
         chunk = syms[args.start_idx : args.start_idx + args.count]
         if not chunk:

@@ -285,9 +285,13 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
                     if df is not None:
                         break
                     last_reason = "G1_DATE_MATCH_FAIL"
-                    # Nguồn trả frame nhưng KHÔNG chứa ngày đích (mã không có bar phiên đó) —
-                    # retry không thể sinh ra bar, dừng luôn để tiết kiệm ~2s/mã.
-                    break
+                    # KHÔNG phải lỗi vĩnh viễn: probe 272 mã (2026-10-15) với retry bật cho
+                    # thấy lấy THÊM được +191 dòng cho 12/10 (594 → 785) ⇒ nguồn trả frame
+                    # ngắn/cũ ở lần gọi đầu dưới áp lực nhịp độ, gọi lại thì đúng.
+                    # Vì vậy GIỮ retry nhưng giới hạn số lần (PTCK_G1_ATTEMPTS, mặc định 2)
+                    # để không quay lại ~9s/mã của thời retry mù trên kbs.
+                    if attempts_used >= int(os.environ.get("PTCK_G1_ATTEMPTS", 2)):
+                        break
                 if attempt < FETCH_MAX_ATTEMPTS - 1:
                     time.sleep(FETCH_BACKOFF_BASE * (2**attempt))
             if df is None:
