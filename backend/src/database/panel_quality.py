@@ -26,6 +26,80 @@ DB_PATH_FALLBACK = Path(__file__).resolve().parents[2] / "data" / "screener_cach
 DEFAULT_MIN_BAR_RATIO = 0.95
 DEFAULT_MIN_BREADTH = 1000
 
+# ── Phiên KHÔNG giao dịch nhưng bị stamp vào store (phantom holiday session) ──
+# Đo 2026-10-15: `2026-09-01` có 1.515 dòng OHLCV + 1.515 dòng foreign TRÙNG KHÍT phiên
+# `2026-08-28` (1.514/1.515 mã trùng cả OHLCV; 1.515/1.515 trùng foreign; mã thứ 1.515 khác
+# chỉ do lệch thang nghìn-đồng) ⇒ cron chạy trong kỳ nghỉ Quốc khánh (31/08–02/09), đọc bảng
+# giá ĐÓNG BĂNG của 28/08 rồi đóng dấu ngày 01/09. Hai phiên cùng kỳ nghỉ (31/08, 02/09) có
+# 0 dòng ⇒ đúng một phiên bị lỗi. Bằng chứng độc lập: CẢ vci và kbs đều không có bar VNINDEX
+# cho 01/09 (nhảy 08-28 → 09-03), tức không hề có giao dịch.
+# Hệ quả nếu để nguyên: mọi chuỗi thời gian nhận thêm một phiên "không đổi" giả (KL thật,
+# lợi suất 0) ⇒ méo breadth/momentum; và cổng coverage báo thiếu bar index SAI.
+NON_TRADING_SESSIONS: dict[str, dict] = {
+    "2026-09-01": {
+        "code": "PHANTOM_HOLIDAY_SESSION",
+        "detail": "1.515 dòng OHLCV + 1.515 dòng foreign trùng khít 2026-08-28 — cron chạy trong "
+        "kỳ nghỉ Quốc khánh và đóng dấu bảng giá đóng băng; vci/kbs không có bar VNINDEX",
+        "confirmed_at": "2026-10-15",
+        "action": "loại khỏi expected_sessions(); dòng trong store phải được quarantine (chờ duyệt)",
+    }
+}
+
+
+def is_non_trading_session(date: str) -> bool:
+    """True nếu phiên đã được xác nhận là KHÔNG giao dịch (phantom) nhưng vẫn nằm trong store."""
+    return date in NON_TRADING_SESSIONS
+
+
+def detect_duplicate_sessions(
+    db_path: str | Path | None = None,
+    date_from: str = "2026-01-01",
+    min_overlap: float = 0.99,
+    min_symbols: int = 100,
+) -> list[dict]:
+    """Tìm phiên có dòng TRÙNG KHÍT phiên liền trước (nghi stamp ngày nghỉ).
+
+    Vì sao cần: lỗi 2026-09-01 không có exception, không log, không vi phạm vị từ hợp lệ
+    (`close>0`, `low<=close<=high`, `volume>=0` đều đúng) — chỉ phát hiện được bằng so KHỚP
+    giữa hai phiên. So khớp theo `close` + `volume` trên cùng mã.
+    """
+    import sqlite3
+
+    path = Path(db_path) if db_path else DB_PATH_FALLBACK
+    con = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+    out: list[dict] = []
+    try:
+        dates = [
+            str(r[0])
+            for r in con.execute(
+                "SELECT date FROM daily_ohlcv WHERE date >= ? GROUP BY date HAVING COUNT(*) >= ? ORDER BY date",
+                (date_from, min_symbols),
+            )
+        ]
+        for prev, cur in zip(dates, dates[1:]):
+            n_cur = con.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE date = ?", (cur,)).fetchone()[0]
+            if n_cur < min_symbols:
+                continue
+            same = con.execute(
+                "SELECT COUNT(*) FROM daily_ohlcv a JOIN daily_ohlcv b "
+                "ON b.symbol = a.symbol AND b.date = ? "
+                "WHERE a.date = ? AND a.close = b.close AND a.volume = b.volume",
+                (prev, cur),
+            ).fetchone()[0]
+            if same / n_cur >= min_overlap:
+                out.append(
+                    {
+                        "date": cur,
+                        "duplicate_of": prev,
+                        "same": int(same),
+                        "rows": int(n_cur),
+                        "overlap": round(same / n_cur, 4),
+                    }
+                )
+    finally:
+        con.close()
+    return out
+
 
 class PanelCoverageError(RuntimeError):
     """Panel không đủ phủ để tính toán — dừng chạy thay vì suy diễn."""
@@ -177,6 +251,7 @@ def expected_sessions(date_from: str, date_to: str, db_path: str | Path | None =
                 "SELECT DISTINCT date FROM daily_ohlcv WHERE date BETWEEN ? AND ? ORDER BY date",
                 (date_from, date_to),
             )
+            if str(r[0]) not in NON_TRADING_SESSIONS
         ]
     finally:
         con.close()
@@ -222,13 +297,8 @@ def assert_research_window(
     path = Path(db_path) if db_path else DB_PATH_FALLBACK
     con = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
     try:
-        expected = [
-            str(r[0])
-            for r in con.execute(
-                "SELECT DISTINCT date FROM daily_ohlcv WHERE date BETWEEN ? AND ? ORDER BY date",
-                (date_from, date_to),
-            )
-        ]
+        # Dùng CHUNG một định nghĩa lịch phiên (đã loại phiên phantom) — không tự viết lại.
+        expected = expected_sessions(date_from, date_to, path)
         have = [
             str(r[0])
             for r in con.execute(
