@@ -185,11 +185,25 @@ def _rs_series(close: pd.DataFrame) -> pd.DataFrame:
 
 
 def _vnindex_drop_3d(bench: dict[str, float], days: list[str], i: int) -> float:
-    if i < 3:
-        return 0.0
+    """Mức giảm của benchmark trong 3 phiên — FAIL-CLOSED khi thiếu bar.
+
+    Lỗi thật 2026-10-14: bản cũ trả `0.0` khi thiếu bar benchmark, tức biến "KHÔNG BIẾT"
+    thành "KHÔNG GIẢM" ⇒ trigger K3 (−5 %/3 phiên) **không thể kích hoạt** đúng ở vùng dữ
+    liệu khuyết. Vùng khuyết đó lại trùng với vùng `regime_history` khuyết ⇒ **phanh bị vô
+    hiệu KÉP** và mọi kết quả chạy trên đó bị lệch cùng một chiều (ít lần thoát khẩn cấp
+    hơn thực tế). Nay thiếu bar ⇒ raise, để buộc phải nạp đủ benchmark trước khi chạy.
+    """
     a, b = bench.get(days[i]), bench.get(days[i - 3])
-    if not a or not b:
+    if i < 3:
+        # Bắt buộc: nếu thiếu guard này, `days[i-3]` với i<3 là CHỈ SỐ ÂM → lấy 3 phiên CUỐI
+        # của cả chuỗi ⇒ tính "mức giảm 3 phiên" từ dữ liệu tương lai (rò rỉ look-ahead) hoặc
+        # crash khi khoá đó không tồn tại. 3 phiên đầu chưa đủ lịch sử ⇒ 0.0 là hợp lệ.
         return 0.0
+    if not a or not b:
+        raise RuntimeError(
+            f"THIẾU bar benchmark tại {days[i]} hoặc {days[i - 3]} — không thể đánh giá "
+            "trigger K3. Trả 0.0 ở đây là fail-open: biến 'không biết' thành 'không giảm'."
+        )
     return (a / b - 1.0) * 100.0
 
 
@@ -237,6 +251,19 @@ def simulate(
     high20 = ma.high.shift(1).rolling(BASE_WINDOW).max()
     ma20 = ma.close.shift(1).rolling(BASE_WINDOW).mean()
     organ = OrganFilter()
+
+    # DATA_READY — in độ phủ dữ liệu nền TRƯỚC khi vào vòng lặp.
+    # Mục đích: để NGƯỜI thấy trước khi MÁY nổ. Hai lần chạy OOS 2026 đã ra số sai vì
+    # cửa sổ thiếu bar benchmark / thiếu dòng regime mà không ai thấy trước. Guard
+    # fail-closed đã chặn được, nhưng phải chủ động nhìn chứ không chờ bị chặn.
+    _win = all_days[ma.start_idx : end_i]
+    _bench_missing = [d for d in _win if d not in bench]
+    _regime_missing = [d for d in _win if d not in regime]
+    print(
+        f"DATA_READY window={_win[0]}..{_win[-1]} sessions={len(_win)} "
+        f"bench_bars_missing={len(_bench_missing)} regime_rows_missing={len(_regime_missing)}",
+        flush=True,
+    )
 
     pending_entries: list[str] = []
     pending_exits: list[str] = []
