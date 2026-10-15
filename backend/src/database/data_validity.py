@@ -27,6 +27,23 @@ VALID_ROW_SQL = (
     "AND high IS NOT NULL AND close <= high "
     "AND volume IS NOT NULL AND volume >= 0)"
 )
+
+
+# ── Chỉ số ≠ cổ phiếu: mọi phép toán "toàn thị trường" phải loại chúng ra ──
+# WHY: volume của VNINDEX ngày 2026-08-28 = 643.935.725 cp — lớn hơn CẢ rổ cổ phiếu cộng lại,
+# nên một `SUM(volume)` quên lọc chỉ số sẽ sai gần gấp đôi (1.283.355.625 vs 639.419.900 đo thật).
+# Ngoài ra breadth đếm chỉ số như một "cổ phiếu" ⇒ thêm ~4 vào mẫu số và 4 phiên tăng/giảm giả mỗi ngày.
+INDEX_SYMBOLS: tuple[str, ...] = ("VNINDEX", "VN30", "HNXINDEX", "HNX30", "UPCOMINDEX", "UPINDEX")
+
+# Vị từ SQL cho "chỉ cổ phiếu" — dùng kèm tham số hoá tên bảng/bí danh khi cần.
+STOCK_ONLY_SQL = "symbol NOT IN (" + ", ".join(f"'{s}'" for s in INDEX_SYMBOLS) + ")"
+
+
+def is_stock(symbol: str) -> bool:
+    """False nếu `symbol` là chỉ số (không phải cổ phiếu)."""
+    return symbol.upper() not in INDEX_SYMBOLS
+
+
 INVALID_ROW_SQL = f"NOT {VALID_ROW_SQL}"
 
 # ── Nhãn cách ly theo loại vi phạm — phân biệt được nguyên nhân khi truy vết ──

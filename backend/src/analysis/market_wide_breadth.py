@@ -62,9 +62,18 @@ CREATE TABLE IF NOT EXISTS market_wide_breadth_daily (
 
 
 def load_bars(start: str, end: str) -> dict[str, list[tuple]]:
+    # Chỉ CỔ PHIẾU: loại rổ chỉ số. Volume VNINDEX (643.935.725 cp ngày 2026-08-28) lớn hơn cả
+    # rổ cổ phiếu ⇒ nếu để nguyên, breadth đếm chỉ số như một "cổ phiếu" và mọi tổng KL bị sai ~2×.
+    try:
+        from src.database.data_validity import STOCK_ONLY_SQL
+    except ModuleNotFoundError:  # chạy với root = backend/src
+        from database.data_validity import STOCK_ONLY_SQL
+
     con = sqlite3.connect(str(DB))
     rows = con.execute(
-        "SELECT symbol, date, close, volume FROM daily_ohlcv WHERE date>=? AND date<=? ORDER BY symbol, date", (start, end)
+        f"SELECT symbol, date, close, volume FROM daily_ohlcv "
+        f"WHERE date>=? AND date<=? AND {STOCK_ONLY_SQL} ORDER BY symbol, date",
+        (start, end),
     ).fetchall()
     con.close()
     out: dict[str, list[tuple]] = {}
