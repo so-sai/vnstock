@@ -50,13 +50,25 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 
 ## 4. Pipeline dữ liệu CƠ BẢN chuẩn Point-in-Time (BCTC) — *hạng mục mới*
 
-- **WHAT:** nạp báo cáo tài chính theo quý (balance sheet / income statement / cash flow / ratio)
-  kèm **ngày công bố**, để mọi luận điểm định giá (P/E, P/B, BVPS, EPS, ROE, NPL, LLR, NIM) có
-  provenance trong hệ thống thay vì lấy từ ảnh chụp app.
-- **WHY:** store có **43 bảng và KHÔNG có một bảng nào chứa BCTC/định giá** (kiểm bằng
-  `sqlite_master` + grep `fund/financ/ratio/valuation/balance/eps` ngày 2026-10-15). Hệ quả: phán
-  quyết "SHB P/B 0.7 ⇒ rất rẻ" **không kiểm chứng được** ⇒ không được dùng làm cơ sở vào lệnh.
-  Đưa số không provenance vào thuật toán = Look-ahead Bias + Data Snooping.
+> **CẬP NHẬT 2026-10-15 (audit):** kho cơ bản **ĐÃ TỒN TẠI** — `backend/data/financial_facts.db`
+> (209 MB, `financial_facts` 615.528 dòng / 791 mã / 55 kỳ, kèm `valuation_scores`, `health_ratios`,
+> `forensic_scores`, `ingestion_log`) + crawler `cafef_crawler.py`, `vietstock_crawler.py`,
+> writer `financial/valuation_engine.py:430`. **KHÔNG xây lại từ đầu.** Nguồn thô vci/kbs qua
+> `vnstock.api.financial.Finance` chỉ trả **4 kỳ** và **không có ngày công bố** ⇒ không dùng làm connector.
+> Chi tiết + số đo: `backend/src/research/financial_facts_audit.md`.
+> Việc thật sự còn lại là **A–E** ở §6 của note đó: (A) bulk-update `effective_date` +
+> `effective_date_basis` (100% dòng suy ra được, `STATUTORY_LAG` là cơ chế chính); (B) tính lại
+> `valuation_scores` theo PIT; (C) bổ sung chuỗi **số cổ phiếu lưu hành**; (D) bổ sung **metric ngân hàng**
+> (NPL/LLR/NIM/cho vay/tiền gửi — hiện KHÔNG có trong 47 metric, nên luận điểm chất lượng tài sản
+> không kiểm được); (E) winsorize/audit tầng ratio (PE<2: 40 dòng, PB max 79,66, EV/EBITDA max 3.386).
+
+- **WHAT:** ~~nạp báo cáo tài chính theo quý kèm ngày công bố~~ → **hoàn thiện provenance PIT cho kho đã có**
+  (A–E ở trên), rồi mới tính tới việc dùng nó làm bộ lọc.
+- **WHY:** (câu gốc 2026-10-15 — **đã tự sửa**): *"store có 43 bảng và không có bảng BCTC"* chỉ đúng với
+  `backend/data/screener_cache.db`. Kho cơ bản nằm ở `financial_facts.db` (xem audit ở trên), và nó
+  **đã kiểm chứng được luận điểm "SHB rẻ"**: P/B = 0,663 tại giá 10.400 (BVPS 15.677,66 kỳ 2026Q2).
+  Cái **KHÔNG kiểm được** là (a) khối chỉ tiêu ngân hàng (NPL/LLR/NIM/cho vay/tiền gửi — không có trong
+  47 metric), và (b) **thời điểm** số liệu trở nên công khai (`reported_at` rỗng 99,999% ⇒ chưa có PIT).
 - **NGUỒN KHẢ THI (đã xác minh có trong repo, chưa gọi):**
   `backend/libs/vnstock/vnstock/api/financial.py` → `Finance(source="vci"|"kbs", symbol=S,
   period="quarter"|"annual")` với `.balance_sheet()`, `.income_statement()`, `.cash_flow()`, `.ratio()`.
