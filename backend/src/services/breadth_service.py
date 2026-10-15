@@ -71,24 +71,47 @@ def get_breadth_analysis() -> dict:
 def get_breadth_history(limit: int = 60) -> list:
     """
     Lấy lịch sử breadth_pct từ regime_history để vẽ biểu đồ.
+
+    HỢP ĐỒNG 2 TẦNG (tầng HIỂN THỊ): giữ nguyên mọi dòng, KHÔNG lọc — nhưng mỗi bản ghi
+    mang cờ `is_degraded` (join sang `market_wide_breadth_daily`) để người đọc biết phiên
+    đó không đủ phủ. Lưu ý provenance: `regime_history.breadth_pct` KHÁC
+    `market_wide_breadth_daily.breadth_pct` (một là điểm của board theo phiên, một là
+    Δ(adv−dec)/total của rổ cổ phiếu) — xem backend/src/research/breadth_consumers_audit.md.
+    """
+    sql = """
+        SELECT r.date, r.breadth_pct, r.breadth_velocity, r.status,
+               EXISTS (SELECT 1 FROM market_wide_breadth_daily b
+                       WHERE b.date = r.date AND b.degraded = 1) AS is_degraded
+        FROM regime_history r
+        WHERE r.breadth_pct IS NOT NULL
+        ORDER BY r.date DESC
+        LIMIT {limit}
+    """
+    sql_plain = """
+        SELECT r.date, r.breadth_pct, r.breadth_velocity, r.status
+        FROM regime_history r
+        WHERE r.breadth_pct IS NOT NULL
+        ORDER BY r.date DESC
+        LIMIT {limit}
     """
     try:
-        with get_connection() as conn:
-            df = pd.read_sql(
-                f"""
-                SELECT date, breadth_pct, breadth_velocity, status
-                FROM regime_history
-                WHERE breadth_pct IS NOT NULL
-                ORDER BY date DESC
-                LIMIT {limit}
-            """,
-                conn,
-            )
+        try:
+            with get_connection() as conn:
+                df = pd.read_sql(sql.format(limit=int(limit)), conn)
+        except sqlite3.Error:
+            # DB cũ chưa có bảng market_wide_breadth_daily → vẫn trả dữ liệu, cờ = None
+            # (KHÔNG được giả vờ là "không suy giảm").
+            logger.warning("breadth_history: thiếu market_wide_breadth_daily — is_degraded=None")
+            with get_connection() as conn:
+                df = pd.read_sql(sql_plain.format(limit=int(limit)), conn)
+            df["is_degraded"] = None
 
         if df.empty:
             return []
 
         df["date"] = pd.to_datetime(df["date"], format="mixed").dt.strftime("%Y-%m-%d")
+        if "is_degraded" in df.columns:
+            df["is_degraded"] = df["is_degraded"].map(lambda v: None if v is None else bool(v))
         return df.to_dict(orient="records")
     except (sqlite3.Error, TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
         logger.error(f"Breadth history failed: {e}")

@@ -245,22 +245,37 @@ class ShockDetector:
         return self._zscore(current, stats), "daily_ohlcv VNINDEX volume trailing 60d"
 
     # ── Component: breadth (regime_history.breadth_velocity) ──────────────
-    def _breadth(self, conn, target_date: str) -> tuple[float, float]:
-        """(Z_breadth, trace) — current breadth_velocity vs trailing."""
+    def _breadth(self, conn, target_date: str) -> tuple[float, str]:
+        """(Z_breadth, trace) — current breadth_velocity vs trailing.
+
+        HỢP ĐỒNG 2 TẦNG (tầng TÍNH TOÁN TÍN HIỆU): LOẠI CỨNG phiên `degraded=1`.
+        `regime_history.breadth_velocity` được ghi từ board của chính phiên đó, nên một
+        phiên thiếu mã (vd 2026-10-12 lúc mới có 594/1.515 mã) sinh velocity giả và làm
+        lệch z-score của cả cửa sổ trailing. Bảng chưa tồn tại (DB cũ) → không loại gì
+        và ghi rõ trong trace, KHÔNG được ngầm coi là "không suy giảm".
+        """
+        degraded: set = set()
+        try:
+            degraded = {r[0] for r in conn.execute("SELECT date FROM market_wide_breadth_daily WHERE degraded = 1")}
+        except sqlite3.Error as e:  # DB cũ / bảng chưa có → nới lỏng nhưng phải khai báo
+            logger.debug("shock_detector._breadth: không đọc được bảng degraded (%s)", e)
         rows = self._query(
             conn,
             "SELECT date, breadth_velocity FROM regime_history WHERE date <= ? ORDER BY date DESC",
             (target_date,),
         )
+        if degraded:
+            rows = [r for r in rows if r[0] not in degraded]
+        suffix = f" [đã loại {len(degraded)} phiên degraded]" if degraded else " [chưa lọc được degraded]"
         if not rows:
-            return 0.0, "regime_history breadth_velocity (no data)"
+            return 0.0, "regime_history breadth_velocity (no data)" + suffix
         series = sorted(((d, float(v)) for d, v in rows if v is not None), key=lambda x: x[0])
         if not series:
-            return 0.0, "regime_history breadth_velocity (no valid rows)"
+            return 0.0, "regime_history breadth_velocity (no valid rows)" + suffix
         current = series[-1][1]
         baseline = [v for d, v in series[:-1]]
         stats = self._baseline_stats(baseline)
-        return self._zscore(current, stats), "regime_history breadth_velocity trailing 60d"
+        return self._zscore(current, stats), "regime_history breadth_velocity trailing 60d" + suffix
 
     # ── Orchestration ─────────────────────────────────────────────────────
     def _stress_fraction(self, z: float) -> float:

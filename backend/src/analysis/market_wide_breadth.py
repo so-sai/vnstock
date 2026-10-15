@@ -239,6 +239,42 @@ def selftest() -> dict:
     return {"ok": not mism, "cut": cut, "checked_days": len(part), "mismatches": mism[:5]}
 
 
+def load_series(include_degraded: bool = False, limit: int | None = None) -> list[dict]:
+    """Đọc chuỗi độ rộng từ bảng đã tính — HỢP ĐỒNG 2 TẦNG (bắt buộc).
+
+    Tầng TÍNH TOÁN TÍN HIỆU (`alpha/*`, `governor/*`, `backtest/*`):
+        `include_degraded=False` — MẶC ĐỊNH. Phiên `degraded=1` (thiếu mã) bị loại CỨNG,
+        vì một phiên phủ 594/1.515 mã sẽ tạo cú sụt/trồi độ rộng giả tạo và làm lệch
+        mọi z-score/percentile tính trên cửa sổ.
+
+    Tầng HIỂN THỊ (`api/routes/*`, `core/executive_report.py`, `core/market_snapshot.py`):
+        `include_degraded=True` — giữ nguyên dòng nhưng mỗi bản ghi mang `is_degraded`
+        để người đọc biết phiên đó không đủ phủ (KHÔNG được lặng lẽ bỏ đi, cũng KHÔNG
+        được lặng lẽ trình bày như phiên bình thường).
+    """
+    sql = (
+        "SELECT date, total_active, advances, declines, unchanged, breadth_pct, "
+        "ad_ratio, ceiling, floor, degraded FROM market_wide_breadth_daily "
+    )
+    params: tuple = ()
+    if not include_degraded:
+        sql += "WHERE (degraded IS NULL OR degraded = 0) "
+    sql += "ORDER BY date DESC"
+    if limit:
+        sql += " LIMIT ?"
+        params = (int(limit),)
+    con = sqlite3.connect(str(DB))
+    try:
+        cur = con.execute(sql, params)
+        cols = [c[0] for c in cur.description]
+        rows = [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
+    finally:
+        con.close()
+    for r in rows:
+        r["is_degraded"] = bool(r.get("degraded"))
+    return rows
+
+
 def latest_db_date() -> str | None:
     """max(date) trong daily_ohlcv — thay cho --end hardcode (E4b)."""
     con = sqlite3.connect(str(DB))
