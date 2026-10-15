@@ -122,7 +122,19 @@ class VnstockProvider(FinancialProvider):
                 self.last_history_error = "EMPTY_DF"
             return df
         except Exception as e:  # noqa: BLE001 - external provider resilience: vnstock fail → trả None (fallback nguồn khác)
-            self.last_history_error = f"FETCH_ERR:{type(e).__name__}"
+            # Bóc 1 tầng tenacity: vnstock bọc lỗi gốc trong `RetryError`. Không phân biệt được
+            # "mạng/timeout" với "dữ liệu rỗng (ValueError)" ⇒ retry MÙ 3 lần cho mỗi mã không có
+            # bar (~8–9s/mã); nhân với ~650 mã không giao dịch/rổ UPCoM nhỏ ⇒ mỗi lượt quét toàn rổ
+            # ngốn hàng chục phút — đây là nguyên nhân EOD bị cắt ở mốc 3600s, KHÔNG phải quota.
+            root = e
+            try:
+                last = getattr(e, "last_attempt", None)
+                if last is not None:
+                    root = last.exception()
+            except Exception:  # noqa: BLE001 - bóc lỗi chỉ là best-effort, không được che lỗi gốc
+                root = e
+            suffix = "" if root is e else f":{type(root).__name__}"
+            self.last_history_error = f"FETCH_ERR:{type(e).__name__}{suffix}"
             return None
 
     # ── Company info ───────────────────────────────────────────────────

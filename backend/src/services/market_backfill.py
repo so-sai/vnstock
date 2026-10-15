@@ -209,7 +209,7 @@ def _vnindex_pct(provider, target_date, conn):
     return (cur - float(prev[0])) / float(prev[0])
 
 
-BACKFILL_SOURCES = ("kbs", "vci")
+BACKFILL_SOURCES = ("vci", "kbs")
 
 
 def _resolve_backfill_provider(symbols, target_date, sources=BACKFILL_SOURCES):
@@ -260,16 +260,24 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
         for i, sym in enumerate(symbols):
             df = None
             last_reason = "UNKNOWN"
+            attempts_used = 0
             for attempt in range(FETCH_MAX_ATTEMPTS):  # F-d: retry + exponential backoff
+                attempts_used = attempt + 1
                 raw = None
                 try:
                     raw = provider.history(sym, start=target_date, end=target_date)
                 except Exception as e:  # noqa: BLE001 - retry: 1 mã lỗi không dừng backfill
                     last_reason = f"{type(e).__name__}: {e}"
                 if raw is None:
-                    # Kênh chẩn đoán của provider (FETCH_ERR:<Type> / EMPTY_DF) — thay cho "UNKNOWN"
+                    # Kênh chẩn đoán của provider (FETCH_ERR:<Type>[:<RootType>] / EMPTY_DF) — thay cho "UNKNOWN"
                     # để sau khi quét xong còn thống kê được nguyên nhân, xem vnstock_provider.history().
                     last_reason = getattr(provider, "last_history_error", None) or "UNKNOWN"
+                    # KHÔNG retry lỗi DỮ LIỆU: nguồn không phục vụ mã này (vd kbs trả
+                    # RetryError(ValueError) cho rổ nhỏ/UPCoM) thì thử lại 3 lần chỉ tốn ~8–9s/mã.
+                    # Đo 2026-10-15: ~650 mã × 8.5s > 3600s ⇒ đúng lý do EOD bị cắt ở mốc 1 giờ mỗi ngày.
+                    # Lỗi MẠNG (timeout/HTTP/Connection) vẫn retry bình thường.
+                    if last_reason.split(":")[-1] in ("ValueError", "KeyError", "TypeError", "IndexError"):
+                        break
                 elif raw.empty:
                     last_reason = "EMPTY"
                 else:
@@ -277,13 +285,16 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
                     if df is not None:
                         break
                     last_reason = "G1_DATE_MATCH_FAIL"
+                    # Nguồn trả frame nhưng KHÔNG chứa ngày đích (mã không có bar phiên đó) —
+                    # retry không thể sinh ra bar, dừng luôn để tiết kiệm ~2s/mã.
+                    break
                 if attempt < FETCH_MAX_ATTEMPTS - 1:
                     time.sleep(FETCH_BACKOFF_BASE * (2**attempt))
             if df is None:
                 logger.error(
                     "BACKFILL_FETCH_FAIL symbol=%s attempts=%d reason=%s",
                     sym,
-                    FETCH_MAX_ATTEMPTS,
+                    attempts_used,
                     last_reason,
                 )
                 fetch_fail += 1
