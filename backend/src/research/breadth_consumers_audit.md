@@ -38,10 +38,13 @@ board phiên hiện tại** (hoặc từ `regime_history`), **không** đọc b�
 ⇒ Hợp đồng 2 tầng cho nhóm này phải áp ở **nguồn (board)**, không phải ở bảng. Đã gắn cờ ở
 `breadth_service` cho đường `regime_history`.
 
-## 4. Gap còn lại (đề xuất — chờ GO, KHÔNG tự làm)
+## 4. Gap còn lại — **ĐÃ HOÃN (NO-GO 2026-10-15) → đưa vào BACKLOG tái cấu trúc schema**
 
 `regime_engine.backfill_regime_history` ghi `regime_history` từ board của chính phiên đó: nếu
-phiên đó **thiếu mã**, giá trị vẫn được ghi **không kèm cờ suy giảm**. Hiện đã bù ở tầng đọc
-(join sang bảng breadth) nên không có đường nào *âm thầm* tiêu thụ dữ liệu kém phủ. Bịt tận gốc
-cần thêm cột `is_degraded` vào `regime_history` + migration + ghi cờ tại writer. Đây là việc
-kế tiếp nếu bạn muốn "sạch từ gốc" thay vì "sạch ở tầng đọc".
+phiên đó **thiếu mã**, giá trị vẫn được ghi **không kèm cờ suy giảm**.
+
+Phán quyết: **KHÔNG migration schema SQLite ở thời điểm này** — tránh rủi ro lock DB / xung đột
+với các tiến trình live/cron khác. Rủi ro đã được chặn đứng ở **tầng đọc** (join sang bảng
+breadth), nên không còn đường nào *âm thầm* tiêu thụ dữ liệu kém phủ. Việc thêm cột
+`is_degraded` vào `regime_history` + ghi cờ tại writer được ghi vào **backlog tái cấu trúc
+schema dài hạn**, không thuộc chu kỳ nâng cấp hạ tầng này.
