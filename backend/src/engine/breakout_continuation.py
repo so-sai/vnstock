@@ -33,6 +33,7 @@ import logging
 
 import pandas as pd
 
+from src.database.data_validity import VALID_ROW_SQL
 from src.database.db_core import get_connection
 from src.engine.regime_engine import detect_regime
 
@@ -43,7 +44,8 @@ def _load_universe(min_value_bn: float = 5, min_price: float = 5) -> pd.DataFram
     with get_connection() as conn:
         df = pd.read_sql(
             "SELECT symbol, date, close, volume, high, low FROM daily_ohlcv "
-            "WHERE date >= date('now', '-200 days') ORDER BY date",
+            f"WHERE is_stale = 0 AND {VALID_ROW_SQL} "
+            "AND date >= date('now', '-200 days') ORDER BY date",
             conn,
         )
     if df.empty:
@@ -59,7 +61,8 @@ def compute_breakout_score(symbol: str, df: pd.DataFrame = None) -> dict:
         with get_connection() as conn:
             df_stock = pd.read_sql(
                 "SELECT date, close, volume, high, low FROM daily_ohlcv "
-                "WHERE symbol = ? AND date >= date('now', '-200 days') ORDER BY date",
+                f"WHERE symbol = ? AND is_stale = 0 AND {VALID_ROW_SQL} "
+                "AND date >= date('now', '-200 days') ORDER BY date",
                 conn,
                 params=(symbol,),
             )
