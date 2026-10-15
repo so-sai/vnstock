@@ -175,7 +175,17 @@ def scan_breakout_opportunities(min_score: int = 40, top_n: int = 20) -> list:
 
 def get_breakout_market_context() -> dict:
     regime = detect_regime()
-    regime_status = regime.get("status", "RANGING")
+    # FAIL-CLOSED: thiếu trạng thái regime KHÔNG được coi là thị trường bình thường.
+    # Bản cũ `regime.get("status", "RANGING")` biến "KHÔNG BIẾT" thành "ĐƯỜNG THOÁNG" ⇒ cho
+    # qua tín hiệu breakout giữa lúc CRISIS. Cùng lớp lỗi đã lật ngược OOS 2026
+    # (C1 +0,8956 → −0,7839); lần này nó nằm trên engine SỐNG.
+    regime_status = (regime or {}).get("status")
+    if not regime_status:
+        logger.warning(
+            "MISSING_REGIME_DATA: không có trạng thái regime ⇒ từ chối suy diễn bối cảnh "
+            "breakout (fail-closed, KHÔNG mặc định RANGING)"
+        )
+        return {"regime": "UNKNOWN", "status": "NO_REGIME_DATA"}
 
     df = _load_universe()
     if df.empty:
