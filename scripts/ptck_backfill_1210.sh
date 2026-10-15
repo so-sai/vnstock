@@ -22,6 +22,26 @@ if [ -f "$L_AB" ] && grep -q "CẠN QUOTA TÍCH LUỸ" "$L_AB"; then
   TH="0.0"
 fi
 
+# CHỐT CHẶN IDEMPOTENT (theo chỉ đạo): phiên 2026-10-12 đã đủ phủ thì thoát ngay.
+# Điều kiện đủ: có bar VNINDEX + >= 800 mã HỢP LỆ (vị từ chuẩn của hệ thống).
+if backend/.venv/Scripts/python.exe - <<'PY'
+import sqlite3, sys
+from pathlib import Path
+root = Path(r"D:/04. Software/opensource_contrib/PTCK_VNSTOCK")
+sys.path.insert(0, str(root / "backend"))
+from src.database.data_validity import VALID_ROW_SQL
+con = sqlite3.connect(f"file:{(root / 'backend/data/screener_cache.db').as_posix()}?mode=ro", uri=True)
+n = con.execute(f"SELECT COUNT(*) FROM daily_ohlcv WHERE date='2026-10-12' AND {VALID_ROW_SQL}").fetchone()[0]
+idx = con.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE date='2026-10-12' AND symbol='VNINDEX'").fetchone()[0]
+con.close()
+print(f"  [guard] 2026-10-12: {n} mã hợp lệ, VNINDEX={idx}")
+sys.exit(0 if (n >= 800 and idx) else 1)
+PY
+then
+  echo "2026-10-12 đã đủ phủ — bỏ qua (idempotent guard)."
+  exit 0
+fi
+
 {
   echo "=== BACKFILL 2026-10-12 (one-shot cron) — $(date '+%Y-%m-%d %H:%M:%S') — throttle=$TH ==="
   echo "    (nguồn chọn throttle: $L_AB)"

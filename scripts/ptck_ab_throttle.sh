@@ -15,6 +15,13 @@ LOG_DIR="${PTCK_LOG_DIR:-C:/Users/Admin/AppData/Local/Temp/ptck_run}"
 mkdir -p "$LOG_DIR"
 L="$LOG_DIR/ab_throttle_$(date +%Y-%m-%d).log"
 
+# CHỐT CHẶN IDEMPOTENT: hôm nay đã có phán quyết thì thoát ngay (job chạy recurring nên có thể
+# được gọi lại sau catch-up). Không chạy lại để không làm bẩn kết quả "đọc một lần".
+if [ -f "$L" ] && grep -q "PHÁN QUYẾT" "$L"; then
+  echo "A/B hôm nay đã có phán quyết — bỏ qua (idempotent guard). Log: $L"
+  exit 0
+fi
+
 {
   echo "=== A/B THROTTLE vs QUOTA — $(date '+%Y-%m-%d %H:%M:%S') ==="
   backend/.venv/Scripts/python.exe backend/scripts/ab_throttle_experiment.py \
