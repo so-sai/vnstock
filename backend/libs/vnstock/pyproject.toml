@@ -7,7 +7,7 @@ name = "vnstock"
 version = "4.0.5"
 description = "vnstock fork (PTCK-VN patched) — vendored as editable local package"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
     "pandas>=1.5",
     "numpy>=1.20",
