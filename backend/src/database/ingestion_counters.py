@@ -96,7 +96,14 @@ def append_jsonl(date: str) -> Path | None:
 
 
 def aggregate_jsonl(date: str) -> dict:
-    """Cộng dồn mọi lát của một phiên (dùng cho kiểm toán)."""
+    """Cộng dồn mọi lát của một phiên (dùng cho kiểm toán).
+
+    NGỮ NGHĨA (đừng đọc sai): các lát chạy lại trên cùng danh sách "còn nợ" của phiên,
+    nên `G1_DATE_MATCH_FAIL` / `G2_BAND_REJECT` / `INGESTION_SCALE_*` là **SỐ LẦN GẶP**
+    (attempt-level), KHÔNG phải số mã duy nhất của phiên — một mã vắng mặt có thể được
+    đếm ở nhiều lát. Riêng `DORMANT_SKIPPED` là hằng số theo lát (≈187 mã) ⇒ lấy **MAX**,
+    KHÔNG cộng (cộng sẽ ra ~3.600 cho một phiên có 187 mã treo).
+    """
     run_dir = Path(os.environ.get("PTCK_RUN_DIR", str(Path(os.environ.get("TEMP", ".")) / "ptck_run")))
     p = run_dir / f"ingestion_breakdown_{date}.jsonl"
     total: Counter = Counter()
@@ -110,5 +117,9 @@ def aggregate_jsonl(date: str) -> dict:
             except ValueError:
                 continue
             slices += 1
-            total.update({k: int(v) for k, v in d.get("categories", {}).items()})
+            for k, v in d.get("categories", {}).items():
+                if k == "DORMANT_SKIPPED":
+                    total[k] = max(total.get(k, 0), int(v))
+                else:
+                    total[k] += int(v)
     return {"date": date, "slices": slices, "categories": dict(total)}
