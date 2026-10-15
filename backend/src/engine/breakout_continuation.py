@@ -102,6 +102,16 @@ def compute_breakout_score(symbol: str, df: pd.DataFrame = None) -> dict:
     )
     mom_5d = df_stock["return_5d"].iloc[-1] * 100 if len(df_stock) >= 5 else 0
     mom_20d = df_stock["return_20d"].iloc[-1] * 100 if len(df_stock) >= 20 else 0
+    # Ca 1b — chặn TẠI NGUỒN. Chặn ở `int()` là chưa đủ: `round(inf, 1)` ở dict kết quả vẫn
+    # trả `inf` cho tầng trên (score/JSON) — bản vá hụt đã bị test bắt. `inf` sinh ra khi
+    # `close` của phiên i-5 bằng 0 (pct_change chia cho 0), tức là triệu chứng dữ liệu bẩn.
+    for _label, _v in (("mom_5d", mom_5d), ("mom_20d", mom_20d)):
+        if pd.notna(_v) and abs(float(_v)) == float("inf"):
+            logger.warning("NON_FINITE_MOMENTUM: %s=%r không hữu hạn ⇒ quy về 0", _label, _v)
+            if _label == "mom_5d":
+                mom_5d = 0
+            else:
+                mom_20d = 0
 
     pullback_check = 0
     if bo20:
@@ -122,7 +132,14 @@ def compute_breakout_score(symbol: str, df: pd.DataFrame = None) -> dict:
         tf_bonus = 10
 
     liq_bonus = min(20, int(vol_ratio * 10))
-    mom_bonus = min(15, max(0, int(mom_5d))) if not pd.isna(mom_5d) else 0
+    # Ca 1b: `int()` ném OverflowError trên ±inf (NaN đã bị `pd.isna` chặn ở nhánh dưới).
+    # Đây là TRIỆU CHỨNG của một phép chia cho 0 ở thượng nguồn ⇒ ghi log để còn truy nguồn,
+    # nhưng không được để nó làm chết cả hàm bối cảnh breakout.
+    if pd.notna(mom_5d) and float(mom_5d) in (float("inf"), float("-inf")):
+        logger.warning("NON_FINITE_MOMENTUM: mom_5d=%r không hữu hạn ⇒ mom_bonus=0", mom_5d)
+        mom_bonus = 0
+    else:
+        mom_bonus = min(15, max(0, int(mom_5d))) if not pd.isna(mom_5d) else 0
     trend_bonus = 10 if (price_vs_ma50 > 0 and price_vs_ma20 > 0) else 0
     pullback_penalty = int(pullback_check * 20)
 
