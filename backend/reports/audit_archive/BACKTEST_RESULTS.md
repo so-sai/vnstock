@@ -23,16 +23,25 @@ Bước nhảy của phép sửa **4 phiên regime** chỉ **0,001–0,004 Sharp
 
 **Phán quyết không đổi qua cả ba thế hệ:** baseline **FAIL** (−0,258 so với ngưỡng 0,50) · tác nhân **organ âm** (−0,506) · **regime dương** (+0,349) · tương tác **âm** · R7 = **A**.
 
-## Kết quả OOS 2026 (cửa sổ riêng, chạm một lần + một lần sửa — xem spec OOS §8)
+## Kết quả OOS 2026 — **cửa sổ đã bị chạm BA lần** (xem spec OOS §8)
 
-| | C1 (momentum+regime+Health≠DISTRESSED) | C2 (bỏ health) |
-|---|---|---|
-| Sharpe | **+0,8956** / +0,8188 | −0,6169 / −0,7012 |
-| MaxDD | 3,44 % / 3,52 % | 3,49 % / 3,58 % |
-| Lệnh | 35 | 39 |
-| Kết luận | **ĐẠT** cả hai kịch bản | trượt |
+| Lần | Trạng thái dữ liệu nền | C1 | C2 | Nhánh |
+|---|---|---|---|---|
+| 1 | 53 phiên thiếu regime + 41 phiên thiếu bar VNINDEX | +1,0214 | −0,7971 | ❌ vô hiệu |
+| 2 | regime nạp bù **trên index còn khuyết** | +0,8956 | −0,6169 | ❌ không hợp lệ (98/108 dòng regime sai) |
+| **3** | **index đầy đủ (41 + 23 phiên) + 2 guard fail-closed** | **−0,7839** | **−2,3656** | ✅ **NHÁNH 4 — FAIL** |
 
-⇒ **Nhánh 2** ⇒ paper-trade C1 (giấy, **không tiền thật**).
+**⇒ KHÔNG paper-trade. `+0,8956` là ảo ảnh dữ liệu**: hai lỗ fail-open (regime mặc định `RANGING`, `_vnindex_drop_3d` trả `0.0`) **cộng hưởng cùng chiều** nên không triệt tiêu nhau mà thổi phồng kết quả. Lần chạm thứ ba là cái giá của việc chạy trước khi dữ liệu nền sạch.
+
+## 2021–2025 qua BA thế hệ — hội tụ, không đổi
+
+| Thế hệ | `DATA_READY` | Baseline V4 | V2 | V5 |
+|---|---|---|---|---|
+| (0) trước vá PIT | — | ❌ −0,2504 · 28 lệnh | +0,4446 | +0,0634 |
+| (2) sau vá 4 phiên regime | — | −0,2580 · 38 lệnh | +0,4365 | +0,4044 |
+| **(3) sau nạp bù 12/2020 + guard mới** | **bench_missing=0 · regime_missing=0** | **−0,2580 · 38 lệnh** | **+0,4365** | **+0,4044** |
+
+Bản vá `_vnindex_drop_3d` + nạp bù tháng 12/2020 **không đổi một con số nào** ở 2021–2025 ⇒ kết quả đăng ký **vững**, và nay đứng trên dữ liệu đầy đủ với guard đang hoạt động. `R1 ĐẠT` (V4 ≡ baseline) · `R3` organ −0,5064 · regime +0,3485 · tương tác −0,3761 · `R7` = **A**.
 
 ## Lỗi đã sửa và quy mô
 
