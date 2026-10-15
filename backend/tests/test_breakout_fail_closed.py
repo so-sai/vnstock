@@ -51,6 +51,13 @@ def test_regime_status_none_does_not_default_to_ranging(monkeypatch):
 
 
 def test_valid_regime_is_passed_through(monkeypatch):
-    """CHỐNG VÁ QUÁ TAY: regime HỢP LỆ phải đi qua nguyên vẹn (không chặn oan)."""
+    """CHỐNG VÁ QUÁ TAY: regime HỢP LỆ phải đi qua nguyên vẹn (không chặn oan).
+
+    Chặn `_load_universe` để test CHỈ đo phần regime, không đi vào vòng chấm điểm — vòng đó
+    có bug riêng (int(inf) ⇒ OverflowError tại dòng 125, xem Ca 1b).
+    """
+    import pandas as pd
+
     monkeypatch.setattr(bc, "detect_regime", lambda: {"status": "CRISIS"})
+    monkeypatch.setattr(bc, "_load_universe", lambda: pd.DataFrame())
     assert bc.get_breakout_market_context()["regime"] == "CRISIS"
