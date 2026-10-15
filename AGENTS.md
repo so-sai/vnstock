@@ -1,17 +1,50 @@
 # AGENTS
-Boot: `sentinel_check.py; kit recall`. CLI: `ptck.py`.
-- Zero-Hallucination: no provenance=no trust; thiếu→đứng ngoài.
-- Evidence theo Regime; cấm tuyệt đối hóa.
-- TDD fail-fast: smoke root, PYTHONPATH sạch, import relative, cấm `except: pass`.
-- OHLCV `YYYY-MM-DD`; ADV_20D≥50k; pos≤10-15% ADV.
-- FusionV2 M2.45/M1.15/A.20/M3.20; stop7/take25/hold15; entry.55/exit.30.
-- OOS25-26 nhiễm→cấm tune; valid mới=paper/IS.
-- CAGR=calendar-year; PIT period-based only.
-- Entity BANK/SEC/INS/STD; params từ ICB.
-- Mã mới sau 16:00: cafef-crawl→backfill→analyze.
-- PANEL/`is_stale`: CẤM dùng `is_stale=0` làm bộ lọc panel lịch sử (median 619/1514 dòng/phiên bị gắn `is_stale=1` → rụng ~40% mẫu, `balanced_panel` suy biến còn 8 mã). Mọi truy vấn OHLCV hợp lệ đi qua `data_validity.VALID_ROW_SQL`; `is_stale` chỉ để kiểm toán độ tươi EOD trong ngày.
-- Coverage fail-fast: chuỗi Index/Target phải qua `panel_quality.assert_series_coverage` (VN30 thiếu 86/95 phiên = coverage 9,5%); phép toán toàn thị trường qua `assert_market_breadth` (median dòng HỢP LỆ chỉ ~865/phiên → KHÔNG dùng ngưỡng cứng 1000 mã, dùng `min_value_ratio`). Thiếu bar ⇒ DỪNG, cấm `fillna(0)`. Alpha/factor đa mã khởi tạo mẫu qua `balanced_panel(min_presence=0.98)`.
-- Chỉ số ≠ cổ phiếu: dùng `data_validity.STOCK_ONLY_SQL` / `INDEX_SYMBOLS` (VNINDEX, VN30, HNXINDEX, HNX30, UPCOMINDEX, UPINDEX). KL VNINDEX một phiên (643,9M cp) lớn hơn cả rổ cổ phiếu ⇒ `SUM(volume)` quên lọc sai ~2×.
-- Phiên bóng ma: cron chạy trong ngày nghỉ đọc bảng giá ĐÓNG BĂNG và đóng dấu ngày (đã xảy ra: 2026-09-01 = bản sao khít 2026-08-28, 1.515 dòng OHLCV + 1.515 dòng foreign). Chặn bằng `panel_quality.NON_TRADING_SESSIONS` + `detect_duplicate_sessions()`; dòng rác phải quarantine khỏi store.
-- Kiểm toán độ phủ: mất dòng theo **≥5 cơ chế KHÁC NHAU** (nguồn không có bar / bị cổng biên độ chặn / tự sửa thang giá / loại vì lệch thang / lỗi dữ liệu tất định / mã treo bị bỏ qua) — CẤM gộp thành một con số "mã thiếu". Mỗi lượt sweep in khối  (, log-only, KHÔNG phải cổng); cộng dồn qua các lát bằng .
-- Cron: ticker là **in-process của Hermes Desktop** — app tắt qua giờ là job **one-shot bị retire, không chạy, không log** (đã xảy ra 15/10 với 2 job 07:30/07:50). Mọi job bắt buộc chạy phải đặt **recurring** + **chốt chặn idempotent** trong script.
+
+Boot: `sentinel_check.py; kit recall`. CLI: `ptck.py`. Verify: `pytest`.
+Python: `backend/.venv/Scripts/python.exe` (system `python3` không tồn tại).
+
+## 3 BẤT BIẾN CỐT LÕI — vi phạm là DỪNG, không thương lượng
+
+**1. Missing > Fake (fail-closed).**
+Thà thiếu dòng dữ liệu còn hơn nạp dữ liệu sai lệch. Mọi đường nạp/đọc dữ liệu phải
+CHẶN hoặc CÁCH LY khi bất thường (biên độ dị tật, lệch thang giá, phiên trùng/bóng ma,
+thiếu bar). Cấm `fillna(0)` ngầm, cấm ép khớp, cấm suy diễn từ một frame không chứa dữ
+liệu cần. Không có provenance ⇒ đứng ngoài. Bộ lọc panel lịch sử dùng `VALID_ROW_SQL`,
+KHÔNG dùng `is_stale`.
+
+**2. Phân tầng dữ liệu.**
+Chỉ số (`INDEX_SYMBOLS`) KHÔNG BAO GIỜ được gộp chung với cổ phiếu trong bất kỳ phép
+toán toàn thị trường nào (độ rộng, mẫu số thanh khoản, `SUM(volume)`). Phân biệt rạch
+ròi ba thứ khác nhau: *dòng bị lỗi/đã cách ly* · *mã ngừng giao dịch (DORMANT)* · *nguồn
+không có bar phiên đó*. Mất độ phủ theo nhiều cơ chế ⇒ phải phân loại và khai báo mẫu
+số, cấm gộp thành một con số "mã thiếu" mờ nghĩa.
+
+**3. Kỷ luật kiểm định (Zero-Hallucination · OOS Quarantine).**
+Không gọt chân cho vừa giày từ một vài ca cá biệt. Mọi con số trên cửa sổ **OOS 2025–2026
+là NON-DECISIONAL**: cấm dùng để tối ưu/tune/chọn tham số. Ý tưởng mới chỉ được kiểm
+chứng XUÔI (forward paper-trading) trên giả thuyết tiền đăng ký; evidence theo Regime,
+cấm tuyệt đối hoá.
+
+## Quy ước vận hành
+
+- Dữ liệu: OHLCV `YYYY-MM-DD`; ADV_20D ≥ 50k; pos ≤ 10–15% ADV. CAGR = calendar-year;
+  PIT period-based only. Entity BANK/SEC/INS/STD; params từ ICB. Mã mới sau 16:00:
+  cafef-crawl → backfill → analyze.
+- Kỷ luật mã: TDD fail-fast (smoke root, PYTHONPATH sạch, import relative); cấm
+  `except: pass`. FusionV2 M2.45/M1.15/A.20/M3.20; stop7/take25/hold15; entry.55/exit.30.
+- Cron: ticker là **in-process của Hermes Desktop** — job **one-shot bị retire** khi app
+  tắt qua giờ (không chạy, không log). Mọi job bắt buộc chạy phải đặt **recurring** +
+  **chốt chặn idempotent** trong script.
+- An toàn vốn: `ENTRY_LOCK` = `backend/data/system_state.json:portfolio_critical_lock`,
+  **fail-closed = True** khi thiếu/hỏng state file. Kiểm bằng `ptck.py stale status`.
+
+## Chi tiết kỹ thuật nằm ở đây (không chép lại vào Hiến pháp này)
+
+- Vị từ & phân tầng dữ liệu: `src/database/data_validity.py` · `series_quality.py` ·
+  `dormant_symbols.py` · `ingestion_counters.py` · `foreign_flow_guard.py`.
+- Cổng chất lượng: `src/database/panel_quality.py` (`assert_series_coverage`,
+  `assert_market_breadth`, `balanced_panel`, `NON_TRADING_SESSIONS`,
+  `detect_duplicate_sessions`).
+- Phán quyết & giả thuyết: `backend/src/research/*.md`
+  (`capitulation_replay_verdict`, `preregistered_hypotheses`, `breadth_consumers_audit`,
+  `oos_2026_non_decisional_note`).
