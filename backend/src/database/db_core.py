@@ -475,6 +475,22 @@ def _adv20_from_df(df_symbol):
     return sum(vols) / len(vols)
 
 
+def _bump_ingestion(category: str, symbol: str | None = None, detail: str | None = None, n: int = 1) -> None:
+    """Đếm PHÂN LOẠI lý do loại/thêm dòng (log-only, xem database/ingestion_counters.py).
+
+    Bộ đếm là phụ trợ: lỗi đếm KHÔNG được phép làm hỏng đường nạp dữ liệu.
+    """
+    try:
+        try:
+            from src.database.ingestion_counters import bump
+        except ModuleNotFoundError:  # chạy với root = backend/src
+            from database.ingestion_counters import bump
+
+        bump(category, symbol, detail, n=n)
+    except Exception as e:  # noqa: BLE001 - phụ trợ, không chặn đường nạp
+        logger.debug("INGESTION_COUNTER_FAIL category=%s err=%s", category, e)
+
+
 def _ingestion_scale_guard(df, conn):
     """Ép daily_ohlcv về VND-scale tại biên nạp (write-time, không phụ thuộc read).
 
@@ -542,6 +558,11 @@ def _ingestion_scale_guard(df, conn):
                     r_raw,
                     r_x1000,
                 )
+                _bump_ingestion(
+                    "INGESTION_SCALE_REJECT",
+                    sym,
+                    f"raw={raw:.4g} hist_ref={hist_ref:.4g}",
+                )
                 continue
         elif sym in universe_set:
             force = True
@@ -571,6 +592,7 @@ def _ingestion_scale_guard(df, conn):
                 n,
                 reason,
             )
+            _bump_ingestion("INGESTION_SCALE_TRANSFORM", sym, reason, n=n)
     if drop_idx:
         keep = [i for i in df_out.index if i not in drop_idx]
         df_out = df_out.loc[keep]

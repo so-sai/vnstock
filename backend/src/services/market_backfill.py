@@ -212,6 +212,22 @@ def _vnindex_pct(provider, target_date, conn):
 BACKFILL_SOURCES = ("vci", "kbs")
 
 
+def _bump_ingestion(category: str, symbol: str | None = None, detail: str | None = None, n: int = 1) -> None:
+    """Đếm PHÂN LOẠI lý do loại dòng (log-only; xem database/ingestion_counters.py).
+
+    Bộ đếm là phụ trợ: lỗi đếm KHÔNG được làm hỏng đường nạp dữ liệu.
+    """
+    try:
+        try:
+            from src.database.ingestion_counters import bump
+        except ModuleNotFoundError:  # chạy với root = backend/src
+            from database.ingestion_counters import bump
+
+        bump(category, symbol, detail, n=n)
+    except Exception as e:  # noqa: BLE001 - phụ trợ, không chặn đường nạp
+        logger.debug("INGESTION_COUNTER_FAIL category=%s err=%s", category, e)
+
+
 def _resolve_backfill_provider(symbols, target_date, sources=BACKFILL_SOURCES):
     """Chọn nguồn THỰC SỰ có dữ liệu đúng `target_date`.
 
@@ -301,6 +317,13 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
                     attempts_used,
                     last_reason,
                 )
+                # Phân loại MỘT LẦN/mã theo lý do cuối cùng (không đếm theo từng lần thử).
+                if last_reason == "G1_DATE_MATCH_FAIL":
+                    _bump_ingestion("G1_DATE_MATCH_FAIL", sym, "nguồn không có ngày yêu cầu")
+                elif last_reason.split(":")[-1] in ("ValueError", "KeyError", "TypeError", "IndexError"):
+                    _bump_ingestion("FETCH_ERR_DATA", sym, last_reason)
+                else:
+                    _bump_ingestion("FETCH_ERR_OTHER", sym, last_reason)
                 fetch_fail += 1
                 continue
             frames.append(df)
@@ -364,6 +387,7 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
                 )
                 no_ref += 1
                 band_reject += 1
+                _bump_ingestion("G2_NO_REFERENCE", sym, f"target={target_date}")
                 continue
             pct = (float(row["close"]) - ref) / ref
             if abs(pct) > limit + 1e-9:
@@ -377,6 +401,7 @@ def backfill_market_history(symbols, target_date, provider=None, throttle_sec=0.
                     limit * 100,
                     target_date,
                 )
+                _bump_ingestion("G2_BAND_REJECT", sym, f"{pct * 100:+.2f}% ref={ref_kind}")
                 band_reject += 1
                 continue
             kept.append(row)

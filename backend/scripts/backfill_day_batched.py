@@ -59,7 +59,10 @@ def main() -> int:
 
     from src.database.data_validity import VALID_ROW_SQL
     from src.database.db_core import get_connection
+    from src.database.ingestion_counters import append_jsonl, bump, report, reset
     from src.services.market_backfill import backfill_market_history
+
+    reset()  # bộ đếm phân loại sống trong 1 tiến trình — mỗi lát là 1 tiến trình riêng
 
     if args.symbols:
         chunk = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -93,6 +96,7 @@ def main() -> int:
         syms, dead = filter_sweep_symbols(syms)
         if dead:
             print(f"    (dormant: bỏ {len(dead)} mã treo/hủy — không gọi API; PTCK_INCLUDE_DORMANT=1 để quét hết)")
+            bump("DORMANT_SKIPPED", None, f"vd: {', '.join(dead[:3])}…", n=len(dead))
         total = len(syms)
         chunk = syms[args.start_idx : args.start_idx + args.count]
         if not chunk:
@@ -103,6 +107,11 @@ def main() -> int:
 
     written, failed, skipped = backfill_market_history(chunk, str(args.date), throttle_sec=args.throttle)
     print(f"→ written={written} failed={failed} skipped={skipped} (lát này, throttle={args.throttle}s)")
+    # PHÂN LOẠI lý do mất/thêm dòng của phiên (log-only) + append để cộng dồn qua các lát.
+    print(report(str(args.date)))
+    _p = append_jsonl(str(args.date))
+    if _p:
+        print(f"    (đã ghi breakdown vào {_p})")
     if not args.symbols:
         print(f"→ còn lại: start_idx={args.start_idx + args.count} (nếu < {total})")
     return 0
