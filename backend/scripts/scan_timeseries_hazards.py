@@ -117,6 +117,48 @@ def scan_fail_open(root: Path) -> list[tuple[str, int, str, str]]:
     return out
 
 
+#: Câu lệnh ĐỌC dữ liệu — chỉ những câu này mới cần vị từ hợp lệ.
+_SQL_READERS = ("read_sql", "read_sql_query", "execute", "executemany")
+#: Dấu hiệu MỘT câu truy vấn đã kiểm lưới cách ly.
+_VALIDITY_MARKERS = ("valid_row_sql", "is_stale")
+_PRICE_TABLE = "daily_ohlcv"
+
+
+def scan_unfiltered_ohlcv_queries(root: Path) -> list[tuple[str, int, str]]:
+    """MẪU HÌNH 3 — [(file, line, SQL)] cho truy vấn `daily_ohlcv` THIẾU chốt chặn hợp lệ.
+
+    VÌ SAO ĐÂY LÀ MẪU HÌNH RỦI RO NHẤT: lưới cách ly (`is_stale=1` + `data_validity`) chỉ có
+    tác dụng nếu MỌI đường đọc đều kiểm nó. Ca thật: `breakout_continuation` gõ raw SQL
+    không vị từ ⇒ nuốt trọn 36.971 dòng `close <= 0` đã cách ly ⇒ `pct_change(5) = inf`
+    ⇒ `OverflowError` làm chết engine. Một câu `SELECT` quên vị từ xoá sạch công sức của
+    toàn bộ hệ thống quarantine.
+    """
+    out: list[tuple[str, int, str]] = []
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+            if name not in _SQL_READERS or not node.args:
+                continue
+            try:
+                txt = " ".join(ast.unparse(a) for a in node.args[:2])
+            except Exception:  # noqa: BLE001 - unparse chỉ để in
+                continue
+            low = txt.lower()
+            if _PRICE_TABLE not in low or "select" not in low:
+                continue
+            if any(m in low for m in _VALIDITY_MARKERS):
+                continue
+            out.append((str(path.resolve()), node.lineno, " ".join(txt.split())[:130]))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default="backend/src")
@@ -137,7 +179,17 @@ def main() -> int:
         print(f" ⚠ {file}:{line}  {expr[:110]}")
         print(f"      → {why}")
 
-    print(f"\nTỔNG: chỉ-số-âm chưa guard = {len(unguarded)} · fail-open nghi ngờ = {len(fo)}")
+    q = scan_unfiltered_ohlcv_queries(root)
+    print(f"\n=== MẪU HÌNH 3: truy vấn `daily_ohlcv` THIẾU chốt chặn hợp lệ ({len(q)} chỗ) ===")
+    print("    (thiếu cả `is_stale` lẫn `VALID_ROW_SQL` ⇒ đọc thẳng dòng ĐÃ CÁCH LY)")
+    for file, line, sql in q[: args.top]:
+        print(f" ⚠ {file}:{line}")
+        print(f"      {sql}")
+
+    print(
+        f"\nTỔNG: chỉ-số-âm chưa guard = {len(unguarded)} · fail-open nghi ngờ = {len(fo)} "
+        f"· truy-vấn-thiếu-vị-từ = {len(q)}"
+    )
     return 0
 
 
