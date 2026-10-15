@@ -122,6 +122,10 @@ _SQL_READERS = ("read_sql", "read_sql_query", "execute", "executemany")
 #: Dấu hiệu MỘT câu truy vấn đã kiểm lưới cách ly.
 _VALIDITY_MARKERS = ("valid_row_sql", "is_stale")
 _PRICE_TABLE = "daily_ohlcv"
+#: Cột giá/khối lượng — CHỈ truy vấn ĐỌC chúng mới có thể nuốt dòng đã cách ly.
+#: `SELECT MAX(date)` / `SELECT DISTINCT symbol` không đọc giá trị nào ⇒ không thể rò rỉ.
+#: (Đây là bản tinh chỉnh để loại dương tính giả — bản đầu bắt theo BẢNG, chưa theo CỘT.)
+_PRICE_COLUMNS = ("close", "open", "high", "low", "volume")
 
 
 def scan_unfiltered_ohlcv_queries(root: Path) -> list[tuple[str, int, str]]:
@@ -154,6 +158,9 @@ def scan_unfiltered_ohlcv_queries(root: Path) -> list[tuple[str, int, str]]:
             if _PRICE_TABLE not in low or "select" not in low:
                 continue
             if any(m in low for m in _VALIDITY_MARKERS):
+                continue
+            # Chỉ báo khi câu truy vấn thật sự ĐỌC cột giá/khối lượng (lọc dương tính giả).
+            if not any(col in low for col in _PRICE_COLUMNS):
                 continue
             out.append((str(path.resolve()), node.lineno, " ".join(txt.split())[:130]))
     return out
