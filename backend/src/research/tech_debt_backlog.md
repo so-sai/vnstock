@@ -99,6 +99,29 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   không được trộn vào chu kỳ dọn dẹp — cần lượt riêng có pre-registration.
 - **PHÁN QUYẾT:** ĐƯỢC CHẤP THUẬN vào backlog (2026-10-15). Chưa thực thi.
 
+> **CẬP NHẬT 2026-10-16 — A ✅ · C ✅ · B ✅ · E ✅ · D 🟡 (5 mã):**
+> - **A** (`1bce817`, chạy lại `migrate_financial_facts_effective_date.py --apply`): **617.699/617.699**
+>   dòng có `effective_date`, 0 ngày sai định dạng, basis 100% `STATUTORY_LAG` (bù 2.715 dòng SHB +
+>   7.287 dòng mã mới do ingestion thêm sau).
+> - **C** (`migrate_shares_history.py`): `shares_history` **lưu CẢ HAI basis** (PK `symbol,period,basis`)
+>   — `CHARTER_PIT` 22.009 dòng/71 kỳ/777 mã và `TCBS_REPORTED` 71 dòng/1 mã; cột `divergence_pct`
+>   làm canary pha loãng. Phát hiện: hai nguồn lệch **+0,0% (2008Q4) → +1.234% (2010Q1–Q3) → +16,3%
+>   (2026Q2)** ⇒ **cấm nối chuỗi**; guard 25% + cờ `SHARES_BASIS_UNEXPLAINED`.
+> - **B** (`a72114d`, `e2bb73d`, `542dd35`, `d8d2ed4`): bỏ fallback giá tương lai (**8.601 cặp** mà bản
+>   cũ SẼ gán giá tương lai > con số 636 đo sơ bộ 13,5×), bỏ ×4 mù quáng (hiệu chuẩn chu kỳ EPS tự
+>   động: QUARTER/TTM/YTD/UNKNOWN/AMBIGUOUS), cờ Hạng mục E ghi vào chính hàng điểm, **gate PIT theo
+>   `effective_date`**. Kết quả: **35.784 dòng sạch**, PE sạch 4.455, **PE<2 hợp lệ = 0**, median PE
+>   9,48; 2.719 dòng cũ gắn `LEGACY_PRE_PIT`, 19 dòng kỳ tương lai gắn `PIT_FUTURE_PERIOD`.
+> - **E** ✅ gắn cờ (không sửa số): `EXTREME_LOW_PE`, `NEGATIVE_EARNINGS`, `DISTRESSED_EQUITY`,
+>   `NEAR_ZERO_DENOMINATOR`, `UNTRACEABLE_DENOMINATOR`, `BASIS_MISMATCH`, `EPS_LEVEL_MISMATCH` (thông
+>   tin), `EPS_PERIODICITY_UNKNOWN`/`AMBIGUOUS` (chặn) + `FLAG_SCOPE` theo từng ratio.
+> - **D** 🟡: metric ngân hàng **đã có** nhưng mới cho 5 mã nguồn tcbs (`BANK_NPL_RATIO`, `BANK_LLR`,
+>   `BANK_NIM`, `BANK_LDR`, `BANK_CREDIT_GROWTH`, `NII`, `NPL_RATIO`).
+> - **CÒN LẠI (mới):** **24.641 dòng mang `EPS_PERIODICITY_UNKNOWN`** — đo được là do mã không có "đa
+>   số kỳ khớp cùng quy ước", **không** phải thiếu phủ (0/344 mã thiếu `NET_INCOME`) và **không** phải
+>   trộn nguồn (0/622.992 ô có >1 nguồn). Hai đòn bẩy thật: `NET_PROFIT_PARENT` + **số cổ phiếu bình
+>   quân gia quyền** — **0/66 metric** trong kho.
+
 ## 5. Lớp lỗi fail-open `.get(khoá, giá_trị_lành)` trên dữ liệu thị trường
 
 - **WHAT:** phân loại và chuyển đổi mọi chỗ dùng default "lành" cho dữ liệu thị trường sang
@@ -178,6 +201,41 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   nếu không hook sẽ bị gỡ bỏ và mất luôn cổng. (c) đổi `name` có thể ảnh hưởng script cài đặt /
   build ⇒ phải grep nơi đọc tên gói trước khi đổi.
 - **PHÁN QUYẾT:** mở 2026-10-15; **(a) đã thực thi** (`0db323f`); (b), (c) chờ GO.
+
+## 8. Provenance cho `volume_profile` / `active_demand` (tài sản vi cấu trúc "ngủ đông")
+
+- **WHAT:** bổ sung cột `source` (+ `fetched_at`, `window_start/window_end`, `bin_semantics`) cho hai
+  bảng `volume_profile` và `active_demand`; nếu không truy được nguồn ⇒ gắn cờ `PROVENANCE_UNKNOWN`
+  và **cấm** dùng chúng trong bất kỳ cổng/điểm nào (hiển thị thì được, kèm cờ).
+- **WHY (số đo 2026-10-16):** phát hiện khi fact-check bản "4 hố đen dữ liệu" — kho **có**
+  `volume_profile` **54.765 dòng** (cột `poc`, `vah`, `val`, `poc_volume`, `value_area_volume`,
+  `bin_size`, và **`hvns` = phân bổ khối lượng theo từng mức giá**) và `active_demand` **2.835 dòng**
+  (`signal_type`, `support_level`, `volume_ratio`, `close_position`, `strength`). Phân bổ KL theo
+  mức giá **không thể suy ra từ OHLCV EOD** ⇒ tồn tại một nguồn intraday nào đó, **nhưng cả hai bảng
+  KHÔNG có cột `source`** ⇒ theo bất biến #1 (không provenance ⇒ đứng ngoài) chúng **không được dùng
+  cho quyết định**. Đây là *tài sản ngủ đông chờ chuẩn hoá*, không phải khoảng trống.
+- **WHERE:** `backend/data/financial_facts.db` (2 bảng + `*_backup`), `src/financial/*` (nơi ghi).
+- **DONE-WHEN:** mỗi bảng có `source` không rỗng cho ≥ 99% dòng mới; dòng cũ được gắn
+  `PROVENANCE_UNKNOWN` thay vì suy đoán; có test từ chối dùng dòng thiếu provenance trong đường điểm.
+- **RISK:** hai bảng này trông rất "hợp mắt" (POC/VAH/VAL, active demand) ⇒ dễ bị đưa vào cổng trước
+  khi có provenance. Việc cần làm trước tiên là **truy lại nguồn ghi** (crawler nào, ngày nào), không
+  phải tinh chỉnh tham số.
+- **PHÁN QUYẾT:** MỞ 2026-10-16 (chờ GO; cấm dùng cho quyết định tới khi có provenance).
+
+## 9. Pipeline EOD đuổi kịp bảng dẫn xuất (`market_wide_breadth_daily`, `regime_history`)
+
+- **WHAT:** chạy bù phần sinh bảng dẫn xuất cho các phiên đã có OHLCV nhưng chưa có dòng dẫn xuất.
+- **WHY (số đo 2026-10-16, sau phiên):** `daily_ohlcv` = **16/10** · `market_foreign_history(daily)` =
+  **16/10** · nhưng `market_wide_breadth_daily` = **14/10** (trễ **2 phiên**; 12/10 `degraded=1` với
+  chỉ **89 dòng** active) và `regime_history` = **09/10** (trễ **1 tuần**). Hệ quả định lượng: tầng
+  hiển thị đang thiếu cờ suy giảm của 15–16/10 và engine regime *bảng* khác engine regime *live*
+  (live ra CRISIS 0,3271 nhưng bảng chưa ghi) ⇒ hai nguồn dễ mâu thuẫn khi đọc chéo.
+- **WHERE:** script rebuild breadth (đã có) + đường ghi `regime_history` trong pipeline EOD.
+- **DONE-WHEN:** `MAX(date)` của hai bảng **bằng** `MAX(date)` của `daily_ohlcv` sau mỗi phiên; phiên
+  thiếu phủ vẫn được ghi kèm `degraded=1` (không bỏ im lặng).
+- **RISK:** chạy bù muộn có thể ghi `regime_history` từ board **đóng băng** ⇒ phải kiểm phiên bóng ma
+  (`detect_duplicate_sessions`) trước khi ghi, và tuyệt đối không để job bù ghi đè phiên đã có dữ liệu
+  thật.
 
 ---
 
