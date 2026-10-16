@@ -762,7 +762,81 @@ thấy luật đó phải đọc là **THEO TỪNG MÃ-VÀ-THỜI ĐOẠN**, kh�
 (3) chạy lại `recompute_valuation_scores_pit.py` trên kho ĐÃ SẠCH (1.237 dòng phantom cách ly + 5.875 dòng
 chuẩn hóa đơn vị) → (4) đo lại phép thử bác bỏ → chốt `[p2, p98]` + `n_min = 5`.
 
+### 7.4octies BƯỚC 3 ĐÃ CHẠY — **NHƯNG KHÔNG ĐẠT MỤC TIÊU**: đường đọc giá của `valuation_engine` KHÔNG CÓ VỊ TỪ
+
+#### (a) Recompute chạy sạch về mặt kỹ thuật
+`python backend/scripts/recompute_valuation_scores_pit.py --apply` → **exit 0**, `791 mã OK · 0 lỗi · 70s`,
+backup `financial_facts.db.bak_recompute_scores_20261016_211120` (260 MB). Guard "writer im lặng 60s" đạt
+(653.764 dòng facts không đổi). Bảng: **58.885 dòng** (trước 58.615).
+DoD: `fallback_rows` **0** · `PE<2`: 198 tổng / **0 sạch** · median PE (sạch) **9,96** (n=4.899) ·
+`clean_by_ratio`: PB 13.743 · PS 11.597 · ROE 6.302 · PE 4.899 — **EV_EBITDA sạch = 0** ✓ (khớp quyết định
+"loại EV/EBITDA"); `PIT_FUTURE_PERIOD` 19 dòng ✓.
+
+#### (b) ĐỐI SOÁT — **mục tiêu "xoá sổ PB 226 / PS 25.584" KHÔNG đạt**
+| dòng | sau recompute | kỳ vọng |
+|---|---|---|
+| `DDG 2026Q2 / PB` | **226,180** · `price = 800.000` · `is_clean_metric = 0` · `NEAR_ZERO_DENOMINATOR` | không còn tính từ giá phantom |
+| `BII 2024Q2 / PS` | **25.583,871** · `price = 900.000` · `is_clean_metric = 0` | như trên |
+
+Cực trị toàn bảng **không đổi một đơn vị**: PE max 57.030 · PB max 226,18 · PS max 25.583,87 ·
+EV/EBITDA max 1,2033e7 · ROE max 9,14.
+
+#### (c) NGUYÊN NHÂN GỐC — vi phạm Luật B tại `backend/src/financial/valuation_engine.py`
+```python
+# dòng 203-206  (vòng lặp lùi tối đa 31 ngày để lấy giá PIT)
+cur.execute("SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?", (symbol.upper(), d))
+# dòng 211 / 215  (phân loại lý do thiếu giá)
+cur.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE symbol=? AND date>?", ...)
+cur.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE symbol=?", ...)
+# dòng 229-231  (_get_price_history)
+cur.execute("SELECT date, close FROM daily_ohlcv WHERE symbol=? ORDER BY date", ...)
+```
+**Không một câu nào có `is_stale = 0` hay `VALID_ROW_SQL`.** Kiểm chứng cách ly vẫn nguyên vẹn:
+1.237/1.237 dòng `is_stale = 1` mang nhãn `quarantine:unit_mix_phantom_1000x`, **0 dòng bị gỡ**; và
+`daily_ohlcv` vẫn trả `('2026-06-19', 800.000, 1, 'kbs|quarantine:unit_mix_phantom_1000x')` cho `DDG`.
+⇒ Đúng câu trong `AGENTS.md`: **"lưới cách ly chỉ mạnh bằng đường đọc yếu nhất"** — cờ đúng, consumer mù.
+
+#### (d) Hành vi ĐÚNG nếu áp Luật B (đo được, không suy đoán)
+| mã/kỳ | tổng dòng | hợp lệ hình dạng | trong đó `is_stale = 0` | `close = 0` |
+|---|---|---|---|---|
+| `DDG 2026Q2` | 16 | 6 | **0** | 10 (`kbs\|poisoned:auto_detect`) |
+| `BII 2024Q2` | 61 | 61 | **1** (2024-06-14 = 1.000đ) | 0 |
+
+⇒ `DDG 2026Q2` **không có bar sống nào** ⇒ đáp án đúng là **không sinh hàng ratio** (hoặc `price = NULL` +
+cờ khai báo), KHÔNG phải PB 226; `BII 2024Q2` phải tính trên 1.000đ chứ không phải 900.000đ.
+**Bán kính ảnh hưởng đo được:** `14` dòng ratio tính từ giá đã cách ly (`DDG` 2 · `BII` 12 · `NOS` 0 — `NOS`
+không có dòng nào trong bảng). Cả 14 đều `is_clean_metric = 0` ⇒ **xếp hạng được bảo vệ**, nhưng chúng vẫn
+làm lệch chính *phân phối* dùng cho phép thử bác bỏ ở mục (f).
+
+#### (e) Phát hiện phụ — recompute NUỐT mã thoát của bước con
+Log có `[C] exit=2` nhưng script vẫn đi tiếp và kết thúc **exit 0**. Chạy lại `migrate_shares_history.py
+--apply` để bắt lỗi: **nó FAIL-CLOSED đúng thiết kế** — "canary sai: `('HPG','2018Q1','CHARTER_PIT')`" và
+`('HPG','2025Q2','CHARTER_PIT')`; 3.092 dòng lệch >1% giữa 2 basis (= 1.546 cặp / 33 mã); `HPG 2008Q2`
+charter `140.300.000` vs `4.569.261.881` — "KẾT LUẬN: FAIL — không ghi gì".
+⇒ Lỗi **ở script cha**: một bước con thất bại mà báo cáo tổng vẫn "thành công". Cùng lớp lỗi với
+"cấm pipe che mã thoát" trong `AGENTS.md` ⇒ cần lan truyền mã thoát (abort hoặc đánh dấu degraded).
+
+#### (f) Phép thử bác bỏ chạy lại trên bảng mới — **vẫn vượt ngưỡng ở cả 5 ratio**
+| ratio | n | `std_full` | ÷[1,99] | ÷[2,98] | ÷[5,95] |
+|---|---|---|---|---|---|
+| PE | 10.326 | 1.113,96 | 5,49× | **8,78×** | 19,54× |
+| PB | 15.230 | 4,83 | 4,40× | **4,99×** | 6,36× |
+| PS | 13.038 | 258,65 | 22,52× | **30,89×** | 45,18× |
+| EV_EBITDA | 8.757 | 128.580,05 | 1.208,66× | **1.730,81×** | 2.741,46× |
+| ROE | 11.534 | 0,182 | 1,97× | **2,16×** | 2,65× |
+
+⇒ Winsorize vẫn có cơ sở, **nhưng CHƯA chốt thông số**: phải sửa (c) rồi recompute rồi đo lại, nếu không
+ta đang ký thông số trên một bảng còn 14 dòng nhiễm + chưa qua đường đọc đúng luật.
+
+#### (g) Việc cần GO (P0, đường quyết định)
+1. Thêm `is_stale = 0 AND {VALID_ROW_SQL}` vào **4 truy vấn** ở `valuation_engine.py` (203-206, 211, 215, 229-231).
+2. Regression test: `DDG 2026Q2` ⇒ KHÔNG sinh hàng ratio (hoặc `price = NULL` + cờ khai báo);
+   `BII 2024Q2` ⇒ giá = 1.000đ; và ca "0 dòng bar sống" phải fail-closed chứ không lấy giá bị cách ly.
+3. Cho script recompute **lan truyền mã thoát của bước con** (ít nhất là `[A]`/`[C]`).
+4. Sau đó chạy lại recompute → đo lại (f) → mới chốt `[p2, p98]` + `n_min = 5`.
+
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
+
 
 
 
