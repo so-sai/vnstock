@@ -69,3 +69,37 @@ thật (CII, FPT do trộn nguồn) **vẫn bị chặn** — đúng như mong m
 
 **Việc đã làm ngay theo chỉ đạo:** khóa cứng ngưỡng bằng test
 (`test_nguong_hieu_chuan_bi_khoa_khong_duoc_noi`) — nới `CALIB_TOL` sẽ làm test FAIL.
+
+---
+
+## 5. KẾT QUẢ ĐO SAU KHI THỰC THI (Bước 5, 2026-10-16) — sửa lại ước lượng ở §4
+
+> **DẤU VẾT KẾT LUẬN CŨ (đã bị số đo bác bỏ):** §4 dự báo *"nhóm `LECH_NHE` (7.851 dòng) phần lớn
+> sẽ được giải phóng"*. **SAI.** Thực tế **+1.093 dòng sạch (+531 PE)**. Giữ lại đây để không lặp
+> lại kiểu ngoại suy từ một thống kê (median) sang một thống kê khác (độ tán xạ).
+
+| Vòng | Tiêu chí độ ổn định | Dòng sạch | PE sạch | UNKNOWN | Phán quyết |
+|---|---|---|---|---|---|
+| trước B5 | `median\|r−1\| ≤ 2%` | 34.707 | 3.929 | 27.779 | — |
+| **5a** | `CV = σ/μ ≤ 2%` | 29.313 ↓ | 1.359 ↓ | 42.096 ↑ | **BÁC BỎ** |
+| **5b** | `1,4826·MAD(r)/median(r) ≤ 2%` | **35.800** | **4.460** | 24.641 | **GIỮ** |
+
+`σ/μ` hỏng vì bị **vài kỳ dị biệt** chi phối ⇒ veto cả mã dù phần lớn kỳ khớp tuyệt đối. `MAD`
+(điểm gãy 50%) xử lý đúng nhóm "đa số khớp + vài kỳ lệch" (MCM `r ≡ 0,900 ± 0,001`; PRE `0,965`
+với 2 kỳ `1,03`) mà **không nới ngưỡng 2%**.
+
+### Ba giả thuyết của tôi về nguyên nhân UNKNOWN — cả ba đều BỊ BÁC BỎ
+
+| Giả thuyết | Phép đo | Kết quả |
+|---|---|---|
+| Thiếu độ phủ `NET_INCOME` | 344 mã mang cờ | **0 mã** thiếu, **0** mã khuyết cửa sổ hoàn toàn |
+| Trộn nguồn trong cùng ô `(mã,kỳ,metric)` | `COUNT(DISTINCT source)` | **0/622.992 ô** có >1 nguồn |
+| EPS và NI cùng kỳ khác nguồn | so `source` cặp EPS↔NI | chỉ **2 cặp** (BCM 2025Q3, VCB 2025Q2) |
+
+### Kết luận đúng về 24.641 dòng còn lại
+
+Đó là các mã **không có đa số kỳ khớp cùng một quy ước** ⇒ không thể chứng minh chu kỳ EPS từ dữ
+liệu hiện có. **Không sửa được bằng phương pháp** — hai đòn bẩy thật sự đều là dữ liệu cơ bản chưa
+tồn tại trong kho (**0/66 metric**): `NET_PROFIT_PARENT` (lợi nhuận cổ đông mẹ) và **số cổ phiếu
+bình quân gia quyền** mà nhà cung cấp dùng để tính EPS. Giữ chúng ngoài bảng xếp hạng là **hành vi
+đúng của fail-closed**, không phải nợ kỹ thuật cần "sửa cho đủ".
