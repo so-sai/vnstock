@@ -109,12 +109,24 @@ BANK_METRICS = {
     "EPS": ("EPS cơ bản", "IS"),
     "BOOK_VALUE_PS": ("Giá trị sổ sách/cp", "BS"),
     "SHARES_OUT": ("Số lượng CP lưu hành", "BS"),
+    "CHARTER_CAPITAL": ("Vốn điều lệ", "BS"),
+    "PRE_TAX_INCOME": ("Lợi nhuận trước thuế", "IS"),
+    "OPERATING_PROFIT": ("Lợi nhuận thuần HĐKD trước dự phòng", "IS"),
     "NPL_RATIO": ("Tỷ lệ nợ xấu", "IS"),
+    "BANK_NPL_RATIO": ("Tỷ lệ nợ xấu (Ngân hàng)", "IS"),
+    "LLR": ("Tỷ lệ bao phủ nợ xấu", "BS"),
+    "BANK_LLR": ("Tỷ lệ bao phủ nợ xấu (Ngân hàng)", "BS"),
+    "LDR": ("Tỷ lệ cho vay trên huy động", "BS"),
+    "BANK_LDR": ("Tỷ lệ cho vay trên huy động (Ngân hàng)", "BS"),
+    "CREDIT_GROWTH": ("Tăng trưởng tín dụng", "BS"),
+    "BANK_CREDIT_GROWTH": ("Tăng trưởng tín dụng (Ngân hàng)", "BS"),
+    "COST_TO_INCOME": ("Tỷ lệ chi phí trên thu nhập (CIR)", "IS"),
     "CASA_RATIO": ("Tỷ lệ tiền gửi không kỳ hạn", "BS"),
     "CAR": ("Tỷ lệ an toàn vốn", "BS"),
     "ROE": ("ROE", "IS"),
     "ROA": ("ROA", "IS"),
     "NIM": ("Tỷ lệ thu nhập lãi thuần", "IS"),
+    "BANK_NIM": ("Biên lãi thuần NIM (Ngân hàng)", "IS"),
 }
 
 # Metric registry Công ty Chứng khoán (Thông tư 334/2016/TT-BTC).
@@ -444,6 +456,9 @@ class DataIntegrityValidator:
         "RESERVES",
         "PROVISION",
         "INTANGIBLE_ASSETS",
+        "CHARTER_CAPITAL",
+        "PRE_TAX_INCOME",
+        "OPERATING_PROFIT",
     }
     # Dải "tỷ đồng" hợp lệ [MIN_VND_SCALE, 500,000] — giá trị nằm giữa → nghi tỷ→VND·10^9
     TY_BAND_UPPER = 5_000_000  # 5 triệu tỷ — đủ cho ngân hàng lớn (VCB assets > 2 triệu tỷ)
@@ -461,12 +476,22 @@ class DataIntegrityValidator:
         scale_free_metrics = {
             "EPS",
             "BOOK_VALUE_PS",
+            "SHARES_OUT",
             "NPL_RATIO",
+            "BANK_NPL_RATIO",
+            "LLR",
+            "BANK_LLR",
+            "LDR",
+            "BANK_LDR",
+            "CREDIT_GROWTH",
+            "BANK_CREDIT_GROWTH",
+            "COST_TO_INCOME",
             "CASA_RATIO",
             "CAR",
             "ROE",
             "ROA",
             "NIM",
+            "BANK_NIM",
             "GROSS_MARGIN",
             "NET_MARGIN",
         }

@@ -108,13 +108,68 @@ def fetch_from_ssi_failover(
     return None, "ssi"
 
 
-def fetch_from_tcbs(symbol: str) -> tuple[dict[str, Any] | None, str]:
-    """TCBS — schema mapping tồn tại, provider chưa implement.
+def _get_tcbs_bearer_token() -> str:
+    """Đọc TCBS_BEARER_TOKEN từ biến môi trường hoặc file .env gốc."""
+    import os
+    from pathlib import Path
 
-    Hiện tại trả về None, log reminder. Khi có TCBS thật,
-    implement hàm này và tự động kích hoạt.
-    """
-    logger.debug(f"[TCBS] {symbol}: Provider chưa implement — skip")
+    tok = os.environ.get("TCBS_BEARER_TOKEN", "").strip()
+    if tok:
+        return f"Bearer {tok}" if not tok.startswith("Bearer ") else tok
+    env_path = Path(__file__).resolve().parents[3] / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if line.startswith("TCBS_BEARER_TOKEN="):
+                val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if val:
+                    return f"Bearer {val}" if not val.startswith("Bearer ") else val
+    return ""
+
+
+def fetch_from_tcbs(symbol: str, date: str | None = None) -> tuple[dict[str, Any] | None, str]:
+    """TCBS Enterprise API (apiextaws.tcbs.com.vn) OHLCV provider."""
+    auth_header = _get_tcbs_bearer_token()
+    if not auth_header:
+        logger.debug(f"[TCBS] {symbol}: Chưa cấu hình TCBS_BEARER_TOKEN — skip")
+        return None, "tcbs"
+
+    try:
+        from curl_cffi import requests as cffi_requests
+
+        now_ts = int(time.time())
+        url = (
+            f"https://apiextaws.tcbs.com.vn/stock-insight/v2/stock/bars-long-term"
+            f"?ticker={symbol.upper()}&type=stock&resolution=D&to={now_ts}&countBack=30"
+        )
+        headers = {
+            "Authorization": auth_header,
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://tcinvest.tcbs.com.vn/",
+            "Origin": "https://tcinvest.tcbs.com.vn",
+        }
+        resp = cffi_requests.get(url, headers=headers, impersonate="chrome120", timeout=BACKUP_TIMEOUT)
+        if resp.status_code == 200:
+            bars = resp.json().get("data", [])
+            if bars:
+                target = bars[-1]
+                if date:
+                    for b in reversed(bars):
+                        if str(b.get("tradingDate", "")).startswith(date):
+                            target = b
+                            break
+                raw = {
+                    "date": str(target.get("tradingDate", ""))[:10],
+                    "open": target.get("open"),
+                    "high": target.get("high"),
+                    "low": target.get("low"),
+                    "close": target.get("close"),
+                    "volume": target.get("volume"),
+                }
+                norm, _ = normalize_to_ptd_schema(raw, source_label="tcbs")
+                return norm, "tcbs"
+    except Exception as e:  # noqa: BLE001 - fallback ladder: TCBS fail → trả (None, "tcbs")
+        logger.debug(f"[TCBS] {symbol}: {e}")
     return None, "tcbs"
 
 
@@ -161,7 +216,7 @@ def route_live(
         elif src == "ssi":
             row, _ = fetch_from_ssi_failover(symbol, timeout=BACKUP_TIMEOUT)
         elif src == "tcbs":
-            row, _ = fetch_from_tcbs(symbol)
+            row, _ = fetch_from_tcbs(symbol, date=date)
 
         if row is not None:
             elapsed = (time.time() - start) * 1000
