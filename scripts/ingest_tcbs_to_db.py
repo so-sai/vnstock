@@ -48,8 +48,22 @@ def _float_or_none(val: Any) -> float | None:
 
 
 def ingest_tcbs_json(symbol: str = "SHB", force_fetch: bool = False) -> dict[str, Any]:
-    symbol = symbol.upper().strip()
-    json_path = ROOT_DIR / "data" / f"tcbs_{symbol.lower()}_complete.json"
+    if symbol.lower().endswith(".json") or ("/" in symbol or "\\" in symbol):
+        json_path = Path(symbol)
+        if json_path.is_file():
+            # derive symbol from filename: tcbs_shb_complete.json -> SHB
+            stem = json_path.stem
+            parts = stem.split("_")
+            if len(parts) >= 2 and parts[0] == "tcbs":
+                symbol = parts[1].upper()
+            else:
+                symbol = stem.upper()
+        else:
+            symbol = json_path.stem.upper()
+    else:
+        symbol = symbol.upper().strip()
+        json_path = ROOT_DIR / "data" / f"tcbs_{symbol.lower()}_complete.json"
+
     if force_fetch or not json_path.exists():
         sys.path.insert(0, str(ROOT_DIR / "scripts"))
         try:

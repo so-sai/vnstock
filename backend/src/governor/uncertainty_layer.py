@@ -212,7 +212,9 @@ class UncertaintyLayer:
                     min_bar_ratio=0.90,
                 )
 
-            regime_rows = conn.execute("SELECT date, atr_ratio, vol_score FROM regime_history ORDER BY date ASC").fetchall()
+            regime_rows = conn.execute(
+                "SELECT date, atr_ratio, vol_score FROM regime_history WHERE is_degraded = 0 ORDER BY date ASC"
+            ).fetchall()
             regime_series = [(d, float(atr), float(vol or 0.0)) for d, atr, vol in regime_rows if atr is not None]
 
             self._snapshot = {

@@ -1,4 +1,4 @@
-﻿"""conftest.py — Fixtures cho Test Suite hồi quy 3 chốt chặn Production.
+"""conftest.py — Fixtures cho Test Suite hồi quy 3 chốt chặn Production.
 
 Nguyên tắc cách ly (isolation):
   - Mọi test dùng portfolio_id/symbol/variable có tiền tố '__TEST__' để KHÔNG
@@ -184,7 +184,10 @@ def _sandbox_configure() -> None:
         src_file = data / rel
         if src_file.exists():
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_file, dst)
+            try:
+                shutil.copy2(src_file, dst)
+            except (OSError, FileNotFoundError):
+                pass
         return dst
 
     def _copytree(rel: str) -> pathlib.Path:

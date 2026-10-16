@@ -254,19 +254,22 @@ class ShockDetector:
         lệch z-score của cả cửa sổ trailing. Bảng chưa tồn tại (DB cũ) → không loại gì
         và ghi rõ trong trace, KHÔNG được ngầm coi là "không suy giảm".
         """
-        degraded: set = set()
+        # Hợp nhất về MỘT nguồn: cột `is_degraded` trong chính bảng (Mục 1/5 backlog).
+        # WHY: trước đây lọc bằng tập ngày join từ `market_wide_breadth_daily` — hai nguồn dễ lệch
+        # nhau; nay dùng cờ đã suy ra từ chính nguồn đó và được ghi kèm dòng.
+        degraded_n = 0
         try:
-            degraded = {r[0] for r in conn.execute("SELECT date FROM market_wide_breadth_daily WHERE degraded = 1")}
+            degraded_n = conn.execute(
+                "SELECT COUNT(*) FROM regime_history WHERE is_degraded = 1 AND date <= ?", (target_date,)
+            ).fetchone()[0]
         except sqlite3.Error as e:  # DB cũ / bảng chưa có → nới lỏng nhưng phải khai báo
-            logger.debug("shock_detector._breadth: không đọc được bảng degraded (%s)", e)
+            logger.debug("shock_detector._breadth: không đọc được cờ degraded (%s)", e)
         rows = self._query(
             conn,
-            "SELECT date, breadth_velocity FROM regime_history WHERE date <= ? ORDER BY date DESC",
+            "SELECT date, breadth_velocity FROM regime_history WHERE date <= ? AND is_degraded = 0 ORDER BY date DESC",
             (target_date,),
         )
-        if degraded:
-            rows = [r for r in rows if r[0] not in degraded]
-        suffix = f" [đã loại {len(degraded)} phiên degraded]" if degraded else " [chưa lọc được degraded]"
+        suffix = f" [đã loại {degraded_n} phiên degraded]" if degraded_n else ""
         if not rows:
             return 0.0, "regime_history breadth_velocity (no data)" + suffix
         series = sorted(((d, float(v)) for d, v in rows if v is not None), key=lambda x: x[0])

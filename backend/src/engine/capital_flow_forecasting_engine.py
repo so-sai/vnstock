@@ -113,10 +113,18 @@ def _fetch_ohlcv_history(lookback_days: int = 60, target_date: str | None = None
 
 
 def _fetch_regime_history(lookback_days: int = 120, target_date: str | None = None) -> pd.DataFrame:
+    """Tầng TÍNH TÍN HIỆU: CHỈ đọc phiên không suy giảm (hợp đồng 2 tầng — Mục 1/5 backlog).
+
+    WHY: phiên `degraded` (độ rộng không đủ phủ) không phải suy giảm của REGIME mà là suy giảm của
+    DỮ LIỆU ⇒ đưa vào mô hình là ăn số giả. Fail-closed khi thiếu cột cờ.
+    """
+    from src.database.series_quality import LIVE_REGIME_SQL, assert_regime_degraded_column
+
     with get_connection() as conn:
-        date_filter = f"WHERE date <= '{target_date}'" if target_date else ""
+        assert_regime_degraded_column(conn)
+        cond = f"date <= '{target_date}' AND {LIVE_REGIME_SQL}" if target_date else LIVE_REGIME_SQL
         df = pd.read_sql(
-            f"SELECT date, regime_score, status, breadth_pct FROM regime_history {date_filter} ORDER BY date", conn
+            f"SELECT date, regime_score, status, breadth_pct FROM regime_history WHERE {cond} ORDER BY date", conn
         )
     return df
 

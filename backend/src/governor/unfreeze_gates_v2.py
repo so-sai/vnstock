@@ -425,7 +425,8 @@ def load_market(db: Path, as_of: str) -> dict:
             macro_latest[key] = list(row) if row else None
 
         regime_rows = con.execute(
-            "SELECT date, breadth_pct, status FROM regime_history WHERE date <= ? ORDER BY date DESC LIMIT 2",
+            "SELECT date, breadth_pct, status FROM regime_history "
+            "WHERE date <= ? AND is_degraded = 0 ORDER BY date DESC LIMIT 2",
             (as_of,),
         ).fetchall()
     finally:

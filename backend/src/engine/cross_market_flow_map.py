@@ -121,11 +121,17 @@ class CrossMarketFlowMap:
             return 0.0
 
     def _get_breadth_history(self, offset: int = 0) -> float:
-        """Truy vấn regime_history để lấy breadth_pct tại T-offset."""
+        """Truy vấn regime_history để lấy breadth_pct tại T-offset — CHỈ phiên không suy giảm.
+
+        WHY (Mục 1/5 backlog): bỏ phiên degraded ở tầng tín hiệu; OFFSET đếm trên chuỗi ĐÃ LỌC.
+        """
         try:
+            from src.database.series_quality import LIVE_REGIME_SQL
+
             with get_connection() as conn:
                 row = conn.execute(
-                    "SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1 OFFSET ?", (offset,)
+                    f"SELECT breadth_pct FROM regime_history WHERE {LIVE_REGIME_SQL} ORDER BY date DESC LIMIT 1 OFFSET ?",
+                    (offset,),
                 ).fetchone()
                 return float(row[0]) if row else 50.0
         except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:

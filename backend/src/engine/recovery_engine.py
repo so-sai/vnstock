@@ -75,16 +75,19 @@ def evaluate_recovery_status(regime_data, velocity_5d, target_date=None):
 
     reclaim_ma10 = current_idx > ma10
 
-    # 2. Fetch History for Filters (Cooldown & Thrust)
+    # 2. Fetch History for Filters (Cooldown & Thrust) — CHỈ phiên không suy giảm (Mục 1/5 backlog)
     with get_connection() as conn:
         if target_date:
             df_hist = pd.read_sql(
                 f"SELECT date, status, breadth_pct FROM regime_history "
-                f"WHERE date < '{target_date}' ORDER BY date DESC LIMIT 20",
+                f"WHERE date < '{target_date}' AND is_degraded = 0 ORDER BY date DESC LIMIT 20",
                 conn,
             )
         else:
-            df_hist = pd.read_sql("SELECT date, status, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 20", conn)
+            df_hist = pd.read_sql(
+                "SELECT date, status, breadth_pct FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT 20",
+                conn,
+            )
 
     prev_breadth = df_hist.iloc[0]["breadth_pct"] if not df_hist.empty else 0.0
     prev_vol = df_idx.iloc[1]["volume"] if len(df_idx) >= 2 else 0.0

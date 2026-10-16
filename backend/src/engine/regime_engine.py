@@ -138,11 +138,14 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     with get_connection() as conn:
         if target_date:
             df_hist_b = pd.read_sql(
-                f"SELECT breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 10",
+                f"SELECT breadth_pct FROM regime_history WHERE date < '{target_date}' AND is_degraded = 0 "
+                "ORDER BY date DESC LIMIT 10",
                 conn,
             )
         else:
-            df_hist_b = pd.read_sql("SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 10", conn)
+            df_hist_b = pd.read_sql(
+                "SELECT breadth_pct FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT 10", conn
+            )
 
     # Calculate rolling STD including current data (filter None)
     all_breadth = [b for b in (df_hist_b["breadth_pct"].tolist() + [breadth_pct]) if b is not None]
@@ -287,10 +290,14 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     with get_connection() as conn:
         if target_date:
             df_prev = pd.read_sql(
-                f"SELECT date, regime_score FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1", conn
+                f"SELECT date, regime_score FROM regime_history WHERE date < '{target_date}' AND is_degraded = 0 "
+                "ORDER BY date DESC LIMIT 1",
+                conn,
             )
         else:
-            df_prev = pd.read_sql("SELECT date, regime_score FROM regime_history ORDER BY date DESC LIMIT 1", conn)
+            df_prev = pd.read_sql(
+                "SELECT date, regime_score FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT 1", conn
+            )
     prev_smoothed = df_prev["regime_score"].iloc[0] if not df_prev.empty else regime_score_raw
     prev_date_str = df_prev["date"].iloc[0] if not df_prev.empty else None
 
@@ -388,11 +395,14 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             with get_connection() as conn:
                 if target_date:
                     df_b = pd.read_sql(
-                        f"SELECT date, breadth_pct FROM regime_history WHERE date < '{target_date}' ORDER BY date DESC LIMIT 1",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
+                        f"SELECT date, breadth_pct FROM regime_history WHERE date < '{target_date}' AND is_degraded = 0 ORDER BY date DESC LIMIT 1",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
                         conn,
                     )
                 else:
-                    df_b = pd.read_sql("SELECT date, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1", conn)
+                    df_b = pd.read_sql(
+                        "SELECT date, breadth_pct FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT 1",
+                        conn,
+                    )
             breadth_prev = float(df_b["breadth_pct"].iloc[0]) if not df_b.empty else (breadth_pct or 0)
             v_breadth = ((breadth_pct or 0) - breadth_prev) / 3
 
@@ -568,6 +578,9 @@ def backfill_regime_history(target_date=None, batch_size=30):
         # All VNINDEX dates
         df_idx = pd.read_sql("SELECT DISTINCT date FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date", conn)
         # Existing regime dates
+        # MIỄN TRỪ (scan-exempt: regime_history): truy vấn này CHỈ để biết NGÀY nào đã có dòng
+        # (backfill tìm phiên thiếu) — không đọc giá trị nào, nên KHÔNG lọc degraded; lọc ở đây sẽ
+        # khiến phiên degraded bị coi là "thiếu" và bị ghi lại vô hạn.
         df_reg = pd.read_sql("SELECT date FROM regime_history", conn)
 
     all_dates = set(df_idx["date"].tolist())
@@ -611,6 +624,10 @@ def backfill_regime_history(target_date=None, batch_size=30):
             df_row = pd.DataFrame([row])
 
             with get_connection() as conn:
+                # Cờ suy giảm phải SUY RA từ bảng độ rộng cùng ngày (None = không biết ≠ 0).
+                from src.database.series_quality import breadth_degraded_flag
+
+                df_row["is_degraded"] = [breadth_degraded_flag(conn, d)]
                 save_data_upsert("regime_history", df_row, conn)
 
             inserted += 1

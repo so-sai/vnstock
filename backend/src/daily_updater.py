@@ -957,7 +957,12 @@ def run_post_update_engines():
                 "recovery_flag": 0,
             }
             with get_connection() as conn:
-                save_data_upsert("regime_history", pd.DataFrame([row]), conn)
+                # Cờ suy giảm SUY RA từ bảng độ rộng cùng ngày (None = không biết ≠ 0) — Mục 1/5 backlog.
+                from src.database.series_quality import breadth_degraded_flag
+
+                df_row = pd.DataFrame([row])
+                df_row["is_degraded"] = [breadth_degraded_flag(conn, verdict["date"])]
+                save_data_upsert("regime_history", df_row, conn)
             logger.info(
                 "✅ Regime History: %s score=%.2f status=%s",
                 verdict["date"],

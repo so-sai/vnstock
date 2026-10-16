@@ -346,8 +346,46 @@ def _validate_structural_integrity(rates: dict) -> bool:
     return True
 
 
+def _try_sbv_http() -> dict | None:
+    """Lightweight HTTP fallback (curl_cffi / requests) cho sbv.gov.vn khi không có Playwright."""
+    import urllib3
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    html_raw = None
+    http_status = None
+    try:
+        from curl_cffi import requests as creq
+
+        r = creq.get(SBV_INTERBANK_URL, impersonate="chrome124", timeout=15, verify=False)
+        http_status = r.status_code
+        html_raw = r.text
+    except Exception:  # noqa: BLE001
+        try:
+            r = requests.get(
+                SBV_INTERBANK_URL,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                timeout=15,
+                verify=False,
+            )
+            http_status = r.status_code
+            html_raw = r.text
+        except Exception:  # noqa: BLE001
+            return None
+
+    if http_status != 200 or not html_raw:
+        return None
+    if _has_cloudflare_signature(html_raw) or not _has_sbv_table_signature(html_raw):
+        return None
+    result = _parse_sbv_html(html_raw)
+    if result and _validate_structural_integrity(result):
+        logger.info(f"SBV HTTP: lấy được {len(result)} kỳ hạn: {result}")
+        _clear_sbv_alert()
+        return {"type": "SUCCESS", "data": result, "http_status": 200, "raw_html": html_raw}
+    return None
+
+
 def _try_sbv(force: bool = False) -> dict:
-    """Dùng Playwright để trích xuất bảng lãi suất liên ngân hàng từ sbv.gov.vn.
+    """Dùng Playwright (hoặc HTTP fallback) để trích xuất bảng lãi suất liên ngân hàng từ sbv.gov.vn.
 
     Args:
         force: Bỏ qua circuit breaker (dùng cho sbv-update).
@@ -362,7 +400,10 @@ def _try_sbv(force: bool = False) -> dict:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        logger.warning("Playwright chưa được cài đặt — bỏ qua SBV")
+        http_res = _try_sbv_http()
+        if http_res is not None:
+            return http_res
+        logger.warning("Playwright chưa được cài đặt và HTTP fallback thất bại — bỏ qua SBV")
         return {"type": "NO_PLAYWRIGHT", "data": {}, "http_status": None}
 
     try:

@@ -109,14 +109,31 @@ class TestEmergencyRecallOrchestration:
         assert result.get("he_so_giam_ty_trong") == 0.0
         assert "Emergency Recall" in " ".join(result.get("ly_do", []))
 
+    @patch("src.governor.liquidity_recovery_index.compute_lri")
+    @patch("src.engine.decision_guard.compute_policy_cap_boost")
     @patch("pandas.read_sql", side_effect=_mock_read_sql)
     @patch("src.services.macro.interbank_zscore.assess_interbank_risk")
     @patch("src.core.market_snapshot.tao_anh_chup")
     @patch("src.engine.recovery_engine.evaluate_recovery_status")
     @patch("src.engine.structural_healing.phan_tich_hoi_phuc")
     def test_low_rate_passes_guard(self, mock_healing, mock_recovery,
-                                   mock_snapshot, mock_interbank, mock_sql):
+                                   mock_snapshot, mock_interbank, mock_sql,
+                                   mock_cap, mock_lri):
         """stale_override + ON=4.5% → guard runs, he_so=0.3 (hours_stale=48)."""
+        from src.governor.liquidity_recovery_index import LRIResult
+        mock_lri.return_value = LRIResult(
+            lri=1.0,
+            s_interbank=1.0,
+            s_usdvnd=1.0,
+            s_omo=1.0,
+            s_fii=1.0,
+            s_breadth=1.0,
+            regime="AGGRESSIVE",
+            max_allocation_pct=1.0,
+            components_raw={},
+            degraded_components=[],
+        )
+        mock_cap.return_value = {"cap_boost": 0.0}
         mock_snapshot.return_value = _make_anh_chup()
         mock_interbank.return_value = {
             "veto": "NONE", "stale_override": True, "hours_stale": 48,
@@ -131,14 +148,31 @@ class TestEmergencyRecallOrchestration:
         assert result.get("he_so_giam_ty_trong") == 0.3
         assert result["quyet_dinh"] != "DUNG NGOAI"
 
+    @patch("src.governor.liquidity_recovery_index.compute_lri")
+    @patch("src.engine.decision_guard.compute_policy_cap_boost")
     @patch("pandas.read_sql", side_effect=_mock_read_sql)
     @patch("src.services.macro.interbank_zscore.assess_interbank_risk")
     @patch("src.core.market_snapshot.tao_anh_chup")
     @patch("src.engine.recovery_engine.evaluate_recovery_status")
     @patch("src.engine.structural_healing.phan_tich_hoi_phuc")
     def test_no_stale_override(self, mock_healing, mock_recovery,
-                               mock_snapshot, mock_interbank, mock_sql):
+                               mock_snapshot, mock_interbank, mock_sql,
+                               mock_cap, mock_lri):
         """stale_override=False → không recall, guard cho he_so=1.0, quyết định=THAM GIA."""
+        from src.governor.liquidity_recovery_index import LRIResult
+        mock_lri.return_value = LRIResult(
+            lri=1.0,
+            s_interbank=1.0,
+            s_usdvnd=1.0,
+            s_omo=1.0,
+            s_fii=1.0,
+            s_breadth=1.0,
+            regime="AGGRESSIVE",
+            max_allocation_pct=1.0,
+            components_raw={},
+            degraded_components=[],
+        )
+        mock_cap.return_value = {"cap_boost": 0.0}
         mock_snapshot.return_value = _make_anh_chup()
         mock_interbank.return_value = {
             "veto": "NONE", "stale_override": False, "hours_stale": 0,

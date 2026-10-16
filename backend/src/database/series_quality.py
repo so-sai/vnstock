@@ -28,6 +28,42 @@ DB_PATH = Path(__file__).resolve().parents[2] / "data" / "screener_cache.db"
 CODE_DEGENERATE_CONSTANT = "DATA_QUALITY_DEGENERATE_CONSTANT"
 CODE_NON_NUMERIC_STATUS = "NON_NUMERIC_STATUS_SERIES"
 
+# ── Cờ SUY GIẢM của phiên regime (hợp đồng 2 tầng — Mục 1/5 backlog, GO 2026-10-16) ──────
+# WHY: phiên mà bảng độ rộng không đủ phủ (`market_wide_breadth_daily.degraded = 1`) vẫn được ghi
+# vào `regime_history` như phiên bình thường ⇒ tầng TÍNH TÍN HIỆU đọc chéo sẽ ăn cả phiên degraded.
+# Hợp đồng: tầng TÍNH TOÁN lọc cứng `LIVE_REGIME_SQL`; tầng HIỂN THỊ giữ dòng + phơi cờ `is_degraded`.
+# "Không biết" (thiếu cột / NULL) ≠ sạch ⇒ fail-closed.
+CODE_REGIME_DEGRADED = "REGIME_SESSION_DEGRADED"
+LIVE_REGIME_SQL = "is_degraded = 0"
+
+
+def assert_regime_degraded_column(conn: sqlite3.Connection) -> None:
+    """FAIL-CLOSED: `regime_history` phải có cột `is_degraded` thì tầng tín hiệu mới được đọc."""
+    cols = {c[1] for c in conn.execute("PRAGMA table_info(regime_history)")}
+    if "is_degraded" not in cols:
+        raise RuntimeError(
+            "regime_history thiếu cột `is_degraded` — không thể loại phiên suy giảm khỏi tầng tín hiệu. "
+            "Chạy backend/scripts/migrate_regime_history_is_degraded.py trước."
+        )
+
+
+def breadth_degraded_flag(conn: sqlite3.Connection | None, date_str: str) -> int | None:
+    """Cờ suy giảm của phiên, SUY RA TỪ `market_wide_breadth_daily.degraded` cùng ngày.
+
+    Trả `None` khi không có dòng độ rộng cho ngày đó — "không biết" KHÔNG được coi là 0 (sạch).
+    """
+    own = conn is None
+    c = conn or sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    try:
+        row = c.execute("SELECT degraded FROM market_wide_breadth_daily WHERE date = ?", (date_str,)).fetchone()
+        return int(row[0]) if row and row[0] is not None else None
+    except sqlite3.Error:
+        return None
+    finally:
+        if own:
+            c.close()
+
+
 # Biến số KINH TẾ bị đóng băng (hằng số) → khoá tự động: một hằng số không mang thông tin,
 # và khi ghép nhiều chuỗi như vậy vào ma trận thiết kế thì X'X suy biến (rank-deficient).
 # Đo từ store 2026-10-14: mỗi chuỗi 46 dòng, 1 giá trị duy nhất.

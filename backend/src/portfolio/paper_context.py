@@ -29,12 +29,14 @@ _PAPER = {
     "system_state": _DATA / "system_state_paper.json",
     "decision_audit": _DATA / "decision_audit_paper.jsonl",
     "params_registry": _DATA / "params_registry_paper.json",
+    "stale_positions": _DATA / "stale_positions_paper.json",
 }
 
 _PRODUCTION = {
     "system_state": _DATA / "system_state.json",
     "decision_audit": _DATA / "decision_audit.jsonl",
     "params_registry": _DATA / "params_registry.json",
+    "stale_positions": _DATA / "stale_positions.json",
 }
 
 _ACTIVE = False
@@ -53,6 +55,11 @@ def set_paper_mode(enabled: bool = True):
     from src.portfolio import system_state
 
     system_state.set_lock_path(targets["system_state"])
+
+    # Override stale_manager.py path
+    from src.portfolio import stale_manager
+
+    stale_manager._set_stale_path(targets["stale_positions"])
 
     # Override decision_audit.py path
     from src.portfolio import decision_audit

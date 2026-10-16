@@ -1507,7 +1507,28 @@ def cmd_fetch_financials(args):
         print(f"  ✅ {rname}: μ={mean_v:.2f} σ={std_v:.2f} n={n}")
     conn.commit()
     conn.close()
-    print(f"\n  ✅ Inserted {total} scores for {len(symbol_data)} symbols ({period})")
+
+    # Also run ValuationEngine (5Y Time-Series + Peer Z-Score from financial_facts.db)
+    try:
+        from src.financial.valuation_engine import ValuationEngine
+
+        ve = ValuationEngine()
+        ve.init_schema()
+        ve_count = 0
+        for sym in symbols:
+            res = ve.compute_valuation(sym)
+            if res and res.get("metrics"):
+                ve_count += len(res["metrics"])
+                print(
+                    f"  ✅ ValuationEngine ({sym}): {res.get('composite_zone')} "
+                    f"(PE={res['metrics'].get('PE', {}).get('value', 'N/A')}, "
+                    f"PB={res['metrics'].get('PB', {}).get('value', 'N/A')})"
+                )
+        total += ve_count
+    except Exception as e:
+        print(f"  ⚠️  ValuationEngine fallback warning: {e}")
+
+    print(f"\n  ✅ Inserted/Updated {total} scores for {len(symbols)} symbols ({period})")
 
 
 def cmd_import_financials(args):
@@ -2121,21 +2142,19 @@ def cmd_backfill(args):
 
 
 def cmd_backfill_macro(args):
-    """Hotfix #2: Backfill 1y historical data for PTD macro tickers (^GSPC, ^IXIC, ^VIX, ^HSI)."""
+    """Backfill historical data for all 24 macro tickers into macro_history and macro_history_v2."""
     import yfinance as yf
     import pandas as pd
-    import logging
+    from src.daily_updater import MACRO_TICKERS
 
-    logger = logging.getLogger(__name__)
-
-    days = getattr(args, "days", 252)
-    tickers = {"SP500": "^GSPC", "NASDAQ": "^IXIC", "VIX": "^VIX", "HANG_SENG": "^HSI"}
-    period = f"{max(days, 252)}d"
+    days = getattr(args, "days", 252) or 252
+    tickers = dict(MACRO_TICKERS)
+    period = f"{max(int(days), 5)}d"
 
     print("=" * 60)
-    print(f"  PTCK — {_ll('BACKFILL MACRO')} (PTD Tickers)")
+    print(f"  PTCK — {_ll('BACKFILL MACRO')} ({len(tickers)} Tickers)")
     print("=" * 60)
-    print(f"  {_ll('Tickers')}: {', '.join(tickers.values())}")
+    print(f"  {_ll('Tickers')}: {', '.join(tickers.keys())}")
     print(f"  {_ll('Period')}:  {period}")
     print()
 
@@ -2155,6 +2174,7 @@ def cmd_backfill_macro(args):
     df_melted.rename(columns={"Date": "date"}, inplace=True)
     df_melted["date"] = pd.to_datetime(df_melted["date"]).dt.strftime("%Y-%m-%d")
     df_melted = df_melted.dropna()
+    df_melted["value"] = df_melted["value"].round(6)
 
     if df_melted.empty:
         print(f"  [{_ll('FAIL')}] Không có dữ liệu sau khi melt.")
@@ -2167,7 +2187,46 @@ def cmd_backfill_macro(args):
     with get_connection() as conn:
         save_data_upsert("macro_history", df_melted, conn)
 
-    print(f"  [{_ll('OK')}] Đã seed {len(df_melted)} {_ll('rows')} vào macro_history.")
+    v2_records = []
+    try:
+        from canonical import Normalizer
+        from canonical.validator import ValidationError
+
+        norm = Normalizer()
+        for _, row in df_melted.iterrows():
+            try:
+                rec = norm.normalize(
+                    variable=row["variable"],
+                    date=row["date"],
+                    raw_value=float(row["value"]),
+                    source="yahoo",
+                )
+                v2_records.append(
+                    {
+                        "variable": rec.variable,
+                        "date": rec.date,
+                        "value": rec.value,
+                        "asset_class": rec.asset_class.value,
+                        "unit": rec.unit.value,
+                        "source": rec.source.value,
+                        "raw_value": rec.raw_value,
+                        "raw_unit": rec.raw_unit,
+                        "confidence": rec.confidence,
+                    }
+                )
+            except (ValueError, ValidationError, Exception):
+                pass
+        if v2_records:
+            df_v2 = pd.DataFrame(v2_records)
+            with get_connection() as conn:
+                save_data_upsert("macro_history_v2", df_v2, conn)
+    except Exception as e:
+        print(f"  ⚠️  macro_history_v2 normalize warning: {e}")
+
+    print(
+        f"  [{_ll('OK')}] Đã seed {len(df_melted)} {_ll('rows')} vào macro_history "
+        f"({len(v2_records)} rows vào macro_history_v2)."
+    )
     print("=" * 60)
 
 
@@ -4858,25 +4917,98 @@ def cmd_flow_map(args):
 
 # ── fetch-macro ──────────────────────────────────────────────
 def cmd_fetch_macro(args):
-    """Fetch world macro data (Fed, FRED, US10Y, USD, Brent) + VGB 10Y."""
-    import json
+    """Fetch world macro data (Fed, FRED, US10Y, USD, Brent) + 24 Yahoo tickers + VGB 10Y + SBV Interbank."""
+    from datetime import datetime
+    import pandas as pd
 
     print("=" * 60)
-    print("  FETCH WORLD MACRO SENSOR")
+    print("  FETCH WORLD MACRO SENSOR & FULL MACRO PIPELINE")
     print("=" * 60)
+    today_str = datetime.now().strftime("%Y-%m-%d")
     try:
         from src.sensors.world_sensor import WorldSensor
+        from src.database.db_core import get_connection, save_data_upsert
 
         sensor = WorldSensor(use_cache=not args.force)
         state = sensor.fetch(force_refresh=args.force)
         for k, v in state.items():
             print(f"  {k:20s}: {v}")
         print(f"  {'source':20s}: WorldSensor (CME FedWatch + FRED + yFinance)")
+
+        world_vars = {
+            "FED_TARGET_RATE": state.get("fed_target_rate"),
+            "FOMC_DISSENT": float(state.get("fomc_dissent", 0)),
+            "QT_BALANCE_TR": state.get("qt_balance_tr"),
+            "RESERVES_TR": state.get("reserves_tr"),
+            "US10Y_YIELD": state.get("us10y_yield"),
+            "USD_INDEX": state.get("usd_index"),
+            "BRENT_OIL": state.get("brent_oil"),
+            "FED_UNCERTAINTY": state.get("fed_uncertainty"),
+            "IMPLIED_HIKE_PROB": state.get("implied_hike_prob"),
+        }
+        world_records = [
+            {
+                "variable": k,
+                "date": today_str,
+                "value": round(float(v), 6) if v is not None else 0.0,
+            }
+            for k, v in world_vars.items()
+        ]
+        with get_connection() as conn:
+            save_data_upsert("macro_history", pd.DataFrame(world_records), conn)
+
+        try:
+            from src.calibration.prediction_log import (
+                get_conn as get_calib_conn,
+                init_macro_sensory_log,
+            )
+
+            calib_conn = get_calib_conn()
+            init_macro_sensory_log()
+            calib_conn.execute(
+                """INSERT OR REPLACE INTO macro_sensory_log
+                   (date, fed_target_rate, fomc_dissent, qt_balance_tr, reserves_tr,
+                    us10y_yield, usd_index, brent_oil, implied_hike_prob,
+                    next_meeting, fed_uncertainty, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    today_str,
+                    state.get("fed_target_rate", 0.0),
+                    int(state.get("fomc_dissent", 0)),
+                    state.get("qt_balance_tr", 0.0),
+                    state.get("reserves_tr", 0.0),
+                    state.get("us10y_yield", 0.0),
+                    state.get("usd_index", 0.0),
+                    state.get("brent_oil", 0.0),
+                    state.get("implied_hike_prob", 0.0),
+                    state.get("next_meeting", ""),
+                    state.get("fed_uncertainty", 0.0),
+                    "world_sensor",
+                ),
+            )
+            calib_conn.commit()
+            calib_conn.close()
+        except Exception:
+            pass
+        print(f"  {'DB persist':20s}: ✅ 9 WorldSensor vars → macro_history ({today_str})")
     except Exception as e:
         print(f"  ❌ WorldSensor error: {e}")
+
+    print()
+    print("  ── Global Macro Tickers (24 Yahoo Finance Series + Real Yield) ──")
+    try:
+        from src.daily_updater import update_macro_data, seed_real_yield
+
+        n_rows = update_macro_data()
+        ry_rows = seed_real_yield()
+        print(f"  {'Yahoo Macro':20s}: ✅ {n_rows} tickers seeded (v1 + v2)")
+        print(f"  {'Real Yield':20s}: ✅ {ry_rows} rows (US_REAL_YIELD, BREAKEVEN_INFLATION)")
+    except Exception as e:
+        print(f"  ❌ Global Macro error: {e}")
+
     print()
     if not args.skip_vgb:
-        print("  ── VGB 10Y Yield ──")
+        print("  ── Domestic Macro (VGB 10Y + SBV Interbank) ──")
         try:
             from src.services.macro.vgb10y_seeder import seed_vgb10y
 
@@ -4886,6 +5018,15 @@ def cmd_fetch_macro(args):
             )
         except Exception as e:
             print(f"  ❌ VGB10Y error: {e}")
+        try:
+            from src.services.macro.interbank_seeder import refresh_interbank_rate
+
+            ib_ok = refresh_interbank_rate()
+            print(
+                f"  {'SBV Interbank':20s}: {'✅ OK' if ib_ok else '❌ FAILED (using fallback)'}"
+            )
+        except Exception as e:
+            print(f"  ❌ SBV Interbank error: {e}")
     print("=" * 60)
 
 
@@ -4933,7 +5074,7 @@ def cmd_hooks_install(args):
 
 # ── cafef-crawl ──────────────────────────────────────────────
 def cmd_cafef_crawl(args):
-    """Crawl BCTC 20 quarters cho danh sách mã."""
+    """Crawl BCTC 20+ quarters cho danh sách mã."""
     from src.financial.financial_facts import FinancialFactsDB
     from src.financial.cafef_crawler import CafeFCrawler
 
@@ -4943,13 +5084,7 @@ def cmd_cafef_crawl(args):
     source = getattr(args, "source", "vci")
     delay = getattr(args, "delay", 0)
     incremental = not getattr(args, "full", False)
-    crawler = CafeFCrawler(
-        db, use_playwright=use_pw, delay=delay, incremental=incremental
-    )
     if args.symbols:
-        # WHY: resolve từng symbol (registry → static fallback) thay vì blanket
-        # STANDARD — scheduler chạy nightly KHÔNG có --type, blanket STANDARD
-        # từng đè VCB/ACB/HDB/MBB thành STANDARD (xem tests/test_resolve_crawl_targets).
         targets = db.resolve_crawl_targets(args.symbols, args.type)
     else:
         targets = [
@@ -4958,6 +5093,9 @@ def cmd_cafef_crawl(args):
             ("HDB", "BANK"),
             ("MBB", "BANK"),
             ("VCB", "BANK"),
+            ("TCB", "BANK"),
+            ("SHB", "BANK"),
+            ("PNJ", "STANDARD"),
         ]
     mode = "INCREMENTAL" if incremental else "FULL"
     print("=" * 60)
@@ -4971,6 +5109,52 @@ def cmd_cafef_crawl(args):
     if delay > 0:
         print(f"  {_ll('Delay')}: {delay}s {_ll('giữa các request')}")
     print("=" * 60)
+
+    if source == "tcbs":
+        import subprocess
+        scripts_dir = PROJECT_ROOT / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        try:
+            from scripts.ingest_tcbs_to_db import ingest_tcbs_json
+        except ImportError:
+            from ingest_tcbs_to_db import ingest_tcbs_json
+        from src.financial.valuation_engine import ValuationEngine
+
+        total_facts = 0
+        ve = ValuationEngine()
+        ve.init_schema()
+        for sym, _etype in targets:
+            json_path = PROJECT_ROOT / "data" / f"tcbs_{sym.lower()}_complete.json"
+            if not json_path.exists() or not incremental:
+                fetcher_script = PROJECT_ROOT / "scripts" / "tcbs_agent_fetcher.py"
+                if fetcher_script.exists():
+                    print(f"  🌐 Fetching TCBS Enterprise API for {sym}...")
+                    subprocess.run(
+                        [sys.executable, str(fetcher_script), sym],
+                        cwd=str(PROJECT_ROOT),
+                        check=False,
+                    )
+            if json_path.exists():
+                res = ingest_tcbs_json(str(json_path))
+                n_f = res.get("facts_upserted", 0)
+                total_facts += n_f
+                ve.compute_valuation(sym)
+                print(
+                    f"  ✅ {sym} (TCBS Enterprise): {n_f} facts, "
+                    f"shares={res.get('shares_outstanding', 0):,}"
+                )
+            else:
+                print(f"  ⚠️  {sym}: Không tìm thấy {json_path.name} (cần chạy tcbs_agent_fetcher.py)")
+        print(
+            f"  ✅ {_ll('Done')}: {len(targets)} {_ll('Symbols')}, {total_facts} {_ll('Facts')}"
+        )
+        print("=" * 60)
+        return
+
+    crawler = CafeFCrawler(
+        db, use_playwright=use_pw, delay=delay, incremental=incremental
+    )
     if source == "vietstock":
         print(f"  ⚠️  {_ll('Vietstock free tier')} ({_ll('BCTC Tóm tắt')})")
         print(f"  ⚠️  {_ll('BCTC chi tiết')} 37 dòng {_ll('paywall')}")
@@ -7193,9 +7377,10 @@ def build_parser():
     )
     p_cc.add_argument(
         "--source",
-        choices=["vci", "cafef", "api", "vietstock", "synthetic"],
+        choices=["vci", "tcbs", "cafef", "api", "vietstock", "synthetic"],
         default="vci",
         help="Nguồn dữ liệu: vci (VCI GraphQL + VNDirect/TCBS/CafeF/Vietstock fallback), "
+        "tcbs (TCBS Enterprise CDP API bóc tách trực tiếp), "
         "api (REST JSON bridges: VNDirect/TCBS → CafeF → Vietstock), "
         "vietstock (Vietstock Finance free summary 4 quý — kiểm tra chéo), "
         "cafef (requests+Playwright, thường 404), "

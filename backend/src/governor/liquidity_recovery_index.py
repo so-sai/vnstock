@@ -316,16 +316,18 @@ class LiquidityRecoveryIndex:
             conn.close()
 
     def _fetch_latest_breadth(self, target_date: str | None = None) -> float | None:
-        """Fetch latest market breadth from regime_history."""
+        """Fetch latest market breadth from regime_history — CHỈ phiên không suy giảm (Mục 1/5 backlog)."""
         conn = self._get_conn()
         try:
             if target_date:
                 row = conn.execute(
-                    "SELECT breadth_pct FROM regime_history WHERE date <= ? ORDER BY date DESC LIMIT 1",
+                    "SELECT breadth_pct FROM regime_history WHERE date <= ? AND is_degraded = 0 ORDER BY date DESC LIMIT 1",
                     (target_date,),
                 ).fetchone()
             else:
-                row = conn.execute("SELECT breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1").fetchone()
+                row = conn.execute(
+                    "SELECT breadth_pct FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT 1"
+                ).fetchone()
             return float(row[0]) if row and row[0] is not None else None
         except sqlite3.Error:
             return None

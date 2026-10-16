@@ -72,14 +72,16 @@ def _load_regime_from_history(window_days: int = DEFAULT_WINDOW) -> list[dict]:
         with get_connection() as conn:
             conn.row_factory = None
             rows = conn.execute(
-                "SELECT date, status, regime_score FROM regime_history WHERE date >= date('now', ?) ORDER BY date ASC",
+                "SELECT date, status, regime_score FROM regime_history "
+                "WHERE date >= date('now', ?) AND is_degraded = 0 ORDER BY date ASC",
                 (f"-{window_days} days",),
             ).fetchall()
             result = [{"date": r[0], "status": r[1], "regime_score": r[2]} for r in rows if len(r) >= 3]
             if len(result) >= 3:
                 return result
             fallback = conn.execute(
-                "SELECT date, status, regime_score FROM regime_history ORDER BY date DESC LIMIT ?", (max(30, window_days),)
+                "SELECT date, status, regime_score FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT ?",
+                (max(30, window_days),),
             ).fetchall()
             fallback_result = [{"date": r[0], "status": r[1], "regime_score": r[2]} for r in fallback if len(r) >= 3]
             fallback_result.reverse()

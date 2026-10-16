@@ -168,8 +168,23 @@ def fetch_fred_csv_latest(series_id: str = DFEDTARU_SERIES, timeout: float = 15.
         resp.raise_for_status()
         content = resp.text
     except (requests.RequestException, OSError) as e:
-        logger.warning(f"FRED CSV {series_id} fetch failed: {e}")
-        return None
+        content = None
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                from curl_cffi import requests as creq
+
+                c_resp = creq.get(
+                    FRED_GRAPH_CSV_URL.format(series_id=series_id),
+                    impersonate="chrome124",
+                    timeout=timeout,
+                )
+                if c_resp.status_code == 200 and c_resp.text:
+                    content = c_resp.text
+            except Exception:  # noqa: BLE001
+                content = None
+        if content is None:
+            logger.warning(f"FRED CSV {series_id} fetch failed: {e}")
+            return None
 
     latest_date = None
     latest_val = None
@@ -372,6 +387,15 @@ def _fetch_fred_series(series_id: str) -> float | None:
         Float value, or None if unavailable.
     """
     if not FRED_API_KEY:
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            csv_res = fetch_fred_csv_latest(series_id)
+            if csv_res is not None and isinstance(csv_res.get("value"), (int, float)):
+                val = float(csv_res["value"])
+                # WALCL and WRESBAL in FRED CSV are in millions of USD;
+                # _scale_fred_asset/_scale_fred_reserves divide by 1_000_000_000.
+                if series_id in ("WALCL", "WRESBAL"):
+                    return val * 1_000.0
+                return val
         return None
 
     try:

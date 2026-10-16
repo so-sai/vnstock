@@ -164,7 +164,9 @@ def _get_regime_from_db() -> dict:
     try:
         with get_connection() as conn:
             df = pd.read_sql(
-                "SELECT date, status, regime_score, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1", conn
+                "SELECT date, status, regime_score, breadth_pct FROM regime_history "
+                "WHERE is_degraded = 0 ORDER BY date DESC LIMIT 1",
+                conn,
             )
         if not df.empty:
             return {

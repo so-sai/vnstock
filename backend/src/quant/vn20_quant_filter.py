@@ -144,7 +144,9 @@ def _latest_market_regime(conn) -> str:
     Thiếu dữ liệu → RANGING (ngưỡng giữa, an toàn).
     """
     try:
-        row = conn.execute("SELECT status FROM regime_history ORDER BY date DESC, rowid DESC LIMIT 1").fetchone()
+        row = conn.execute(
+            "SELECT status FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC, rowid DESC LIMIT 1"
+        ).fetchone()
     except sqlite3.Error, TypeError, ValueError, KeyError, IndexError:
         return "RANGING"
     if not row or not row["status"]:

@@ -54,6 +54,10 @@ def log_regime_state(verdict):
 
     df = pd.DataFrame(data)
     with get_connection() as conn:
+        # Cờ suy giảm SUY RA từ bảng độ rộng cùng ngày (None = không biết ≠ 0) — Mục 1/5 backlog.
+        from src.database.series_quality import breadth_degraded_flag
+
+        df["is_degraded"] = [breadth_degraded_flag(conn, date)]
         save_data_upsert("regime_history", df, conn)
     print(f"📈 [TIMELINE] Logged regime state for {date}.")
 
