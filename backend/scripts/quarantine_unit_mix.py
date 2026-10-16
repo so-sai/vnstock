@@ -56,6 +56,16 @@ EXTERNAL_ANCHOR = {
     "DDG": (800.0, 1100.0),
     "BII": (300.0, 500.0),
     "NOS": (400.0, 600.0),
+    # Bổ sung 2026-10-16 (neo chủ hệ thống tra). ĐO TRƯỚC KHI THÊM cho thấy 7 mã này KHÔNG có
+    # dòng nào ≥100× cận trên neo ⇒ lệnh cách ly sẽ ghi 0 dòng; giá trị thật của chúng nằm ở
+    # defect ĐỐI XỨNG: dải lịch sử bị THIẾU 1000× (đơn vị "nghìn đồng") chứ không phải bị nhân lên.
+    "PPS": (9000.0, 10000.0),
+    "MGG": (23500.0, 24500.0),
+    "VTJ": (3400.0, 3600.0),
+    "MIE": (5500.0, 5500.0),
+    "HHG": (700.0, 1000.0),
+    "PXA": (600.0, 800.0),
+    "VIN": (30000.0, 40000.0),
 }
 
 
@@ -103,6 +113,7 @@ def analyse(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
         anchor = EXTERNAL_ANCHOR.get(sym)
         bands = ", ".join(f"{sorted(c for _d, c in s)[len(s) // 2]:,.0f}" for s in segs)
         jumped = sum(len(s) for s in segs)
+        declared = False
         if anchor:
             cut = anchor[1] * 100
             for seg in segs:
@@ -121,6 +132,29 @@ def analyse(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
                             f"đoạn {med:,.0f}đ = {med / anchor[1]:,.0f}× neo)",
                         }
                     )
+            # [WHY] Lưới ĐỐI XỨNG: neo cũng phân xử được bên THIẾU thang. Đo 2026-10-16: PPS/MGG/VTJ/
+            # MIE/HHG/PXA/VIN có dải lịch sử nhỏ hơn giá thật ~1000× (vd PPS 5–11 trong khi thật
+            # 9.000–10.000đ ⇒ dải lịch sử ở đơn vị "nghìn đồng"), KHÔNG phải bị nhân lên. Nhưng đây là
+            # quyết định ĐƠN VỊ CHO CẢ LỊCH SỬ (rescale) chứ không phải cách ly ⇒ CHỈ KHAI BÁO, cấm ghi.
+            for seg in segs:
+                med = sorted(c for _d, c in seg)[len(seg) // 2]
+                if med and med * 100 <= anchor[0]:
+                    unresolved.append(
+                        {
+                            "symbol": sym,
+                            "from": seg[0][0],
+                            "to": seg[-1][0],
+                            "n_rows": len(seg),
+                            "median": med,
+                            "anchor": anchor,
+                            "verdict": "KHAI BÁO: nghi THIẾU ~1000× (đơn vị 'nghìn đồng') — "
+                            "cần quyết định ĐƠN VỊ cho cả lịch sử, KHÔNG tự rescale",
+                            "bands": bands,
+                        }
+                    )
+                    declared = True
+        if declared:
+            continue
         unresolved.append(
             {
                 "symbol": sym,
@@ -135,6 +169,68 @@ def analyse(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
         )
     return quarantine, unresolved
 
+
+def audit_rescaled_rows(conn: sqlite3.Connection) -> None:
+    """LƯỚI THEO NHÃN `rescaled_vci_x1000` — CHỈ KHAI BÁO, KHÔNG ghi.
+
+    [WHY] Đo 2026-10-16: nhãn này có trong DỮ LIỆU nhưng KHÔNG có trong mã nguồn (`grep` = 0 kết quả)
+    ⇒ di sản của một script ad-hoc đã biến mất. 4.633 dòng / 171 mã, trong đó 3.891 dòng vẫn LIVE.
+
+    [ROOT CAUSE] Script đó nhân ×1000 lên một số dòng `vci`, nhưng việc đó ĐÚNG với 47 mã (giá vci vốn
+    ở đơn vị "nghìn đồng") và SAI với một số mã khác.
+
+    [INVARIANT] Cấm tự động cách ly theo nhãn: quy tắc "nhãn + tỉ lệ ∈ [300, 3000] ⇒ phantom" sẽ chặn
+    nhầm chính những dòng ĐÚNG — 3 dòng rescaled của `PPS` ở 10.400đ, của `VTJ` ở 3.600đ, của `MGG` ở
+    24.400đ ĐỀU khớp neo ngoài ⇒ chúng là bản VÁ ĐÚNG, không phải phantom. Lưới nhãn chỉ để ĐẾM và
+    đối chiếu neo; mọi thay đổi dữ liệu phải qua neo (xem `analyse`).
+    """
+    import statistics as _st
+
+    syms = [
+        r[0]
+        for r in conn.execute("SELECT DISTINCT symbol FROM daily_ohlcv WHERE source LIKE '%rescaled_vci%'")
+    ]
+    tagged = conn.execute(
+        "SELECT COUNT(*), SUM(is_stale) FROM daily_ohlcv WHERE source LIKE '%rescaled_vci%'"
+    ).fetchone()
+    print(f"\n### LƯỚI THEO NHÃN rescaled_vci_x1000 (KHAI BÁO — không ghi): "
+          f"{tagged[0]} dòng / {len(syms)} mã; trong đó is_stale=1: {tagged[1] or 0} "
+          f"⇒ còn LIVE: {tagged[0] - (tagged[1] or 0)}")
+    for sym in sorted(syms):
+        t = [
+            r[0]
+            for r in conn.execute(
+                f"SELECT close FROM daily_ohlcv WHERE symbol=? AND {VALID_ROW_SQL} AND source LIKE '%rescaled_vci%'",
+                (sym,),
+            )
+        ]
+        p = [
+            r[0]
+            for r in conn.execute(
+                f"SELECT close FROM daily_ohlcv WHERE symbol=? AND {VALID_ROW_SQL}"
+                " AND (source IS NULL OR source NOT LIKE '%rescaled_vci%')",
+                (sym,),
+            )
+        ]
+        if not t or not p:
+            continue
+        ratio = _st.median(t) / _st.median(p)
+        if 300 <= ratio <= 3000:
+            anc = EXTERNAL_ANCHOR.get(sym)
+            med_t = _st.median(t)
+            if not anc:
+                note = "KHÔNG có neo ⇒ khai báo, cấm ghi"
+            elif med_t >= anc[1] * 100:
+                note = (f"neo {anc[0]:,.0f}–{anc[1]:,.0f}đ ⇒ dòng CÓ NHÃN lệch xa neo "
+                        f"({med_t:,.0f}đ) ⇒ PHANTOM (đã/đang cách ly theo neo)")
+            elif med_t * 100 <= anc[0]:
+                note = (f"neo {anc[0]:,.0f}–{anc[1]:,.0f}đ ⇒ dòng CÓ NHÃN THIẾU ~1000× "
+                        f"({med_t:,.0f}đ) ⇒ khai báo, cần quyết định ĐƠN VỊ")
+            else:
+                note = (f"neo {anc[0]:,.0f}–{anc[1]:,.0f}đ ⇒ dòng CÓ NHÃN KHỚP neo "
+                        f"({med_t:,.0f}đ) ⇒ nhãn là bản VÁ ĐÚNG, KHÔNG được cách ly")
+            print(f"   {sym:6s} tỉ lệ median(có nhãn/không)={ratio:>9.1f} n_có_nhãn={len(t):>5} "
+                  f"n_không={len(p):>5}  ⇒ {note}")
 
 def rows_to_quarantine(conn: sqlite3.Connection, records: list[dict]) -> int:
     """Đếm dòng sẽ ghi. Chặn theo NGƯỠNG GIÁ (>= cut), KHÔNG theo cửa sổ ngày: cửa sổ của một đoạn
@@ -187,11 +283,17 @@ def main() -> int:
         print(f"{r['symbol']:6s} {r['from']:11s} {r['to']:11s} {r['n_rows']:>5} {r['median']:>12,.0f}"
               f"  {r['verdict']}")
     if unresolved:
-        print(f"\nCÒN MỜ (chỉ KHAI BÁO, KHÔNG cách ly — {len(unresolved)} mã):")
+        kinds = {}
         for r in unresolved:
+            k = "THIẾU thang (~1000×)" if "THIẾU" in r["verdict"] else "chưa phân xử (không neo)"
+            kinds[k] = kinds.get(k, 0) + 1
+        print(f"\nKHAI BÁO (KHÔNG cách ly — {len(unresolved)} mục): " + ", ".join(f"{k}: {v}" for k, v in kinds.items()))
+        for r in unresolved:
+            tag = "  <== THIẾU thang (~1000×, đơn vị 'nghìn đồng')" if "THIẾU" in r["verdict"] else ""
             print(f"  {r['symbol']:6s} {r['from']}→{r['to']} n={r['n_rows']:<6} "
-                  f"các thang: [{r['bands']}]" + (f" neo={r['anchor']}" if r["anchor"] else ""))
+                  f"thang:[{r['bands']}]" + (f" neo={r['anchor']}" if r["anchor"] else "") + tag)
 
+    audit_rescaled_rows(conn)
     total_rows = rows_to_quarantine(conn, quarantine)
     print(f"\nDòng sẽ gắn is_stale = 1 + nhãn '{TAG}': {total_rows}")
 

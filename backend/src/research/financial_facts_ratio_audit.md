@@ -676,7 +676,44 @@ Thứ tự bắt buộc: **(1)** đủ neo cho 92 (hoặc 171) mã ⇒ cách ly 
 → **(3)** chạy lại phép thử bác bỏ trên bảng ĐÃ SẠCH → **(4)** mới áp `[p2, p98]` + `n_min = 5`.
 
 
+### 7.4sexies NEO NGOÀI 8 MÃ — **đo trước khi thêm: 7/8 KHÔNG hề có phantom**
+
+Chủ hệ thống công bố neo cho 8 mã (`PPS` 9.000–10.000 · `MGG` 23.500–24.500 · `VTJ` 3.400–3.600 ·
+`MIE` 5.500 · `HHG` 700–1.000 · `PXA` 600–800 · `VIN` 30.000–40.000 · `NOS` 500). Đã nạp cả 8 vào
+`EXTERNAL_ANCHOR`. **Kết quả lệnh cách ly: 0 dòng** — và đây là lý do, đo trên `daily_ohlcv` (dòng hợp lệ vị từ):
+
+| mã | các DẢI giá thật trong store (median, số dòng) | đối chiếu neo | phán quyết |
+|---|---|---|---|
+| `PPS` | **9** (1.135 dòng) · **10.000** (17 dòng, 2026-08→10) | dải nhỏ = **9.000đ ở đơn vị "nghìn"** | THIẾU ~1000×, không phantom |
+| `MGG` | **25** (894) · **24.400** (15) | 25 nghìn = 25.000đ ≈ neo | THIẾU ~1000× |
+| `VTJ` | **4** (1.457) · **3.700** (13) | 4 nghìn = 4.000đ ≈ neo | THIẾU ~1000× |
+| `MIE` | **7** (138) · **6.150** (8) | 7 nghìn = 7.000đ ≈ neo | THIẾU ~1000× |
+| `HHG` | **2** (1.307) · **800** (117) | 2 nghìn = 2.000đ | THIẾU ~1000× |
+| `PXA` | **1–2** (210) · **800** (72) | 2 nghìn = 2.000đ | THIẾU ~1000× |
+| `VIN` | **15** (731) · **16.000** (9) | 15 nghìn = 15.000đ | THIẾU ~1000× |
+| `NOS` | **400.000** (742) · 1.600 (696) · 700 (11) | 400.000đ = **800× neo** | **PHANTOM — đã cách ly ở §7.4quinquies** |
+
+⇒ 7 mã kia **không có một dòng nào ≥100× cận trên neo** ⇒ không có gì để cách ly. Cột "tỉ lệ 300–3.000"
+trong bảng trước là **tỉ số median(có nhãn)/median(không nhãn)**, KHÔNG phải mức giá — đọc nó thành
+"bị nhân lên N lần" là **nhầm đơn vị đọc**.
+**Defect thật của 7 mã này là ĐỐI XỨNG**: dải lịch sử bị **THIẾU ~1000×** (đơn vị "nghìn đồng"), dải gần
+đây (2026-08→10) đã đúng đơn vị đồng. **Chứng minh nội tại, không cần neo:** bước nhảy ≥10× giữa hai dải
+CHÍNH LÀ chỗ đổi đơn vị — nhân dải lịch sử ×1000 thì chuỗi liền mạch trở lại (PPS: 9→9.000 rồi 9.200 ✓).
+Đây là **quyết định ĐƠN VỊ cho cả lịch sử** (đổi ~1.000–1.500 dòng/mã, ảnh hưởng mọi consumer), KHÔNG
+phải việc cách ly ⇒ công cụ **chỉ khai báo 13 đoạn** (`THIẾU thang (~1000×)`) và **cấm tự rescale**.
+
+**Lưới theo nhãn (mục ii) — đã làm, nhưng ở dạng KHAI BÁO, không tự cách ly:** 4.633 dòng / 171 mã,
+742 đã cách ly ⇒ **3.891 dòng còn LIVE**. Quy tắc "nhãn + tỉ lệ ∈ [300, 3.000] ⇒ phantom" **bị bác bỏ**:
+7 dòng mang nhãn rescaled của `PPS/VTJ/MGG/MIE/HHG/PXA/VIN` **KHỚP neo ngoài** (10.400 / 3.600 / 24.250 /
+5.500 / 750 / 600 / 16.000đ) ⇒ nhãn đó là **bản VÁ ĐÚNG**, tự động cách ly sẽ **xoá dữ liệu đúng**.
+Chỉ `NOS` (200.000đ = 800× neo) là phantom, đã xử lý. 697 dòng `NOS` còn lại (1.000–5.900đ = 2–12× neo)
+⇒ khai báo mơ hồ, chưa đụng.
+
+**Trạng thái công cụ:** `ruff All checks passed` · `5 passed` · chạy lại trên kho thật = **0 dòng cần ghi**
+(idempotent) · 98 mục khai báo (85 mã không neo + 13 đoạn thiếu thang).
+
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
+
 
 - Sau B: số ca `PE < 2` = **0**; với mỗi `(symbol, kỳ)`, `z` tính lại từ chuỗi sạch khớp ±5% với bản backup.
 - Mọi dòng `valuation_scores` có `is_clean_metric ∈ {0,1}`; mọi dòng `0` có `anomaly_flags` **không rỗng**.
