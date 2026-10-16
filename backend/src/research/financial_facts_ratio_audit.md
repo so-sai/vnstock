@@ -120,3 +120,81 @@ profitability) và `forensic_scores` (792 mã, `m_score`, `hard_violation`).
 4. **Không xoá cứng**: chỉ thêm cờ + (nếu cần) giá trị kẹp biên ở cột riêng.
 5. **Kiểm chứng sau khi chạy B:** PE mới phải cho phân phối hợp lý (kỳ vọng median ~10–15, P99 ≤ vài
    trăm) và **số ca `PE < 2` phải về 0** — đây là tiêu chí DONE của B.
+
+---
+
+## 7. ĐỀ XUẤT WINSORIZE — áp Ở ĐÂU, bằng công thức nào (bổ sung 2026-10-15)
+
+### 7.1 Chuỗi hỏng đã đóng: winsorize một mình là KHÔNG ĐỦ, và hướng hỏng là fail-OPEN trên rủi ro
+
+| Bước | Vị trí (đã đọc mã, không suy đoán) | Hệ quả |
+|---|---|---|
+| 1 | `valuation_engine.py:273` — `ttm_eps = eps * (quarters / 1)` **vô điều kiện** | PE kỳ Q2/Q4 (EPS luỹ kế) bị chia ~4; 39/40 ca đúng tỉ lệ `0,25` (mục 2) |
+| 2 | z-score sinh từ chuỗi có PE sai | z của chính mã đó âm rất sâu ("cực rẻ") |
+| 3 | `grid_search_v2.py:189` — `mos = 1.0 - (max(zs) / 3.0 + 0.5)` | **bão hoà ở `\|z\| ≥ 1,5`**: `z ≤ −1,5` ⇒ MoS = **100%**; `z ≥ +1,5` ⇒ MoS = 0% |
+| 4 | `governor/emergency_exit_engine.py:233–240` — xếp hạng xả theo `mos < 20 / 30 / 50` | MoS 100% ⇒ **cả 3 ngưỡng đều false** ⇒ `priority = LOW` ("bluechip, hold if possible") |
+| 5 | `decision_guard.py:364` — nhánh DEFENSIVE (`LRI < 0,30`) gọi `EmergencyExitEngine.evaluate()` | vị thế có PE hỏng được xếp **ưu tiên xả THẤP NHẤT** đúng lúc quy trình thanh lý cần chạy |
+
+⇒ **Đây là lỗi kỳ hạn ở tầng ratio làm IM LẶNG quy trình thanh lý theo rủi ro** — cùng họ với Ca 1
+(`RANGING`) và Ca 6 (guard tắt tiếng khi thiếu dữ liệu), nhưng hậu quả nặng hơn: nó không chỉ làm
+sai một nhãn hiển thị mà **đổi thứ tự ưu tiên xả hàng trong chế độ DEFENSIVE**.
+⇒ Winsorize **không sửa được gốc** (đúng như mục 2: B sửa, E gắn cờ). Winsorize ở đây chỉ có một
+mục tiêu hợp lệ: **cứu THANG ĐO của z** cho những mã còn lại — vì một `std` bị đuôi thổi phồng làm
+mọi z co về 0, MoS về ~50% (vùng "không nói gì"), và bộ lọc mất khả năng phân biệt trong im lặng.
+
+### 7.2 Kẹp `ratio_value` toàn cục là LOOK-AHEAD — cấm
+
+Một ngưỡng percentile/`[min,max]` tính trên **toàn bộ** chuỗi (mọi kỳ, kể cả kỳ tương lai) rồi kẹp
+từng dòng ⇒ dòng 2018 bị kẹp bằng ngưỡng chỉ biết được từ 2026. Trong một bảng PIT đó là **look-ahead
+mới**, đúng loại lỗi mà A/B đang dọn ⇒ tự tay tái nhiễm.
+⇒ Winsorize chỉ hợp lệ khi biên là **trailing/expanding**: tại kỳ `t`, biên chỉ tính từ các kỳ `< t`.
+
+### 7.3 Đề xuất 3 tầng, đúng thứ tự (không đảo)
+
+**Tầng 1 — CỜ (đúng/sai), additive, không xoá cứng:** như mục 5 (`is_clean_metric`, `anomaly_flags`,
+`effective_date`). Các mã `EXTREME_LOW_PE` · `PERIODICITY_MISMATCH_EPS` · `DISTRESSED_EQUITY` ·
+`NEAR_ZERO_DENOMINATOR` · `UNTRACEABLE_DENOMINATOR` **loại dòng khỏi xếp hạng**.
+
+**Tầng 2 — WINSOR (ổn định thang đo), đặt trong `backfill_valuation_pit.py` (expanding-window),
+KHÔNG đặt trong `valuation_engine.py`** (file đó đang dùng `mean/std` toàn chuỗi — look-ahead sẵn có,
+theo chính docstring của `backfill_valuation_pit.py`), và **KHÔNG ghi đè cột `ratio_value`**:
+- Ước lượng bền vững thay cho `std`: `z_robust = (x − median_w) / (1,4826 · MAD_w)` với `w` = cửa sổ
+  **trailing**; lý do: `std` bị chính các cực trị thổi phồng nên nó là thứ bị hỏng, không phải thứ để tin.
+- Kẹp đầu vào ở mức **trailing percentile** `[p_lo, p_hi]` theo `(symbol, ratio_name)` **trước** khi
+  tính `mean/std`; `p_lo/p_hi` là **số phải ĐO** (xem 7.4) — không bịa trước. Mọi lần kẹp ghi lại giá
+  trị kẹp ở cột riêng + cờ `OUTLIER_WINSORED` (đã định nghĩa ở mục 5).
+- Fail-closed: nếu `MAD_w = 0` hoặc `count_w < n_min` ⇒ `z = None`, **không** bịa 0 (luật A của `AGENTS.md`).
+
+**Tầng 3 — Chặn bão hoà ở consumer:** vì `mos` bão hoà ở `|z| ≥ 1,5`, một z rác đủ để lật MoS từ 0% sang
+100%:
+- consumer (`grid_search_v2._get_mos_pct`) **bắt buộc** lọc `is_clean_metric = 1`;
+- khi z không sạch/không đo được ⇒ MoS = `None`, và `emergency_exit_engine` phải coi `None` là
+  **không kết luận được**, KHÔNG được rơi về nhánh "rẻ ⇒ LOW priority". (Hiện `_get_mos_pct` trả `0.0`
+  khi thiếu z — hướng đó an toàn vì `mos < 20` ⇒ CRITICAL; điểm hỏng nằm ở nhánh MoS = 100% sinh từ z rác.)
+
+### 7.4 Việc PHẢI ĐO trước khi chốt ngưỡng — **CHƯA ĐO ĐƯỢC trong lượt này**
+
+Truy vấn read-only đã được phát lệnh nhưng cổng phê duyệt hết hạn ⇒ **các số dưới đây CHƯA có**, và
+không được bịa để lấp chỗ trống:
+
+1. Phân bố `z_score` thật: p50/p99/max `|z|`, và **số dòng `|z| > 1,5`** (đang bão hoà MoS).
+2. `std` / `count` per `(symbol, ratio_name)`: bao nhiêu dòng `std ≤ 0` hoặc `count < 3` (nguồn sinh z vô cực).
+3. **Độ nhạy thang đo**: `std` có/không 1% đuôi. Nếu tỉ lệ < 1,2 ⇒ lập luận "std bị đuôi nuốt" **SAI** và
+   phải bỏ tầng 2 (đây là phép thử có thể bác bỏ chính đề xuất này).
+4. `p_lo/p_hi` trailing: chọn bằng tiêu chí **z của các dòng SẠCH ổn định qua các cửa sổ**, không chọn
+   theo "số trông đẹp".
+5. Đếm số vị thế **thực tế** bị hạ ưu tiên xả do z rác (quy mô tác động lên quyết định, không chỉ số dòng).
+
+### 7.5 Tiêu chí DONE (đo được, không cảm tính)
+
+- Sau B: số ca `PE < 2` = **0**; với mỗi `(symbol, kỳ)`, `z` tính lại từ chuỗi sạch khớp ±5% với bản backup.
+- Mọi dòng `valuation_scores` có `is_clean_metric ∈ {0,1}`; mọi dòng `0` có `anomaly_flags` **không rỗng**.
+- Với thang trailing-robust: không còn dòng nào `|z| > 1,5` mà không kèm cờ lý do.
+- Test hồi quy (TDD, RED trước): dựng chuỗi 20 điểm ~12 có **1 điểm 12.500** ⇒ chứng minh `z_robust` của
+  các điểm sạch **không bị co về 0** (bản cũ co mạnh ⇒ MoS kẹt ~50%), và **cột `ratio_value` không đổi**.
+
+### 7.6 Chưa xác minh (ghi rõ để không hoá thành giả định)
+
+- Nguồn `open_positions` (⇒ `mos_pct`) của **đường live**: `decision_guard.py:378` nhận qua tham số, chưa
+  truy được ai dựng nó trong lượt này. Đường backtest (`grid_search_v2.build_open_positions`) thì đã
+  xác minh từng dòng ở 7.1.
