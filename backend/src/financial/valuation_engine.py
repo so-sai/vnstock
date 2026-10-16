@@ -56,6 +56,15 @@ QUARTER_END_MAP = {
 PRICE_BASIS = "ADJUSTED_TODAY"  # ∈ {"ADJUSTED_TODAY", "RAW"}
 
 
+def _median(xs: list[float]) -> float:
+    """Trung vị không cần import (dùng cho hiệu chuẩn chu kỳ EPS)."""
+    s = sorted(xs)
+    n = len(s)
+    if n == 0:
+        return 0.0
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
 # WHY: Metadata từng ratio gồm ngưỡng z-score (ultra_cheap/cheap/expensive/ultra_expensive).
 # Ngưỡng ±2σ cho "quá rẻ/quá đắt" (cơ hội/risk lớn), ±1σ cho mức lệch đáng chú ý — chọn
 # dựa trên quy tắc 68-95-99 của phân phối chuẩn để vùng FAIR (±1σ) bao ~68% quan sát lịch
@@ -251,6 +260,7 @@ class ValuationEngine:
     #   tcbs: EPS == TTM4/shares          (khớp ×1,00 ở 6/6 kỳ) ⇒ TTM       ⇒ annualize ×1
     # ⇒ CẤM dùng một hằng số chung. Hiệu chuẩn từng mã bằng chính kho (dung sai 2%).
     CALIB_TOL = 0.02
+    LEVEL_TOL_PCT = 2.0  # lệch MỨC > 2% ⇒ cờ THÔNG TIN (không chặn) — Bước 5, 2026-10-16
     SHRES_DIV_TOL_PCT = 25.0  # pha loãng ĐÃ BIẾT của SHB 2026 = +16,3% ⇒ >25% là khác bản chất
     MAX_PERIODS = 200  # `get_facts` mặc định chỉ 8 kỳ ⇒ phải xin rõ số kỳ cho chuỗi PIT
     ALL_RATIOS = ("PE", "PB", "PS", "EV_EBITDA", "ROE")
@@ -268,6 +278,8 @@ class ValuationEngine:
         "DISTRESSED_EQUITY": {"PB", "ROE"},
         "BASIS_MISMATCH": {"PB", "PE", "PS"},
         "EPS_PERIODICITY_UNKNOWN": {"PE", "ROE"},
+        "EPS_PERIODICITY_AMBIGUOUS": {"PE", "ROE"},
+        "EPS_LEVEL_MISMATCH": {"PE", "ROE"},
     }
 
     @classmethod
@@ -281,7 +293,7 @@ class ValuationEngine:
     # không phải bằng chứng sai số. Nếu cho nó chặn thì SHB/MBB/TCB… đều bị loại khỏi bảng xếp
     # hạng dù số liệu đúng. Ngược lại `SHARES_BASIS_UNEXPLAINED` (>25%, không giải thích được
     # bằng phát hành thêm) LÀ cờ chặn.
-    INFO_FLAGS = {"SHARES_DILUTION_FLAGGED"}
+    INFO_FLAGS = {"SHARES_DILUTION_FLAGGED", "EPS_LEVEL_MISMATCH"}
 
     @classmethod
     def is_blocking(cls, flags: list[str]) -> bool:
@@ -298,19 +310,25 @@ class ValuationEngine:
             return self._annualize_factor(quarter)
         return 1.0
 
-    def calibrate_eps_periodicity(self, facts: dict) -> tuple[str, str, float | None]:
-        """→ (flow_kind, basis, median_dev) — hiệu chuẩn chu kỳ EPS của MỘT mã.
+    def calibrate_eps_periodicity(self, facts: dict) -> tuple[str, str, float | None, float | None]:
+        """→ (flow_kind, basis, cv_thắng, lệch_mức_%).
 
-        Ứng viên dựng từ `NET_INCOME` (cùng kho, cùng kỳ):
-          QUARTER = NI_kỳ/S · TTM = (Σ3 quý trước + kỳ)/S · YTD = (Σ từ đầu năm → kỳ)/S
-        S = số cổ phiếu mà NGUỒN dùng (`SHARES_OUT` nếu có, không thì `CHARTER_CAPITAL/10.000`)
-        ⇒ phép so sánh có nghĩa bất kể chuẩn mực của nguồn. Chọn ứng viên có **median
-        |EPS/ứng viên − 1|** nhỏ nhất; nếu vượt `CALIB_TOL` ⇒ `UNKNOWN` (fail-closed, cấm đoán).
-        Thiếu `NET_INCOME` để hiệu chuẩn ⇒ dùng mặc định THEO NGUỒN đã đo được và gắn nhãn
-        `SOURCE_DEFAULT` (không giả vờ đó là kết quả hiệu chuẩn).
+        PHƯƠNG PHÁP 2 BƯỚC (phán quyết 2026-10-16, Bước 5) — **dung sai vẫn 2%, KHÔNG nới**:
+          1. **CHU KỲ (shape):** với mỗi quy ước, lập tỷ lệ `r_t = EPS_t / ứng_viên_t` rồi đo độ tán
+             xạ **VỮNG** `1,4826 × MAD(r) / median(r)`. Quy ước ĐÚNG ⇒ `r` gần như hằng số ở mọi
+             kỳ ⇒ tán xạ ≈ 0, *bất kể mức*. Nhận khi ≤ `CALIB_TOL`. (Bản 5a dùng `CV = σ/μ` và đã
+             bị bác bỏ bằng số đo: vài kỳ dị biệt do trộn vintage veto cả mã ⇒ dòng sạch GIẢM.)
+          2. **MỨC (level):** `lệch_mức = |median(r) − 1|`. > `LEVEL_TOL_PCT` ⇒ cờ **THÔNG TIN**
+             `EPS_LEVEL_MISMATCH` — đó là khác biệt ĐỊNH NGHĨA/mẫu số (lợi nhuận mẹ vs toàn phần,
+             cổ phiếu quỹ, mẫu số của nhà cung cấp), KHÔNG phải sai chu kỳ.
+        Vì sao phải tách: đo 2026-10-16 — VNM có tỷ lệ **0,891 nhưng CV chỉ 1,2%** (hai chuỗi đồng
+        pha tuyệt đối); điều kiện cũ `|median − 1| ≤ 2%` biến một sai số *danh mục kế toán* thành
+        "không xác định được chu kỳ" và chặn oan hàng nghìn dòng.
+        Chống chọn nhầm (fail-closed): **≥2 quy ước cùng đạt CV ≤ tol ⇒ `AMBIGUOUS`** (đúng ca NI
+        gần phẳng — chọn sai ở đó làm PE lệch tới 4×).
         """
         periods = sorted(facts)
-        devs: dict[str, list[float]] = {"QUARTER": [], "TTM": [], "YTD": []}
+        raw: dict[str, list[float]] = {"QUARTER": [], "TTM": [], "YTD": []}
 
         def ni_at(idx: int) -> float | None:
             """NET_INCOME (hoặc NET_PROFIT) của kỳ thứ `idx` — **None nếu thiếu**.
@@ -357,23 +375,41 @@ class ValuationEngine:
                 cands["YTD"] = sum(wy) / sh
             for kind, cand in cands.items():
                 if cand > 0:
-                    devs[kind].append(abs(eps / cand - 1.0))
+                    raw[kind].append(eps / cand)
 
-        best, best_dev = None, None
-        for kind, ds in devs.items():
-            if len(ds) >= 4:
-                ds.sort()
-                med = ds[len(ds) // 2]
-                if best_dev is None or med < best_dev:
-                    best, best_dev = kind, med
-        if best is not None and best_dev is not None:
-            if best_dev <= self.CALIB_TOL:
-                return best, "CALIBRATED", best_dev
-            return "UNKNOWN", "CALIBRATION_FAILED", best_dev
-        # Không đủ dữ liệu để hiệu chuẩn ⇒ mặc định theo NGUỒN (đã đo), nhãn SOURCE_DEFAULT.
-        # `SHARES_OUT` chỉ tồn tại ở các dòng nguồn tcbs (đo 2026-10-16) ⇒ dùng làm dấu hiệu nguồn.
-        has_shares_out = any(facts[p].get("SHARES_OUT") for p in periods)
-        return ("TTM" if has_shares_out else "QUARTER"), "SOURCE_DEFAULT", None
+        stats: dict[str, tuple[float, float]] = {}  # kind → (độ_tán_xạ_vững, lệch_mức_%)
+        for kind, rs in raw.items():
+            if len(rs) < 4:
+                continue
+            med = _median(rs)
+            if med <= 0:
+                continue
+            # ĐỘ TÁN XẠ VỮNG (Bước 5b, 2026-10-16): dùng MAD thay σ.
+            # WHY: đo trên store sau Bước 5a — `CV = σ/μ` bị CHI PHỐI BỞI VÀI KỲ DỊ BIỆT (nguồn
+            # trộn vintage cho 2–3 kỳ), nên nó VETO cả mã dù 90% kỳ khớp tuyệt đối: dòng sạch
+            # 34.707 → 29.313, PE sạch 3.929 → 1.359 (GIẢM, ngược mục tiêu). Bản cũ dùng trung vị
+            # nên không bị; đổi sang MAD giữ được tính vững đó mà vẫn đo ĐỘ TÁN XẠ (bất biến mức).
+            # Ngưỡng VẪN 2% — không nới.
+            mad = _median([abs(r - med) for r in rs])
+            disp = 1.4826 * mad / abs(med)
+            stats[kind] = (disp, abs(med - 1.0) * 100.0)
+
+        if not stats:
+            # Không đủ dữ liệu để hiệu chuẩn ⇒ mặc định theo NGUỒN (đã đo), nhãn SOURCE_DEFAULT.
+            # `SHARES_OUT` chỉ tồn tại ở các dòng nguồn tcbs (đo 2026-10-16) ⇒ dấu hiệu nguồn.
+            has_shares_out = any(facts[p].get("SHARES_OUT") for p in periods)
+            return ("TTM" if has_shares_out else "QUARTER"), "SOURCE_DEFAULT", None, None
+
+        ranked = sorted(stats.items(), key=lambda kv: kv[1][0])
+        winners = [k for k, (cv, _l) in ranked if cv <= self.CALIB_TOL]
+        if len(winners) > 1:
+            cv, level = ranked[0][1]
+            return "AMBIGUOUS", "AMBIGUOUS", cv, level
+        if len(winners) == 1:
+            cv, level = stats[winners[0]]
+            return winners[0], "CALIBRATED", cv, level
+        cv, level = ranked[0][1]
+        return "UNKNOWN", "CALIBRATION_FAILED", cv, level
 
     def select_shares_now(self, facts: dict) -> tuple[float | None, str, list[str]]:
         """→ (shares_now, basis, flags) — số cổ phiếu cho BASIS A (giá adjusted + shares NOW).
@@ -608,11 +644,19 @@ class ValuationEngine:
 
         # PHÁN QUYẾT 1+2 (2026-10-16): hiệu chuẩn chu kỳ EPS THEO TỪNG MÃ và chọn basis số cổ
         # phiếu CÓ GUARD — không dùng hằng số chung, không trộn basis (xem docstring 2 hàm dưới).
-        flow_kind, flow_basis, flow_dev = self.calibrate_eps_periodicity(facts)
+        # BƯỚC 5: tách CHU KỲ (CV ≤ 2%) khỏi MỨC (lệch mức chỉ là cờ thông tin).
+        flow_kind, flow_basis, flow_cv, flow_level = self.calibrate_eps_periodicity(facts)
         shares_now, shares_basis, shares_flags = self.select_shares_now(facts)
         base_flags = list(shares_flags)
         if flow_kind == "UNKNOWN":
             base_flags.append("EPS_PERIODICITY_UNKNOWN")
+        elif flow_kind == "AMBIGUOUS":
+            # Hai quy ước cùng ổn định (NI gần phẳng) ⇒ chọn sai làm PE lệch tới 4× ⇒ chặn.
+            base_flags.append("EPS_PERIODICITY_AMBIGUOUS")
+        if flow_level is not None and flow_level > self.LEVEL_TOL_PCT:
+            # Lệch MỨC hệ thống (lợi nhuận mẹ vs toàn phần / mẫu số của nguồn) — THÔNG TIN, không
+            # chặn: chu kỳ vẫn đúng, và PE dùng EPS như nhà cung cấp công bố nên không lệch theo.
+            base_flags.append("EPS_LEVEL_MISMATCH")
 
         # For each period, compute valuation ratios
         all_period_ratios = {}  # {period: {ratio_name: value}}

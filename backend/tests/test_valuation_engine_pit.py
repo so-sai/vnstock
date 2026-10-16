@@ -176,20 +176,35 @@ def test_canary_acb_2018q1_khong_con_gia_nam_2025():
 
 
 def _facts_kind(kind: str) -> dict:
-    """8 kỳ liền nhau: NI = 1.000/kỳ, CHARTER_CAPITAL = 10.000.000 ⇒ shares = 1.000.
+    """8 kỳ liền nhau, shares = 1.000 (CHARTER_CAPITAL/10.000); NI **biến thiên**.
 
-    QUARTER ⇒ EPS = 1,0 · TTM ⇒ EPS = 4,0 · YTD ⇒ EPS = số quý trong năm.
+    QUARTER ⇒ EPS = NI_kỳ/S · TTM ⇒ EPS = Σ4/S · YTD ⇒ EPS = Σ(đầu năm→kỳ)/S
+    FLAT ⇒ NI và EPS đều phẳng (ca `AMBIGUOUS`) · SCALED ⇒ EPS = 0,891 × NI_kỳ/S (ca lệch MỨC
+    kiểu VNM) · NOISY ⇒ NI dao động mạnh + EPS hằng (ca không quy ước nào ổn định, kiểu CII).
     """
     periods = [f"2024Q{q}" for q in (1, 2, 3, 4)] + [f"2025Q{q}" for q in (1, 2, 3, 4)]
+    base = (1000.0, 1200.0, 900.0, 1500.0, 1100.0, 1300.0, 950.0, 1400.0)
+    wild = (1000.0, 2000.0, 500.0, 1800.0, 400.0, 2200.0, 600.0, 1900.0)
+    ni = {p_: v for p_, v in zip(periods, wild if kind == "NOISY" else base)}
     out = {}
-    for p in periods:
-        q = int(p[5])
-        eps = 1.0 if kind == "QUARTER" else (4.0 if kind == "TTM" else float(q))
-        out[p] = {
+    for idx, per in enumerate(periods):
+        q = int(per[5])
+        v = 1000.0 if kind == "FLAT" else ni[per]
+        if kind in ("QUARTER", "SCALED", "NOISY"):
+            eps = 1.0 if kind == "NOISY" else v / 1000.0
+        elif kind == "TTM":
+            eps = sum(ni[periods[idx - k]] for k in range(4) if idx - k >= 0) / 1000.0
+        elif kind == "FLAT":
+            eps = 1.0
+        else:  # YTD
+            eps = sum(ni[periods[idx - k]] for k in range(q) if idx - k >= 0) / 1000.0
+        if kind == "SCALED":
+            eps *= 0.891
+        out[per] = {
             "EPS": eps,
-            "NET_INCOME": 1_000.0,
+            "NET_INCOME": v,
             "CHARTER_CAPITAL": 10_000_000.0,
-            "_fiscal_year": int(p[:4]),
+            "_fiscal_year": int(per[:4]),
             "_fiscal_quarter": q,
         }
     return out
@@ -197,31 +212,39 @@ def _facts_kind(kind: str) -> dict:
 
 def test_calibrate_nhan_dien_quarter():
     e = ValuationEngine.__new__(ValuationEngine)
-    kind, basis, dev = e.calibrate_eps_periodicity(_facts_kind("QUARTER"))
+    kind, basis, cv, level = e.calibrate_eps_periodicity(_facts_kind("QUARTER"))
     assert (kind, basis) == ("QUARTER", "CALIBRATED")
-    assert dev is not None and dev <= 0.02
+    assert cv is not None and cv <= 0.02  # BƯỚC 5: chu kỳ đo bằng CV của tỷ lệ
+    assert level is not None and level <= 2.0
 
 
 def test_calibrate_nhan_dien_ttm():
     e = ValuationEngine.__new__(ValuationEngine)
-    kind, basis, dev = e.calibrate_eps_periodicity(_facts_kind("TTM"))
+    kind, basis, cv, level = e.calibrate_eps_periodicity(_facts_kind("TTM"))
     assert (kind, basis) == ("TTM", "CALIBRATED")
-    assert dev is not None and dev <= 0.02
+    assert cv is not None and cv <= 0.02
+    assert level is not None and level <= 2.0
 
 
 def test_calibrate_nhan_dien_ytd():
     e = ValuationEngine.__new__(ValuationEngine)
-    kind, basis, _dev = e.calibrate_eps_periodicity(_facts_kind("YTD"))
+    kind, basis, _cv, _level = e.calibrate_eps_periodicity(_facts_kind("YTD"))
     assert (kind, basis) == ("YTD", "CALIBRATED")
 
 
 def test_calibrate_khong_khop_quy_uoc_nao_thi_unknown():
-    """Fail-closed: EPS không khớp QUARTER/TTM/YTD ⇒ UNKNOWN (cấm đoán)."""
+    """Fail-closed: EPS dao động KHÔNG tương quan với NI ⇒ không quy ước nào ổn định ⇒ UNKNOWN.
+
+    WHY đổi ca test (Bước 5, 2026-10-16): EPS *hằng* so với ứng viên TTM vốn rất trơn vẫn "ổn
+    định hình dạng" ⇒ rơi vào TTM kèm cờ lệch MỨC lớn — đúng giới hạn nội tại của phép thử hình
+    dạng (mức bị hấp thụ vào độ lệch). Muốn ra UNKNOWN thì chuỗi EPS phải lệch pha với mọi ứng viên.
+    """
     f = _facts_kind("TTM")
-    for p in f:
-        f[p]["EPS"] = 7.77
+    wild = (1.0, 6.0, 2.0, 6.5, 1.2, 5.8, 2.4, 6.9)
+    for per, val in zip(sorted(f), wild):
+        f[per]["EPS"] = val
     e = ValuationEngine.__new__(ValuationEngine)
-    kind, basis, _dev = e.calibrate_eps_periodicity(f)
+    kind, basis, _cv, _level = e.calibrate_eps_periodicity(f)
     assert kind == "UNKNOWN" and basis == "CALIBRATION_FAILED"
 
 
@@ -229,8 +252,8 @@ def test_chua_du_du_lieu_thi_theo_nguon_va_ghi_nhan():
     """Thiếu NET_INCOME ⇒ mặc định theo nguồn, nhãn SOURCE_DEFAULT (không giả vờ đã hiệu chuẩn)."""
     f = {p: {k: v for k, v in m.items() if k != "NET_INCOME"} for p, m in _facts_kind("TTM").items()}
     e = ValuationEngine.__new__(ValuationEngine)
-    kind, basis, dev = e.calibrate_eps_periodicity(f)
-    assert (kind, basis, dev) == ("QUARTER", "SOURCE_DEFAULT", None)
+    kind, basis, dev, level = e.calibrate_eps_periodicity(f)
+    assert (kind, basis, dev, level) == ("QUARTER", "SOURCE_DEFAULT", None, None)
 
 
 def test_flow_kind_unknown_gan_co_va_khong_nhan_4():
@@ -275,7 +298,7 @@ def test_canary_shb_hieu_chuan_ra_ttm_tu_store_that():
         pytest.skip(f"không đọc được financial_facts.db: {exc}")
     if len(facts) < 8:
         pytest.skip("SHB chưa đủ kỳ trong store")
-    kind, basis, _dev = eng.calibrate_eps_periodicity(facts)
+    kind, basis, _cv, _level = eng.calibrate_eps_periodicity(facts)
     assert (kind, basis) == ("TTM", "CALIBRATED")
 
 
@@ -366,3 +389,73 @@ def test_co_pha_loang_khong_nam_trong_FLAG_SCOPE_chan():
     """Cờ thông tin không được lọt vào nhóm cờ chặn (chống hồi quy)."""
     assert "SHARES_DILUTION_FLAGGED" in ValuationEngine.INFO_FLAGS
     assert "SHARES_DILUTION_FLAGGED" not in ValuationEngine.FLAG_SCOPE
+
+
+# ── BƯỚC 5: tách CHU KỲ (shape) khỏi MỨC (level) — phán quyết 2026-10-16 ────────
+
+
+def test_calibrate_lech_muc_van_nhan_dung_chu_ky():
+    """Ca VNM: tỷ lệ 0,891 nhưng CV chỉ ~1,2% ⇒ chu kỳ QUARTER + lệch MỨC ~10,9% (cờ thông tin).
+
+    WHY: đây là điều kiện cũ `|median − 1| ≤ 2%` đã bác bỏ OAN — lệch mức là khác biệt định
+    nghĩa/mẫu số (lợi nhuận mẹ vs toàn phần), không phải sai chu kỳ.
+    """
+    e = ValuationEngine.__new__(ValuationEngine)
+    kind, basis, cv, level = e.calibrate_eps_periodicity(_facts_kind("SCALED"))
+    assert (kind, basis) == ("QUARTER", "CALIBRATED")
+    assert cv is not None and cv <= 0.02
+    assert level == pytest.approx(10.9, abs=0.2)  # |0,891 − 1| = 10,9%
+
+
+def test_calibrate_ca_phang_la_AMBIGUOUS():
+    """NI phẳng ⇒ cửa sổ TTM trùng YTD ⇒ ≥2 quy ước cùng ổn định ⇒ PHẢI fail-closed.
+
+    WHY: ở ca này chọn sai làm PE lệch tới 4× — không được đoán.
+    """
+    e = ValuationEngine.__new__(ValuationEngine)
+    kind, basis, _cv, _level = e.calibrate_eps_periodicity(_facts_kind("FLAT"))
+    assert (kind, basis) == ("AMBIGUOUS", "AMBIGUOUS")
+
+
+def test_calibrate_dao_dong_that_la_UNKNOWN():
+    """NI dao động mạnh + EPS hằng ⇒ không quy ước nào ổn định ⇒ UNKNOWN (như CII ngoài store)."""
+    e = ValuationEngine.__new__(ValuationEngine)
+    kind, basis, cv, _level = e.calibrate_eps_periodicity(_facts_kind("NOISY"))
+    assert kind == "UNKNOWN" and basis == "CALIBRATION_FAILED"
+    assert cv is not None and cv > 0.02
+
+
+def test_ambiguous_chan_con_level_mismatch_khong_chan():
+    """AMBIGUOUS là cờ CHẶN; EPS_LEVEL_MISMATCH chỉ là cờ THÔNG TIN (Bước 5)."""
+    assert ValuationEngine.is_blocking(["EPS_PERIODICITY_AMBIGUOUS"]) is True
+    assert ValuationEngine.is_blocking(["EPS_LEVEL_MISMATCH"]) is False
+    assert "EPS_LEVEL_MISMATCH" in ValuationEngine.INFO_FLAGS
+    assert "EPS_PERIODICITY_AMBIGUOUS" not in ValuationEngine.INFO_FLAGS
+
+
+def test_canary_vnm_quarter_va_co_lech_muc_tu_store_that():
+    """VNM trong store thật: đo 2026-10-16 có tỷ lệ 0,891 / CV 1,2% ⇒ QUARTER + lệch mức."""
+    try:
+        eng = ValuationEngine()
+        facts = eng.facts_db.get_facts("VNM", periods=200)
+    except (sqlite3.Error, OSError, KeyError, ValueError) as exc:  # pragma: no cover - môi trường
+        pytest.skip(f"không đọc được financial_facts.db: {exc}")
+    if len(facts) < 8:
+        pytest.skip("VNM chưa đủ kỳ trong store")
+    kind, basis, cv, level = eng.calibrate_eps_periodicity(facts)
+    assert kind == "QUARTER", f"VNM phải là QUARTER, nhận {kind}/{basis} (cv={cv}, level={level})"
+    assert cv is not None and cv <= 0.02
+    assert level is not None and level > 2.0, "VNM phải mang cờ lệch MỨC (~10,9%)"
+
+
+def test_canary_cii_khong_duoc_tu_tin_ve_chu_ky():
+    """CII (NI đổi dấu/gần 0): KHÔNG được kết luận chu kỳ — UNKNOWN hoặc AMBIGUOUS."""
+    try:
+        eng = ValuationEngine()
+        facts = eng.facts_db.get_facts("CII", periods=200)
+    except (sqlite3.Error, OSError, KeyError, ValueError) as exc:  # pragma: no cover - môi trường
+        pytest.skip(f"không đọc được financial_facts.db: {exc}")
+    if len(facts) < 8:
+        pytest.skip("CII chưa đủ kỳ trong store")
+    kind, basis, _cv, _level = eng.calibrate_eps_periodicity(facts)
+    assert basis in ("CALIBRATION_FAILED", "AMBIGUOUS"), f"CII phải fail-closed, nhận {kind}/{basis}"

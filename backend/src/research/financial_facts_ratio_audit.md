@@ -292,6 +292,48 @@ chạy nền với chốt chặn writer-idle; báo cáo DoD sẽ bổ sung vào 
 
 ---
 
+## 12. BƯỚC 5 — tách CHU KỲ (shape) khỏi MỨC (level): 2 vòng, 4 cờ mới, tự sửa 1 lần
+
+Phán quyết 2026-10-16 (GO). Mục tiêu: chấp nhận một quy ước theo **độ ổn định** của tỷ lệ
+`r_t = EPS_t / (NI_t/S_t)` (bất biến với mức), ghi lệch mức thành cờ **thông tin**. Dung sai
+**vẫn 2% — không nới** (khóa bằng `test_nguong_hieu_chuan_bi_khoa_khong_duoc_noi`).
+
+| Vòng | Tiêu chí độ ổn định | Dòng sạch | PE sạch | UNKNOWN | Phán quyết |
+|---|---|---|---|---|---|
+| (trước B5) | `median\|r−1\| ≤ 2%` | 34.707 | 3.929 | 27.779 | — |
+| **5a** | `CV = σ/μ ≤ 2%` | 29.313 ↓ | 1.359 ↓ | 42.096 ↑ | **BỊ BÁC BỎ bằng số đo** |
+| **5b** | `1,4826 × MAD(r)/median(r) ≤ 2%` | **35.800** | **4.460** | 24.641 | **GIỮ** |
+
+**Vì sao 5a hỏng:** `σ/μ` bị chi phối bởi **vài kỳ dị biệt** ⇒ veto cả mã dù phần lớn kỳ khớp
+tuyệt đối. Bản cũ (trung vị) không bị vì nó vốn vững. `MAD` giữ tính vững đó mà vẫn đo độ tán xạ
+⇒ 5b vượt cả bản cũ: **+1.093 dòng sạch, +531 dòng PE sạch**, PE<2 hợp lệ vẫn **0**.
+
+**Cờ mới:** `EPS_LEVEL_MISMATCH` (**thông tin**) — 1.487 dòng đứng riêng + 5.949/835 dòng kèm cờ
+khác · `EPS_PERIODICITY_AMBIGUOUS` (**chặn**) — 260 dòng (ca NI phẳng: chọn sai ⇒ PE lệch 4×).
+Quy ước sau 5b: QUARTER 29.087 · UNKNOWN 24.641 · YTD 1.075 · TTM 497 · AMBIGUOUS 260.
+
+**Canary trên store thật:** VNM ⇒ `QUARTER` (tán xạ **1,1%**) + lệch mức **11,2%** ✓ ·
+SHB ⇒ `TTM` (0,1%) ✓ · CII ⇒ `UNKNOWN` (148%) ✓ · ca tổng hợp NI phẳng ⇒ `AMBIGUOUS` ✓.
+
+### Tự đính chính: ước lượng 7.851 dòng là SAI (thực tế +1.093)
+
+Tôi dự báo Bước 5 giải phóng ~7.851 dòng. Sai, và đã truy nguyên (hai giả thuyết của tôi đều bị
+số đo bác bỏ):
+
+| Giả thuyết | Phép đo | Kết quả |
+|---|---|---|
+| "Thiếu độ phủ `NET_INCOME`" | 344 mã bị cờ | **0 mã** thiếu `NET_INCOME`, **0** mã khuyết cửa sổ hoàn toàn ⇒ bác bỏ |
+| "Trộn nguồn trong cùng ô (mã,kỳ,metric)" | `COUNT(DISTINCT source)` | **0/622.992 ô** có >1 nguồn ⇒ bác bỏ |
+| "EPS và NET_INCOME của cùng kỳ khác nguồn" | so `source` cặp EPS↔NI | chỉ **2 cặp** (BCM 2025Q3, VCB 2025Q2) ⇒ bác bỏ |
+| **Thực tế:** tỷ lệ `r` không có "đa số áp đảo" nào | MCM: `r ≡ 0,900 ± 0,001`; PRE: `0,965` + 2 kỳ `1,03` | MAD nhận được cả hai ✓ — nên lợi ích THẬT nhỏ và nằm ở nhóm "đa số khớp + vài kỳ lệch", không phải 7.851 dòng |
+
+**⇒ Nguyên nhân 24.641 dòng UNKNOWN còn lại:** mã có **không** đa số kỳ khớp cùng một quy ước
+(ví dụ tỷ lệ dao động liên tục) ⇒ không thể chứng minh chu kỳ từ những gì kho có. Đây **không phải**
+vấn đề độ phủ lẫn trộn nguồn — và **không sửa được bằng phương pháp**; levers thật sự đều nằm ở
+dữ liệu cơ bản chi tiết hơn (`NET_PROFIT_PARENT`, số cổ phiếu bình quân gia quyền mà nhà cung cấp
+dùng — cả hai **chưa có** trong kho: 0/66 metric). Vì vậy 24.641 dòng đó **ở ngoài xếp hạng là
+đúng**, không phải nợ kỹ thuật cần "sửa cho đủ".
+
 ## 11. KẾT QUẢ HẠNG MỤC B (đã chạy thật, 4 vòng lặp sửa lỗi)
 
 **Chuỗi A→C→B:** guard writer-idle OK (622.992 dòng không đổi 30s) → A `exit=0` (bù 7.287 dòng)
