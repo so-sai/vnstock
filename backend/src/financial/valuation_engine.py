@@ -45,6 +45,17 @@ QUARTER_END_MAP = {
 # cáo tài chính: valuation ratio phải dùng giá tại ngày số liệu công bố, không phải giá
 # hiện tại, nếu không z-score sẽ bị méo do chênh lệch thời gian giữa báo cáo và giá.
 
+# BASIS của chuỗi giá dùng để tính ratio (BƯỚC P, 2026-10-16 — xem
+# backend/src/research/financial_facts_ratio_audit.md §7/§8):
+#   - `daily_ohlcv.close` là chuỗi ĐÃ back-adjust về số cổ phiếu HIỆN TẠI (bằng chứng: HPG
+#     2018Q1 = 10.220 ≈ giá thô ~43.000 ÷ 4,22 lần tăng vốn) và `adj_close == close` trên
+#     toàn bộ 1.578.932 dòng ⇒ hệ thống KHÔNG lưu cờ điều chỉnh, nó phụ thuộc nhà cung cấp.
+#   - Hệ quả bắt buộc: mọi phép chia per-share (BVPS/EPS) PHẢI cùng basis ⇒ dùng số cổ phiếu
+#     HIỆN TẠI. Trộn với shares TẠI KỲ (BVPS cũ) ⇒ cờ `BASIS_MISMATCH`, loại khỏi xếp hạng.
+#   - Đổi nguồn giá ⇒ PHẢI chạy lại canary HPG 2018Q1 (tests/test_valuation_engine_pit.py).
+PRICE_BASIS = "ADJUSTED_TODAY"  # ∈ {"ADJUSTED_TODAY", "RAW"}
+
+
 # WHY: Metadata từng ratio gồm ngưỡng z-score (ultra_cheap/cheap/expensive/ultra_expensive).
 # Ngưỡng ±2σ cho "quá rẻ/quá đắt" (cơ hội/risk lớn), ±1σ cho mức lệch đáng chú ý — chọn
 # dựa trên quy tắc 68-95-99 của phân phối chuẩn để vùng FAIR (±1σ) bao ~68% quan sát lịch
@@ -152,32 +163,55 @@ class ValuationEngine:
         return f"{year:04d}-{m:02d}-{d:02d}"
 
     def _get_price_at_date(self, symbol: str, target_date: str) -> float | None:
-        """Lấy close price gần nhất với target_date (tìm backward)."""
+        """Close GẦN NHẤT về trước trong cửa sổ 30 ngày quanh `period_end` (PIT).
+
+        ⚠️ SỬA 2026-10-16 (BƯỚC P, `financial_facts_ratio_audit.md` §8): bản cũ khi không tìm
+        thấy bar nào trong 30 ngày đã fallback `ORDER BY date DESC LIMIT 1` — tức lấy **giá MỚI
+        NHẤT trong kho (giá TƯƠNG LAI)** rồi tính PE/PB cho kỳ quá khứ. Đo được: **636/1.789
+        cặp (35,6%)** bị nhiễm, đỉnh điểm **ACB 2018Q1→2019Q4** đều gán giá 21.100 của **2025**.
+        Nay: KHÔNG có bar trong cửa sổ ⇒ trả `None` (Missing > Fake). Dùng
+        `_get_price_with_flag()` nếu cần biết VÌ SAO thiếu.
+        """
+        price, _flag = self._get_price_with_flag(symbol, target_date)
+        return price
+
+    def _get_price_with_flag(self, symbol: str, target_date: str) -> tuple[float | None, str | None]:
+        """(price, flag) — flag ∈ {None, PRICE_FALLBACK_FUTURE, PRICE_STALE_ONLY, PRICE_MISSING}.
+
+        - `None`                  : có bar trong cửa sổ 30 ngày ⇒ PIT hợp lệ.
+        - `PRICE_FALLBACK_FUTURE` : không có bar trong cửa sổ NHƯNG có bar **sau** `period_end`
+                                    ⇒ bản cũ sẽ lấy giá tương lai (đúng 636 cặp đã nhiễm).
+        - `PRICE_STALE_ONLY`      : chỉ có bar **trước** cửa sổ ⇒ giá cũ, lệch mức (không phải
+                                    look-ahead nhưng vẫn không phải giá tại kỳ).
+        - `PRICE_MISSING`         : mã hoàn toàn không có bar.
+        """
         conn = self.screener_connect()
-        cur = conn.cursor()
-        target = datetime.strptime(target_date, "%Y-%m-%d")
-        # Search backward up to 30 days
-        # WHY: Tìm ngược tối đa 30 ngày vì ngày cuối quý có thể rơi vào cuối tuần/lễ (TT chứng
-        # khoán VN nghỉ, không có dữ liệu); lấy phiên giao dịch gần nhất về trước để giá phản
-        # ánh đúng thời điểm báo cáo. Fallback tới giá mới nhất khi chuỗi quá ngắn.
-        for days_back in range(31):
-            d = (target - timedelta(days=days_back)).strftime("%Y-%m-%d")
+        try:
+            cur = conn.cursor()
+            target = datetime.strptime(target_date, "%Y-%m-%d")
+            for days_back in range(31):
+                d = (target - timedelta(days=days_back)).strftime("%Y-%m-%d")
+                cur.execute(
+                    "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?",
+                    (symbol.upper(), d),
+                )
+                row = cur.fetchone()
+                if row and row[0]:
+                    return row[0], None
             cur.execute(
-                "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?",
-                (symbol.upper(), d),
+                "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol=? AND date>?",
+                (symbol.upper(), target_date),
             )
-            row = cur.fetchone()
-            if row:
-                conn.close()
-                return row[0]
-        # Fallback: latest available
-        cur.execute(
-            "SELECT date, close FROM daily_ohlcv WHERE symbol=? ORDER BY date DESC LIMIT 1",
-            (symbol.upper(),),
-        )
-        row = cur.fetchone()
-        conn.close()
-        return row[1] if row else None
+            later = cur.fetchone()[0] or 0
+            cur.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE symbol=?", (symbol.upper(),))
+            total = cur.fetchone()[0] or 0
+            if later > 0:
+                return None, "PRICE_FALLBACK_FUTURE"
+            if total > 0:
+                return None, "PRICE_STALE_ONLY"
+            return None, "PRICE_MISSING"
+        finally:
+            conn.close()
 
     def _get_price_history(self, symbol: str) -> dict[str, float]:
         """Get all historical prices: {date: close}."""
@@ -223,13 +257,27 @@ class ValuationEngine:
         fy = period_metrics.get("_fiscal_year", int(period[:4]))
         fq = period_metrics.get("_fiscal_quarter", int(period[5:6]))
         qend = self._quarter_end_date(fy, fq)
-        price = self._get_price_at_date(symbol, qend)
+        price, price_flag = self._get_price_with_flag(symbol, qend)
+        flags: list[str] = []
+        if price_flag:
+            flags.append(price_flag)
         if not price:
-            return {}
+            # Missing > Fake: KHÔNG bịa giá. Trả bản ghi CHỈ có cờ để tầng kiểm toán nhìn thấy
+            # (bản cũ `return {}` làm mất dấu vết vì sao kỳ đó không có ratio).
+            return {"_flags": flags, "_is_clean": False, "_price": None, "_no_price": True}
+
+        # ── ANNUALIZE THEO CHU KỲ (sửa lỗi ×4 mù quáng — 2026-10-16) ──────────────
+        # ĐO ĐƯỢC (financial_facts_ratio_audit.md §2): 39/40 ca PE<2 có PE_lưu = (giá/EPS)/4
+        # CHÍNH XÁC, và kỳ của chúng tập trung ở Q2+Q4 = 65% — đúng chỗ EPS **luỹ kế YTD**.
+        # Bản cũ nhân 4 cho MỌI kỳ ⇒ PE bị chia ~4 ở các kỳ luỹ kế. Nay: hệ số theo quý
+        # (YTD: Q1×4, Q2×2, Q3×4/3, Q4×1); nếu dữ liệu là EPS RIÊNG QUÝ thì ×4.
+        flow_kind = str(period_metrics.get("_flow_kind", "YTD")).upper()
+        af = 4.0 if flow_kind == "QUARTER" else self._annualize_factor(fq)
 
         eps = period_metrics.get("EPS")
         shares = period_metrics.get("SHARES_OUT")
         bvps = period_metrics.get("BOOK_VALUE_PS")
+        bvps_source = "PROVIDED" if bvps else None
         # SHARES_OUT proxy từ vốn điều lệ (BS): mệnh giá chuẩn TTCK VN = 10.000đ/cp.
         # WHY: vnstock VCI/KBS không trả item "số cổ phiếu lưu hành" trực tiếp trong BCTC
         # (probe 2026-08-14), nhưng BS có charter_capital/paid_in_capital. Chia cho mệnh
@@ -246,48 +294,49 @@ class ValuationEngine:
             eq = period_metrics.get("TOTAL_EQUITY")
             if eq and shares_now:
                 bvps = eq / shares_now
+                bvps_source = "SHARES_NOW"
             elif eq and shares:
                 bvps = eq / shares
+                bvps_source = "SHARES_PIT"  # ⚠ trộn basis với giá ADJUSTED_TODAY → BASIS_MISMATCH
         revenue = period_metrics.get("REVENUE") or period_metrics.get("NII")
         # EBITDA proxy = OPERATING_PROFIT + DEPRECIATION_AMORTIZATION (CF).
         # WHY: VCI/KBS IS không có item ebitda (probe 2026-08-14) — mapping đã tồn tại
         # nhưng payload không trả. EBIT + D&A là công thức chuẩn; D&A lấy từ cashflow.
         ebitda = period_metrics.get("EBITDA")
+        ebitda_is_proxy = False
         if not ebitda:
             op = period_metrics.get("OPERATING_PROFIT")
             da = period_metrics.get("DEPRECIATION_AMORTIZATION")
             if op and da:
                 ebitda = op + da
+                ebitda_is_proxy = True
         cash = period_metrics.get("CASH_EQUIV") or period_metrics.get("CASH_AND_BALANCES")
         debt = period_metrics.get("TOTAL_DEBT")
 
         mc = self._get_market_cap(price, shares)
         result = {"_price": price, "_mc": mc}
-        quarters = 4
 
-        # PE
-        # WHY: dữ liệu là theo quý nên nhân 4 để annualize thành TTM EPS — so sánh P/E cùng
-        # thang "1 năm" giữa các kỳ; chỉ tính khi EPS>0 vì EPS âm làm P/E vô nghĩa (giá trị
-        # âm không thể hiện "rẻ" hay "đắt").
+        # PE — annualize theo chu kỳ, không nhân 4 mù quáng; EPS ≤ 0 ⇒ KHÔNG bỏ lặng mà gắn cờ.
         if eps and eps > 0:
-            ttm_eps = eps * (quarters / 1)  # quarterly → annualized
-            result["PE"] = price / ttm_eps
+            result["PE"] = price / (eps * af)
+        elif eps is not None and eps <= 0:
+            flags.append("NEGATIVE_EARNINGS")
 
         # PB
         if bvps and bvps > 0:
             result["PB"] = price / bvps
 
-        # ROE (annualized for quarterly period)
+        # ROE (annualized theo cùng hệ số chu kỳ — cùng lớp lỗi với PE)
         # WHY: FairMultipleEngine (Gordon Growth Model) cần chỉ số ROE để tính Fair P/B
         # và Margin of Safety (MoS). Lưu trữ ROE vào valuation_scores cho mọi doanh nghiệp.
         ni = period_metrics.get("NET_INCOME") or period_metrics.get("NET_PROFIT")
         eq = period_metrics.get("TOTAL_EQUITY")
         if ni and eq and eq > 0:
-            result["ROE"] = (ni * 4) / eq
+            result["ROE"] = (ni * af) / eq
 
-        # PS (use revenue for standard, NII for bank as proxy)
+        # PS (annualize doanh thu cùng hệ số; nếu không, PS sẽ nhảy theo quý trong cùng năm)
         if revenue and shares:
-            rev_ps = revenue / shares
+            rev_ps = (revenue * af) / shares
             if rev_ps > 0:
                 result["PS"] = price / rev_ps
 
@@ -304,7 +353,42 @@ class ValuationEngine:
             if ev > 0:
                 result["EV_EBITDA"] = ev / ebitda
 
+        # ── BOUNDING SPEC + CỜ (Hạng mục E) — additive, KHÔNG xoá/không sửa số ──────
+        if eq and eq <= 0:
+            flags.append("DISTRESSED_EQUITY")
+        pe = result.get("PE")
+        if pe is not None:
+            if pe < 2.0:
+                flags.append("EXTREME_LOW_PE")
+                if flow_kind != "QUARTER" and fq in (2, 4):
+                    flags.append("PERIODICITY_MISMATCH_EPS")
+            elif pe > 100.0:
+                flags.append("OUTLIER_WINSORED")
+        if result.get("PB") is not None and result["PB"] > 20.0:
+            flags.append("NEAR_ZERO_DENOMINATOR")
+        if result.get("PS") is not None and result["PS"] > 100.0:
+            flags.append("NEAR_ZERO_DENOMINATOR")
+        if result.get("EV_EBITDA") is not None and result["EV_EBITDA"] > 200.0:
+            flags.append("NEAR_ZERO_DENOMINATOR")
+        if ebitda_is_proxy and result.get("EV_EBITDA") is not None:
+            # EBITDA không tồn tại như metric trong kho ⇒ mẫu số là proxy EBIT+D&A.
+            flags.append("UNTRACEABLE_DENOMINATOR")
+        if PRICE_BASIS == "ADJUSTED_TODAY" and bvps_source == "SHARES_PIT":
+            # Giá ở basis ADJUSTED_TODAY nhưng BVPS chia theo shares TẠI KỲ = râu ông nọ cắm
+            # cằm bà kia (HPG 2018Q1 sẽ ra 0,450 thay vì 1,899) ⇒ loại khỏi xếp hạng.
+            flags.append("BASIS_MISMATCH")
+
+        result["_flags"] = sorted(set(flags))
+        result["_is_clean"] = not result["_flags"]
         return result
+
+    @staticmethod
+    def _annualize_factor(quarter: int) -> float:
+        """Hệ số annualize cho số **luỹ kế YTD** (chuẩn công bố VN: Q1=3M, Q2=H1, Q3=9M, Q4=FY).
+
+        Q1 → ×4 · Q2 → ×2 · Q3 → ×4/3 · Q4 → ×1. (Bản cũ dùng ×4 cho mọi quý — xem §2 note.)
+        """
+        return {1: 4.0, 2: 2.0, 3: 4.0 / 3.0, 4: 1.0}.get(int(quarter), 4.0)
 
     def _compute_stats(self, values: list[float]) -> tuple[float, float, int]:
         n = len(values)
