@@ -517,6 +517,74 @@ không kẹp biên.
 không có "đúng" tự thân.
 
 
+### 7.4quater SANITY GIÁ (GO 2026-10-16) — **giả thuyết "price lệch thang ở `valuation_scores`" BỊ BÁC BỎ**, nhưng lộ ra ổ lệch đơn vị trong `daily_ohlcv` (LIVE)
+
+#### (a) Cổng sanity như đặc tả (`price ÷ close ≈ 1.000`, hoặc `price > 500.000`) — **0 ca để bắt**
+
+Đối chiếu **58.279/58.279 dòng** có `price` với `daily_ohlcv.close` cùng kỳ (đọc panel: chỉ `VALID_ROW_SQL`):
+
+| Bucket `price ÷ close` | Số dòng | % |
+|---|---|---|
+| 0,8 – 1,25 | **55.553** | **99,99%** |
+| 1,25 – 2 | 3 | 0,01% |
+| ≥ 2 · 5–20 · 20–100 · 100–1.000 · > 1.000 | **0 · 0 · 0 · 0 · 0** | 0% |
+| Không đối chiếu được (không có bar hợp lệ ≤ cuối quý) | 2.723 | — |
+
+Lệch lớn nhất toàn bảng = **1,313×** (`BHI 2025Q4`: 8.800 vs 6.700 — lệch *ngày* chốt quý, không phải lệch thang).
+⇒ Cổng `PRICE_SCALE_CORRUPTED` như đặc tả **sẽ không bao giờ nổ** ⇒ nếu thêm nó như một bước *làm sạch dữ liệu* thì đó là **cổng trang trí** (đúng luật 1 của skill thiết kế cổng). Nó chỉ còn giá trị như **tripwire bất biến** ("không dòng nào được lệch > 2×") để chặn hồi quy về sau.
+⇒ Kết luận phụ: 2.723 dòng không đối chiếu được là vấn đề **độ phủ** (thiếu bar trước cuối quý), KHÔNG phải thang giá.
+
+#### (b) Ổ BỆNH THẬT: **một mã mang HAI ĐƠN VỊ trong cùng chuỗi `daily_ohlcv`, và các dòng đó đều `is_stale = 0`**
+
+Phát hiện bằng nhật ký nhảy giá trong ngày trên **dòng hợp lệ vị từ** (1.538.753 cặp ngày liên tiếp):
+
+| Bucket nhảy | Số cặp | Số mã | Trong đó `is_stale = 0` |
+|---|---|---|---|
+| 3–10× | 0 | 0 | — |
+| 10–100× | 0 | 0 | — |
+| **100–1.000×** | **193** | **43** | **193 (100%)** |
+| **> 1.000×** | **42** | **32** | **41** |
+| **Tổng ≥ 100×** | **452 cặp** | **92 mã** | ~100% |
+
+Top mã: `NOS` 45 · `FID` 42 · `BII` 29 · `VKC` 28 · `LMH` 20 · `FTM` 20 · `ATG` 18 · `PTX` 16…
+**Đặc trưng số học:** các cặp nhảy có hệ số **đúng bằng 900** và nhảy *qua lại* trong cùng một mã —
+`DDG`: `2026-03-27` 1.000 → **900.000**; `2026-07-03` **800.000** → 1.100; 14 cặp như vậy.
+`BII`: từ `2019-10-21` trở đi 29 cặp `1.000 ⇄ 900.000`. Cả hai đều `source = 'VCI'`, `is_stale = 0`.
+⇒ Đây là dấu vân tay **trộn đơn vị VND ↔ "nghìn đồng"** (900.000 = 900 × 1.000) trong CÙNG một mã.
+**Không thể quyết định bên nào là đơn vị đúng CHỈ từ store** ⇒ phải đối chiếu nguồn ngoài, KHÔNG rescale mù.
+
+#### (c) Hệ quả — hai bất biến hiện có KHÔNG bắt được lớp này
+
+`is_stale = 0` ✓ và `VALID_ROW_SQL` ✓ (giá "hợp lệ" về hình dạng: `low ≤ close ≤ high`, `volume ≥ 0`) —
+một dòng 900.000 trong khi hàng xóm 1.000 **qua được cả hai lưới**. Đây là **cơ chế thứ ba**, khác hẳn
+ba lớp đã biết (nguồn không có bar · dòng bị cách ly · lệch thang do *nguồn khác* ghi):
+**cùng một nguồn (VCI) trả hai đơn vị ở hai thời điểm** ⇒ hệ quả lan ra MỌI consumer của `daily_ohlcv`
+(không riêng định giá): RS/momentum, ADV, breadth, breakout, valuation.
+Ví dụ đúng chuỗi nhân quả đã thấy: `BII 2024Q2` price 900.000 ⇒ `PS = 25.584`; `DDG 2026Q2` price 800.000 ⇒ `PB = 226`.
+
+#### (d) Đề xuất (chờ GO)
+1. **Cổng phát hiện theo lớp:** `|close_t / close_{t-1} − 1| ≥ 10×` **trong cùng một mã** ⇒ gắn
+   `UNIT_MIX_SUSPECT` + cách ly khỏi đường quyết định (cùng họ với `detect_duplicate_sessions`),
+   KHÔNG xoá, KHÔNG rescale tự động. Ngưỡng 10× là **thô hơn hẳn** mức nhảy thật (≥100×) nên không
+   chặn oan biến động thường ngày (bucket 3–10× = **0 cặp** trên toàn store ⇒ dư địa an toàn lớn).
+2. **Sanity giá ở `valuation_scores`** giữ lại dưới dạng **tripwire**: `price ÷ close ∈ [0,5; 2]`,
+   kỳ vọng **không bao giờ nổ** (hiện 55.553/55.556 đạt; 3 dòng 1,25–2× là lệch ngày chốt ⇒ cần
+   cửa sổ ±5 ngày trước khi biến nó thành cổng cứng).
+3. **Truy đơn vị đúng cho 92 mã** bằng một nguồn thứ hai (TCBS/cafef) trước khi sửa — mỗi mã chỉ cần
+   một điểm neo "giá thật ngày X" là phân xử được bên nào lệch.
+
+
+#### (e) PHÁN QUYẾT GHI NHẬN (GO 2026-10-16) — và một điều phải sửa lại
+
+| # | Nội dung GO | Trạng thái sau khi đo |
+|---|---|---|
+| 1 | Cổng sanity giá `PRICE_SCALE_CORRUPTED` (P0) | **PHẢI RE-SCOPE**: đo ra **0 ca** trong `valuation_scores` ⇒ hạ xuống **tripwire** (`price ÷ close ∈ [0,5; 2]`, cửa sổ ±5 ngày) + **chuyển trọng tâm sang cổng mới ở `daily_ohlcv`** cho 92 mã trộn đơn vị (mục (b)) |
+| 2 | Bổ sung biên ROE vào bounding spec: `EXTREME_ROE_ANOMALY` khi `\|ROE\| > 1,5`; winsor ROE ở `[p2, p98]` | **XÁC NHẬN** — số đo ủng hộ (ROE vượt ngưỡng bác bỏ 2,21×; top-1% ROE có 107/115 dòng đang `is_clean_metric = 1`) |
+| 3 | Winsor `[p2, p98]` trailing cho PE/PB/PS/ROE · **KHÔNG** winsor EV/EBITDA (loại bằng cờ) · `n_min = 5` | **XÁC NHẬN** — `n_min = 5` làm 24,6% dòng mang `INSUFFICIENT_HISTORY` + `z = NULL` (đánh đổi đã biết, không điền 0) |
+
+⚠️ Chưa thi hành mục nào trong bảng trên: đây là **ghi nhận quyết định**, phần code sẽ làm ở bước riêng
+(bounding spec nằm trong `valuation_engine.py`/writer — vùng vừa được phiên song song sửa, phải đọc lại trước khi vá).
+
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
 
 - Sau B: số ca `PE < 2` = **0**; với mỗi `(symbol, kỳ)`, `z` tính lại từ chuỗi sạch khớp ±5% với bản backup.
