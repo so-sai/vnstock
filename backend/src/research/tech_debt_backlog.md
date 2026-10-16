@@ -211,7 +211,7 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   build ⇒ phải grep nơi đọc tên gói trước khi đổi.
 - **PHÁN QUYẾT:** mở 2026-10-15; **(a) đã thực thi** (`0db323f`); (b), (c) chờ GO.
 
-## 8. Provenance cho `volume_profile` / `active_demand` (tài sản vi cấu trúc "ngủ đông")
+## 8. ✅ RESOLVED (LABELED_SYNTHETIC) — Provenance cho `volume_profile` / `active_demand` (tài sản vi cấu trúc "ngủ đông")
 
 - **WHAT:** bổ sung cột `source` (+ `fetched_at`, `window_start/window_end`, `bin_semantics`) cho hai
   bảng `volume_profile` và `active_demand`; nếu không truy được nguồn ⇒ gắn cờ `PROVENANCE_UNKNOWN`
@@ -246,6 +246,25 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   `VALID_ROW_SQL`/`is_stale`** ⇒ dòng cách ly chảy thẳng vào bảng dẫn xuất — thêm một điểm mẫu hình 3
   ở tầng **WRITER** (không chỉ reader). Kèm ghi chú: `volume_profile` chỉ phủ **57 mã**, phiên cuối
   2026-10-02; `active_demand` phiên cuối 2026-09-18 ⇒ cả hai đã **ngừng được nuôi**.
+- **KẾT QUẢ THỰC THI (GO 2026-10-16):**
+  - **Migration** `backend/scripts/migrate_label_synthetic_microstructure.py` (commit `e646089`) —
+    ADDITIVE + IDEMPOTENT: thêm `is_synthetic INTEGER DEFAULT 1`,
+    `method TEXT DEFAULT 'UNIFORM_WITHIN_DAILY_RANGE'`, `derived_from TEXT DEFAULT 'screener_cache.daily_ohlcv'`;
+    vật chất hoá **54.765 + 2.835 dòng = 100% `is_synthetic=1`, 0 NULL**; **không đổi số dòng, không đổi
+    khoảng ngày** (bất biến chứng minh bằng đếm trước/sau); chạy lại lần 2 ⇒ "không có gì để làm".
+  - **Hàng rào** `src/database/synthetic_guard.py` + `backend/tests/test_synthetic_microstructure_guard.py`
+    (commit `1b9aa3b`) — `SYNTHETIC_SAFE_SQL`, `synthetic_safe_predicate()`, `assert_consumable()`,
+    `describe_labels()`; **fail-closed** khi thiếu cột nhãn hoặc nhãn NULL ("không biết" ≠ "sạch").
+    Bộ test gồm **ca chống vá quá tay** (bộ quét phải bắt được một đoạn đọc trần giả) + **quét toàn bộ
+    đường tín hiệu** (`engine/`, `financial/`, `analysis/`, `governor/`, `portfolio/`, `core/holdings/`)
+    + whitelist-writer không mục rữa + canary trên store thật (**9/9 PASS**).
+  - **CONSUMER THẬT ĐÃ VÁ** (bộ quét bắt ngay lần chạy đầu): `src/governor/company_state.py::L4BehaviorLoader`
+    đọc `volume_profile` (POC/VAH/VAL để chấm điểm L4_BEHAVIOR) và `active_demand` **không lọc nhãn** ⇒
+    đã thêm `AND is_synthetic = 0` vào **4 truy vấn** + `_assert_microstructure_label()` fail-closed.
+  - **⚠️ HỆ QUẢ Ở TẦNG QUYẾT ĐỊNH (đo được, cần phê chuẩn):** sau khi lọc, **0/57 mã** còn dữ liệu vi cấu
+    trúc dùng được ⇒ **L4_BEHAVIOR = `NO_DATA` cho mọi mã** (SHB/VNM/FPT đo thật: `score=0, grade=NO_DATA`).
+    Đúng theo bất biến #1 (không có số đo thật ⇒ đứng ngoài), nhưng đây là thay đổi ở **tầng ra quyết định**
+    của governor — hiện **không** tác động live vì `ENTRY_LOCK = True`/`Hard Shutdown = True`.
 
 ## 9. Pipeline EOD đuổi kịp bảng dẫn xuất (`market_wide_breadth_daily`, `regime_history`)
 
