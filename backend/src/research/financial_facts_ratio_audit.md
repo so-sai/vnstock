@@ -383,6 +383,16 @@ theo chính docstring của `backfill_valuation_pit.py`), và **KHÔNG ghi đè 
 
 ### 7.4 SỐ ĐO THỰC TẾ (2026-10-15, read-only, `financial_facts.db`) + thông số đề xuất
 
+> ⚠️ **ĐÍNH CHÍNH TRẠNG THÁI (2026-10-16 19:5x).** Các bảng dưới đây đo trên trạng thái **7.427 dòng**
+> — trạng thái đó **không còn là bảng sống**: phiên song song đã chạy lại B/C và **dựng lại
+> `valuation_scores` lúc 2026-10-16 19:05–19:24** (`bak_recompute_scores_20261016_19xxxx`,
+> `bak_shares_hist_20261016_19xxxx`). Trạng thái cũ nay nằm ở **`valuation_scores_backup` = 7.301 dòng**.
+> Bảng sống hiện tại: **58.279 dòng · 743 mã · 35 kỳ (2018Q1–2026Q3)**, đã có thêm cột
+> `anomaly_flags`, `is_clean_metric`, `price_basis`, `shares_basis`, `eps_flow_kind`.
+> ⇒ **`[p2, p98]` và `n_min = 5` CHƯA được chốt**: phép thử bác bỏ ở Bảng B phải chạy LẠI trên trạng thái
+> mới trước khi thi hành (đuôi của trạng thái mới **xấu hơn**, xem 7.4bis). Số dưới đây giữ nguyên
+> làm **lịch sử quyết định**, không xoá.
+
 **Bảng A — phân phối `ratio_value`** (tổng 7.427 dòng: `PE` 1.159 · `PB` 1.776 · `PS` 1.700 · `ROE` 1.666 · `EV_EBITDA` 1.126).
 **0 giá trị âm · 0 giá trị = 0 · 0 non-finite ở MỌI ratio** ⇒ hai nhánh `NEGATIVE_*` chưa từng xuất hiện (writer ẩn đi, đúng như mục 1).
 
@@ -418,6 +428,42 @@ Mô phỏng đúng công thức consumer (`grid_search_v2.py:189`, `max(z)` trê
 **Thông số đề xuất (chờ GO):** winsor **`[p2, p98]` trailing** cho PE/PB/PS/EV_EBITDA · **không** winsor ROE · **`n_min = 5`** · z theo `median/MAD` trailing · consumer lọc `is_clean_metric = 1` và coi z không sạch là "không kết luận được".
 
 **Đo tiếp (1 lệnh, chưa chạy):** 286 dòng `std ≤ 0` có mang `z_score` khác NULL không (nếu có ⇒ z chia cho 0, đúng lớp lỗi Ca 1b), và 1.068 dòng `|z| ≥ 1,5` phân bố thế nào theo `ratio_name` × kỳ Q2/Q4 (để biết bao nhiêu là hệ quả trực tiếp của lỗi `×4` ⇒ nối vào tiêu chí DONE của B).
+
+### 7.4bis SỐ ĐO TRÊN TRẠNG THÁI MỚI (2026-10-16, sau khi B/C chạy lại, 58.279 dòng)
+
+*Snapshot nhất quán đã lấy bằng SQLite backup API: `ff_snapshot_20261016.db` · rows = 58.279 ·
+`(n, Σratio_value, max id) = (58279, 14836848.423891, 314676)` · fingerprint `88138018f38b3f3f`.*
+
+**Bảng A′ — phân phối mới (đuôi XẤU HƠN trạng thái cũ):**
+
+| ratio | n | min | P2 | P50 | P98 | max | so với cũ (max) |
+|---|---|---|---|---|---|---|---|
+| PE | 10.016 | 0,00029 | 1,996 | 23,66 | 1.183 | **57.030** | 12.500 → ×4,6 |
+| PB | 15.187 | 0,00034 | 0,2435 | 0,998 | 5,608 | **226,2** | 79,66 → ×2,8 |
+| PS | 12.899 | 0,00021 | 0,0524 | 1,757 | 60,49 | **25.584** | 460,4 → ×55 |
+| ROE | 11.447 | ~0 | 0,00115 | 0,0482 | 0,4181 | 9,143 | 0,885 → ×10 |
+| EV_EBITDA | 8.730 | 0,0217 | 3,571 | 33,85 | 582,5 | **1,2033e7** | 3.386,9 → ×3.553 |
+
+**Bảng A″ — `PE < 2`: 201 dòng** (không còn 40), phân bố quý `{Q4: 74 · Q2: 62 · Q3: 36 · Q1: 29}`
+⇒ **Q2+Q4 = 136/201 = 67,7%** — đúng dấu vân tay của lỗi annualization theo kỳ (nhưng tổng số đã tăng
+5×, tức lỗi vẫn tồn tại ở một phần dữ liệu sau B — **cần đối chiếu với `eps_flow_kind`** trước khi kết luận).
+
+**Bảng B′ — mẫu số suy biến (phát hiện MỚI, nặng hơn con số cũ 286):**
+`std = 0` ở **3.702 dòng** (`std IS NULL` = 0), `count` của nhóm này ∈ **[1, 4]**; trong đó
+**`z_score` = 0,0 ở 3.690 dòng** và **12 dòng mang z hữu hạn khác 0 dù `std = 0`** (nghi chia-cho-0 đã
+bị kẹp) ⇒ **z được BỊA 0** khi không đo được — đúng lớp lỗi luật A của `AGENTS.md`.
+Cùng nhóm đó `z_score_ts` = **NULL toàn bộ** ⇒ tầng ts đã theo luật, tầng `z_score` thì chưa.
+
+**Bảng D′ — `|z_score| ≥ 1,5` = 5.820 dòng (chiếm ~10–11% mỗi ratio)**, chia **4.674 dòng z ≥ +1,5
+("đắt") vs 1.146 dòng z ≤ −1,5 ("rẻ")** ⇒ bất đối xứng ~4:1.
+**Quý: Q2+Q4 = 49,2% so với nền toàn bảng 51,1% ⇒ KHÔNG có làm giàu theo quý** ⇒ phần lớn 5.820 dòng
+này **KHÔNG** do lỗi `×4` — nó là đuôi thật của tỉ số (mẫu số nhỏ / giá trị lớn).
+Mô phỏng consumer (`grid_search_v2:189`): **238 cặp `(symbol, kỳ)` chảy vào MoS = 100%** (cũ: 125) ·
+quý của dòng gây bão hoà: Q4 76 · Q2 75 · Q3 48 · Q1 39 ⇒ Q2+Q4 = 151/238 = 63,4%.
+
+⇒ **Hệ quả cho thông số:** `[p2, p98]` và `n_min = 5` **phải được đo lại** trên snapshot này
+(đuôi đã nở rộng ở mọi ratio, `std = 0` tăng 13×, còn `n_min` chưa đo lại phân bố `count`).
+**Không thi hành winsorize trước khi có phép thử bác bỏ chạy trên trạng thái mới.**
 
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
 
