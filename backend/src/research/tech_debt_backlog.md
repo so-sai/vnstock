@@ -6,7 +6,7 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 
 ---
 
-## 1. Migration `regime_history.is_degraded` (+ ghi cờ tại writer)
+## 1. ✅ DONE — Migration `regime_history.is_degraded` (+ ghi cờ tại writer)
 
 - **WHAT:** thêm cột `is_degraded` vào `regime_history`; `engine/regime_engine.py::backfill_regime_history`
   ghi cờ suy giảm của **chính phiên đó**.
@@ -19,7 +19,40 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   và test hồi quy xanh.
 - **RISK:** migration schema trên DB đang được cron/live dùng → phải làm ngoài cửa sổ EOD, có
   backup, và theo kiểu additive (ADD COLUMN) để không lock lâu.
-- **PHÁN QUYẾT:** NO-GO 2026-10-15 (chốt: giải pháp tầng đọc là đủ; xem `breadth_consumers_audit.md`).
+- **PHÁN QUYẾT:** ✅ **DONE 2026-10-16** (GO của user, ưu tiên 3 sau Mục 8 — user gọi là "Mục 5",
+  cùng nội dung `regime_history.is_degraded`). Bằng chứng:
+  - **Migration** `backend/scripts/migrate_regime_history_is_degraded.py` — ADDITIVE + IDEMPOTENT, cột
+    `is_degraded INTEGER` **KHÔNG default 0**; giá trị **suy ra từ nguồn đo được** (join ngày với
+    `market_wide_breadth_daily.degraded`): **1.465/1.465 dòng khớp ngày**, **34 phiên degraded=1**,
+    1.431 phiên =0, **0 dòng để NULL**; số dòng + khoảng ngày không đổi; chạy lại ⇒ 0 dòng đổi.
+  - **Helper tầng đọc** trong `src/database/series_quality.py`: `LIVE_REGIME_SQL`, `CODE_REGIME_DEGRADED`,
+    `assert_regime_degraded_column()` (fail-closed khi thiếu cột), `breadth_degraded_flag()` (None khi
+    không có dòng độ rộng ⇒ "không biết" ≠ 0).
+  - **3 WRITER đều phơi cờ:** `regime_engine.backfill_regime_history`, `daily_updater` (EOD),
+    `timeline_manager.log_regime_state`. Có test quét toàn cây: **writer nào ghi `regime_history` mà
+    không set cờ ⇒ fail build** (ngoại lệ duy nhất: `backtest/hsr_kernel.py` chỉ COPY vào `:memory:`
+    bằng `SELECT *`).
+  - **14 điểm ĐỌC ở tầng tín hiệu đã lọc:** `engine/recovery_engine` (2) · `engine/regime_engine` (6 —
+    seed EMA + breadth stability; riêng truy vấn *liệt kê NGÀY* để backfill được **miễn trừ có ghi lý
+    do**, vì lọc ở đó sẽ khiến phiên degraded bị coi là "thiếu" và bị ghi lại vô hạn) ·
+    `engine/capital_flow_forecasting_engine` · `engine/cross_market_flow_map` ·
+    `governor/liquidity_recovery_index` (2) · `governor/shock_detector` (**hợp nhất về một nguồn**:
+    bỏ tập ngày join riêng, dùng cờ) · `governor/uncertainty_layer` · `governor/unfreeze_gates_v2` ·
+    `portfolio/portfolio_recommendation_engine` · `quant/vn20_quant_filter` ·
+    `cao_readiness/gate_c_regime_stability` (2).
+  - **ĐO DRIFT = 0:** verdict live hôm nay `2026-10-16 CRISIS 0.2790` khớp dòng đã lưu
+    (`0.28`, `is_degraded=0`) ⇒ việc lọc không làm lệch kết luận hiện tại.
+  - **Kiểm kê không rò rỉ âm thầm:** test quét **cả cây `backend/src`**; file nào đọc `regime_history`
+    mà không lọc thì phải nằm trong `DISPLAY_TIER` **kèm lý do** (11 file: API/UI, services, timeline,
+    backtest, research, sensors, alpha) — nếu không ⇒ **fail build**. Tổng mặt cắt đo được: **41 điểm
+    đọc trong 24 file**.
+  - **CÒN LẠI (chờ quyết định):** các reader **backtest/research** (`trend_loop.py`,
+    `decompose_replay_by_regime.py`, `hsr_kernel.py`, `check_integrity.py`,
+    `opportunity_score_research.py`) hiện đọc cả phiên degraded. Lọc hay không là **quyết định phương
+    pháp** (lọc sẽ đổi kết quả nghiên cứu lịch sử đã công bố) ⇒ chưa tự đổi, đã kiểm kê tường minh.
+  - Test: `backend/tests/test_regime_degraded_contract.py` **8/8 PASS**; fixture của
+    `test_vn20_quant_filter.py` đã sửa theo schema thật + 2 ca mới (bỏ qua phiên degraded; nhãn NULL
+    không được coi là sạch); `test_valuation_latest_price.py` cập nhật theo dữ liệu PNJ đã sửa EPS.
 
 ## 2. Hợp đồng 2 tầng `degraded` ở NGUỒN (board) — không phải ở bảng
 
