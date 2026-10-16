@@ -220,6 +220,54 @@ phải chuyện shares (mục §4).
 
 ---
 
+## 9. Chuỗi C/B — nhật ký thực thi & 3 phép đo lật ngược giả định (2026-10-16)
+
+**Bước 1 (A re-run) — XONG.** Chạy lại `migrate_financial_facts_effective_date.py --apply`:
+`617.699/617.699` dòng có `effective_date`, `0` ngày sai định dạng, basis 100% `STATUTORY_LAG`.
+Bù đúng **2.715 dòng SHB (2008Q4→2026Q2, 40 metric)** mà luồng ingestion thêm sau Hạng mục A.
+
+**Đo 1 — quy ước EPS KHÁC NHAU theo nguồn (giả định "một hệ số chung" là SAI):**
+
+| Nguồn | Phép đo | Kết luận |
+|---|---|---|
+| `vci` (legacy) | `EPS == NET_INCOME_kỳ / shares` khớp **×1,00** ở mọi kỳ (AAH/AAS/AAT) | EPS = **RIÊNG KỲ** ⇒ annualize ×4 |
+| `tcbs` | `EPS == TTM4 / shares` khớp **×1,00** ở **6/6** kỳ (2.273 vs 2.272 · 2.281 vs 2.281 · 2.238 vs 2.238 · 2.215 vs 2.215 · 2.053 vs 2.053 · 302 vs 301) | EPS = **TTM** ⇒ annualize ×1 |
+| `vci` EPS(Q4)/EPS(Q1) | median **1,33**, chỉ 20,9% ca ≈1 (P10 0,34 · P90 9,55) | xác nhận **không** phải luỹ kế YTD (YTD ⇒ ≈4) |
+
+⇒ **40 ca `PE < 2` có nguồn gốc là các dòng EPS đã-TTM bị nhân ×4** (SHB 2024Q4: 0,84 → đúng 3,37).
+⇒ Hệ số annualize **phải tự hiệu chuẩn theo từng (mã, kỳ)**, không có hằng số chung: so `EPS` với
+`NI_kỳ/shares`, `TTM4/shares`, `YTD/shares`; khớp cái nào ⇒ dùng hệ số đó; không khớp ⇒
+`EPS_PERIODICITY_UNKNOWN` + `is_clean_metric = 0` (cấm đoán).
+
+**Đo 2 — hai nguồn số cổ phiếu nằm ở HAI BASIS, cấm nối chuỗi (SHB):**
+
+| kỳ | `SHARES_OUT` (tcbs) | `CHARTER_CAPITAL/10.000` (vci) | lệch |
+|---|---|---|---|
+| 2008Q4 | 200.000.000 | 200.000.000 | **+0,0%** |
+| 2010Q1–Q3 | 2.668.817.204 → 2.669.412.976 | 200.000.000 | **+1.234%** |
+| 2015Q4 | 2.667.061.611 | 948.600.000 | +181,2% |
+| 2020Q4 | 4.593.785.311 | 1.755.800.000 | +161,6% |
+| 2024Q4 | 5.343.748.241 | 3.662.900.000 | +45,9% |
+| 2026Q2 | 5.343.748.241 | 4.594.200.000 | +16,3% |
+
+⇒ `SHARES_OUT` **không phải** số cp tại kỳ (biên độ lệch giảm dần về hiện tại = dấu hiệu chuỗi đã
+điều chỉnh hồi tố về một mốc nào đó, nhưng mốc đó không khớp lần điều chỉnh giá). **Hệ quả trực
+tiếp lên headline SHB:** BVPS = **14.093** (tcbs) ⇒ P/B(16/10, 10.650) = **0,756** · BVPS =
+**16.393** (charter) ⇒ P/B = **0,650**. Hai con số đều "đo được", khác nhau 16% ⇒ **phải chốt
+basis trước khi đưa vào xếp hạng**.
+
+**Đo 3 — bảng C lưu CẢ HAI basis** (`shares_history`, PK `(symbol, period, basis)` + cột
+`divergence_pct`): dry-run **ĐẠT 0 lỗi**, 6/6 canary OK — `CHARTER_PIT`: **22.009 dòng / 71 kỳ /
+777 mã**; `TCBS_REPORTED`: **71 dòng / 1 mã (SHB)**, 66/71 cặp lệch >1% (đều là SHB).
+
+**Sự cố fail-closed (đáng ghi lại):** lần chạy `--apply` **bị chặn** với 144 lỗi "thiếu
+effective_date" — vì **một tiến trình khác đang nạp DB** (PNJ xuất hiện giữa 2 lần chạy; tổng
+dòng biến động 22.009→21.979). Không có dòng nào bị ghi ⇒ hợp đồng "không đủ điều kiện thì không
+ghi" hoạt động đúng. **Bài học vận hành:** mọi bước ghi phải (a) chạy lại A nếu luồng ingestion
+vừa thêm dòng, (b) kiểm "writer có im lặng không" trước khi mở transaction.
+
+---
+
 ## 7. ĐỀ XUẤT WINSORIZE — áp Ở ĐÂU, bằng công thức nào (bổ sung 2026-10-15)
 
 ### 7.1 Chuỗi hỏng đã đóng: winsorize một mình là KHÔNG ĐỦ, và hướng hỏng là fail-OPEN trên rủi ro
