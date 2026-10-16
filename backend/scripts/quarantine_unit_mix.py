@@ -34,7 +34,6 @@ Chạy:
 from __future__ import annotations
 
 import argparse
-import shutil
 import sqlite3
 import sys
 from datetime import datetime
@@ -215,7 +214,7 @@ def main() -> int:
     written = apply_quarantine(conn, quarantine)
     print(f"Đã ghi {written} dòng.")
     left = conn.execute(
-        f"SELECT COUNT(*) FROM daily_ohlcv WHERE is_stale = 0 AND source LIKE '%' || ? || '%'", (TAG,)
+        "SELECT COUNT(*) FROM daily_ohlcv WHERE is_stale = 0 AND source LIKE '%' || ? || '%'", (TAG,)
     ).fetchone()[0]
     print(f"Đã ghi. Còn dòng nào is_stale = 0 mang nhãn (kỳ vọng 0): {left}")
     print("\nKIỂM CHỨNG LẠI (chạy lại công cụ này — kỳ vọng 0 dòng cần ghi).")
