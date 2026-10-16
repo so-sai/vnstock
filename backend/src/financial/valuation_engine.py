@@ -14,7 +14,7 @@ từ dữ liệu giá thực tế (screener_cache.db) + dữ liệu tài chính 
 import logging
 import sqlite3
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 _candidate = Path(sys.executable).resolve().parent
@@ -263,6 +263,7 @@ class ValuationEngine:
     LEVEL_TOL_PCT = 2.0  # lệch MỨC > 2% ⇒ cờ THÔNG TIN (không chặn) — Bước 5, 2026-10-16
     SHRES_DIV_TOL_PCT = 25.0  # pha loãng ĐÃ BIẾT của SHB 2026 = +16,3% ⇒ >25% là khác bản chất
     MAX_PERIODS = 200  # `get_facts` mặc định chỉ 8 kỳ ⇒ phải xin rõ số kỳ cho chuỗi PIT
+    PIT_TODAY = date.today().isoformat()  # kỳ có effective_date > mốc này = CHƯA được phép đọc
     ALL_RATIOS = ("PE", "PB", "PS", "EV_EBITDA", "ROE")
     # PHẠM VI TỪNG CỜ (sửa 2026-10-16 sau khi DoD B cho thấy 11.375 dòng bị loại OAN):
     # cờ chỉ được dán lên những ratio mà nó thực sự nói về ratio đó — nếu không, một hàng PE sẽ
@@ -445,6 +446,48 @@ class ValuationEngine:
         if charter:
             return charter, "CHARTER_PIT", []
         return None, "NONE", []
+
+    @staticmethod
+    def pit_allowed(period_effective: dict[str, str], today: str) -> tuple[list[str], list[str]]:
+        """→ (kỳ được đọc, kỳ BỊ CHẶN vì `effective_date` chưa tới).
+
+        WHY (phát hiện 2026-10-16): B lần đầu ghi **19 dòng `2026Q3`** vào `valuation_scores` dù
+        `effective_date = 2026-10-30` còn ở TƯƠNG LAI — tức tự tạo một lỗ look-ahead ở tầng điểm
+        trong khi Hạng mục A đã cô lập đúng 90 dòng facts của kỳ đó. Nay engine **không sinh** ratio
+        cho kỳ chưa tới ngày hiệu lực (fail-closed), và kỳ thiếu `effective_date` cũng bị chặn
+        (không có provenance ⇒ đứng ngoài).
+        """
+        ok, blocked = [], []
+        for per, eff in period_effective.items():
+            if eff and eff <= today:
+                ok.append(per)
+            else:
+                blocked.append(per)
+        return sorted(ok), sorted(blocked)
+
+    def _period_effective_dates(self, symbol: str) -> dict[str, str]:
+        """Bản đồ {period → effective_date} đọc trực tiếp từ kho facts.
+
+        ⚠️ Mở connection RIÊNG (read-only) — KHÔNG dùng/không đóng connection của `facts_db`:
+        `FinancialFactsDB.connect()` cache một `self.conn` dùng chung; đóng nó làm chết cả engine
+        (đã xảy ra 2026-10-16: `ProgrammingError: Cannot operate on a closed database` ở mã đầu tiên).
+        Cũng không sửa `financial_facts.py` — file đó thuộc luồng ingestion.
+        """
+        path = getattr(self.facts_db, "db_path", None)
+        if not path:
+            return {}
+        conn = sqlite3.connect(f"file:{Path(str(path)).as_posix()}?mode=ro", uri=True, timeout=30.0)
+        try:
+            rows = conn.execute(
+                "SELECT period, MIN(effective_date) FROM financial_facts WHERE symbol=? AND period IS NOT NULL "
+                "GROUP BY period",
+                (symbol.upper(),),
+            ).fetchall()
+        except sqlite3.Error:
+            return {}
+        finally:
+            conn.close()
+        return {str(p): (str(e) if e else "") for p, e in rows}
 
     def compute_ratios_for_period(
         self,
@@ -641,6 +684,19 @@ class ValuationEngine:
         facts = self.facts_db.get_facts(symbol, periods=self.MAX_PERIODS)
         if not facts:
             return {"status": "NO_DATA", "symbol": symbol}
+
+        # GATE PIT (2026-10-16): CHỈ đọc kỳ có `effective_date <= hôm nay`. Kỳ chưa tới ngày hiệu
+        # lực KHÔNG được sinh ratio — B lần đầu đã ghi 19 dòng `2026Q3` (effective 2026-10-30) dù
+        # kỳ đó còn ở tương lai, tức tự tạo lỗ look-ahead ở tầng điểm. Cũng chặn luôn kỳ KHÔNG có
+        # `effective_date` (không provenance ⇒ đứng ngoài — luật bất biến #1).
+        _eff = self._period_effective_dates(symbol)
+        if _eff:
+            _allowed, _blocked = self.pit_allowed(_eff, self.PIT_TODAY)
+            if _blocked:
+                logger.warning("[PIT] %s: chặn %d kỳ chưa tới ngày hiệu lực %s", symbol, len(_blocked), _blocked[:5])
+            facts = {p: facts[p] for p in _allowed if p in facts}
+            if not facts:
+                return {"status": "NO_PIT_PERIODS", "symbol": symbol.upper(), "blocked": _blocked}
 
         # PHÁN QUYẾT 1+2 (2026-10-16): hiệu chuẩn chu kỳ EPS THEO TỪNG MÃ và chọn basis số cổ
         # phiếu CÓ GUARD — không dùng hằng số chung, không trộn basis (xem docstring 2 hàm dưới).

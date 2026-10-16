@@ -459,3 +459,40 @@ def test_canary_cii_khong_duoc_tu_tin_ve_chu_ky():
         pytest.skip("CII chưa đủ kỳ trong store")
     kind, basis, _cv, _level = eng.calibrate_eps_periodicity(facts)
     assert basis in ("CALIBRATION_FAILED", "AMBIGUOUS"), f"CII phải fail-closed, nhận {kind}/{basis}"
+
+
+# ── GATE PIT theo effective_date (phát hiện 2026-10-16: B đã ghi 19 dòng 2026Q3 tương lai) ──
+
+
+def test_pit_gate_chan_ky_chua_toi_ngay_hieu_luc():
+    """Kỳ có `effective_date` ở TƯƠNG LAI phải bị chặn; kỳ thiếu effective_date cũng bị chặn."""
+    eff = {
+        "2026Q2": "2026-08-14",  # đã qua
+        "2026Q3": "2026-10-30",  # TƯƠNG LAI so với 2026-10-16
+        "2018Q1": "2018-04-30",
+        "2020Q1": "",            # thiếu provenance ⇒ đứng ngoài
+    }
+    ok, blocked = ValuationEngine.pit_allowed(eff, "2026-10-16")
+    assert ok == ["2018Q1", "2026Q2"]
+    assert blocked == ["2020Q1", "2026Q3"]
+
+
+def test_pit_gate_bien_dung_ngay_effective_date():
+    """Biên: effective_date == hôm nay ⇒ ĐƯỢC đọc (T+ngày hiệu lực là hôm nay)."""
+    ok, blocked = ValuationEngine.pit_allowed({"2026Q2": "2026-10-16"}, "2026-10-16")
+    assert ok == ["2026Q2"] and blocked == []
+
+
+def test_canary_store_that_2026q3_bi_chan_boi_gate():
+    """Trong store thật, 2026Q3 có effective_date 2026-10-30 ⇒ PHẢI nằm trong nhóm bị chặn."""
+    try:
+        eng = ValuationEngine()
+        eff = eng._period_effective_dates("SHB")
+    except (sqlite3.Error, OSError, KeyError, ValueError) as exc:  # pragma: no cover - môi trường
+        pytest.skip(f"không đọc được financial_facts.db: {exc}")
+    if not eff:
+        pytest.skip("chưa có effective_date trong store")
+    _ok, blocked = ValuationEngine.pit_allowed(eff, ValuationEngine.PIT_TODAY)
+    assert "2026Q2" not in blocked
+    if "2026Q3" in eff:
+        assert "2026Q3" in blocked, f"2026Q3 (effective {eff['2026Q3']}) phải bị chặn"

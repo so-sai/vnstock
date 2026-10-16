@@ -25,7 +25,7 @@ import statistics
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 DB = Path(__file__).resolve().parents[1] / "data" / "financial_facts.db"
@@ -231,8 +231,30 @@ def main() -> int:
     )
     n_legacy = cur.rowcount
     con2.commit()
+    # Kỳ CHƯA tới ngày hiệu lực (`effective_date` > hôm nay): engine ĐÃ chặn nên lần chạy này không
+    # sinh mới, nhưng các dòng do lần chạy TRƯỚC ghi ra vẫn còn ⇒ đánh dấu (KHÔNG xoá) để consumer loại.
+    today = date.today().isoformat()
+    fut = [
+        r[0]
+        for r in con2.execute(
+            "SELECT DISTINCT period FROM financial_facts WHERE effective_date > ? AND period IS NOT NULL",
+            (today,),
+        )
+    ]
+    n_fut = 0
+    if fut:
+        ph = ",".join("?" * len(fut))
+        cur = con2.execute(
+            "UPDATE valuation_scores SET anomaly_flags="
+            "COALESCE(anomaly_flags || ',', '') || 'PIT_FUTURE_PERIOD', is_clean_metric=0 "
+            f"WHERE period IN ({ph})",
+            fut,
+        )
+        n_fut = cur.rowcount
+        con2.commit()
     con2.close()
     print(f"   [B] {n_legacy:,} dòng CŨ (chưa qua PIT) ⇒ gắn LEGACY_PRE_PIT + is_clean_metric=0 (không xoá)")
+    print(f"   [B] {n_fut:,} dòng thuộc kỳ CHƯA tới ngày hiệu lực {fut or '-'} ⇒ PIT_FUTURE_PERIOD + is_clean=0")
 
     print("\n   NGHIỆM THU (DoD Hạng mục B):")
     rep = dod_report(db)
