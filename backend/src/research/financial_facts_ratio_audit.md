@@ -268,6 +268,30 @@ vừa thêm dòng, (b) kiểm "writer có im lặng không" trước khi mở tr
 
 ---
 
+## 10. Triển khai 3 phán quyết (2026-10-16) — code + test, chưa ghi DB
+
+| Phán quyết | Cài đặt | Bằng chứng |
+|---|---|---|
+| 1. Chờ writer im lặng ≥60s | `scripts/recompute_valuation_scores_pit.py::wait_for_idle` (đo số dòng mỗi 5s) | lần `--apply` trước đã bị chặn thật (144 lỗi) |
+| 2. Basis xếp hạng ưu tiên `TCBS_REPORTED` | `valuation_engine.py::select_shares_now` + guard `SHRES_DIV_TOL_PCT = 25%` | SHB 2026Q2 (+16,3%) ⇒ dùng tcbs, cờ `SHARES_DILUTION_FLAGGED`; SHB 2010Q1 (+1.234%) ⇒ charter, cờ `SHARES_BASIS_UNEXPLAINED` |
+| 3. Tự hiệu chuẩn chu kỳ EPS | `valuation_engine.py::calibrate_eps_periodicity` + `_af_for` | QUARTER ×4 / TTM ×1 / YTD ×4-q / `UNKNOWN` ⇒ cờ + `is_clean_metric=0` |
+
+**Phát hiện phụ khi cài đặt — `get_facts` chỉ trả 8 KỲ:** tầng writer từ trước tới nay chỉ nhìn
+thấy 8 kỳ gần nhất (`get_facts(symbol)` không truyền `periods`) ⇒ các hàng lịch sử trong
+`valuation_scores` là tàn dư của những lần chạy khác nhau, không phải một chuỗi PIT thống nhất.
+Đã sửa: `MAX_PERIODS = 200` truyền tường minh cho chuỗi PIT (SHB có 71 kỳ).
+
+**Bẫy do test bắt được (đáng ghi):** với mã chỉ có ~1 năm dữ liệu, cửa sổ **TTM (4 quý) TRÙNG**
+cửa sổ **YTD** ở mọi kỳ của năm đầu ⇒ hai ứng viên có cùng độ lệch ⇒ việc chọn bị quyết định bởi
+thứ tự dict (tuỳ tiện). Sửa: bỏ 4 kỳ đầu khi hiệu chuẩn, chỉ so từ kỳ thứ 5 (lúc đó TTM ≠ YTD
+thật). Test `test_calibrate_nhan_dien_ytd` là ca canary cho bẫy này.
+
+**Trạng thái:** 20/20 test PASS (gồm 3 canary chạy trên store thật: HPG 2018Q1 = 10.220 ·
+ACB 2018Q1 = `None` + `PRICE_FALLBACK_FUTURE` · SHB hiệu chuẩn ra **TTM**). Chuỗi A→C→B đang
+chạy nền với chốt chặn writer-idle; báo cáo DoD sẽ bổ sung vào đây khi xong.
+
+---
+
 ## 7. ĐỀ XUẤT WINSORIZE — áp Ở ĐÂU, bằng công thức nào (bổ sung 2026-10-15)
 
 ### 7.1 Chuỗi hỏng đã đóng: winsorize một mình là KHÔNG ĐỦ, và hướng hỏng là fail-OPEN trên rủi ro

@@ -245,6 +245,114 @@ class ValuationEngine:
                 latest_cc = cc
         return latest_cc / 10000.0 if latest_cc else None
 
+    # ── TỰ HIỆU CHUẨN CHU KỲ EPS + BASIS SỐ CỔ PHIẾU (phán quyết 2026-10-16) ──────────
+    # Quy ước EPS KHÁC NHAU theo nguồn (đo 2026-10-16, `financial_facts_ratio_audit.md` §9):
+    #   vci : EPS == NET_INCOME_kỳ/shares (khớp ×1,00 mọi kỳ) ⇒ RIÊNG KỲ ⇒ annualize ×4
+    #   tcbs: EPS == TTM4/shares          (khớp ×1,00 ở 6/6 kỳ) ⇒ TTM       ⇒ annualize ×1
+    # ⇒ CẤM dùng một hằng số chung. Hiệu chuẩn từng mã bằng chính kho (dung sai 2%).
+    CALIB_TOL = 0.02
+    SHRES_DIV_TOL_PCT = 25.0  # pha loãng ĐÃ BIẾT của SHB 2026 = +16,3% ⇒ >25% là khác bản chất
+    MAX_PERIODS = 200  # `get_facts` mặc định chỉ 8 kỳ ⇒ phải xin rõ số kỳ cho chuỗi PIT
+
+    def _af_for(self, flow_kind: str, quarter: int) -> float:
+        """Hệ số annualize theo `flow_kind`: TTM ×1 · QUARTER ×4 · YTD ×4/q · UNKNOWN ×1."""
+        if flow_kind == "TTM":
+            return 1.0
+        if flow_kind == "QUARTER":
+            return 4.0
+        if flow_kind == "YTD":
+            return self._annualize_factor(quarter)
+        return 1.0
+
+    def calibrate_eps_periodicity(self, facts: dict) -> tuple[str, str, float | None]:
+        """→ (flow_kind, basis, median_dev) — hiệu chuẩn chu kỳ EPS của MỘT mã.
+
+        Ứng viên dựng từ `NET_INCOME` (cùng kho, cùng kỳ):
+          QUARTER = NI_kỳ/S · TTM = (Σ3 quý trước + kỳ)/S · YTD = (Σ từ đầu năm → kỳ)/S
+        S = số cổ phiếu mà NGUỒN dùng (`SHARES_OUT` nếu có, không thì `CHARTER_CAPITAL/10.000`)
+        ⇒ phép so sánh có nghĩa bất kể chuẩn mực của nguồn. Chọn ứng viên có **median
+        |EPS/ứng viên − 1|** nhỏ nhất; nếu vượt `CALIB_TOL` ⇒ `UNKNOWN` (fail-closed, cấm đoán).
+        Thiếu `NET_INCOME` để hiệu chuẩn ⇒ dùng mặc định THEO NGUỒN đã đo được và gắn nhãn
+        `SOURCE_DEFAULT` (không giả vờ đó là kết quả hiệu chuẩn).
+        """
+        periods = sorted(facts)
+        devs: dict[str, list[float]] = {"QUARTER": [], "TTM": [], "YTD": []}
+
+        def ni_at(idx: int) -> float:
+            if idx < 0:
+                return 0.0
+            pm = facts[periods[idx]]
+            return float(pm.get("NET_INCOME") or pm.get("NET_PROFIT") or 0.0)
+
+        for idx, p in enumerate(periods):
+            pm = facts[p]
+            # Bỏ 4 kỳ đầu: trong năm đầu tiên, cửa sổ TTM (4 quý) TRÙNG cửa sổ YTD ⇒ hai ứng
+            # viên không phân biệt được (dev bằng nhau ⇒ chọn theo thứ tự dict = tuỳ tiện).
+            # Chỉ so từ kỳ thứ 5 trở đi thì YTD và TTM mới khác nhau thật.
+            if idx < 4:
+                continue
+            eps = pm.get("EPS")
+            ni = ni_at(idx)
+            sh = pm.get("SHARES_OUT") or ((pm.get("CHARTER_CAPITAL") or 0) / 10000.0) or None
+            if not eps or not ni or not sh:
+                continue
+            ttm = sum(ni_at(idx - k) for k in range(4))
+            ytd = sum(ni_at(idx - k) for k in range(int(p[5])))
+            for kind, cand in (("QUARTER", ni / sh), ("TTM", ttm / sh), ("YTD", ytd / sh)):
+                if cand > 0:
+                    devs[kind].append(abs(eps / cand - 1.0))
+
+        best, best_dev = None, None
+        for kind, ds in devs.items():
+            if len(ds) >= 4:
+                ds.sort()
+                med = ds[len(ds) // 2]
+                if best_dev is None or med < best_dev:
+                    best, best_dev = kind, med
+        if best is not None and best_dev is not None:
+            if best_dev <= self.CALIB_TOL:
+                return best, "CALIBRATED", best_dev
+            return "UNKNOWN", "CALIBRATION_FAILED", best_dev
+        # Không đủ dữ liệu để hiệu chuẩn ⇒ mặc định theo NGUỒN (đã đo), nhãn SOURCE_DEFAULT.
+        # `SHARES_OUT` chỉ tồn tại ở các dòng nguồn tcbs (đo 2026-10-16) ⇒ dùng làm dấu hiệu nguồn.
+        has_shares_out = any(facts[p].get("SHARES_OUT") for p in periods)
+        return ("TTM" if has_shares_out else "QUARTER"), "SOURCE_DEFAULT", None
+
+    def select_shares_now(self, facts: dict) -> tuple[float | None, str, list[str]]:
+        """→ (shares_now, basis, flags) — số cổ phiếu cho BASIS A (giá adjusted + shares NOW).
+
+        PHÁN QUYẾT 2 (2026-10-16): ưu tiên số cổ phiếu **đã pha loãng thực tế** (`SHARES_OUT`
+        nguồn tcbs) vì giá `daily_ohlcv` đã back-adjust về số cp HIỆN TẠI; bảo thủ ⇒ dùng mẫu
+        số đã phát hành (SHB 2026Q2: 5.343,7M ⇒ BVPS 14.093 ⇒ P/B 0,756 thay vì 0,650).
+
+        GUARD: nếu |lệch| giữa `SHARES_OUT` và `CHARTER_CAPITAL/10.000` (cùng kỳ mới nhất) vượt
+        `SHRES_DIV_TOL_PCT` thì **không dùng** — biên độ đó KHÔNG giải thích được bằng phát hành
+        thêm (SHB 2010Q1–Q3 lệch **+1.234%**; 2015Q4 +181%) ⇒ fallback `CHARTER_PIT` + cờ
+        `SHARES_BASIS_UNEXPLAINED`. Lệch trong 1–25% ⇒ dùng `SHARES_OUT` + cờ
+        `SHARES_DILUTION_FLAGGED` (canary pha loãng, đúng phán quyết 2).
+        """
+        periods = sorted(facts)
+        charter = None
+        tcbs = None
+        for p in periods:
+            cc = facts[p].get("CHARTER_CAPITAL")
+            if cc and cc > 0:
+                charter = cc / 10000.0
+            so = facts[p].get("SHARES_OUT")
+            if so and so > 0:
+                tcbs = float(so)
+        if tcbs and charter:
+            div = (tcbs - charter) / charter * 100.0
+            if abs(div) <= self.SHRES_DIV_TOL_PCT:
+                flags = ["SHARES_DILUTION_FLAGGED"] if abs(div) > 1.0 else []
+                return tcbs, "TCBS_REPORTED", flags
+            return charter, "CHARTER_PIT", ["SHARES_BASIS_UNEXPLAINED", "SHARES_DILUTION_FLAGGED"]
+        if tcbs:
+            return tcbs, "TCBS_REPORTED", ["SHARES_BASIS_UNVERIFIED"]
+        if charter:
+            return charter, "CHARTER_PIT", []
+        return None, "NONE", []
+
     def compute_ratios_for_period(
         self,
         symbol: str,
@@ -271,8 +379,13 @@ class ValuationEngine:
         # CHÍNH XÁC, và kỳ của chúng tập trung ở Q2+Q4 = 65% — đúng chỗ EPS **luỹ kế YTD**.
         # Bản cũ nhân 4 cho MỌI kỳ ⇒ PE bị chia ~4 ở các kỳ luỹ kế. Nay: hệ số theo quý
         # (YTD: Q1×4, Q2×2, Q3×4/3, Q4×1); nếu dữ liệu là EPS RIÊNG QUÝ thì ×4.
-        flow_kind = str(period_metrics.get("_flow_kind", "YTD")).upper()
-        af = 4.0 if flow_kind == "QUARTER" else self._annualize_factor(fq)
+        flow_kind = str(period_metrics.get("_flow_kind", "UNKNOWN")).upper()
+        af = self._af_for(flow_kind, fq)
+        if flow_kind == "UNKNOWN":
+            flags.append("EPS_PERIODICITY_UNKNOWN")
+        for _bf in period_metrics.get("_base_flags") or []:
+            if _bf not in flags:
+                flags.append(_bf)
 
         eps = period_metrics.get("EPS")
         shares = period_metrics.get("SHARES_OUT")
@@ -360,7 +473,9 @@ class ValuationEngine:
         if pe is not None:
             if pe < 2.0:
                 flags.append("EXTREME_LOW_PE")
-                if flow_kind != "QUARTER" and fq in (2, 4):
+                if fq in (2, 4):
+                    # Kỳ luỹ kế (bán niên/cả năm) là nơi lỗi chu kỳ EPS hay lộ nhất ⇒ đánh dấu
+                    # để tầng kiểm toán soi lại (kèm `eps_flow_kind` đã ghi ở cùng hàng).
                     flags.append("PERIODICITY_MISMATCH_EPS")
             elif pe > 100.0:
                 flags.append("OUTLIER_WINSORED")
@@ -428,16 +543,26 @@ class ValuationEngine:
     def compute_valuation(self, symbol: str) -> dict:
         """Main entry: fetch facts + prices, compute all valuation ratios + z-scores."""
         entity_type = self.facts_db.get_entity_type(symbol)
-        facts = self.facts_db.get_facts(symbol)
+        # WHY `periods`: `get_facts` mặc định chỉ trả **8 kỳ** — với chuỗi PIT (SHB có 71 kỳ từ
+        # TCBS) thì 8 kỳ làm z-score/percentile lệch hẳn; phải xin toàn bộ chuỗi.
+        facts = self.facts_db.get_facts(symbol, periods=self.MAX_PERIODS)
         if not facts:
             return {"status": "NO_DATA", "symbol": symbol}
 
-        shares_now = self._get_latest_shares(facts)
+        # PHÁN QUYẾT 1+2 (2026-10-16): hiệu chuẩn chu kỳ EPS THEO TỪNG MÃ và chọn basis số cổ
+        # phiếu CÓ GUARD — không dùng hằng số chung, không trộn basis (xem docstring 2 hàm dưới).
+        flow_kind, flow_basis, flow_dev = self.calibrate_eps_periodicity(facts)
+        shares_now, shares_basis, shares_flags = self.select_shares_now(facts)
+        base_flags = list(shares_flags)
+        if flow_kind == "UNKNOWN":
+            base_flags.append("EPS_PERIODICITY_UNKNOWN")
 
         # For each period, compute valuation ratios
         all_period_ratios = {}  # {period: {ratio_name: value}}
         for period in sorted(facts.keys()):
-            pm = facts[period]
+            pm = dict(facts[period])
+            pm["_flow_kind"] = flow_kind
+            pm["_base_flags"] = base_flags
             ratios = self.compute_ratios_for_period(symbol, period, pm, entity_type, shares_now=shares_now)
             if ratios:
                 all_period_ratios[period] = ratios
@@ -448,6 +573,19 @@ class ValuationEngine:
         # For each ratio type, compute stats + z-scores + percentiles
         ratio_names = ["PE", "PB", "PS", "EV_EBITDA", "ROE"]
         conn = self.connect()
+        # Migration ADDITIVE tại chỗ dùng (idempotent) — 5 cột cờ kiểm toán Hạng mục E.
+        # WHY: cờ phải nằm cùng hàng điểm để mọi consumer thấy được mà không cần join bảng phụ;
+        # CHỈ thêm cột, KHÔNG sửa/xoá dữ liệu cũ (đúng luật "gắn cờ, không xoá cứng").
+        _cols = {r[1] for r in conn.execute("PRAGMA table_info(valuation_scores)")}
+        for _c, _t in (
+            ("anomaly_flags", "TEXT"),
+            ("is_clean_metric", "INTEGER"),
+            ("price_basis", "TEXT"),
+            ("shares_basis", "TEXT"),
+            ("eps_flow_kind", "TEXT"),
+        ):
+            if _c not in _cols:
+                conn.execute(f"ALTER TABLE valuation_scores ADD COLUMN {_c} {_t}")
         results = []
 
         for rname in ratio_names:
@@ -509,14 +647,16 @@ class ValuationEngine:
 
                 fy = int(period[:4])
                 fq = int(period[5:6])
+                _period_flags = all_period_ratios[period].get("_flags") or []
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO valuation_scores
                         (symbol, period, fiscal_year, fiscal_quarter,
                          entity_type, ratio_name, ratio_value, z_score,
                          percentile, mean, std, count, zone, price,
-                         z_score_ts, zone_ts, mean_5y, std_5y, count_5y)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         z_score_ts, zone_ts, mean_5y, std_5y, count_5y,
+                         anomaly_flags, is_clean_metric, price_basis, shares_basis, eps_flow_kind)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         symbol.upper(),
@@ -538,6 +678,11 @@ class ValuationEngine:
                         ts_mean,
                         ts_std,
                         ts_n,
+                        (",".join(_period_flags) or None),
+                        (0 if _period_flags else 1),
+                        PRICE_BASIS,
+                        shares_basis,
+                        flow_kind,
                     ),
                 )
                 results.append(

@@ -61,14 +61,18 @@ def test_annualize_factor_theo_chu_ky():
 def test_pe_ytd_q2_chi_nhan_2_khong_nhan_4():
     """EPS luỹ kế H1 ⇒ ×2. Bản cũ ×4 làm PE nhỏ đi một nửa ở Q2."""
     e = _engine(price=10_000.0)
-    r = e.compute_ratios_for_period("HPG", "2018Q2", _metrics(_fiscal_quarter=2, EPS=2_000.0), "STANDARD", shares_now=6.4e9)
+    r = e.compute_ratios_for_period(
+        "HPG", "2018Q2", _metrics(_fiscal_quarter=2, EPS=2_000.0, _flow_kind="YTD"), "STANDARD", shares_now=6.4e9
+    )
     assert r["PE"] == pytest.approx(10_000 / (2_000 * 2))
 
 
 def test_pe_ytd_q4_khong_nhan_gi():
     """EPS cả năm ⇒ ×1. Bản cũ ×4 làm PE nhỏ đi 4 lần (đúng ca SHB 2024Q4: 3,37 → 0,84)."""
     e = _engine(price=7_760.0)
-    r = e.compute_ratios_for_period("SHB", "2024Q4", _metrics(_fiscal_quarter=4, EPS=2_306.0), "BANK", shares_now=5e9)
+    r = e.compute_ratios_for_period(
+        "SHB", "2024Q4", _metrics(_fiscal_quarter=4, EPS=2_306.0, _flow_kind="YTD"), "BANK", shares_now=5e9
+    )
     assert r["PE"] == pytest.approx(7_760 / 2_306)
 
 
@@ -121,7 +125,9 @@ def test_eps_am_duoc_gan_co_chu_khong_bo_lang():
 
 def test_pe_cuc_thap_duoc_gan_co():
     e = _engine(price=10_000.0)
-    r = e.compute_ratios_for_period("XXX", "2018Q2", _metrics(_fiscal_quarter=2, EPS=3_000.0), "STANDARD", shares_now=1e9)
+    r = e.compute_ratios_for_period(
+        "XXX", "2018Q2", _metrics(_fiscal_quarter=2, EPS=3_000.0, _flow_kind="QUARTER"), "STANDARD", shares_now=1e9
+    )
     assert "EXTREME_LOW_PE" in r["_flags"]
     assert "PERIODICITY_MISMATCH_EPS" in r["_flags"]
 
@@ -164,3 +170,110 @@ def test_canary_acb_2018q1_khong_con_gia_nam_2025():
     px, flag = e._get_price_with_flag("ACB", "2018-03-31")
     assert px is None, f"Missing > Fake — phải None, nhận {px}"
     assert flag == "PRICE_FALLBACK_FUTURE"
+
+
+# ── Tự hiệu chuẩn chu kỳ EPS (phán quyết 2026-10-16) ───────────────────────────
+
+
+def _facts_kind(kind: str) -> dict:
+    """8 kỳ liền nhau: NI = 1.000/kỳ, CHARTER_CAPITAL = 10.000.000 ⇒ shares = 1.000.
+
+    QUARTER ⇒ EPS = 1,0 · TTM ⇒ EPS = 4,0 · YTD ⇒ EPS = số quý trong năm.
+    """
+    periods = [f"2024Q{q}" for q in (1, 2, 3, 4)] + [f"2025Q{q}" for q in (1, 2, 3, 4)]
+    out = {}
+    for p in periods:
+        q = int(p[5])
+        eps = 1.0 if kind == "QUARTER" else (4.0 if kind == "TTM" else float(q))
+        out[p] = {
+            "EPS": eps,
+            "NET_INCOME": 1_000.0,
+            "CHARTER_CAPITAL": 10_000_000.0,
+            "_fiscal_year": int(p[:4]),
+            "_fiscal_quarter": q,
+        }
+    return out
+
+
+def test_calibrate_nhan_dien_quarter():
+    e = ValuationEngine.__new__(ValuationEngine)
+    kind, basis, dev = e.calibrate_eps_periodicity(_facts_kind("QUARTER"))
+    assert (kind, basis) == ("QUARTER", "CALIBRATED")
+    assert dev is not None and dev <= 0.02
+
+
+def test_calibrate_nhan_dien_ttm():
+    e = ValuationEngine.__new__(ValuationEngine)
+    kind, basis, dev = e.calibrate_eps_periodicity(_facts_kind("TTM"))
+    assert (kind, basis) == ("TTM", "CALIBRATED")
+    assert dev is not None and dev <= 0.02
+
+
+def test_calibrate_nhan_dien_ytd():
+    e = ValuationEngine.__new__(ValuationEngine)
+    kind, basis, _dev = e.calibrate_eps_periodicity(_facts_kind("YTD"))
+    assert (kind, basis) == ("YTD", "CALIBRATED")
+
+
+def test_calibrate_khong_khop_quy_uoc_nao_thi_unknown():
+    """Fail-closed: EPS không khớp QUARTER/TTM/YTD ⇒ UNKNOWN (cấm đoán)."""
+    f = _facts_kind("TTM")
+    for p in f:
+        f[p]["EPS"] = 7.77
+    e = ValuationEngine.__new__(ValuationEngine)
+    kind, basis, _dev = e.calibrate_eps_periodicity(f)
+    assert kind == "UNKNOWN" and basis == "CALIBRATION_FAILED"
+
+
+def test_chua_du_du_lieu_thi_theo_nguon_va_ghi_nhan():
+    """Thiếu NET_INCOME ⇒ mặc định theo nguồn, nhãn SOURCE_DEFAULT (không giả vờ đã hiệu chuẩn)."""
+    f = {p: {k: v for k, v in m.items() if k != "NET_INCOME"} for p, m in _facts_kind("TTM").items()}
+    e = ValuationEngine.__new__(ValuationEngine)
+    kind, basis, dev = e.calibrate_eps_periodicity(f)
+    assert (kind, basis, dev) == ("QUARTER", "SOURCE_DEFAULT", None)
+
+
+def test_flow_kind_unknown_gan_co_va_khong_nhan_4():
+    e = _engine(price=10_000.0)
+    r = e.compute_ratios_for_period(
+        "XXX", "2018Q2", _metrics(_fiscal_quarter=2, EPS=1_000.0, _flow_kind="UNKNOWN"), "STANDARD", shares_now=1e9
+    )
+    assert "EPS_PERIODICITY_UNKNOWN" in r["_flags"]
+    assert r["_is_clean"] is False
+    assert r["PE"] == pytest.approx(10.0)  # af = 1 (không ×4, không ×2)
+
+
+# ── Chọn basis số cổ phiếu có guard pha loãng (phán quyết 2) ───────────────────
+
+
+def test_select_shares_uu_tien_tcbs_trong_nguong():
+    """SHB 2026Q2: tcbs 5.343.748.241 vs charter 4.594.200.000 = +16,3% ≤ 25% ⇒ dùng tcbs."""
+    f = {"2026Q2": {"CHARTER_CAPITAL": 45_942.0e9, "SHARES_OUT": 5_343_748_241.0}}
+    e = ValuationEngine.__new__(ValuationEngine)
+    sh, basis, flags = e.select_shares_now(f)
+    assert sh == pytest.approx(5_343_748_241.0)
+    assert basis == "TCBS_REPORTED"
+    assert "SHARES_DILUTION_FLAGGED" in flags
+
+
+def test_select_shares_tu_choi_khi_lech_bat_thuong():
+    """SHB 2010Q1: tcbs 2.668.817.204 vs charter 200.000.000 = +1.234% > 25% ⇒ charter + cờ."""
+    f = {"2010Q1": {"CHARTER_CAPITAL": 2.0e12, "SHARES_OUT": 2_668_817_204.0}}
+    e = ValuationEngine.__new__(ValuationEngine)
+    sh, basis, flags = e.select_shares_now(f)
+    assert sh == pytest.approx(200_000_000.0)
+    assert basis == "CHARTER_PIT"
+    assert "SHARES_BASIS_UNEXPLAINED" in flags
+
+
+def test_canary_shb_hieu_chuan_ra_ttm_tu_store_that():
+    """SHB (nguồn tcbs) PHẢI hiệu chuẩn ra TTM — đo 2026-10-16: EPS == TTM4/shares ×1,00 ở 6/6 kỳ."""
+    try:
+        eng = ValuationEngine()
+        facts = eng.facts_db.get_facts("SHB", periods=200)
+    except (sqlite3.Error, OSError, KeyError, ValueError) as exc:  # pragma: no cover - môi trường
+        pytest.skip(f"không đọc được financial_facts.db: {exc}")
+    if len(facts) < 8:
+        pytest.skip("SHB chưa đủ kỳ trong store")
+    kind, basis, _dev = eng.calibrate_eps_periodicity(facts)
+    assert (kind, basis) == ("TTM", "CALIBRATED")
