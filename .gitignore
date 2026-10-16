@@ -292,3 +292,4 @@ scripts/render_shb_dashboard.py
 scripts/test_tcbs_token.py
 scripts/test_full_injection.py
 scripts/test_init_script.py
+scripts/tcbs_agent_fetcher.py
