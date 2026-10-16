@@ -288,6 +288,16 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 
 ## Ghi chú vận hành
 
+- **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**
+  (author `Alpha Forge V4.6 <alpha@ptck-vnstock.local>`) quét `git add`-style toàn cây ⇒ **các bản vá
+  đang dở bị nuốt vào commit của nó với thông điệp KHÔNG mô tả đúng nội dung**. Bản đồ thật của 3
+  commit 20:42–20:43 hôm nay: `38dc9e3` ("...VN30 universe ingestion") thực chất chứa **4 file của
+  Mục 3 + lookback breadth + canary VNM** (của Agent 1) cùng 2 script mới của agent kia;
+  `f67563a` ("update resolution status...") và `2e5f43d` ("normalize CRLF...") chứa **phần backlog
+  của Mục 3/8** do tôi viết. Hệ quả: **`git status` có thể TRỐNG dù vừa sửa file**, và `git add` +
+  `git commit` của mình báo "no changes added". Bài học: **commit ngay sau mỗi lát nhỏ**, truy vết
+  bằng `git log -- <file>` / `git show --stat`, đừng tin `git status`. (File `backend/scripts/rescale_unit_history.py`
+  đang untracked là việc dở của agent kia — KHÔNG chạm.)
 - Backlog này là nơi **duy nhất**; khi một mục được thực thi, ghi commit hash vào mục đó và đổi
   nhãn phán quyết, KHÔNG xóa (giữ lịch sử quyết định).
 - Ba hạng mục 1–3 là dọn dẹp nợ cũ trong một lượt; hạng mục 4 là **đường ống dữ liệu mới** nên
