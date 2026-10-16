@@ -65,16 +65,57 @@ SSI 2020Q1 (1.358), NKG 2019Q1 (1.171)…
 **không truy vết được** ⇒ không chỉ "EBITDA ≈ 0" mà còn là **lỗ hổng provenance**.
 Cần: hoặc nạp `EBITDA` thành metric, hoặc gắn cờ `UNTRACEABLE_DENOMINATOR` và loại khỏi mọi bộ lọc.
 
-## 4. Phát hiện thứ hai (nghiêm trọng hơn, cùng họ với PIT): **số cổ phiếu không theo thời điểm**
+## 4. Phát hiện thứ hai — **TỰ SỬA: KHÔNG phải look-ahead, mà là FIX BASIS có chủ đích**
 
-`valuation_engine.py:351` — `shares_now = self._get_latest_shares(facts)` rồi dùng
-**cùng một số cổ phiếu hiện tại cho MỌI kỳ** khi tính BVPS/EPS-per-share. Hệ quả:
-- BVPS của kỳ 2018 được tính bằng số cổ phiếu của **2026** ⇒ mọi thay đổi vốn (chia thưởng,
-  phát hành thêm) từ 2018→2026 **làm lệch BVPS quá khứ** — một dạng look-ahead **cùng loại**
-  với lỗi PIT vừa vá ở Hạng mục A, nhưng nằm trong tầng ratio.
-- Đây cũng giải thích vì sao nhiều dòng `PB` không có `BOOK_VALUE_PS` đi kèm.
-→ Cờ đề xuất: **`SHARES_NOT_PIT`**; và Hạng mục C (chuỗi `shares_outstanding` theo thời gian)
-trở thành **điều kiện tiên quyết** để B cho ra số đúng, không phải việc "nice to have".
+> **ĐÍNH CHÍNH 2026-10-16.** Kết luận ban đầu của tôi (`SHARES_NOT_PIT` = look-ahead) **SAI**.
+> Đọc kỹ writer: `valuation_engine.py:199-212` — `_get_latest_shares()` có docstring ghi rõ
+> **BASIS-FIX 2026-08-19**: *"price từ screener_cache là split-adjusted (quy về số cổ phiếu hiện tại).
+> BVPS fallback phải dùng shares HIỆN TẠI, nếu không P/B lịch sử bị lệch basis."*
+> Dùng shares hiện tại cho BVPS là **ghép đúng basis**, không phải rò rỉ tương lai.
+
+**Tái lập được con số của tác giả (HPG 2018Q1) — khớp tuyệt đối:**
+
+| Cách tính | Shares dùng | BVPS | PB @giá 10.220 |
+|---|---|---|---|
+| Theo shares **PIT** (CC 2018Q1 = 15.171 tỷ) | 1.517,1 tr | 22.696 | **0,450** ← đúng con số *"sai 0,45"* trong docstring |
+| Theo shares **HIỆN TẠI** (CC 2025Q2 = 63.963 tỷ) | 6.396,3 tr | 5.383 | **1,899** ← đúng con số *"đúng 1,90"*, và **trùng giá trị đã lưu (1,899)** |
+
+**Bằng chứng giá ĐÃ được điều chỉnh:** HPG tỷ lệ shares NOW/PIT = **4,22×**; giá store 2018Q1 = **10.220**
+≈ giá thô ~43.000 ÷ 4,22 ⇒ chuỗi giá đã back-adjust về số cổ phiếu hiện tại.
+⚠️ Nhưng **`adj_close == close` trên toàn bộ 1.578.932 dòng** (0 dòng lệch >5%) ⇒ **hệ thống KHÔNG
+ghi lại basis điều chỉnh ở đâu cả**; nó phụ thuộc hoàn toàn vào việc *nhà cung cấp* trả giá đã điều chỉnh.
+Đó mới là rủi ro thật: đổi nguồn ⇒ lệch basis âm thầm, và không có cột nào để phát hiện.
+
+**Hai câu hỏi provenance CHƯA giải được (chặn B):**
+1. **Giá mà writer dùng ≠ `daily_ohlcv.close` cùng kỳ.** HPG 2018Q1: giá lưu 10.220 vs close 8.070;
+   PNJ 2018Q1: giá lưu 23.050 vs close 36.480. ⇒ Phải xác định **nguồn giá của `valuation_engine`**
+   (bảng nào, ngày nào, basis nào) trước khi tính lại (B).
+2. Nếu một mã có sự kiện quyền mà nguồn giá **không** back-adjust (hoặc adjust một phần), PB của mã đó
+   sẽ lệch một cách im lặng; cần **canary test** kiểu HPG để phát hiện.
+
+## 4b. Thiết kế Hạng mục C — `shares_history` (PIT) + khai báo basis
+
+**Tin tốt: không cần crawl mới.** Kho **đã có `CHARTER_CAPITAL` theo từng kỳ** (VND, mệnh giá 10.000đ),
+độ phủ **687 → 744 mã/kỳ từ 2018Q1 đến 2025Q2** — trùng đúng cửa sổ dữ liệu dày của `financial_facts`
+(rơi xuống 88/78/70/69 mã từ 2025Q3 ⇒ cùng vùng tối đã biết).
+
+| Thành phần | Thiết kế đề xuất |
+|---|---|
+| Bảng mới `shares_history` | `(symbol, period, effective_date, shares_outstanding, source_metric, basis, revision)` |
+| Nguồn | `CHARTER_CAPITAL / 10.000` (đúng công thức writer đang dùng) |
+| PIT | `effective_date` **kế thừa Hạng mục A** (+30/+45/+90 ngày) ⇒ không bịa lịch mới |
+| `basis` | `'CHARTER_PIT'` (số cp tại kỳ) — khai báo tường minh để không trộn với basis giá |
+| Cờ | nếu `basis_price = ADJUSTED_TODAY` thì cặp BVPS **phải** dùng shares-now; nếu `RAW` thì dùng shares-PIT |
+| Canary | tái lập test HPG 2018Q1 (PB 0,450 vs 1,899) sau mỗi lần đổi nguồn giá/dữ liệu |
+| Giới hạn | 2025Q3+ chỉ 70-88 mã ⇒ C **không** cứu được vùng tối; phải chờ D (ingestion) |
+
+**Kết luận điều chỉnh cho roadmap:** C **vẫn cần** (để có mẫu số lịch sử + khai báo basis + canary),
+nhưng **không còn là "điều kiện tiên quyết để sửa look-ahead"** — vì look-ahead đó không tồn tại.
+Việc chặn B thật sự là **câu hỏi provenance #1 ở trên (nguồn giá của writer)**.
+
+> **DẤU VẾT — kết luận SAI ban đầu (giữ lại, KHÔNG dùng):** *"`shares_now` dùng cho mọi kỳ là
+> look-ahead; cờ `SHARES_NOT_PIT`; Hạng mục C là điều kiện tiên quyết để sửa lỗi này."* —
+> Sai vì bỏ qua việc chuỗi giá **đã back-adjust**; xem đính chính + phép tái lập HPG ở §4.
 
 ## 5. Đề xuất quy chuẩn gắn cờ (Bounding Spec) — additive, không xoá
 
@@ -96,7 +137,8 @@ Thêm vào tầng kết quả (nơi ratio sống), **không** sửa/xoá `ratio_
 | `DISTRESSED_EQUITY` | `TOTAL_EQUITY ≤ 0` ∨ (BVPS/PB suy ra < 500đ) | loại khỏi "đắt/rẻ"; chuyển sang nhóm rủi ro |
 | `NEAR_ZERO_DENOMINATOR` | `PB > 20` ∨ `EV/EBITDA > 1000` ∨ `PS > 100` | loại |
 | `UNTRACEABLE_DENOMINATOR` | mẫu số không có metric tương ứng trong kho (vd EBITDA) | loại + ghi vào backlog ingestion |
-| `SHARES_NOT_PIT` | BVPS/EPS dùng `shares_now` | giữ để xem, **cấm** dùng cho backtest |
+| `SHARES_NOT_PIT` | BVPS/EPS dùng `shares_now` | **ĐÍNH CHÍNH 16/10: không phải lỗi** khi giá đã back-adjust — giữ cờ nhưng đổi nghĩa thành *"đang ở basis SHARES_NOW"*, hợp lệ |
+| `BASIS_MISMATCH` | giá ở basis `ADJUSTED_TODAY` nhưng BVPS dùng shares PIT (hoặc ngược lại) | **loại** — đây mới là lỗi thật cần chặn |
 | `OUTLIER_WINSORED` | vượt ngưỡng nhưng đã kẹp biên | dùng với giá trị kẹp, ghi rõ |
 
 **Ngưỡng biên đề xuất (áp SAU khi hết lỗi ×4 ở B):**

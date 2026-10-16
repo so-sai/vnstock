@@ -279,3 +279,16 @@ releases/
 
 # UI visual audit artifacts (Playwright screenshots)
 frontend/ui_audit/
+
+# Credential-bearing / auth-crawl artifacts — TUYỆT ĐỐI không commit (token, storage state, profile)
+data/tcbs_storage_state.json
+data/tcbs_chrome_profile/
+data/*_complete.json
+scripts/temp_*
+scripts/crawl_with_injected_token.py
+scripts/login_and_crawl_tcbs.py
+scripts/run_full_auth_crawl.py
+scripts/render_shb_dashboard.py
+scripts/test_tcbs_token.py
+scripts/test_full_injection.py
+scripts/test_init_script.py
