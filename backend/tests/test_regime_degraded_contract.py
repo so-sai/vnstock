@@ -67,14 +67,18 @@ def _stmt_around(text: str, pos: int) -> str:
 
 
 def _scan_reads(text: str) -> list[str]:
-    """Đoạn SQL đọc `regime_history` thiếu vị từ lọc cờ (bỏ qua chỗ có marker miễn trừ)."""
+    """Đoạn SQL ĐỌC (`SELECT … FROM regime_history`) thiếu vị từ lọc cờ (bỏ qua chỗ miễn trừ).
+
+    WHY khớp `SELECT … FROM`: `DELETE FROM regime_history` KHÔNG phải đường đọc — đã bị nhận nhầm
+    một lần (`backtest/system_replay.py`) khi chỉ khớp `FROM regime_history`.
+    """
     bad: list[str] = []
-    for m in re.finditer(r"FROM\s+regime_history\b", text, flags=re.IGNORECASE):
+    for m in re.finditer(r"SELECT[\s\S]{0,400}?FROM\s+regime_history\b", text, flags=re.IGNORECASE):
         ctx = text[max(0, m.start() - 400) : m.start()]
         if EXEMPT_MARKER in ctx:
             continue
-        stmt = _stmt_around(text, m.start())
-        if "SELECT" in stmt.upper() and not any(k in stmt for k in SAFE_MARKERS):
+        stmt = text[m.start() : m.end() + 300]
+        if not any(k in stmt for k in SAFE_MARKERS):
             bad.append(f"…{stmt[:120]}…")
     return bad
 
@@ -129,14 +133,17 @@ def test_danh_sach_kiem_ke_khong_muc_rua():
 
 def test_moi_writer_regime_history_deu_phoi_co_suy_giam():
     """Có writer nào ghi `regime_history` mà KHÔNG set `is_degraded` ⇒ dòng đó thành NULL (mù với tầng tín hiệu)."""
+    #: Ngoại lệ có lý do: kernel backtest chỉ COPY bản sao vào `:memory:` bằng `SELECT *`
+    #: ⇒ cột cờ đi kèm dòng, không phải writer của store.
+    memory_writers = ("backend/src/backtest/hsr_kernel.py",)
     writers = []
-    for d in ("backend/src",):
-        for p in sorted((ROOT / d).rglob("*.py")):
-            tx = p.read_text(encoding="utf-8", errors="replace")
-            if re.search(r'save_data_upsert\(\s*"regime_history"', tx) or re.search(
-                r"to_sql\(\s*\"regime_history\"", tx
-            ):
-                writers.append((p.relative_to(ROOT).as_posix(), "is_degraded" in tx))
+    for p in sorted((ROOT / "backend/src").rglob("*.py")):
+        rel = p.relative_to(ROOT).as_posix()
+        if rel in memory_writers:
+            continue
+        tx = p.read_text(encoding="utf-8", errors="replace")
+        if re.search(r'save_data_upsert\(\s*"regime_history"', tx) or re.search(r'to_sql\(\s*"regime_history"', tx):
+            writers.append((rel, "is_degraded" in tx))
     assert writers, "không tìm thấy writer nào — test này vô nghĩa, kiểm lại mẫu quét"
     thieu = [w for w, ok in writers if not ok]
     assert not thieu, f"writer ghi regime_history thiếu cờ suy giảm: {thieu}"

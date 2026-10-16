@@ -33,8 +33,15 @@ def test_pnj_latest_price_matches_latest_period():
         assert lp != 71970.0, "stale Q1-end price leaked into summary"
 
 
-def test_pnj_2026q2_pb_present_pe_absent():
-    """2026Q2: PB ok (BVPS present); PE absent (EPS -664 → engine skips)."""
+def test_pnj_2026q2_pb_va_pe_deu_co_sau_khi_sua_eps():
+    """2026Q2: PB ok (BVPS có) VÀ PE CÓ (≈13,2) — EPS thực tế là +4.772đ.
+
+    LỊCH SỬ KỲ VỌNG (giữ dấu vết): test này từng khẳng định "PE không tồn tại vì EPS = −664 (VCI sai)".
+    Luồng ingestion TCBS (Agent 2, commit 7f7fd39) đã sửa EPS PNJ 2026Q2 về ĐÚNG +4.772đ ⇒ PE = 13,202
+    là kết quả ĐÚNG, có `is_clean_metric = 1`. Luật "EPS ≤ 0 ⇒ không tạo PE" vẫn giữ nguyên trong engine;
+    ca âm ở 2026Q2 không còn tồn tại trong store nên luật được kiểm bằng ca TỔNG HỢP ở nơi khác, KHÔNG
+    suy ra từ dòng đã được sửa.
+    """
     import sqlite3
 
     db = Path(__file__).resolve().parent.parent / "data" / "financial_facts.db"
@@ -42,11 +49,11 @@ def test_pnj_2026q2_pb_present_pe_absent():
     try:
         rows = dict(
             conn.execute(
-                "SELECT ratio_name, ratio_value FROM valuation_scores "
-                "WHERE symbol='PNJ' AND period='2026Q2'"
+                "SELECT ratio_name, ratio_value FROM valuation_scores WHERE symbol='PNJ' AND period='2026Q2'"
             ).fetchall()
         )
     finally:
         conn.close()
     assert "PB" in rows, rows
-    assert "PE" not in rows, "PE must not exist when EPS<=0"
+    assert "PE" in rows, f"EPS đã được sửa về dương ⇒ PE phải tồn tại: {rows}"
+    assert rows["PE"] > 0, rows

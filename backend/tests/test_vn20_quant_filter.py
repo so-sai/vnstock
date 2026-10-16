@@ -686,31 +686,44 @@ class TestDynamicMosThreshold:
 
 
 class TestLatestMarketRegime:
-    def test_reads_latest_regime_history(self):
+    """Fixture PHẢI mô phỏng schema thật: `regime_history` nay có `is_degraded` (Mục 1/5 backlog)."""
+
+    @staticmethod
+    def _conn(rows: list[tuple[str, str, int | None]]) -> sqlite3.Connection:
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
-        conn.execute("CREATE TABLE regime_history (date TEXT, status TEXT)")
-        conn.execute("INSERT INTO regime_history VALUES ('2026-08-06','RANGING')")
-        conn.execute("INSERT INTO regime_history VALUES ('2026-08-05','TRENDING')")
+        conn.execute("CREATE TABLE regime_history (date TEXT, status TEXT, is_degraded INTEGER)")
+        conn.executemany("INSERT INTO regime_history VALUES (?,?,?)", rows)
+        return conn
+
+    def test_reads_latest_regime_history(self):
+        conn = self._conn([("2026-08-06", "RANGING", 0), ("2026-08-05", "TRENDING", 0)])
         assert vf._latest_market_regime(conn) == "RANGING"
 
     def test_trending_maps_to_expansion(self):
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
-        conn.execute("CREATE TABLE regime_history (date TEXT, status TEXT)")
-        conn.execute("INSERT INTO regime_history VALUES ('2026-08-06','TRENDING')")
+        conn = self._conn([("2026-08-06", "TRENDING", 0)])
         assert vf._latest_market_regime(conn) == "EXPANSION"
 
     def test_crisis_passthrough(self):
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
-        conn.execute("CREATE TABLE regime_history (date TEXT, status TEXT)")
-        conn.execute("INSERT INTO regime_history VALUES ('2026-08-06','CRISIS')")
+        conn = self._conn([("2026-08-06", "CRISIS", 0)])
+        assert vf._latest_market_regime(conn) == "CRISIS"
+
+    def test_bo_qua_phien_DEGRADED_lay_phien_sach_gan_nhat(self):
+        """WHY: phiên suy giảm không được làm nhãn regime cho bộ lọc VN20 (Mục 1/5 backlog).
+
+        Phiên mới nhất là TRENDING nhưng `is_degraded = 1` ⇒ phải rơi về phiên sạch RANGING,
+        KHÔNG được trả EXPANSION từ một phiên có độ rộng không đủ phủ.
+        """
+        conn = self._conn([("2026-08-06", "TRENDING", 1), ("2026-08-05", "RANGING", 0)])
+        assert vf._latest_market_regime(conn) == "RANGING"
+
+    def test_phien_nhan_NULL_khong_duoc_coi_la_sach(self):
+        """'Không biết' ≠ sạch: cờ NULL ⇒ bỏ qua phiên đó, không dùng làm nhãn."""
+        conn = self._conn([("2026-08-06", "TRENDING", None), ("2026-08-05", "CRISIS", 0)])
         assert vf._latest_market_regime(conn) == "CRISIS"
 
     def test_empty_db_falls_back_ranging(self):
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
+        conn = self._conn([])
         assert vf._latest_market_regime(conn) == "RANGING"
 
     def test_missing_table_falls_back_ranging(self):
