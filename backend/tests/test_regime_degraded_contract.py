@@ -32,21 +32,49 @@ LIVE_PATHS = (
     "backend/src/governor",
     "backend/src/cao_readiness",
     "backend/src/portfolio",
+    "backend/src/quant",
 )
 
-#: Tầng HIỂN THỊ/API: giữ dòng degraded nhưng phải phơi cờ (không áp vị từ lọc).
-DISPLAY_WHITELIST = ("backend/src/database/timeline_manager.py",)
+#: Tầng HIỂN THỊ/API/NGHIÊN CỨU: giữ dòng degraded (phơi cờ), KHÔNG áp vị từ lọc.
+#: Mỗi mục phải kèm LÝ DO — thêm file mới vào đây là một quyết định có chủ đích, không phải im lặng.
+DISPLAY_TIER = {
+    "backend/src/api/routes/system.py": "API/UI: đọc trạng thái để hiển thị",
+    "backend/src/database/timeline_manager.py": "timeline/UI (đồng thời là writer đã set cờ)",
+    "backend/src/services/breadth_service.py": "service hiển thị độ rộng",
+    "backend/src/services/macro_service.py": "service hiển thị vĩ mô",
+    "backend/src/backtest/decompose_replay_by_regime.py": "nghiên cứu giải phẫu theo regime",
+    "backend/src/backtest/hsr_kernel.py": "kernel nạp bản sao in-memory cho backtest",
+    "backend/src/backtest/trend_loop.py": "backtest lịch sử — quyết định riêng, xem backlog",
+    "backend/src/research/check_integrity.py": "công cụ kiểm tra toàn vẹn",
+    "backend/src/research/opportunity_score_research.py": "nghiên cứu",
+    "backend/src/sensors/sensor_validation.py": "harness kiểm định cảm biến",
+    "backend/src/alpha/forward_return_tagger.py": "gắn nhãn forward-return cho nghiên cứu",
+}
+
+SAFE_MARKERS = ("is_degraded", "LIVE_REGIME_SQL", "assert_regime_degraded_column")
+EXEMPT_MARKER = "scan-exempt: regime_history"
 
 
-def _scan_reads(text: str, *, window: int = 400) -> list[str]:
-    """Đoạn SQL đọc `regime_history` mà thiếu vị từ lọc cờ suy giảm."""
+def _stmt_around(text: str, pos: int) -> str:
+    """Đoạn 'câu lệnh' quanh vị trí match: từ lời gọi gần nhất (execute/read_sql/""") tới 300 ký tự sau.
+
+    WHY không dùng cửa sổ cố định: cửa sổ 400 ký tự vớ phải SQL LÂN CẬN ⇒ báo oan (đã xảy ra thật).
+    """
+    starts = [text.rfind(k, 0, pos) for k in ("execute(", "read_sql(", '"""')]
+    start = max([s for s in starts if s != -1], default=max(0, pos - 200))
+    return text[start : pos + 300]
+
+
+def _scan_reads(text: str) -> list[str]:
+    """Đoạn SQL đọc `regime_history` thiếu vị từ lọc cờ (bỏ qua chỗ có marker miễn trừ)."""
     bad: list[str] = []
     for m in re.finditer(r"FROM\s+regime_history\b", text, flags=re.IGNORECASE):
-        snippet = text[max(0, m.start() - window) : m.end() + window]
-        if "SELECT" in snippet.upper() and not any(
-            k in snippet for k in ("is_degraded", "LIVE_REGIME_SQL", "assert_regime_degraded_column")
-        ):
-            bad.append(f"…{snippet[:120]}…")
+        ctx = text[max(0, m.start() - 400) : m.start()]
+        if EXEMPT_MARKER in ctx:
+            continue
+        stmt = _stmt_around(text, m.start())
+        if "SELECT" in stmt.upper() and not any(k in stmt for k in SAFE_MARKERS):
+            bad.append(f"…{stmt[:120]}…")
     return bad
 
 
