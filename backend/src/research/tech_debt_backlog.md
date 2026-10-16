@@ -46,7 +46,16 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 - **DONE-WHEN:** phiên đủ phủ ⇒ `EOD_READY`; phiên thiếu thật ⇒ `NOT_READY`; có test cho cả hai
   chiều (đủ/thiếu) trên DB giả lập.
 - **RISK:** nới ngưỡng quá tay sẽ che mất phiên thiếu thật ⇒ phải giữ được nhánh FAIL và test nó.
-- **PHÁN QUYẾT:** GO-with-guideline 2026-10-15, hẹn thực thi đầu chu kỳ kế tiếp.
+- **PHÁN QUYẾT:** ✅ **DONE 2026-10-16** (GO của user, ưu tiên 3) — ngưỡng động đã vào code:
+  `MIN_VALUE_RATIO = 0.5`, `FALLBACK_MIN_SYMBOLS = 580`, `nguong_toi_thieu(median_valid)` =
+  `max(580, median20_phiên_trước × 0,5)`; hàm đánh giá nhận thêm tham số `median_valid_20`;
+  số mã của phiên nay đếm trên **dòng HỢP LỆ** (`VALID_ROW_SQL` + `STOCK_ONLY_SQL`) thay vì
+  `COUNT(DISTINCT symbol)` thô (đếm thô tính cả dòng cách ly **và chỉ số** — thêm một điểm sai).
+  Baseline PIT-safe: median của **20 phiên TRƯỚC** phiên đang xét. Bằng chứng:
+  `backend/tests/test_startup_sentinel_threshold.py` **7 ca** (827 và 870 mã qua cổng ✓; 300 mã vẫn
+  `NOT_READY` ✓; median 1.500 ⇒ ngưỡng tự siết lên 750 và 700 mã bị bắt ✓; thiếu VNINDEX ⇒ NOT_READY;
+  thiếu baseline ⇒ dùng sàn 580, **không** coi là đủ) + kiểm đầu-cuối `ptck.py stale status` →
+  `[+] DU LIEU EOD HOM NAY DA SAN SANG` (trước đó luôn báo thiếu). Không có nhánh "cảnh báo rồi đi tiếp".
 
 ## 4. Pipeline dữ liệu CƠ BẢN chuẩn Point-in-Time (BCTC) — *hạng mục mới*
 
@@ -220,7 +229,23 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 - **RISK:** hai bảng này trông rất "hợp mắt" (POC/VAH/VAL, active demand) ⇒ dễ bị đưa vào cổng trước
   khi có provenance. Việc cần làm trước tiên là **truy lại nguồn ghi** (crawler nào, ngày nào), không
   phải tinh chỉnh tham số.
-- **PHÁN QUYẾT:** MỞ 2026-10-16 (chờ GO; cấm dùng cho quyết định tới khi có provenance).
+- **PHÁN QUYẾT:** ✅ **DONE 2026-10-16 (truy vết)** — và **lật ngược giả thuyết đã ghi ở mục này**:
+  giả thuyết cũ ("phân bổ KL theo mức giá không thể suy ra từ OHLCV EOD ⇒ tồn tại nguồn intraday
+  chưa chuẩn hoá") là **SAI**. Writer đã tìm được: **`backend/src/financial/market_behavior_engine.py`**
+  (`compute_volume_profile`, dòng ~185–250) + `backend/src/backtest/backfill_behavior_pit.py` (dựng bù
+  lịch sử). Nguồn vào là **`screener_cache.daily_ohlcv` (EOD!)** — `get_ohlcv()` đọc `close/high/low/volume`,
+  rồi **CHIA ĐỀU khối lượng của phiên lên dải [low, high]** (`vol_per_unit = vol / span`) ⇒ POC/VAH/VAL
+  và `hvns` là **ƯỚC LƯỢNG MÔ HÌNH**, không phải khối lượng khớp thật tại từng mức giá. Đây là *giả định
+  hình học*, không phải đo lường ⇒ **nguy hiểm hơn cả "thiếu provenance"**: một consumer có thể đọc
+  POC như số liệu quan sát được.
+  **Khuyết điểm thật:** bảng thiếu `method`/`is_synthetic`/`derived_from` (tác giả không thấy cần
+  `source` vì dữ liệu suy ra tại chỗ) ⇒ **KHÔNG đóng băng, KHÔNG đòi nguồn intraday**: việc đúng là
+  (i) ghi rõ `method='UNIFORM_WITHIN_DAILY_RANGE'`, `derived_from='screener_cache.daily_ohlcv'`,
+  `is_synthetic=1` cho dòng hiện có; (ii) cấm mọi cổng/điểm dùng nó như số đo (chỉ hiển thị kèm cờ).
+  **Phát hiện phụ (nợ mới, thuộc mục 6):** `get_ohlcv()` truy vấn `daily_ohlcv` **trần, không
+  `VALID_ROW_SQL`/`is_stale`** ⇒ dòng cách ly chảy thẳng vào bảng dẫn xuất — thêm một điểm mẫu hình 3
+  ở tầng **WRITER** (không chỉ reader). Kèm ghi chú: `volume_profile` chỉ phủ **57 mã**, phiên cuối
+  2026-10-02; `active_demand` phiên cuối 2026-09-18 ⇒ cả hai đã **ngừng được nuôi**.
 
 ## 9. Pipeline EOD đuổi kịp bảng dẫn xuất (`market_wide_breadth_daily`, `regime_history`)
 
@@ -237,9 +262,27 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   (`detect_duplicate_sessions`) trước khi ghi, và tuyệt đối không để job bù ghi đè phiên đã có dữ liệu
   thật.
 
----
-
-## Ghi chú vận hành
+- **PHÁN QUYẾT:** ✅ **DONE 2026-10-16** (GO with guard của user, ưu tiên 2). Kết quả đo:
+  - **Guard 1 (phiên sạch):** 15/10 (829 dòng hợp lệ, 0 `is_stale`, 0 NULL, có VNINDEX) · 16/10
+    (870, 0 `is_stale`, 0 NULL, có VNINDEX) ⇒ **đạt**.
+  - **Guard 2 (không xoá lịch sử):** tổng dòng breadth **1.692 → 1.694** (+2 = đúng 2 phiên mới);
+    `market_wide_breadth_daily` **KHÔNG** bị xoá dòng nào; `regime_history` bù **28/28 phiên** trong 10s.
+  - **Guard 3 (kiểm toán sau ghi):** `MAX(date)` = **2026-10-16** cho cả ba bảng (`daily_ohlcv`,
+    `market_wide_breadth_daily`, `regime_history`) ✓.
+  - **Số mới vào:** breadth 15/10 **+2,056%** (active 824) · 16/10 **+12,687%** (active 865, degraded=0)
+    — khớp độc lập với A/D tự tính (+2,4% và **+12,6%**).
+  - **⚠️ ĐỔI SỐ LỊCH SỬ (khai báo, không giấu):** 14 dòng 24/09→14/10 bị upsert giá trị MỚI vì dòng cũ
+    được tính bằng **bản code CŨ** (khác vị từ). Hai ca là **sửa lỗi**: 12/10 active **89 → 849**
+    (breadth +16,85% → +0,824% — dòng cũ là rác của lượt rebuild cụt) và 13/10 breadth −17,16% →
+    **−24,23%** (khớp A/D tự tính −24,0%; vẫn `degraded=1` vì 743 < 750). Các ca còn lại lệch ≤1pp và
+    **đều dịch về phía khớp phép đo độc lập** ⇒ coi là hiệu chỉnh, cần user phê chuẩn.
+  - **BUG GỐC GÂY RA NÓ + ĐÃ VÁ:** `load_bars` **không lấy lookback** ⇒ phiên ĐẦU của mọi cửa sổ không
+    có `prev` ⇒ toàn bộ chỉ số = 0 và bị upsert đè lên dòng cũ (đã xảy ra thật với 24/09 và 25/09 trong
+    lượt chạy đầu của tôi). Vá: nạp thêm **10 ngày lịch** trước `--start` để tính, **chỉ ghi** phiên
+    trong `[start, end]` (`market_wide_breadth.py` `main()`) ⇒ phiên đầu luôn có `prev` thật. Đây là
+    dạng lỗi "im lặng ghi số sai" đúng loại bất biến #1 cấm.
+  - **Ghi chú vận hành mới:** muốn chạy bù breadth phải đặt `PYTHONPATH=<repo>/backend`
+    (script `from database...`/`from src.database...` cần `backend` trên sys.path).
 
 - Backlog này là nơi **duy nhất**; khi một mục được thực thi, ghi commit hash vào mục đó và đổi
   nhãn phán quyết, KHÔNG xóa (giữ lịch sử quyết định).
