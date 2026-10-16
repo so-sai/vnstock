@@ -165,6 +165,61 @@ profitability) và `forensic_scores` (792 mã, `m_score`, `hard_violation`).
 
 ---
 
+## 8. BƯỚC P — Truy vết nguồn giá của writer (chỉ đọc) · **phát hiện look-ahead THẬT**
+
+**Trả lời 3 câu hỏi:**
+
+| Câu hỏi | Trả lời (có dẫn chứng) |
+|---|---|
+| Bảng/DB nào? | `backend/data/screener_cache.db` → bảng `daily_ohlcv` (`valuation_engine.py:36` `SCREENER_DB_PATH`, `:103`, `:154-180`) |
+| Ngày nào? | **ngày cuối quý** (`period_end`), tìm **ngược tối đa 30 ngày** để bắt phiên gần nhất (`:163-172`) |
+| Cột nào / nguồn nào? | cột **`close`** (trùng `adj_close`) — chuỗi **đã back-adjust** theo số cổ phiếu hiện tại ⇒ basis `ADJUSTED_TODAY`, khớp với việc BVPS dùng shares-now (BASIS-FIX là nhất quán) |
+
+**Kiểm chứng cơ chế:** HPG 2018Q1 → giá lưu **10.220** = close đúng ngày **2018-03-30**;
+HPG 2018Q2 → **9.090** = close **2018-06-29** ✓ khớp tuyệt đối.
+
+### 8.1. LỖI THẬT: fallback "lấy giá MỚI NHẤT" khi chuỗi quá ngắn
+
+`valuation_engine.py:173-180`:
+
+```python
+# Fallback: latest available
+cur.execute("SELECT date, close FROM daily_ohlcv WHERE symbol=? ORDER BY date DESC LIMIT 1", ...)
+return row[1] if row else None
+```
+
+Nếu không có bar nào trong 30 ngày trước `period_end`, writer **lấy giá MỚI NHẤT trong kho**
+— tức **giá TƯƠNG LAI** — rồi tính PE/PB cho kỳ quá khứ. Chính comment của tác giả cũng ghi
+*"Fallback tới giá mới nhất khi chuỗi quá ngắn."*
+
+### 8.2. Quy mô nhiễm (đo trên 7.318 dòng có `price` / 1.789 cặp `(mã,kỳ)`)
+
+| Phân loại | Số cặp | Tỷ lệ |
+|---|---|---|
+| Giá khớp bar quanh `period_end` (±10 ngày) — hợp lệ | **1.141** | 63,8% |
+| **Giá KHÔNG khớp quanh `period_end` nhưng có trong store ở ngày khác ⇒ nghi dùng fallback** | **636** | **35,6%** |
+| Giá không tồn tại trong `daily_ohlcv` | 12 | 0,7% |
+
+**Ca điển hình — ACB:** `2018Q1 → 2019Q4` (8 kỳ liên tiếp) đều bị gán **price = 21.100**, mà 21.100
+chỉ tồn tại ở các ngày **2025-02-04 / 2025-05-30 / 2025-06-02** ⇒ PE/PB của ACB giai đoạn 2018–2019
+được tính bằng **giá của năm 2025** (look-ahead **7 năm**).
+
+⇒ **Hệ quả:** ~**1/3** giá trị lịch sử trong `valuation_scores` bị nhiễm look-ahead gián tiếp qua giá.
+Mọi backtest dùng PE/PB của tầng này trước nay đều "ăn gian" — **và đây mới là lý do đúng**, không
+phải chuyện shares (mục §4).
+
+### 8.3. Sửa gì ở B (fail-closed, không xoá)
+
+1. **Bỏ hẳn fallback "latest available"**: không có bar trong cửa sổ 30 ngày ⇒ `price = NULL` +
+   cờ **`PRICE_FALLBACK_FUTURE`** (nếu phát hiện giá được lấy từ ngày > `period_end`) hoặc
+   **`PRICE_MISSING`** (không có giá) ⇒ `is_clean_metric = 0`.
+2. **Gắn cờ hồi tố** cho 636 cặp `(mã,kỳ)` đã nhiễm (giữ dữ liệu, chỉ đánh dấu) — danh sách sinh
+   được bằng chính truy vấn ở §7.2.
+3. **Canary mới:** HPG 2018Q1 = 10.220 (khớp `period_end`) và ACB 2018Q1 **phải KHÔNG còn** 21.100.
+4. Điều kiện DONE của B bổ sung: **số cặp dùng fallback = 0**.
+
+---
+
 ## 7. ĐỀ XUẤT WINSORIZE — áp Ở ĐÂU, bằng công thức nào (bổ sung 2026-10-15)
 
 ### 7.1 Chuỗi hỏng đã đóng: winsorize một mình là KHÔNG ĐỦ, và hướng hỏng là fail-OPEN trên rủi ro
