@@ -835,7 +835,36 @@ ta đang ký thông số trên một bảng còn 14 dòng nhiễm + chưa qua đ
 3. Cho script recompute **lan truyền mã thoát của bước con** (ít nhất là `[A]`/`[C]`).
 4. Sau đó chạy lại recompute → đo lại (f) → mới chốt `[p2, p98]` + `n_min = 5`.
 
+### 7.4novies MỤC 1-3 (P0) ĐÃ THI HÀNH — và mục 4 **đang bị chặn bởi chính chốt chặn mới**
+
+**(1)+(2) Vị từ Luật B trên đường đọc giá PIT — `valuation_engine.py`**
+4 truy vấn `daily_ohlcv` nay đều có `AND COALESCE(is_stale, 0) = 0 AND {VALID_ROW_SQL}` (giá PIT, 2 câu
+COUNT phân loại lý do thiếu giá, và `_get_price_history`), kèm `[INVARIANT — LUẬT B]` ghi tại chỗ trong
+docstring `_get_price_with_flag`.
+**TDD thật:** test mới `tests/test_valuation_engine_price_predicate.py` (4 ca, `[WHY]` từng ca) —
+**RED exit 1** trước khi vá: `DDG → 800.000` (thay vì `None` + cờ), `BII → 900.000` (thay vì `1.000`),
+lịch sử còn cả hai giá cách ly — **GREEN 4 passed** sau khi vá.
+**Không hồi quy:** `tests/test_valuation_engine_pit.py` (35 ca của phiên song song, gồm canary HPG 2018Q1)
+→ **35 passed**; `ruff All checks passed`.
+
+**(3) Lan truyền mã thoát — `recompute_valuation_scores_pit.py`**
+Thêm `_run_child(script, tag)`: dùng `subprocess.run(capture_output=True)` (bỏ `DEVNULL` — chẩn đoán của
+bước con KHÔNG còn bị xoá), in 20 dòng cuối khi thất bại, trả mã thoát thật; `main()` dừng với **6** nếu
+`[A]` hỏng và **7** nếu `[C]` hỏng — dừng TRƯỚC backup và trước mọi phép ghi.
+**Chứng minh trên thực tế:** chạy lại `--apply` → **exit 7** (trước khi vá: `exit 0` + "791 mã OK · 0 lỗi");
+log cha in nguyên chẩn đoán của con (canary HPG, "KẾT LUẬN: FAIL — không ghi gì"). Kiểm chứng không ghi:
+`valuation_scores` vẫn **58.885** dòng, **không** sinh file backup mới.
+Test: `tests/test_recompute_exit_propagation.py` (6 ca) — `6 passed`.
+
+⚠️ **HỆ QUẢ CẦN QUYẾT ĐỊNH (mục 4 đang bị chặn):** chốt chặn mới hoạt động đúng, nên
+`recompute_valuation_scores_pit.py --apply` **không thể chạy** cho tới khi `[C]` qua được canary:
+`("HPG","2018Q1","CHARTER_PIT")` kỳ vọng `1.517.079.000` nhưng dữ liệu cho **`1.517.100.000`** (+21.000);
+`("HPG","2025Q2","CHARTER_PIT")` kỳ vọng `6.396.250.200` nhưng dữ liệu cho **`6.396.300.000`** (+49.800)
+— lệch ~0,001%. Phải chọn: (a) sửa dữ liệu `shares_history` cho khớp nguồn, hay (b) nới canary có tuyên bố
+(ngưỡng tương đối + ghi lý do). **Không tự sửa** vì đây là canary của tầng khác.
+
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
+
 
 
 
