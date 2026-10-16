@@ -118,13 +118,15 @@ def _fetch_regime_history(lookback_days: int = 120, target_date: str | None = No
     WHY: phiên `degraded` (độ rộng không đủ phủ) không phải suy giảm của REGIME mà là suy giảm của
     DỮ LIỆU ⇒ đưa vào mô hình là ăn số giả. Fail-closed khi thiếu cột cờ.
     """
-    from src.database.series_quality import LIVE_REGIME_SQL, assert_regime_degraded_column
+    from src.database.series_quality import assert_regime_degraded_column
 
     with get_connection() as conn:
         assert_regime_degraded_column(conn)
-        cond = f"date <= '{target_date}' AND {LIVE_REGIME_SQL}" if target_date else LIVE_REGIME_SQL
+        cond = f"date <= '{target_date}'" if target_date else "1 = 1"
         df = pd.read_sql(
-            f"SELECT date, regime_score, status, breadth_pct FROM regime_history WHERE {cond} ORDER BY date", conn
+            f"SELECT date, regime_score, status, breadth_pct FROM regime_history "
+            f"WHERE {cond} AND is_degraded = 0 ORDER BY date",
+            conn,
         )
     return df
 
