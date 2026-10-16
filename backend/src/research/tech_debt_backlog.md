@@ -61,6 +61,19 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 > `valuation_scores` theo PIT; (C) bổ sung chuỗi **số cổ phiếu lưu hành**; (D) bổ sung **metric ngân hàng**
 > (NPL/LLR/NIM/cho vay/tiền gửi — hiện KHÔNG có trong 47 metric, nên luận điểm chất lượng tài sản
 > không kiểm được); (E) winsorize/audit tầng ratio (PE<2: 40 dòng, PB max 79,66, EV/EBITDA max 3.386).
+>
+> **CẬP NHẬT 2026-10-15 (A ✅, E chẩn đoán ✅):**
+> - **A xong** (commit `1bce817`): 615.528/615.528 dòng đã có `effective_date` + `effective_date_basis`;
+>   615.438 dòng dùng được hôm nay, 90 dòng kỳ 2026Q3 (`effective_date=2026-10-30`) **chưa được phép đọc**.
+>   Đo được look-ahead cũ: P/B SHB phải là **0,801** tại mốc 01/08/2026 (chỉ biết Q1) nhưng tầng cũ
+>   cho **0,702** ⇒ sai lệch tới **~18%** theo hướng làm cổ phiếu trông rẻ hơn.
+> - **E chẩn đoán xong** → `financial_facts_ratio_audit.md`: **root cause không phải "40 ca bẩn"** mà là
+>   lỗi kỳ hạn trong công thức PE — `valuation_engine.py:266-274` nhân EPS ×4 **cho mọi kỳ** trong khi
+>   chuỗi EPS **hỗn hợp quý/luỹ kế** (Q2+Q4 chiếm 65% số ca). Phát hiện thêm: writer dùng
+>   `shares_now` (số cổ phiếu HIỆN TẠI) cho **mọi kỳ** ⇒ `SHARES_NOT_PIT`, cùng họ với look-ahead PIT;
+>   và `EBITDA` **không tồn tại như metric** ⇒ mẫu số EV/EBITDA không truy vết được.
+> - Vì vậy **C trở thành điều kiện tiên quyết của B** (không phải "nice to have"), và **E chỉ gắn cờ,
+>   không sửa số** — việc sửa công thức thuộc B.
 
 - **WHAT:** ~~nạp báo cáo tài chính theo quý kèm ngày công bố~~ → **hoàn thiện provenance PIT cho kho đã có**
   (A–E ở trên), rồi mới tính tới việc dùng nó làm bộ lọc.
