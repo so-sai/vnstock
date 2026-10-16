@@ -712,7 +712,58 @@ Chỉ `NOS` (200.000đ = 800× neo) là phantom, đã xử lý. 697 dòng `NOS` 
 **Trạng thái công cụ:** `ruff All checks passed` · `5 passed` · chạy lại trên kho thật = **0 dòng cần ghi**
 (idempotent) · 98 mục khai báo (85 mã không neo + 13 đoạn thiếu thang).
 
+### 7.4septies CHUẨN HÓA ĐƠN VỊ LỊCH SỬ 7 MÃ (GO) — **đã thi hành 5.875 dòng**, và mục (b) TCBS bị BÁC BỎ
+
+#### (a) Đã rescale dải cũ ×1000 (công cụ `backend/scripts/rescale_unit_history.py`)
+Tái dùng **nguồn sự thật** của `rescale_vci_guarded.py` (SCALE, PRICE_COLS, RATIO_MIN/MAX, MAX_CONTINUITY)
+chứ không chép hằng số; G1 [500,1500] · G2 giao thoa ≤20% · G3 hậu kiểm "không còn bước nhảy ≥10×".
+
+| mã | dòng dải cũ | T | G1 (tỷ lệ dải) | G2 (giao thoa tệ nhất) | nguồn dải cũ |
+|---|---|---|---|---|---|
+| `PPS` | 1.135 | 305,3 | 1.073× | 8,2% | `kbs` |
+| `MGG` | 894 | 784,5 | 967× | 0,0% | `kbs` |
+| `VTJ` | 1.457 | 121,7 | 925× | 7,3% | **`vci`** |
+| `MIE` | 138 | 215,9 | 851× | 15,9% | `kbs` |
+| `HHG` | 1.310 | 30,0 | 900× | 11,1% | `kbs` |
+| `PXA` | 210 | 30,0 | 900× | 11,1% | `kbs` |
+| `VIN` | 731 | 486,6 | 1.081× | 12,5% | `kbs` |
+
+Tổng **5.875 dòng** (`4.418` nhãn `rescaled_kbs_historical_x1000` + `1.457` nhãn
+`rescaled_vci_historical_x1000`). Backup `screener_cache.db.bak_rescale_unit_20261016_204608`.
+**Kiểm chứng:** sau ghi, **0 bước nhảy ≥10×** trong cả 7 chuỗi (trước: 452 cặp toàn kho) · **0 dòng vi
+phạm vị từ** (`low ≤ close ≤ high` giữ nguyên vì mọi cột giá cùng ×1000) · chạy lại = **0 dòng** (idempotent)
+· `ruff All checks passed` · `pytest 5 passed`.
+Dải giá `is_stale=0` sau sửa: `PPS` 4.770–11.430 · `MGG` 20.330–34.700 · `VTJ` 2.600–9.600 · `MIE`
+3.900–15.000 · `HHG` 600–10.000 · `PXA` 600–3.700 · `VIN` 8.700–33.060 — liền mạch và khớp neo ngoài.
+
+#### (b) ĐÍNH CHÍNH LUẬT ĐƠN VỊ của `rescale_vci_guarded.py`
+Docstring công cụ cũ ghi "nguồn `kbs` trả đúng đồng; nguồn `vci` trả nghìn đồng". Đo trên 7 mã này cho
+thấy luật đó phải đọc là **THEO TỪNG MÃ-VÀ-THỜI ĐOẠN**, không phải bất biến theo nguồn: dải lịch sử ở
+đơn vị "nghìn đồng" do **`kbs`** ghi ở 6/7 mã (`vci` chỉ ở `VTJ`), còn dải gần đây (2026-04→10) mới là
+đồng. Nghĩa là cùng một nguồn đã ghi hai đơn vị ở hai thời đoạn ⇒ mọi suy luận đơn vị phải kèm thời
+đoạn, không được suy từ tên nguồn.
+
+#### (c) Mục (b) trong lệnh — batch TCBS cho 26 mã VN30 — **BÁC BỎ, KHÔNG CHẠY**
+Đo trước khi chạy (`financial_facts.db`): cả ba tầng đều đã phủ đủ **29/29 mã VN30** —
+
+| tầng | phủ VN30 | số kỳ | ghi chú |
+|---|---|---|---|
+| `financial_facts` | **29/29** | 34 – 87 quý | min/med/max |
+| `health_ratios` | 29/29 | 30 – 82 kỳ (VCB 73, ACB 80, STB 82, BID/VPB/HDB 60…) | 333.550 dòng / 790 mã |
+| `shares_history` (`SHARES_OUT`) | **29/29** | min 1 / med 30 / max 80 | 22.502 dòng / 777 mã |
+
+6 chỉ số an toàn NH đều **đã có**: `NPL_RATIO` 877 dòng/17 mã · `LLR` 876/17 · `BANK_NIM` 889/17 ·
+`BANK_LDR` 896/17 · `CREDIT_GROWTH` 895/17 · CIR = `COST_TO_INCOME` 1.340/29.
+⇒ Không có khoảng trống để "nạp bù"; chạy batch nạp lại là **rủi ro ghi đè dữ liệu tốt** mà lợi ích bằng 0.
+**Không chạy** ingestion nào. Nếu mục tiêu là một metric cụ thể chưa thấy ở bảng nào, cần anh nêu tên metric
+để đo đúng chỗ thay vì nạp lại cả rổ.
+
+#### (d) Thứ tự còn lại
+(3) chạy lại `recompute_valuation_scores_pit.py` trên kho ĐÃ SẠCH (1.237 dòng phantom cách ly + 5.875 dòng
+chuẩn hóa đơn vị) → (4) đo lại phép thử bác bỏ → chốt `[p2, p98]` + `n_min = 5`.
+
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
+
 
 
 - Sau B: số ca `PE < 2` = **0**; với mỗi `(symbol, kỳ)`, `z` tính lại từ chuỗi sạch khớp ±5% với bản backup.
