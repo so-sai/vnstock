@@ -465,6 +465,58 @@ quý của dòng gây bão hoà: Q4 76 · Q2 75 · Q3 48 · Q1 39 ⇒ Q2+Q4 = 15
 (đuôi đã nở rộng ở mọi ratio, `std = 0` tăng 13×, còn `n_min` chưa đo lại phân bố `count`).
 **Không thi hành winsorize trước khi có phép thử bác bỏ chạy trên trạng thái mới.**
 
+### 7.4ter CHẨN ĐOÁN ROOT-CAUSE ĐUÔI + ĐO LẠI THÔNG SỐ (2026-10-16, snapshot 58.279 dòng)
+
+**Nguồn:** `ff_snapshot_20261016.db` (backup API), fingerprint `88138018f38b3f3f`.
+
+#### (a) Giả thuyết "lệch basis giá/cổ phiếu sinh ra đuôi" — **BỊ BÁC BỎ làm nguyên nhân chính**
+
+| Kiểm chứng | Kết quả |
+|---|---|
+| `(price_basis × shares_basis)` của TOP 1% mỗi ratio | **~gần như đồng nhất**: `ADJUSTED_TODAY/CHARTER_PIT` chiếm 101/101 (PE) · 127/129 (PS) · 85/88 (EV) · 111/115 (ROE) · 91/152 (PB) ⇒ đuôi **không** tập trung ở nhánh basis nào |
+| Giá writer vs `daily_ohlcv.close` cùng kỳ (top 6 PE cực trị) | tỉ lệ **0,988 – 1,025** (KDC 57.030 vs close 57.720; NBB 1,000; GLT 1,000) ⇒ **giá KHỚP**, không phải lệch nguồn giá |
+
+#### (b) Nguyên nhân THẬT — 3 cơ chế tách bạch được
+
+1. **MẪU SỐ ≈ 0** (chính, đã có cờ): PE cực trị có `ratio_value ≈ price` (KDC: PE 57.030 = giá 57.030 ⇒ **EPS ≈ 1 đồng**);
+   EV/EBITDA max `1,2×10⁷` với `NEAR_ZERO_DENOMINATOR,UNTRACEABLE_DENOMINATOR` (kho **không có metric EBITDA**);
+   PS max 25.584 với `NEAR_ZERO_DENOMINATOR` (127/129 top-1%).
+2. **GIÁ LỆCH THANG Ở MỘT SỐ DÒNG** (mới, chưa có cờ): `DDG 2026Q2` PB 226 với **price = 800.000**; `DDG 2026Q1` **900.000**;
+   `BII 2024Q2` PS 25.584 với **price = 900.000** — trong khi DDG/BII giao dịch ở mức vài nghìn đồng ⇒
+   **nghi lệch thang/đơn vị ở `valuation_scores.price`**, không phải near-zero denominator.
+   ⇒ Việc cần làm: cổng sanity giá (`price` vs `daily_ohlcv.close` cùng kỳ) cho **mọi** dòng, không chỉ outlier.
+3. **`LEGACY_PRE_PIT`**: 60/152 dòng top-1% của PB có `price_basis = NULL` và cờ `LEGACY_PRE_PIT` ⇒
+   tồn dư của đường cũ, chưa qua B ⇒ nhóm này phải **loại** chứ không winsorize.
+
+#### (c) LỖ HỔNG BOUNDING SPEC: **ROE chưa có biên nào**
+
+`ROE = 9,14` (914%, ATG 2025Q2) mang **`anomaly_flags = NULL` và `is_clean_metric = 1`**;
+top-1% ROE có **107/115 dòng `is_clean_metric = 1`** ⇒ mọi cực trị ROE đều đang **lọt lưới sạch sẽ**.
+⇒ Bổ sung biên cho ROE (và rà lại danh sách ratio được bound) là việc phải làm trước mọi xếp hạng.
+
+#### (d) PHÉP THỬ BÁC BỎ chạy lại trên trạng thái mới — **kết luận ĐẢO so với trạng thái cũ**
+
+| ratio | `std_full ÷ std[1,99]` | `÷ [2,98]` | `÷ [5,95]` | so với cũ |
+|---|---|---|---|---|
+| PE | 5,68× | **9,01×** | 18,90× | cũ 11,2× |
+| PB | 4,49× | **5,10×** | 6,49× | cũ 1,6× |
+| PS | 22,68× | **32,57×** | 50,28× | cũ 2,0× |
+| EV_EBITDA | **1.230×** | 1.742× | 2.775× | cũ 2,9× |
+| ROE | 2,02× | **2,21×** | 2,71× | cũ **1,16× ⇒ ĐẢO: nay VƯỢT ngưỡng 1,2** |
+
+⇒ **Cả 5 ratio nay đều vượt ngưỡng bác bỏ** (ROE đảo kết luận — chứng minh việc đo lại là bắt buộc, không
+phải thủ tục). Nhưng **EV/EBITDA không được winsorize**: 1.230× phản ánh mẫu số **không truy vết được**;
+kẹp nó lại là hợp thức hoá một con số không có nguồn ⇒ phải **loại bằng cờ** (`UNTRACEABLE_DENOMINATOR`),
+không kẹp biên.
+
+#### (e) `n_min` trên trạng thái mới
+
+`count`: min 1 · P10 **2** · P50 9 · P90 18 · max 34; `< 3` = 7.329 (12,6%) · **`< 5` = 14.334 (24,6%)** · `< 10` = 30.637 (52,6%).
+⇒ `n_min = 5` làm **24,6% dòng** mất z (cũ: 15,2%) — phải chấp nhận như một **mất mát có khai báo**
+(`INSUFFICIENT_HISTORY`), hoặc hạ về 3 (12,6%) nếu ưu tiên độ phủ. Đây là **đánh đổi phải chốt bằng quyết định**,
+không có "đúng" tự thân.
+
+
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
 
 - Sau B: số ca `PE < 2` = **0**; với mỗi `(symbol, kỳ)`, `z` tính lại từ chuỗi sạch khớp ±5% với bản backup.
