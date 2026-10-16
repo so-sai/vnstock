@@ -627,6 +627,55 @@ Ví dụ đúng chuỗi nhân quả đã thấy: `BII 2024Q2` price 900.000 ⇒ 
 ⚠️ Chưa thi hành mục nào trong bảng trên: đây là **ghi nhận quyết định**, phần code sẽ làm ở bước riêng
 (bounding spec nằm trong `valuation_engine.py`/writer — vùng vừa được phiên song song sửa, phải đọc lại trước khi vá).
 
+### 7.4quinquies CÁCH LY PHANTOM THEO NEO NGOÀI — và TÌM RA DẤU VẾT GỐC (`rescaled_vci_x1000`)
+
+#### (a) Đã thi hành: cách ly 3 mã có neo ngoài
+Công cụ: `backend/scripts/quarantine_unit_mix.py` (dry-run mặc định, `--apply` mới ghi, backup API trước khi ghi,
+idempotent, **additive**: `is_stale = 1` + gắn nhãn `quarantine:unit_mix_phantom_1000x`, KHÔNG xoá, KHÔNG sửa giá).
+
+| mã | dòng bị cách ly | khoảng giá bị cách ly | dòng giữ lại (`is_stale = 0`) |
+|---|---|---|---|
+| `DDG` | 26 | 600.000 – 900.000 | 1.352 dòng, 800 – 43.300 |
+| `BII` | 469 | 300.000 – 900.000 | 837 dòng, 1.000 – 31.000 |
+| `NOS` | 742 | 200.000 – 900.000 | 704 dòng, 600 – 5.900 |
+| **tổng** | **1.237** | | rò rỉ giá ≥110.000 ở `is_stale = 0`: **0** |
+
+Ngưỡng cách ly = `100 × cận trên của neo` (DDG ≥110.000; BII/NOS ≥50.000/60.000) — chừa dư địa cho biến
+động HỢP LỆ nhiều năm (DDG 2020 ~17.160đ = 17× neo vẫn giữ), vẫn bắt trọn nhánh 200.000–900.000.
+**Bản dry-run đã bị loại 2 lần trước khi dùng được** — cả hai lần đều gắn cờ nhánh ĐÚNG:
+lần 1 (mốc = "đoạn trội theo số dòng") gắn cờ median 1.000–1.100 của DDG; lần 2 (đoạn "cô lập giữa hai
+đoạn liền kề cùng thang") gắn cờ **chuỗi hợp lệ 6 năm** của DDG (median 17.160, 1.304 dòng) và chuỗi
+4.900 kéo 3 năm của BII. ⇒ **Kết luận phương pháp: cấu trúc chuỗi một mình KHÔNG đủ để phân xử bên nào
+sai**; chỉ neo ngoài mới phân xử được. 92 mã không có neo ⇒ **chỉ khai báo, không đụng.**
+Hạn chế đã khai báo: `is_stale = 1` chặn đường **PIT/live** nhưng **panel lịch sử chỉ lọc `VALID_ROW_SQL`**
+nên 1.237 dòng này VẪN lọt vào panel/backtest ⇒ cần vị từ theo nhãn cho đường đọc panel (việc riêng).
+
+#### (b) GỐC RỄ LỘ DIỆN: nhãn `rescaled_vci_x1000` có trong DỮ LIỆU nhưng KHÔNG có trong mã nguồn
+`grep` toàn `backend/`: **0 kết quả** cho `rescaled_vci`. Trong kho: **4.633 dòng / 171 mã**
+(2019-02-22 → 2026-09-23), trong đó **3.891 dòng vẫn `is_stale = 0`** (742 dòng `NOS` đã bị cách ly ở (a)).
+⇒ Một script ad-hoc (đã biến mất khỏi repo) đã nhân `×1000` lên một số dòng `vci` và **ghi dấu vết vào `source`**.
+
+#### (c) Nhưng nhãn đó **KHÔNG đồng nghĩa sai** — đo tỉ lệ thang (median dòng có nhãn ÷ median dòng không nhãn):
+
+| Tỉ lệ | Số mã | Đọc |
+|---|---|---|
+| 0,9 – 1,1 | **47** | **phep ×1000 ĐÚNG** (giá vci vốn ở đơn vị "nghìn đồng" ⇒ ×1000 khôi phục đồng) |
+| 0,1 – 0,9 / 1,1 – 10 | 59 / 49 | lệch thang nhẹ hoặc biến động giá hợp lệ |
+| 10 – 300 | 8 | nghi vấn |
+| **300 – 3.000** | **8** | **phep ×1000 SAI** ⇒ phantom thật (PPS 1.114×, VIN 1.074×, MGG 954×, VTJ 900×, MIE 733×, PXA/HHG 375×, NOS 307×) |
+
+⇒ Đảo ngược `×1000` cho toàn bộ 171 mã sẽ **phá 47+ mã đang đúng** ⇒ lần nữa khẳng định kỷ luật neo ngoài.
+Ví dụ ca "cả chuỗi bị nhân": `NOS` có **1.439 dòng mang nhãn / chỉ 10 dòng không nhãn** (median 200.000 vs 650)
+⇒ nhánh đúng gần như bị xoá sạch khỏi chuỗi, và **cổng phát hiện theo bước nhảy KHÔNG THỂ thấy**
+(không có bước nhảy nào để thấy — cả chuỗi cùng một thang sai) ⇒ cần thêm lưới theo **nhãn**, không chỉ theo nhảy.
+
+#### (d) Hệ quả cho mục (c) — winsorize/n_min: **CHƯA THỂ THI HÀNH**
+`valuation_scores` hiện vẫn được tính từ chuỗi còn phantom (BII/DDG/NOS vừa cách ly nhưng **chưa tính lại**);
+kẹp biên `[p2, p98]` trên dữ liệu còn trộn thang đơn vị là **hợp thức hoá sai số** — đúng bài học đã chốt.
+Thứ tự bắt buộc: **(1)** đủ neo cho 92 (hoặc 171) mã ⇒ cách ly hết phantom → **(2)** tính lại `valuation_scores`
+→ **(3)** chạy lại phép thử bác bỏ trên bảng ĐÃ SẠCH → **(4)** mới áp `[p2, p98]` + `n_min = 5`.
+
+
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
 
 - Sau B: số ca `PE < 2` = **0**; với mỗi `(symbol, kỳ)`, `z` tính lại từ chuỗi sạch khớp ±5% với bản backup.
