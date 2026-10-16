@@ -92,6 +92,28 @@ def dod_report(path: Path) -> dict:
     out["fallback_rows"] = con.execute(
         "SELECT COUNT(*) FROM valuation_scores WHERE anomaly_flags LIKE '%PRICE_FALLBACK_FUTURE%'"
     ).fetchone()[0]
+    # Tiêu chí (1) đo ĐÚNG cách: các cặp (mã,kỳ) CÓ dữ liệu cơ bản nhưng KHÔNG có hàng ratio nào
+    # = bị LOẠI vì không có bar trong cửa sổ PIT (trước đây chúng bị gán giá TƯƠNG LAI).
+    pairs_fund = {
+        (s, p)
+        for s, p in con.execute(
+            "SELECT DISTINCT symbol, period FROM financial_facts "
+            "WHERE metric IN ('EPS', 'TOTAL_EQUITY') AND value IS NOT NULL"
+        )
+    }
+    pairs_score = {(s, p) for s, p in con.execute("SELECT DISTINCT symbol, period FROM valuation_scores")}
+    out["pairs_with_fundamentals"] = len(pairs_fund)
+    out["pairs_scored"] = len(pairs_score)
+    out["pairs_excluded_no_price"] = len(pairs_fund - pairs_score)
+    # Chẻ nhỏ để KHÔNG trộn hai cơ chế mất độ phủ (luật AGENTS: phân loại, cấm gộp một con số):
+    #  · trước 2018 ⇒ chuỗi giá trong store CHƯA tồn tại (PRICE_MISSING) — thiếu nguồn, không phải lỗi;
+    #  · từ 2018 ⇒ đây là nhóm "di sản" từng bị gán giá TƯƠNG LAI (636 cặp đo ở BƯỚC P).
+    _ex = pairs_fund - pairs_score
+    out["excl_before_2018"] = sum(1 for _s, p in _ex if p[:4] < "2018")
+    out["excl_from_2018"] = sum(1 for _s, p in _ex if p[:4] >= "2018")
+    out["clean_by_ratio"] = con.execute(
+        "SELECT ratio_name, COUNT(*) FROM valuation_scores WHERE is_clean_metric=1 GROUP BY 1 ORDER BY 2 DESC"
+    ).fetchall()
     out["price_null_rows"] = con.execute("SELECT COUNT(*) FROM valuation_scores WHERE price IS NULL").fetchone()[0]
     out["pe_lt2_all"] = con.execute(
         "SELECT COUNT(*) FROM valuation_scores WHERE ratio_name='PE' AND ratio_value < 2"
@@ -200,16 +222,28 @@ def main() -> int:
             print(f"     ... {i}/{len(syms)} ({time.monotonic() - t0:.0f}s)")
     print(f"   [B] xong: {done} mã OK · {err} lỗi · {time.monotonic() - t0:.0f}s")
 
+    # ── Đánh dấu dòng CŨ (chưa qua PIT) — KHÔNG xoá cứng, chỉ loại khỏi xếp hạng ─────────
+    con2 = sqlite3.connect(f"file:{db.as_posix()}?mode=rw", uri=True, timeout=120.0)
+    con2.execute("PRAGMA busy_timeout=120000")
+    cur = con2.execute(
+        "UPDATE valuation_scores SET anomaly_flags='LEGACY_PRE_PIT', is_clean_metric=0 "
+        "WHERE is_clean_metric IS NULL"
+    )
+    n_legacy = cur.rowcount
+    con2.commit()
+    con2.close()
+    print(f"   [B] {n_legacy:,} dòng CŨ (chưa qua PIT) ⇒ gắn LEGACY_PRE_PIT + is_clean_metric=0 (không xoá)")
+
     print("\n   NGHIỆM THU (DoD Hạng mục B):")
     rep = dod_report(db)
     for k, v in rep.items():
-        print(f"     {k:16s}: {v}")
+        print(f"     {k:26s}: {v}")
     print("\n   3 TIÊU CHÍ:")
-    fb = rep.get("fallback_rows", "?")
-    print(f"     (1) cặp dùng giá fallback tương lai : {fb}  (cờ GIỮ LẠI để audit, giá đã về NULL)")
+    print(f"     (1) cặp bị LOẠI vì không có bar trong cửa sổ PIT: {rep.get('pairs_excluded_no_price', '?')}"
+          f"  (trước đây các cặp này bị gán giá TƯƠNG LAI; nay không sinh hàng ratio nào)")
     _a, _c = rep.get("pe_lt2_all", "?"), rep.get("pe_lt2_clean", "?")
-    print(f"     (2) số dòng PE < 2                  : {_a} (tổng) / {_c} (sạch)")
-    print(f"     (3) median PE (dòng sạch)           : {rep.get('pe_median')}")
+    print(f"     (2) số dòng PE < 2                  : {_a} (tổng) / {_c} (được coi là sạch)")
+    print(f"     (3) median PE (dòng sạch)           : {rep.get('pe_median')}  (n={rep.get('pe_n')})")
     return 0 if err == 0 else 5
 
 

@@ -277,3 +277,75 @@ def test_canary_shb_hieu_chuan_ra_ttm_tu_store_that():
         pytest.skip("SHB chưa đủ kỳ trong store")
     kind, basis, _dev = eng.calibrate_eps_periodicity(facts)
     assert (kind, basis) == ("TTM", "CALIBRATED")
+
+
+# ── Phạm vi cờ theo ratio (sửa sau DoD B: 11.375 dòng PE bị loại oan) ──────────
+
+
+def test_co_untraceable_khong_lam_ban_hang_PE():
+    """Cờ của EV/EBITDA (EBITDA proxy) KHÔNG được dính sang hàng PE của cùng kỳ."""
+    got = ValuationEngine.flags_for_ratio(["UNTRACEABLE_DENOMINATOR", "EPS_PERIODICITY_UNKNOWN"], "PE")
+    assert got == ["EPS_PERIODICITY_UNKNOWN"]
+    assert ValuationEngine.flags_for_ratio(["UNTRACEABLE_DENOMINATOR"], "EV_EBITDA") == ["UNTRACEABLE_DENOMINATOR"]
+
+
+def test_co_basis_va_gia_ap_cho_moi_ratio():
+    """Cờ giá/basis số cp ảnh hưởng cả 5 ratio ⇒ phải áp cho mọi ratio."""
+    for r in ("PE", "PB", "PS", "EV_EBITDA", "ROE"):
+        assert "SHARES_DILUTION_FLAGGED" in ValuationEngine.flags_for_ratio(["SHARES_DILUTION_FLAGGED"], r)
+        assert "PRICE_STALE_ONLY" in ValuationEngine.flags_for_ratio(["PRICE_STALE_ONLY"], r)
+
+
+def test_flag_scope_phu_het_cac_co_dang_dung():
+    """Canary: mọi cờ đã sinh trong code phải có mặt trong FLAG_SCOPE (hoặc cố ý áp cho tất cả)."""
+    engine_src = (ROOT / "backend" / "src" / "financial" / "valuation_engine.py").read_text(encoding="utf-8")
+    emitted = {
+        "PRICE_FALLBACK_FUTURE",
+        "PRICE_STALE_ONLY",
+        "PRICE_MISSING",
+        "EPS_PERIODICITY_UNKNOWN",
+        "NEGATIVE_EARNINGS",
+        "DISTRESSED_EQUITY",
+        "EXTREME_LOW_PE",
+        "PERIODICITY_MISMATCH_EPS",
+        "OUTLIER_WINSORED",
+        "NEAR_ZERO_DENOMINATOR",
+        "UNTRACEABLE_DENOMINATOR",
+        "BASIS_MISMATCH",
+        "SHARES_DILUTION_FLAGGED",
+        "SHARES_BASIS_UNEXPLAINED",
+        "SHARES_BASIS_UNVERIFIED",
+    }
+    for fl in emitted:
+        assert f'"{fl}"' in engine_src, f"cờ {fl} biến mất khỏi engine?"
+    scoped_or_global = set(ValuationEngine.FLAG_SCOPE) | {
+        "PRICE_FALLBACK_FUTURE",
+        "PRICE_STALE_ONLY",
+        "PRICE_MISSING",
+        "SHARES_DILUTION_FLAGGED",
+        "SHARES_BASIS_UNEXPLAINED",
+        "SHARES_BASIS_UNVERIFIED",
+    }
+    assert emitted <= scoped_or_global, f"cờ chưa khai báo phạm vi: {emitted - scoped_or_global}"
+
+
+def test_co_pha_loang_la_thong_tin_khong_chan_xep_hang():
+    """SHARES_DILUTION_FLAGGED = canary thông tin (phán quyết 2), KHÔNG tước tư cách xếp hạng.
+
+    WHY: nếu cho nó chặn thì SHB/MBB/TCB (đã pha loãng thật) bị loại khỏi bảng xếp hạng dù số
+    liệu ĐÚNG. Cờ >25% (`SHARES_BASIS_UNEXPLAINED`) mới là cờ chặn.
+    """
+    e = ValuationEngine.__new__(ValuationEngine)
+    _sh, basis, flags = e.select_shares_now({"2026Q2": {"CHARTER_CAPITAL": 45_942.0e9, "SHARES_OUT": 5_343_748_241.0}})
+    assert basis == "TCBS_REPORTED" and "SHARES_DILUTION_FLAGGED" in flags
+    assert ValuationEngine.is_blocking(["SHARES_DILUTION_FLAGGED"]) is False
+    assert ValuationEngine.is_blocking(["SHARES_DILUTION_FLAGGED", "SHARES_BASIS_UNEXPLAINED"]) is True
+    assert ValuationEngine.is_blocking([]) is False
+
+    # và tác động lên hàng điểm: chỉ cờ thông tin ⇒ vẫn được coi là "sạch"
+    r = e.compute_ratios_for_period(
+        "SHB", "2026Q2", {"_fiscal_year": 2026, "_fiscal_quarter": 2, "EPS": 2_272.0, "_flow_kind": "TTM",
+                          "_base_flags": ["SHARES_DILUTION_FLAGGED"]}, "BANK", shares_now=5_343_748_241.0
+    )
+    assert "SHARES_DILUTION_FLAGGED" in r["_flags"]
+    assert r["_is_clean"] is True

@@ -292,6 +292,46 @@ chạy nền với chốt chặn writer-idle; báo cáo DoD sẽ bổ sung vào 
 
 ---
 
+## 11. KẾT QUẢ HẠNG MỤC B (đã chạy thật, 4 vòng lặp sửa lỗi)
+
+**Chuỗi A→C→B:** guard writer-idle OK (622.992 dòng không đổi 30s) → A `exit=0` (bù 7.287 dòng)
+→ C `exit=0` → B **791 mã / 40s / 0 lỗi**; backup `financial_facts.db.bak_recompute_scores_*`.
+
+| Chỉ số nghiệm thu | Trước | Sau (đo lại độc lập) |
+|---|---|---|
+| Cặp bị LOẠI vì không có bar trong cửa sổ PIT | — | **8.988** (197 trước 2018 = chuỗi giá chưa tồn tại · **8.791 từ 2018**) |
+| … trong đó bản cũ **SẼ** lấy giá tương lai | 636 cặp (đo trên 58 mã có sẵn hàng điểm) | **8.601 cặp** (8.412 từ 2018) — quy mô thật lớn hơn 13,5× |
+| Dòng `PE < 2` được coi là hợp lệ | 40 | **0** (còn 201 dòng nhưng đều mang cờ: `EXTREME_LOW_PE` 185 · phần còn lại cờ khác) |
+| Median PE (dòng sạch) | 11,87 (méo bởi ×4) | **9,48** tổng · **9,99** (ADV20 ≥ 50k, n=1.284) · 9,23 (nhỏ, n=2.645) |
+| Dòng đủ tư cách xếp hạng | — | **34.707 / 58.279** (59,6%) |
+
+Median PE dòng sạch theo năm: 2020 **7,04** → 2021 8,42 → 2022 8,41 → 2023 9,11 → 2024 10,71 →
+2025 10,89 → 2026 9,66 — chuỗi trơn, hợp lý về kinh tế (khác hẳn dạng méo ×4 trước đây).
+
+**Canary SHB (kiểm độc lập):** 2026Q2 PB = **0,961** (giá 13.550 = close 30/06) với
+`shares_basis = TCBS_REPORTED` + `eps_flow_kind = TTM` + `clean = 1` (cờ `SHARES_DILUTION_FLAGGED`
+chỉ là thông tin). Tại giá 16/10 (10.650) ⇒ **P/B = 0,756** — đúng con số đã tranh luận, nay do
+hệ thống tự sinh và có khai báo basis.
+
+### Ba lỗi của CHÍNH TÔI mà vòng nghiệm thu phơi ra (đã sửa + có test)
+
+1. **Cờ gán theo Kỳ cho mọi ratio** ⇒ 11.375 hàng PE bị loại oan vì EV/EBITDA của cùng kỳ dùng
+   EBITDA proxy. Sửa: `FLAG_SCOPE` + `flags_for_ratio()` — cờ chỉ dán lên ratio mà nó nói về.
+   Dòng sạch: 5.551 → **34.707**.
+2. **Cờ pha loãng bị cho CHẶN** ⇒ SHB/MBB/TCB bị loại khỏi xếp hạng dù số liệu đúng. Sửa:
+   `INFO_FLAGS` + `is_blocking()` — canary pha loãng là thông tin, chỉ `SHARES_BASIS_UNEXPLAINED`
+   (>25%) mới chặn.
+3. **`ni_at()` coi quý thiếu = 0** (định làm sai luật "Không biết ≠ 0") ⇒ nay trả `None` và
+   **bỏ ứng viên** thay vì đoán; `window()` đòi cửa sổ đủ kỳ.
+
+### Phát hiện dữ liệu cần chuyển cho luồng ingestion
+
+`NII` (SHB, nguồn tcbs): 2025Q4 = **187 tỷ** trong khi 2026Q1 = 5.497 tỷ và 2026Q2 = 6.761 tỷ
+⇒ nhảy ~30×. Nghi lỗi đơn vị/thiếu số 0 ở một kỳ. Cờ `NEAR_ZERO_DENOMINATOR` đã bắt được
+(PS 2025Q4 = 460 lần). **Cần Agent 2 đối chiếu lại chuỗi NII.**
+
+---
+
 ## 7. ĐỀ XUẤT WINSORIZE — áp Ở ĐÂU, bằng công thức nào (bổ sung 2026-10-15)
 
 ### 7.1 Chuỗi hỏng đã đóng: winsorize một mình là KHÔNG ĐỦ, và hướng hỏng là fail-OPEN trên rủi ro

@@ -253,6 +253,40 @@ class ValuationEngine:
     CALIB_TOL = 0.02
     SHRES_DIV_TOL_PCT = 25.0  # pha loãng ĐÃ BIẾT của SHB 2026 = +16,3% ⇒ >25% là khác bản chất
     MAX_PERIODS = 200  # `get_facts` mặc định chỉ 8 kỳ ⇒ phải xin rõ số kỳ cho chuỗi PIT
+    ALL_RATIOS = ("PE", "PB", "PS", "EV_EBITDA", "ROE")
+    # PHẠM VI TỪNG CỜ (sửa 2026-10-16 sau khi DoD B cho thấy 11.375 dòng bị loại OAN):
+    # cờ chỉ được dán lên những ratio mà nó thực sự nói về ratio đó — nếu không, một hàng PE sẽ
+    # mất tư cách "sạch" chỉ vì EV/EBITDA của cùng kỳ dùng EBITDA proxy. Cờ không có trong map
+    # (giá, basis số cp) áp cho MỌI ratio vì chúng ảnh hưởng cả 5.
+    FLAG_SCOPE = {
+        "EXTREME_LOW_PE": {"PE"},
+        "PERIODICITY_MISMATCH_EPS": {"PE"},
+        "NEGATIVE_EARNINGS": {"PE"},
+        "OUTLIER_WINSORED": {"PE"},
+        "UNTRACEABLE_DENOMINATOR": {"EV_EBITDA"},
+        "NEAR_ZERO_DENOMINATOR": {"PB", "PS", "EV_EBITDA"},
+        "DISTRESSED_EQUITY": {"PB", "ROE"},
+        "BASIS_MISMATCH": {"PB", "PE", "PS"},
+        "EPS_PERIODICITY_UNKNOWN": {"PE", "ROE"},
+    }
+
+    @classmethod
+    def flags_for_ratio(cls, flags: list[str], ratio_name: str) -> list[str]:
+        """Lọc cờ theo ratio: cờ không khai báo phạm vi ⇒ áp cho mọi ratio."""
+        return sorted({f for f in flags if ratio_name in cls.FLAG_SCOPE.get(f, cls.ALL_RATIOS)})
+
+    # Cờ THÔNG TIN: ghi lại để cảnh báo nhưng KHÔNG tước tư cách xếp hạng.
+    # WHY (sửa 2026-10-16 sau DoD B): `SHARES_DILUTION_FLAGGED` báo "số cp đã pha loãng 1–25%
+    # so với vốn điều lệ" — đây là thông tin CHO NGƯỜI ĐỌC (canary pha loãng theo phán quyết 2),
+    # không phải bằng chứng sai số. Nếu cho nó chặn thì SHB/MBB/TCB… đều bị loại khỏi bảng xếp
+    # hạng dù số liệu đúng. Ngược lại `SHARES_BASIS_UNEXPLAINED` (>25%, không giải thích được
+    # bằng phát hành thêm) LÀ cờ chặn.
+    INFO_FLAGS = {"SHARES_DILUTION_FLAGGED"}
+
+    @classmethod
+    def is_blocking(cls, flags: list[str]) -> bool:
+        """True nếu còn cờ CHẶN (loại khỏi xếp hạng) sau khi bỏ cờ thông tin."""
+        return any(f not in cls.INFO_FLAGS for f in flags)
 
     def _af_for(self, flow_kind: str, quarter: int) -> float:
         """Hệ số annualize theo `flow_kind`: TTM ×1 · QUARTER ×4 · YTD ×4/q · UNKNOWN ×1."""
@@ -278,11 +312,27 @@ class ValuationEngine:
         periods = sorted(facts)
         devs: dict[str, list[float]] = {"QUARTER": [], "TTM": [], "YTD": []}
 
-        def ni_at(idx: int) -> float:
+        def ni_at(idx: int) -> float | None:
+            """NET_INCOME (hoặc NET_PROFIT) của kỳ thứ `idx` — **None nếu thiếu**.
+
+            ⚠️ SỬA 2026-10-16 (DoD B phơi ra: 48% dòng `UNKNOWN`): bản đầu trả `0.0` cho quý
+            thiếu ⇒ ứng viên TTM/YTD bị tính thiếu ⇒ lệch > dung sai ⇒ mã bị gắn `UNKNOWN` oan.
+            Vi phạm luật "Không biết ≠ 0". Nay: thiếu ⇒ None ⇒ **bỏ ứng viên đó**, không đoán.
+            """
             if idx < 0:
-                return 0.0
+                return None
             pm = facts[periods[idx]]
-            return float(pm.get("NET_INCOME") or pm.get("NET_PROFIT") or 0.0)
+            v = pm.get("NET_INCOME")
+            if v is None:
+                v = pm.get("NET_PROFIT")
+            return float(v) if v is not None else None
+
+        def window(idx: int, n: int) -> list[float] | None:
+            """n kỳ gần nhất tính đến `idx`; None nếu BẤT KỲ kỳ nào thiếu."""
+            vals = [ni_at(idx - k) for k in range(n)]
+            if any(v is None for v in vals):
+                return None
+            return [float(v) for v in vals if v is not None]
 
         for idx, p in enumerate(periods):
             pm = facts[p]
@@ -294,11 +344,18 @@ class ValuationEngine:
             eps = pm.get("EPS")
             ni = ni_at(idx)
             sh = pm.get("SHARES_OUT") or ((pm.get("CHARTER_CAPITAL") or 0) / 10000.0) or None
-            if not eps or not ni or not sh:
+            if not eps or not sh:
                 continue
-            ttm = sum(ni_at(idx - k) for k in range(4))
-            ytd = sum(ni_at(idx - k) for k in range(int(p[5])))
-            for kind, cand in (("QUARTER", ni / sh), ("TTM", ttm / sh), ("YTD", ytd / sh)):
+            cands: dict[str, float] = {}
+            if ni:
+                cands["QUARTER"] = ni / sh
+            w4 = window(idx, 4)
+            if w4 and sum(w4) > 0:
+                cands["TTM"] = sum(w4) / sh
+            wy = window(idx, int(p[5]))
+            if wy and sum(wy) > 0:
+                cands["YTD"] = sum(wy) / sh
+            for kind, cand in cands.items():
                 if cand > 0:
                     devs[kind].append(abs(eps / cand - 1.0))
 
@@ -494,7 +551,7 @@ class ValuationEngine:
             flags.append("BASIS_MISMATCH")
 
         result["_flags"] = sorted(set(flags))
-        result["_is_clean"] = not result["_flags"]
+        result["_is_clean"] = not self.is_blocking(result["_flags"])
         return result
 
     @staticmethod
@@ -647,7 +704,7 @@ class ValuationEngine:
 
                 fy = int(period[:4])
                 fq = int(period[5:6])
-                _period_flags = all_period_ratios[period].get("_flags") or []
+                _period_flags = self.flags_for_ratio(all_period_ratios[period].get("_flags") or [], rname)
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO valuation_scores
@@ -679,7 +736,7 @@ class ValuationEngine:
                         ts_std,
                         ts_n,
                         (",".join(_period_flags) or None),
-                        (0 if _period_flags else 1),
+                        (0 if self.is_blocking(_period_flags) else 1),
                         PRICE_BASIS,
                         shares_basis,
                         flow_kind,
