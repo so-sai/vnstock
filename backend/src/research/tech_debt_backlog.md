@@ -284,6 +284,10 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   - **Ghi chú vận hành mới:** muốn chạy bù breadth phải đặt `PYTHONPATH=<repo>/backend`
     (script `from database...`/`from src.database...` cần `backend` trên sys.path).
 
+---
+
+## Ghi chú vận hành
+
 - Backlog này là nơi **duy nhất**; khi một mục được thực thi, ghi commit hash vào mục đó và đổi
   nhãn phán quyết, KHÔNG xóa (giữ lịch sử quyết định).
 - Ba hạng mục 1–3 là dọn dẹp nợ cũ trong một lượt; hạng mục 4 là **đường ống dữ liệu mới** nên
