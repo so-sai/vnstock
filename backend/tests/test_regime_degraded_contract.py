@@ -18,7 +18,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from src.database.series_quality import (  # noqa: E402
+from src.database.series_quality import (
     LIVE_REGIME_SQL,
     assert_regime_degraded_column,
     breadth_degraded_flag,
@@ -56,11 +56,12 @@ EXEMPT_MARKER = "scan-exempt: regime_history"
 
 
 def _stmt_around(text: str, pos: int) -> str:
-    """Đoạn 'câu lệnh' quanh vị trí match: từ lời gọi gần nhất (execute/read_sql/""") tới 300 ký tự sau.
+    """Đoạn 'câu lệnh' quanh vị trí match: từ lời gọi gần nhất (execute/read_sql/chuỗi ba-nháy) tới 300 ký tự sau.
 
     WHY không dùng cửa sổ cố định: cửa sổ 400 ký tự vớ phải SQL LÂN CẬN ⇒ báo oan (đã xảy ra thật).
     """
-    starts = [text.rfind(k, 0, pos) for k in ("execute(", "read_sql(", '"""')]
+    triple = '"' * 3
+    starts = [text.rfind(k, 0, pos) for k in ("execute(", "read_sql(", triple)]
     start = max([s for s in starts if s != -1], default=max(0, pos - 200))
     return text[start : pos + 300]
 
@@ -97,9 +98,33 @@ def test_khong_duong_tin_hieu_nao_doc_regime_history_tran():
     assert not offenders, "Đọc trần regime_history (ăn cả phiên degraded) ở đường tín hiệu:\n" + "\n".join(offenders)
 
 
-def test_whitelist_display_trong_sang():
-    for rel in DISPLAY_WHITELIST:
-        assert (ROOT / rel).exists(), f"whitelist trỏ file không tồn tại: {rel}"
+def test_moi_file_doc_regime_history_ngoai_tầng_tín_hiệu_phải_được_kiểm_kê():
+    """Không có rò rỉ ÂM THẦM: file nào đọc `regime_history` mà không lọc thì phải nằm trong DISPLAY_TIER.
+
+    WHY: quét cả cây `backend/src` (không chỉ LIVE_PATHS) để một file MỚI ở tầng khác vẫn bị phát hiện
+    và buộc phải phân loại tường minh (kèm lý do trong DISPLAY_TIER).
+    """
+    unlisted: list[str] = []
+    for p in sorted((ROOT / "backend/src").rglob("*.py")):
+        rel = p.relative_to(ROOT).as_posix()
+        if rel in DISPLAY_TIER:
+            continue
+        bad = _scan_reads(p.read_text(encoding="utf-8", errors="replace"))
+        if bad and not any(rel.startswith(d) for d in LIVE_PATHS):
+            unlisted.append(f"{rel}: {bad}")
+    assert not unlisted, (
+        "File đọc `regime_history` KHÔNG lọc và CHƯA được kiểm kê — quyết định tầng cho nó rồi ghi vào "
+        "DISPLAY_TIER (kèm lý do) hoặc thêm `is_degraded = 0`:\n" + "\n".join(unlisted)
+    )
+
+
+def test_danh_sach_kiem_ke_khong_muc_rua():
+    for rel in DISPLAY_TIER:
+        p = ROOT / rel
+        assert p.exists(), f"DISPLAY_TIER trỏ file không tồn tại: {rel}"
+        assert "FROM regime_history" in p.read_text(encoding="utf-8", errors="replace"), (
+            f"{rel} không còn đọc regime_history — gỡ khỏi DISPLAY_TIER"
+        )
 
 
 def test_moi_writer_regime_history_deu_phoi_co_suy_giam():
