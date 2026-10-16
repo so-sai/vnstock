@@ -747,6 +747,27 @@ class L4BehaviorLoader:
     def __init__(self) -> None:
         self.conn = sqlite3.connect(str(FINANCIAL_DB))
 
+    # ── Hàng rào dữ liệu TỔNG HỢP (Mục 8 backlog, GO 2026-10-16) ──────────────────
+    # WHY: `volume_profile` (54.765 dòng) và `active_demand` (2.835 dòng) là ƯỚC LƯỢNG MÔ HÌNH —
+    # writer `market_behavior_engine.compute_volume_profile` lấy OHLCV EOD rồi CHIA ĐỀU khối lượng
+    # phiên lên dải [low, high] (`vol_per_unit = vol / span`). Không có khối lượng khớp thật tại
+    # từng mức giá. POC/VAH/VAL ở đây KHÔNG được dùng làm bằng chứng hành vi cho governor.
+    # INVARIANT: chỉ đọc dòng `is_synthetic = 0`; thiếu cột nhãn ⇒ `raise` (fail-closed), không coi
+    # là "sạch". Hệ quả đo được: toàn bộ 57.600 dòng đều `is_synthetic=1` ⇒ L4_BEHAVIOR trở thành
+    # NO_DATA (đúng theo bất biến #1: không có số đo thật thì đứng ngoài).
+    _SYNTHETIC_SAFE_SQL = "is_synthetic = 0"
+
+    def _assert_microstructure_label(self, table: str) -> None:
+        """FAIL-CLOSED: bảng vi cấu trúc phải có cột `is_synthetic` mới được đọc."""
+        from src.database.synthetic_guard import SyntheticDataError
+
+        cols = {r[1] for r in self.conn.cursor().execute(f"PRAGMA table_info({table})")}
+        if "is_synthetic" not in cols:
+            raise SyntheticDataError(
+                f"{table}: thiếu cột nhãn `is_synthetic` — không thể khẳng định dòng nào là số đo thật. "
+                "Chạy backend/scripts/migrate_label_synthetic_microstructure.py trước."
+            )
+
     def get_volume_profile(self, symbol: str, target_date: str | None = None) -> dict | None:
         """Point-in-time volume profile lookup.
 
@@ -755,13 +776,14 @@ class L4BehaviorLoader:
         backtests. When None (live), uses latest row.
         """
         cur = self.conn.cursor()
+        self._assert_microstructure_label("volume_profile")
         if target_date:
             cur.execute(
                 """
                 SELECT price_current, poc, vah, val, volume_ratio,
                        price_ma20, price_ma50
                 FROM volume_profile
-                WHERE symbol = ? AND date <= ?
+                WHERE symbol = ? AND date <= ? AND is_synthetic = 0
                 ORDER BY date DESC LIMIT 1
                 """,
                 (symbol.upper(), target_date),
@@ -772,7 +794,7 @@ class L4BehaviorLoader:
                 SELECT price_current, poc, vah, val, volume_ratio,
                        price_ma20, price_ma50
                 FROM volume_profile
-                WHERE symbol = ?
+                WHERE symbol = ? AND is_synthetic = 0
                 ORDER BY date DESC LIMIT 1
                 """,
                 (symbol.upper(),),
@@ -792,12 +814,13 @@ class L4BehaviorLoader:
 
     def get_active_demand_count(self, symbol: str, days: int = 20, target_date: str | None = None) -> int:
         cur = self.conn.cursor()
+        self._assert_microstructure_label("active_demand")
         if target_date:
             cutoff = (datetime.strptime(target_date, "%Y-%m-%d") - timedelta(days=days)).strftime("%Y-%m-%d")
             cur.execute(
                 """
                 SELECT COUNT(*) FROM active_demand
-                WHERE symbol = ? AND date >= ? AND date <= ?
+                WHERE symbol = ? AND date >= ? AND date <= ? AND is_synthetic = 0
                 """,
                 (symbol.upper(), cutoff, target_date),
             )
@@ -806,7 +829,7 @@ class L4BehaviorLoader:
             cur.execute(
                 """
                 SELECT COUNT(*) FROM active_demand
-                WHERE symbol = ? AND date >= ?
+                WHERE symbol = ? AND date >= ? AND is_synthetic = 0
                 """,
                 (symbol.upper(), cutoff),
             )
