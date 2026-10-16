@@ -261,7 +261,9 @@ def _make_tmp_db(path: Path) -> Path:
         "date TEXT, advances INTEGER, declines INTEGER, breadth_pct REAL, degraded INTEGER DEFAULT 0)"
     )
     con.execute("CREATE TABLE macro_history (date TEXT, variable TEXT, value REAL)")
-    con.execute("CREATE TABLE regime_history (date TEXT, breadth_pct REAL, status TEXT)")
+    con.execute(
+        "CREATE TABLE regime_history (date TEXT, breadth_pct REAL, status TEXT, is_degraded INTEGER DEFAULT 0)"
+    )
     dates = [f"2026-01-{d:02d}" for d in range(1, 26)]
     for i, d in enumerate(dates):
         con.execute("INSERT INTO daily_ohlcv VALUES ('AAA', ?, ?, ?)", (d, 100.0 + i, 1_000_000))
@@ -272,7 +274,7 @@ def _make_tmp_db(path: Path) -> Path:
         con.execute("INSERT INTO macro_history VALUES (?, 'VGB10Y', 4.5)", (d,))
         con.execute("INSERT INTO macro_history VALUES (?, 'US10Y', 5.0)", (d,))
     for d in dates[:3]:
-        con.execute("INSERT INTO regime_history VALUES (?, ?, 'RANGING')", (d, 45.0))
+        con.execute("INSERT INTO regime_history (date, breadth_pct, status, is_degraded) VALUES (?, ?, 'RANGING', 0)", (d, 45.0))
     con.commit()
     con.close()
     return path

@@ -62,8 +62,13 @@ class TestOhlcvIncomplete:
         )
         assert state["status"] == "NOT_READY"
 
-    def test_duoi_1000_ma(self):
-        """Chỉ có 800 mã → NOT_READY (chưa đạt ngưỡng 1000)."""
+    def test_800_ma_khong_con_bao_dong_gia(self):
+        """800 mã ≥ sàn động 580 ⇒ EOD_READY.
+
+        LỊCH SỬ KỲ VỌNG: test này từng khẳng định "800 < 1000 ⇒ NOT_READY". Ngưỡng cứng 1000 đã bị
+        bác bỏ bằng số đo (median dòng hợp lệ ≈ 865/phiên; trần một lượt vét toàn sàn là 829 ⇒ 1000
+        fail 92/95 phiên ⇒ cảnh báo luôn sáng). Nay ngưỡng = `max(580, median20 × 0,5)`.
+        """
         state = danh_gia_trang_thai_du_lieu(
             ngay_hien_tai="2026-08-06",
             gio_hien_tai=17,
@@ -71,14 +76,26 @@ class TestOhlcvIncomplete:
             co_vnindex_today=True,
             ngay_du_lieu_vgb10y="2026-08-06",
         )
+        assert state["status"] == "EOD_READY"
+
+    def test_duoi_san_van_NOT_READY(self):
+        """Nhánh FAIL phải còn: 500 mã < sàn 580 ⇒ NOT_READY (nới ngưỡng không được che dữ liệu lỗi)."""
+        state = danh_gia_trang_thai_du_lieu(
+            ngay_hien_tai="2026-08-06",
+            gio_hien_tai=17,
+            n_symbols_today=500,
+            co_vnindex_today=True,
+            ngay_du_lieu_vgb10y="2026-08-06",
+        )
         assert state["status"] == "NOT_READY"
+        assert "580" in state["note"]
 
     def test_duoi_1000_ma_truoc_16h(self):
         """Trước 16:00 chưa đủ mã → MARKET_OPEN (không phải cảnh báo giả)."""
         state = danh_gia_trang_thai_du_lieu(
             ngay_hien_tai="2026-08-06",
             gio_hien_tai=14,
-            n_symbols_today=800,
+            n_symbols_today=500,
             co_vnindex_today=True,
             ngay_du_lieu_vgb10y="2026-08-05",
         )
