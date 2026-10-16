@@ -349,3 +349,20 @@ def test_co_pha_loang_la_thong_tin_khong_chan_xep_hang():
     )
     assert "SHARES_DILUTION_FLAGGED" in r["_flags"]
     assert r["_is_clean"] is True
+
+
+def test_nguong_hieu_chuan_bi_khoa_khong_duoc_noi():
+    """KHÓA CỨNG ngưỡng hiệu chuẩn (phán quyết 2026-10-16: "TUYỆT ĐỐI KHÔNG nới dung sai 2%").
+
+    WHY: nới dung sai là cách tự lừa mình — nó biến "không chứng minh được chu kỳ EPS" thành
+    "coi như đúng". Độ phủ phải tăng bằng DỮ LIỆU/PHƯƠNG PHÁP, không bằng hạ chuẩn. Test này
+    fail nếu ai đó nới ngưỡng mà không có phán quyết mới kèm bằng chứng đo được.
+    """
+    assert ValuationEngine.CALIB_TOL <= 0.02, "nới CALIB_TOL cần phán quyết mới + bằng chứng"
+    assert ValuationEngine.SHRES_DIV_TOL_PCT <= 25.0, "nới ngưỡng lệch số cp cần bằng chứng mới"
+
+
+def test_co_pha_loang_khong_nam_trong_FLAG_SCOPE_chan():
+    """Cờ thông tin không được lọt vào nhóm cờ chặn (chống hồi quy)."""
+    assert "SHARES_DILUTION_FLAGGED" in ValuationEngine.INFO_FLAGS
+    assert "SHARES_DILUTION_FLAGGED" not in ValuationEngine.FLAG_SCOPE
