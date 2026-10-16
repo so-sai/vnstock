@@ -34,6 +34,23 @@ logger = logging.getLogger(__name__)
 
 _SESSION_SHOWN = False
 
+# ── Cổng phủ ĐỘNG cho Sentinel (Mục 3 backlog, GO 2026-10-16) ────────────────────────
+# WHY: ngưỡng cứng `n_symbols_today < 1000` là LỖI THỜI — đo 2026-10-15: vét toàn sàn (19 lát,
+# cấu hình tốt nhất) chỉ đạt **829 dòng HỢP LỆ** (+4 so với lượt trước) ⇒ 829 là trần thực tế;
+# median dòng hợp lệ ≈ 865/phiên ⇒ ngưỡng 1000 fail **92/95 phiên** ⇒ cảnh báo luôn sáng
+# (Alarm Fatigue). Nay so với **rolling median 20 phiên trước** × `MIN_VALUE_RATIO` (hệ số 0,5
+# theo `panel_quality.assert_market_breadth` — đo 2026-06→10: mức 0,5 chỉ chặn 1/76 phiên, đúng
+# phiên 72 dòng thật sự hỏng), với **SÀN 580** để không nới lỏng khi chính median bị hỏng.
+MIN_VALUE_RATIO = 0.5
+FALLBACK_MIN_SYMBOLS = 580
+
+
+def nguong_toi_thieu(median_valid: float | None) -> int:
+    """Ngưỡng số mã tối thiểu cho một phiên EOD (`max(sàn, median × 0,5)`)."""
+    if not median_valid or median_valid <= 0:
+        return FALLBACK_MIN_SYMBOLS
+    return max(FALLBACK_MIN_SYMBOLS, int(median_valid * MIN_VALUE_RATIO))
+
 
 def danh_gia_trang_thai_du_lieu(
     ngay_hien_tai: str,
@@ -41,24 +58,30 @@ def danh_gia_trang_thai_du_lieu(
     n_symbols_today: int,
     co_vnindex_today: bool,
     ngay_du_lieu_vgb10y: str | None,
+    median_valid_20: float | None = None,
 ) -> dict:
     """Đánh giá trạng thái dữ liệu theo thiết kế đa tầng.
 
-    Anchor chính: daily_ohlcv (VNINDEX + >=1000 mã ngày hiện tại).
+    Anchor chính: daily_ohlcv (VNINDEX + đủ mã HỢP LỆ ngày hiện tại).
     Soft check:   VGB10Y (vĩ mô bổ trợ — nếu thiếu vẫn dùng T-1).
+
+    `median_valid_20`: median số mã HỢP LỆ của 20 phiên **trước** phiên hiện tại (PIT-safe baseline).
+    Thiếu tham số ⇒ dùng sàn `FALLBACK_MIN_SYMBOLS` (fail-closed về phía an toàn, không nới).
 
     Returns dict {status, note, command}:
       - EOD_READY:   OHLCV đủ (VGB10Y có thể T-1)
       - MARKET_OPEN: trước 16:00, chưa thể xác nhận
-      - NOT_READY:   thiếu VNINDEX hoặc < 1000 mã sau 16:00
+      - NOT_READY:   thiếu VNINDEX hoặc < ngưỡng động sau 16:00
     """
-    if not co_vnindex_today or n_symbols_today < 1000:
+    nguong = nguong_toi_thieu(median_valid_20)
+    if not co_vnindex_today or n_symbols_today < nguong:
         if gio_hien_tai >= 16:
             return {
                 "status": "NOT_READY",
                 "note": (
-                    f"OHLCV hôm nay: {n_symbols_today} mã, "
-                    f"VNINDEX={'có' if co_vnindex_today else 'chưa'}. "
+                    f"OHLCV hôm nay: {n_symbols_today} mã hợp lệ, "
+                    f"VNINDEX={'có' if co_vnindex_today else 'chưa'} "
+                    f"(ngưỡng {nguong} = max({FALLBACK_MIN_SYMBOLS}, median20×{MIN_VALUE_RATIO})). "
                     "Backfill chưa hoàn tất."
                 ),
                 "command": "python ptck.py daily-update",
@@ -93,11 +116,28 @@ def kiem_tra_va_nhac_nho():
 
     try:
         with get_connection() as conn:
+            # ĐẾM TRÊN DÒNG HỢP LỆ (không phải mọi dòng) + loại chỉ số — cùng vị từ với
+            # `panel_quality`/`market_wide_breadth`; đếm thô sẽ tính cả dòng cách ly/chỉ số.
+            from src.database.data_validity import STOCK_ONLY_SQL, VALID_ROW_SQL
+
             dong = conn.execute(
-                "SELECT COUNT(DISTINCT symbol) FROM daily_ohlcv WHERE date = ?",
+                f"SELECT COUNT(*) FROM daily_ohlcv WHERE date = ? AND {VALID_ROW_SQL} AND {STOCK_ONLY_SQL}",
                 (ngay_hien_tai,),
             ).fetchone()
             n_symbols = int(dong[0]) if dong and dong[0] else 0
+            # Baseline PIT-safe: median 20 PHIÊN TRƯỚC (không gồm phiên đang xét).
+            rows = conn.execute(
+                f"SELECT date, COUNT(*) FROM daily_ohlcv WHERE date < ? AND {VALID_ROW_SQL} AND {STOCK_ONLY_SQL} "
+                "GROUP BY date ORDER BY date DESC LIMIT 20",
+                (ngay_hien_tai,),
+            ).fetchall()
+            counts = sorted(int(r[1]) for r in rows)
+            if not counts:
+                median_valid = None
+            elif len(counts) % 2:
+                median_valid = float(counts[len(counts) // 2])
+            else:
+                median_valid = (counts[len(counts) // 2 - 1] + counts[len(counts) // 2]) / 2.0
             dong = conn.execute(
                 "SELECT COUNT(*) FROM daily_ohlcv WHERE date = ? AND symbol = 'VNINDEX'",
                 (ngay_hien_tai,),
@@ -110,6 +150,7 @@ def kiem_tra_va_nhac_nho():
         n_symbols = 0
         co_vnindex = False
         ngay_vgb10y = None
+        median_valid = None
 
     state = danh_gia_trang_thai_du_lieu(
         ngay_hien_tai=ngay_hien_tai,
@@ -117,6 +158,7 @@ def kiem_tra_va_nhac_nho():
         n_symbols_today=n_symbols,
         co_vnindex_today=co_vnindex,
         ngay_du_lieu_vgb10y=ngay_vgb10y,
+        median_valid_20=median_valid,
     )
 
     print()

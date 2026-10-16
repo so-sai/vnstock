@@ -434,7 +434,14 @@ def test_ambiguous_chan_con_level_mismatch_khong_chan():
 
 
 def test_canary_vnm_quarter_va_co_lech_muc_tu_store_that():
-    """VNM trong store thật: đo 2026-10-16 có tỷ lệ 0,891 / CV 1,2% ⇒ QUARTER + lệch mức."""
+    """VNM trên store THẬT: EPS là **TTM** — đo 2026-10-16 (sau khi kho đào sâu 87 kỳ, 2004Q4→2026Q2).
+
+    LỊCH SỬ KỲ VỌNG (giữ dấu vết): canary này từng khẳng định `QUARTER` + lệch mức 11,2%, dựa trên
+    bản đo cũ khi VNM chỉ có ~34 kỳ và quan hệ `EPS ≈ 0,891 × NI_kỳ/S` khớp. Sau khi luồng ingestion
+    đào sâu chuỗi, số đo MỚI rõ hơn hẳn: `TTM` có tán xạ **1,55%** với lệch mức **1,05%**, còn
+    `QUARTER` tán xạ 13,96% (loại) ⇒ kết luận cũ là hệ quả của dữ liệu mỏng, không phải của phương pháp.
+    Canary được cập nhật THEO SỐ ĐO (không sửa code cho khớp kỳ vọng cũ).
+    """
     try:
         eng = ValuationEngine()
         facts = eng.facts_db.get_facts("VNM", periods=200)
@@ -443,9 +450,9 @@ def test_canary_vnm_quarter_va_co_lech_muc_tu_store_that():
     if len(facts) < 8:
         pytest.skip("VNM chưa đủ kỳ trong store")
     kind, basis, cv, level = eng.calibrate_eps_periodicity(facts)
-    assert kind == "QUARTER", f"VNM phải là QUARTER, nhận {kind}/{basis} (cv={cv}, level={level})"
+    assert kind == "TTM", f"VNM phải là TTM, nhận {kind}/{basis} (disp={cv}, level={level})"
     assert cv is not None and cv <= 0.02
-    assert level is not None and level > 2.0, "VNM phải mang cờ lệch MỨC (~10,9%)"
+    assert level is not None and level < 5.0  # TTM khít mức; KHÁC hẳn lệch 11,2% của bản đo cũ
 
 
 def test_canary_cii_khong_duoc_tu_tin_ve_chu_ky():

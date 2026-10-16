@@ -303,8 +303,16 @@ def main() -> int:
     if not end:
         print("ERR: daily_ohlcv rỗng — không xác định được --end.")
         return 1
-    bars = load_bars(a.start, end)
-    series = run_series(bars)
+    # WHY (sửa 2026-10-16): `load_bars` KHÔNG lấy lookback ⇒ phiên ĐẦU của cửa sổ không có
+    # `prev` ⇒ mọi chỉ số của nó = 0 và bị upsert đè lên dòng cũ (đã xảy ra với 09-24/09-25 khi
+    # chạy bù 15–16/10: dòng đầu cửa sổ bị zero). Nay nạp THÊM 10 ngày lịch trước `--start` để
+    # tính, nhưng CHỈ ghi các phiên trong [start, end] ⇒ phiên đầu luôn có `prev` thật.
+    from datetime import date as _date
+    from datetime import timedelta as _td
+
+    _buf_start = (_date.fromisoformat(a.start) - _td(days=10)).isoformat()
+    bars = load_bars(_buf_start, end)
+    series = [s for s in run_series(bars) if a.start <= s["date"] <= end]
     print(
         f"days={len(series)} label={LABEL} "
         f"latest={series[-1]['date']} active={series[-1]['total_active']} "
