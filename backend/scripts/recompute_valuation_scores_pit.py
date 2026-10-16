@@ -148,6 +148,45 @@ def dod_report(path: Path) -> dict:
     return out
 
 
+def missing_effective_date(db: Path) -> int:
+    """Số dòng `financial_facts` thiếu `effective_date` ⇒ cần migration [A] trước khi tính lại.
+
+    [WHY] Tách khỏi `main()` để test được nhánh fail-closed của [A]: nếu để inline, muốn kiểm
+    "bước [A] thất bại ⇒ dừng" thì test phải giả lập cả một connection sqlite.
+    """
+    con = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+    try:
+        return con.execute("SELECT COUNT(*) FROM financial_facts WHERE effective_date IS NULL").fetchone()[0]
+    finally:
+        con.close()
+
+
+def _run_child(script: str, tag: str) -> int:
+    """Chạy script con và TRẢ mã thoát THẬT; in chẩn đoán của nó khi thất bại.
+
+    [WHY] ĐO ĐƯỢC (Bước 3, 2026-10-16): bản cũ dùng `subprocess.call(..., stdout=DEVNULL)` rồi chỉ in
+    `[C] exit=2` và ĐI TIẾP, kết thúc exit 0 — trong khi `migrate_shares_history.py` đã FAIL-CLOSED vì
+    canary `('HPG','2018Q1','CHARTER_PIT')` + `('HPG','2025Q2','CHARTER_PIT')`. Báo cáo tổng ghi
+    "791 mã OK · 0 lỗi" ⇒ che giấu một bước con thất bại (cùng lớp lỗi với "cấm pipe che mã thoát").
+
+    [ROOT CAUSE] `subprocess.call` trả mã thoát nhưng caller không kiểm; `DEVNULL` xoá luôn chẩn đoán.
+
+    [INVARIANT] Mã thoát của bước con PHẢI lan truyền: `rc != 0` ⇒ caller DỪNG và KHÔNG ghi gì.
+    """
+    p = subprocess.run(
+        [sys.executable, str(Path(__file__).with_name(script)), "--apply"],
+        capture_output=True,
+        text=True,
+    )
+    print(f"   [{tag}] exit={p.returncode}")
+    if p.returncode != 0:
+        lines = ((p.stdout or "") + "\n" + (p.stderr or "")).strip().splitlines()[-20:]
+        print(f"   [{tag}] CHẨN ĐOÁN (20 dòng cuối của script con):")
+        for line in lines:
+            print(f"       | {line}")
+    return p.returncode
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="ghi thật (mặc định: chỉ đọc)")
@@ -175,26 +214,20 @@ def main() -> int:
         return 4
 
     # ── Bù effective_date cho các dòng mới (đúng luật: ingestion xong phải vá lại) ──────
-    missing = (
-        sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
-        .execute("SELECT COUNT(*) FROM financial_facts WHERE effective_date IS NULL")
-        .fetchone()[0]
-    )
+    missing = missing_effective_date(db)
     if missing:
         print(f"\n   [A] {missing:,} dòng thiếu effective_date ⇒ chạy lại migration A...")
-        rc = subprocess.call(
-            [sys.executable, str(Path(__file__).with_name("migrate_financial_facts_effective_date.py")), "--apply"],
-            stdout=subprocess.DEVNULL,
-        )
-        print(f"   [A] exit={rc}")
+        rc = _run_child("migrate_financial_facts_effective_date.py", "A")
+        if rc != 0:
+            print("\n   KẾT LUẬN: FAIL — bước [A] thất bại (fail-closed), KHÔNG ghi gì.")
+            return 6
 
     # ── Hạng mục C ────────────────────────────────────────────────────────────────────
     print("\n   [C] chạy migrate_shares_history.py --apply...")
-    rc = subprocess.call(
-        [sys.executable, str(Path(__file__).with_name("migrate_shares_history.py")), "--apply"],
-        stdout=subprocess.DEVNULL,
-    )
-    print(f"   [C] exit={rc}")
+    rc = _run_child("migrate_shares_history.py", "C")
+    if rc != 0:
+        print("\n   KẾT LUẬN: FAIL — bước [C] thất bại (fail-closed), KHÔNG ghi gì.")
+        return 7
 
     # ── B: backup + tính lại toàn universe ────────────────────────────────────────────
     bak = db.with_suffix(f".db.bak_recompute_scores_{datetime.now():%Y%m%d_%H%M%S}")
