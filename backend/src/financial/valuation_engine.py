@@ -31,6 +31,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 logger = logging.getLogger(__name__)
 
+from src.database.data_validity import VALID_ROW_SQL
 from src.financial.financial_facts import FinancialFactsDB
 
 SCREENER_DB_PATH = DATA_DIR / "screener_cache.db"
@@ -193,6 +194,12 @@ class ValuationEngine:
         - `PRICE_STALE_ONLY`      : chỉ có bar **trước** cửa sổ ⇒ giá cũ, lệch mức (không phải
                                     look-ahead nhưng vẫn không phải giá tại kỳ).
         - `PRICE_MISSING`         : mã hoàn toàn không có bar.
+
+        [INVARIANT — LUẬT B (`AGENTS.md`)] Giá chỉ lấy từ bar `is_stale = 0` VÀ qua `VALID_ROW_SQL`
+        (chế độ Live/PIT). ĐO ĐƯỢC khi thiếu vị từ: `DDG 2026Q2` lấy đúng dòng đã cách ly 800.000đ ⇒
+        sinh `P/B = 226,18`; `BII 2024Q2` lấy 900.000đ thay vì bar sống 1.000đ ⇒ `P/S = 25.583,871`
+        (Bước 3, commit `eebf89b`). Bỏ vị từ ⇒ mọi cờ cách ly trở thành vô nghĩa với consumer này.
+
         """
         conn = self.screener_connect()
         try:
@@ -201,18 +208,23 @@ class ValuationEngine:
             for days_back in range(31):
                 d = (target - timedelta(days=days_back)).strftime("%Y-%m-%d")
                 cur.execute(
-                    "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?",
+                    "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=?"
+                    " AND COALESCE(is_stale, 0) = 0 AND " + VALID_ROW_SQL,
                     (symbol.upper(), d),
                 )
                 row = cur.fetchone()
                 if row and row[0]:
                     return row[0], None
             cur.execute(
-                "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol=? AND date>?",
+                "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol=? AND date>?"
+                " AND COALESCE(is_stale, 0) = 0 AND " + VALID_ROW_SQL,
                 (symbol.upper(), target_date),
             )
             later = cur.fetchone()[0] or 0
-            cur.execute("SELECT COUNT(*) FROM daily_ohlcv WHERE symbol=?", (symbol.upper(),))
+            cur.execute(
+                "SELECT COUNT(*) FROM daily_ohlcv WHERE symbol=? AND COALESCE(is_stale, 0) = 0 AND " + VALID_ROW_SQL,
+                (symbol.upper(),),
+            )
             total = cur.fetchone()[0] or 0
             if later > 0:
                 return None, "PRICE_FALLBACK_FUTURE"
@@ -227,7 +239,8 @@ class ValuationEngine:
         conn = self.screener_connect()
         cur = conn.cursor()
         cur.execute(
-            "SELECT date, close FROM daily_ohlcv WHERE symbol=? ORDER BY date",
+            "SELECT date, close FROM daily_ohlcv WHERE symbol=?"
+            " AND COALESCE(is_stale, 0) = 0 AND " + VALID_ROW_SQL + " ORDER BY date",
             (symbol.upper(),),
         )
         result = {row[0]: row[1] for row in cur.fetchall()}
