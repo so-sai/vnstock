@@ -317,18 +317,43 @@ theo chính docstring của `backfill_valuation_pit.py`), và **KHÔNG ghi đè 
   **không kết luận được**, KHÔNG được rơi về nhánh "rẻ ⇒ LOW priority". (Hiện `_get_mos_pct` trả `0.0`
   khi thiếu z — hướng đó an toàn vì `mos < 20` ⇒ CRITICAL; điểm hỏng nằm ở nhánh MoS = 100% sinh từ z rác.)
 
-### 7.4 Việc PHẢI ĐO trước khi chốt ngưỡng — **CHƯA ĐO ĐƯỢC trong lượt này**
+### 7.4 SỐ ĐO THỰC TẾ (2026-10-15, read-only, `financial_facts.db`) + thông số đề xuất
 
-Truy vấn read-only đã được phát lệnh nhưng cổng phê duyệt hết hạn ⇒ **các số dưới đây CHƯA có**, và
-không được bịa để lấp chỗ trống:
+**Bảng A — phân phối `ratio_value`** (tổng 7.427 dòng: `PE` 1.159 · `PB` 1.776 · `PS` 1.700 · `ROE` 1.666 · `EV_EBITDA` 1.126).
+**0 giá trị âm · 0 giá trị = 0 · 0 non-finite ở MỌI ratio** ⇒ hai nhánh `NEGATIVE_*` chưa từng xuất hiện (writer ẩn đi, đúng như mục 1).
 
-1. Phân bố `z_score` thật: p50/p99/max `|z|`, và **số dòng `|z| > 1,5`** (đang bão hoà MoS).
-2. `std` / `count` per `(symbol, ratio_name)`: bao nhiêu dòng `std ≤ 0` hoặc `count < 3` (nguồn sinh z vô cực).
-3. **Độ nhạy thang đo**: `std` có/không 1% đuôi. Nếu tỉ lệ < 1,2 ⇒ lập luận "std bị đuôi nuốt" **SAI** và
-   phải bỏ tầng 2 (đây là phép thử có thể bác bỏ chính đề xuất này).
-4. `p_lo/p_hi` trailing: chọn bằng tiêu chí **z của các dòng SẠCH ổn định qua các cửa sổ**, không chọn
-   theo "số trông đẹp".
-5. Đếm số vị thế **thực tế** bị hạ ưu tiên xả do z rác (quy mô tác động lên quyết định, không chỉ số dòng).
+| ratio | min | P1 | P5 | med | P95 | P99 | max |
+|---|---|---|---|---|---|---|---|
+| PE | 0,019 | 1,257 | 2,191 | **11,1** | 88,1 | 351,9 | **12.500** |
+| PB | 0,353 | 0,496 | 0,708 | 2,06 | 6,54 | 14,9 | **79,66** |
+| PS | 0,206 | 0,484 | 0,805 | 7,49 | 33,0 | 61,0 | **460,4** |
+| EV_EBITDA | 0,135 | 3,583 | 8,401 | 36,5 | 155,5 | 557,0 | **3.386,9** |
+| ROE | ~0 | 0,0039 | 0,021 | 0,143 | 0,358 | 0,552 | 0,885 |
+
+**Bảng B — độ nhạy thang đo (phép thử BÁC BỎ ở 7.4 cũ), `std_full ÷ std_cắt`:**
+
+| ratio | ÷ sau [1,99] | ÷ sau [2,98] | ÷ sau [5,95] | kết luận |
+|---|---|---|---|---|
+| PE | **11,2×** (373,7→33,5) | 15,3× (→24,5) | 24,6× (→15,2) | đuôi nuốt std: **ĐÚNG** |
+| EV_EBITDA | 2,9× (158,1→54,1) | 3,7× (→42,3) | 5,0× (→31,7) | **ĐÚNG** |
+| PS | 2,0× (19,4→9,5) | 2,3× (→8,5) | 2,8× (→7,0) | **ĐÚNG** |
+| PB | 1,6× (3,26→2,03) | 1,9× (→1,74) | 2,3× (→1,40) | **ĐÚNG** |
+| ROE | **1,16×** (0,1131→0,0975) | 1,24× | 1,43× | **SAI/không đáng kể** ⇒ KHÔNG winsorize |
+
+⇒ Giả thuyết "std bị đuôi thổi phồng" **đứng vững ở PE/EV_EBITDA/PS/PB** và **bị bác bỏ ở ROE**
+(1,16× < ngưỡng 1,2 đặt trước khi đo — ngưỡng chốt trước, không chỉnh sau khi thấy số).
+Cắt **[p2, p98]** đã lấy 47–93% mức lạm phát với chỉ 4% mẫu bị kẹp; [p5, p95] thêm rất ít mà mất 10% mẫu ⇒ **chọn [p2, p98]**.
+
+**Bảng C — cỡ mẫu (n_min):** `count` (số kỳ trong cửa sổ): min 1 · P10 3 · P50 14 · P90 27; `< 3` = 570 dòng · `< 5` = **1.127** · `< 10` = 2.493. `count_5y`: `< 5` = 1.403.
+⇒ **`n_min = 5`** (1.127 dòng = 15,2% sẽ có `z = None` + cờ `INSUFFICIENT_HISTORY`; **không** điền 0). `n_min = 3` giữ 92,3% nhưng z dựng trên 3 điểm là nhiễu.
+**`peer_count` · `peer_group` · `z_score_peer` = 100% NULL** ⇒ tầng "xếp hạng phân vị NGÀNH" **chưa tồn tại trong bảng**, nên **không thể chốt `n_min` cho nó từ dữ liệu hiện có** — phải định nghĩa khi dựng tầng peer (ghi backlog, không bịa ngưỡng).
+
+**Bảng D — `z_score` và tác động lên quyết định:** `z_score` P50 0,764 · P95 2,12 · P99 3,01 · max 4,47; **`|z| ≥ 1,5` (ngưỡng bão hoà MoS) = 1.068 dòng (14,4%)**. `z_score_ts` max **211,88**, `|z| > 10` = 22 dòng. Sức khoẻ mẫu số: **`std ≤ 0`/NULL = 286 dòng**, `count < 3` = 570.
+Mô phỏng đúng công thức consumer (`grid_search_v2.py:189`, `max(z)` trên PE/PB mỗi `(symbol, kỳ)`): 1.786 cặp ⇒ **MoS = 100% ("cực rẻ") 125 cặp · MoS = 0% 134 cặp · còn lại 1.527** ⇒ ~7% cặp đang bị đẩy vào nhánh "rẻ ⇒ ưu tiên xả THẤP NHẤT".
+
+**Thông số đề xuất (chờ GO):** winsor **`[p2, p98]` trailing** cho PE/PB/PS/EV_EBITDA · **không** winsor ROE · **`n_min = 5`** · z theo `median/MAD` trailing · consumer lọc `is_clean_metric = 1` và coi z không sạch là "không kết luận được".
+
+**Đo tiếp (1 lệnh, chưa chạy):** 286 dòng `std ≤ 0` có mang `z_score` khác NULL không (nếu có ⇒ z chia cho 0, đúng lớp lỗi Ca 1b), và 1.068 dòng `|z| ≥ 1,5` phân bố thế nào theo `ratio_name` × kỳ Q2/Q4 (để biết bao nhiêu là hệ quả trực tiếp của lỗi `×4` ⇒ nối vào tiêu chí DONE của B).
 
 ### 7.5 Tiêu chí DONE (đo được, không cảm tính)
 
