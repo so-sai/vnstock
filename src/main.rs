@@ -455,11 +455,17 @@ impl CdpClient {
     pub fn read_latest_message(&mut self) -> Result<String, String> {
         let js = r#"
         (() => {
-            const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title');
-            if (!h || (!h.innerText.includes('Documents') && !h.innerText.includes('Cloud'))) {
-                const items = Array.from(document.querySelectorAll('.msg-item, [id^="msg-item"], .conv-item'));
-                const target = items.find(el => el.innerText && (el.innerText.includes('My Documents') || el.innerText.includes('Cloud của tôi')));
-                if (target) target.click();
+            const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title, .title');
+            const hText = (h ? h.innerText : '').replace(/\u00a0/g, ' ').toLowerCase();
+            if (!hText.includes('documents') && !hText.includes('cloud')) {
+                const item = document.querySelector('[data-id="div_TabMsg_ThrdChFileXFER"]');
+                if (item) {
+                    const conv = item.querySelector('.conv-item') || item;
+                    conv.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}));
+                    conv.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true}));
+                    conv.click();
+                }
+                return '';
             }
             const chatView = document.querySelector('#messageView');
             if (!chatView) return '';
@@ -481,11 +487,16 @@ impl CdpClient {
         let js = format!(
             r#"
         (() => {{
-            const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title');
-            if (!h || (!h.innerText.includes('Documents') && !h.innerText.includes('Cloud'))) {{
-                const items = Array.from(document.querySelectorAll('.msg-item, [id^="msg-item"], .conv-item'));
-                const target = items.find(el => el.innerText && (el.innerText.includes('My Documents') || el.innerText.includes('Cloud của tôi')));
-                if (target) target.click();
+            const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title, .title');
+            const hText = (h ? h.innerText : '').replace(/\u00a0/g, ' ').toLowerCase();
+            if (!hText.includes('documents') && !hText.includes('cloud')) {{
+                const item = document.querySelector('[data-id="div_TabMsg_ThrdChFileXFER"]');
+                if (item) {{
+                    const conv = item.querySelector('.conv-item') || item;
+                    conv.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true, cancelable: true}}));
+                    conv.dispatchEvent(new MouseEvent('mouseup', {{bubbles: true, cancelable: true}}));
+                    conv.click();
+                }}
             }}
             const input = document.querySelector('#richInput');
             if (!input) return 'ERR_NO_RICHINPUT';
@@ -711,8 +722,17 @@ fn format_int_dots(n: i64) -> String {
 }
 
 pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
-    let sym = raw_symbol
-        .trim()
+    let raw_trimmed = raw_symbol.trim();
+    if raw_trimmed.chars().any(|c| !c.is_ascii()) {
+        return Ok(format!(
+            "🤖 [Minh Chứng] Chưa nhận diện được lệnh hoặc mã cổ phiếu `{}`.\n\
+             • Tra cứu cổ phiếu: `/mc <MÃ>` (VD: `/mc HPG`, `/mc TCB`, `/mc FPT`, `/mc PNJ`, `/mc SHB`)\n\
+             • Điểm tin phiên: `/mc tổng kết` hoặc `/mc brief`",
+            raw_trimmed
+        ));
+    }
+
+    let sym = raw_trimmed
         .to_uppercase()
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -1201,6 +1221,10 @@ fn parse_wake_command(msg: &str) -> Option<String> {
         || trimmed.starts_with("⚠️")
         || trimmed.starts_with("🤖")
         || trimmed.starts_with("🔄")
+        || trimmed.starts_with("📋")
+        || trimmed.starts_with("🏗️")
+        || trimmed.starts_with("🌅")
+        || trimmed.starts_with("🌇")
     {
         return None;
     }
@@ -1210,6 +1234,7 @@ fn parse_wake_command(msg: &str) -> Option<String> {
         return None;
     }
 
+    // 1. Tiền tố chuẩn ở đầu
     if lower.starts_with("minh chứng") {
         return Some(trimmed["minh chứng".len()..].trim().to_string());
     }
@@ -1220,6 +1245,22 @@ fn parse_wake_command(msg: &str) -> Option<String> {
         return Some(trimmed["/mc".len()..].trim().to_string());
     }
 
+    // 2. Hậu tố người dùng hay gõ tự nhiên (VD: "/tổng kết ngày hôm nay mc", "báo cáo mc", "vĩ mô mc")
+    if lower.ends_with(" mc") {
+        let mut body = trimmed[..trimmed.len() - 3].trim();
+        if body.starts_with('/') {
+            body = &body[1..];
+        }
+        return Some(body.trim().to_string());
+    }
+    if lower.ends_with("/mc") {
+        let mut body = trimmed[..trimmed.len() - 3].trim();
+        if body.starts_with('/') {
+            body = &body[1..];
+        }
+        return Some(body.trim().to_string());
+    }
+
     None
 }
 
@@ -1227,31 +1268,41 @@ fn handle_zalo_command(cmd_body: &str) -> String {
     let clean = cmd_body.trim();
     let lower = clean.to_lowercase();
 
+    // 1. Nhận diện các ý định tổng kết thị trường / vĩ mô / ATC / hôm nay
     if clean.is_empty()
-        || lower == "báo cáo"
-        || lower == "bao cao"
-        || lower == "vĩ mô"
-        || lower == "vi mo"
-        || lower == "macro"
-        || lower == "brief"
-        || lower == "thị trường"
+        || lower.contains("báo cáo")
+        || lower.contains("bao cao")
+        || lower.contains("tổng kết")
+        || lower.contains("tong ket")
+        || lower.contains("cuối ngày")
+        || lower.contains("cuoi ngay")
+        || lower.contains("hôm nay")
+        || lower.contains("hom nay")
+        || lower.contains("thị trường")
+        || lower.contains("thi truong")
+        || lower.contains("vĩ mô")
+        || lower.contains("vi mo")
+        || lower.contains("macro")
+        || lower.contains("brief")
+        || lower.contains("summary")
+        || lower.contains("atc")
     {
-        return build_market_brief("BÁO CÁO NHANH VĨ MÔ & DANH MỤC")
+        return build_market_brief("TỔNG KẾT ĐÓNG CỬA PHIÊN ATC (MARKET SUMMARY 15:15)")
             .unwrap_or_else(|e| format!("⚠️ [Minh Chứng] Lỗi truy vấn: {}", e));
     }
 
-    if lower == "sync" || lower == "cập nhật" || lower == "cap nhat" {
+    if lower.contains("sync") || lower.contains("cập nhật") || lower.contains("cap nhat") {
         let sync_res = run_cli_sync();
         let brief = build_market_brief("BÁO CÁO SAU ĐỒNG BỘ CLI")
             .unwrap_or_else(|e| format!("⚠️ [Minh Chứng] Lỗi truy vấn: {}", e));
         return format!("{}\n\n{}", sync_res, brief);
     }
 
-    if lower == "help" || lower == "giúp" || lower == "hướng dẫn" {
+    if lower.contains("help") || lower.contains("giúp") || lower.contains("hướng dẫn") {
         return "🤖 [Minh Chứng - Trợ lý Phân tích Định lượng & BCTC (<30ms)]\n\
-                • Gõ `Minh Chứng <MÃ_CP>` hoặc `/mc <MÃ_CP>` (VD: `/mc SHB`, `/mc FPT`, `/mc PNJ`, `/mc MBB`, `/mc TCB`): Tra cứu tức thì Giá, Thanh khoản, P/E, P/B, ROE, NPL, NIM, CASA/LDR.\n\
-                • Gõ `Minh Chứng báo cáo` hoặc `/mc brief`: Điểm tin VN-Index, Market Regime, Vĩ mô (Fed, DXY, US10Y, Liên NH) & Watchlist.\n\
-                • Gõ `/mc sync`: Kích hoạt CLI `ptck.py` cập nhật lãi suất Liên NH & Vĩ mô mới nhất."
+                • Gõ `/mc <MÃ_CP>` hoặc `Minh Chứng <MÃ_CP>` (VD: `/mc HPG`, `/mc TCB`, `/mc FPT`, `/mc PNJ`, `/mc SHB`): Tra cứu tức thì Định giá & BCTC.\n\
+                • Gõ `/mc tổng kết`, `/mc hôm nay`, `/mc brief` hoặc `/mc báo cáo`: Tổng kết phiên ATC, Market Regime, Vĩ mô & Watchlist.\n\
+                • Gõ `/mc sync`: Cập nhật dữ liệu CLI mới nhất."
             .to_string();
     }
 

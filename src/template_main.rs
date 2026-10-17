@@ -678,6 +678,14 @@ fn parse_wake_command(msg: &str) -> Option<String> {
             let cmd_body = trimmed[prefix.len()..].trim();
             return Some(cmd_body.to_string());
         }
+        let clean_prefix = prefix.trim();
+        if !clean_prefix.is_empty() && lower.ends_with(clean_prefix) {
+            let mut body = trimmed[..trimmed.len() - clean_prefix.len()].trim();
+            if body.starts_with('/') {
+                body = &body[1..];
+            }
+            return Some(body.trim().to_string());
+        }
     }
     None
 }
