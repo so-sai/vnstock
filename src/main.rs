@@ -163,17 +163,28 @@ impl CdpClient {
                 }
             }
         }
-        Err("Không tìm thấy cổng CDP Zalo (58721/9222). Hãy chạy `minh_chung.exe boot` hoặc `minh_chung.exe watch` để tự khởi động Zalo CDP.".to_string())
+        // Auto Self-Boot if Zalo PC was started without CDP port
+        Self::ensure_zalo_cdp()?;
+        if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
+            if let Ok(client) = Self::connect(58721, &ws_path) {
+                return Ok(client);
+            }
+        }
+        Err("Không tìm thấy cổng CDP Zalo (58721/9222) sau khi Self-Boot.".to_string())
     }
 
     pub fn ensure_zalo_cdp() -> Result<(), String> {
         if Self::find_zalo_ws_path(58721).is_ok() {
             return Ok(());
         }
+        let _guard = ZaloMutexGuard::acquire(8000);
+        if Self::find_zalo_ws_path(58721).is_ok() {
+            return Ok(());
+        }
         let local_app_data = env::var("LOCALAPPDATA")
             .unwrap_or_else(|_| r"C:\Users\Admin\AppData\Local".to_string());
         let zalo_base = PathBuf::from(local_app_data).join("Programs").join("Zalo");
-        let mut zalo_exe: Option<PathBuf> = None;
+        let mut zalo_exe: Option<(std::time::SystemTime, PathBuf)> = None;
         if let Ok(entries) = std::fs::read_dir(&zalo_base) {
             for entry in entries.flatten() {
                 let p = entry.path();
@@ -181,17 +192,20 @@ impl CdpClient {
                     if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
                         if name.starts_with("Zalo-") {
                             let candidate = p.join("Zalo.exe");
-                            if candidate.exists() {
-                                zalo_exe = Some(candidate);
+                            if let Ok(meta) = std::fs::metadata(&candidate) {
+                                let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                                if zalo_exe.as_ref().map_or(true, |(best_t, _)| mtime > *best_t) {
+                                    zalo_exe = Some((mtime, candidate));
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        if let Some(exe_path) = zalo_exe {
+        if let Some((_, exe_path)) = zalo_exe {
             println!(
-                "⚡ [Self-Boot] Đang khởi động Zalo PC kèm cổng CDP 58721: {}",
+                "⚡ [Self-Boot] Đang khởi động lại Zalo PC kèm cổng CDP 58721: {}",
                 exe_path.display()
             );
             let _ = Command::new("powershell")
@@ -199,14 +213,15 @@ impl CdpClient {
                     "-NoProfile",
                     "-Command",
                     &format!(
-                        "Stop-Process -Name Zalo -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 600; Start-Process '{}' -ArgumentList '--remote-debugging-port=58721'",
+                        "Stop-Process -Name Zalo -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{ CommandLine = '\"{}\" --remote-debugging-port=58721' }} | Out-Null",
                         exe_path.display()
                     ),
                 ])
                 .output();
-            for _ in 0..15 {
+            for _ in 0..20 {
                 thread::sleep(Duration::from_millis(500));
                 if Self::find_zalo_ws_path(58721).is_ok() {
+                    thread::sleep(Duration::from_millis(1200));
                     println!("✅ [Self-Boot] Cổng CDP 58721 đã sẵn sàng!");
                     return Ok(());
                 }
@@ -487,24 +502,85 @@ impl CdpClient {
 }
 
 // ============================================================================
-// 4. DATABASE RESOLVER & QUANT/FUNDAMENTAL ENGINE FOR PTCK_VNSTOCK (MINH CHỨNG)
+// 4. DATABASE RESOLVER, CLI PIPELINE BRIDGE & QUANT ENGINE (MINH CHỨNG)
 // ============================================================================
-fn resolve_db_path(db_filename: &str) -> String {
+fn resolve_project_root() -> PathBuf {
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let p = dir.join("backend").join("data").join(db_filename);
-            if p.exists() {
-                return p.to_string_lossy().into_owned();
+            if dir.join("backend").join("data").exists() {
+                return dir.to_path_buf();
             }
         }
     }
-    let rel = PathBuf::from("backend").join("data").join(db_filename);
-    if rel.exists() {
-        return rel.to_string_lossy().into_owned();
+    let d_root = PathBuf::from(r"D:\04. Software\opensource_contrib\PTCK_VNSTOCK");
+    if d_root.exists() {
+        return d_root;
     }
-    let fallback = PathBuf::from(r"D:\04. Software\opensource_contrib\PTCK_VNSTOCK\backend\data")
-        .join(db_filename);
-    fallback.to_string_lossy().into_owned()
+    PathBuf::from(".")
+}
+
+fn resolve_db_path(db_filename: &str) -> String {
+    let root = resolve_project_root();
+    root.join("backend")
+        .join("data")
+        .join(db_filename)
+        .to_string_lossy()
+        .into_owned()
+}
+
+pub fn ensure_watch_daemons_running() {
+    let root = resolve_project_root();
+    let mc_exe = root.join("minh_chung.exe");
+    let ps_cmd = format!(
+        r#"
+        $mc = Get-CimInstance Win32_Process -Filter "Name = 'minh_chung.exe'" | Where-Object {{ $_.CommandLine -match 'watch' }};
+        if (-not $mc -and (Test-Path '{}')) {{
+            Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{
+                CommandLine = '"{}" watch';
+                CurrentDirectory = '{}'
+            }} | Out-Null;
+        }}
+        $mtPath = 'G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD\minh_tam.exe';
+        $mt = Get-CimInstance Win32_Process -Filter "Name = 'minh_tam.exe'" | Where-Object {{ $_.CommandLine -match 'watch' }};
+        if (-not $mt -and (Test-Path $mtPath)) {{
+            Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{
+                CommandLine = '"' + $mtPath + '" watch';
+                CurrentDirectory = 'G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD'
+            }} | Out-Null;
+        }}
+        "#,
+        mc_exe.display(),
+        mc_exe.display(),
+        root.display()
+    );
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-Command", &ps_cmd])
+        .output();
+}
+
+pub fn run_cli_sync() -> String {
+    let t0 = Instant::now();
+    let root = resolve_project_root();
+    println!("🔄 [CLI Pipeline] Đang đồng bộ dữ liệu Vĩ mô & Lãi suất qua `ptck.py`...");
+    let sbv_ok = Command::new("python")
+        .args(["ptck.py", "sbv-update"])
+        .current_dir(&root)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let macro_ok = Command::new("python")
+        .args(["ptck.py", "fetch-macro"])
+        .current_dir(&root)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    format!(
+        "🔄 [Minh Chứng - Đồng bộ CLI `ptck.py` hoàn tất trong {:.2?}]\n• Lãi suất Liên NH (`sbv-update`): {}\n• Vĩ mô & Tỷ giá (`fetch-macro`): {}",
+        t0.elapsed(),
+        if sbv_ok { "✅ OK" } else { "⚠️ Dùng bản cache" },
+        if macro_ok { "✅ OK" } else { "⚠️ Dùng bản cache" }
+    )
 }
 
 fn format_vnd_ty(val: f64) -> String {
@@ -950,23 +1026,21 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
 // ============================================================================
 fn parse_wake_command(msg: &str) -> Option<String> {
     let trimmed = msg.trim();
-    // Ignore replies from our own bots and Minh Tâm
     if trimmed.starts_with('[')
         || trimmed.starts_with("📊")
         || trimmed.starts_with("📈")
         || trimmed.starts_with("⚠️")
         || trimmed.starts_with("🤖")
+        || trimmed.starts_with("🔄")
     {
         return None;
     }
 
     let lower = trimmed.to_lowercase();
-    // Exclude Minh Tâm commands explicitly
     if lower.starts_with("minh tâm") || lower.starts_with("minh tam") || lower.starts_with("/mt") {
         return None;
     }
 
-    // Match ONLY Minh Chứng namespaces
     if lower.starts_with("minh chứng") {
         return Some(trimmed["minh chứng".len()..].trim().to_string());
     }
@@ -997,10 +1071,18 @@ fn handle_zalo_command(cmd_body: &str) -> String {
             .unwrap_or_else(|e| format!("⚠️ [Minh Chứng] Lỗi truy vấn: {}", e));
     }
 
+    if lower == "sync" || lower == "cập nhật" || lower == "cap nhat" {
+        let sync_res = run_cli_sync();
+        let brief = build_market_brief("BÁO CÁO SAU ĐỒNG BỘ CLI")
+            .unwrap_or_else(|e| format!("⚠️ [Minh Chứng] Lỗi truy vấn: {}", e));
+        return format!("{}\n\n{}", sync_res, brief);
+    }
+
     if lower == "help" || lower == "giúp" || lower == "hướng dẫn" {
         return "🤖 [Minh Chứng - Trợ lý Phân tích Định lượng & BCTC (<30ms)]\n\
                 • Gõ `Minh Chứng <MÃ_CP>` hoặc `/mc <MÃ_CP>` (VD: `/mc SHB`, `/mc FPT`, `/mc PNJ`, `/mc MBB`, `/mc TCB`): Tra cứu tức thì Giá, Thanh khoản, P/E, P/B, ROE, NPL, NIM, CASA/LDR.\n\
-                • Gõ `Minh Chứng báo cáo` hoặc `/mc brief`: Điểm tin VN-Index, Market Regime, Vĩ mô (Fed, DXY, US10Y, Liên NH) & Watchlist."
+                • Gõ `Minh Chứng báo cáo` hoặc `/mc brief`: Điểm tin VN-Index, Market Regime, Vĩ mô (Fed, DXY, US10Y, Liên NH) & Watchlist.\n\
+                • Gõ `/mc sync`: Kích hoạt CLI `ptck.py` cập nhật lãi suất Liên NH & Vĩ mô mới nhất."
             .to_string();
     }
 
@@ -1040,10 +1122,14 @@ fn main() {
             }
         }
         "brief" | "summary" => {
+            let do_sync = args.iter().any(|a| a == "--sync");
+            if do_sync {
+                println!("{}", run_cli_sync());
+            }
             let title = if cmd == "brief" {
-                "ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA (PRE-MARKET BRIEF)"
+                "ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA (PRE-MARKET BRIEF 08:45)"
             } else {
-                "TỔNG KẾT ĐÓNG CỬA PHIÊN ATC (MARKET SUMMARY)"
+                "TỔNG KẾT ĐÓNG CỬA PHIÊN ATC (MARKET SUMMARY 15:15)"
             };
             let no_send = args.iter().any(|a| a == "--no-send");
             match build_market_brief(title) {
@@ -1059,10 +1145,21 @@ fn main() {
                                 );
                             }
                         }
+                        ensure_watch_daemons_running();
                     }
                 }
                 Err(e) => eprintln!("❌ Lỗi: {}", e),
             }
+        }
+        "sync" => {
+            let msg = run_cli_sync();
+            println!("{}", msg);
+            if args.iter().any(|a| a == "--send") {
+                if let Ok(mut cdp) = CdpClient::connect_zalo() {
+                    let _ = cdp.send_message_to_my_documents(&msg);
+                }
+            }
+            ensure_watch_daemons_running();
         }
         "read" => match CdpClient::connect_zalo() {
             Ok(mut cdp) => match cdp.read_latest_message() {
@@ -1088,7 +1185,10 @@ fn main() {
             }
         }
         "boot" => match CdpClient::ensure_zalo_cdp() {
-            Ok(_) => println!("✅ Zalo CDP (58721) sẵn sàng."),
+            Ok(_) => {
+                ensure_watch_daemons_running();
+                println!("✅ Zalo CDP (58721) & Daemons (minh_chung + minh_tam) sẵn sàng.");
+            }
             Err(e) => eprintln!("❌ {}", e),
         },
         "watch" => {
