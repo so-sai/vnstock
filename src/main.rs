@@ -945,6 +945,65 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
                 gm
             ));
         }
+
+        // ── GÓC NHÌN ĐỊNH LƯỢNG & RỦI RO (MINH CHỨNG) ──
+        out.push_str("── GÓC NHÌN ĐỊNH LƯỢNG (MINH CHỨNG) ──\n");
+        let tech_signal = if close >= ma20 * 1.02 {
+            format!("Xu hướng Tăng ngắn hạn (+{:.1}% so với MA20)", ((close - ma20) / ma20) * 100.0)
+        } else if close <= ma20 * 0.98 {
+            format!("Xu hướng Điều chỉnh ngắn hạn ({:.1}% so với MA20)", ((close - ma20) / ma20) * 100.0)
+        } else {
+            "Vận động Tích lũy cân bằng quanh MA20".to_string()
+        };
+
+        let vol_signal = if vol_ratio >= 1.25 {
+            format!("Dòng tiền vào chủ động ({:.2}x ADV20)", vol_ratio)
+        } else if vol_ratio <= 0.75 {
+            format!("Cung bán suy kiệt/Cạn thanh khoản ({:.2}x ADV20)", vol_ratio)
+        } else {
+            format!("Thanh khoản ở mức trung bình ({:.2}x ADV20)", vol_ratio)
+        };
+        out.push_str(&format!("• Kỹ thuật: {} | {}\n", tech_signal, vol_signal));
+
+        let fund_signal = if pe > 0.0 && pe < 10.0 {
+            format!("P/E {:.1}x (Định giá hấp dẫn)", pe)
+        } else if pe >= 18.0 {
+            format!("P/E {:.1}x (Định giá cao, kỳ vọng tăng trưởng lớn)", pe)
+        } else if pe > 0.0 {
+            format!("P/E {:.1}x (Định giá hợp lý)", pe)
+        } else {
+            "P/E: N/A".to_string()
+        };
+
+        let qual_signal = if entity_type == "BANK" {
+            if npl > 0.0 && npl < 0.015 {
+                format!("Chất lượng nợ tốt (NPL {:.2}%)", npl * 100.0)
+            } else if npl >= 0.02 {
+                format!("Cần giám sát nợ xấu (NPL {:.2}%)", npl * 100.0)
+            } else {
+                format!("NPL: {:.2}%", npl * 100.0)
+            }
+        } else {
+            if roe >= 0.18 {
+                format!("Hiệu quả sinh lời cao (ROE {:.1}%)", roe * 100.0)
+            } else if roe > 0.0 && roe < 0.10 {
+                format!("Biên sinh lời khiêm tốn (ROE {:.1}%)", roe * 100.0)
+            } else {
+                format!("ROE: {:.1}%", roe * 100.0)
+            }
+        };
+        out.push_str(&format!("• Cơ bản: {} | {}\n", fund_signal, qual_signal));
+
+        let advice = if close > ma20 && vol_ratio <= 0.85 {
+            "Khuyến nghị: Vận động test cung lành mạnh; ưu tiên nắm giữ/theo dõi tích lũy."
+        } else if close < ma20 && vol_ratio > 1.25 {
+            "Cảnh báo rủi ro: Áp lực phân phối ngắn hạn; hạn chế mua đuổi, ưu tiên quản trị tỷ trọng."
+        } else if close > ma20 {
+            "Khuyến nghị: Xu hướng ổn định; duy trì vị thế theo ngưỡng hỗ trợ MA20."
+        } else {
+            "Khuyến nghị: Chờ tín hiệu dòng tiền xác nhận vượt lại MA20 trước khi giải ngân mới."
+        };
+        out.push_str(&format!("• {}\n", advice));
     }
 
     Ok(out.trim_end().to_string())
@@ -1116,6 +1175,17 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             roe * 100.0
         ));
     }
+
+    out.push_str("── KHUYẾN NGHỊ CHIẾN LƯỢC (MINH CHỨNG) ──\n");
+    let vni_status = if vni_pct > 0.5 {
+        "Dòng tiền mở rộng, tâm lý thị trường hưng phấn vừa phải."
+    } else if vni_pct < -0.5 {
+        "Thị trường kiểm định cung cầu, áp lực bán tập trung cục bộ."
+    } else {
+        "Vận động phân hóa, tiền tìm kiếm cơ hội ở nhóm định giá an toàn."
+    };
+    out.push_str(&format!("• Đánh giá phiên: {}\n", vni_status));
+    out.push_str("• Chiến lược: Ưu tiên danh mục tỷ trọng 50-70%; tập trung mã có ROE > 16%, P/B < 1.3x; không mua đuổi khi RSI vào vùng quá mua.");
 
     Ok(out.trim_end().to_string())
 }
