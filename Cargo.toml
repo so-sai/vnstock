@@ -1,0 +1,20 @@
+[package]
+name = "minh_chung"
+version = "0.2.0"
+edition = "2021"
+authors = ["PTCK_VNSTOCK Team"]
+description = "Native High-Speed (<30ms) Zalo PC Quant Assistant with rusqlite (bundled + FTS5)"
+
+[[bin]]
+name = "minh_chung"
+path = "src/main.rs"
+
+[dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

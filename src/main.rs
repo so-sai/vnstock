@@ -1,14 +1,16 @@
 use std::env;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::os::raw::{c_char, c_double, c_int, c_void};
+use std::os::raw::{c_char, c_int, c_void};
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::ptr;
 use std::thread;
 use std::time::{Duration, Instant};
+
+use rusqlite::{params, Connection, OpenFlags};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -32,6 +34,8 @@ extern "system" {
     fn ReleaseMutex(hMutex: *mut c_void) -> c_int;
     fn CloseHandle(hObject: *mut c_void) -> c_int;
 }
+
+pub const TARGET_CONV_NAME: &str = "Trạm Số Liệu - Minh Chứng";
 
 pub fn is_named_mutex_alive(name_str: &str) -> bool {
     if let Ok(cname) = CString::new(name_str) {
@@ -81,91 +85,26 @@ impl Drop for ZaloMutexGuard {
 }
 
 // ============================================================================
-// 2. NATIVE WINDOWS 11 SQLITE FFI (winsqlite3.dll - Zero External Crates)
+// 2. RUSQLITE ENGINE (bundled + FTS5 Full-Text Search)
 // ============================================================================
-#[repr(C)]
-pub struct sqlite3 {
-    _unused: [u8; 0],
-}
-#[repr(C)]
-pub struct sqlite3_stmt {
-    _unused: [u8; 0],
-}
-
-pub const SQLITE_OK: c_int = 0;
-pub const SQLITE_ROW: c_int = 100;
-
-#[link(name = "winsqlite3", kind = "raw-dylib")]
-extern "C" {
-    pub fn sqlite3_open(filename: *const c_char, ppDb: *mut *mut sqlite3) -> c_int;
-    pub fn sqlite3_close(db: *mut sqlite3) -> c_int;
-    pub fn sqlite3_prepare_v2(
-        db: *mut sqlite3,
-        zSql: *const c_char,
-        nByte: c_int,
-        ppStmt: *mut *mut sqlite3_stmt,
-        pzTail: *mut *const c_char,
-    ) -> c_int;
-    pub fn sqlite3_step(pStmt: *mut sqlite3_stmt) -> c_int;
-    pub fn sqlite3_finalize(pStmt: *mut sqlite3_stmt) -> c_int;
-    pub fn sqlite3_column_text(pStmt: *mut sqlite3_stmt, iCol: c_int) -> *const u8;
-    pub fn sqlite3_column_int(pStmt: *mut sqlite3_stmt, iCol: c_int) -> c_int;
-    pub fn sqlite3_column_double(pStmt: *mut sqlite3_stmt, iCol: c_int) -> c_double;
-    pub fn sqlite3_errmsg(db: *mut sqlite3) -> *const c_char;
-}
-
 pub struct Db {
-    handle: *mut sqlite3,
+    pub conn: Connection,
 }
 
 impl Db {
+    pub fn open_readonly(path: &str) -> Result<Self, String> {
+        Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map(|conn| Db { conn })
+        .map_err(|e| format!("Lỗi mở CSDL {}: {}", path, e))
+    }
+
     pub fn open(path: &str) -> Result<Self, String> {
-        let c_path = CString::new(path).map_err(|e| e.to_string())?;
-        let mut handle: *mut sqlite3 = ptr::null_mut();
-        unsafe {
-            let rc = sqlite3_open(c_path.as_ptr(), &mut handle);
-            if rc != SQLITE_OK {
-                let err = if !handle.is_null() {
-                    CStr::from_ptr(sqlite3_errmsg(handle))
-                        .to_string_lossy()
-                        .into_owned()
-                } else {
-                    format!("SQLite open error code {}", rc)
-                };
-                if !handle.is_null() {
-                    sqlite3_close(handle);
-                }
-                return Err(err);
-            }
-        }
-        Ok(Db { handle })
-    }
-
-    pub fn get_col_str(stmt: *mut sqlite3_stmt, col: c_int) -> String {
-        unsafe {
-            let ptr = sqlite3_column_text(stmt, col);
-            if ptr.is_null() {
-                String::new()
-            } else {
-                CStr::from_ptr(ptr as *const c_char)
-                    .to_string_lossy()
-                    .into_owned()
-            }
-        }
-    }
-
-    pub fn get_col_f64(stmt: *mut sqlite3_stmt, col: c_int) -> f64 {
-        unsafe { sqlite3_column_double(stmt, col) }
-    }
-}
-
-impl Drop for Db {
-    fn drop(&mut self) {
-        unsafe {
-            if !self.handle.is_null() {
-                sqlite3_close(self.handle);
-            }
-        }
+        Connection::open(path)
+            .map(|conn| Db { conn })
+            .map_err(|e| format!("Lỗi mở CSDL {}: {}", path, e))
     }
 }
 
@@ -453,57 +392,93 @@ impl CdpClient {
     }
 
     pub fn read_latest_message(&mut self) -> Result<String, String> {
-        let js = r#"
-        (() => {
-            const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title, .title');
-            const hText = (h ? h.innerText : '').replace(/\u00a0/g, ' ').toLowerCase();
-            if (!hText.includes('documents') && !hText.includes('cloud')) {
-                const item = document.querySelector('[data-id="div_TabMsg_ThrdChFileXFER"]');
-                if (item) {
-                    const conv = item.querySelector('.conv-item') || item;
-                    conv.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}));
-                    conv.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true}));
-                    conv.click();
-                }
-                return '';
-            }
-            const chatView = document.querySelector('#messageView');
-            if (!chatView) return '';
-            const bubbles = chatView.querySelectorAll('.card--text, [data-id="div_SentMsg_Text"], [data-id="div_ReceivedMsg_Text"]');
-            for (let i = bubbles.length - 1; i >= 0; i--) {
-                const t = (bubbles[i].innerText || '').trim();
-                if (t.length > 1 && !t.startsWith(':-') && !t.startsWith('/-')) {
-                    return t;
-                }
-            }
-            return '';
-        })()
-        "#;
-        self.eval_js(js)
-    }
-
-    pub fn send_message_to_my_documents(&mut self, text: &str) -> Result<String, String> {
-        let js_text = Self::json_escape(text);
         let js = format!(
             r#"
         (() => {{
+            const targetName = "{}";
+            const targetLow = targetName.toLowerCase();
             const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title, .title');
             const hText = (h ? h.innerText : '').replace(/\u00a0/g, ' ').toLowerCase();
-            if (!hText.includes('documents') && !hText.includes('cloud')) {{
-                const item = document.querySelector('[data-id="div_TabMsg_ThrdChFileXFER"]');
-                if (item) {{
-                    const conv = item.querySelector('.conv-item') || item;
-                    conv.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true, cancelable: true}}));
-                    conv.dispatchEvent(new MouseEvent('mouseup', {{bubbles: true, cancelable: true}}));
-                    conv.click();
+
+            const isTarget = hText.includes(targetLow) || (hText.includes('số liệu') && hText.includes('minh chứng'));
+            if (!isTarget) {{
+                const items = document.querySelectorAll('.conv-item');
+                let targetItem = null;
+                for (const item of items) {{
+                    const t = (item.innerText || '').replace(/\u00a0/g, ' ').toLowerCase();
+                    if (t.includes(targetLow) || (t.includes('số liệu') && t.includes('minh chứng'))) {{
+                        targetItem = item;
+                        break;
+                    }}
+                }}
+                if (!targetItem) return '';
+                const hasUnread = !!targetItem.querySelector('[class*="unread"], [class*="badge"], [class*="count"]');
+                if (hasUnread) {{
+                    targetItem.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true, cancelable: true}}));
+                    targetItem.dispatchEvent(new MouseEvent('mouseup', {{bubbles: true, cancelable: true}}));
+                    targetItem.click();
+                }}
+                return '';
+            }}
+
+            const chatView = document.querySelector('#messageView');
+            if (!chatView) return '';
+            const bubbles = chatView.querySelectorAll('.card--text, [data-id="div_SentMsg_Text"], [data-id="div_ReceivedMsg_Text"]');
+            for (let i = bubbles.length - 1; i >= 0; i--) {{
+                const t = (bubbles[i].innerText || '').trim();
+                if (t.length > 0 && !t.startsWith(':-') && !t.startsWith('/-')) {{
+                    return t;
                 }}
             }}
-            const input = document.querySelector('#richInput');
-            if (!input) return 'ERR_NO_RICHINPUT';
-            input.focus();
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, "{}");
-            setTimeout(() => {{
+            return '';
+        }})()
+        "#,
+            TARGET_CONV_NAME
+        );
+        self.eval_js(&js)
+    }
+
+    pub fn send_message_to_my_documents(&mut self, text: &str) -> Result<String, String> {
+        let check_js = format!(
+            r#"
+            (() => {{
+                const targetLow = "{}".toLowerCase();
+                const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title, .title');
+                const hText = (h ? h.innerText : '').replace(/\u00a0/g, ' ').toLowerCase();
+                if (hText.includes(targetLow) || (hText.includes('số liệu') && hText.includes('minh chứng'))) return 'IS_TARGET';
+
+                const items = document.querySelectorAll('.conv-item');
+                for (const item of items) {{
+                    const t = (item.innerText || '').replace(/\u00a0/g, ' ').toLowerCase();
+                    if (t.includes(targetLow) || (t.includes('số liệu') && t.includes('minh chứng'))) {{
+                        item.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true, cancelable: true}}));
+                        item.dispatchEvent(new MouseEvent('mouseup', {{bubbles: true, cancelable: true}}));
+                        item.click();
+                        return 'SWITCHED';
+                    }}
+                }}
+                return 'NOT_FOUND';
+            }})()
+            "#,
+            TARGET_CONV_NAME
+        );
+        let check = self.eval_js(&check_js).unwrap_or_default();
+        if check != "IS_TARGET" && check != "SWITCHED" {
+            return Err(format!("Chưa mở đúng nhóm '{}'. Đã hủy gửi để bảo đảm tuyệt đối không nhầm nhóm.", TARGET_CONV_NAME));
+        }
+        if check == "SWITCHED" {
+            thread::sleep(Duration::from_millis(150));
+        }
+
+        let js_text = Self::json_escape(text);
+        let js = format!(
+            r#"
+            (() => {{
+                const input = document.querySelector('#richInput');
+                if (!input) return 'ERR_NO_RICHINPUT';
+                input.focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, "{}");
                 const ev = new KeyboardEvent('keydown', {{
                     key: 'Enter',
                     code: 'Enter',
@@ -515,10 +490,9 @@ impl CdpClient {
                 input.dispatchEvent(ev);
                 const sendBtn = document.querySelector('[data-translate-title="STR_SEND"], .send-msg-btn, #sendBtn');
                 if (sendBtn) sendBtn.click();
-            }}, 0);
-            return 'SENT_OK';
-        }})()
-        "#,
+                return 'SENT_OK';
+            }})()
+            "#,
             js_text
         );
         self.eval_js(&js)
@@ -743,28 +717,23 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
 
     let screener_path = resolve_db_path("screener_cache.db");
     let facts_path = resolve_db_path("financial_facts.db");
-    let db_scr = Db::open(&screener_path)?;
-    let db_fin = Db::open(&facts_path)?;
+    let db_scr = Db::open_readonly(&screener_path)?;
+    let db_fin = Db::open_readonly(&facts_path)?;
 
-    let sql_ohlcv = format!(
-        "SELECT date, close, volume, high, low FROM daily_ohlcv WHERE symbol = '{}' ORDER BY date DESC LIMIT 20;",
-        sym
-    );
-    let c_sql = CString::new(sql_ohlcv).unwrap();
-    let mut stmt: *mut sqlite3_stmt = ptr::null_mut();
+    let mut stmt = db_scr
+        .conn
+        .prepare("SELECT date, close, volume FROM daily_ohlcv WHERE symbol = ?1 ORDER BY date DESC LIMIT 20;")
+        .map_err(|e| e.to_string())?;
+
+    let mut rows = stmt.query(params![sym]).map_err(|e| e.to_string())?;
     let mut dates = Vec::new();
     let mut closes = Vec::new();
     let mut vols = Vec::new();
 
-    unsafe {
-        if sqlite3_prepare_v2(db_scr.handle, c_sql.as_ptr(), -1, &mut stmt, ptr::null_mut()) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                dates.push(Db::get_col_str(stmt, 0));
-                closes.push(Db::get_col_f64(stmt, 1));
-                vols.push(Db::get_col_f64(stmt, 2));
-            }
-            sqlite3_finalize(stmt);
-        }
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        dates.push(row.get::<_, String>(0).unwrap_or_default());
+        closes.push(row.get::<_, f64>(1).unwrap_or(0.0));
+        vols.push(row.get::<_, f64>(2).unwrap_or(0.0));
     }
 
     if closes.is_empty() {
@@ -788,20 +757,16 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
     let ma20: f64 = closes.iter().sum::<f64>() / (closes.len() as f64);
     let vol_ratio = if adv20 > 0.0 { vol / adv20 } else { 1.0 };
 
-    let sql_period = format!(
-        "SELECT period, entity_type FROM financial_facts WHERE symbol = '{}' ORDER BY period DESC LIMIT 1;",
-        sym
-    );
-    let c_sql_p = CString::new(sql_period).unwrap();
     let mut latest_period = String::new();
     let mut entity_type = String::new();
-    unsafe {
-        if sqlite3_prepare_v2(db_fin.handle, c_sql_p.as_ptr(), -1, &mut stmt, ptr::null_mut()) == SQLITE_OK {
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                latest_period = Db::get_col_str(stmt, 0);
-                entity_type = Db::get_col_str(stmt, 1);
+    if let Ok(mut p_stmt) = db_fin.conn.prepare(
+        "SELECT period, entity_type FROM financial_facts WHERE symbol = ?1 ORDER BY period DESC LIMIT 1;",
+    ) {
+        if let Ok(mut p_rows) = p_stmt.query(params![sym]) {
+            if let Ok(Some(row)) = p_rows.next() {
+                latest_period = row.get::<_, String>(0).unwrap_or_default();
+                entity_type = row.get::<_, String>(1).unwrap_or_default();
             }
-            sqlite3_finalize(stmt);
         }
     }
 
@@ -825,16 +790,13 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
     let mut gross_profit = 0.0;
 
     if !latest_period.is_empty() {
-        let sql_facts = format!(
-            "SELECT metric, value FROM financial_facts WHERE symbol = '{}' AND period = '{}';",
-            sym, latest_period
-        );
-        let c_sql_f = CString::new(sql_facts).unwrap();
-        unsafe {
-            if sqlite3_prepare_v2(db_fin.handle, c_sql_f.as_ptr(), -1, &mut stmt, ptr::null_mut()) == SQLITE_OK {
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let m = Db::get_col_str(stmt, 0);
-                    let v = Db::get_col_f64(stmt, 1);
+        if let Ok(mut f_stmt) = db_fin.conn.prepare(
+            "SELECT metric, value FROM financial_facts WHERE symbol = ?1 AND period = ?2;",
+        ) {
+            if let Ok(mut f_rows) = f_stmt.query(params![sym, latest_period]) {
+                while let Ok(Some(row)) = f_rows.next() {
+                    let m: String = row.get(0).unwrap_or_default();
+                    let v: f64 = row.get(1).unwrap_or(0.0);
                     match m.as_str() {
                         "SHARES_OUT" => shares_out = v,
                         "EPS" => eps = v,
@@ -857,7 +819,6 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
                         _ => {}
                     }
                 }
-                sqlite3_finalize(stmt);
             }
         }
     }
@@ -1033,33 +994,31 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     let screener_path = resolve_db_path("screener_cache.db");
     let facts_path = resolve_db_path("financial_facts.db");
     let db_scr = Db::open(&screener_path)?;
-    let db_fin = Db::open(&facts_path)?;
+    let db_fin = Db::open_readonly(&facts_path)?;
 
     let mut out = String::new();
     out.push_str(&format!("📈 [Minh Chứng] {}\n", mode_title));
 
-    let mut stmt: *mut sqlite3_stmt = ptr::null_mut();
-    let sql_vni = CString::new(
-        "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT 2;",
-    )
-    .unwrap();
     let mut vni_date = String::new();
     let mut vni_c0 = 0.0;
     let mut vni_c1 = 0.0;
     let mut vni_vol = 0.0;
-    unsafe {
-        if sqlite3_prepare_v2(db_scr.handle, sql_vni.as_ptr(), -1, &mut stmt, ptr::null_mut()) == SQLITE_OK {
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                vni_date = Db::get_col_str(stmt, 0);
-                vni_c0 = Db::get_col_f64(stmt, 1);
-                vni_vol = Db::get_col_f64(stmt, 2);
+
+    if let Ok(mut stmt) = db_scr.conn.prepare(
+        "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT 2;",
+    ) {
+        if let Ok(mut rows) = stmt.query([]) {
+            if let Ok(Some(row)) = rows.next() {
+                vni_date = row.get(0).unwrap_or_default();
+                vni_c0 = row.get(1).unwrap_or(0.0);
+                vni_vol = row.get(2).unwrap_or(0.0);
             }
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                vni_c1 = Db::get_col_f64(stmt, 1);
+            if let Ok(Some(row)) = rows.next() {
+                vni_c1 = row.get(1).unwrap_or(0.0);
             }
-            sqlite3_finalize(stmt);
         }
     }
+
     let vni_diff = vni_c0 - vni_c1;
     let vni_pct = if vni_c1 > 0.0 {
         (vni_diff / vni_c1) * 100.0
@@ -1068,21 +1027,18 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     };
     let sign = if vni_diff >= 0.0 { "+" } else { "" };
 
-    let sql_reg = CString::new(
-        "SELECT status, regime_score, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1;",
-    )
-    .unwrap();
     let mut reg_status = String::new();
     let mut reg_score = 0.0;
     let mut breadth = 0.0;
-    unsafe {
-        if sqlite3_prepare_v2(db_scr.handle, sql_reg.as_ptr(), -1, &mut stmt, ptr::null_mut()) == SQLITE_OK {
-            if sqlite3_step(stmt) == SQLITE_ROW {
-                reg_status = Db::get_col_str(stmt, 0);
-                reg_score = Db::get_col_f64(stmt, 1);
-                breadth = Db::get_col_f64(stmt, 2);
+    if let Ok(mut stmt) = db_scr.conn.prepare(
+        "SELECT status, regime_score, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1;",
+    ) {
+        if let Ok(mut rows) = stmt.query([]) {
+            if let Ok(Some(row)) = rows.next() {
+                reg_status = row.get(0).unwrap_or_default();
+                reg_score = row.get(1).unwrap_or(0.0);
+                breadth = row.get(2).unwrap_or(0.0);
             }
-            sqlite3_finalize(stmt);
         }
     }
 
@@ -1102,16 +1058,13 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     ));
 
     let mut macro_items = Vec::new();
-    for &var in &["FED_TARGET_RATE", "US10Y", "DXY", "INTERBANK_ON", "VGB10Y"] {
-        let sql_m = CString::new(format!(
-            "SELECT value FROM macro_history WHERE variable='{}' ORDER BY date DESC LIMIT 1;",
-            var
-        ))
-        .unwrap();
-        unsafe {
-            if sqlite3_prepare_v2(db_scr.handle, sql_m.as_ptr(), -1, &mut stmt, ptr::null_mut()) == SQLITE_OK {
-                if sqlite3_step(stmt) == SQLITE_ROW {
-                    let val = Db::get_col_f64(stmt, 0);
+    if let Ok(mut m_stmt) = db_scr.conn.prepare(
+        "SELECT value FROM macro_history WHERE variable=?1 ORDER BY date DESC LIMIT 1;",
+    ) {
+        for &var in &["FED_TARGET_RATE", "US10Y", "DXY", "INTERBANK_ON", "VGB10Y"] {
+            if let Ok(mut rows) = m_stmt.query(params![var]) {
+                if let Ok(Some(row)) = rows.next() {
+                    let val: f64 = row.get(0).unwrap_or(0.0);
                     let label = match var {
                         "FED_TARGET_RATE" => format!("Fed {:.2}%", val),
                         "US10Y" => format!("US10Y {:.2}%", val),
@@ -1122,7 +1075,6 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                     };
                     macro_items.push(label);
                 }
-                sqlite3_finalize(stmt);
             }
         }
     }
@@ -1131,25 +1083,29 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     }
 
     out.push_str("── DANH MỤC THEO DÕI TRỌNG ĐIỂM ──\n");
+    let mut ohlcv_stmt = db_scr
+        .conn
+        .prepare("SELECT close, volume FROM daily_ohlcv WHERE symbol=?1 ORDER BY date DESC LIMIT 2;")
+        .map_err(|e| e.to_string())?;
+
+    let mut fin_stmt = db_fin
+        .conn
+        .prepare(
+            "SELECT metric, value FROM financial_facts WHERE symbol=?1 AND period=(SELECT period FROM financial_facts WHERE symbol=?1 ORDER BY period DESC LIMIT 1) AND metric IN ('EPS','BOOK_VALUE_PS','ROE');",
+        )
+        .map_err(|e| e.to_string())?;
+
     for &sym in &["SHB", "FPT", "PNJ", "MBB", "TCB", "VCB", "ACB", "HPG"] {
-        let sql_s = CString::new(format!(
-            "SELECT close, volume FROM daily_ohlcv WHERE symbol='{}' ORDER BY date DESC LIMIT 2;",
-            sym
-        ))
-        .unwrap();
         let mut c0 = 0.0;
         let mut c1 = 0.0;
         let mut v0 = 0.0;
-        unsafe {
-            if sqlite3_prepare_v2(db_scr.handle, sql_s.as_ptr(), -1, &mut stmt, ptr::null_mut()) == SQLITE_OK {
-                if sqlite3_step(stmt) == SQLITE_ROW {
-                    c0 = Db::get_col_f64(stmt, 0);
-                    v0 = Db::get_col_f64(stmt, 1);
-                }
-                if sqlite3_step(stmt) == SQLITE_ROW {
-                    c1 = Db::get_col_f64(stmt, 0);
-                }
-                sqlite3_finalize(stmt);
+        if let Ok(mut rows) = ohlcv_stmt.query(params![sym]) {
+            if let Ok(Some(row)) = rows.next() {
+                c0 = row.get(0).unwrap_or(0.0);
+                v0 = row.get(1).unwrap_or(0.0);
+            }
+            if let Ok(Some(row)) = rows.next() {
+                c1 = row.get(0).unwrap_or(0.0);
             }
         }
         if c0 <= 0.0 {
@@ -1158,27 +1114,19 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         let pct_s = if c1 > 0.0 { ((c0 - c1) / c1) * 100.0 } else { 0.0 };
         let sign_s = if pct_s >= 0.0 { "+" } else { "" };
 
-        let sql_f = CString::new(format!(
-            "SELECT metric, value FROM financial_facts WHERE symbol='{}' AND period=(SELECT period FROM financial_facts WHERE symbol='{}' ORDER BY period DESC LIMIT 1) AND metric IN ('EPS','BOOK_VALUE_PS','ROE');",
-            sym, sym
-        ))
-        .unwrap();
         let mut eps = 0.0;
         let mut bvps = 0.0;
         let mut roe = 0.0;
-        unsafe {
-            if sqlite3_prepare_v2(db_fin.handle, sql_f.as_ptr(), -1, &mut stmt, ptr::null_mut()) == SQLITE_OK {
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let m = Db::get_col_str(stmt, 0);
-                    let v = Db::get_col_f64(stmt, 1);
-                    match m.as_str() {
-                        "EPS" => eps = v,
-                        "BOOK_VALUE_PS" => bvps = v,
-                        "ROE" => roe = v,
-                        _ => {}
-                    }
+        if let Ok(mut rows) = fin_stmt.query(params![sym]) {
+            while let Ok(Some(row)) = rows.next() {
+                let m: String = row.get(0).unwrap_or_default();
+                let v: f64 = row.get(1).unwrap_or(0.0);
+                match m.as_str() {
+                    "EPS" => eps = v,
+                    "BOOK_VALUE_PS" => bvps = v,
+                    "ROE" => roe = v,
+                    _ => {}
                 }
-                sqlite3_finalize(stmt);
             }
         }
         let pe = if eps > 0.0 { c0 / eps } else { 0.0 };
@@ -1208,6 +1156,62 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     out.push_str("• Chiến lược: Ưu tiên danh mục tỷ trọng 50-70%; tập trung mã có ROE > 16%, P/B < 1.3x; không mua đuổi khi RSI vào vùng quá mua.");
 
     Ok(out.trim_end().to_string())
+}
+
+pub fn search_industry_fts(query: &str) -> Result<String, String> {
+    let clean = query.trim();
+    if clean.is_empty() {
+        return Ok("🔍 Vui lòng nhập tên ngành hoặc từ khóa cần tìm (VD: `/mc ngành ngân hàng`, `/mc ngành thép`, `/mc ngành bán lẻ`).".to_string());
+    }
+
+    let screener_path = resolve_db_path("screener_cache.db");
+    let db = Db::open_readonly(&screener_path)?;
+
+    // FTS5 exact phrase search
+    let fts_query = format!("\"{}\"", clean.replace('"', "\"\""));
+    let mut stmt = db
+        .conn
+        .prepare("SELECT DISTINCT symbol, icb_name2, icb_name3 FROM symbol_fts WHERE symbol_fts MATCH ?1 LIMIT 15;")
+        .map_err(|e| e.to_string())?;
+
+    let mut rows = stmt.query(params![fts_query]).map_err(|e| e.to_string())?;
+    let mut items = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let sym: String = row.get(0).unwrap_or_default();
+        let name2: String = row.get(1).unwrap_or_default();
+        let name3: String = row.get(2).unwrap_or_default();
+        items.push(format!("• **{}**: {} ({})", sym, name2, name3));
+    }
+
+    if items.is_empty() {
+        let like_param = format!("%{}%", clean);
+        if let Ok(mut l_stmt) = db.conn.prepare(
+            "SELECT DISTINCT symbol, icb_name2, icb_name3 FROM symbol_industry WHERE icb_name2 LIKE ?1 OR icb_name3 LIKE ?1 OR icb_name4 LIKE ?1 LIMIT 15;",
+        ) {
+            if let Ok(mut l_rows) = l_stmt.query(params![like_param]) {
+                while let Ok(Some(row)) = l_rows.next() {
+                    let sym: String = row.get(0).unwrap_or_default();
+                    let name2: String = row.get(1).unwrap_or_default();
+                    let name3: String = row.get(2).unwrap_or_default();
+                    items.push(format!("• **{}**: {} ({})", sym, name2, name3));
+                }
+            }
+        }
+    }
+
+    if items.is_empty() {
+        Ok(format!(
+            "🔍 [Minh Chứng FTS5] Không tìm thấy mã cổ phiếu nào thuộc ngành hoặc từ khóa `{}`.",
+            clean
+        ))
+    } else {
+        Ok(format!(
+            "🔍 [Minh Chứng FTS5] Danh sách cổ phiếu khớp từ khóa `{}` ({} mã):\n{}",
+            clean,
+            items.len(),
+            items.join("\n")
+        ))
+    }
 }
 
 // ============================================================================
@@ -1261,6 +1265,15 @@ fn parse_wake_command(msg: &str) -> Option<String> {
         return Some(body.trim().to_string());
     }
 
+    // 3. Trong nhóm riêng "Trạm Số Liệu - Minh Chứng":
+    // Người dùng gõ trực tiếp /hpg, /shb, /brief, /ngành thép, /tìm, /sync hoặc mã CK (HPG, SHB, SSI...)
+    if lower.starts_with('/') {
+        return Some(trimmed[1..].trim().to_string());
+    }
+    if (trimmed.len() >= 3 && trimmed.len() <= 4) && trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
+        return Some(trimmed.to_string());
+    }
+
     None
 }
 
@@ -1298,10 +1311,26 @@ fn handle_zalo_command(cmd_body: &str) -> String {
         return format!("{}\n\n{}", sync_res, brief);
     }
 
+    if lower.starts_with("ngành ")
+        || lower.starts_with("nganh ")
+        || lower.starts_with("tìm ")
+        || lower.starts_with("tim ")
+        || lower.starts_with("search ")
+        || lower.starts_with("s ")
+    {
+        let query = clean
+            .split_once(' ')
+            .map(|x| x.1.trim())
+            .unwrap_or(clean);
+        return search_industry_fts(query)
+            .unwrap_or_else(|e| format!("⚠️ [Minh Chứng FTS5] Lỗi: {}", e));
+    }
+
     if lower.contains("help") || lower.contains("giúp") || lower.contains("hướng dẫn") {
-        return "🤖 [Minh Chứng - Trợ lý Phân tích Định lượng & BCTC (<30ms)]\n\
-                • Gõ `/mc <MÃ_CP>` hoặc `Minh Chứng <MÃ_CP>` (VD: `/mc HPG`, `/mc TCB`, `/mc FPT`, `/mc PNJ`, `/mc SHB`): Tra cứu tức thì Định giá & BCTC.\n\
-                • Gõ `/mc tổng kết`, `/mc hôm nay`, `/mc brief` hoặc `/mc báo cáo`: Tổng kết phiên ATC, Market Regime, Vĩ mô & Watchlist.\n\
+        return "🤖 [Minh Chứng - Trợ lý Định lượng & FTS5 (<30ms)]\n\
+                • Gõ `/mc <MÃ>` (VD: `/mc HPG`, `/mc TCB`, `/mc FPT`): Tra cứu tức thì Định giá & BCTC.\n\
+                • Gõ `/mc ngành <TÊN_NGÀNH>` (VD: `/mc ngành ngân hàng`, `/mc ngành thép`, `/mc ngành bán lẻ`): Tra cứu danh mục cổ phiếu bằng FTS5.\n\
+                • Gõ `/mc tổng kết`, `/mc hôm nay`, `/mc brief`: Tổng kết phiên ATC, Market Regime, Vĩ mô & Watchlist.\n\
                 • Gõ `/mc sync`: Cập nhật dữ liệu CLI mới nhất."
             .to_string();
     }
@@ -1321,6 +1350,17 @@ fn main() {
     };
 
     match cmd {
+        "search" | "s" | "fts" => {
+            let query = if args.len() > 2 {
+                args[2..].join(" ")
+            } else {
+                "ngân hàng".to_string()
+            };
+            match search_industry_fts(&query) {
+                Ok(res) => println!("{}\n⏱️ Thời gian tìm kiếm FTS5: {:.2?}", res, t0.elapsed()),
+                Err(e) => eprintln!("❌ Lỗi FTS5: {}", e),
+            }
+        }
         "query" | "q" => {
             let sym = if args.len() > 2 { &args[2] } else { "SHB" };
             let send_flag = args.iter().any(|a| a == "--send");
@@ -1435,7 +1475,7 @@ fn main() {
             println!("🔒 Đồng bộ Windows Named Mutex (<5ms): 'Local\\ZaloPC_Bridge_Mutex'");
             let _ = CdpClient::ensure_zalo_cdp();
             let mut cached_ws_path = CdpClient::find_zalo_ws_path(58721).unwrap_or_default();
-            let mut last_msg = String::new();
+            let mut last_processed_msg = String::new();
             let mut first_run = true;
 
             loop {
@@ -1444,21 +1484,23 @@ fn main() {
                     if let Ok(mut cdp) = CdpClient::connect_with_cached_path(&mut cached_ws_path) {
                         if let Ok(msg) = cdp.read_latest_message() {
                             let trimmed = msg.trim().to_string();
-                            if !trimmed.is_empty() && trimmed != last_msg {
-                                last_msg = trimmed.clone();
+                            if !trimmed.is_empty() && trimmed != last_processed_msg {
                                 if first_run {
                                     first_run = false;
-                                    println!("📌 Tin nhắn hiện tại: {}", last_msg);
-                                } else if let Some(cmd_body) = parse_wake_command(&last_msg) {
+                                    last_processed_msg = trimmed.clone();
+                                    println!("📌 Tin nhắn hiện tại: {}", trimmed);
+                                } else if let Some(cmd_body) = parse_wake_command(&trimmed) {
+                                    last_processed_msg = trimmed.clone();
                                     let t_cmd = Instant::now();
                                     println!("⚡ Phát hiện lệnh Minh Chứng: '{}'", cmd_body);
                                     let reply = handle_zalo_command(&cmd_body);
                                     let _ = cdp.send_message_to_my_documents(&reply);
-                                    last_msg = reply;
                                     println!(
                                         "✅ Đã phản hồi trên Zalo trong {:.2?}",
                                         t_cmd.elapsed()
                                     );
+                                } else {
+                                    last_processed_msg = trimmed.clone();
                                 }
                             }
                         }
