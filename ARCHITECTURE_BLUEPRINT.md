@@ -116,3 +116,62 @@ Mọi đường dẫn tuyệt đối (như `D:\04. Software\...` hay `G:\My Driv
 3. **Cấp 3 (Fallback An Toàn):** Kiểm tra Current Working Directory (`env::current_dir()`), tuyệt đối không bao giờ panic nếu không tìm thấy thư mục phụ.
 
 👉 **Kết luận:** Người dùng có thể copy nguyên thư mục dự án sang ổ `C:`, `D:`, hoặc máy tính của đồng nghiệp, gõ `.\minh_chung.exe boot` là toàn bộ hệ thống tự động khởi chạy trơn tru ngay lập tức!
+
+---
+
+## VI. KIẾN TRÚC TỔNG QUÁT HÓA CẤP ĐỘ CUỐI (THE UNIVERSAL SOVEREIGN AGENT ARCHITECTURE)
+
+Để mở rộng hệ thống từ 2 Bot hiện tại lên $N$ Bot chuyên ngành (Kiểm toán LCA, Kế toán Thuế, Tự động hóa AutoCAD/BIM...) mà không bao giờ bị nghẽn Mutex hay phải sửa code khi Zalo cập nhật giao diện, hệ thống được quy chuẩn hóa theo mô hình **Tam Tầng Phân Lập (3-Tier Decoupled Architecture)**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                TẦNG 1: ADAPTER KÊNH GIAO TIẾP (TRANSPORT)               │
+│   Zalo PC (CDP 58721)  |  Telegram/Web  |  AutoCAD COM  |  CLI Terminal │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │ (Đọc 1 lần - Ngoại vi hóa Selector)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│             TẦNG 2: BỘ ĐỊNH TUYẾN TIỀN TỐ (SINGLE MULTIPLEXER)          │
+│   1 Daemon Gác Cổng (3.8MB RAM, 100ms) bắt mọi tin nhắn từ My Documents │
+│     Đọc "/mt ..."  ──► Gọi: minh_tam.exe <lệnh>                         │
+│     Đọc "/mc ..."  ──► Gọi: minh_chung.exe <mã_cp>                      │
+│     Đọc "/lca ..." ──► Gọi: minh_kiem.exe <chứng_từ>                    │
+│     Đọc "/cad ..." ──► Gọi: minh_cad.exe <lệnh_vẽ>                      │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │ (Chuẩn IPC siêu tốc: stdin/args ──► stdout)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│           TẦNG 3: CÁC MODULE NGHIỆP VỤ THUẦN KHIẾT (PURE ENGINES)       │
+│  [minh_tam.exe]        [minh_chung.exe]        [minh_kiem.exe]          │
+│  (Chỉ biết SQLite XD)  (Chỉ biết SQLite CK)    (Chỉ biết Luật LCA)      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 1. Ba Quy Luật Tổng Quát Hóa Cốt Lõi
+1. **Tách Cổng Giao Tiếp Khỏi Não Nghiệp Vụ (Decouple Transport from Domain):**
+   - Các module nghiệp vụ (`minh_chung.exe`, `minh_tam.exe`, `minh_kiem.exe`) là **Pure CLI Engines** (`3ms`): Nhận lệnh qua `args/stdin` $\rightarrow$ Đọc SQLite $\rightarrow$ Xuất báo cáo ra `stdout`.
+   - Các engine này hoàn toàn không biết và không phụ thuộc vào Zalo PC hay giao diện người dùng. Có thể gọi chúng từ Zalo, Antigravity, PowerShell, hay bất kỳ phần mềm nào.
+2. **Ngoại Vi Hóa Selector Giao Diện (`zalo_selectors.json`):**
+   - Không nhúng chết các class HTML (`#richInput`, `.card--text`) vào bên trong các file nhị phân nghiệp vụ.
+   - Khi Zalo cập nhật giao diện, chỉ cần cập nhật cấu hình của **1 Dispatcher duy nhất**, toàn bộ $N$ chuyên viên số phía sau vẫn hoạt động bình thường mà không cần mở mã nguồn biên dịch lại.
+3. **Mô Hình `1 Dispatcher + N CLI Workers` (Mở Rộng Không Giới Hạn):**
+   - Thay vì chạy $N$ vòng lặp `watch` tranh chấp 1 cổng CDP, hệ thống chuẩn chỉ duy trì **1 tiến trình Dispatcher gác cổng duy nhất** (`~3.8MB RAM`).
+   - Dù mở rộng lên 10 hay 50 Bot chuyên môn, tải hệ thống vẫn chỉ là **1 tiến trình 3.8MB RAM** và **0 va chạm Mutex**.
+
+### 2. Tiêu Chuẩn Nâng Cấp CSDL: `rusqlite (bundled + FTS5)`
+Khi chuyển đổi từ binary đơn lẻ sang dự án quản lý bằng `Cargo.toml`:
+- Chuẩn hóa sang crate **`rusqlite` (bản `bundled`)**: Đóng gói mã nguồn C SQLite cố định, hiện đại bên trong file thực thi, loại bỏ rủi ro sai lệch phiên bản `winsqlite3.dll` trên các máy Windows khác nhau.
+- **Kích hoạt FTS5 (Full-Text Search 5):** Phục vụ tra cứu siêu tốc toàn văn hợp đồng, điều khoản hồ sơ thầu, ghi chú và văn bản pháp lý.
+- **Cấu trúc mở cho SQLCipher:** Sẵn sàng bật tính năng mã hóa CSDL cấp doanh nghiệp khi lưu trữ dữ liệu tài chính/cá nhân nhạy cảm mà không làm thay đổi kiến trúc code.
+
+---
+
+## VII. NĂM TIÊN ĐỀ TƯ DUY CHO HỆ THỐNG TRI THỨC & TỰ ĐỘNG HÓA TƯƠNG LAI
+
+Đây là 5 tiên đề cô đọng nhất đúc kết từ toàn bộ hành trình thử sai và tối ưu hóa thành công:
+
+1. **Tiên đề Ký sinh Nội bộ (Local Parasitic Integration):** Muốn tự động hóa phần mềm đóng (Zalo, AutoCAD, ERP) an toàn và nhanh nhất, hãy ký sinh vào tầng Render/IPC nội bộ trên máy khách (`CDP Loopback` cho Electron/Chromium, `COM/OLE` cho phần mềm kỹ thuật, `winsqlite3.dll` cho dữ liệu) thay vì giả lập giao thức mạng lên đám mây.
+2. **Tiên đề Phân tầng Tốc độ (Latency Stratification):** Tách rời **Phản xạ Định sẵn (Deterministic Reflex < 30ms bằng Native Binary Rust)** khỏi **Suy luận Ngữ cảnh (Probabilistic Reasoning 3–10s bằng LLM Agent)**. Không bao giờ dùng LLM Agent để làm việc của một Event Loop.
+3. **Tiên đề Đơn thể Không phụ thuộc (Zero-Dependency Static Binary):** Trên Windows 11, một file thực thi bền vững nhất là file liên kết trực tiếp với System DLLs hoặc tự đóng gói (`bundled`), loại bỏ hoàn toàn rủi ro lệch phiên bản runtime (Python venv, Node modules) khi mang sang máy khác.
+4. **Tiên đề Độc lập Giao diện (UI-Agnostic Domain Core):** Logic nghiệp vụ (Xây dựng, Chứng khoán, Kiểm toán LCA) phải tồn tại dưới dạng **Pure Input/Output CLI**. Zalo PC chỉ là một "màn hình hiển thị từ xa" (`My Documents` Bus), không được trộn lẫn code giao diện Zalo vào trong lõi tính toán nghiệp vụ.
+5. **Tiên đề Khởi động Theo Nhịp Sinh Học (Bio-Rhythm Lifecycle):** Hệ thống tự động hóa cá nhân phải tôn trọng trạng thái vật lý của máy: Tự ngủ/tắt sạch sau giờ làm (`16:30`), và tự động đề máy/hồi phục (`Morning Ignition + Self-Healing`) vào ca sáng đầu tiên (`08:00`) mà không cần can thiệp tay.
