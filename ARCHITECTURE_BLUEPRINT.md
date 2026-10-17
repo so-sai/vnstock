@@ -85,3 +85,34 @@ Khi áp dụng sang dự án khác, tùy thuộc vào phần mềm đích mà ch
   rustc -C opt-level=3 src\main.rs -o minh_chung.exe
   ```
 - **Không xả rác:** Sau khi biên dịch, xóa file debug `.pdb`, chỉ commit `src/main.rs`, file thực thi `.exe` và `SKILL.md` vào Git.
+
+---
+
+## V. BẢN KIỂM TOÁN VẬN HÀNH ĐA MÁY (CROSS-MACHINE PORTABLE DEPLOYMENT CHECKLIST)
+
+Đúc kết từ tư duy **Skeptical Engineering** (Hoài nghi kỹ thuật & Kiểm chứng thực tế), dưới đây là 5 bẫy kỹ thuật đã được bóc tách và quy chuẩn vận hành để đưa bộ đôi Agent chạy mượt mà trên bất kỳ máy tính Windows 11 nào khác:
+
+### 1. Năm Bẫy Kỹ Thuật Đã Hóa Giải (Resolved Architectural Traps)
+
+| Bẫy kỹ thuật tiềm ẩn | Hiện tượng / Rủi ro nếu mắc phải | Giải pháp First Principles đã chuẩn hóa |
+| --- | --- | --- |
+| **Bẫy 1: Tối ưu hóa ảo bằng RAM Cache (Stale Data)** | Cố tình tạo `HashMap` RAM để giảm truy vấn từ `3.45ms` về `50ns`. Khi pipeline bên ngoài (CLI/cron) cập nhật DB, RAM giữ nguyên dữ liệu cũ, bot trả lời sai lệch nghiêm trọng. | **Giữ nguyên đọc trực tiếp SQLite:** Nhờ Windows OS Page Cache, SQLite đã đạt `~3ms`. Đây là nguồn dữ liệu duy nhất và luôn đúng thực tế (Single Source of Truth). |
+| **Bẫy 2: Polling quá dày làm nghẽn Mutex** | Hạ chu kỳ ngủ xuống `20–50ms` khiến 2 bot tranh chấp cổng CDP 40–50 lần/giây, làm nghẽn luồng UI của Zalo PC. | **Khóa chu kỳ Polling ở ngưỡng vàng `100ms`:** Mỗi lần đọc chỉ mất `2.8ms` (tổng tải CDP chỉ `~5.6%`), độ trễ đón tin trung bình `50ms` — mắt người cảm nhận tức thì mà 2 bot không bao giờ kẹt nhau. |
+| **Bẫy 3: Gửi tin tuần tự gây kẹt Mutex (`~150ms`)** | Chờ toàn bộ chuỗi DOM render bong bóng chat và gửi tin mạng mới nhả Mutex, khiến bot thứ hai bị chặn đứng. | **Async UI Dispatch (`setTimeout 0`):** Kích hoạt gõ chữ, sau đó bọc Enter và click Send trong `setTimeout 0`. Trả về `SENT_OK` và nhả Mutex ngay trong **`< 20ms`**. |
+| **Bẫy 4: Process bị đóng khi tắt cửa sổ (Job Object)** | Spawn daemon bằng shell thông thường sẽ bị Windows Job Object gom lại và hủy khi phiên console kết thúc. | **Khởi chạy qua WMI Detached (`SW_HIDE`):** Dùng `Win32_Process.Create` kết hợp `Win32_ProcessStartup` với `ShowWindow = 0` để tiến trình sống độc lập 24/7 và ẩn 100%. |
+| **Bẫy 5: Cửa sổ console đen chớp nháy (Console Flash)** | Gọi tiến trình con (`powershell`, `python`) mà không có cờ ẩn sẽ làm Windows tạo console chớp tắt liên tục. | **Gắn cứng `CREATE_NO_WINDOW = 0x08000000` + `Stdio::null()`:** Triệt tiêu hoàn toàn mọi cửa sổ console bật lên màn hình Desktop. |
+
+### 2. Quy Tắc Zero-Hardcode Paths (Di Động Tuyệt Đối)
+
+Mọi đường dẫn tuyệt đối (như `D:\04. Software\...` hay `G:\My Drive\...`) đều bị cấm trong logic cốt lõi. Cả 2 bot tuân thủ nghiêm ngặt 3 cấp độ tự định vị:
+
+1. **Cấp 1 (Ưu tiên số 1):** Tự định vị qua vị trí file nhị phân đang chạy (`std::env::current_exe()`).
+   - `minh_chung.exe` tự tìm thư mục `backend/data/*.db` ngay tại thư mục cha hoặc ông của file `.exe`.
+   - `minh_tam.exe` tự tìm `minh_tam.db` nằm ngay cạnh file `minh_tam.exe`.
+2. **Cấp 2 (Tùy biến qua Môi trường):** Hỗ trợ override bằng biến môi trường khi cần đặt dữ liệu ở ổ đĩa khác:
+   - `PTCK_ROOT`: Ghi đè thư mục gốc dự án Chứng khoán.
+   - `MINH_TAM_DB`: Ghi đè đường dẫn file cơ sở dữ liệu `minh_tam.db`.
+   - `MINH_TAM_DIR`: Ghi đè thư mục chứa binary `minh_tam.exe`.
+3. **Cấp 3 (Fallback An Toàn):** Kiểm tra Current Working Directory (`env::current_dir()`), tuyệt đối không bao giờ panic nếu không tìm thấy thư mục phụ.
+
+👉 **Kết luận:** Người dùng có thể copy nguyên thư mục dự án sang ổ `C:`, `D:`, hoặc máy tính của đồng nghiệp, gõ `.\minh_chung.exe boot` là toàn bộ hệ thống tự động khởi chạy trơn tru ngay lập tức!

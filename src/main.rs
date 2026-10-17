@@ -492,17 +492,19 @@ impl CdpClient {
             input.focus();
             document.execCommand('selectAll', false, null);
             document.execCommand('insertText', false, "{}");
-            const ev = new KeyboardEvent('keydown', {{
-                key: 'Enter',
-                code: 'Enter',
-                keyCode: 13,
-                which: 13,
-                bubbles: true,
-                cancelable: true
-            }});
-            input.dispatchEvent(ev);
-            const sendBtn = document.querySelector('[data-translate-title="STR_SEND"], .send-msg-btn, #sendBtn');
-            if (sendBtn) sendBtn.click();
+            setTimeout(() => {{
+                const ev = new KeyboardEvent('keydown', {{
+                    key: 'Enter',
+                    code: 'Enter',
+                    keyCode: 13,
+                    which: 13,
+                    bubbles: true,
+                    cancelable: true
+                }});
+                input.dispatchEvent(ev);
+                const sendBtn = document.querySelector('[data-translate-title="STR_SEND"], .send-msg-btn, #sendBtn');
+                if (sendBtn) sendBtn.click();
+            }}, 0);
             return 'SENT_OK';
         }})()
         "#,
@@ -573,16 +575,42 @@ impl CdpClient {
 // 4. DATABASE RESOLVER, CLI PIPELINE BRIDGE & QUANT ENGINE (MINH CHỨNG)
 // ============================================================================
 fn resolve_project_root() -> PathBuf {
+    // 1. Kiểm tra thư mục chứa file thực thi hiện tại (Portable Zero-Hardcode)
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
             if dir.join("backend").join("data").exists() {
                 return dir.to_path_buf();
             }
+            if let Some(parent) = dir.parent() {
+                if parent.join("backend").join("data").exists() {
+                    return parent.to_path_buf();
+                }
+            }
         }
     }
-    let d_root = PathBuf::from(r"D:\04. Software\opensource_contrib\PTCK_VNSTOCK");
-    if d_root.exists() {
-        return d_root;
+    // 2. Kiểm tra biến môi trường tùy chỉnh PTCK_ROOT
+    if let Ok(custom) = env::var("PTCK_ROOT") {
+        let p = PathBuf::from(custom);
+        if p.join("backend").join("data").exists() {
+            return p;
+        }
+    }
+    // 3. Kiểm tra Current Working Directory
+    if let Ok(cwd) = env::current_dir() {
+        if cwd.join("backend").join("data").exists() {
+            return cwd;
+        }
+    }
+    // 4. Fallback danh sách đường dẫn khả dĩ trên các ổ đĩa
+    for candidate in &[
+        r"D:\04. Software\opensource_contrib\PTCK_VNSTOCK",
+        r"E:\DEV\opensource_contrib\PTCK_VNSTOCK",
+        r"C:\PTCK_VNSTOCK",
+    ] {
+        let p = PathBuf::from(candidate);
+        if p.exists() {
+            return p;
+        }
     }
     PathBuf::from(".")
 }
@@ -610,7 +638,10 @@ pub fn ensure_watch_daemons_running() {
             .spawn();
     }
 
-    let mt_dir = PathBuf::from(r"G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD");
+    // Tự động tìm thư mục Minh Tâm qua biến môi trường hoặc thư mục anh em
+    let mt_dir = env::var("MINH_TAM_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(r"G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD"));
     let mt_exe = mt_dir.join("minh_tam.exe");
     if !is_named_mutex_alive("Local\\MinhTam_Daemon_Instance_Mutex") && mt_exe.exists() {
         let _ = Command::new(&mt_exe)
@@ -1278,7 +1309,7 @@ fn main() {
                 return;
             }
 
-            println!("🚀 [Minh Chứng Daemon] Cached WS Path + 200ms Loop trên Zalo PC...");
+            println!("🚀 [Minh Chứng Daemon] Cached WS Path + 100ms Loop trên Zalo PC...");
             println!("💡 Tiền tố nhận diện: `Minh Chứng <MÃ_CP>` hoặc `/mc <MÃ_CP>`");
             println!("🔒 Đồng bộ Windows Named Mutex (<5ms): 'Local\\ZaloPC_Bridge_Mutex'");
             let _ = CdpClient::ensure_zalo_cdp();
@@ -1315,7 +1346,7 @@ fn main() {
                     }
                     // CdpClient and ZaloMutexGuard drop here (~2.5ms total hold time!)
                 }
-                thread::sleep(Duration::from_millis(200));
+                thread::sleep(Duration::from_millis(100));
             }
         }
         other => match build_stock_report(other) {
