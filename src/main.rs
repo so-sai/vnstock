@@ -3,14 +3,17 @@ use std::ffi::{CStr, CString};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::os::raw::{c_char, c_double, c_int, c_void};
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::ptr;
 use std::thread;
 use std::time::{Duration, Instant};
 
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 // ============================================================================
-// 1. WINDOWS NAMED MUTEX (Inter-Process Synchronization between Bots)
+// 1. WINDOWS NAMED MUTEX (Wraps Complete CDP Transaction <10ms)
 // ============================================================================
 #[link(name = "kernel32")]
 extern "system" {
@@ -19,9 +22,28 @@ extern "system" {
         bInitialOwner: c_int,
         lpName: *const c_char,
     ) -> *mut c_void;
+    fn OpenMutexA(
+        dwDesiredAccess: u32,
+        bInheritHandle: c_int,
+        lpName: *const c_char,
+    ) -> *mut c_void;
+    fn GetLastError() -> u32;
     fn WaitForSingleObject(hHandle: *mut c_void, dwMilliseconds: u32) -> u32;
     fn ReleaseMutex(hMutex: *mut c_void) -> c_int;
     fn CloseHandle(hObject: *mut c_void) -> c_int;
+}
+
+pub fn is_named_mutex_alive(name_str: &str) -> bool {
+    if let Ok(cname) = CString::new(name_str) {
+        unsafe {
+            let h = OpenMutexA(0x00100000 /* SYNCHRONIZE */, 0, cname.as_ptr());
+            if !h.is_null() {
+                CloseHandle(h);
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub struct ZaloMutexGuard {
@@ -148,36 +170,39 @@ impl Drop for Db {
 }
 
 // ============================================================================
-// 3. NATIVE ZALO PC CDP CLIENT (RFC 6455 WebSocket + Self-Boot on 127.0.0.1:58721)
+// 3. ZERO-WAIT ZALO PC CDP CLIENT (Cached ws_path + Content-Length + TCP_NODELAY)
 // ============================================================================
 pub struct CdpClient {
     stream: TcpStream,
+    msg_id: u32,
 }
 
 impl CdpClient {
     pub fn connect_zalo() -> Result<Self, String> {
-        for &port in &[58721u16, 9222u16] {
-            if let Ok(ws_path) = Self::find_zalo_ws_path(port) {
-                if let Ok(client) = Self::connect(port, &ws_path) {
-                    return Ok(client);
-                }
-            }
-        }
-        // Auto Self-Boot if Zalo PC was started without CDP port
-        Self::ensure_zalo_cdp()?;
         if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
             if let Ok(client) = Self::connect(58721, &ws_path) {
                 return Ok(client);
             }
         }
-        Err("Không tìm thấy cổng CDP Zalo (58721/9222) sau khi Self-Boot.".to_string())
+        Self::ensure_zalo_cdp()?;
+        let ws_path = Self::find_zalo_ws_path(58721)?;
+        Self::connect(58721, &ws_path)
+    }
+
+    pub fn connect_with_cached_path(cached_path: &mut String) -> Result<Self, String> {
+        if !cached_path.is_empty() {
+            if let Ok(client) = Self::connect(58721, cached_path) {
+                return Ok(client);
+            }
+        }
+        if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
+            *cached_path = ws_path;
+            return Self::connect(58721, cached_path);
+        }
+        Err("Không kết nối được cổng 58721".to_string())
     }
 
     pub fn ensure_zalo_cdp() -> Result<(), String> {
-        if Self::find_zalo_ws_path(58721).is_ok() {
-            return Ok(());
-        }
-        let _guard = ZaloMutexGuard::acquire(8000);
         if Self::find_zalo_ws_path(58721).is_ok() {
             return Ok(());
         }
@@ -209,11 +234,12 @@ impl CdpClient {
                 exe_path.display()
             );
             let _ = Command::new("powershell")
+                .creation_flags(CREATE_NO_WINDOW)
                 .args([
                     "-NoProfile",
                     "-Command",
                     &format!(
-                        "Stop-Process -Name Zalo -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{ CommandLine = '\"{}\" --remote-debugging-port=58721' }} | Out-Null",
+                        "Stop-Process -Name Zalo -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; Start-Process -FilePath '{}' -ArgumentList '--remote-debugging-port=58721' | Out-Null",
                         exe_path.display()
                     ),
                 ])
@@ -232,29 +258,59 @@ impl CdpClient {
         }
     }
 
-    fn find_zalo_ws_path(port: u16) -> Result<String, String> {
+    fn parse_content_length(header_str: &str) -> Option<usize> {
+        for line in header_str.lines() {
+            let lower = line.to_ascii_lowercase();
+            if let Some(rest) = lower.strip_prefix("content-length:") {
+                if let Ok(n) = rest.trim().parse::<usize>() {
+                    return Some(n);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn find_zalo_ws_path(port: u16) -> Result<String, String> {
         let addr = format!("127.0.0.1:{}", port);
         let mut stream = TcpStream::connect_timeout(
             &addr.parse().unwrap(),
-            Duration::from_millis(250),
+            Duration::from_millis(80),
         )
         .map_err(|e| e.to_string())?;
+        stream.set_nodelay(true).ok();
         stream
-            .set_read_timeout(Some(Duration::from_millis(250)))
+            .set_read_timeout(Some(Duration::from_millis(80)))
             .ok();
         let req = format!(
             "GET /json HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
             port
         );
         stream.write_all(req.as_bytes()).map_err(|e| e.to_string())?;
-        let mut buf = Vec::with_capacity(8192);
-        let mut chunk = [0u8; 4096];
+
+        let mut buf = Vec::with_capacity(4096);
+        let mut chunk = [0u8; 2048];
+        let mut expected_total: Option<usize> = None;
+
         loop {
             match stream.read(&mut chunk) {
                 Ok(0) => break,
                 Ok(n) => {
                     buf.extend_from_slice(&chunk[..n]);
-                    if let Ok(s) = std::str::from_utf8(&buf) {
+                    if expected_total.is_none() {
+                        if let Ok(s) = std::str::from_utf8(&buf) {
+                            if let Some(hdr_end) = s.find("\r\n\r\n") {
+                                let body_start = hdr_end + 4;
+                                if let Some(cl) = Self::parse_content_length(&s[..hdr_end]) {
+                                    expected_total = Some(body_start + cl);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(total) = expected_total {
+                        if buf.len() >= total {
+                            break;
+                        }
+                    } else if let Ok(s) = std::str::from_utf8(&buf) {
                         if s.contains("\r\n\r\n") && s.trim_end().ends_with(']') {
                             break;
                         }
@@ -291,11 +347,12 @@ impl CdpClient {
         let addr = format!("127.0.0.1:{}", port);
         let mut stream = TcpStream::connect_timeout(
             &addr.parse().unwrap(),
-            Duration::from_millis(500),
+            Duration::from_millis(80),
         )
         .map_err(|e| e.to_string())?;
+        stream.set_nodelay(true).ok();
         stream
-            .set_read_timeout(Some(Duration::from_millis(1500)))
+            .set_read_timeout(Some(Duration::from_millis(500)))
             .ok();
 
         let handshake = format!(
@@ -311,14 +368,14 @@ impl CdpClient {
             .write_all(handshake.as_bytes())
             .map_err(|e| e.to_string())?;
 
-        let mut buf = [0u8; 1024];
+        let mut buf = [0u8; 512];
         let n = stream.read(&mut buf).map_err(|e| e.to_string())?;
         let resp = String::from_utf8_lossy(&buf[..n]);
         if !resp.contains(" 101 ") {
             return Err(format!("WebSocket handshake thất bại: {}", resp));
         }
 
-        Ok(CdpClient { stream })
+        Ok(CdpClient { stream, msg_id: 0 })
     }
 
     fn send_ws_frame(&mut self, payload: &str) -> Result<(), String> {
@@ -377,15 +434,18 @@ impl CdpClient {
     }
 
     pub fn eval_js(&mut self, expr: &str) -> Result<String, String> {
+        self.msg_id = self.msg_id.wrapping_add(1);
+        let id = self.msg_id;
         let escaped = Self::json_escape(expr);
         let cmd = format!(
-            "{{\"id\":1,\"method\":\"Runtime.evaluate\",\"params\":{{\"expression\":\"{}\",\"returnByValue\":true}}}}",
-            escaped
+            "{{\"id\":{},\"method\":\"Runtime.evaluate\",\"params\":{{\"expression\":\"{}\",\"returnByValue\":true}}}}",
+            id, escaped
         );
         self.send_ws_frame(&cmd)?;
+        let id_pat = format!("\"id\":{}", id);
         for _ in 0..10 {
             let frame = self.read_ws_frame()?;
-            if frame.contains("\"id\":1") {
+            if frame.contains(&id_pat) {
                 return Ok(Self::extract_json_value(&frame));
             }
         }
@@ -393,32 +453,40 @@ impl CdpClient {
     }
 
     pub fn read_latest_message(&mut self) -> Result<String, String> {
-        let _guard = ZaloMutexGuard::acquire(3000);
         let js = r#"
         (() => {
-            const items = Array.from(document.querySelectorAll('.msg-item, [id^="msg-item"]'));
-            let target = items.find(el => el.innerText && (el.innerText.includes('My Documents') || el.innerText.includes('Cloud của tôi')));
-            if (target) target.click();
-            const chatView = document.querySelector('#messageView') || document.body;
-            const bubbles = Array.from(chatView.querySelectorAll('.card--text, [data-id="div_SentMsg_Text"], [data-id="div_ReceivedMsg_Text"]'));
-            const texts = bubbles
-                .map(b => (b.innerText || '').trim())
-                .filter(t => t.length > 1 && !t.startsWith(':-') && !t.startsWith('/-'));
-            return texts.length > 0 ? texts[texts.length - 1] : '';
+            const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title');
+            if (!h || (!h.innerText.includes('Documents') && !h.innerText.includes('Cloud'))) {
+                const items = Array.from(document.querySelectorAll('.msg-item, [id^="msg-item"], .conv-item'));
+                const target = items.find(el => el.innerText && (el.innerText.includes('My Documents') || el.innerText.includes('Cloud của tôi')));
+                if (target) target.click();
+            }
+            const chatView = document.querySelector('#messageView');
+            if (!chatView) return '';
+            const bubbles = chatView.querySelectorAll('.card--text, [data-id="div_SentMsg_Text"], [data-id="div_ReceivedMsg_Text"]');
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+                const t = (bubbles[i].innerText || '').trim();
+                if (t.length > 1 && !t.startsWith(':-') && !t.startsWith('/-')) {
+                    return t;
+                }
+            }
+            return '';
         })()
         "#;
         self.eval_js(js)
     }
 
     pub fn send_message_to_my_documents(&mut self, text: &str) -> Result<String, String> {
-        let _guard = ZaloMutexGuard::acquire(4000);
         let js_text = Self::json_escape(text);
         let js = format!(
             r#"
         (() => {{
-            const items = Array.from(document.querySelectorAll('.msg-item, [id^="msg-item"]'));
-            let target = items.find(el => el.innerText && (el.innerText.includes('My Documents') || el.innerText.includes('Cloud của tôi')));
-            if (target) target.click();
+            const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title');
+            if (!h || (!h.innerText.includes('Documents') && !h.innerText.includes('Cloud'))) {{
+                const items = Array.from(document.querySelectorAll('.msg-item, [id^="msg-item"], .conv-item'));
+                const target = items.find(el => el.innerText && (el.innerText.includes('My Documents') || el.innerText.includes('Cloud của tôi')));
+                if (target) target.click();
+            }}
             const input = document.querySelector('#richInput');
             if (!input) return 'ERR_NO_RICHINPUT';
             input.focus();
@@ -531,31 +599,29 @@ fn resolve_db_path(db_filename: &str) -> String {
 pub fn ensure_watch_daemons_running() {
     let root = resolve_project_root();
     let mc_exe = root.join("minh_chung.exe");
-    let ps_cmd = format!(
-        r#"
-        $mc = Get-CimInstance Win32_Process -Filter "Name = 'minh_chung.exe'" | Where-Object {{ $_.CommandLine -match 'watch' }};
-        if (-not $mc -and (Test-Path '{}')) {{
-            Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{
-                CommandLine = '"{}" watch';
-                CurrentDirectory = '{}'
-            }} | Out-Null;
-        }}
-        $mtPath = 'G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD\minh_tam.exe';
-        $mt = Get-CimInstance Win32_Process -Filter "Name = 'minh_tam.exe'" | Where-Object {{ $_.CommandLine -match 'watch' }};
-        if (-not $mt -and (Test-Path $mtPath)) {{
-            Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{
-                CommandLine = '"' + $mtPath + '" watch';
-                CurrentDirectory = 'G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD'
-            }} | Out-Null;
-        }}
-        "#,
-        mc_exe.display(),
-        mc_exe.display(),
-        root.display()
-    );
-    let _ = Command::new("powershell")
-        .args(["-NoProfile", "-Command", &ps_cmd])
-        .output();
+    if !is_named_mutex_alive("Local\\MinhChung_Daemon_Instance_Mutex") && mc_exe.exists() {
+        let _ = Command::new(&mc_exe)
+            .arg("watch")
+            .current_dir(&root)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+
+    let mt_dir = PathBuf::from(r"G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD");
+    let mt_exe = mt_dir.join("minh_tam.exe");
+    if !is_named_mutex_alive("Local\\MinhTam_Daemon_Instance_Mutex") && mt_exe.exists() {
+        let _ = Command::new(&mt_exe)
+            .arg("watch")
+            .current_dir(&mt_dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
 }
 
 pub fn run_cli_sync() -> String {
@@ -563,12 +629,14 @@ pub fn run_cli_sync() -> String {
     let root = resolve_project_root();
     println!("🔄 [CLI Pipeline] Đang đồng bộ dữ liệu Vĩ mô & Lãi suất qua `ptck.py`...");
     let sbv_ok = Command::new("python")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(["ptck.py", "sbv-update"])
         .current_dir(&root)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
     let macro_ok = Command::new("python")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(["ptck.py", "fetch-macro"])
         .current_dir(&root)
         .output()
@@ -1106,13 +1174,17 @@ fn main() {
             let send_flag = args.iter().any(|a| a == "--send");
             match build_stock_report(sym) {
                 Ok(report) => {
-                    println!("{}\n⏱️ Thời gian truy vấn: {:.2?}", report, t0.elapsed());
+                    let t_sql = t0.elapsed();
+                    println!("{}\n⏱️ Thời gian truy vấn SQL: {:.2?}", report, t_sql);
                     if send_flag {
+                        let t_send = Instant::now();
+                        let _guard = ZaloMutexGuard::acquire(2500);
                         if let Ok(mut cdp) = CdpClient::connect_zalo() {
                             let _ = cdp.send_message_to_my_documents(&report);
                             println!(
-                                "📨 Đã gửi báo cáo {} vào Zalo 'My Documents' ({:.2?}).",
+                                "📨 Đã gửi báo cáo {} vào Zalo 'My Documents' (CDP: {:.2?} | Tổng: {:.2?}).",
                                 sym.to_uppercase(),
+                                t_send.elapsed(),
                                 t0.elapsed()
                             );
                         }
@@ -1136,16 +1208,19 @@ fn main() {
                 Ok(report) => {
                     println!("{}\n⏱️ Thời gian tổng hợp: {:.2?}", report, t0.elapsed());
                     if !no_send {
-                        if let Ok(mut cdp) = CdpClient::connect_zalo() {
-                            if let Ok(res) = cdp.send_message_to_my_documents(&report) {
-                                println!(
-                                    "📨 Đã đồng bộ Zalo 'My Documents' ({}) trong {:.2?}",
-                                    res,
-                                    t0.elapsed()
-                                );
+                        let t_send = Instant::now();
+                        {
+                            let _guard = ZaloMutexGuard::acquire(2500);
+                            if let Ok(mut cdp) = CdpClient::connect_zalo() {
+                                if let Ok(res) = cdp.send_message_to_my_documents(&report) {
+                                    println!(
+                                        "📨 Đã đồng bộ Zalo 'My Documents' ({}) trong {:.2?}",
+                                        res,
+                                        t_send.elapsed()
+                                    );
+                                }
                             }
                         }
-                        ensure_watch_daemons_running();
                     }
                 }
                 Err(e) => eprintln!("❌ Lỗi: {}", e),
@@ -1155,27 +1230,31 @@ fn main() {
             let msg = run_cli_sync();
             println!("{}", msg);
             if args.iter().any(|a| a == "--send") {
+                let _guard = ZaloMutexGuard::acquire(2500);
                 if let Ok(mut cdp) = CdpClient::connect_zalo() {
                     let _ = cdp.send_message_to_my_documents(&msg);
                 }
             }
-            ensure_watch_daemons_running();
         }
-        "read" => match CdpClient::connect_zalo() {
-            Ok(mut cdp) => match cdp.read_latest_message() {
-                Ok(msg) => {
-                    println!("📩 [Zalo My Documents]: {}\n⏱️ {:.2?}", msg, t0.elapsed());
-                }
-                Err(e) => eprintln!("❌ Lỗi đọc Zalo: {}", e),
-            },
-            Err(e) => eprintln!("❌ {}", e),
-        },
+        "read" => {
+            let _guard = ZaloMutexGuard::acquire(2000);
+            match CdpClient::connect_zalo() {
+                Ok(mut cdp) => match cdp.read_latest_message() {
+                    Ok(msg) => {
+                        println!("📩 [Zalo My Documents]: {}\n⏱️ {:.2?}", msg, t0.elapsed());
+                    }
+                    Err(e) => eprintln!("❌ Lỗi đọc Zalo: {}", e),
+                },
+                Err(e) => eprintln!("❌ {}", e),
+            }
+        }
         "send" => {
             if args.len() < 3 {
                 eprintln!("Cách dùng: minh_chung.exe send \"<nội dung>\"");
                 return;
             }
             let text = args[2..].join(" ");
+            let _guard = ZaloMutexGuard::acquire(2500);
             match CdpClient::connect_zalo() {
                 Ok(mut cdp) => match cdp.send_message_to_my_documents(&text) {
                     Ok(res) => println!("✅ Đã gửi Zalo ({}): {:.2?}", res, t0.elapsed()),
@@ -1192,36 +1271,51 @@ fn main() {
             Err(e) => eprintln!("❌ {}", e),
         },
         "watch" => {
-            println!("🚀 [Minh Chứng Daemon] Đang canh trực tiếp 'My Documents' trên Zalo PC (Chu kỳ: 800ms)...");
+            let instance_name = CString::new("Local\\MinhChung_Daemon_Instance_Mutex").unwrap();
+            let _inst_handle = unsafe { CreateMutexA(ptr::null_mut(), 0, instance_name.as_ptr()) };
+            if unsafe { GetLastError() } == 183 {
+                eprintln!("⚠️ [Minh Chứng] Daemon đã đang chạy trong một tiến trình khác.");
+                return;
+            }
+
+            println!("🚀 [Minh Chứng Daemon] Cached WS Path + 200ms Loop trên Zalo PC...");
             println!("💡 Tiền tố nhận diện: `Minh Chứng <MÃ_CP>` hoặc `/mc <MÃ_CP>`");
-            println!("🔒 Đồng bộ Windows Named Mutex: 'Local\\ZaloPC_Bridge_Mutex'");
+            println!("🔒 Đồng bộ Windows Named Mutex (<5ms): 'Local\\ZaloPC_Bridge_Mutex'");
             let _ = CdpClient::ensure_zalo_cdp();
+            let mut cached_ws_path = CdpClient::find_zalo_ws_path(58721).unwrap_or_default();
             let mut last_msg = String::new();
             let mut first_run = true;
 
             loop {
-                if let Ok(mut cdp) = CdpClient::connect_zalo() {
-                    if let Ok(msg) = cdp.read_latest_message() {
-                        let trimmed = msg.trim().to_string();
-                        if !trimmed.is_empty() && trimmed != last_msg {
-                            last_msg = trimmed.clone();
-                            if first_run {
-                                first_run = false;
-                                println!("📌 Tin nhắn hiện tại: {}", last_msg);
-                            } else if let Some(cmd_body) = parse_wake_command(&last_msg) {
-                                let t_cmd = Instant::now();
-                                println!("⚡ Phát hiện lệnh Minh Chứng: '{}'", cmd_body);
-                                let reply = handle_zalo_command(&cmd_body);
-                                let _ = cdp.send_message_to_my_documents(&reply);
-                                last_msg = reply;
-                                println!("✅ Đã phản hồi trên Zalo trong {:.2?}", t_cmd.elapsed());
+                {
+                    let _guard = ZaloMutexGuard::acquire(1000);
+                    if let Ok(mut cdp) = CdpClient::connect_with_cached_path(&mut cached_ws_path) {
+                        if let Ok(msg) = cdp.read_latest_message() {
+                            let trimmed = msg.trim().to_string();
+                            if !trimmed.is_empty() && trimmed != last_msg {
+                                last_msg = trimmed.clone();
+                                if first_run {
+                                    first_run = false;
+                                    println!("📌 Tin nhắn hiện tại: {}", last_msg);
+                                } else if let Some(cmd_body) = parse_wake_command(&last_msg) {
+                                    let t_cmd = Instant::now();
+                                    println!("⚡ Phát hiện lệnh Minh Chứng: '{}'", cmd_body);
+                                    let reply = handle_zalo_command(&cmd_body);
+                                    let _ = cdp.send_message_to_my_documents(&reply);
+                                    last_msg = reply;
+                                    println!(
+                                        "✅ Đã phản hồi trên Zalo trong {:.2?}",
+                                        t_cmd.elapsed()
+                                    );
+                                }
                             }
                         }
+                    } else {
+                        cached_ws_path.clear();
                     }
-                } else {
-                    let _ = CdpClient::ensure_zalo_cdp();
+                    // CdpClient and ZaloMutexGuard drop here (~2.5ms total hold time!)
                 }
-                thread::sleep(Duration::from_millis(800));
+                thread::sleep(Duration::from_millis(200));
             }
         }
         other => match build_stock_report(other) {
