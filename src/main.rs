@@ -1613,15 +1613,19 @@ fn main() {
                         let t_send = Instant::now();
                         {
                             let _guard = ZaloMutexGuard::acquire(2500);
-                            if let Ok(mut cdp) = CdpClient::connect_zalo() {
-                                if let Ok(res) = cdp.send_message_to_my_documents(&report) {
-                                    println!(
-                                        "📨 Đã đồng bộ Zalo '{}' ({}) trong {:.2?}",
-                                        TARGET_CONV_NAME,
-                                        res,
-                                        t_send.elapsed()
-                                    );
+                            match CdpClient::connect_zalo() {
+                                Ok(mut cdp) => {
+                                    match cdp.send_message_to_my_documents(&report) {
+                                        Ok(res) => println!(
+                                            "📨 Đã đồng bộ Zalo '{}' ({}) trong {:.2?}",
+                                            TARGET_CONV_NAME,
+                                            res,
+                                            t_send.elapsed()
+                                        ),
+                                        Err(e) => eprintln!("⚠️ Lỗi gửi Zalo: {}", e),
+                                    }
                                 }
+                                Err(e) => eprintln!("⚠️ Lỗi kết nối CDP Zalo: {}", e),
                             }
                         }
                     }
