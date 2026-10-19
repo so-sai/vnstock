@@ -276,6 +276,9 @@ class ValuationEngine:
     LEVEL_TOL_PCT = 2.0  # lệch MỨC > 2% ⇒ cờ THÔNG TIN (không chặn) — Bước 5, 2026-10-16
     SHRES_DIV_TOL_PCT = 25.0  # pha loãng ĐÃ BIẾT của SHB 2026 = +16,3% ⇒ >25% là khác bản chất
     MAX_PERIODS = 200  # `get_facts` mặc định chỉ 8 kỳ ⇒ phải xin rõ số kỳ cho chuỗi PIT
+    # [GO 2026-10-16 — Hạng mục E] n_min cho z-score: dưới 5 kỳ thì z không có ý nghĩa thống kê
+    # ⇒ z = NULL + cờ INSUFFICIENT_HISTORY (thà thiếu còn hơn một con số dựng trên 2–3 quý).
+    MIN_HISTORY = 5
     PIT_TODAY = date.today().isoformat()  # kỳ có effective_date > mốc này = CHƯA được phép đọc
     ALL_RATIOS = ("PE", "PB", "PS", "EV_EBITDA", "ROE")
     # PHẠM VI TỪNG CỜ (sửa 2026-10-16 sau khi DoD B cho thấy 11.375 dòng bị loại OAN):
@@ -286,7 +289,12 @@ class ValuationEngine:
         "EXTREME_LOW_PE": {"PE"},
         "PERIODICITY_MISMATCH_EPS": {"PE"},
         "NEGATIVE_EARNINGS": {"PE"},
-        "OUTLIER_WINSORED": {"PE"},
+        # [GO 2026-10-16] OUTLIER_WINSORED bỏ phạm vi ⇒ áp cho MỌI ratio (cờ của tầng winsorize);
+        # [GO 2026-10-16] Cờ của TẦNG WINSORIZE và THIẾU LỊCH SỬ áp cho MỌI ratio — khai báo TƯỜNG MINH
+        # (thay vì dựa vào "không khai báo = toàn bộ") để test phạm vi cờ bắt được nếu ai đó đổi ý.
+        "OUTLIER_WINSORED": set(ALL_RATIOS),
+        "INSUFFICIENT_HISTORY": set(ALL_RATIOS),
+        "EXTREME_ROE_ANOMALY": {"ROE"},
         "UNTRACEABLE_DENOMINATOR": {"EV_EBITDA"},
         "NEAR_ZERO_DENOMINATOR": {"PB", "PS", "EV_EBITDA"},
         "DISTRESSED_EQUITY": {"PB", "ROE"},
@@ -307,7 +315,15 @@ class ValuationEngine:
     # không phải bằng chứng sai số. Nếu cho nó chặn thì SHB/MBB/TCB… đều bị loại khỏi bảng xếp
     # hạng dù số liệu đúng. Ngược lại `SHARES_BASIS_UNEXPLAINED` (>25%, không giải thích được
     # bằng phát hành thêm) LÀ cờ chặn.
-    INFO_FLAGS = {"SHARES_DILUTION_FLAGGED", "EPS_LEVEL_MISMATCH"}
+    INFO_FLAGS = {
+        "SHARES_DILUTION_FLAGGED",
+        "EPS_LEVEL_MISMATCH",
+        # [GO 2026-10-16] Kẹp biên là cách XỬ LÝ ngoại lai (z tính trên giá trị ĐÃ KẸP) ⇒ chỉ dán
+        # nhãn, không tước tư cách xếp hạng. (Trước đây OUTLIER_WINSORED — PE>100 — là cờ CHẶN.)
+        "OUTLIER_WINSORED",
+        # Thiếu lịch sử không làm GIÁ TRỊ ratio sai; nó chỉ làm z không tính được (đã NULL).
+        "INSUFFICIENT_HISTORY",
+    }
 
     @classmethod
     def is_blocking(cls, flags: list[str]) -> bool:
@@ -634,6 +650,11 @@ class ValuationEngine:
             flags.append("NEAR_ZERO_DENOMINATOR")
         if result.get("EV_EBITDA") is not None and result["EV_EBITDA"] > 200.0:
             flags.append("NEAR_ZERO_DENOMINATOR")
+        if result.get("ROE") is not None and abs(result["ROE"]) > 1.5:
+            # [GO 2026-10-16] |ROE| > 150% gần như luôn là VỐN CHỦ BỊ BÀO MÒN (near-zero equity) chứ
+            # không phải hiệu quả siêu việt ⇒ cờ + loại khỏi xếp hạng. Ca thật: ATG 2025Q2 ROE =
+            # 9,14 (914%) từng mang `is_clean_metric = 1`.
+            flags.append("EXTREME_ROE_ANOMALY")
         if ebitda_is_proxy and result.get("EV_EBITDA") is not None:
             # EBITDA không tồn tại như metric trong kho ⇒ mẫu số là proxy EBIT+D&A.
             flags.append("UNTRACEABLE_DENOMINATOR")
@@ -653,6 +674,54 @@ class ValuationEngine:
         Q1 → ×4 · Q2 → ×2 · Q3 → ×4/3 · Q4 → ×1. (Bản cũ dùng ×4 cho mọi quý — xem §2 note.)
         """
         return {1: 4.0, 2: 2.0, 3: 4.0 / 3.0, 4: 1.0}.get(int(quarter), 4.0)
+
+    @staticmethod
+    def _winsor_bounds(values: list[float], lo_p: float = 0.02, hi_p: float = 0.98) -> tuple[float | None, float | None]:
+        """Cận [p2, p98] (nội suy tuyến tính) để kẹp ĐẦU VÀO của z/percentile.
+
+        [WHY] Dùng p2/p98 chứ KHÔNG dùng min/max: min/max của chính cửa sổ có chứa điểm đang xét nên kẹp
+        theo min/max gần như không bao giờ chạm ⇒ không triệt được ngoại lai. Cửa sổ < 5 kỳ ⇒ p2/p98 vô
+        nghĩa ⇒ trả (None, None) và KHÔNG kẹp (thiếu cơ sở thì không can thiệp).
+        """
+        n = len(values)
+        if n < 5:
+            return None, None
+        s = sorted(values)
+
+        def q(p: float) -> float:
+            pos = p * (n - 1)
+            lo_i = int(pos)
+            hi_i = min(lo_i + 1, n - 1)
+            return s[lo_i] + (s[hi_i] - s[lo_i]) * (pos - lo_i)
+
+        return q(lo_p), q(hi_p)
+
+    def _score_point(
+        self, ratio_name: str, window: list[float], val: float
+    ) -> tuple[float | None, float | None, str | None, bool, bool]:
+        """→ (z, percentile, zone, winsorized, insufficient) cho MỘT kỳ trong cửa sổ trailing.
+
+        [WHY] Tách khỏi `compute_valuation` để kiểm trực tiếp LUẬT A và winsorize mà không phải dựng cả
+        pipeline DB. `val` (đại diện `ratio_value`) KHÔNG bị sửa — chỉ `val_w` dùng để tính.
+
+        [ROOT CAUSE] Bản cũ `z = (val - mean) / std if std > 0 else 0.0` đã bịa **3.433 dòng z = 0.0**
+        trên các dòng `std = 0` (đo trên bảng 56.055 dòng) — "trạng thái trung tính" ngụy tạo.
+
+        [INVARIANT] `count < MIN_HISTORY` hoặc `std <= 0` ⇒ z/pct/zone = None (không bao giờ 0.0);
+        winsorize chỉ tác động giá trị dùng để tính, không tác động giá trị lưu.
+        """
+        mean, std, n = self._compute_stats(window)
+        lo_b, hi_b = self._winsor_bounds(window)
+        val_w = val
+        if hi_b is not None and val > hi_b:
+            val_w = hi_b
+        elif lo_b is not None and val < lo_b:
+            val_w = lo_b
+        winsorized = val_w != val
+        if n < self.MIN_HISTORY or std <= 0:
+            return None, None, None, winsorized, True
+        z = (val_w - mean) / std
+        return z, self._percentile(window, val_w), self._classify_zone(ratio_name, z), winsorized, False
 
     def _compute_stats(self, values: list[float]) -> tuple[float, float, int]:
         n = len(values)
@@ -830,13 +899,15 @@ class ValuationEngine:
             for i, (period, val) in enumerate(period_values):
                 window = [v for _, v in period_values[: i + 1]]
                 mean, std, n = self._compute_stats(window)
-                z = (val - mean) / std if std > 0 else 0.0
-                pct = self._percentile(window, val)
-                zone = self._classify_zone(rname, z)
+                # ── WINSORIZE TẦNG TÍNH TOÁN + LUẬT A (Hạng mục E, ký 2026-10-16) ─────────────
+                # `ratio_value` là SỰ THẬT SỔ SÁCH ⇒ KHÔNG ghi đè; chỉ kẹp ĐẦU VÀO của z/percentile
+                # về [p2, p98] của cửa sổ trailing. `n < MIN_HISTORY` hoặc `std <= 0` ⇒ z = NULL
+                # ("không biết ≠ 0") + cờ INSUFFICIENT_HISTORY.
+                z, pct, zone, _winsorized, _insufficient = self._score_point(rname, window, val)
                 price = all_period_ratios[period].get("_price")
                 # TS z-score tại period này (strictly-past window, PIT-safe)
                 ts_mean, ts_std, ts_n = ts_stats.get(period, (None, None, None))
-                if ts_mean is not None and ts_std is not None:
+                if ts_mean is not None and ts_std is not None and not _insufficient:
                     z_ts = round((val - ts_mean) / ts_std, 4)
                     zone_ts = self._classify_zone(rname, z_ts)
                 else:
@@ -846,6 +917,10 @@ class ValuationEngine:
                 fy = int(period[:4])
                 fq = int(period[5:6])
                 _period_flags = self.flags_for_ratio(all_period_ratios[period].get("_flags") or [], rname)
+                if _winsorized:
+                    _period_flags = sorted({*_period_flags, "OUTLIER_WINSORED"})
+                if _insufficient:
+                    _period_flags = sorted({*_period_flags, "INSUFFICIENT_HISTORY"})
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO valuation_scores
@@ -864,8 +939,8 @@ class ValuationEngine:
                         entity_type.upper(),
                         rname,
                         val,
-                        round(z, 4),
-                        round(pct, 2),
+                        round(z, 4) if z is not None else None,
+                        round(pct, 2) if pct is not None else None,
                         round(mean, 4),
                         round(std, 4),
                         n,
@@ -888,8 +963,8 @@ class ValuationEngine:
                         "period": period,
                         "ratio": rname,
                         "value": val,
-                        "z_score": round(z, 2),
-                        "percentile": round(pct, 1),
+                        "z_score": round(z, 2) if z is not None else None,
+                        "percentile": round(pct, 1) if pct is not None else None,
                         "zone": zone,
                         "z_score_ts": z_ts,
                         "zone_ts": zone_ts,
