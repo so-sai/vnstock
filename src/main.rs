@@ -118,14 +118,24 @@ pub struct CdpClient {
 
 impl CdpClient {
     pub fn connect_zalo() -> Result<Self, String> {
-        if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
-            if let Ok(client) = Self::connect(58721, &ws_path) {
-                return Ok(client);
+        for _ in 0..5 {
+            if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
+                if let Ok(client) = Self::connect(58721, &ws_path) {
+                    return Ok(client);
+                }
             }
+            thread::sleep(Duration::from_millis(200));
         }
         Self::ensure_zalo_cdp()?;
-        let ws_path = Self::find_zalo_ws_path(58721)?;
-        Self::connect(58721, &ws_path)
+        for _ in 0..10 {
+            if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
+                if let Ok(client) = Self::connect(58721, &ws_path) {
+                    return Ok(client);
+                }
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        Err("Không thể kết nối đến Zalo PC qua cổng CDP 58721".to_string())
     }
 
     pub fn connect_with_cached_path(cached_path: &mut String) -> Result<Self, String> {
@@ -142,8 +152,10 @@ impl CdpClient {
     }
 
     pub fn ensure_zalo_cdp() -> Result<(), String> {
-        if Self::find_zalo_ws_path(58721).is_ok() {
-            return Ok(());
+        if let Ok(addr) = "127.0.0.1:58721".parse() {
+            if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+                return Ok(());
+            }
         }
         let local_app_data = env::var("LOCALAPPDATA")
             .unwrap_or_else(|_| r"C:\Users\Admin\AppData\Local".to_string());
