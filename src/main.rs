@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::env;
 use std::ffi::CString;
 use std::io::{Read, Write};
@@ -33,6 +35,15 @@ extern "system" {
     fn WaitForSingleObject(hHandle: *mut c_void, dwMilliseconds: u32) -> u32;
     fn ReleaseMutex(hMutex: *mut c_void) -> c_int;
     fn CloseHandle(hObject: *mut c_void) -> c_int;
+    fn AttachConsole(dwProcessId: u32) -> c_int;
+}
+
+#[cfg(windows)]
+fn attach_parent_console() {
+    const ATTACH_PARENT_PROCESS: u32 = 0xFFFFFFFF;
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
 }
 
 pub const TARGET_CONV_NAME: &str = "Trạm Số Liệu - Minh Chứng";
@@ -118,24 +129,14 @@ pub struct CdpClient {
 
 impl CdpClient {
     pub fn connect_zalo() -> Result<Self, String> {
-        for _ in 0..5 {
-            if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
-                if let Ok(client) = Self::connect(58721, &ws_path) {
-                    return Ok(client);
-                }
+        if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
+            if let Ok(client) = Self::connect(58721, &ws_path) {
+                return Ok(client);
             }
-            thread::sleep(Duration::from_millis(200));
         }
         Self::ensure_zalo_cdp()?;
-        for _ in 0..10 {
-            if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
-                if let Ok(client) = Self::connect(58721, &ws_path) {
-                    return Ok(client);
-                }
-            }
-            thread::sleep(Duration::from_millis(500));
-        }
-        Err("Không thể kết nối đến Zalo PC qua cổng CDP 58721".to_string())
+        let ws_path = Self::find_zalo_ws_path(58721)?;
+        Self::connect(58721, &ws_path)
     }
 
     pub fn connect_with_cached_path(cached_path: &mut String) -> Result<Self, String> {
@@ -152,38 +153,45 @@ impl CdpClient {
     }
 
     pub fn ensure_zalo_cdp() -> Result<(), String> {
-        if let Ok(addr) = "127.0.0.1:58721".parse() {
-            if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
-                return Ok(());
-            }
+        if Self::find_zalo_ws_path(58721).is_ok() {
+            return Ok(());
         }
         let local_app_data = env::var("LOCALAPPDATA")
             .unwrap_or_else(|_| r"C:\Users\Admin\AppData\Local".to_string());
         let zalo_base = PathBuf::from(local_app_data).join("Programs").join("Zalo");
-        let mut zalo_exe: Option<(std::time::SystemTime, PathBuf)> = None;
-        if let Ok(entries) = std::fs::read_dir(&zalo_base) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_dir() {
-                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with("Zalo-") {
-                            let candidate = p.join("Zalo.exe");
-                            if let Ok(meta) = std::fs::metadata(&candidate) {
-                                let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
-                                if zalo_exe.as_ref().map_or(true, |(best_t, _)| mtime > *best_t) {
-                                    zalo_exe = Some((mtime, candidate));
+        let root_exe = zalo_base.join("Zalo.exe");
+        let exe_path = if root_exe.exists() {
+            root_exe
+        } else {
+            let mut zalo_exe: Option<(std::time::SystemTime, PathBuf)> = None;
+            if let Ok(entries) = std::fs::read_dir(&zalo_base) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                            if name.starts_with("Zalo-") {
+                                let candidate = p.join("Zalo.exe");
+                                if let Ok(meta) = std::fs::metadata(&candidate) {
+                                    let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                                    if zalo_exe.as_ref().map_or(true, |(best_t, _)| mtime > *best_t) {
+                                        zalo_exe = Some((mtime, candidate));
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
-        if let Some((_, exe_path)) = zalo_exe {
-            println!(
-                "⚡ [Self-Boot] Đang khởi động lại Zalo PC kèm cổng CDP 58721: {}",
-                exe_path.display()
-            );
+            match zalo_exe {
+                Some((_, p)) => p,
+                None => return Err("Không tìm thấy Zalo.exe trong AppData\\Local\\Programs\\Zalo.".to_string()),
+            }
+        };
+
+        println!(
+            "⚡ [Self-Boot] Đang khởi động lại Zalo PC kèm cổng CDP 58721: {}",
+            exe_path.display()
+        );
             let _ = Command::new("powershell")
                 .creation_flags(CREATE_NO_WINDOW)
                 .args([
@@ -204,9 +212,6 @@ impl CdpClient {
                 }
             }
             Err("Đã gọi Zalo.exe nhưng cổng 58721 chưa phản hồi.".to_string())
-        } else {
-            Err("Không tìm thấy Zalo.exe trong AppData\\Local\\Programs\\Zalo.".to_string())
-        }
     }
 
     fn parse_content_length(header_str: &str) -> Option<usize> {
@@ -1479,6 +1484,9 @@ fn handle_zalo_command(cmd_body: &str) -> String {
 }
 
 fn main() {
+    #[cfg(windows)]
+    attach_parent_console();
+
     let t0 = Instant::now();
     let args: Vec<String> = env::args().collect();
     let cmd = if args.len() > 1 {
