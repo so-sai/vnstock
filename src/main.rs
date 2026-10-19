@@ -1033,10 +1033,11 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     };
 
     let title_upper = mode_title.to_uppercase();
-    let header_line = if title_upper.contains("MỞ CỬA") || title_upper.contains("PRE-MARKET") {
+    let is_summary = title_upper.contains("ATC") || title_upper.contains("TỔNG KẾT") || title_upper.contains("SUMMARY");
+    let header_line = if is_summary {
+        "🌇 [MINH CHỨNG] TỔNG KẾT ĐÓNG CỬA PHIÊN ATC".to_string()
+    } else if title_upper.contains("MỞ CỬA") || title_upper.contains("PRE-MARKET") || title_upper.contains("BRIEF") {
         "🌅 [MINH CHỨNG] ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA".to_string()
-    } else if title_upper.contains("ATC") || title_upper.contains("TỔNG KẾT") || title_upper.contains("SUMMARY") {
-        "📊 [MINH CHỨNG] TỔNG KẾT PHIÊN ATC".to_string()
     } else {
         format!("📊 [MINH CHỨNG] {}", mode_title.trim())
     };
@@ -1053,7 +1054,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     out.push_str(&format!("📅 Ngày {}\n", display_date));
     out.push_str("────────────────────────\n");
 
-    // 2. TRẠNG THÁI THỊ TRƯỜNG
+    // 2. TRẠNG THÁI THỊ TRƯỜNG / KẾT PHIÊN HÔM NAY
     let arrow = if vni_diff >= 0.0 { "🔺" } else { "🔻" };
     let diff_str = if vni_diff >= 0.0 {
         format!("+{}", format_number_vnd(vni_diff))
@@ -1099,7 +1100,11 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     };
     let breadth_str = format!("{:.1}", breadth).replace('.', ",");
 
-    out.push_str("🎯 TRẠNG THÁI THỊ TRƯỜNG\n");
+    if is_summary {
+        out.push_str("🎯 KẾT PHIÊN HÔM NAY\n");
+    } else {
+        out.push_str("🎯 TRẠNG THÁI THỊ TRƯỜNG\n");
+    }
     out.push_str(&format!(
         "• VN-Index: {} điểm {} ({} | {}%)\n",
         format_number_vnd(vni_c0),
@@ -1113,70 +1118,76 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         reg_icon, reg_status, reg_score, breadth_str
     ));
 
-    // 3. HUYẾT MẠCH VĨ MÔ
-    let mut fed_rate = None;
-    let mut us10y = None;
-    let mut dxy = None;
-    let mut interbank_on = None;
-    let mut vgb10y = None;
+    // 3. HUYẾT MẠCH VĨ MÔ (Chỉ hiển thị ở bản tin Sáng)
+    if !is_summary {
+        let mut fed_rate = None;
+        let mut us10y = None;
+        let mut dxy = None;
+        let mut interbank_on = None;
+        let mut vgb10y = None;
 
-    if let Ok(mut m_stmt) = db_scr.conn.prepare(
-        "SELECT value FROM macro_history WHERE variable=?1 ORDER BY date DESC LIMIT 1;",
-    ) {
-        for &var in &["FED_TARGET_RATE", "US10Y", "DXY", "INTERBANK_ON", "VGB10Y"] {
-            if let Ok(mut rows) = m_stmt.query(params![var]) {
-                if let Ok(Some(row)) = rows.next() {
-                    let val: f64 = row.get(0).unwrap_or(0.0);
-                    match var {
-                        "FED_TARGET_RATE" => fed_rate = Some(val),
-                        "US10Y" => us10y = Some(val),
-                        "DXY" => dxy = Some(val),
-                        "INTERBANK_ON" => interbank_on = Some(val),
-                        "VGB10Y" => vgb10y = Some(val),
-                        _ => {}
+        if let Ok(mut m_stmt) = db_scr.conn.prepare(
+            "SELECT value FROM macro_history WHERE variable=?1 ORDER BY date DESC LIMIT 1;",
+        ) {
+            for &var in &["FED_TARGET_RATE", "US10Y", "DXY", "INTERBANK_ON", "VGB10Y"] {
+                if let Ok(mut rows) = m_stmt.query(params![var]) {
+                    if let Ok(Some(row)) = rows.next() {
+                        let val: f64 = row.get(0).unwrap_or(0.0);
+                        match var {
+                            "FED_TARGET_RATE" => fed_rate = Some(val),
+                            "US10Y" => us10y = Some(val),
+                            "DXY" => dxy = Some(val),
+                            "INTERBANK_ON" => interbank_on = Some(val),
+                            "VGB10Y" => vgb10y = Some(val),
+                            _ => {}
+                        }
                     }
                 }
             }
         }
-    }
 
-    out.push_str("\n🌐 HUYẾT MẠCH VĨ MÔ\n");
-    if let Some(on) = interbank_on {
-        let on_status = if on < 4.0 {
-            "(Dồi dào, ổn định)"
-        } else if on < 5.0 {
-            "(Bình thường, ổn định)"
-        } else {
-            "(⚠️ Cảnh báo căng thẳng)"
-        };
-        let on_str = format!("{:.2}", on).replace('.', ",");
-        out.push_str(&format!("• Liên ngân hàng O/N: {}% {}\n", on_str, on_status));
-    }
+        out.push_str("\n🌐 HUYẾT MẠCH VĨ MÔ\n");
+        if let Some(on) = interbank_on {
+            let on_status = if on < 4.0 {
+                "(Dồi dào, ổn định)"
+            } else if on < 5.0 {
+                "(Bình thường, ổn định)"
+            } else {
+                "(⚠️ Cảnh báo căng thẳng)"
+            };
+            let on_str = format!("{:.2}", on).replace('.', ",");
+            out.push_str(&format!("• Liên ngân hàng O/N: {}% {}\n", on_str, on_status));
+        }
 
-    let mut macro_items = Vec::new();
-    if let Some(d) = dxy {
-        let d_icon = if d < 102.0 { "🟢" } else if d <= 104.0 { "🟡" } else { "🔴" };
-        let d_str = format!("{:.2}", d).replace('.', ",");
-        macro_items.push(format!("DXY {} {}", d_str, d_icon));
-    }
-    if let Some(u) = us10y {
-        let u_icon = if u < 4.2 { "🟢" } else if u <= 4.7 { "🟡" } else { "🔴" };
-        let u_str = format!("{:.2}", u).replace('.', ",");
-        macro_items.push(format!("US10Y {}% {}", u_str, u_icon));
-    }
-    if let Some(f) = fed_rate {
-        let f_str = format!("{:.2}", f).replace('.', ",");
-        macro_items.push(format!("Fed {}%", f_str));
-    } else if let Some(v) = vgb10y {
-        let v_str = format!("{:.2}", v).replace('.', ",");
-        macro_items.push(format!("TPCP 10Y {}%", v_str));
-    }
-    if !macro_items.is_empty() {
-        out.push_str(&format!("• Tỷ giá & Lãi suất: {}\n", macro_items.join(" | ")));
+        let mut macro_items = Vec::new();
+        if let Some(d) = dxy {
+            let d_icon = if d < 102.0 { "🟢" } else if d <= 104.0 { "🟡" } else { "🔴" };
+            let d_str = format!("{:.2}", d).replace('.', ",");
+            macro_items.push(format!("DXY {} {}", d_str, d_icon));
+        }
+        if let Some(u) = us10y {
+            let u_icon = if u < 4.2 { "🟢" } else if u <= 4.7 { "🟡" } else { "🔴" };
+            let u_str = format!("{:.2}", u).replace('.', ",");
+            macro_items.push(format!("US10Y {}% {}", u_str, u_icon));
+        }
+        if let Some(f) = fed_rate {
+            let f_str = format!("{:.2}", f).replace('.', ",");
+            macro_items.push(format!("Fed {}%", f_str));
+        } else if let Some(v) = vgb10y {
+            let v_str = format!("{:.2}", v).replace('.', ",");
+            macro_items.push(format!("TPCP 10Y {}%", v_str));
+        }
+        if !macro_items.is_empty() {
+            out.push_str(&format!("• Tỷ giá & Lãi suất: {}\n", macro_items.join(" | ")));
+        }
     }
 
     // 4. DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM
-    out.push_str("\n🔥 DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM\n");
+    if is_summary {
+        out.push_str("\n🔥 DÒNG TIỀN & BIẾN ĐỘNG\n");
+    } else {
+        out.push_str("\n🔥 DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM\n");
+    }
     let mut ohlcv_stmt = db_scr
         .conn
         .prepare("SELECT close, volume FROM daily_ohlcv WHERE symbol=?1 ORDER BY date DESC LIMIT 2;")
@@ -1295,14 +1306,24 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             let sign_s = if item.pct >= 0.0 { "+" } else { "" };
             let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
             let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
-            out.push_str(&format!(
-                "    • [{}] Giá {} ({} | {}) — {}\n",
-                item.symbol,
-                format_int_dots(item.price.round() as i64),
-                pct_fmt,
-                vol_fmt,
-                item.note
-            ));
+            if is_summary {
+                out.push_str(&format!(
+                    "    • [{}] Giá {} ({} | {})\n",
+                    item.symbol,
+                    format_int_dots(item.price.round() as i64),
+                    pct_fmt,
+                    vol_fmt
+                ));
+            } else {
+                out.push_str(&format!(
+                    "    • [{}] Giá {} ({} | {}) — {}\n",
+                    item.symbol,
+                    format_int_dots(item.price.round() as i64),
+                    pct_fmt,
+                    vol_fmt,
+                    item.note
+                ));
+            }
         }
     }
 
@@ -1313,33 +1334,63 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         ));
     }
 
-    // 5. PHÁN QUYẾT & HÀNH ĐỘNG
-    out.push_str("\n🛑 PHÁN QUYẾT & HÀNH ĐỘNG\n");
-    if entry_lock || reg_status == "CRISIS" || reg_score < 0.40 {
-        out.push_str("🔒 TRẠNG THÁI: ENTRY_LOCK = ON (100% TIỀN MẶT)\n");
-        out.push_str("1️⃣ Mua mới: TUYỆT ĐỐI KHÓA LỆNH. Không bắt đáy khi thị trường ở vùng CRISIS.\n");
-        out.push_str("2️⃣ Danh mục cũ: Đưa tài khoản về phòng thủ tối đa, hạ margin về 0%.\n");
-        let support_level: f64 = ((vni_c0 * 0.99 / 10.0) as f64).floor() * 10.0;
-        out.push_str(&format!(
-            "3️⃣ Ngưỡng rủi ro: Canh mốc hỗ trợ tâm lý {}. Thủng mốc này tiếp tục đứng ngoài.\n",
-            format_int_dots(support_level.round() as i64)
-        ));
-    } else if reg_score < 0.60 || reg_status == "RANGING" {
-        out.push_str("⚠️ TRẠNG THÁI: PHÂN HÓA / THĂM DÒ (TỶ TRỌNG 30-50%)\n");
-        out.push_str("1️⃣ Mua mới: Thăm dò từng phần (10-20%) tại hỗ trợ cứng với mã có cầu đỡ; không mua đuổi giá xanh.\n");
-        out.push_str("2️⃣ Danh mục cũ: Duy trì sức mua 50-70% tiền mặt; chủ động chốt lời khi chạm cản trên.\n");
-        out.push_str(&format!(
-            "3️⃣ Ngưỡng rủi ro: Hỗ trợ VN-Index tại {}. Vi phạm ngưỡng dừng lỗ 5-7% phải hạ ngay.\n",
-            format_number_vnd(vni_c1)
-        ));
+    // 5. PHÁN QUYẾT & HÀNH ĐỘNG / ĐÁNH GIÁ CUỐI NGÀY
+    if is_summary {
+        out.push_str("\n🛑 ĐÁNH GIÁ CUỐI NGÀY\n");
+        if entry_lock || reg_status == "CRISIS" || reg_score < 0.40 {
+            out.push_str("🔒 TRẠNG THÁI: ENTRY_LOCK = ON (100% TIỀN MẶT)\n");
+            out.push_str("1️⃣ Tiếp tục khóa vị thế mua mới qua đêm.\n");
+            out.push_str("2️⃣ Danh mục nắm giữ: Ưu tiên bảo toàn vốn, đưa margin về 0%.\n");
+            let support_level: f64 = ((vni_c0 * 0.99 / 10.0) as f64).floor() * 10.0;
+            out.push_str(&format!(
+                "3️⃣ Quan sát vùng phản ứng hỗ trợ kế tiếp quanh mốc {} điểm.\n",
+                format_int_dots(support_level.round() as i64)
+            ));
+        } else if reg_score < 0.60 || reg_status == "RANGING" {
+            out.push_str("⚠️ TRẠNG THÁI: PHÂN HÓA / THĂM DÒ (TỶ TRỌNG 30-50%)\n");
+            out.push_str("1️⃣ Hạn chế mở vị thế mới phiên chiều; không mua đuổi giá xanh.\n");
+            out.push_str("2️⃣ Danh mục nắm giữ: Duy trì sức mua 50-70% tiền mặt; chốt lời chủ động khi chạm cản.\n");
+            out.push_str(&format!(
+                "3️⃣ Quan sát phản ứng VN-Index tại vùng hỗ trợ {}.\n",
+                format_number_vnd(vni_c1)
+            ));
+        } else {
+            out.push_str("✅ TRẠNG THÁI: THỊ TRƯỜNG THUẬN LỢI (TỶ TRỌNG 70-80%)\n");
+            out.push_str("1️⃣ Tiếp tục nắm giữ cổ phiếu khỏe dẫn dắt xu hướng.\n");
+            out.push_str("2️⃣ Danh mục nắm giữ: Nâng trailing stop để bảo vệ thành quả.\n");
+            out.push_str(&format!(
+                "3️⃣ Ngưỡng rủi ro: Hỗ trợ MA10/MA20 tại {}.\n",
+                format_number_vnd(vni_c1)
+            ));
+        }
     } else {
-        out.push_str("✅ TRẠNG THÁI: THỊ TRƯỜNG THUẬN LỢI (TỶ TRỌNG 70-80%)\n");
-        out.push_str("1️⃣ Mua mới: Mở vị thế theo tín hiệu breakout / pullback trên cổ phiếu dẫn dắt.\n");
-        out.push_str("2️⃣ Danh mục cũ: Nâng trailing stop để khóa lãi; tập trung danh mục vào các mã khỏe hơn chỉ số.\n");
-        out.push_str(&format!(
-            "3️⃣ Ngưỡng rủi ro: Hỗ trợ MA10/MA20 tại {}. Vi phạm xu hướng ngắn hạn thì hạ tỷ trọng.\n",
-            format_number_vnd(vni_c1)
-        ));
+        out.push_str("\n🛑 PHÁN QUYẾT & HÀNH ĐỘNG\n");
+        if entry_lock || reg_status == "CRISIS" || reg_score < 0.40 {
+            out.push_str("🔒 TRẠNG THÁI: ENTRY_LOCK = ON (100% TIỀN MẶT)\n");
+            out.push_str("1️⃣ Mua mới: TUYỆT ĐỐI KHÓA LỆNH. Không bắt đáy khi thị trường ở vùng CRISIS.\n");
+            out.push_str("2️⃣ Danh mục cũ: Đưa tài khoản về phòng thủ tối đa, hạ margin về 0%.\n");
+            let support_level: f64 = ((vni_c0 * 0.99 / 10.0) as f64).floor() * 10.0;
+            out.push_str(&format!(
+                "3️⃣ Ngưỡng rủi ro: Canh mốc hỗ trợ tâm lý {}. Thủng mốc này tiếp tục đứng ngoài.\n",
+                format_int_dots(support_level.round() as i64)
+            ));
+        } else if reg_score < 0.60 || reg_status == "RANGING" {
+            out.push_str("⚠️ TRẠNG THÁI: PHÂN HÓA / THĂM DÒ (TỶ TRỌNG 30-50%)\n");
+            out.push_str("1️⃣ Mua mới: Thăm dò từng phần (10-20%) tại hỗ trợ cứng với mã có cầu đỡ; không mua đuổi giá xanh.\n");
+            out.push_str("2️⃣ Danh mục cũ: Duy trì sức mua 50-70% tiền mặt; chủ động chốt lời khi chạm cản trên.\n");
+            out.push_str(&format!(
+                "3️⃣ Ngưỡng rủi ro: Hỗ trợ VN-Index tại {}. Vi phạm ngưỡng dừng lỗ 5-7% phải hạ ngay.\n",
+                format_number_vnd(vni_c1)
+            ));
+        } else {
+            out.push_str("✅ TRẠNG THÁI: THỊ TRƯỜNG THUẬN LỢI (TỶ TRỌNG 70-80%)\n");
+            out.push_str("1️⃣ Mua mới: Mở vị thế theo tín hiệu breakout / pullback trên cổ phiếu dẫn dắt.\n");
+            out.push_str("2️⃣ Danh mục cũ: Nâng trailing stop để khóa lãi; tập trung danh mục vào các mã khỏe hơn chỉ số.\n");
+            out.push_str(&format!(
+                "3️⃣ Ngưỡng rủi ro: Hỗ trợ MA10/MA20 tại {}. Vi phạm xu hướng ngắn hạn thì hạ tỷ trọng.\n",
+                format_number_vnd(vni_c1)
+            ));
+        }
     }
 
     out.push_str("────────────────────────\n");
@@ -1471,7 +1522,19 @@ fn handle_zalo_command(cmd_body: &str) -> String {
     let clean = cmd_body.trim();
     let lower = clean.to_lowercase();
 
-    // 1. Nhận diện các ý định tổng kết thị trường / vĩ mô / ATC / hôm nay
+    // 1. Nhận diện các ý định điểm tin sáng
+    if lower.contains("mở cửa")
+        || lower.contains("mo cua")
+        || lower.contains("sáng")
+        || lower.contains("sang")
+        || lower == "brief"
+        || lower == "/brief"
+    {
+        return build_market_brief("ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA (PRE-MARKET BRIEF 08:45)")
+            .unwrap_or_else(|e| format!("⚠️ [Minh Chứng] Lỗi truy vấn: {}", e));
+    }
+
+    // 2. Nhận diện các ý định tổng kết thị trường / vĩ mô / ATC / hôm nay
     if clean.is_empty()
         || lower.contains("báo cáo")
         || lower.contains("bao cao")
@@ -1486,7 +1549,6 @@ fn handle_zalo_command(cmd_body: &str) -> String {
         || lower.contains("vĩ mô")
         || lower.contains("vi mo")
         || lower.contains("macro")
-        || lower.contains("brief")
         || lower.contains("summary")
         || lower.contains("atc")
     {
