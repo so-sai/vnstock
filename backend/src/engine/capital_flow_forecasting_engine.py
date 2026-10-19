@@ -368,6 +368,55 @@ def _estimate_persistence(shares_history: list, sector: str) -> float:
     return round(max(-1.0, min(1.0, autocorr if not np.isnan(autocorr) else 0.5)), 3)
 
 
+# ── CỬA ĐỌC DUY NHẤT của `flow_forecast_history` (Tầng 1, GO 2026-10-19) ────────────────────────
+FLOW_FORECAST_STALE = "FLOW_FORECAST_STALE"
+FLOW_FORECAST_MISSING = "FLOW_FORECAST_MISSING"
+FLOW_FORECAST_NO_CALENDAR = "FLOW_FORECAST_NO_CALENDAR"
+
+
+def read_latest_forecast(conn, target_date: str) -> tuple[dict | None, str | None]:
+    """→ (bản ghi forecast | None, cờ lý do | None). CỬA DUY NHẤT để đọc `flow_forecast_history`.
+
+    [WHY] Đo 2026-10-19: bảng dừng ở **2026-10-08** (thiếu 7 phiên) và không cron nào sinh. Trước đó
+    bảng KHÔNG có consumer nào (grep toàn `backend/src` chỉ thấy engine tự ghi) ⇒ nguy cơ thật là
+    consumer đầu tiên đọc "dòng mới nhất" rồi áp số của 08/10 cho 19/10 mà không biết nó đã cũ.
+
+    [ROOT CAUSE] Không có API đọc nào kiểm độ tươi; bảng tồn tại như khối "có gì đọc nấy".
+
+    [INVARIANT] Trễ **> 1 phiên** so với phiên liền trước `target_date` ⇒ `(None, FLOW_FORECAST_STALE)`.
+    Trễ đúng 1 phiên là nhịp bình thường (EOD hôm nay sinh, sáng mai đọc) ⇒ vẫn dùng được.
+    Bảng rỗng ⇒ `FLOW_FORECAST_MISSING`; không có lịch phiên ⇒ `FLOW_FORECAST_NO_CALENDAR` (fail-closed).
+    Consumer TUYỆT ĐỐI không được `SELECT` thẳng bảng này (có test "một cửa" canh).
+    """
+    sessions = [
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT date FROM daily_ohlcv WHERE date <= ? ORDER BY date DESC LIMIT 2", (target_date,)
+        )
+    ]
+    if not sessions:
+        logger.warning("%s: không có phiên nào <= %s để phán độ trễ", FLOW_FORECAST_NO_CALENDAR, target_date)
+        return None, FLOW_FORECAST_NO_CALENDAR
+    prev_session = sessions[1] if len(sessions) > 1 else sessions[0]
+
+    cur = conn.execute("SELECT * FROM flow_forecast_history ORDER BY date DESC LIMIT 1")
+    row = cur.fetchone()
+    if row is None:
+        logger.warning("%s: bảng flow_forecast_history rỗng", FLOW_FORECAST_MISSING)
+        return None, FLOW_FORECAST_MISSING
+    rec = dict(zip([d[0] for d in cur.description], row, strict=False))
+    if str(rec["date"]) < prev_session:
+        logger.warning(
+            "%s: forecast mới nhất %s < phiên trước %s (target %s) ⇒ KHÔNG dùng",
+            FLOW_FORECAST_STALE,
+            rec["date"],
+            prev_session,
+            target_date,
+        )
+        return None, FLOW_FORECAST_STALE
+    return rec, None
+
+
 def generate_flow_forecast(target_date: str | None = None, lookback_days: int = 60) -> dict:
     today = target_date or datetime.now().strftime("%Y-%m-%d")
     logger.info("=" * 70)

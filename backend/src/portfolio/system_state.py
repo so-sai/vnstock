@@ -10,6 +10,9 @@ _DEFAULT = {
     "version": 2,
     # Fail-closed: mất state / lỗi đọc file JSON → KHÓA chặt (không bao giờ fail-open).
     "portfolio_critical_lock": True,
+    # [WHY] Vết lý do của lần KHOÁ gần nhất — để phân biệt "khoá do kẹt vốn" (stale manager) với
+    # "khoá do chính sách" (lớp phủ 07:00 re-assert). Không phải cờ điều khiển, chỉ để kiểm toán.
+    "last_lock_reason": None,
     "total_stale_pct": 0.0,
     "escrow_balance": 0.0,
     "last_updated": None,
@@ -54,10 +57,19 @@ def is_locked() -> bool:
     return _read().get("portfolio_critical_lock", True)
 
 
-def lock(total_stale_pct: float):
+def lock(total_stale_pct: float = 0.0, reason: str | None = None):
+    """Đặt `portfolio_critical_lock = True` (fail-closed) và ghi vết `reason`.
+
+    [WHY] `reason` cần cho LỚP PHỦ chính sách: `stale_manager` tự `unlock()` khi stale% dưới ngưỡng
+    (dòng 154-156), nên chính sách 100% tiền mặt phải re-assert mỗi sáng trước ATO. Không có `reason`
+    thì không phân biệt được khoá do kẹt vốn với khoá do chính sách. Tham số có default để mọi caller
+    cũ (`lock(0.0)`) không vỡ.
+    """
     s = _read()
     s["portfolio_critical_lock"] = True
     s["total_stale_pct"] = total_stale_pct
+    if reason:
+        s["last_lock_reason"] = reason
     _write(s)
 
 
