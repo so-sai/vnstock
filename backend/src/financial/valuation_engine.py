@@ -689,6 +689,15 @@ class ValuationEngine:
         else:
             return "FAIR"
 
+    @staticmethod
+    def _clear_scores(conn: sqlite3.Connection, symbol: str) -> int:
+        """Xoá MỌI dòng `valuation_scores` của một mã (gọi trong transaction của lần ghi).
+
+        [WHY] Xem khối `[ATOMIC REPLACE]` tại chỗ gọi: `INSERT OR REPLACE` đơn thuần để lại GHOST ROW.
+        Tách thành hàm để test được trực tiếp trên DB tạm mà không cần dựng cả engine.
+        """
+        return conn.execute("DELETE FROM valuation_scores WHERE symbol = ?", (symbol,)).rowcount
+
     def compute_valuation(self, symbol: str) -> dict:
         """Main entry: fetch facts + prices, compute all valuation ratios + z-scores."""
         entity_type = self.facts_db.get_entity_type(symbol)
@@ -738,6 +747,14 @@ class ValuationEngine:
                 all_period_ratios[period] = ratios
 
         if not all_period_ratios:
+            # [WHY] Mã không còn kỳ nào tính được ⇒ VẪN phải dọn ghost của các lần chạy cũ, nếu
+            # không nó tồn tại vĩnh viễn (đúng lớp lỗi `DDG 2026Q2` / `BII 2020Q1` đã đo).
+            _c = self.connect()
+            try:
+                self._clear_scores(_c, symbol.upper())
+                _c.commit()
+            finally:
+                _c.close()
             return {"status": "NO_PRICE", "symbol": symbol}
 
         # For each ratio type, compute stats + z-scores + percentiles
@@ -757,6 +774,17 @@ class ValuationEngine:
             if _c not in _cols:
                 conn.execute(f"ALTER TABLE valuation_scores ADD COLUMN {_c} {_t}")
         results = []
+
+        # [ATOMIC REPLACE — 2026-10-16] Xoá TOÀN BỘ điểm cũ của mã, CÙNG transaction với phần ghi
+        # bên dưới. [WHY] ĐO ĐƯỢC: `INSERT OR REPLACE` không có DELETE để lại GHOST ROW — kỳ nào
+        # engine mới TỪ CHỐI sinh (vd `DDG 2026Q2` không còn bar sạch ⇒ `_no_price`) thì hàng ratio
+        # cũ (P/B = 226,18 với price 800.000đ đã cách ly) vẫn nằm nguyên. Sau khi vá vị từ giá, đo
+        # được đúng 4 ghost: `DDG 2026Q2`; `BII 2020Q1` (PB + EV_EBITDA); `BII 2023Q4` — tất cả là
+        # dòng mà engine hiện tại KHÔNG THỂ sinh lại (`_get_price_with_flag` trả None).
+        # [INVARIANT] Recompute = THAY THẾ, không phải upsert: sau lần chạy, tập dòng của mã phải
+        # ĐÚNG BẰNG tập dòng engine vừa sinh. An toàn vì `compute_valuation(symbol)` luôn tính toàn
+        # bộ kỳ của mã (không có tham số lọc kỳ). Script gọi chịu trách nhiệm backup trước khi chạy.
+        self._clear_scores(conn, symbol.upper())
 
         for rname in ratio_names:
             # Collect all values across periods (sorted ascending)
