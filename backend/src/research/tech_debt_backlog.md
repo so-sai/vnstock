@@ -46,10 +46,15 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
     mà không lọc thì phải nằm trong `DISPLAY_TIER` **kèm lý do** (11 file: API/UI, services, timeline,
     backtest, research, sensors, alpha) — nếu không ⇒ **fail build**. Tổng mặt cắt đo được: **41 điểm
     đọc trong 24 file**.
-  - **CÒN LẠI (chờ quyết định):** các reader **backtest/research** (`trend_loop.py`,
-    `decompose_replay_by_regime.py`, `hsr_kernel.py`, `check_integrity.py`,
-    `opportunity_score_research.py`) hiện đọc cả phiên degraded. Lọc hay không là **quyết định phương
-    pháp** (lọc sẽ đổi kết quả nghiên cứu lịch sử đã công bố) ⇒ chưa tự đổi, đã kiểm kê tường minh.
+  - **ĐÃ PHÊ CHUẨN (2026-10-19) — giữ hợp đồng 2 tầng, KHÔNG lọc cứng ở backtest:**
+    - Tầng **LIVE/SIGNAL**: lọc cứng 100% (không ngoại lệ) — 14 điểm ở trên.
+    - Tầng **BACKTEST/REPLAY**: mặc định **KHÔNG lọc** để bảo toàn tính tái lập của nghiên cứu lịch sử
+      đã công bố; cung cấp tham số opt-in `exclude_degraded: bool = False` cho phân tích độ nhạy /
+      stress-test chất lượng dữ liệu (`42ed3cc`): `trend_loop.load_regime`,
+      `decompose_replay_by_regime.load_regimes`, kernel `hsr_kernel` (bản sao in-memory).
+      Một helper duy nhất `series_quality.regime_reader_sql()` sinh vị từ cho cả 3 nơi.
+    - Test canh (`39c075d`): `inspect.signature` xác nhận **mặc định `False` ở cả 3 reader** (không ai
+      lật cờ âm thầm) + e2e trên DB tạm: mặc định thấy **3/3 phiên** (có 1 degraded), opt-in còn **2/3**.
   - Test: `backend/tests/test_regime_degraded_contract.py` **8/8 PASS**; fixture của
     `test_vn20_quant_filter.py` đã sửa theo schema thật + 2 ca mới (bỏ qua phiên degraded; nhãn NULL
     không được coi là sạch); `test_valuation_latest_price.py` cập nhật theo dữ liệu PNJ đã sửa EPS.
@@ -298,6 +303,14 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
     trúc dùng được ⇒ **L4_BEHAVIOR = `NO_DATA` cho mọi mã** (SHB/VNM/FPT đo thật: `score=0, grade=NO_DATA`).
     Đúng theo bất biến #1 (không có số đo thật ⇒ đứng ngoài), nhưng đây là thay đổi ở **tầng ra quyết định**
     của governor — hiện **không** tác động live vì `ENTRY_LOCK = True`/`Hard Shutdown = True`.
+    → **ĐÃ PHÊ CHUẨN (2026-10-19): RATIFIED.** Cơ sở: `vol_per_unit = vol / span` là **giả định hình học
+    phân phối đều**, không phản ánh sổ lệnh thật; trả `NO_DATA/score 0` an toàn hơn để thuật toán chấm
+    điểm sức mạnh trên một ảo ảnh toán học. Không cần rollback; chỉ mở lại khi có nguồn intraday thật.
+  - **Ca EPS ≤ 0 (2026-10-19):** dùng **fixture TỔNG HỢP**, không săn mã lỗ ngoài thị trường (VN30 2026Q2
+    đều lãi; một fixture phụ thuộc doanh nghiệp sẽ thành flaky). Test `39c075d`:
+    `backend/tests/test_valuation_negative_eps_synthetic.py` — EPS âm/0 ⇒ **không có PE**, flag
+    `NEGATIVE_EARNINGS`, `is_clean=False`; **kèm ca đối chứng dương** (EPS > 0 ⇒ PE = 30.000/4.772) và ca
+    chứng minh **PB không bị ảnh hưởng**.
 
 ## 9. Pipeline EOD đuổi kịp bảng dẫn xuất (`market_wide_breadth_daily`, `regime_history`)
 
