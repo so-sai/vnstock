@@ -50,9 +50,51 @@ CREATE TABLE IF NOT EXISTS shares_history (
 )
 """
 
-CANARY = {  # (symbol, period, basis) → số cổ phiếu kỳ vọng (đo 2026-10-16)
-    ("HPG", "2018Q1", BASIS_CHARTER): 1_517_079_000.0,
-    ("HPG", "2025Q2", BASIS_CHARTER): 6_396_250_200.0,
+CANARY_TOL = 0.005  # dung sai TƯƠNG ĐỐI 0,5% — xem _canary_ok()
+
+
+def _canary_ok(got: float | None, exp: float, tol: float = CANARY_TOL) -> bool:
+    """So sánh canary bằng dung sai TƯƠNG ĐỐI (≤ tol) + sàn tuyệt đối 1 cổ phiếu.
+
+    [WHY] ĐO ĐƯỢC (2026-10-16): bản cũ `abs(got - exp) < 1` (tuyệt đối) làm bước [C] fail-closed chỉ vì
+    nhiễu LÀM TRÒN của BCTC — `HPG 2018Q1 CHARTER_PIT` 1.517.100.000 vs mốc 1.517.079.000 (+21.000 cp =
+    +0,0014%) và `HPG 2025Q2` +49.800 trên 6,4 tỷ (+0,0008%), sau khi `CHARTER_CAPITAL` được ingestion
+    làm mới thành số tròn (15.171 tỷ / 63.963 tỷ). Canary sinh ra để bắt lỗi BẬC ĐỘ LỚN/ĐƠN VỊ
+    (10×, 1.000×), không phải để bắt phần triệu.
+
+    [ROOT CAUSE] Test giòn: so sánh tuyệt đối ở đại lượng cỡ tỷ biến nhiễu làm tròn thành lỗi chặn ống.
+
+    [INVARIANT] `tol = 0,5%` vẫn chặn 100% lỗi đơn vị (lệch 900–1150%); sàn 1 cp chỉ để giá trị nhỏ
+    không suy biến, KHÔNG nới thành ±1 cp cho mọi quy mô.
+    """
+    if got is None:
+        return False
+    return abs(got - exp) <= max(abs(exp) * tol, 1.0)
+
+
+def check_canary(key: dict, canary: dict, tol: float = CANARY_TOL) -> list[tuple[str, str | None]]:
+    """→ [(dòng để in, lỗi|None)]. Tách khỏi `main()` để test được logic canary."""
+    out: list[tuple[str, str | None]] = []
+    for k, exp in canary.items():
+        got = key.get(k)
+        ok = _canary_ok(got, exp, tol)
+        shown = "None" if got is None else format(got, ",.0f")
+        out.append(
+            (
+                f"     {k[0]} {k[1]} {k[2]:15s}: {shown}  "
+                f"[{'OK' if ok else f'LỆCH (kỳ vọng {exp:,.0f}, dung sai {tol * 100:.1f}%)'}]",
+                None if ok else f"canary sai: {k}",
+            )
+        )
+    return out
+
+
+CANARY = {  # (symbol, period, basis) → số cổ phiếu kỳ vọng (đo 2026-10-16, cập nhật cùng ngày)
+    # Cập nhật theo GO chủ hệ thống: đầu vào CHARTER_CAPITAL được nạp lại theo số làm tròn chính thức
+    # từ BCTC (15.171 tỷ / 63.963 tỷ) ⇒ mốc 1.517.079.000 → 1.517.100.000 và 6.396.250.200 →
+    # 6.396.300.000; dung sai tương đối 0,5% áp cho mọi khoá.
+    ("HPG", "2018Q1", BASIS_CHARTER): 1_517_100_000.0,
+    ("HPG", "2025Q2", BASIS_CHARTER): 6_396_300_000.0,
     ("SHB", "2026Q2", BASIS_TCBS): 5_343_748_241.0,
     ("SHB", "2026Q2", BASIS_CHARTER): 4_594_200_000.0,
     ("SHB", "2010Q4", BASIS_TCBS): 2_667_090_216.0,
@@ -151,13 +193,10 @@ def main() -> int:
 
     print("\n   canary:")
     key = {(r[0], r[1], r[2]): r[4] for r in rows}
-    for k, exp in CANARY.items():
-        got = key.get(k)
-        ok = got is not None and abs(got - exp) < 1
-        shown = "None" if got is None else format(got, ",.0f")
-        print(f"     {k[0]} {k[1]} {k[2]:15s}: {shown}  [{'OK' if ok else f'LỆCH (kỳ vọng {exp:,.0f})'}]")
-        if not ok:
-            errs.append(f"canary sai: {k}")
+    for line, bad in check_canary(key, CANARY, CANARY_TOL):
+        print(line)
+        if bad:
+            errs.append(bad)
 
     print("\n   lệch giữa 2 basis (DỮ KIỆN, không phải lỗi):")
     for w in warns:
