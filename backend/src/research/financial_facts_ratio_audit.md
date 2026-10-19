@@ -863,11 +863,51 @@ Test: `tests/test_recompute_exit_propagation.py` (6 ca) — `6 passed`.
 — lệch ~0,001%. Phải chọn: (a) sửa dữ liệu `shares_history` cho khớp nguồn, hay (b) nới canary có tuyên bố
 (ngưỡng tương đối + ghi lý do). **Không tự sửa** vì đây là canary của tầng khác.
 
-### 7.5 Tiêu chí DONE (đo được, không cảm tính)
+### 7.5 HẠNG MỤC E — **ĐÓNG SỔ** (ký 2026-10-16)
+
+#### (a) Thông số đã ký
+| # | Thông số | Quy chuẩn đã thi hành |
+|---|---|---|
+| 1 | **Winsorize `[p2, p98]` trailing** cho PE/PB/PS/ROE | Kẹp **ĐẦU VÀO** của z/percentile về `[p2, p98]` của cửa sổ trailing — **`ratio_value` thô KHÔNG bị ghi đè** (giữ khả năng kiểm toán); cờ `OUTLIER_WINSORED` khi chạm biên. Cửa sổ < 5 kỳ ⇒ không kẹp (p2/p98 vô nghĩa). |
+| 2 | **Loại EV/EBITDA** khỏi xếp hạng | `is_clean_metric = 0` cho **toàn bộ** dòng EV/EBITDA (mẫu số không truy vết được: kho không có metric EBITDA). |
+| 3 | **`n_min = 5`** | `count < 5` **hoặc** `std ≤ 0` ⇒ `z_score = NULL` + `z_score_ts = NULL` + cờ `INSUFFICIENT_HISTORY`. Xoá hẳn nhánh `else 0.0`. |
+| 4 | **Biên ROE** | `\|ROE\| > 1,5` ⇒ cờ `EXTREME_ROE_ANOMALY` (phạm vi ROE) + `is_clean_metric = 0`. |
+
+Cờ `OUTLIER_WINSORED` và `INSUFFICIENT_HISTORY` là **cờ THÔNG TIN** (không tước tư cách xếp hạng): kẹp biên là cách
+*XỬ LÝ* ngoại lai, còn thiếu lịch sử không làm **giá trị** ratio sai (z đã NULL). Đây là đổi nghĩa có tuyên bố của
+`OUTLIER_WINSORED` (trước: cờ CHẶN cho `PE > 100`).
+
+#### (b) Bằng chứng sau recompute trên bảng sạch (56.055 dòng, `exit 0`)
+| Kiểm tra | Trước | Sau |
+|---|---|---|
+| dòng `std = 0` mà `z_score = 0.0` (bịa "trung tính") | **3.433** | **0** |
+| dòng `std = 0` có `z_score IS NULL` | 11 | **3.444 / 3.444** |
+| dòng mang `INSUFFICIENT_HISTORY` | 0 | **13.348** |
+| dòng bị kẹp đầu vào (`OUTLIER_WINSORED`) | 1.155 (chỉ PE) | **14.998** — trong đó **8.721 vẫn `is_clean_metric = 1`** |
+| dòng `EXTREME_ROE_ANOMALY` (và còn "sạch") | 0 | **12** — còn sạch: **0**; `ATG 2025Q2` ROE 9,14 ⇒ `clean = 0` |
+| `EV/EBITDA` có `is_clean_metric = 1` | 0 | **0** |
+| `ratio_value` thô bị sửa? | — | **không**: `KDC` PE vẫn lưu **57.030,0** + cờ `OUTLIER_WINSORED` |
+
+#### (c) Test
+`tests/test_valuation_scoring_layer.py` — **12 ca** (`[WHY]` từng ca): `std=0 ⇒ NULL`, `n<5 ⇒ NULL`, kẹp đầu vào
+mà **không sửa giá trị thô**, cửa sổ ngắn không kẹp, `_winsor_bounds` = p2/p98 (không phải min/max), biên ROE đúng
+phạm vi + chặn xếp hạng, `INSUFFICIENT_HISTORY` là cờ thông tin, **chống tái diễn nhánh `else 0.0`**.
+**RED** (chưa có `_score_point`) → **GREEN 12 passed**; hồi quy vùng liên quan: **66 passed** (gồm 35 ca PIT của
+phiên song song); `ruff All checks passed`.
+
+#### (d) Các tầng đã đóng trong Hạng mục E
+`giá` (vị từ Luật B trên đường đọc PIT) · `ghost` (atomic replace per-symbol) · `thống kê` (winsorize tầng điểm +
+`n_min = 5`) · `cờ biên` (ROE, EV/EBITDA).
+**Còn treo (không thuộc E):** (i) neo giá cho 92 mã trộn đơn vị còn khai báo (`ATG 640.000`, `KSQ 900.000`);
+(ii) 158 truy vấn `daily_ohlcv` trần khác trên đường quyết định (Mục 6 backlog) — 4 vị trí trong
+`valuation_engine.py` đã đóng.
 
 
 
 
+
+
+#### (e) Tiêu chí DONE (bản cũ, giữ để truy vết — đã đối chiếu ở mục (b))
 
 - Sau B: số ca `PE < 2` = **0**; với mỗi `(symbol, kỳ)`, `z` tính lại từ chuỗi sạch khớp ±5% với bản backup.
 - Mọi dòng `valuation_scores` có `is_clean_metric ∈ {0,1}`; mọi dòng `0` có `anomaly_flags` **không rỗng**.
