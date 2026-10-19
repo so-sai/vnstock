@@ -293,3 +293,11 @@ scripts/test_tcbs_token.py
 scripts/test_full_injection.py
 scripts/test_init_script.py
 scripts/tcbs_agent_fetcher.py
+
+# ── Binary & debug symbol (KHÔNG commit — quyết định 2026-10-19) ──────────────────────
+# WHY: `.exe` làm phình object store và `.pdb` chứa đường dẫn build của máy cá nhân.
+# File vẫn được GIỮ trên đĩa (daemon Rust đang chạy); chỉ bỏ theo dõi git.
+*.exe
+*.pdb
+minh_chung.exe
+minh_chung.pdb
