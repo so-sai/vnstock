@@ -230,12 +230,12 @@ impl CdpClient {
         let addr = format!("127.0.0.1:{}", port);
         let mut stream = TcpStream::connect_timeout(
             &addr.parse().unwrap(),
-            Duration::from_millis(80),
+            Duration::from_millis(1500),
         )
         .map_err(|e| e.to_string())?;
         stream.set_nodelay(true).ok();
         stream
-            .set_read_timeout(Some(Duration::from_millis(80)))
+            .set_read_timeout(Some(Duration::from_millis(1500)))
             .ok();
         let req = format!(
             "GET /json HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
@@ -303,12 +303,12 @@ impl CdpClient {
         let addr = format!("127.0.0.1:{}", port);
         let mut stream = TcpStream::connect_timeout(
             &addr.parse().unwrap(),
-            Duration::from_millis(80),
+            Duration::from_millis(1500),
         )
         .map_err(|e| e.to_string())?;
         stream.set_nodelay(true).ok();
         stream
-            .set_read_timeout(Some(Duration::from_millis(500)))
+            .set_read_timeout(Some(Duration::from_millis(1500)))
             .ok();
 
         let handshake = format!(
@@ -633,22 +633,6 @@ pub fn ensure_watch_daemons_running() {
         let _ = Command::new(&mc_exe)
             .arg("watch")
             .current_dir(&root)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
-    }
-
-    // Tự động tìm thư mục Minh Tâm qua biến môi trường hoặc thư mục anh em
-    let mt_dir = env::var("MINH_TAM_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(r"G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD"));
-    let mt_exe = mt_dir.join("minh_tam.exe");
-    if !is_named_mutex_alive("Local\\MinhTam_Daemon_Instance_Mutex") && mt_exe.exists() {
-        let _ = Command::new(&mt_exe)
-            .arg("watch")
-            .current_dir(&mt_dir)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -1050,11 +1034,11 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
 
     let title_upper = mode_title.to_uppercase();
     let header_line = if title_upper.contains("MỞ CỬA") || title_upper.contains("PRE-MARKET") {
-        "🌅 *[MINH CHỨNG] ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA*".to_string()
+        "🌅 [MINH CHỨNG] ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA".to_string()
     } else if title_upper.contains("ATC") || title_upper.contains("TỔNG KẾT") || title_upper.contains("SUMMARY") {
-        "📊 *[MINH CHỨNG] TỔNG KẾT PHIÊN ATC*".to_string()
+        "📊 [MINH CHỨNG] TỔNG KẾT PHIÊN ATC".to_string()
     } else {
-        format!("📊 *[MINH CHỨNG] {}*", mode_title.trim())
+        format!("📊 [MINH CHỨNG] {}", mode_title.trim())
     };
 
     let display_date = if vni_date.len() == 10 && vni_date.chars().nth(4) == Some('-') && vni_date.chars().nth(7) == Some('-') {
@@ -1066,7 +1050,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
 
     let mut out = String::new();
     out.push_str(&format!("{}\n", header_line));
-    out.push_str(&format!("📅 _Ngày {}_\n", display_date));
+    out.push_str(&format!("📅 Ngày {}\n", display_date));
     out.push_str("────────────────────────\n");
 
     // 2. TRẠNG THÁI THỊ TRƯỜNG
@@ -1115,17 +1099,17 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     };
     let breadth_str = format!("{:.1}", breadth).replace('.', ",");
 
-    out.push_str("🎯 *TRẠNG THÁI THỊ TRƯỜNG*\n");
+    out.push_str("🎯 TRẠNG THÁI THỊ TRƯỜNG\n");
     out.push_str(&format!(
-        "• *VN-Index:* {} điểm {} ({} | {}%)\n",
+        "• VN-Index: {} điểm {} ({} | {}%)\n",
         format_number_vnd(vni_c0),
         arrow,
         diff_str,
         pct_str
     ));
-    out.push_str(&format!("• *Thanh khoản:* {}M cp\n", vol_mil_str));
+    out.push_str(&format!("• Thanh khoản: {}M cp\n", vol_mil_str));
     out.push_str(&format!(
-        "• *Regime:* {} *{}* (Score: {:.2} | Độ rộng: {}%)\n",
+        "• Regime: {} {} (Score: {:.2} | Độ rộng: {}%)\n",
         reg_icon, reg_status, reg_score, breadth_str
     ));
 
@@ -1156,17 +1140,17 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         }
     }
 
-    out.push_str("\n🌐 *HUYẾT MẠCH VĨ MÔ*\n");
+    out.push_str("\n🌐 HUYẾT MẠCH VĨ MÔ\n");
     if let Some(on) = interbank_on {
         let on_status = if on < 4.0 {
-            "_(Dồi dào, ổn định)_"
+            "(Dồi dào, ổn định)"
         } else if on < 5.0 {
-            "_(Bình thường, ổn định)_"
+            "(Bình thường, ổn định)"
         } else {
-            "_(⚠️ Cảnh báo căng thẳng)_"
+            "(⚠️ Cảnh báo căng thẳng)"
         };
         let on_str = format!("{:.2}", on).replace('.', ",");
-        out.push_str(&format!("• *Liên ngân hàng O/N:* {}% {}\n", on_str, on_status));
+        out.push_str(&format!("• Liên ngân hàng O/N: {}% {}\n", on_str, on_status));
     }
 
     let mut macro_items = Vec::new();
@@ -1188,11 +1172,11 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         macro_items.push(format!("TPCP 10Y {}%", v_str));
     }
     if !macro_items.is_empty() {
-        out.push_str(&format!("• *Tỷ giá & Lãi suất:* {}\n", macro_items.join(" | ")));
+        out.push_str(&format!("• Tỷ giá & Lãi suất: {}\n", macro_items.join(" | ")));
     }
 
     // 4. DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM
-    out.push_str("\n🔥 *DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM*\n");
+    out.push_str("\n🔥 DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM\n");
     let mut ohlcv_stmt = db_scr
         .conn
         .prepare("SELECT close, volume FROM daily_ohlcv WHERE symbol=?1 ORDER BY date DESC LIMIT 2;")
@@ -1280,7 +1264,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             let sign_s = if pct >= 0.0 { "+" } else { "" };
             let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(pct));
             group_narrow.push(format!(
-                "{} ({} | {})",
+                "[{}] Giá {} ({})",
                 sym,
                 format_int_dots(c0.round() as i64),
                 pct_fmt
@@ -1289,13 +1273,13 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     }
 
     if !group_surge.is_empty() {
-        out.push_str("  ⚡ *Đột phá / Hấp thụ mạnh:*\n");
+        out.push_str("  ⚡ Đột phá / Hấp thụ mạnh:\n");
         for item in group_surge {
             let sign_s = if item.pct >= 0.0 { "+" } else { "" };
             let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
             let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
             out.push_str(&format!(
-                "    • *{}:* {} ({} | {}) — _{}_\n",
+                "    • [{}] Giá {} ({} | {}) — {}\n",
                 item.symbol,
                 format_int_dots(item.price.round() as i64),
                 pct_fmt,
@@ -1306,13 +1290,13 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     }
 
     if !group_pressure.is_empty() {
-        out.push_str("  📉 *Áp lực điều chỉnh:*\n");
+        out.push_str("  📉 Áp lực điều chỉnh:\n");
         for item in group_pressure {
             let sign_s = if item.pct >= 0.0 { "+" } else { "" };
             let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
             let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
             out.push_str(&format!(
-                "    • *{}:* {} ({} | {}) — _{}_\n",
+                "    • [{}] Giá {} ({} | {}) — {}\n",
                 item.symbol,
                 format_int_dots(item.price.round() as i64),
                 pct_fmt,
@@ -1324,42 +1308,42 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
 
     if !group_narrow.is_empty() {
         out.push_str(&format!(
-            "  💤 *Tích lũy hẹp:* {}\n",
+            "  💤 Tích lũy hẹp: {}\n",
             group_narrow.join(", ")
         ));
     }
 
     // 5. PHÁN QUYẾT & HÀNH ĐỘNG
-    out.push_str("\n🛑 *PHÁN QUYẾT & HÀNH ĐỘNG*\n");
+    out.push_str("\n🛑 PHÁN QUYẾT & HÀNH ĐỘNG\n");
     if entry_lock || reg_status == "CRISIS" || reg_score < 0.40 {
-        out.push_str("🔒 *TRẠNG THÁI:* *ENTRY_LOCK = ON* (100% TIỀN MẶT)\n");
-        out.push_str("1️⃣ *Mua mới:* TUYỆT ĐỐI KHÓA LỆNH. Không bắt đáy khi thị trường ở vùng CRISIS.\n");
-        out.push_str("2️⃣ *Danh mục cũ:* Đưa tài khoản về phòng thủ tối đa, hạ margin về 0%.\n");
+        out.push_str("🔒 TRẠNG THÁI: ENTRY_LOCK = ON (100% TIỀN MẶT)\n");
+        out.push_str("1️⃣ Mua mới: TUYỆT ĐỐI KHÓA LỆNH. Không bắt đáy khi thị trường ở vùng CRISIS.\n");
+        out.push_str("2️⃣ Danh mục cũ: Đưa tài khoản về phòng thủ tối đa, hạ margin về 0%.\n");
         let support_level: f64 = ((vni_c0 * 0.99 / 10.0) as f64).floor() * 10.0;
         out.push_str(&format!(
-            "3️⃣ *Ngưỡng rủi ro:* Canh mốc hỗ trợ tâm lý *{}*. Thủng mốc này tiếp tục đứng ngoài.\n",
+            "3️⃣ Ngưỡng rủi ro: Canh mốc hỗ trợ tâm lý {}. Thủng mốc này tiếp tục đứng ngoài.\n",
             format_int_dots(support_level.round() as i64)
         ));
     } else if reg_score < 0.60 || reg_status == "RANGING" {
-        out.push_str("⚠️ *TRẠNG THÁI:* *PHÂN HÓA / THĂM DÒ* (TỶ TRỌNG 30-50%)\n");
-        out.push_str("1️⃣ *Mua mới:* Thăm dò từng phần (10-20%) tại hỗ trợ cứng với mã có cầu đỡ; không mua đuổi giá xanh.\n");
-        out.push_str("2️⃣ *Danh mục cũ:* Duy trì sức mua 50-70% tiền mặt; chủ động chốt lời khi chạm cản trên.\n");
+        out.push_str("⚠️ TRẠNG THÁI: PHÂN HÓA / THĂM DÒ (TỶ TRỌNG 30-50%)\n");
+        out.push_str("1️⃣ Mua mới: Thăm dò từng phần (10-20%) tại hỗ trợ cứng với mã có cầu đỡ; không mua đuổi giá xanh.\n");
+        out.push_str("2️⃣ Danh mục cũ: Duy trì sức mua 50-70% tiền mặt; chủ động chốt lời khi chạm cản trên.\n");
         out.push_str(&format!(
-            "3️⃣ *Ngưỡng rủi ro:* Hỗ trợ VN-Index tại *{}*. Vi phạm ngưỡng dừng lỗ 5-7% phải hạ ngay.\n",
+            "3️⃣ Ngưỡng rủi ro: Hỗ trợ VN-Index tại {}. Vi phạm ngưỡng dừng lỗ 5-7% phải hạ ngay.\n",
             format_number_vnd(vni_c1)
         ));
     } else {
-        out.push_str("✅ *TRẠNG THÁI:* *THỊ TRƯỜNG THUẬN LỢI* (TỶ TRỌNG 70-80%)\n");
-        out.push_str("1️⃣ *Mua mới:* Mở vị thế theo tín hiệu breakout / pullback trên cổ phiếu dẫn dắt.\n");
-        out.push_str("2️⃣ *Danh mục cũ:* Nâng trailing stop để khóa lãi; tập trung danh mục vào các mã khỏe hơn chỉ số.\n");
+        out.push_str("✅ TRẠNG THÁI: THỊ TRƯỜNG THUẬN LỢI (TỶ TRỌNG 70-80%)\n");
+        out.push_str("1️⃣ Mua mới: Mở vị thế theo tín hiệu breakout / pullback trên cổ phiếu dẫn dắt.\n");
+        out.push_str("2️⃣ Danh mục cũ: Nâng trailing stop để khóa lãi; tập trung danh mục vào các mã khỏe hơn chỉ số.\n");
         out.push_str(&format!(
-            "3️⃣ *Ngưỡng rủi ro:* Hỗ trợ MA10/MA20 tại *{}*. Vi phạm xu hướng ngắn hạn thì hạ tỷ trọng.\n",
+            "3️⃣ Ngưỡng rủi ro: Hỗ trợ MA10/MA20 tại {}. Vi phạm xu hướng ngắn hạn thì hạ tỷ trọng.\n",
             format_number_vnd(vni_c1)
         ));
     }
 
     out.push_str("────────────────────────\n");
-    out.push_str(&format!("⏱️ _Tổng hợp trong {:.2?}_", t_start.elapsed()));
+    out.push_str(&format!("⏱️ Tổng hợp trong {:.2?}", t_start.elapsed()));
 
     Ok(out)
 }
@@ -1673,7 +1657,7 @@ fn main() {
         "boot" => match CdpClient::ensure_zalo_cdp() {
             Ok(_) => {
                 ensure_watch_daemons_running();
-                println!("✅ Zalo CDP (58721) & Daemons (minh_chung + minh_tam) sẵn sàng.");
+                println!("✅ Zalo CDP (58721) & Daemon Minh Chứng sẵn sàng.");
             }
             Err(e) => eprintln!("❌ {}", e),
         },
