@@ -30,9 +30,12 @@ class InMemoryDB:
                 build_historical_snapshot(date)
     """
 
-    def __init__(self, start_date: str, end_date: str):
+    def __init__(self, start_date: str, end_date: str, exclude_degraded: bool = False):
+        """`exclude_degraded=False` (MẶC ĐỊNH — quyết định 2026-10-19): bản sao in-memory giữ cả phiên
+        suy giảm để tái lập baseline lịch sử; `True` = chỉ phiên sạch (phân tích độ nhạy)."""
         self._conn = sqlite3.connect(":memory:")
         self._conn.execute("PRAGMA busy_timeout=5000;")
+        self._exclude_degraded = exclude_degraded
         self._load_data(start_date, end_date)
         self._create_indexes()
 
@@ -50,9 +53,14 @@ class InMemoryDB:
 
         # Also load regime_history for flow_forecast
         try:
+            from src.database.series_quality import regime_reader_sql
+
             with _disk_conn() as disk:
                 df = pd.read_sql(
-                    "SELECT * FROM regime_history WHERE date >= ? AND date <= ?", disk, params=(start_date, end_date)
+                    "SELECT * FROM regime_history WHERE date >= ? AND date <= ?"
+                    + regime_reader_sql(getattr(self, "_exclude_degraded", False)),
+                    disk,
+                    params=(start_date, end_date),
                 )
             if not df.empty:
                 df.to_sql("regime_history", self._conn, if_exists="replace", index=False)

@@ -64,6 +64,19 @@ def breadth_degraded_flag(conn: sqlite3.Connection | None, date_str: str) -> int
             c.close()
 
 
+def regime_reader_sql(exclude_degraded: bool = False) -> str:
+    """Vị từ ghép cho reader `regime_history` ở **tầng backtest/nghiên cứu**.
+
+    QUYẾT ĐỊNH 2026-10-19 (user phê chuẩn): tầng live/signal **BẮT BUỘC** lọc 100% (`LIVE_REGIME_SQL`);
+    tầng backtest/replay **KHÔNG lọc cứng mặc định** để bảo toàn tính tái lập của các nghiên cứu lịch
+    sử đã công bố. Muốn phân tích độ nhạy / stress-test chất lượng dữ liệu thì truyền
+    `exclude_degraded=True`.
+
+    Trả về chuỗi bắt đầu bằng `" AND …"` (hoặc rỗng) để ghép thẳng sau điều kiện ngày.
+    """
+    return f" AND {LIVE_REGIME_SQL}" if exclude_degraded else ""
+
+
 # Biến số KINH TẾ bị đóng băng (hằng số) → khoá tự động: một hằng số không mang thông tin,
 # và khi ghép nhiều chuỗi như vậy vào ma trận thiết kế thì X'X suy biến (rank-deficient).
 # Đo từ store 2026-10-14: mỗi chuỗi 46 dòng, 1 giá trị duy nhất.

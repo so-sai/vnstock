@@ -48,10 +48,19 @@ def load_executes() -> list[dict]:
     return out
 
 
-def load_regimes() -> dict[str, str]:
+def load_regimes(exclude_degraded: bool = False) -> dict[str, str]:
+    """Nạp nhãn regime để giải phẫu replay theo regime.
+
+    MẶC ĐỊNH giữ cả phiên suy giảm (`exclude_degraded=False`) để tái lập các kết quả nghiên cứu
+    lịch sử đã công bố; `True` chỉ dùng khi phân tích độ nhạy (quyết định 2026-10-19).
+    """
+    from src.database.series_quality import regime_reader_sql
+
     c = sqlite3.connect(str(DATA_DIR / "screener_cache.db"))
     try:
-        rows = c.execute("SELECT date, status FROM regime_history").fetchall()
+        rows = c.execute(
+            f"SELECT date, status FROM regime_history WHERE 1 = 1{regime_reader_sql(exclude_degraded)}"
+        ).fetchall()
         return {r[0]: r[1] for r in rows}
     finally:
         c.close()

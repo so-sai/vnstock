@@ -94,9 +94,20 @@ def _panel(field: str, start: str, end: str) -> pd.DataFrame:
     return df.pivot_table(index="date", columns="symbol", values="v", aggfunc="last").sort_index()
 
 
-def load_regime(start: str, end: str) -> dict[str, str]:
+def load_regime(start: str, end: str, exclude_degraded: bool = False) -> dict[str, str]:
+    """Nạp nhãn regime cho cửa sổ backtest.
+
+    `exclude_degraded=False` (MẶC ĐỊNH — quyết định 2026-10-19): giữ cả phiên suy giảm để **tái lập
+    chính xác** baseline lịch sử đã công bố. `True`: chỉ phiên `is_degraded = 0` — dùng cho phân tích
+    độ nhạy / stress-test chất lượng dữ liệu. Tầng live KHÔNG dùng hàm này (live lọc cứng 100%).
+    """
+    from src.database.series_quality import regime_reader_sql
+
     con = sqlite3.connect(str(DB))
-    rows = con.execute("SELECT date, status FROM regime_history WHERE date BETWEEN ? AND ?", (start, end)).fetchall()
+    rows = con.execute(
+        f"SELECT date, status FROM regime_history WHERE date BETWEEN ? AND ?{regime_reader_sql(exclude_degraded)}",
+        (start, end),
+    ).fetchall()
     con.close()
     return {d: s for d, s in rows}
 
