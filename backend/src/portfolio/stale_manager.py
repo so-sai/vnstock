@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from src.portfolio.system_state import is_locked as _is_locked
 from src.portfolio.system_state import lock as _lock_state
 from src.portfolio.system_state import unlock as _unlock_state
 from src.portfolio.system_state import update_escrow
@@ -307,5 +308,10 @@ class StalePositionManager:
             "ptd_frozen_surplus": self.ptd_frozen_surplus,
             "ptd_releasable": self.ptd_releasable,
             "hard_shutdown": self.hard_shutdown,
-            "critical_lock": self.hard_shutdown,
+            # [WHY] `critical_lock` là ENTRY_LOCK BỀN (`system_state.json:portfolio_critical_lock`),
+            # KHÔNG phải `hard_shutdown` (biến runtime của manager). Bản cũ gán
+            # `critical_lock = self.hard_shutdown` ⇒ đo 2026-10-19: file ghi `True` nhưng
+            # `ptck.py stale status` vẫn in "Critical Lock: False" ⇒ công cụ kiểm tra NÓI DỐI, tệ hơn
+            # không có công cụ. Thiếu/hỏng state file ⇒ `is_locked()` trả True (fail-closed) ✓.
+            "critical_lock": _is_locked(),
         }
