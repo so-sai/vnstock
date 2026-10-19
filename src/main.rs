@@ -992,13 +992,12 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
 
 pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     let screener_path = resolve_db_path("screener_cache.db");
-    let facts_path = resolve_db_path("financial_facts.db");
     let db_scr = Db::open(&screener_path)?;
-    let db_fin = Db::open_readonly(&facts_path)?;
 
     let mut out = String::new();
     out.push_str(&format!("📈 [Minh Chứng] {}\n", mode_title));
 
+    // 1. VN-INDEX
     let mut vni_date = String::new();
     let mut vni_c0 = 0.0;
     let mut vni_c1 = 0.0;
@@ -1027,7 +1026,8 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     };
     let sign = if vni_diff >= 0.0 { "+" } else { "" };
 
-    let mut reg_status = String::new();
+    // 2. Market Regime & Governor Decision
+    let mut reg_status = String::from("CRISIS");
     let mut reg_score = 0.0;
     let mut breadth = 0.0;
     if let Ok(mut stmt) = db_scr.conn.prepare(
@@ -1035,12 +1035,29 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     ) {
         if let Ok(mut rows) = stmt.query([]) {
             if let Ok(Some(row)) = rows.next() {
-                reg_status = row.get(0).unwrap_or_default();
+                reg_status = row.get(0).unwrap_or_else(|_| "CRISIS".to_string());
                 reg_score = row.get(1).unwrap_or(0.0);
                 breadth = row.get(2).unwrap_or(0.0);
             }
         }
     }
+
+    // Check governor_decision.json for entry_lock
+    let mut entry_lock = reg_status == "CRISIS" || reg_score < 0.40;
+    let govr_path = resolve_project_root().join("backend").join("data").join("governor_decision.json");
+    if let Ok(content) = std::fs::read_to_string(&govr_path) {
+        if content.contains("\"entry_lock\": true") || content.contains("\"entry_lock\":true") {
+            entry_lock = true;
+        }
+    }
+
+    let regime_risk_label = if reg_status == "CRISIS" || reg_score < 0.40 {
+        "Rủi ro cao"
+    } else if reg_score < 0.60 {
+        "Phân hóa"
+    } else {
+        "Thuận lợi"
+    };
 
     out.push_str(&format!(
         "• VN-INDEX ({}): {:.2} ({}{:.2} điểm | {}{:.2}%) | KL: {:.1}M cp\n",
@@ -1053,11 +1070,17 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         vni_vol / 1_000_000.0
     ));
     out.push_str(&format!(
-        "• Market Regime: {} (Score: {:.2} | Độ rộng >MA20: {:.1}%)\n",
-        reg_status, reg_score, breadth
+        "• Market Regime: {} (Score: {:.2} | Độ rộng >MA20: {:.1}% - {})\n",
+        reg_status, reg_score, breadth, regime_risk_label
     ));
 
-    let mut macro_items = Vec::new();
+    // 3. Vĩ mô với tính từ chỉ trạng thái rõ ràng
+    let mut fed_rate = None;
+    let mut us10y = None;
+    let mut dxy = None;
+    let mut interbank_on = None;
+    let mut vgb10y = None;
+
     if let Ok(mut m_stmt) = db_scr.conn.prepare(
         "SELECT value FROM macro_history WHERE variable=?1 ORDER BY date DESC LIMIT 1;",
     ) {
@@ -1065,40 +1088,91 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             if let Ok(mut rows) = m_stmt.query(params![var]) {
                 if let Ok(Some(row)) = rows.next() {
                     let val: f64 = row.get(0).unwrap_or(0.0);
-                    let label = match var {
-                        "FED_TARGET_RATE" => format!("Fed {:.2}%", val),
-                        "US10Y" => format!("US10Y {:.2}%", val),
-                        "DXY" => format!("DXY {:.2}", val),
-                        "INTERBANK_ON" => format!("Liên NH O/N {:.2}%", val),
-                        "VGB10Y" => format!("TPCP 10Y {:.2}%", val),
-                        _ => format!("{} {:.2}", var, val),
-                    };
-                    macro_items.push(label);
+                    match var {
+                        "FED_TARGET_RATE" => fed_rate = Some(val),
+                        "US10Y" => us10y = Some(val),
+                        "DXY" => dxy = Some(val),
+                        "INTERBANK_ON" => interbank_on = Some(val),
+                        "VGB10Y" => vgb10y = Some(val),
+                        _ => {}
+                    }
                 }
             }
         }
     }
-    if !macro_items.is_empty() {
-        out.push_str(&format!("• Vĩ mô: {}\n", macro_items.join(" | ")));
+
+    out.push_str("• Trạng thái Vĩ mô:\n");
+    if let Some(on) = interbank_on {
+        let on_status = if on < 4.0 {
+            "Dồi dào, hệ thống ổn định"
+        } else if on < 5.0 {
+            "Bình thường, chưa căng thẳng"
+        } else {
+            "⚠️ Cảnh báo căng thẳng thanh khoản"
+        };
+        out.push_str(&format!("  - Liên NH O/N: {:.2}% ({})\n", on, on_status));
     }
 
-    out.push_str("── DANH MỤC THEO DÕI TRỌNG ĐIỂM ──\n");
+    let mut row2 = Vec::new();
+    if let Some(d) = dxy {
+        let d_status = if d < 102.0 {
+            "Áp lực tỷ giá hạ nhiệt"
+        } else if d <= 104.0 {
+            "Áp lực vừa phải"
+        } else {
+            "Áp lực tỷ giá cao"
+        };
+        row2.push(format!("DXY {:.2} ({})", d, d_status));
+    }
+    if let Some(u) = us10y {
+        let u_status = if u < 4.2 {
+            "Ổn định"
+        } else if u <= 4.7 {
+            "Neo cao"
+        } else {
+            "Gây áp lực định giá"
+        };
+        row2.push(format!("US10Y {:.2}% ({})", u, u_status));
+    }
+    if !row2.is_empty() {
+        out.push_str(&format!("  - {}\n", row2.join(" | ")));
+    }
+
+    let mut row3 = Vec::new();
+    if let Some(f) = fed_rate {
+        row3.push(format!("Fed {:.2}%", f));
+    }
+    if let Some(v) = vgb10y {
+        row3.push(format!("TPCP 10Y {:.2}%", v));
+    }
+    if !row3.is_empty() {
+        out.push_str(&format!("  - {}\n", row3.join(" | ")));
+    }
+
+    // 4. Phân loại danh mục trọng điểm (Loại bỏ Data Dump, phân nhóm động)
+    out.push_str("── DIỄN BIẾN DANH MỤC TRỌNG ĐIỂM ──\n");
     let mut ohlcv_stmt = db_scr
         .conn
         .prepare("SELECT close, volume FROM daily_ohlcv WHERE symbol=?1 ORDER BY date DESC LIMIT 2;")
         .map_err(|e| e.to_string())?;
 
-    let mut fin_stmt = db_fin
-        .conn
-        .prepare(
-            "SELECT metric, value FROM financial_facts WHERE symbol=?1 AND period=(SELECT period FROM financial_facts WHERE symbol=?1 ORDER BY period DESC LIMIT 1) AND metric IN ('EPS','BOOK_VALUE_PS','ROE');",
-        )
-        .map_err(|e| e.to_string())?;
+    struct SymDetail {
+        symbol: &'static str,
+        price: f64,
+        pct: f64,
+        vol: f64,
+        note: String,
+    }
+
+    let mut group_active: Vec<SymDetail> = Vec::new();
+    let mut group_sideways: Vec<String> = Vec::new();
 
     for &sym in &["SHB", "FPT", "PNJ", "MBB", "TCB", "VCB", "ACB", "HPG"] {
         let mut c0 = 0.0;
         let mut c1 = 0.0;
         let mut v0 = 0.0;
+        let mut v1 = 0.0;
+
         if let Ok(mut rows) = ohlcv_stmt.query(params![sym]) {
             if let Ok(Some(row)) = rows.next() {
                 c0 = row.get(0).unwrap_or(0.0);
@@ -1106,54 +1180,106 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             }
             if let Ok(Some(row)) = rows.next() {
                 c1 = row.get(0).unwrap_or(0.0);
+                v1 = row.get(1).unwrap_or(0.0);
             }
         }
         if c0 <= 0.0 {
             continue;
         }
-        let pct_s = if c1 > 0.0 { ((c0 - c1) / c1) * 100.0 } else { 0.0 };
-        let sign_s = if pct_s >= 0.0 { "+" } else { "" };
 
-        let mut eps = 0.0;
-        let mut bvps = 0.0;
-        let mut roe = 0.0;
-        if let Ok(mut rows) = fin_stmt.query(params![sym]) {
-            while let Ok(Some(row)) = rows.next() {
-                let m: String = row.get(0).unwrap_or_default();
-                let v: f64 = row.get(1).unwrap_or(0.0);
-                match m.as_str() {
-                    "EPS" => eps = v,
-                    "BOOK_VALUE_PS" => bvps = v,
-                    "ROE" => roe = v,
-                    _ => {}
-                }
-            }
+        let pct: f64 = if c1 > 0.0 { ((c0 - c1) / c1) * 100.0 } else { 0.0 };
+        let vol_ratio: f64 = if v1 > 0.0 { v0 / v1 } else { 1.0 };
+        let sign_s = if pct >= 0.0 { "+" } else { "" };
+
+        // Phân loại: Biến động mạnh (|pct| >= 1.5% HOẶC vol_ratio >= 1.4 HOẶC v0 >= 25M cp)
+        let is_active = pct.abs() >= 1.5 || vol_ratio >= 1.4 || v0 >= 25_000_000.0;
+
+        if is_active {
+            let note = if pct >= 2.0 {
+                "Dòng tiền bứt phá mạnh mẽ".to_string()
+            } else if pct > 0.0 && vol_ratio >= 1.3 {
+                format!("Cầu hấp thụ chủ động, giữ sắc xanh (+{:.0}% Vol)", (vol_ratio - 1.0) * 100.0)
+            } else if v0 >= 25_000_000.0 {
+                "Thanh khoản dẫn đầu toàn thị trường".to_string()
+            } else if pct <= -2.0 {
+                "Áp lực bán mạnh, gãy nhịp ngắn hạn".to_string()
+            } else if pct <= -1.5 {
+                "Áp lực cung gia tăng, điều chỉnh kỹ thuật".to_string()
+            } else if vol_ratio >= 1.4 && pct < 0.0 {
+                "Thanh khoản tăng trong nhịp giảm (áp lực bán lớn)".to_string()
+            } else {
+                "Dao động đáng chú ý trong phiên".to_string()
+            };
+
+            group_active.push(SymDetail {
+                symbol: sym,
+                price: c0,
+                pct,
+                vol: v0,
+                note,
+            });
+        } else {
+            group_sideways.push(format!(
+                "{}: {} ({}{:.2}%)",
+                sym,
+                format_int_dots(c0.round() as i64),
+                sign_s,
+                pct
+            ));
         }
-        let pe = if eps > 0.0 { c0 / eps } else { 0.0 };
-        let pb = if bvps > 0.0 { c0 / bvps } else { 0.0 };
+    }
+
+    if !group_active.is_empty() {
+        out.push_str("• Biến động / Dòng tiền chú ý:\n");
+        for item in group_active {
+            let sign_s = if item.pct >= 0.0 { "+" } else { "" };
+            out.push_str(&format!(
+                "  - {}: {} ({}{:.2}% | {:.1}M cp) - {}\n",
+                item.symbol,
+                format_int_dots(item.price.round() as i64),
+                sign_s,
+                item.pct,
+                item.vol / 1_000_000.0,
+                item.note
+            ));
+        }
+    }
+
+    if !group_sideways.is_empty() {
         out.push_str(&format!(
-            "• {}: {} ({}{:.2}% | {:.1}M cp) | P/E {:.1}x | P/B {:.2}x | ROE {:.1}%\n",
-            sym,
-            format_int_dots(c0.round() as i64),
-            sign_s,
-            pct_s,
-            v0 / 1_000_000.0,
-            pe,
-            pb,
-            roe * 100.0
+            "• Đi ngang tích lũy / Hẹp: {} | Khối lượng duy trì mức trung bình.\n",
+            group_sideways.join(", ")
         ));
     }
 
-    out.push_str("── KHUYẾN NGHỊ CHIẾN LƯỢC (MINH CHỨNG) ──\n");
-    let vni_status = if vni_pct > 0.5 {
-        "Dòng tiền mở rộng, tâm lý thị trường hưng phấn vừa phải."
-    } else if vni_pct < -0.5 {
-        "Thị trường kiểm định cung cầu, áp lực bán tập trung cục bộ."
+    // 5. Phán quyết hệ thống & Hành động dứt khoát
+    out.push_str("── ⚡ PHÁN QUYẾT & HÀNH ĐỘNG HÔM NAY ──\n");
+    if entry_lock || reg_status == "CRISIS" || reg_score < 0.40 {
+        out.push_str("🔴 TRẠNG THÁI: KHÓA MUA MỚI (ENTRY_LOCK = ON | 100% TIỀN MẶT)\n");
+        out.push_str("• Mua mới: 🔒 KHÓA TOÀN BỘ. Tuyệt đối không bắt đáy hay mở vị thế mới khi thị trường ở Regime CRISIS (Score < 0.40).\n");
+        out.push_str("• Quản trị danh mục: Đưa tài khoản về trạng thái phòng thủ tối đa; hạ margin về 0%; ưu tiên bảo toàn vốn.\n");
+        let support_level: f64 = ((vni_c0 * 0.99 / 10.0) as f64).floor() * 10.0;
+        out.push_str(&format!(
+            "• Ngưỡng rủi ro: VN-INDEX mốc hỗ trợ tâm lý {:.0}. Nếu thủng mốc này, tiếp tục đứng ngoài quan sát, không hành động vội vã.\n",
+            support_level
+        ));
+    } else if reg_score < 0.60 || reg_status == "RANGING" {
+        out.push_str("🟡 TRẠNG THÁI: PHÂN HÓA / THĂM DÒ THẬN TRỌNG (TỶ TRỌNG 30-50%)\n");
+        out.push_str("• Mua mới: Chỉ giải ngân thăm dò từng phần (10-20%) tại hỗ trợ cứng với mã có dòng tiền đỡ; không mua đuổi giá xanh.\n");
+        out.push_str("• Quản trị danh mục: Duy trì sức mua 50-70% tiền mặt; chủ động hiện thực hóa lợi nhuận khi chạm kháng cự trên.\n");
+        out.push_str(&format!(
+            "• Ngưỡng rủi ro: VN-INDEX hỗ trợ gần tại {:.1}; tuân thủ dừng lỗ nghiêm ngặt nếu vị thế lỗ quá 5-7%.\n",
+            vni_c1
+        ));
     } else {
-        "Vận động phân hóa, tiền tìm kiếm cơ hội ở nhóm định giá an toàn."
-    };
-    out.push_str(&format!("• Đánh giá phiên: {}\n", vni_status));
-    out.push_str("• Chiến lược: Ưu tiên danh mục tỷ trọng 50-70%; tập trung mã có ROE > 16%, P/B < 1.3x; không mua đuổi khi RSI vào vùng quá mua.");
+        out.push_str("🟢 TRẠNG THÁI: THỊ TRƯỜNG THUẬN LỢI (TỶ TRỌNG 70-80%)\n");
+        out.push_str("• Mua mới: Mở vị thế theo tín hiệu bứt phá (breakout) hoặc kiểm định (pullback) trên các cổ phiếu dẫn dắt.\n");
+        out.push_str("• Quản trị danh mục: Nâng trailing stop để khóa lợi nhuận; nắm giữ nhóm cổ phiếu khỏe hơn thị trường chung.\n");
+        out.push_str(&format!(
+            "• Ngưỡng rủi ro: Hỗ trợ MA10/MA20 ({:.1}); vi phạm xu hướng ngắn hạn thì hạ tỷ trọng ngay.\n",
+            vni_c1
+        ));
+    }
 
     Ok(out.trim_end().to_string())
 }
@@ -1374,8 +1500,9 @@ fn main() {
                         if let Ok(mut cdp) = CdpClient::connect_zalo() {
                             let _ = cdp.send_message_to_my_documents(&report);
                             println!(
-                                "📨 Đã gửi báo cáo {} vào Zalo 'My Documents' (CDP: {:.2?} | Tổng: {:.2?}).",
+                                "📨 Đã gửi báo cáo {} vào Zalo '{}' (CDP: {:.2?} | Tổng: {:.2?}).",
                                 sym.to_uppercase(),
+                                TARGET_CONV_NAME,
                                 t_send.elapsed(),
                                 t0.elapsed()
                             );
@@ -1406,7 +1533,8 @@ fn main() {
                             if let Ok(mut cdp) = CdpClient::connect_zalo() {
                                 if let Ok(res) = cdp.send_message_to_my_documents(&report) {
                                     println!(
-                                        "📨 Đã đồng bộ Zalo 'My Documents' ({}) trong {:.2?}",
+                                        "📨 Đã đồng bộ Zalo '{}' ({}) trong {:.2?}",
+                                        TARGET_CONV_NAME,
                                         res,
                                         t_send.elapsed()
                                     );
@@ -1433,7 +1561,7 @@ fn main() {
             match CdpClient::connect_zalo() {
                 Ok(mut cdp) => match cdp.read_latest_message() {
                     Ok(msg) => {
-                        println!("📩 [Zalo My Documents]: {}\n⏱️ {:.2?}", msg, t0.elapsed());
+                        println!("📩 [Zalo {}]: {}\n⏱️ {:.2?}", TARGET_CONV_NAME, msg, t0.elapsed());
                     }
                     Err(e) => eprintln!("❌ Lỗi đọc Zalo: {}", e),
                 },
