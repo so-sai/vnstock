@@ -455,18 +455,24 @@ impl CdpClient {
         self.eval_js(&js)
     }
 
+    /// [WHY] Tự động chuyển hội thoại tới TARGET_CONV_NAME an toàn, kể cả khi nhóm chưa hiển thị trong top viewport gần nhất.
+    /// [ROOT CAUSE] Danh sách hội thoại trong Zalo PC là virtualized list. Khi nhóm 'Trạm Số Liệu - Minh Chứng' trôi xuống dưới
+    /// hoặc người dùng đang mở chat khác, DOM chỉ render 5-8 conv-item gần nhất. Cần kích hoạt synthetic input trên #contact-search-input để định vị nhóm.
+    /// [INVARIANT] Fail-closed: Chỉ gửi khi header thực sự khớp IS_TARGET hoặc SWITCHED thành công từ kết quả tìm kiếm; tuyệt đối không gửi nhầm nhóm khác.
     pub fn send_message_to_my_documents(&mut self, text: &str) -> Result<String, String> {
         let check_js = format!(
             r#"
             (() => {{
                 const targetLow = "{}".toLowerCase();
-                const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title, .title');
+                const h = document.querySelector('.header-title, [data-id="header-title"], .chat-title, .title, [class*="header"] [class*="title"]');
                 const hText = (h ? h.innerText : '').replace(/\u00a0/g, ' ').toLowerCase();
                 if (hText.includes(targetLow) || (hText.includes('số liệu') && hText.includes('minh chứng'))) return 'IS_TARGET';
 
-                const items = document.querySelectorAll('.conv-item');
+                const items = document.querySelectorAll('.conv-item, [class*="conv-item"], [data-id*="conv-item"], [class*="chat-item"]');
+                let foundNames = [];
                 for (const item of items) {{
                     const t = (item.innerText || '').replace(/\u00a0/g, ' ').toLowerCase();
+                    foundNames.push(t.split('\n')[0].trim());
                     if (t.includes(targetLow) || (t.includes('số liệu') && t.includes('minh chứng'))) {{
                         item.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true, cancelable: true}}));
                         item.dispatchEvent(new MouseEvent('mouseup', {{bubbles: true, cancelable: true}}));
@@ -474,14 +480,54 @@ impl CdpClient {
                         return 'SWITCHED';
                     }}
                 }}
-                return 'NOT_FOUND';
+                // Nếu chưa thấy trong danh sách hiện tại, dùng ô tìm kiếm Zalo (#contact-search-input)
+                const searchInput = document.querySelector('#contact-search-input');
+                if (searchInput) {{
+                    searchInput.focus();
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                    if (nativeSetter) {{
+                        nativeSetter.call(searchInput, 'Trạm Số Liệu');
+                    }} else {{
+                        searchInput.value = 'Trạm Số Liệu';
+                    }}
+                    searchInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    searchInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    return 'SEARCHING';
+                }}
+
+                return 'NOT_FOUND: current_header="' + hText + '", conv_items=[' + foundNames.filter(x => x.length > 0).slice(0, 8).join(', ') + ']';
             }})()
             "#,
             TARGET_CONV_NAME
         );
-        let check = self.eval_js(&check_js).unwrap_or_default();
+        let mut check = self.eval_js(&check_js).unwrap_or_default();
+        if check == "SEARCHING" {
+            thread::sleep(Duration::from_millis(350));
+            let pick_js = r#"
+            (() => {
+                const results = document.querySelectorAll('.search-item, [class*="search-result"], [class*="item-search"], .conv-item, [class*="conv-item"], [data-id*="search"]');
+                let foundTexts = [];
+                for (const item of results) {
+                    const t = (item.innerText || '').replace(/\u00a0/g, ' ').toLowerCase();
+                    foundTexts.push(t.split('\n')[0].trim());
+                    if (t.includes('số liệu') || t.includes('minh chứng')) {
+                        item.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}));
+                        item.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true}));
+                        item.click();
+                        return 'SWITCHED';
+                    }
+                }
+                // Thoát ô tìm kiếm nếu không thấy
+                const escEv = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true });
+                document.dispatchEvent(escEv);
+                return 'SEARCH_NO_MATCH: ' + foundTexts.filter(x => x.length > 0).slice(0, 8).join(' | ');
+            })()
+            "#;
+            check = self.eval_js(pick_js).unwrap_or_default();
+        }
+
         if check != "IS_TARGET" && check != "SWITCHED" {
-            return Err(format!("Chưa mở đúng nhóm '{}'. Đã hủy gửi để bảo đảm tuyệt đối không nhầm nhóm.", TARGET_CONV_NAME));
+            return Err(format!("Chưa mở đúng nhóm '{}'. Đã hủy gửi để bảo đảm tuyệt đối không nhầm nhóm. ({})", TARGET_CONV_NAME, check));
         }
         if check == "SWITCHED" {
             thread::sleep(Duration::from_millis(150));
