@@ -263,32 +263,70 @@ def _load_metric_years(conn, symbol: str, metric: str, periods: list[str]) -> di
 # Hallucination, không để cổ phiếu lỗi cào BCTC lọt vào danh mục mua thật).
 VERIFIED_STATUS = "VERIFIED_BY_AUDITED_ANNUAL"
 MISMATCH_STATUS = "MISMATCH_FAIL_CLOSED"
-_VERIFY_YEAR = 2025
+_QUARTER_END = {1: "03-31", 2: "06-30", 3: "09-30", 4: "12-31"}
 
 
-def _annual_verification(conn, symbol: str, year: int = _VERIFY_YEAR) -> str:
-    """Trạng thái kiểm định annual của (symbol, year) — fail-closed.
+def _period_end_date(period: str) -> str | None:
+    """'2026Q2' → '2026-06-30'. Không đọc được ⇒ None (caller bỏ qua kỳ đó)."""
+    try:
+        y, q = str(period).upper().split("Q")
+        return f"{int(y):04d}-{_QUARTER_END[int(q)]}"
+    except AttributeError, ValueError, KeyError:
+        return None
 
-    - Trả VERIFIED_STATUS nếu có ≥1 metric verified và KHÔNG có metric nào MISMATCH.
-    - Trả MISMATCH_STATUS nếu tồn tại bất kỳ metric MISMATCH (veto ngay).
-    - Trả '' nếu chưa có cờ (chưa đủ 4 quý để đối chiếu) — cũng bị veto.
-    Bảng chưa tồn tại (DB chưa migrate) → '' (fail-closed, không im lặng bỏ qua).
+
+def _asof_from_periods(periods) -> str:
+    """Ngày "tính đến" suy từ `periods` = MAX ngày kết thúc kỳ. Không kỳ nào đọc được ⇒ '' (fail-closed).
+
+    [WHY] KHÔNG mặc định là "hôm nay": backtest chạy lại kỳ 2024 mà lấy hôm nay làm mốc sẽ thấy BCTC
+    công bố sau đó (look-ahead im lặng). Live-run cũng đúng vì kỳ mới nhất đã báo cáo ≤ hôm nay.
     """
+    ends = [d for d in (_period_end_date(p) for p in (periods or [])) if d]
+    return max(ends) if ends else ""
+
+
+def _annual_verification(conn, symbol: str, target_date: str | None = None, periods=None) -> str:
+    """Trạng thái kiểm định annual **tính đến `target_date`** — strictly point-in-time, fail-closed.
+
+    [WHY] Bản cũ dùng hằng số tay `_VERIFY_YEAR = 2025` ⇒ (a) backtest look-ahead (kỳ 2021 vẫn đọc cờ
+    FY2025), (b) "veto ngầm" khi sang năm tài chính mới vì không ai bump hằng số ⇒ mọi mã trả ''. Nay
+    chỉ dùng `effective_date <= target_date` (Hạng mục C gán cột này cho 28.730 dòng).
+
+    [ROOT CAUSE] Bảng annual trước 2026-10-19 không có cột ngày hiệu lực ⇒ consumer buộc phải dựa vào
+    một hằng số biên dịch.
+
+    [INVARIANT]
+      - Chỉ xét **năm tài chính mới nhất ĐÃ công bố** tính đến target; trong năm đó MISMATCH thắng
+        VERIFIED (giữ nguyên hợp đồng cũ).
+      - KHÔNG `LIMIT 1`: một năm có nhiều metric, lấy đại 1 dòng có thể nuốt MISMATCH ⇒ fail-open.
+      - Không xác định được mốc ngày, không có kỳ nào công bố, hoặc thiếu bảng/cột ⇒ '' (veto).
+    """
+    asof = target_date or _asof_from_periods(periods)
+    if not asof:
+        return ""
     try:
         rows = conn.execute(
-            "SELECT verification_status FROM financial_facts_annual WHERE symbol=? AND fiscal_year=?",
-            (symbol, year),
+            "SELECT fiscal_year, verification_status FROM financial_facts_annual"
+            " WHERE symbol=? AND effective_date IS NOT NULL AND effective_date <= ?"
+            " ORDER BY fiscal_year DESC",
+            (symbol, asof),
         ).fetchall()
-    except Exception:  # noqa: BLE001 - bảng thiếu/chưa migrate → fail-closed
+    except Exception:  # noqa: BLE001 - bảng/cột thiếu (DB chưa migrate) → fail-closed
         return ""
-    if any(r[0] == MISMATCH_STATUS for r in rows):
+    if not rows:
+        return ""
+    newest_year = rows[0][0]
+    year_rows = [r[1] for r in rows if r[0] == newest_year]
+    if any(s == MISMATCH_STATUS for s in year_rows):
         return MISMATCH_STATUS
-    if any(r[0] == VERIFIED_STATUS for r in rows):
+    if any(s == VERIFIED_STATUS for s in year_rows):
         return VERIFIED_STATUS
     return ""
 
 
-def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: list[str], is_steel: bool = False) -> dict:
+def tier1_buffett_quality(
+    conn, symbol: str, entity_type: str, periods: list[str], is_steel: bool = False, target_date: str | None = None
+) -> dict:
     """Tier 1: Buffett quality gate. Returns pass/fail + metrics.
 
     DUAL-BRANCH (T1-Bank refactor 2026-08-06):
@@ -328,7 +366,9 @@ def tier1_buffett_quality(conn, symbol: str, entity_type: str, periods: list[str
     # Audit Verification Gate (Tòa án kiểm toán annual): mã chưa được đối chiếu
     # với BCTC Năm đã kiểm toán (hoặc MISMATCH) → VETO ngay tại Tầng 1.
     # WHY (Zero-Hallucination): không để cổ phiếu lỗi cào BCTC lọt vào danh mục mua.
-    verification = _annual_verification(conn, symbol)
+    # PIT 2026-10-19: gate chạy theo NGÀY HIỆU LỰC của BCTC năm, không theo hằng số năm biên dịch.
+    # `target_date=None` ⇒ suy từ `periods` (max ngày kết thúc kỳ) — backtest không thể look-ahead.
+    verification = _annual_verification(conn, symbol, target_date=target_date, periods=periods)
     result["verification_status"] = verification
     if verification != VERIFIED_STATUS:
         result["reasons"].append(f"VETO_UNVERIFIED_DATA: {verification or 'NO_AUDIT_FLAG'}")

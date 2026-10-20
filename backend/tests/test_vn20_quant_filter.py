@@ -30,18 +30,28 @@ def make_conn():
     conn.execute(
         "CREATE TABLE financial_facts_annual ("
         "symbol TEXT, fiscal_year INTEGER, statement_type TEXT, metric TEXT, value REAL, "
-        "source TEXT DEFAULT 'audited_staging', verification_status TEXT DEFAULT '')"
+        "source TEXT DEFAULT 'audited_staging', verification_status TEXT DEFAULT '',"
+        " effective_date TEXT, effective_date_basis TEXT)"
     )
     return conn
 
 
 def seed_verified(conn, symbol, year=2025):
-    """Gắn cờ VERIFIED_BY_AUDITED_ANNUAL cho (symbol, year) — vượt Audit Gate Tầng 1."""
+    """Gắn cờ VERIFIED_BY_AUDITED_ANNUAL cho (symbol, year) — vượt Audit Gate Tầng 1.
+
+    [WHY] Từ 2026-10-19 gate là PIT (`effective_date <= target_date`), nên fixture phải mang
+    `effective_date` như DB đã migrate — nếu để NULL thì mã bị veto oan và test Buffett sai lý do.
+    Ngày = 31/12 + 90 ngày (TT96/2020), cùng luật với `migrate_annual_effective_date.py`.
+    """
+    from datetime import date, timedelta
+
+    eff = (date(year, 12, 31) + timedelta(days=90)).isoformat()
     for metric in ("REVENUE", "NET_INCOME", "TOTAL_EQUITY"):
         conn.execute(
-            "INSERT INTO financial_facts_annual (symbol, fiscal_year, statement_type, metric, value, verification_status) "
-            "VALUES (?,?,?,?,1,?)",
-            (symbol, year, "IS", metric, vf.VERIFIED_STATUS),
+            "INSERT INTO financial_facts_annual (symbol, fiscal_year, statement_type, metric, value,"
+            " verification_status, effective_date, effective_date_basis)"
+            " VALUES (?,?,?,?,1,?,?,'STATUTORY_LAG')",
+            (symbol, year, "IS", metric, vf.VERIFIED_STATUS, eff),
         )
 
 
@@ -824,8 +834,9 @@ class TestTier1VerificationGate:
         conn = make_conn()
         self._seed_good_standard(conn, "BADAU")
         conn.execute(
-            "INSERT INTO financial_facts_annual (symbol, fiscal_year, statement_type, metric, value, verification_status) "
-            "VALUES ('BADAU', 2025, 'IS', 'REVENUE', 1, ?)",
+            "INSERT INTO financial_facts_annual (symbol, fiscal_year, statement_type, metric, value,"
+            " verification_status, effective_date, effective_date_basis)"
+            " VALUES ('BADAU', 2025, 'IS', 'REVENUE', 1, ?, '2026-03-31', 'STATUTORY_LAG')",
             (vf.MISMATCH_STATUS,),
         )
         r = vf.tier1_buffett_quality(conn, "BADAU", "STANDARD", vf._periods_n_years("2026Q2", 3))
