@@ -7652,6 +7652,33 @@ def _freshness_gate(command: str, args) -> None:
         sys.exit(EXIT_CODE_STALE)
 
 
+def _boot_lock_gate() -> None:
+    """Siết lại ENTRY_LOCK ngay khi có tiến trình chạm hệ thống (bù khi cron 07:00 bị lỡ).
+
+    [WHY] Cron của Hermes Desktop là **in-process**: app đóng lúc 07:00 ⇒ job bị bỏ qua, chỉ chạy bù lúc
+    mở app (đo 2026-10-20: `ptck-assert-lock-0700` hẹn 07:00, chạy thật **11:43** — sau ATO 09:00). Cổng
+    này bảo đảm mọi lần chạm (CLI, pipeline EOD) đều đọc regime và siết khoá nếu vẫn CRISIS.
+    KHÔNG BAO GIỜ mở khoá — việc mở thuộc `stale_manager`.
+    """
+    import os
+    import sqlite3
+
+    try:
+        from src.portfolio.boot_lock import enforce_boot_lock
+
+        db = os.environ.get("PTCK_SCREENER_DB") or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
+        conn = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+        try:
+            action = enforce_boot_lock(conn)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 - cổng bảo vệ không được làm sập mọi lệnh CLI
+        print(f"[BOOT_LOCK] CẢNH BÁO không chạy được: {exc!r} (is_locked() vẫn fail-closed)", file=sys.stderr)
+        return
+    if action != "NOOP_ALREADY_LOCKED":
+        print(f"[BOOT_LOCK] {action}", file=sys.stderr)
+
+
 def main():
     global _VERBOSE_LANG
     from src.engine.startup_reminder import kiem_tra_va_nhac_nho
@@ -7661,6 +7688,7 @@ def main():
 
     parser = build_parser()
     args = parser.parse_args()
+    _boot_lock_gate()
     # Mặc định 'annotated' (song ngữ Việt-Anh) cho mọi lệnh.
     # Dùng --verbose-lang compact|full|auto để ghi đè.
     _VERBOSE_LANG = getattr(args, "verbose_lang", None) or "annotated"
