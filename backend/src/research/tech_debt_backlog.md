@@ -122,6 +122,26 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 > - Vì vậy **C trở thành điều kiện tiên quyết của B** (không phải "nice to have"), và **E chỉ gắn cờ,
 >   không sửa số** — việc sửa công thức thuộc B.
 
+> **CẬP NHẬT 2026-10-19/20 (A–E ✅ ĐÓNG SỔ; consumer PIT ✅):**
+> - **A ✅** (`1bce817`): `financial_facts` 615.528 dòng có `effective_date`/`_basis`.
+> - **E ✅** (`3f02a93`/`2515c96` + `c9c5f7e` + tầng điểm): `valuation_scores` sạch ghost (**56.055** dòng),
+>   winsorize `[p2,p98]` chỉ ở tầng z/percentile, `n_min=5`, `INSUFFICIENT_HISTORY` (13.348 dòng),
+>   `EXTREME_ROE_ANOMALY`, EV/EBITDA `is_clean_metric=1` = **0**.
+> - **B ✅**: recompute PIT sau khi vá 4 raw query trong `valuation_engine.py` (`c1df061`).
+> - **C ✅ — `financial_facts_annual` (commit `d6e526e`)**: **28.730/28.730** dòng có
+>   `effective_date` + `effective_date_basis='STATUTORY_LAG'`; công thức `31/12 + 90 ngày` **tái dùng
+>   `LAG_DAYS` của migration quý** ⇒ năm nhuận ra **30/03** (7.514 dòng: FY2011/2015/2019/2023), năm
+>   thường 31/03. Kiểm chứng độc lập: 0 NULL · 0 sai định dạng · 0 dòng `effective_date ≤ period_end` ·
+>   idempotent. Backup `financial_facts.db.bak_annual_effdate_20261019_165032`.
+> - **Consumer PIT ✅ (commit `e1675a4`)**: `vn20_quant_filter._annual_verification` bỏ hằng số tay
+>   `_VERIFY_YEAR = 2025`, chuyển sang `effective_date <= target_date`, chỉ xét **năm mới nhất đã công
+>   bố** và aggregate cả năm (MISMATCH thắng — **không `LIMIT 1`**: lấy đại 1 metric có thể nuốt veto).
+>   Đo trên kho thật: luật cũ 79 mã VERIFIED / luật mới 79 mã ⇒ **0 flip**, look-ahead biến mất.
+> - **Wire `target_date` (2026-10-20)**: `run_vn20_filter(target_date=)` → `_latest_period(asof=)` →
+>   `periods` → `tier1_buffett_quality` → annual gate; `_liquid_universe(asof=)`; CLI `ptck.py vn20 --date`.
+>   Bằng chứng trên kho thật: `asof=2022-06-30 → periods_last=2022Q1`, `asof=2024-08-13 → 2024Q1`
+>   (Q2/2024 công bố 14/08), live → `2026Q3`.
+
 - **WHAT:** ~~nạp báo cáo tài chính theo quý kèm ngày công bố~~ → **hoàn thiện provenance PIT cho kho đã có**
   (A–E ở trên), rồi mới tính tới việc dùng nó làm bộ lọc.
 - **WHY:** (câu gốc 2026-10-15 — **đã tự sửa**): *"store có 43 bảng và không có bảng BCTC"* chỉ đúng với
@@ -350,6 +370,35 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
     (script `from database...`/`from src.database...` cần `backend` trên sys.path).
 
 ---
+
+## 10. Tách đôi cờ khoá vốn: `data_stale_lock` vs `governor_regime_lock`
+
+- **WHAT:** `system_state.json` hiện chỉ có **một** cờ `portfolio_critical_lock`, đang gánh hai vai khác nhau:
+  (a) *khoá do dữ liệu* — `stale_manager._writeoff` gọi `_unlock_state()` khi stale% dưới ngưỡng
+  (`stale_manager.py:154-156`); (b) *khoá do chính sách* — chính sách 100% tiền mặt / regime CRISIS.
+- **WHY:** một cờ hai vai thì không kiểm toán được: khi khoá bị gỡ, không biết cơ chế nào gỡ; khi re-assert
+  (`ptck_assert_lock.sh`, cron 07:00 hằng ngày, `reason='DAILY_GOVERNOR_CRISIS_OVERLAY'`) không phân biệt
+  được với khoá dữ liệu. Đây là lớp bảo vệ tiền nên phải tường minh.
+- **ĐỀ XUẤT:** hai cờ độc lập — `data_stale_lock` (engine dữ liệu tự set/clear) + `governor_regime_lock`
+  (chính sách, chỉ người/job chính sách set/clear). `is_locked()` = OR hai cờ; `status()` in cả hai + lý do.
+  Ngưỡng khoá dữ liệu giữ nguyên; `ENTRY_LOCK` hiệu lực = `data_stale_lock or governor_regime_lock`.
+- **HIỆN TRẠNG:** đã có lớp phủ bù (cron 07:00 `ptck-assert-lock-0700` + `lock(reason=...)`), đủ an toàn
+  cho giai đoạn hiện tại; việc tách cờ là chuẩn hoá kiến trúc, không phải sự cố.
+
+## 11. Phát hiện phụ trong phiên PIT 2026-10-19/20 (chưa xử lý)
+
+1. **`health_ratios` có kỳ 2026Q3 trước hạn công bố luật định (2026-10-30).** Đo trên kho thật: live
+   `_latest_period` = `2026Q3` với ngày công bố 30/10 (tương lai 10 ngày). `health_ratios` là chỉ số **dẫn
+   xuất** (engine tính từ `financial_facts`) nên có thể được tính từ dữ liệu chưa đủ kỳ ⇒ cần kiểm provenance
+   của writer (`company_health_engine`) xem có ghi ratios cho kỳ chưa đủ 90 ngày không. Ảnh hưởng: run live
+   dùng ratios "chưa công bố"; backtest thì **đã** an toàn nhờ `_latest_period(asof=)`.
+2. **Backtest vn20 lịch sử cho T1 = 0** (`asof=2022-06-30` và `2024-08-13`): không phải lỗi logic mà do cờ
+   `verification_status` mới chỉ tồn tại cho **FY2025** (197 dòng / 83 mã) ⇒ cổng kiểm toán annual từ chối
+   mọi kỳ trước đó (fail-closed đúng luật). Muốn backtest vn20 lịch sử phải sinh lại cờ xác minh cho các năm
+   trước (đối chiếu 4 quý vs annual) — **chưa làm**, cần GO riêng.
+3. **Nit:** `vn20_quant_filter._periods_n_years` bị **định nghĩa hai lần** (một stub rỗng ở dòng ~199, bản
+   thật ngay sau) — bản đầu là dead code; nên xoá khi có dịp. Lưu ý file này dùng cú pháp **PEP 758**
+   (`except A, B:` không ngoặc) nên **bắt buộc Python ≥ 3.14**.
 
 ## Ghi chú vận hành
 
