@@ -623,7 +623,24 @@ def cmd_vn20(args):
     """PTCK_VN20 — 4-Tier Quant Screening (Buffett x VN Governance x Cycle)."""
     from src.quant.vn20_quant_filter import run_vn20_filter
 
-    run_vn20_filter(top_n=args.top_n, verbose=not args.quiet)
+    # [WHY 2026-10-20] `--date` = chạy AS-OF ngày đó (backtest PIT): ngày đi thẳng xuống
+    # `_latest_period(asof=)`, `_liquid_universe(asof=)` và cổng kiểm toán annual. Bỏ trống ⇒ live.
+    # Kiểm định dạng ngay tại cửa vào: một typo (vd 2026-6-30) mà lọt xuống SQL sẽ so sánh chuỗi
+    # sai lặng lẽ ⇒ fail-fast exit 2.
+    target = getattr(args, "date", None)
+    if target:
+        import re
+        from datetime import datetime
+
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", target):
+            print(f"LỖI: --date phải là YYYY-MM-DD (zero-pad), nhận {target!r}")
+            raise SystemExit(2)
+        try:
+            datetime.strptime(target, "%Y-%m-%d")
+        except ValueError:
+            print(f"LỖI: --date không phải ngày có thật: {target!r}")
+            raise SystemExit(2) from None
+    run_vn20_filter(top_n=args.top_n, verbose=not args.quiet, target_date=target)
 
 
 def cmd_snapshot(args):
@@ -5867,6 +5884,12 @@ def build_parser():
         "--top-n", type=int, default=None, help="Giới hạn số mã xuất ra"
     )
     p_vn20.add_argument("--quiet", action="store_true", help="Chỉ xuất dữ liệu JSON")
+    p_vn20.add_argument(
+        "--date",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Chạy AS-OF ngày này (backtest PIT: chỉ dùng BCTC/thanh khoản đã công bố tính đến ngày đó)",
+    )
     p_vn20.set_defaults(func=cmd_vn20)
 
     # snapshot

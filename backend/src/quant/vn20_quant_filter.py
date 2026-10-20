@@ -31,9 +31,12 @@ Data sources (financial_facts.db + screener_cache.db):
   symbol_industry (sector mapping) + daily_ohlcv (sector RS)
 """
 
+import json
 import logging
+import re
 import sqlite3
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -171,29 +174,67 @@ def _screen_conn() -> sqlite3.Connection:
     return conn
 
 
-def _liquid_universe(conn, min_adv: float = ADV_20D_MIN) -> set[str]:
+def _liquid_universe(conn, min_adv: float = ADV_20D_MIN, asof: str | None = None) -> set[str]:
     """Bộ lọc thanh khoản tối thiểu: ADV_20D >= min_adv (AGENTS.md: >= 50,000 CP).
 
     WHY (Anti-Illiquid Trap 2026-08-19): NTH lọt T1/T2 nhưng thiếu chuỗi giá 52 tuần
     (small-cap kém thanh khoản) → rủi ro slippage/kẹt lệnh khi scale-in. Các engine
     khác (regime/heatmap/meanrev) đã lọc avg_vol_20d>=50k; VN20 chưa → bổ sung.
     Tính ADV_20d = trung bình khối lượng 20 phiên gần nhất (min_periods=5).
+
+    [WHY asof 2026-10-20] Thanh khoản cũng là dữ liệu TƯƠNG LAI: backtest kỳ 2022 không được lọc universe
+    bằng ADV của 2026. Có `asof` ⇒ chỉ dùng bar ≤ asof.
     """
     import pandas as _pd
 
-    df = _pd.read_sql(
-        "SELECT symbol, date, volume FROM daily_ohlcv WHERE volume IS NOT NULL ORDER BY symbol, date",
-        conn,
-    )
+    sql = "SELECT symbol, date, volume FROM daily_ohlcv WHERE volume IS NOT NULL"
+    params: tuple = ()
+    if asof:
+        sql += " AND date <= ?"
+        params = (asof,)
+    df = _pd.read_sql(sql + " ORDER BY symbol, date", conn, params=params)
     if df.empty:
         return set()
     adv = df.groupby("symbol")["volume"].rolling(20, min_periods=5).mean().groupby(level=0).last()
     return {s for s, v in adv.items() if v is not None and v >= min_adv}
 
 
-def _latest_period(conn) -> str:
-    row = conn.execute("SELECT MAX(period) FROM health_ratios WHERE period LIKE '%Q%'").fetchone()
-    return row[0] if row else ""
+# Lag công bố BCTC quý (ngày sau khi kết thúc kỳ) — mirror của
+# `migrate_financial_facts_effective_date.LAG_DAYS`; test `test_lag_khop_voi_migration_quy` canh đồng bộ.
+_QUARTER_LAG_DAYS = {1: 30, 2: 45, 3: 30, 4: 90}
+# Ngày kết thúc kỳ dùng CHUNG dict `_QUARTER_END` của cổng kiểm toán annual ('MM-DD') — không khai báo lại.
+
+
+def _quarter_published_on(period_key: str) -> str | None:
+    """'2022Q2' → '2022-08-14' = ngày BCTC quý được phép dùng. None nếu không đọc được.
+
+    [WHY] Ngày KẾT THÚC KỲ không phải ngày CÔNG BỐ: dùng ngày kết thúc kỳ là rò rỉ 30–90 ngày dữ liệu
+    chưa tồn tại. Cùng lag luật định với bảng `financial_facts`/`financial_facts_annual`.
+    """
+    try:
+        parts = str(period_key).upper().split("Q")
+        y, q = int(parts[0]), int(parts[1])
+        mmdd = _QUARTER_END[q]  # 'MM-DD' (dùng chung với annual gate)
+        m, d = int(mmdd[:2]), int(mmdd[3:])
+        return (date(y, m, d) + timedelta(days=_QUARTER_LAG_DAYS[q])).isoformat()
+    except AttributeError, ValueError, KeyError, TypeError:
+        return None
+
+
+def _latest_period(conn, asof: str | None = None) -> str:
+    """Kỳ quý MỚI NHẤT. Có `asof` ⇒ kỳ mới nhất ĐÃ CÔNG BỐ tính đến ngày đó (PIT cho backtest).
+
+    [WHY] Trước đây luôn `MAX(period)` toàn bảng ⇒ backtest kỳ 2022 vẫn nhận chỉ số của 2026. PIT ở cổng
+    kiểm toán mà đầu vào vẫn tương lai thì vô nghĩa. Không kỳ nào đã công bố ⇒ '' (fail-closed).
+    """
+    rows = [r[0] for r in conn.execute("SELECT period FROM health_ratios WHERE period LIKE '%Q%' ORDER BY period DESC")]
+    if asof is None:
+        return rows[0] if rows else ""
+    for p in rows:
+        pub = _quarter_published_on(p)
+        if pub is not None and pub <= asof:
+            return p
+    return ""
 
 
 def _periods_n_years(period: str, n: int = N_YEARS) -> list[str]:
@@ -850,19 +891,47 @@ def allocate(qualified: list[dict]) -> dict:
 # ════════════════════════════════════════════════════════════════════
 
 
-def run_vn20_filter(top_n: int | None = None, verbose: bool = True) -> dict:
-    """Run the full 4-tier pipeline over the whole market."""
+_TARGET_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_target_date(value: str) -> str:
+    """Kiểm `target_date` PHẢI là 'YYYY-MM-DD' zero-pad và có thật. Raise ValueError nếu sai.
+
+    [WHY] `datetime.strptime('2026-6-30', '%Y-%m-%d')` KHÔNG lỗi (strptime chấp nhận thiếu zero-pad),
+    nhưng cột `date`/`effective_date` là chuỗi ISO nên so sánh `<=` sẽ sai: '2026-6' > '2026-08'.
+    Một backtest truyền ngày sai dạng phải NỔ ngay, tuyệt đối không được lọc im lặng.
+    """
+    if not _TARGET_DATE_RE.match(str(value)):
+        raise ValueError(f"target_date phải là YYYY-MM-DD (zero-pad), nhận {value!r}")
+    date.fromisoformat(str(value))  # ValueError nếu ngày không tồn tại (2026-02-30)
+    return str(value)
+
+
+def run_vn20_filter(top_n: int | None = None, verbose: bool = True, target_date: str | None = None) -> dict:
+    """Run the full 4-tier pipeline over the whole market.
+
+    [WHY target_date 2026-10-20] Backtest phải chạy như thể đứng ở ngày đó: `period` chỉ lấy kỳ ĐÃ CÔNG BỐ
+    ≤ target_date, thanh khoản chỉ tính bar ≤ target_date, cổng kiểm toán annual chỉ thấy BCTC năm đã công
+    bố. `None` = live (dùng mốc mới nhất trong DB). Không truyền "hôm nay" ở đây — caller phải chủ động.
+    """
     fin = _fin_conn()
     screen = _screen_conn()
 
-    period = _latest_period(fin)
+    if target_date:
+        target_date = _validate_target_date(target_date)
+    period = _latest_period(fin, asof=target_date)
     periods = _periods_n_years(period, N_YEARS)
+    if target_date and not period:
+        logger.warning(
+            "run_vn20_filter: không có kỳ quý nào ĐÃ CÔNG BỐ tính đến %s ⇒ pipeline fail-closed (rỗng)",
+            target_date,
+        )
 
     # Universe: all symbols with health data, lọc thanh khoản tối thiểu.
     # WHY: ADV_20D >= 50k (AGENTS.md) — loại small-cap kém thanh khoản (VD NTH) khỏi
     # danh sách scale-in để tránh slippage/kẹt lệnh khi kích hoạt giải ngân.
     universe = [r["symbol"] for r in fin.execute("SELECT DISTINCT symbol FROM health_ratios ORDER BY symbol").fetchall()]
-    liquid = _liquid_universe(screen)
+    liquid = _liquid_universe(screen, asof=target_date)
     universe = [s for s in universe if s in liquid]
     # WHY: entity_type phải lấy từ entity_registry (nguồn chuẩn 4 khung) thay vì
     # health_ratios GROUP BY — health_ratios có thể lưu cả rows BANK lẫn STANDARD
@@ -891,7 +960,7 @@ def run_vn20_filter(top_n: int | None = None, verbose: bool = True) -> dict:
         entity = entity_map.get(sym, "STANDARD")
 
         # Tier 1
-        t1 = tier1_buffett_quality(fin, sym, entity, periods, is_steel=sym in steel_symbols)
+        t1 = tier1_buffett_quality(fin, sym, entity, periods, is_steel=sym in steel_symbols, target_date=target_date)
         if not t1["pass"]:
             continue
         stage_counts["T1_pass"] += 1
@@ -952,15 +1021,20 @@ def run_vn20_filter(top_n: int | None = None, verbose: bool = True) -> dict:
 
     allocation = allocate(passed_t12)
 
-    if verbose:
-        _print_report(passed_t12, allocation, stage_counts, periods)
-
-    return {
+    result = {
         "period": period,
         "stage_counts": stage_counts,
         "qualified": passed_t12,
         "allocation": allocation,
     }
+    if verbose:
+        _print_report(passed_t12, allocation, stage_counts, periods)
+    else:
+        # [WHY 2026-10-20] Help của `ptck.py vn20 --quiet` ghi "Chỉ xuất dữ liệu JSON" nhưng trước đây
+        # KHÔNG in gì ⇒ công cụ nói dối (im lặng = "không có kết quả" với người dùng, không phân biệt được
+        # với "lỗi"). JSON rỗng vẫn nói sự thật; `period` cho biết mốc dữ liệu đã dùng.
+        print(json.dumps(result, ensure_ascii=False, default=str))
+    return result
 
 
 def _print_report(qualified: list[dict], allocation: dict, stage: dict, periods: list[str]) -> None:
