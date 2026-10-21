@@ -17,8 +17,21 @@ use rusqlite::{params, Connection, OpenFlags};
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 // ============================================================================
-// 1. WINDOWS NAMED MUTEX (Wraps Complete CDP Transaction <10ms)
+// 1. WINDOWS NAMED MUTEX & TIME-GATE API
 // ============================================================================
+#[repr(C)]
+#[derive(Default, Debug, Clone, Copy)]
+pub struct SystemTimeWin32 {
+    pub w_year: u16,
+    pub w_month: u16,
+    pub w_day_of_week: u16, // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    pub w_day: u16,
+    pub w_hour: u16,
+    pub w_minute: u16,
+    pub w_second: u16,
+    pub w_milliseconds: u16,
+}
+
 #[link(name = "kernel32")]
 extern "system" {
     fn CreateMutexA(
@@ -36,6 +49,15 @@ extern "system" {
     fn ReleaseMutex(hMutex: *mut c_void) -> c_int;
     fn CloseHandle(hObject: *mut c_void) -> c_int;
     fn AttachConsole(dwProcessId: u32) -> c_int;
+    fn GetLocalTime(lpSystemTime: *mut SystemTimeWin32);
+}
+
+pub fn get_win32_local_time() -> SystemTimeWin32 {
+    let mut st = SystemTimeWin32::default();
+    unsafe {
+        GetLocalTime(&mut st);
+    }
+    st
 }
 
 #[cfg(windows)]
@@ -687,18 +709,35 @@ pub fn ensure_watch_daemons_running() {
     }
 }
 
+fn resolve_python_cmd(root: &std::path::Path) -> PathBuf {
+    let venv_py = root.join("backend").join(".venv").join("Scripts").join("python.exe");
+    if venv_py.exists() {
+        return venv_py;
+    }
+    PathBuf::from("python")
+}
+
+/// [WHY] Đồng bộ toàn diện dữ liệu đầu vào cho báo cáo đóng cửa ATC qua CLI `ptck.py` (Lãi suất, Vĩ mô và Nến EOD).
+/// [ROOT CAUSE] Nếu gọi kéo nến EOD trong phiên giao dịch (09:00 - 15:14 Thứ Hai - Thứ Sáu), dữ liệu upstream chưa chốt phiên
+/// sẽ trả về bar dở dang/sai lệch. Ngược lại, nếu chỉ chặn theo giờ mà không xét ngày trong tuần, các lần chạy bù buổi sáng (trước 09:00)
+/// hoặc cuối tuần sẽ bị chặn oan.
+/// [INVARIANT] Missing > Fake (Fail-closed): Tuyệt đối không kéo EOD trong khung giờ nhạy cảm 09:00 - 15:14 của ngày làm việc.
+/// Ngoài khung giờ này, gọi `ptck.py eod-run` với cơ chế lũy đẳng (idempotent) để bảo đảm tính trọn vẹn của nến EOD.
 pub fn run_cli_sync() -> String {
     let t0 = Instant::now();
     let root = resolve_project_root();
+    let py_bin = resolve_python_cmd(&root);
+
     println!("🔄 [CLI Pipeline] Đang đồng bộ dữ liệu Vĩ mô & Lãi suất qua `ptck.py`...");
-    let sbv_ok = Command::new("python")
+    let sbv_ok = Command::new(&py_bin)
         .creation_flags(CREATE_NO_WINDOW)
         .args(["ptck.py", "sbv-update"])
         .current_dir(&root)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
-    let macro_ok = Command::new("python")
+
+    let macro_ok = Command::new(&py_bin)
         .creation_flags(CREATE_NO_WINDOW)
         .args(["ptck.py", "fetch-macro"])
         .current_dir(&root)
@@ -706,11 +745,52 @@ pub fn run_cli_sync() -> String {
         .map(|o| o.status.success())
         .unwrap_or(false);
 
+    // Chốt chặn Time-Gate EOD (Missing > Fake):
+    // Chỉ chặn kéo EOD khi đang trong phiên giao dịch Thứ Hai - Thứ Sáu từ 09:00 đến 15:14.
+    // Ngoài khung giờ này (sau 15:15, trước 09:00 sáng, hoặc cuối tuần), cho phép gọi ptck.py eod-run.
+    let st = get_win32_local_time();
+    let is_weekday = st.w_day_of_week >= 1 && st.w_day_of_week <= 5;
+    let minutes_of_day = (st.w_hour as u32) * 60 + (st.w_minute as u32);
+    let in_intraday_session = is_weekday && (minutes_of_day >= 9 * 60 && minutes_of_day < 15 * 60 + 15);
+
+    let eod_status = if in_intraday_session {
+        println!(
+            "⏸️ [Time-Gate] Đang trong phiên giao dịch ({:02}:{:02} Thứ {}). Bỏ qua nạp EOD để bảo toàn nguyên tắc Missing > Fake.",
+            st.w_hour,
+            st.w_minute,
+            match st.w_day_of_week {
+                1 => "Hai",
+                2 => "Ba",
+                3 => "Tư",
+                4 => "Năm",
+                5 => "Sáu",
+                6 => "Bảy",
+                _ => "Chủ Nhật",
+            }
+        );
+        "⏸️ Bỏ qua (trong phiên GD)"
+    } else {
+        println!("📈 [CLI Pipeline] Đang đồng bộ dữ liệu nến EOD qua `ptck.py eod-run`...");
+        let eod_ok = Command::new(&py_bin)
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["ptck.py", "eod-run"])
+            .current_dir(&root)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if eod_ok {
+            "✅ OK"
+        } else {
+            "⚠️ Dùng bản cache"
+        }
+    };
+
     format!(
-        "🔄 [Minh Chứng - Đồng bộ CLI `ptck.py` hoàn tất trong {:.2?}]\n• Lãi suất Liên NH (`sbv-update`): {}\n• Vĩ mô & Tỷ giá (`fetch-macro`): {}",
+        "🔄 [Minh Chứng - Đồng bộ CLI `ptck.py` hoàn tất trong {:.2?}]\n• Lãi suất Liên NH (`sbv-update`): {}\n• Vĩ mô & Tỷ giá (`fetch-macro`): {}\n• Nến EOD & Vị thế (`eod-run`): {}",
         t0.elapsed(),
         if sbv_ok { "✅ OK" } else { "⚠️ Dùng bản cache" },
-        if macro_ok { "✅ OK" } else { "⚠️ Dùng bản cache" }
+        if macro_ok { "✅ OK" } else { "⚠️ Dùng bản cache" },
+        eod_status
     )
 }
 
