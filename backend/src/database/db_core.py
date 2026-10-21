@@ -32,6 +32,9 @@ def _hydrate_path():
 
 
 PROJECT_ROOT = _hydrate_path()
+# Tên VIEW sạch cho dòng ngoại — PHẢI khớp `src/database/foreign_flow.VIEW`
+# (test `test_view_name_dong_bo_voi_foreign_flow` canh đồng bộ, chống trôi giữa 2 nơi).
+FOREIGN_FLOW_VIEW = "v_market_foreign_daily"
 import src.config
 
 logger = logging.getLogger(__name__)
@@ -234,7 +237,15 @@ def optimize_sqlite_engine():
             )
         """)
 
-        # 6. TẠO BẢNG DỮ LIỆU VĨ MÔ (OMO, Interbank...)
+        # 6b. VIEW SẠCH cho dòng ngoại (P0 2026-10-21)
+        # [WHY] Bảng gốc trộn 2 thế hệ: `daily` (đơn vị tỷ đồng, đúng) và `legacy_level` (05/04→31/07/2026,
+        # scale cũ sai — 50.675 dòng cộng ra −106 triệu tỷ). `SELECT SUM(net_value)` trần KHÔNG báo lỗi.
+        # Consumer phải đọc qua view; cửa duy nhất là `src/database/foreign_flow.daily_net_value()`.
+        # Định nghĩa ở đây (init schema) để DB dựng lại từ đầu vẫn có view — auto-recovery.
+        cursor.execute(f"""
+            CREATE VIEW IF NOT EXISTS {FOREIGN_FLOW_VIEW} AS
+            SELECT * FROM market_foreign_history WHERE flow_kind = 'daily'
+        """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS macro_history (
                 variable TEXT NOT NULL,

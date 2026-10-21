@@ -26,6 +26,7 @@ import pytest
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 
+from src.database import db_core
 from src.database import foreign_flow as ff
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -126,6 +127,17 @@ def test_tripwire_do_lon_bat_kha_thi():
     c.commit()
     with pytest.raises(ValueError, match="bất khả thi"):
         ff.daily_net_value(c)
+
+
+# [WHY] Init schema phải tạo cả VIEW, nếu không DB dựng lại từ đầu sẽ mất view và `daily_net_value()`
+# ném RuntimeError (fail-closed) — đúng nhưng chặn toàn bộ phân tích dòng ngoại.
+def test_view_duoc_tao_boi_init_schema():
+    import inspect
+
+    assert db_core.FOREIGN_FLOW_VIEW == ff.VIEW  # chống trôi tên giữa 2 nơi
+    ddl = inspect.getsource(db_core.optimize_sqlite_engine)  # hàm chứa toàn bộ schema init
+    assert "CREATE VIEW IF NOT EXISTS" in ddl and "FOREIGN_FLOW_VIEW" in ddl
+    assert "flow_kind = 'daily'" in ddl
 
 
 # [WHY] Guard tĩnh: consumer TƯƠNG LAI không được lặp lại lỗi cũ. Bắt ngay ở CI thay vì chờ phát hiện
