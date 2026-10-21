@@ -506,12 +506,8 @@ impl CdpClient {
                 const searchInput = document.querySelector('#contact-search-input');
                 if (searchInput) {{
                     searchInput.focus();
-                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-                    if (nativeSetter) {{
-                        nativeSetter.call(searchInput, 'Trạm Số Liệu');
-                    }} else {{
-                        searchInput.value = 'Trạm Số Liệu';
-                    }}
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('insertText', false, 'Trạm Số Liệu');
                     searchInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
                     searchInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
                     return 'SEARCHING';
@@ -524,7 +520,7 @@ impl CdpClient {
         );
         let mut check = self.eval_js(&check_js).unwrap_or_default();
         if check == "SEARCHING" {
-            thread::sleep(Duration::from_millis(350));
+            thread::sleep(Duration::from_millis(500));
             let pick_js = r#"
             (() => {
                 const results = document.querySelectorAll('.search-item, [class*="search-result"], [class*="item-search"], .conv-item, [class*="conv-item"], [data-id*="search"]');
@@ -552,7 +548,7 @@ impl CdpClient {
             return Err(format!("Chưa mở đúng nhóm '{}'. Đã hủy gửi để bảo đảm tuyệt đối không nhầm nhóm. ({})", TARGET_CONV_NAME, check));
         }
         if check == "SWITCHED" {
-            thread::sleep(Duration::from_millis(150));
+            thread::sleep(Duration::from_millis(300));
         }
 
         let js_text = Self::json_escape(text);
