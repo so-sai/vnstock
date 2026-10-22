@@ -43,9 +43,9 @@ def isolated_state(tmp_path: Path, monkeypatch):
 def make_conn(rows=(), drop_table=False) -> sqlite3.Connection:
     c = sqlite3.connect(":memory:")
     if not drop_table:
-        c.execute("CREATE TABLE regime_history (date TEXT, regime_score REAL, status TEXT)")
+        c.execute("CREATE TABLE regime_history (date TEXT, regime_score REAL, status TEXT, is_degraded INTEGER)")
         for d, s in rows:
-            c.execute("INSERT INTO regime_history (date, regime_score, status) VALUES (?, 0.2, ?)", (d, s))
+            c.execute("INSERT INTO regime_history (date, regime_score, status, is_degraded) VALUES (?, 0.2, ?, 0)", (d, s))
         c.commit()
     return c
 
@@ -128,6 +128,27 @@ def test_thieu_file_state_thi_coi_nhu_da_khoa(tmp_path: Path, monkeypatch):
     assert bl.enforce_boot_lock(c, today="2026-10-20") == "NOOP_ALREADY_LOCKED"
     assert system_state.is_locked() is True
     assert not (tmp_path / "khong_ton_tai.json").exists()  # không ghi file chỉ vì đã fail-closed
+
+
+# [WHY] Phiên degraded KHÔNG được dùng để quyết định khoá vốn: nếu dòng mới nhất là degraded (breadth
+# không đáng tin) thì cổng phải lùi về dòng sạch gần nhất, không lấy bừa dòng mới nhất.
+def test_bo_qua_phien_degraded():
+    c = sqlite3.connect(":memory:")
+    c.execute("CREATE TABLE regime_history (date TEXT, regime_score REAL, status TEXT, is_degraded INTEGER)")
+    c.execute("INSERT INTO regime_history VALUES ('2026-10-20', 0.3, 'CRISIS', 0)")
+    c.execute("INSERT INTO regime_history VALUES ('2026-10-21', 0.6, 'RANGING', 1)")  # degraded, mới hơn
+    c.commit()
+    assert bl.latest_regime(c)[:2] == ("2026-10-20", "CRISIS")
+
+
+# [WHY] Toàn bộ dòng đều degraded ⇒ KHÔNG có mốc tin được ⇒ fail-closed (khoá), không đọc dòng bẩn.
+def test_toan_bo_degraded_thi_fail_closed():
+    c = sqlite3.connect(":memory:")
+    c.execute("CREATE TABLE regime_history (date TEXT, regime_score REAL, status TEXT, is_degraded INTEGER)")
+    c.execute("INSERT INTO regime_history VALUES ('2026-10-21', 0.6, 'RANGING', 1)")
+    c.commit()
+    assert bl.enforce_boot_lock(c, today="2026-10-22") == "LOCKED_UNKNOWN"
+    assert state()["last_lock_reason"] == bl.BOOT_UNKNOWN_REASON
 
 
 # [WHY] Biên đúng ngưỡng: 5 ngày vẫn tin, 6 ngày thì không — chốt lại ngưỡng để không ai nới lặng lẽ.

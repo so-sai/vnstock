@@ -41,7 +41,12 @@ _ACT_ALREADY = "NOOP_ALREADY_LOCKED"
 def latest_regime(conn) -> tuple[str | None, str | None, str | None]:
     """→ (date, status, lỗi). `lỗi` khác None nghĩa là KHÔNG đo được (caller phải fail-closed)."""
     try:
-        row = conn.execute("SELECT date, status FROM regime_history ORDER BY date DESC LIMIT 1").fetchone()
+        # [WHY 2026-10-22] Đọc TRÊN ĐƯỜNG TÍN HIỆU ⇒ phải loại phiên degraded (hợp đồng 2 tầng của
+        # `breadth_consumers_audit.md`): một phiên degraded có breadth/score không đáng tin, dùng nó để
+        # quyết định khoá vốn là ăn dữ liệu xấu. Nếu mọi dòng đều degraded ⇒ rỗng ⇒ fail-closed (khoá).
+        row = conn.execute(
+            "SELECT date, status FROM regime_history WHERE COALESCE(is_degraded, 0) = 0 ORDER BY date DESC LIMIT 1"
+        ).fetchone()
     except Exception as exc:  # noqa: BLE001 - bảng/cột thiếu, DB hỏng
         return None, None, f"regime_history không đọc được ({type(exc).__name__})"
     if row is None or not row[0] or not row[1]:
