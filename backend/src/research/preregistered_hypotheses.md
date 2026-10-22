@@ -96,3 +96,12 @@ muốn tiếp tục theo dõi phải **đăng ký giả thuyết mới** (không
 
 **Nguồn số liệu (provenance):** `backend/data/screener_cache.db` → `regime_history`
 (ngày 19–21/10/2026, seed EMA đã nối liền tới 20/10 sau khi vá `is_degraded`).
+
+**BẢN GHI HIỆU CHỈNH DỮ LIỆU KHỞI ĐIỂM (không đổi 4 điều kiện):**
+- Lúc đóng băng (15:43 ngày 21/10), dòng `regime_history` của 21/10 đọc được `score 0,28 · breadth 65,5`.
+- Đo lại lúc 16:0x: dòng đó đã được **tính lại** thành `score 0,27 · breadth 65,6` (`vol_score 0,20`,
+  `trend_score 0,00`, `is_degraded 0`), và tổng ngoại ngày 21/10 đã **hoàn tất** từ **+131,4 → +170,1 tỷ**
+  (snapshot 14:46 được ghi bổ sung bởi lượt sync sau ATC).
+- Vì vậy **baseline chính thức để so sánh là bản đo lại**: `0,27 / 65,6 / V 0,20 / T 0,00`.
+  4 điều kiện mở khoá và tiêu chí bác bỏ **giữ nguyên**, không nới và không siết.
+
