@@ -105,3 +105,21 @@ muốn tiếp tục theo dõi phải **đăng ký giả thuyết mới** (không
 - Vì vậy **baseline chính thức để so sánh là bản đo lại**: `0,27 / 65,6 / V 0,20 / T 0,00`.
   4 điều kiện mở khoá và tiêu chí bác bỏ **giữ nguyên**, không nới và không siết.
 
+**KẾT QUẢ ĐO PHIÊN 22/10** (EOD 867 mã; `regime_history` 2026-10-22):
+
+| # | Điều kiện | Ngưỡng | Đo được | |
+|---|---|---|---|---|
+| 1 | `regime_score` | ≥ 0,40 | **0,35** | ❌ THIẾU |
+| 2 | `breadth_pct` | ≥ 60,0 | **63,5** | ✅ ĐẠT |
+| 3 | `vol_score` | > 0,20 | **0,9228** | ✅ ĐẠT |
+| 4 | `trend_score` | > 0,00 | **0,4000** | ✅ ĐẠT |
+
+⇒ **3/4 ⇒ KỊCH BẢN B: GIỮ `ENTRY_LOCK = TRUE`, 100% tiền mặt.** Cửa sổ còn **1 phiên (23/10)**;
+nếu hết 23/10 vẫn `score < 0,40` ⇒ BÁC BỎ và đóng H theo tiêu chí đã đăng ký.
+
+**Ghi chú nhất quán dữ liệu (không đổi phán quyết):** dòng 22/10 lưu `status = 'CRISIS'` trong khi
+`regime_score = 0,35` — mà ngưỡng code là `RANGING if score >= 0,35`. Nguyên nhân: `regime_engine.py:489`
+trả `round(regime_score, 2)` (0,35) còn `status` (:371) tính trên giá trị **chưa làm tròn** (≈0,349x).
+Lệch chỉ ở biên, hướng fail-closed (CRISIS chặt hơn), nhưng cần sửa để `status` và `score` không mâu thuẫn.
+
+
