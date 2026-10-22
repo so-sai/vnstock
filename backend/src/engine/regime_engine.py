@@ -73,6 +73,25 @@ def _ll(label: str, lang_mode: str = "compact") -> str:
         return label
 
 
+# Ngưỡng phân hạng regime — MỘT nguồn sự thật cho cả engine và consumer.
+RANGING_MIN = 0.35
+TRENDING_MIN = 0.65
+
+
+def classify_regime(score: float) -> str:
+    """Phân hạng regime từ ĐÚNG giá trị score sẽ được lưu — nguồn sự thật duy nhất của `status`.
+
+    [WHY] Tách hàm để `status` và `regime_score` không thể suy từ hai giá trị khác nhau (lỗi biên
+    do làm tròn phát hiện 2026-10-22: 0,35 lưu 'CRISIS' trong khi ngưỡng RANGING là >= 0,35).
+    `CRISIS_WARNING` KHÔNG sinh ra ở đây — đó là override RPA riêng, do engine gắn sau.
+    """
+    if score > TRENDING_MIN:
+        return "TRENDING"
+    if score >= RANGING_MIN:
+        return "RANGING"
+    return "CRISIS"
+
+
 def detect_regime(target_date=None, lang_mode: str = "compact"):
     """
     Institutional Regime Engine v2.0 (Score-Based):
@@ -367,8 +386,12 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
 
     # WHY: Ngưỡng 0.65/0.35 đối xứng quanh 0.5 tạo vùng RANGING rộng (0.35-0.65) — chỉ
     # phân loại TRENDING/CRISIS khi tín hiệu đủ mạnh, tránh gọi mỗi nhiễu nhỏ là đảo chiều.
-    # Status classification applied to the ADJUSTED smoothed score
-    status = "TRENDING" if regime_score > 0.65 else "RANGING" if regime_score >= 0.35 else "CRISIS"
+    # [WHY 2026-10-22] LÀM TRÒN TRƯỚC RỒI MỚI PHÂN HẠNG: trước đây score trả về `round(…, 2)` còn
+    # status tính trên giá trị chưa làm tròn ⇒ cùng một dòng mâu thuẫn nhau ở biên (đo 22/10: score lưu
+    # 0,35 nhưng status 'CRISIS'; toàn kho 23/1469 dòng lệch ở 0,35/0,65). Nay score lưu 4 chữ số và
+    # `status` suy từ CHÍNH giá trị được lưu — một nguồn sự thật, không thể lệch.
+    regime_score = round(max(0.0, min(1.0, regime_score)), 4)
+    status = classify_regime(regime_score)
 
     # WHY: RPA cộng dồn các tín hiệu rủi ro độc lập (breadth crash, ADX surge, Asia
     # rotation, DXY stress) — mỗi tín hiệu 1 điểm, đạt ≥2 mới override CRISIS_WARNING.
@@ -486,7 +509,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
 
     verdict = {
         "date": current_date.strftime("%Y-%m-%d"),
-        "regime_score": round(regime_score, 2),
+        "regime_score": regime_score,
         "status": status,
         "regime_score_raw": round(regime_score_raw, 4),
         "ema_alpha": round(ema_alpha, 4),
@@ -612,7 +635,14 @@ def backfill_regime_history(target_date=None, batch_size=30):
             row = {
                 "date": d,
                 "regime_score": verdict.get("regime_score"),
-                "status": verdict.get("status", "RANGING"),
+                # [WHY 2026-10-22] KHÔNG dùng `.get("status", "RANGING")` — đó là default "lành" bị
+                # Luật A cấm, và nó cho phép status lệch score. Suy status từ CHÍNH score đã lưu;
+                # chỉ giữ override RPA (CRISIS_WARNING) vì đó là nhãn cảnh báo riêng của engine.
+                "status": (
+                    verdict.get("status")
+                    if verdict.get("status") == "CRISIS_WARNING"
+                    else classify_regime(float(verdict["regime_score"]))
+                ),
                 "breadth_pct": details.get("breadth_pct"),
                 "breadth_velocity": details.get("breadth_momentum", 0.0),
                 "trend_score": details.get("t_score"),
