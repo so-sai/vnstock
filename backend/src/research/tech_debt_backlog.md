@@ -420,7 +420,20 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 - **RISK:** nới cửa sổ replay sẽ **đổi B-Score lịch sử** ⇒ đổi các báo cáo nghiên cứu cũ. Vì vậy
   phải chạy **so sánh trước/sau** trên toàn bộ 2021–2026, liệt kê số dòng đổi, và chỉ restatement
   khi có GO. Đây là lý do **chưa vá ngay 2026-10-23**.
-- **PHÁN QUYẾT:** ⏳ **OPEN** (theo lệnh chủ hệ thống 2026-10-23: tách thành bài toán riêng tuần sau).
+- **PHÁN QUYẾT:** ✅ **FIXED 2026-10-23** — chọn hướng **kéo LIVE về cửa sổ trượt 60 ngày** (KHÔNG nới
+  replay), nên **không đụng một dòng lịch sử nào** (mọi dòng cũ vẫn được dựng bằng đường replay ⇒
+  bất biến). Bằng chứng:
+  - `engine/regime_engine.py::detect_regime`: bỏ hai nhánh nạp khác nhau, thay bằng **một `as_of` duy
+    nhất** + cửa sổ `date >= date(as_of,'-60 days') AND date <= as_of` cho cả LIVE (`as_of = MAX(date)`
+    của `daily_ohlcv` không-stale) lẫn REPLAY. B-Score 23/10: LIVE `0,4214 (353 mã) → 0,4244 (326 mã)`,
+    **khớp tuyệt đối** REPLAY.
+  - Dòng `regime_history 2026-10-23` (do chính phiên hôm nay ghi bằng đường LIVE cũ) được **restatement
+    về 0,4244/RANGING** kèm vết append-only `eod_write_audit_ledger` (`caller_module =
+    regime_engine.window_unify_restatement_20261023`, `status = RESTATED`). **Không** restatement dòng nào khác.
+  - Test: `tests/test_regime_provenance_20261022.py` **8/8 PASS** (gồm `test_live_khop_hoan_toan_voi_replay`
+    nay XANH với `diff = 0`), `test_regime_degraded_contract.py` 8/8, ruff sạch.
+  - **Tác động backtest = 0** (backtest dùng đường REPLAY, đã không đổi) — chạy lại 2021–2025 tái lập
+    đúng kết quả lưu trữ (verdict FAIL, xem `BACKTEST_RESULTS.md`).
 
 ## 13. BVPS vendor (PIT shares) bị ưu tiên khi giá là `ADJUSTED_TODAY` — ĐÃ VÁ
 

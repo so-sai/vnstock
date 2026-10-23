@@ -110,31 +110,34 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     print(f"{label_replay} v2.0: {label_sub}")
     print("=" * 50)
 
-    # 1. B-Score (Breadth): 50% Weight
+    # [WHY / ROOT CAUSE / INVARIANT]
+    # WHY: B-Score của cùng một phiên phải là MỘT sự thật duy nhất, bất kể gọi LIVE hay REPLAY,
+    #   và phải bất biến khi thời gian trôi (rolling window, không mốc cứng).
+    # ROOT CAUSE (Mục 12 tech_debt_backlog): nhánh LIVE nạp từ mốc cứng '2025-10-01' không giới hạn
+    #   trên, còn REPLAY nạp cửa sổ trượt 60 ngày. `ma20`/`avg_vol_20d` chạy rolling(20) TRÊN CHÍNH
+    #   cửa sổ đã nạp, nên mã giao dịch thưa (đủ 20 phiên trong cửa sổ dài nhưng chỉ ~6 phiên trong
+    #   60 ngày) lọt qua ở LIVE mà bị loại ở REPLAY ⇒ mẫu số breadth đổi (353 vs 326 mã; Δscore 0,0030).
+    #   Toàn bộ `regime_history` đã dựng bằng đường REPLAY (backfill_regime_history), nên kéo LIVE về
+    #   cùng cửa sổ là hướng DUY NHẤT không làm lệch lịch sử (không cần restatement).
+    # INVARIANT: một `as_of` duy nhất cho cả hai đường; cửa sổ 60 ngày lịch; chỉ nạp date <= as_of.
     with get_connection() as conn:
         if target_date:
-            # WHY: Window 60 ngày trước target đủ cho rolling MA20 + filter thanh khoản 20
-            # phiên mà không kéo dữ liệu quá xa làm nặng query; chỉ lấy tới ngày target để
-            # đảm bảo point-in-time — không rò rỉ dữ liệu tương lai khi backtest.
-            # Point-in-time window: 60 days before target_date to ensure MA20 calculation
-            df_all = pd.read_sql(
-                f"SELECT symbol, date, close, volume FROM daily_ohlcv "
-                f"WHERE date <= '{target_date}' AND date >= date('{target_date}', '-60 days') "
-                f"AND symbol != 'VNINDEX' AND COALESCE(is_stale, 0) = 0",
-                conn,
-            )
+            as_of_str = pd.to_datetime(target_date).strftime("%Y-%m-%d")
         else:
-            df_all = pd.read_sql(
-                "SELECT symbol, date, close, volume FROM daily_ohlcv "
-                "WHERE date >= '2025-10-01' AND symbol != 'VNINDEX' AND COALESCE(is_stale, 0) = 0",
-                conn,
-            )
+            as_of_str = conn.execute(
+                "SELECT MAX(date) FROM daily_ohlcv WHERE symbol != 'VNINDEX' AND COALESCE(is_stale, 0) = 0"
+            ).fetchone()[0] or datetime.now().strftime("%Y-%m-%d")
+        df_all = pd.read_sql(
+            f"SELECT symbol, date, close, volume FROM daily_ohlcv "
+            f"WHERE date <= '{as_of_str}' AND date >= date('{as_of_str}', '-60 days') "
+            f"AND symbol != 'VNINDEX' AND COALESCE(is_stale, 0) = 0",
+            conn,
+        )
 
     df_all = df_all.copy()
     df_all["date"] = pd.to_datetime(df_all["date"], format="mixed")
     df_all = df_all.sort_values(["symbol", "date"])
-    current_date = pd.to_datetime(target_date) if target_date else df_all["date"].max()
-    as_of_str = current_date.strftime("%Y-%m-%d") if not pd.isna(current_date) else datetime.now().strftime("%Y-%m-%d")
+    current_date = pd.to_datetime(as_of_str)
 
     g = df_all.groupby("symbol")
     df_all["ma20"] = g["close"].transform(lambda x: x.rolling(20).mean())
