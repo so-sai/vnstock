@@ -54,6 +54,17 @@ def _db_row(date: str) -> tuple[float, str]:
     return float(row[0]), str(row[1])
 
 
+def _has_breadth_row(date: str) -> bool:
+    con = sqlite3.connect(f"file:{DB.as_posix()}?mode=ro", uri=True)
+    try:
+        return (
+            con.execute("SELECT 1 FROM market_wide_breadth_daily WHERE date = ? LIMIT 1", (date,)).fetchone()
+            is not None
+        )
+    finally:
+        con.close()
+
+
 # [WHY] Sổ giả thuyết chỉ đáng tin nếu con số 0,35 của nó TÁI LẬP ĐƯỢC bằng replay tất định.
 def test_replay_22_10_tai_lap_dung_so_da_dang_ky():
     v = re_.detect_regime(AS_OF)
@@ -80,7 +91,7 @@ def test_seed_query_live_khong_doc_chinh_dong_hom_nay():
         ).fetchone()[0]
     finally:
         con.close()
-    assert as_of == AS_OF
+    assert as_of >= AS_OF
     assert seed_date < as_of, f"seed LIVE phải là phiên trước ({seed_date} < {as_of})"
 
 
@@ -88,10 +99,18 @@ def test_seed_query_live_khong_doc_chinh_dong_hom_nay():
 # và score REPLAY phải đồng nhất tuyệt đối, không còn bị đẩy trôi (drift).
 def test_live_khop_hoan_toan_voi_replay():
     live = re_.detect_regime(None)
-    replay = re_.detect_regime(AS_OF)
-    assert live["regime_score"] == pytest.approx(replay["regime_score"], abs=2e-3)
-    assert live["status"] == "CRISIS"
-    assert replay["status"] == "CRISIS"
+    # So sánh trên CÙNG một ngày: as_of của LIVE có thể đã tiến lên phiên mới, nên replay
+    # phải dùng chính `live["date"]` — nếu hard-code 22/10, test sẽ so hai phiên khác nhau.
+    replay = re_.detect_regime(live["date"])
+    diff = abs(live["regime_score"] - replay["regime_score"])
+    # Chặn drift THÔ (self-seeding cũ gây lệch 0,11) ngay cả khi phiên chưa chốt.
+    assert diff < 0.02, f"drift live/replay quá lớn: {live['regime_score']} vs {replay['regime_score']}"
+    if not _has_breadth_row(live["date"]):
+        # Phiên chưa chốt EOD: LIVE đọc breadth từ tape hiện tại, REPLAY đọc từ bảng EOD.
+        # Khác nguồn ⇒ không so tuyệt đối; chỉ kiểm drift thô ở trên. Chờ daily_closer.
+        pytest.skip(f"{live['date']} chưa có market_wide_breadth_daily — chưa chốt EOD")
+    assert diff == pytest.approx(0.0, abs=2e-3)
+    assert live["status"] == replay["status"]
 
 
 # [WHY] Bằng chứng remediation: Dòng DB 22/10 đã được Restatement về giá trị chuẩn xác 0,3459 / CRISIS,
@@ -127,3 +146,15 @@ def test_eod_write_audit_ledger_ghi_nhan_restatement():
     assert row[0] == AS_OF
     assert row[2] == pytest.approx(REPLAY_SCORE, abs=5e-3)
     assert row[3] == "RESTATED"
+
+
+# [WHY] Code và tài liệu phải nói cùng một sự thật: `input_hash` là SHA-256 ĐẦY ĐỦ 64 hex,
+# không phải prefix 16 ký tự. Ca này chặn việc ai đó "tối ưu" cắt ngắn trở lại.
+def test_input_hash_la_sha256_day_du_64_hex():
+    from src.database.eod_write_audit import _calculate_input_hash
+
+    first = _calculate_input_hash({"a": 1})
+    second = _calculate_input_hash({"a": 2})
+    assert len(first) == 64
+    assert all(ch in "0123456789abcdef" for ch in first)
+    assert first != second

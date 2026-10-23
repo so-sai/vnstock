@@ -27,13 +27,19 @@ logger = logging.getLogger("PTCK_SYSTEM")
 
 
 def _calculate_input_hash(data: Any) -> str:
-    """Tính SHA256 checksum rút gọn (16 ký tự) đại diện cho input payload."""
+    """Tính SHA-256 ĐẦY ĐỦ (64 ký tự hex) đại diện cho input payload.
+
+    [WHY] Bản cũ cắt `[:16]` (64-bit prefix) nhưng tài liệu/audit lại ghi "SHA-256".
+    Cắt ngắn làm giảm không gian băm và khiến code ↔ docstring không trung thực;
+    append-only ledger phải chống trùng lặp băm nên lưu đủ 64 hex.
+    [INVARIANT] Độ dài cố định 64; mọi bản ghi MỚI đều dùng hash đầy đủ.
+    """
     try:
         if isinstance(data, (dict, list)):
             serialized = json.dumps(data, sort_keys=True, default=str)
         else:
             serialized = str(data)
-        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
     except TypeError, ValueError, AttributeError:
         return "UNKNOWN_HASH"
 
