@@ -228,8 +228,14 @@ nâng hạn mức Khoang 1.
 
 - **P/B:** `financial_facts.db.valuation_scores`, `ratio_name = 'PB'`, kỳ `≤ get_pit_quarter(T)`,
   `is_clean_metric = 1`.
-- **ROE, NPL:** `financial_facts.db.health_ratios`, `ratio_name ∈ {'ROE','NPL_RATIO'}` (BANK dùng
-  `BANK_NPL_RATIO` nếu có), kỳ `≤ get_pit_quarter(T)`. Đơn vị là **phân số thập phân** (0,175 = 17,5 %).
+- **ROE:** `financial_facts.db.valuation_scores`, `ratio_name = 'ROE'`, `eps_flow_kind = 'TTM'`,
+  `is_clean_metric = 1`, kỳ `≤ get_pit_quarter(T)`. `af = 1` khi flow_kind TTM ⇒ **cấm annualize
+  lần hai**; `eps_flow_kind ∈ {QUARTER, YTD, UNKNOWN}` ⇒ `ROE_PERIODICITY_MISMATCH` ⇒ loại.
+  [AMENDMENT 2026-10-23] Bản đầu ghi `health_ratios.ROE`; đo lại cho thấy hai nguồn cho cùng giá trị
+  ở 2026Q2 nhưng chỉ `valuation_scores` có cột `eps_flow_kind` để chứng minh TTM. Không có bằng
+  chứng chu kỳ ⇒ không dùng.
+- **NPL:** `financial_facts.db.health_ratios`, `ratio_name ∈ {'NPL_RATIO','BANK_NPL_RATIO'}`, kỳ
+  `≤ get_pit_quarter(T)`. Đơn vị là **phân số thập phân** (0,022 = 2,2 %).
 - **Giá/thanh khoản:** `daily_ohlcv` chế độ live/PIT: `is_stale = 0 AND VALID_ROW_SQL`.
 - **Health:** `CompanyHealthV2.analyze(symbol, T)`; `None` ⇒ loại (missing > fake).
 - **Thiếu trường nào ⇒ `*_MISSING` và KHÔNG vào lệnh.** Cấm `fillna(0)`, cấm nội suy.
@@ -244,6 +250,12 @@ Bất biến #1 cấm.
 ⇒ **Khoang 1 bị khoá ở 0 % NAV cho tới khi có P/B theo basis PIT** (việc riêng, xem
 `tech_debt_backlog.md` Mục 13). Giả thuyết vẫn được đăng ký để **đo tiềm năng** bằng bộ dữ liệu
 PIT-safe sau này, nhưng **không được phát lệnh nào** trên basis hiện tại.
+
+**Đo thử 2026Q2 (chưa phát lệnh, chỉ để biết tiềm năng):** 24 mã `entity_type='BANK'` có P/B sạch;
+**0 mã** đạt đồng thời `P/B ≤ 0,80` và `ROE(TTM) ≥ 15 %`. Các mã hay được nhắc đều trượt:
+`SHB` P/B 0,961 / ROE 4,78 %; `TCB` 1,256 / 3,89 %; `HPG` 1,399 / 4,50 %; `MBB` P/B có
+`is_clean_metric = 0` ⇒ `PB_BASIS_MISMATCH`, loại. Hệ quả: **kể cả khi vá xong Mục 13, Khoang 1 có
+thể vẫn rỗng** — không được hứa "thứ Hai mở van" trước khi đo lại.
 
 ### §4. Kiểm chứng xuôi và tiêu chí bác bỏ
 
