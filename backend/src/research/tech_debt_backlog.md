@@ -422,24 +422,57 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   khi có GO. Đây là lý do **chưa vá ngay 2026-10-23**.
 - **PHÁN QUYẾT:** ⏳ **OPEN** (theo lệnh chủ hệ thống 2026-10-23: tách thành bài toán riêng tuần sau).
 
-## 13. `valuation_scores.price_basis = ADJUSTED_TODAY` (chặn P/B PIT)
+## 13. BVPS vendor (PIT shares) bị ưu tiên khi giá là `ADJUSTED_TODAY` — ĐÃ VÁ
 
-- **WHAT:** mọi dòng `valuation_scores` dùng giá điều chỉnh theo hệ số **hôm nay**
-  (`price_basis = 'ADJUSTED_TODAY'`) nhưng số cổ phiếu theo `CHARTER_PIT`. P/B vì thế trộn hai
-  basis: tử số là giá của tương lai-điều-chỉnh, mẫu số là BVPS tại kỳ.
-- **WHY (số đo 2026-10-23):** `SELECT price_basis, COUNT(*) FROM valuation_scores GROUP BY 1` ⇒
-  **56.055 / 56.055 dòng** là `ADJUSTED_TODAY`, 0 dòng PIT. Hệ quả: P/B lịch sử có thể đã dùng hệ số
-  chia/thưởng xảy ra **sau** ngày quan sát ⇒ nhìn trước. Hạng mục này **chặn Khoang 1** của
-  `H-2026-10-26-DUAL-COMPARTMENT` ở **0 % NAV** cho tới khi sửa.
-- **WHERE:** `backend/src/financial/financial_facts.py` (writer `valuation_scores`) và
-  `backend/scripts/backfill_valuation_pit.py`.
-- **DONE-WHEN:** có cột basis PIT thực (giá tại T, không điều chỉnh bằng hệ số tương lai) cho toàn
-  bộ lịch sử, chứng minh bằng ít nhất 3 ca chia/thưởng lớn: P/B tính lại khớp giá raw tại ngày đó;
-  `valuation_scores` có ràng buộc `price_basis = 'PIT'` cho dòng mới.
-- **RISK:** nếu hệ số điều chỉnh được áp **nhất quán** cho cả price và shares thì P/B có thể vẫn
-  đúng; nhưng hiện `shares_basis` ghi `CHARTER_PIT` nên **không được giả định** điều đó. Fail-closed:
-  thiếu bằng chứng ⇒ không dùng.
-- **PHÁN QUYẾT:** ⏳ **OPEN** (phát hiện 2026-10-23 khi đăng ký giả thuyết 2 khoang).
+- **WHAT (bản đầu, đã đính chính):** không phải "mọi dòng trộn basis" như ghi lúc đăng ký. Engine
+  đã có BASIS-FIX 2026-08-19 cho nhánh **fallback**; lỗi thật là **`BOOK_VALUE_PS` của vendor
+  (chia theo số cp TẠI KỲ) được dùng thẳng** khi có mặt, nên guard `BASIS_MISMATCH` không bao giờ
+  chạy. Hệ quả đo được: `HPG 2018Q1` P/B = **1,333** thay vì **2,522**; toàn bộ nhóm có BVPS vendor
+  bị lệch một hằng số bằng nghịch đảo tỉ lệ pha loãng.
+- **WHY:** `valuation_engine.compute_ratios_for_period` dòng 557–578 cũ chỉ đặt
+  `bvps_source="SHARES_NOW"` khi `not bvps`; `BOOK_VALUE_PS` (3.680 dòng, 675 mã) đi đường tắt.
+- **FIX:** commit **`ab81b6c`** — với `PRICE_BASIS = ADJUSTED_TODAY`, BVPS **luôn** =
+  `TOTAL_EQUITY / shares_now`; thiếu equity/shares_now ⇒ cờ chặn `BVPS_BASIS_UNVERIFIED`.
+  Test RED→GREEN: `test_bvps_provided_khong_duoc_de_len_shares_now`,
+  `test_bvps_provided_thieu_equity_thi_bi_chan`. Rebuild 791 mã: 0 lỗi, backup
+  `financial_facts.db.bak_recompute_scores_20261023_165414`, **13.547 dòng P/B sạch**, chỉ 175 dòng
+  `BVPS_BASIS_UNVERIFIED`.
+- **CÒN LẠI (chuyển Mục 14):** Basis A chỉ nhất quán nội bộ; `close` là chuỗi back-adjust **tổng lợi
+  suất**, nên P/B tuyệt đối vẫn không dùng được cho ngưỡng 0,80.
+- **PHÁN QUYẾT:** ✅ **FIXED (nội bộ)** — `ab81b6c`, 2026-10-23.
+
+## 14. Thiếu chuỗi giá RAW theo ngày ⇒ P/B, P/E, P/S tuyệt đối không kiểm định được
+
+- **WHAT:** `daily_ohlcv` chỉ có một chuỗi giá đã back-adjust (`close == adj_close` trên **100 %**
+  dòng, đo 2026-10-23). Điều chỉnh này gồm cả **cổ tức tiền mặt**, không chỉ chia/thưởng. Vì vậy
+  mọi tỉ số giá/giá-trị-sổ, giá/thu-nhập đều bị hạ thấp tích lũy theo thời gian và **không so được**
+  với P/B thị trường hay ngưỡng tuyệt đối (`P/B ≤ 0,80`).
+- **WHY (số đo):** HPG `2020-01-02` lưu `close = 7.390` trong khi giá khớp lệnh thực tế cao hơn
+  nhiều lần; HPG 2018Q1 P/B theo Basis A = 2,522 nhưng theo giá raw/BVPS PIT xấp xỉ 5. Trộn hai
+  cách đọc này là nguồn "rẻ ảo" (đúng lớp lỗi HPG 2018Q1 đã ghi trong
+  `financial_facts_ratio_audit.md`).
+- **WHERE:** crawler giá (`backend/src/data/...`, trường `close`/`adj_close`), `valuation_engine`
+  (`_get_price_with_flag`), và mọi consumer dùng P/B tuyệt đối.
+- **DONE-WHEN:** có cột `close_raw` (hoặc bảng `price_raw`) đúng giá khớp lệnh ngày T cho toàn bộ
+  lịch sử; chứng minh bằng 3 ca chia/thưởng + 3 ca cổ tức tiền mặt (giá raw không đổi tại ex-date,
+  giá adjusted giảm đúng tỉ lệ); `valuation_engine` tính P/B bằng raw price + BVPS PIT.
+- **RISK:** nguồn dữ liệu miễn phí thường chỉ trả adjusted. Nếu không có raw ⇒ **vĩnh viễn không
+  dùng ngưỡng P/B tuyệt đối**; chỉ được dùng P/B **tương đối trong cùng một mã** (z-score thời
+  gian), và phải khai báo rõ.
+- **PHÁN QUYẾT:** ⏳ **OPEN** (phát hiện 2026-10-23; là điều kiện mở Khoang 1).
+
+## 15. `_run_child` decode stdout bằng cp1252 làm chết reader thread
+
+- **WHAT:** `recompute_valuation_scores_pit.py::_run_child` gọi `subprocess.run(..., text=True)`
+  không chỉ định encoding ⇒ trên Windows dùng cp1252, gặp tiếng Việt trong log con thì
+  `UnicodeDecodeError` nổ trong reader thread và **mất toàn bộ chẩn đoán** của script con.
+- **WHY (đo 2026-10-23):** lần chạy `--apply` thật in traceback
+  `charmap codec can't decode byte 0x8d` dù bước [C] exit=0. Mã thoát vẫn lan truyền đúng, nhưng khi
+  con **thất bại** thì 20 dòng chẩn đoán có thể rỗng ⇒ che nguyên nhân.
+- **WHERE:** `backend/scripts/recompute_valuation_scores_pit.py`, hàm `_run_child`.
+- **DONE-WHEN:** `encoding="utf-8", errors="replace"`; test dựng script con in tiếng Việt rồi thoát
+  mã 3, khẳng định (a) trả 3, (b) chẩn đoán chứa nguyên văn tiếng Việt, (c) không traceback.
+- **PHÁN QUYẾT:** ⏳ **OPEN** (không ảnh hưởng dữ liệu; ưu tiên thấp).
 
 ## Ghi chú vận hành
 

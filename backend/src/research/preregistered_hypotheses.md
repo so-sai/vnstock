@@ -242,20 +242,24 @@ nâng hạn mức Khoang 1.
 
 ### §3. Cổng dữ liệu CHẶN Khoang 1 (khai báo trước, fail-closed)
 
-Đo ngày 2026-10-23 trên kho thật: **toàn bộ 56.055 dòng `valuation_scores` có `price_basis =
-'ADJUSTED_TODAY'`** — giá đã điều chỉnh theo hệ số của hôm nay, trong khi `shares_basis =
-'CHARTER_PIT'`. Trộn hai basis này là **nhìn trước** (hệ số chia/thưởng tương lai), đúng loại lỗi
-Bất biến #1 cấm.
+[AMENDMENT 2026-10-23c — sau commit `ab81b6c`] Tiền đề ban đầu ("56.055 dòng trộn basis") đã được
+đo lại và **sửa**: engine vốn đã chặn nhánh fallback `SHARES_PIT`; lỗi thật là **vendor
+`BOOK_VALUE_PS` (chia theo số cp TẠI KỲ) được ưu tiên** nên guard không bao giờ chạy — HPG 2018Q1
+ra **1,333** thay vì **2,522** (Basis A, shares_now hôm nay). Đã vá + rebuild toàn bộ 791 mã:
+**13.547 dòng P/B sạch**, 175 dòng bị cờ `BVPS_BASIS_UNVERIFIED` (thiếu `TOTAL_EQUITY`).
 
-⇒ **Khoang 1 bị khoá ở 0 % NAV cho tới khi có P/B theo basis PIT** (việc riêng, xem
-`tech_debt_backlog.md` Mục 13). Giả thuyết vẫn được đăng ký để **đo tiềm năng** bằng bộ dữ liệu
-PIT-safe sau này, nhưng **không được phát lệnh nào** trên basis hiện tại.
+**Nhưng Khoang 1 VẪN khoá ở 0 % NAV, vì lý do sâu hơn:** `daily_ohlcv.close` là chuỗi
+**back-adjust tổng lợi suất** (`close == adj_close` trên 100 % dòng; HPG 2020-01-02 = 7.390 trong
+khi giá thị trường khi đó cao hơn nhiều lần). "Basis A" chỉ nhất quán **nội bộ** (giá hôm nay /
+số cp hôm nay); nó **không phải P/B thị trường** và bị hạ thấp bởi cổ tức tiền mặt. Một ngưỡng
+tuyệt đối `P/B ≤ 0,80` trên chuỗi đó là **không kiểm định được** — dùng nó sẽ tạo "rẻ ảo" đúng
+loại Bất biến #1 cấm. Điều kiện mở: có **giá RAW theo ngày** (xem `tech_debt_backlog.md` Mục 14).
 
-**Đo thử 2026Q2 (chưa phát lệnh, chỉ để biết tiềm năng):** 24 mã `entity_type='BANK'` có P/B sạch;
-**0 mã** đạt đồng thời `P/B ≤ 0,80` và `ROE(TTM) ≥ 15 %`. Các mã hay được nhắc đều trượt:
-`SHB` P/B 0,961 / ROE 4,78 %; `TCB` 1,256 / 3,89 %; `HPG` 1,399 / 4,50 %; `MBB` P/B có
-`is_clean_metric = 0` ⇒ `PB_BASIS_MISMATCH`, loại. Hệ quả: **kể cả khi vá xong Mục 13, Khoang 1 có
-thể vẫn rỗng** — không được hứa "thứ Hai mở van" trước khi đo lại.
+**Đo thử 2026Q2 sau rebuild (chưa phát lệnh):** **0 mã** đạt đồng thời `P/B ≤ 0,80` và
+`ROE(TTM) ≥ 15 %`. Các mã hay được nhắc đều trượt: `SHB` P/B 0,961 / ROE 4,78 %; `TCB` 1,256 /
+3,89 %; `HPG` 1,399 / 4,50 %; `MBB` có `is_clean_metric = 0` vì `SHARES_BASIS_UNEXPLAINED`
+(lệch > 25 % giữa `SHARES_OUT` và vốn điều lệ) ⇒ loại. Hệ quả: **vá Mục 13 không mở được Khoang 1**
+— không được hứa "thứ Hai mở van".
 
 ### §4. Kiểm chứng xuôi và tiêu chí bác bỏ
 
