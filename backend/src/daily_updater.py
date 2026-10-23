@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+import sqlite3
 import sys
 import time
 from datetime import datetime
@@ -963,6 +964,22 @@ def run_post_update_engines():
                 df_row = pd.DataFrame([row])
                 df_row["is_degraded"] = [breadth_degraded_flag(conn, verdict["date"])]
                 save_data_upsert("regime_history", df_row, conn)
+                try:
+                    from src.database.eod_write_audit import record_eod_write_audit
+
+                    record_eod_write_audit(
+                        as_of_date=verdict["date"],
+                        caller_module="daily_updater.regime_persistence",
+                        target_table="regime_history",
+                        parameters={"lang_mode": "compact"},
+                        input_data=row,
+                        output_score=float(verdict["regime_score"]),
+                        status=verdict["status"],
+                        notes="EOD daily update regime persistence",
+                        conn=conn,
+                    )
+                except (sqlite3.Error, TypeError, ValueError) as _e_audit:
+                    logger.debug("Audit write skipped: %s", _e_audit)
             logger.info(
                 "✅ Regime History: %s score=%.2f status=%s",
                 verdict["date"],

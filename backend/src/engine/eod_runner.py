@@ -155,6 +155,22 @@ def _record_ledger(
             (as_of_date, portfolio_id, status, attempts, last_error, catchup_of, now, now),
         )
         conn.commit()
+        try:
+            from src.database.eod_write_audit import record_eod_write_audit
+
+            record_eod_write_audit(
+                as_of_date=as_of_date,
+                caller_module=f"eod_runner.{portfolio_id}",
+                target_table="eod_run_ledger",
+                parameters={"status": status, "attempts": attempts, "catchup_of": catchup_of},
+                input_data={"status": status, "last_error": last_error},
+                output_score=None,
+                status=status,
+                notes=f"EOD runner ledger update: {last_error or 'SUCCESS'}",
+                conn=conn,
+            )
+        except (sqlite3.Error, TypeError, ValueError) as _e_audit:
+            logger.debug("Audit write skipped: %s", _e_audit)
 
 
 def _ledger_succeeded(as_of_date: str, portfolio_id: str) -> bool:

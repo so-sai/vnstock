@@ -134,6 +134,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     df_all["date"] = pd.to_datetime(df_all["date"], format="mixed")
     df_all = df_all.sort_values(["symbol", "date"])
     current_date = pd.to_datetime(target_date) if target_date else df_all["date"].max()
+    as_of_str = current_date.strftime("%Y-%m-%d") if not pd.isna(current_date) else datetime.now().strftime("%Y-%m-%d")
 
     g = df_all.groupby("symbol")
     df_all["ma20"] = g["close"].transform(lambda x: x.rolling(20).mean())
@@ -154,17 +155,17 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         )
 
     # [INTERNAL HOOK] Calculate Breadth Stability (STD 10D) & Momentum
+    # [WHY / ROOT CAUSE / INVARIANT]
+    # WHY: Breadth rolling window phải luôn lấy các phiên TRƯỚC as_of_str.
+    # ROOT CAUSE: Khi target_date=None, truy vấn thiếu WHERE date < as_of_str khiến
+    # dòng của chính ngày hôm nay (nếu đã ghi) lọt vào danh sách 10 phiên gần nhất.
+    # INVARIANT: Vị từ date < as_of_str là bắt buộc cho cả hai đường (live/replay).
     with get_connection() as conn:
-        if target_date:
-            df_hist_b = pd.read_sql(
-                f"SELECT breadth_pct FROM regime_history WHERE date < '{target_date}' AND is_degraded = 0 "
-                "ORDER BY date DESC LIMIT 10",
-                conn,
-            )
-        else:
-            df_hist_b = pd.read_sql(
-                "SELECT breadth_pct FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT 10", conn
-            )
+        df_hist_b = pd.read_sql(
+            f"SELECT breadth_pct FROM regime_history WHERE date < '{as_of_str}' AND is_degraded = 0 "
+            "ORDER BY date DESC LIMIT 10",
+            conn,
+        )
 
     # Calculate rolling STD including current data (filter None)
     all_breadth = [b for b in (df_hist_b["breadth_pct"].tolist() + [breadth_pct]) if b is not None]
@@ -186,17 +187,11 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
 
     # 2. T-Score (Trend): 30% Weight
     with get_connection() as conn:
-        if target_date:
-            df_idx = pd.read_sql(
-                f"SELECT symbol, date, high, low, close FROM daily_ohlcv "
-                f"WHERE symbol='VNINDEX' AND date <= '{target_date}' ORDER BY date",
-                conn,
-            )
-        else:
-            df_idx = pd.read_sql(
-                "SELECT symbol, date, high, low, close FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date",
-                conn,
-            )
+        df_idx = pd.read_sql(
+            f"SELECT symbol, date, high, low, close FROM daily_ohlcv "
+            f"WHERE symbol='VNINDEX' AND date <= '{as_of_str}' ORDER BY date",
+            conn,
+        )
 
     df_idx = df_idx.copy()
     if df_idx.empty:
@@ -305,18 +300,21 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
     #   -> high volatility  : alpha near 1.0 (pass-through)
     ema_alpha = max(0.1, min(1.0, 0.2 * atr_ratio))
 
+    # [WHY / ROOT CAUSE / INVARIANT]
+    # WHY: detect_regime(target_date=None) trong pipeline EOD chạy nhiều lần trong ngày không được
+    # làm EMA drift dần do tự lấy chính điểm số của ngày hôm đó làm seed.
+    # ROOT CAUSE: Nhánh target_date=None trước đây thiếu mệnh đề WHERE date < as_of_str.
+    # Khi bản ghi của ngày hôm đó đã được upsert (save_data_upsert), các lần chạy sau lấy
+    # chính điểm hôm nay làm prev_smoothed, tạo feedback loop: S_(k+1) = α X_t + (1-α) S_k.
+    # INVARIANT: Seed EMA luôn phải là phiên TRƯỚC as_of_str (date < as_of_str).
+    # Chạy detect_regime N lần liên tiếp trong ngày phải bất biến tuyệt đối (Drift = 0).
     # Seed: fetch the most recent smoothed regime_score + its date
     with get_connection() as conn:
-        if target_date:
-            df_prev = pd.read_sql(
-                f"SELECT date, regime_score FROM regime_history WHERE date < '{target_date}' AND is_degraded = 0 "
-                "ORDER BY date DESC LIMIT 1",
-                conn,
-            )
-        else:
-            df_prev = pd.read_sql(
-                "SELECT date, regime_score FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT 1", conn
-            )
+        df_prev = pd.read_sql(
+            f"SELECT date, regime_score FROM regime_history WHERE date < '{as_of_str}' AND is_degraded = 0 "
+            "ORDER BY date DESC LIMIT 1",
+            conn,
+        )
     prev_smoothed = df_prev["regime_score"].iloc[0] if not df_prev.empty else regime_score_raw
     prev_date_str = df_prev["date"].iloc[0] if not df_prev.empty else None
 
@@ -415,17 +413,12 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
             dmi_lead_bears = bool(minus_di_val > plus_di_val)
 
             # v_breadth: breadth velocity (3-session lookback)
+            # [WHY / ROOT CAUSE / INVARIANT] Luôn có date < as_of_str để tính đúng vận tốc breadth so với phiên trước
             with get_connection() as conn:
-                if target_date:
-                    df_b = pd.read_sql(
-                        f"SELECT date, breadth_pct FROM regime_history WHERE date < '{target_date}' AND is_degraded = 0 ORDER BY date DESC LIMIT 1",  # noqa: E501 - chuỗi nội dung dài (i18n/SQL)
-                        conn,
-                    )
-                else:
-                    df_b = pd.read_sql(
-                        "SELECT date, breadth_pct FROM regime_history WHERE is_degraded = 0 ORDER BY date DESC LIMIT 1",
-                        conn,
-                    )
+                df_b = pd.read_sql(
+                    f"SELECT date, breadth_pct FROM regime_history WHERE date < '{as_of_str}' AND is_degraded = 0 ORDER BY date DESC LIMIT 1",  # noqa: E501
+                    conn,
+                )
             breadth_prev = float(df_b["breadth_pct"].iloc[0]) if not df_b.empty else (breadth_pct or 0)
             v_breadth = ((breadth_pct or 0) - breadth_prev) / 3
 
@@ -563,7 +556,7 @@ def detect_regime(target_date=None, lang_mode: str = "compact"):
         print(f"  DMI HAIRCUT        ACTIVE (ADX<20, DMI--DMI+>2.0, T halved {t_base:.3f}->{t_score:.3f})")
     print(f"  {lv:{max_w}s} {v_score:.4f} (ATR Ratio: {atr_ratio:.4f})")
     print(f"  {lr:{max_w}s} {regime_score_raw:.4f}")
-    print(f"  {le:{max_w}s} {ema_alpha:.4f}  |  α_decay:{alpha_decay:.4f} α_eff:{alpha_effective:.4f} (Δt={dt_days}d)")
+    print(f"  {le:{max_w}s} {ema_alpha:.4f}  |  alpha_decay:{alpha_decay:.4f} alpha_eff:{alpha_effective:.4f} (dt={dt_days}d)")
     if momentum:
         print(
             f"  {lm:{max_w}s} {momentum.get('roc_5d', '?'):>6}%/{momentum.get('roc_10d', '?'):>6}%  "
@@ -659,6 +652,24 @@ def backfill_regime_history(target_date=None, batch_size=30):
 
                 df_row["is_degraded"] = [breadth_degraded_flag(conn, d)]
                 save_data_upsert("regime_history", df_row, conn)
+                try:
+                    from src.database.eod_write_audit import record_eod_write_audit
+
+                    record_eod_write_audit(
+                        as_of_date=d,
+                        caller_module="regime_engine.backfill_regime_history",
+                        target_table="regime_history",
+                        parameters={"target_date": d},
+                        input_data=row,
+                        output_score=float(row["regime_score"]),
+                        status=row.get("status", "SUCCESS"),
+                        notes="Backfill regime history",
+                        conn=conn,
+                    )
+                except (sqlite3.Error, TypeError, ValueError) as _e_audit:
+                    import logging
+
+                    logging.getLogger("PTCK_SYSTEM").debug("Audit write skipped: %s", _e_audit)
 
             inserted += 1
             if (i + 1) % 10 == 0:

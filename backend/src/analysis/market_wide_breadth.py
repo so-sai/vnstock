@@ -195,6 +195,25 @@ def backfill(series: list[dict]) -> int:
     ]
     con.executemany("INSERT OR REPLACE INTO market_wide_breadth_daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.commit()
+    try:
+        from src.database.eod_write_audit import record_eod_write_audit
+
+        for r in series:
+            record_eod_write_audit(
+                as_of_date=r["date"],
+                caller_module="analysis.market_wide_breadth",
+                target_table="market_wide_breadth_daily",
+                parameters={"advances": r["advances"], "declines": r["declines"], "total": r["total_active"]},
+                input_data=r,
+                output_score=float(r["breadth_pct"]),
+                status="DEGRADED" if r["degraded"] else "SUCCESS",
+                notes=f"Breadth batch insert: {r['advances']}/{r['declines']} (degraded={r['degraded']})",
+                conn=con,
+            )
+    except (sqlite3.Error, TypeError, ValueError) as _e_audit:
+        import logging
+
+        logging.getLogger("PTCK_SYSTEM").debug("Audit write skipped: %s", _e_audit)
     n = con.total_changes
     con.close()
     return n
