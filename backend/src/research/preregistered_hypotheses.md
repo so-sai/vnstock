@@ -44,7 +44,8 @@ này vượt tiêu chí trên — và phải được đăng ký lại như mộ
 
 ## H-2026-10-22-REGIME-UNFREEZE — Điều kiện mở khoá sau nhịp nảy 21/10
 
-**Trạng thái:** PROPOSED — **đóng băng 2026-10-21 sau ATC, trước giờ mở cửa 22/10**.
+**Trạng thái:** `PROPOSED` → **`CLOSED` (2026-10-23)** — xem mục **ĐÓNG SỔ** ở cuối file.
+**Đóng băng:** 2026-10-21 sau ATC, trước giờ mở cửa 22/10.
 Theo quy tắc dòng 9 của sổ này, giả thuyết `PROPOSED` **không tự cấp quyền quyết định**: kể cả khi
 đạt 4/4, việc hạ `ENTRY_LOCK` vẫn phải do chủ hệ thống GO tường minh, không có tự động hoá nào được
 đọc file này để mở khoá.
@@ -121,5 +122,147 @@ nếu hết 23/10 vẫn `score < 0,40` ⇒ BÁC BỎ và đóng H theo tiêu ch�
 `regime_score = 0,35` — mà ngưỡng code là `RANGING if score >= 0,35`. Nguyên nhân: `regime_engine.py:489`
 trả `round(regime_score, 2)` (0,35) còn `status` (:371) tính trên giá trị **chưa làm tròn** (≈0,349x).
 Lệch chỉ ở biên, hướng fail-closed (CRISIS chặt hơn), nhưng cần sửa để `status` và `score` không mâu thuẫn.
+
+---
+
+## ĐÓNG SỔ H-2026-10-22-REGIME-UNFREEZE — 2026-10-23
+
+**Trạng thái:** `CLOSED`. Cửa sổ đo đóng đúng hạn (hết phiên 23/10, **không gia hạn ngầm**).
+
+### Kết quả đo phiên cuối (EOD 2026-10-23; `daily_ohlcv` 934 mã; `regime_history` `is_degraded = 0`)
+
+| # | Điều kiện | Ngưỡng | Đo được | |
+|---|---|---|---|---|
+| 1 | `regime_score` | ≥ 0,40 | **0,4214** | ✅ ĐẠT |
+| 2 | `breadth_pct` | ≥ 60,0 | **60,9** | ✅ ĐẠT |
+| 3 | `vol_score` | > 0,20 | **0,9445** | ✅ ĐẠT |
+| 4 | `trend_score` | > 0,00 | **0,7000** | ✅ ĐẠT |
+
+⇒ **4/4 = KỊCH BẢN A.** Giả thuyết **không bị bác bỏ** (tiêu chí bác bỏ là `score < 0,40` hoặc
+`vol_score = 0,20`; cả hai không xảy ra).
+
+### Phán quyết điều hành: **VETO mở khoá** (không phải kịch bản B)
+
+Đây là **A đạt nhưng Chủ hệ thống từ chối GO** — ghi thành mục riêng để sổ không bị đọc sai thành
+"giả thuyết bị bác bỏ". Trạng thái vận hành: **`ENTRY_LOCK = TRUE`, 100% tiền mặt** qua cuối tuần
+24–25/10 (`system_state.json`, lý do `DAILY_GOVERNOR_CRISIS_OVERLAY`).
+
+Lý do định lượng, đo **cùng phiên 23/10**:
+
+1. **Độ rộng ròng ÂM −4,073%**: 327 tăng / 365 giảm / 241 đứng, **58 mã giảm sàn** trên 933 mã
+   (`market_wide_breadth_daily`, `degraded = 0`). Chỉ số tăng nhờ trụ, không phải lan toả.
+2. **Chỉ 1 mã qua T1–T3 trong 28 mã `RS ≥ 90`**: `ORS` (RS 92,4; close 16.000 > đỉnh 20 phiên
+   15.600; volume 11,30M = **3,91×** ADV20 2,89M). `PVT` trượt cả hai vế (close 23.700 < 26.350;
+   volume 0,68× ADV20) — đúng như đã nêu, không nới ngưỡng.
+3. **T4 veto — không mã nào đủ T1–T4**:
+   - `ORS`: **`DISTRESSED`** (conf 0,4852; Eff 0,123 < 0,60; Moat 0,217 < 0,50).
+   - `PET`: **`DISTRESSED`** (conf 0,5011; BS 0,142 < 0,30; Moat 0,426 < 0,50) — và PET vốn đã trượt
+     T3 (close 56.700 ≤ đỉnh 20 phiên 57.400), nên chỉ ghi nhận T4, không phải ứng viên.
+   - Luật đã niêm phong V5: `Health ≠ DISTRESSED`, `archetype is None` mới đi qua; `DISTRESSED` là
+     **veto cứng**, không có ngoại lệ "chỉ 10–15% NAV".
+4. **Cảnh báo provenance riêng của `ORS`**: `latest_period = 2025Q2` (BCTC cũ 5 quý). Verdict
+   `DISTRESSED` dựa trên dữ liệu cũ ⇒ càng phải fail-closed; muốn đánh giá lại phải nạp BCTC mới,
+   **không** được hạ cổng để hợp thức hoá.
+
+### Amendment provenance Δ = 0,0030 (đã ghi sổ cái)
+
+| Đường chạy | `regime_score` 23/10 | `B-Score` | `Raw` |
+|---|---:|---:|---:|
+| `regime_history` (live/stored) | **0,4214** | **60,91 %** | 0,7034 |
+| `detect_regime("2026-10-23")` (replay) | **0,4244** | **63,80 %** | 0,7179 |
+
+- **Nguyên nhân thật (đã điều tra, KHÔNG phải seed làm tròn):** hai đường dùng **cùng seed**
+  22/10 (0,3459). Khác biệt nằm ở **B-Score**, do cửa sổ nạp dữ liệu khác nhau:
+  - Live nạp từ mốc cố định `2025-10-01` ⇒ chỉ **5 mã** không đủ 20 phiên ⇒ universe thanh khoản
+    **353 mã**, breadth **60,91 %**.
+  - Replay nạp cửa sổ **60 ngày lịch** ⇒ **150 mã** không đủ 20 phiên (ACM chỉ 6 phiên, BEL 3…)
+    ⇒ universe thanh khoản teo còn **326 mã**, breadth **63,80 %**.
+  - Vì `avg_vol_20d` là `rolling(20)` trên chính cửa sổ đã nạp, cửa sổ ngắn **loại oan** các mã
+    giao dịch thưa ⇒ mẫu số breadth đổi ⇒ B-Score lệch 2,9 điểm phần trăm.
+- **Cả hai đều ≥ 0,40** ⇒ phán quyết 4/4 và quyết định VETO **bất biến** với sai số này.
+- Nhưng đây là **vi phạm Bất biến #1** (cùng ngày, cùng score bất kể đường gọi): test
+  `test_live_khop_hoan_toan_voi_replay` **ĐỎ** (Δ 0,0030 > ngưỡng 2e-3). Chưa vá engine trong
+  bản ghi này; phải sửa cửa sổ nạp của nhánh replay (hoặc nguồn seed) trong một thay đổi riêng.
+- Bản ghi: `eod_write_audit_ledger` **audit_id = 1703** (`status = AMENDMENT`) và bản **đính chính**
+  `audit_id = 1704` (ghi lại nguyên nhân đúng; sổ cái append-only nên không sửa dòng cũ).
+
+### Bất biến giữ nguyên
+
+- Mọi ngưỡng của 4 điều kiện: **không nới, không siết**.
+- Việc mở van thăm dò (nếu có) chỉ được xem xét **phiên 26/10**, tối đa **10–15% NAV**, và phải là
+  một giả thuyết **đăng ký mới** — không dùng kết quả 2025–2026 để chọn tham số.
+
+---
+
+## H-2026-10-26-DUAL-COMPARTMENT — Hai khoang tàu độc lập
+
+**Trạng thái:** `PROPOSED` — **đóng băng 2026-10-23, trước giờ mở cửa 26/10**. Không cấp quyền quyết
+định, không tự mở `ENTRY_LOCK`, không ghi đè bất kỳ cổng nào đã niêm phong. Chỉ kiểm chứng **xuôi**
+bằng sổ giấy; mọi kết quả 2025–2026 là NON-DECISIONAL.
+
+**Vấn đề cần giải:** hiện chỉ có một bộ luật (Trend) và nó bị dùng sai chỗ — áp `RS ≥ 90` +
+`Close > High20` lên cổ phiếu giá trị ở đáy sẽ **loại oan toàn bộ** nhóm tài sản rẻ (SHB, TCB, HPG).
+Giả thuyết này tách thành **hai cỗ máy độc lập**, mỗi khoang có định nghĩa, cổng và hạn mức riêng.
+
+### §1. Phân định cứng giữa hai khoang
+
+| | **Khoang 1 — Asset-Play / Deep Value** | **Khoang 2 — Trend / Momentum** |
+|---|---|---|
+| Kích hoạt | `regime ∈ {CRISIS, RANGING}` | `regime_score ≥ 0,40` và regime sạch EOD |
+| Định giá | `P/B ≤ 0,80` | không dùng |
+| Sinh lời | `ROE ≥ 15,0 %` | không dùng |
+| Rủi ro tín dụng | `NPL ≤ 2,2 %` — **chỉ BANK** | không dùng |
+| Sức mạnh giá | **MIỄN TRỪ HOÀN TOÀN `RS`** | `RS ≥ 90` (giữ nguyên `trend_engine.RS_MIN`) |
+| Cấu trúc | **MIỄN TRỪ `Close > High20`** | `Close > max(High[1:20])` **và** `Close > MA20` |
+| Thanh khoản | `ADV20 ≥ 500.000` cp | `ADV20 ≥ 500.000` cp **và** `Volume ≥ 1,3 × ADV20` |
+| Sức khoẻ | `Health ≠ DISTRESSED` | `Health ≠ DISTRESSED` |
+| Loại trừ | giá < 10.000 đ; thang giá mơ hồ | giá < 10.000 đ; thang giá mơ hồ (`load_scale_ambiguous`) |
+| Trần NAV | **tuyệt đối 30 %**; khởi điểm **20 %** | **tuyệt đối 70 %**; khởi điểm **60 %** |
+| Thang giải ngân | chia phần, tối đa 3 phần | `0 / 30 / 70 / 100` (`unfreeze_gates_v2.TRANCHES`) |
+
+**Quy tắc bất khả xâm phạm:** cấm dùng luật Khoang 2 để loại ứng viên Khoang 1 và ngược lại. Cấm
+dùng "rẻ" của Khoang 1 để biện minh cho mã gãy nền không có cầu; cấm dùng "khoẻ" của Khoang 2 để
+nâng hạn mức Khoang 1.
+
+### §2. Cách đo (PIT, một nguồn cho mỗi trường)
+
+- **P/B:** `financial_facts.db.valuation_scores`, `ratio_name = 'PB'`, kỳ `≤ get_pit_quarter(T)`,
+  `is_clean_metric = 1`.
+- **ROE, NPL:** `financial_facts.db.health_ratios`, `ratio_name ∈ {'ROE','NPL_RATIO'}` (BANK dùng
+  `BANK_NPL_RATIO` nếu có), kỳ `≤ get_pit_quarter(T)`. Đơn vị là **phân số thập phân** (0,175 = 17,5 %).
+- **Giá/thanh khoản:** `daily_ohlcv` chế độ live/PIT: `is_stale = 0 AND VALID_ROW_SQL`.
+- **Health:** `CompanyHealthV2.analyze(symbol, T)`; `None` ⇒ loại (missing > fake).
+- **Thiếu trường nào ⇒ `*_MISSING` và KHÔNG vào lệnh.** Cấm `fillna(0)`, cấm nội suy.
+
+### §3. Cổng dữ liệu CHẶN Khoang 1 (khai báo trước, fail-closed)
+
+Đo ngày 2026-10-23 trên kho thật: **toàn bộ 56.055 dòng `valuation_scores` có `price_basis =
+'ADJUSTED_TODAY'`** — giá đã điều chỉnh theo hệ số của hôm nay, trong khi `shares_basis =
+'CHARTER_PIT'`. Trộn hai basis này là **nhìn trước** (hệ số chia/thưởng tương lai), đúng loại lỗi
+Bất biến #1 cấm.
+
+⇒ **Khoang 1 bị khoá ở 0 % NAV cho tới khi có P/B theo basis PIT** (việc riêng, xem
+`tech_debt_backlog.md` Mục 13). Giả thuyết vẫn được đăng ký để **đo tiềm năng** bằng bộ dữ liệu
+PIT-safe sau này, nhưng **không được phát lệnh nào** trên basis hiện tại.
+
+### §4. Kiểm chứng xuôi và tiêu chí bác bỏ
+
+- **Cửa sổ:** chỉ tiến về phía trước, từ **2026-10-26**. Không hồi quy, không dùng 2025–2026 để chọn
+  tham số.
+- **Cách đo mỗi khoang:** tín hiệu chốt tại close T, vào tại **open T+1**, đo lợi suất ròng T+20 với
+  chi phí **0,50 %** (spec) và **0,60 %** (robustness). Ghi mã, ngày, khoang vào sổ giấy.
+- **Cỡ mẫu:** tối thiểu **20 tín hiệu độc lập mỗi khoang**. Dưới 20 ⇒ chưa kết luận.
+- **Bác bỏ từng khoang độc lập** nếu: win-rate T+20 **< 50 %** hoặc mean lợi suất ròng **≤ 0**.
+- **Không được** đổi ngưỡng P/B, ROE, NPL, RS, breakout, volume, trần NAV sau khi đã thấy kết quả.
+  Muốn đổi ⇒ đăng ký giả thuyết mới, cửa sổ mới.
+- **Không có ngoại lệ "chỉ 10–15 % NAV"**: trần NAV trong bảng §1 là hạn mức của **sổ giấy**; tiền
+  thật vẫn phụ thuộc `ENTRY_LOCK` và một GO riêng của chủ hệ thống.
+
+### §5. Ý nghĩa của việc bác bỏ
+
+Nếu Khoang 2 bị bác bỏ ⇒ xác nhận lại kết quả OOS 2026 (breakout yếu trong thị trường phân hóa).
+Nếu Khoang 1 được bác bỏ ⇒ "rẻ + ROE cao" một mình không đủ tạo alpha; phải bổ sung biến dòng tiền
+(margin, tự doanh, ngoại) trước khi đăng ký lại. Cả hai đều là **kết quả hợp lệ**, không phải thất
+bại cần "sửa luật cho vừa".
 
 

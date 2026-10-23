@@ -400,6 +400,47 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
    thật ngay sau) — bản đầu là dead code; nên xoá khi có dịp. Lưu ý file này dùng cú pháp **PEP 758**
    (`except A, B:` không ngoặc) nên **bắt buộc Python ≥ 3.14**.
 
+## 12. Đồng bộ cửa sổ nạp bar giữa Live và Replay trong Breadth Engine
+
+- **WHAT:** `detect_regime(target_date=None)` (live) nạp `daily_ohlcv` từ mốc cố định `2025-10-01`,
+  còn `detect_regime(target_date=...)` (replay) chỉ nạp **60 ngày lịch** trước target. Vì
+  `ma20`/`avg_vol_20d` dùng `rolling(20)` trên **chính cửa sổ đã nạp**, cửa sổ ngắn loại oan các mã
+  giao dịch thưa ⇒ mẫu số breadth đổi.
+- **WHY (số đo 2026-10-23):** cùng seed 0,3459 (22/10), live ra `0,4214` với universe thanh khoản
+  **353 mã**, breadth **60,91 %**; replay ra `0,4244` với **326 mã**, breadth **63,80 %**. Lệch
+  **Δ = 0,0030**, vượt ngưỡng test 2e-3 ⇒ `test_live_khop_hoan_toan_voi_replay` **ĐỎ**. Nguyên nhân
+  trực tiếp: **150 mã** không đủ 20 phiên trong cửa sổ 60 ngày (ACM 6, BEL 3, …) so với **5 mã** ở
+  đường live.
+- **WHERE:** `backend/src/engine/regime_engine.py` (nhánh nạp `df_all` khi `target_date` khác rỗng),
+  đối chiếu nhánh live.
+- **DONE-WHEN:** `detect_regime(T)` và `detect_regime(None)` cho **cùng score trên cùng ngày** (sai
+  số ≤ 2e-3 sau làm tròn hiển thị), với mọi ngày trong 2021–2026; test
+  `test_regime_provenance_20261022.py::test_live_khop_hoan_toan_voi_replay` xanh; **không** đổi
+  `regime_history` lịch sử trừ khi có quyết định restatement riêng kèm audit ledger.
+- **RISK:** nới cửa sổ replay sẽ **đổi B-Score lịch sử** ⇒ đổi các báo cáo nghiên cứu cũ. Vì vậy
+  phải chạy **so sánh trước/sau** trên toàn bộ 2021–2026, liệt kê số dòng đổi, và chỉ restatement
+  khi có GO. Đây là lý do **chưa vá ngay 2026-10-23**.
+- **PHÁN QUYẾT:** ⏳ **OPEN** (theo lệnh chủ hệ thống 2026-10-23: tách thành bài toán riêng tuần sau).
+
+## 13. `valuation_scores.price_basis = ADJUSTED_TODAY` (chặn P/B PIT)
+
+- **WHAT:** mọi dòng `valuation_scores` dùng giá điều chỉnh theo hệ số **hôm nay**
+  (`price_basis = 'ADJUSTED_TODAY'`) nhưng số cổ phiếu theo `CHARTER_PIT`. P/B vì thế trộn hai
+  basis: tử số là giá của tương lai-điều-chỉnh, mẫu số là BVPS tại kỳ.
+- **WHY (số đo 2026-10-23):** `SELECT price_basis, COUNT(*) FROM valuation_scores GROUP BY 1` ⇒
+  **56.055 / 56.055 dòng** là `ADJUSTED_TODAY`, 0 dòng PIT. Hệ quả: P/B lịch sử có thể đã dùng hệ số
+  chia/thưởng xảy ra **sau** ngày quan sát ⇒ nhìn trước. Hạng mục này **chặn Khoang 1** của
+  `H-2026-10-26-DUAL-COMPARTMENT` ở **0 % NAV** cho tới khi sửa.
+- **WHERE:** `backend/src/financial/financial_facts.py` (writer `valuation_scores`) và
+  `backend/scripts/backfill_valuation_pit.py`.
+- **DONE-WHEN:** có cột basis PIT thực (giá tại T, không điều chỉnh bằng hệ số tương lai) cho toàn
+  bộ lịch sử, chứng minh bằng ít nhất 3 ca chia/thưởng lớn: P/B tính lại khớp giá raw tại ngày đó;
+  `valuation_scores` có ràng buộc `price_basis = 'PIT'` cho dòng mới.
+- **RISK:** nếu hệ số điều chỉnh được áp **nhất quán** cho cả price và shares thì P/B có thể vẫn
+  đúng; nhưng hiện `shares_basis` ghi `CHARTER_PIT` nên **không được giả định** điều đó. Fail-closed:
+  thiếu bằng chứng ⇒ không dùng.
+- **PHÁN QUYẾT:** ⏳ **OPEN** (phát hiện 2026-10-23 khi đăng ký giả thuyết 2 khoang).
+
 ## Ghi chú vận hành
 
 - **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**
