@@ -299,6 +299,7 @@ class ValuationEngine:
         "NEAR_ZERO_DENOMINATOR": {"PB", "PS", "EV_EBITDA"},
         "DISTRESSED_EQUITY": {"PB", "ROE"},
         "BASIS_MISMATCH": {"PB", "PE", "PS"},
+        "BVPS_BASIS_UNVERIFIED": {"PB"},
         "EPS_PERIODICITY_UNKNOWN": {"PE", "ROE"},
         "EPS_PERIODICITY_AMBIGUOUS": {"PE", "ROE"},
         "EPS_LEVEL_MISMATCH": {"PE", "ROE"},
@@ -565,11 +566,19 @@ class ValuationEngine:
             cc = period_metrics.get("CHARTER_CAPITAL")
             if cc and cc > 0:
                 shares = cc / 10000.0
-        # Fallback BVPS = Equity / Shares
-        # BASIS-FIX: price là split-adjusted → dùng shares hiện tại (shares_now)
-        # khi có; nếu không có, rơi về shares thời điểm đó (cũ, bảo toàn hành vi).
-        if not bvps:
-            eq = period_metrics.get("TOTAL_EQUITY")
+        # BASIS A (GIÁ ADJUSTED_TODAY): BVPS BẮT BUỘC = Equity / shares_now.
+        # [WHY] `BOOK_VALUE_PS` của vendor chia theo số cp **TẠI KỲ** (`SHARES_PIT`), còn giá đã
+        # back-adjust về số cp HIỆN TẠI. Ưu tiên vendor BVPS ⇒ HPG 2018Q1 = 1,333 thay vì 1,899
+        # (đo 2026-10-23 trên kho thật), và guard `BASIS_MISMATCH` bên dưới KHÔNG chạy vì nó chỉ
+        # xét nhánh fallback `SHARES_PIT`. Đây là REGRESSION của BASIS-FIX 2026-08-19
+        # (`financial_facts_ratio_audit.md` §2) sau khi ingest bổ sung `BOOK_VALUE_PS`.
+        # [INVARIANT] Không có `TOTAL_EQUITY`/`shares_now` ⇒ không chứng minh được basis ⇒ cờ
+        # `BVPS_BASIS_UNVERIFIED` + `is_clean=0` (giữ số để truy vết, không xoá).
+        eq = period_metrics.get("TOTAL_EQUITY")
+        if PRICE_BASIS == "ADJUSTED_TODAY" and eq and eq > 0 and shares_now:
+            bvps = eq / shares_now
+            bvps_source = "SHARES_NOW"
+        elif not bvps:
             if eq and shares_now:
                 bvps = eq / shares_now
                 bvps_source = "SHARES_NOW"
@@ -658,6 +667,10 @@ class ValuationEngine:
         if ebitda_is_proxy and result.get("EV_EBITDA") is not None:
             # EBITDA không tồn tại như metric trong kho ⇒ mẫu số là proxy EBIT+D&A.
             flags.append("UNTRACEABLE_DENOMINATOR")
+        if PRICE_BASIS == "ADJUSTED_TODAY" and bvps_source == "PROVIDED":
+            # [WHY] Vendor BVPS luôn tính theo số cp TẠI KỲ; không thể chứng minh nó cùng basis với
+            # giá adjusted ⇒ không được xếp hạng P/B (nhưng vẫn giữ số để truy vết).
+            flags.append("BVPS_BASIS_UNVERIFIED")
         if PRICE_BASIS == "ADJUSTED_TODAY" and bvps_source == "SHARES_PIT":
             # Giá ở basis ADJUSTED_TODAY nhưng BVPS chia theo shares TẠI KỲ = râu ông nọ cắm
             # cằm bà kia (HPG 2018Q1 sẽ ra 0,450 thay vì 1,899) ⇒ loại khỏi xếp hạng.

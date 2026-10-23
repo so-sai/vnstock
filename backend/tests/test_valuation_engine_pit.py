@@ -116,6 +116,35 @@ def test_basis_mismatch_khi_bvps_dung_shares_pit():
     assert r["_is_clean"] is False
 
 
+def test_bvps_provided_khong_duoc_de_len_shares_now():
+    """[WHY] `BOOK_VALUE_PS` của vendor chia theo số cp TẠI KỲ, còn giá là `ADJUSTED_TODAY`.
+
+    [ROOT CAUSE] `compute_ratios_for_period` chỉ áp BASIS-FIX khi `bvps` TRỐNG; khi vendor đã có
+    `BOOK_VALUE_PS` thì giá adjusted bị chia cho BVPS PIT ⇒ HPG 2018Q1 ra 1,333 thay vì 1,899
+    (đúng ca đã ghi ở `financial_facts_ratio_audit.md` §2), và cờ `BASIS_MISMATCH` KHÔNG BAO GIỜ
+    được dán vì guard chỉ xét nhánh `SHARES_PIT`.
+
+    [INVARIANT] Với `PRICE_BASIS = ADJUSTED_TODAY`, mọi BVPS dùng để tính P/B phải là
+    `TOTAL_EQUITY / shares_now`; không có `shares_now` ⇒ không được coi là sạch.
+    """
+    e = _engine(price=10_220.0)
+    m = _metrics(TOTAL_EQUITY=34.428e12, BOOK_VALUE_PS=7_669.0, CHARTER_CAPITAL=15.171e12, EPS=None)
+    r = e.compute_ratios_for_period("HPG", "2018Q1", m, "STANDARD", shares_now=6_396.3e6)
+    assert r["PB"] == pytest.approx(1.899, abs=0.01), "BVPS vendor (PIT) không được dùng với giá adjusted"
+
+
+def test_bvps_provided_thieu_equity_thi_bi_chan():
+    """[WHY] Không có `TOTAL_EQUITY` ⇒ không chứng minh được BVPS cùng basis với giá adjusted.
+
+    [INVARIANT] Fail-closed: vẫn ghi số để truy vết nhưng dán cờ chặn + `is_clean=False`.
+    """
+    e = _engine(price=10_000.0)
+    m = _metrics(TOTAL_EQUITY=None, BOOK_VALUE_PS=7_669.0, EPS=None)
+    r = e.compute_ratios_for_period("HPG", "2018Q1", m, "STANDARD", shares_now=6_396.3e6)
+    assert "BVPS_BASIS_UNVERIFIED" in r["_flags"]
+    assert r["_is_clean"] is False
+
+
 def test_eps_am_duoc_gan_co_chu_khong_bo_lang():
     e = _engine(price=10_000.0)
     r = e.compute_ratios_for_period("XXX", "2018Q1", _metrics(EPS=-100.0), "STANDARD", shares_now=1e9)
