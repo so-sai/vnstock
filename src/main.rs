@@ -826,6 +826,104 @@ fn format_number_vnd(val: f64) -> String {
     format!("{}{},{:02}", sign, format_int_dots(int_part), dec_part)
 }
 
+/// WHY: `system_state.json` là nguồn sự thật của ENTRY_LOCK (Hiến pháp: fail-closed).
+/// ROOT CAUSE: bản cũ chỉ đọc `governor_decision.json`, nên khi state file khoá mà file
+/// governor thiếu/vắng cờ thì template có thể hiển thị "thuận lợi".
+/// INVARIANT: parse cờ boolean chịu được mọi kiểu khoảng trắng; thiếu file ⇒ khoá.
+fn json_flag_true(content: &str, key: &str) -> bool {
+    let compact: String = content.chars().filter(|c| !c.is_whitespace()).collect();
+    compact.contains(&format!("\"{}\":true", key))
+}
+
+/// WHY: Zalo chỉ nhận câu đời thường; không lộ thuật ngữ nội bộ (Regime/Score/…).
+/// INVARIANT: phiên chưa chốt sổ EOD phải mang nhãn "dữ liệu tạm", không là nhãn lành.
+pub fn provenance_label(eod_finalized: bool) -> &'static str {
+    if eod_finalized {
+        "✅ [Đã chốt sổ EOD]"
+    } else {
+        "⏳ [Dữ liệu tạm — chưa đóng phiên]"
+    }
+}
+
+pub fn friendly_regime(status: Option<&str>) -> (&'static str, &'static str) {
+    match status {
+        Some("TRENDING") => ("🟢", "Khỏe"),
+        Some("RANGING") => ("🟡", "Trung tính"),
+        Some("CRISIS") | Some("CRISIS_WARNING") => ("🔴", "Rất yếu"),
+        _ => ("⚪", "Chưa xác định"),
+    }
+}
+
+struct PnjFacts {
+    price: f64,
+    pct: f64,
+    net_income: Option<(String, f64)>,
+    ma20_gap: Option<f64>,
+    vol_ratio: Option<f64>,
+}
+
+fn pnj_net_income() -> Option<(String, f64)> {
+    let db = Db::open_readonly(&resolve_db_path("financial_facts.db")).ok()?;
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT period, value FROM financial_facts WHERE symbol='PNJ' AND metric='NET_INCOME' AND unit='VND' AND is_synthetic=0 ORDER BY period DESC LIMIT 1;",
+        )
+        .ok()?;
+    let mut rows = stmt.query([]).ok()?;
+    if let Ok(Some(row)) = rows.next() {
+        let period: String = row.get(0).ok()?;
+        let value: f64 = row.get(1).ok()?;
+        return Some((period, value));
+    }
+    None
+}
+
+fn pnj_facts(db: &Db, report_date: &str) -> Option<PnjFacts> {
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT close, volume FROM daily_ohlcv WHERE symbol='PNJ' AND is_stale=0 AND date <= ?1 ORDER BY date DESC LIMIT 21;",
+        )
+        .ok()?;
+    let rows: Vec<(f64, f64)> = stmt
+        .query_map(params![report_date], |row| Ok((row.get(0)?, row.get(1)?)))
+        .ok()?
+        .filter_map(|r| r.ok())
+        .collect();
+    if rows.len() < 2 {
+        return None;
+    }
+    let (price, volume) = rows[0];
+    let prev_close = rows[1].0;
+    let pct = if prev_close > 0.0 {
+        (price / prev_close - 1.0) * 100.0
+    } else {
+        0.0
+    };
+    let closes: Vec<f64> = rows.iter().take(20).map(|r| r.0).collect();
+    let ma20 = if closes.len() == 20 {
+        Some(closes.iter().sum::<f64>() / 20.0)
+    } else {
+        None
+    };
+    let volumes: Vec<f64> = rows.iter().skip(1).take(20).map(|r| r.1).collect();
+    let adv20 = if volumes.len() == 20 {
+        Some(volumes.iter().sum::<f64>() / 20.0)
+    } else {
+        None
+    };
+    let ma20_gap = ma20.map(|m| (price / m - 1.0) * 100.0);
+    let vol_ratio = adv20.filter(|a| *a > 0.0).map(|a| volume / a);
+    Some(PnjFacts {
+        price,
+        pct,
+        net_income: pnj_net_income(),
+        ma20_gap,
+        vol_ratio,
+    })
+}
+
 pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
     let raw_trimmed = raw_symbol.trim();
     if raw_trimmed.chars().any(|c| !c.is_ascii()) {
@@ -1133,7 +1231,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     let mut vni_vol = 0.0;
 
     if let Ok(mut stmt) = db_scr.conn.prepare(
-        "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' ORDER BY date DESC LIMIT 2;",
+        "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='VNINDEX' AND is_stale=0 ORDER BY date DESC LIMIT 2;",
     ) {
         if let Ok(mut rows) = stmt.query([]) {
             if let Ok(Some(row)) = rows.next() {
@@ -1154,6 +1252,17 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         0.0
     };
 
+    let mut vni_adv20 = 0.0;
+    if let Ok(mut stmt) = db_scr.conn.prepare(
+        "SELECT AVG(volume) FROM (SELECT volume FROM daily_ohlcv WHERE symbol='VNINDEX' AND is_stale=0 AND date < ?1 ORDER BY date DESC LIMIT 20);",
+    ) {
+        if let Ok(mut rows) = stmt.query(params![vni_date]) {
+            if let Ok(Some(row)) = rows.next() {
+                vni_adv20 = row.get(0).unwrap_or(0.0);
+            }
+        }
+    }
+
     let title_upper = mode_title.to_uppercase();
     let is_summary = title_upper.contains("ATC") || title_upper.contains("TỔNG KẾT") || title_upper.contains("SUMMARY");
     let header_line = if is_summary {
@@ -1171,9 +1280,69 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         vni_date.clone()
     };
 
+    let mut reg_status: Option<String> = None;
+    let mut reg_score: Option<f64> = None;
+    let mut reg_breadth: Option<f64> = None;
+    let mut reg_degraded: Option<i64> = None;
+    if let Ok(mut stmt) = db_scr.conn.prepare(
+        "SELECT status, regime_score, breadth_pct, is_degraded FROM regime_history WHERE date=?1 LIMIT 1;",
+    ) {
+        if let Ok(mut rows) = stmt.query(params![vni_date]) {
+            if let Ok(Some(row)) = rows.next() {
+                reg_status = row.get(0).ok();
+                reg_score = row.get(1).ok();
+                reg_breadth = row.get(2).ok();
+                reg_degraded = row.get(3).ok();
+            }
+        }
+    }
+
+    let mut has_breadth_row = false;
+    if let Ok(mut stmt) = db_scr
+        .conn
+        .prepare("SELECT 1 FROM market_wide_breadth_daily WHERE date=?1 LIMIT 1;")
+    {
+        if let Ok(mut rows) = stmt.query(params![vni_date]) {
+            has_breadth_row = matches!(rows.next(), Ok(Some(_)));
+        }
+    }
+
+    let quality_known = reg_degraded == Some(0) && has_breadth_row;
+    let is_eod_final = quality_known;
+
+    let mut entry_lock = !quality_known
+        || reg_status
+            .as_deref()
+            .map(|s| s == "CRISIS" || s == "CRISIS_WARNING")
+            .unwrap_or(true)
+        || reg_score.map(|s| s < 0.40).unwrap_or(true);
+
+    let state_path = resolve_project_root()
+        .join("backend")
+        .join("data")
+        .join("system_state.json");
+    match std::fs::read_to_string(&state_path) {
+        Ok(content) => {
+            if json_flag_true(&content, "portfolio_critical_lock") {
+                entry_lock = true;
+            }
+        }
+        Err(_) => entry_lock = true,
+    }
+
+    let govr_path = resolve_project_root().join("backend").join("data").join("governor_decision.json");
+    if let Ok(content) = std::fs::read_to_string(&govr_path) {
+        if json_flag_true(&content, "entry_lock") {
+            entry_lock = true;
+        }
+    }
+
+    let (reg_icon, reg_label) = friendly_regime(reg_status.as_deref());
+
     let mut out = String::new();
     out.push_str(&format!("{}\n", header_line));
     out.push_str(&format!("📅 Ngày {}\n", display_date));
+    out.push_str(&format!("{}\n", provenance_label(is_eod_final)));
     out.push_str("────────────────────────\n");
 
     // 2. TRẠNG THÁI THỊ TRƯỜNG / KẾT PHIÊN HÔM NAY
@@ -1190,38 +1359,6 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     };
     let vol_mil_str = format!("{:.1}", vni_vol / 1_000_000.0).replace('.', ",");
 
-    let mut reg_status = String::from("CRISIS");
-    let mut reg_score = 0.0;
-    let mut breadth = 0.0;
-    if let Ok(mut stmt) = db_scr.conn.prepare(
-        "SELECT status, regime_score, breadth_pct FROM regime_history ORDER BY date DESC LIMIT 1;",
-    ) {
-        if let Ok(mut rows) = stmt.query([]) {
-            if let Ok(Some(row)) = rows.next() {
-                reg_status = row.get(0).unwrap_or_else(|_| "CRISIS".to_string());
-                reg_score = row.get(1).unwrap_or(0.0);
-                breadth = row.get(2).unwrap_or(0.0);
-            }
-        }
-    }
-
-    let mut entry_lock = reg_status == "CRISIS" || reg_score < 0.40;
-    let govr_path = resolve_project_root().join("backend").join("data").join("governor_decision.json");
-    if let Ok(content) = std::fs::read_to_string(&govr_path) {
-        if content.contains("\"entry_lock\": true") || content.contains("\"entry_lock\":true") {
-            entry_lock = true;
-        }
-    }
-
-    let reg_icon = if reg_status == "CRISIS" || reg_score < 0.40 {
-        "🔴"
-    } else if reg_score < 0.60 || reg_status == "RANGING" {
-        "🟡"
-    } else {
-        "🟢"
-    };
-    let breadth_str = format!("{:.1}", breadth).replace('.', ",");
-
     if is_summary {
         out.push_str("🎯 KẾT PHIÊN HÔM NAY\n");
     } else {
@@ -1234,11 +1371,36 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         diff_str,
         pct_str
     ));
-    out.push_str(&format!("• Thanh khoản: {}M cp\n", vol_mil_str));
-    out.push_str(&format!(
-        "• Regime: {} {} (Score: {:.2} | Độ rộng: {}%)\n",
-        reg_icon, reg_status, reg_score, breadth_str
-    ));
+    if vni_adv20 > 0.0 {
+        let ratio = vni_vol / vni_adv20;
+        let compare = if ratio >= 1.3 {
+            "cao hơn trung bình rõ rệt"
+        } else if ratio >= 1.1 {
+            "hơi cao hơn trung bình"
+        } else if ratio >= 0.9 {
+            "quanh mức trung bình"
+        } else {
+            "thấp hơn trung bình"
+        };
+        out.push_str(&format!(
+            "• Thanh khoản: {}M cp ({:.1}× bình quân 20 phiên — {})\n",
+            vol_mil_str,
+            ratio,
+            compare
+        ).replace('.', ","));
+    } else {
+        out.push_str(&format!("• Thanh khoản: {}M cp\n", vol_mil_str));
+    }
+    if quality_known {
+        let score_str = format!("{:.2}", reg_score.unwrap_or(0.0)).replace('.', ",");
+        let breadth_str = format!("{:.1}", reg_breadth.unwrap_or(0.0)).replace('.', ",");
+        out.push_str(&format!(
+            "• Sức khỏe thị trường: {} {} — mức {}/1,00, {}% cổ phiếu tăng giá\n",
+            reg_icon, reg_label, score_str, breadth_str
+        ));
+    } else {
+        out.push_str("• Sức khỏe thị trường: ⏳ Chưa kiểm định chất lượng phiên — số liệu chỉ để tham khảo\n");
+    }
 
     // 3. HUYẾT MẠCH VĨ MÔ (Chỉ hiển thị ở bản tin Sáng)
     if !is_summary {
@@ -1327,7 +1489,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     let mut group_pressure: Vec<SymDetail> = Vec::new();
     let mut group_narrow: Vec<String> = Vec::new();
 
-    for &sym in &["SHB", "FPT", "PNJ", "MBB", "TCB", "VCB", "ACB", "HPG"] {
+    for &sym in &["SHB", "FPT", "MBB", "TCB", "VCB", "ACB", "HPG"] {
         let mut c0 = 0.0;
         let mut c1 = 0.0;
         let mut v0 = 0.0;
@@ -1456,11 +1618,45 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         ));
     }
 
+    if let Some(p) = pnj_facts(&db_scr, &vni_date) {
+        let mut parts: Vec<String> = Vec::new();
+        let sign = if p.pct >= 0.0 { "+" } else { "" };
+        parts.push(format!(
+            "{}đ ({}{}%)",
+            format_int_dots(p.price.round() as i64),
+            sign,
+            format_number_vnd(p.pct)
+        ));
+        match &p.net_income {
+            Some((period, value)) => parts.push(format!(
+                "LNST {} = {} tỷ",
+                period,
+                format_int_dots((value / 1_000_000_000.0).round() as i64)
+            )),
+            None => parts.push("LNST: chưa có dữ liệu".to_string()),
+        }
+        if let Some(gap) = p.ma20_gap {
+            parts.push(
+                format!(
+                    "Giá {} MA20 {:.1}%",
+                    if gap >= 0.0 { "cao hơn" } else { "thấp hơn" },
+                    gap.abs()
+                )
+                .replace('.', ","),
+            );
+        }
+        if let Some(r) = p.vol_ratio {
+            parts.push(format!("Vol {:.2}× bình quân 20 phiên", r).replace('.', ","));
+        }
+        out.push_str("\n🩺 ĐIỂM NÓNG PNJ\n");
+        out.push_str(&format!("• PNJ: {}\n", parts.join(" | ")));
+    }
+
     // 5. PHÁN QUYẾT & HÀNH ĐỘNG / ĐÁNH GIÁ CUỐI NGÀY
     if is_summary {
         out.push_str("\n🛑 ĐÁNH GIÁ CUỐI NGÀY\n");
-        if entry_lock || reg_status == "CRISIS" || reg_score < 0.40 {
-            out.push_str("🔒 TRẠNG THÁI: ENTRY_LOCK = ON (100% TIỀN MẶT)\n");
+        if entry_lock {
+            out.push_str("🔒 TRẠNG THÁI: TẠM KHÓA MUA MỚI (100% TIỀN MẶT)\n");
             out.push_str("1️⃣ Tiếp tục khóa vị thế mua mới qua đêm.\n");
             out.push_str("2️⃣ Danh mục nắm giữ: Ưu tiên bảo toàn vốn, đưa margin về 0%.\n");
             let support_level: f64 = ((vni_c0 * 0.99 / 10.0) as f64).floor() * 10.0;
@@ -1468,7 +1664,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                 "3️⃣ Quan sát vùng phản ứng hỗ trợ kế tiếp quanh mốc {} điểm.\n",
                 format_int_dots(support_level.round() as i64)
             ));
-        } else if reg_score < 0.60 || reg_status == "RANGING" {
+        } else if reg_score.unwrap_or(0.0) < 0.60 || reg_status.as_deref() == Some("RANGING") {
             out.push_str("⚠️ TRẠNG THÁI: PHÂN HÓA / THĂM DÒ (TỶ TRỌNG 30-50%)\n");
             out.push_str("1️⃣ Hạn chế mở vị thế mới phiên chiều; không mua đuổi giá xanh.\n");
             out.push_str("2️⃣ Danh mục nắm giữ: Duy trì sức mua 50-70% tiền mặt; chốt lời chủ động khi chạm cản.\n");
@@ -1487,16 +1683,16 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         }
     } else {
         out.push_str("\n🛑 PHÁN QUYẾT & HÀNH ĐỘNG\n");
-        if entry_lock || reg_status == "CRISIS" || reg_score < 0.40 {
-            out.push_str("🔒 TRẠNG THÁI: ENTRY_LOCK = ON (100% TIỀN MẶT)\n");
-            out.push_str("1️⃣ Mua mới: TUYỆT ĐỐI KHÓA LỆNH. Không bắt đáy khi thị trường ở vùng CRISIS.\n");
+        if entry_lock {
+            out.push_str("🔒 TRẠNG THÁI: TẠM KHÓA MUA MỚI (100% TIỀN MẶT)\n");
+            out.push_str("1️⃣ Mua mới: TUYỆT ĐỐI KHÓA LỆNH. Không bắt đáy khi thị trường còn suy yếu.\n");
             out.push_str("2️⃣ Danh mục cũ: Đưa tài khoản về phòng thủ tối đa, hạ margin về 0%.\n");
             let support_level: f64 = ((vni_c0 * 0.99 / 10.0) as f64).floor() * 10.0;
             out.push_str(&format!(
                 "3️⃣ Ngưỡng rủi ro: Canh mốc hỗ trợ tâm lý {}. Thủng mốc này tiếp tục đứng ngoài.\n",
                 format_int_dots(support_level.round() as i64)
             ));
-        } else if reg_score < 0.60 || reg_status == "RANGING" {
+        } else if reg_score.unwrap_or(0.0) < 0.60 || reg_status.as_deref() == Some("RANGING") {
             out.push_str("⚠️ TRẠNG THÁI: PHÂN HÓA / THĂM DÒ (TỶ TRỌNG 30-50%)\n");
             out.push_str("1️⃣ Mua mới: Thăm dò từng phần (10-20%) tại hỗ trợ cứng với mã có cầu đỡ; không mua đuổi giá xanh.\n");
             out.push_str("2️⃣ Danh mục cũ: Duy trì sức mua 50-70% tiền mặt; chủ động chốt lời khi chạm cản trên.\n");
@@ -1704,7 +1900,7 @@ fn handle_zalo_command(cmd_body: &str) -> String {
         return "🤖 [Minh Chứng - Trợ lý Định lượng & FTS5 (<30ms)]\n\
                 • Gõ `/mc <MÃ>` (VD: `/mc HPG`, `/mc TCB`, `/mc FPT`): Tra cứu tức thì Định giá & BCTC.\n\
                 • Gõ `/mc ngành <TÊN_NGÀNH>` (VD: `/mc ngành ngân hàng`, `/mc ngành thép`, `/mc ngành bán lẻ`): Tra cứu danh mục cổ phiếu bằng FTS5.\n\
-                • Gõ `/mc tổng kết`, `/mc hôm nay`, `/mc brief`: Tổng kết phiên ATC, Market Regime, Vĩ mô & Watchlist.\n\
+                • Gõ `/mc tổng kết`, `/mc hôm nay`, `/mc brief`: Tổng kết phiên ATC, trạng thái thị trường, vĩ mô & danh mục theo dõi.\n\
                 • Gõ `/mc sync`: Cập nhật dữ liệu CLI mới nhất."
             .to_string();
     }
@@ -1899,5 +2095,78 @@ fn main() {
             Ok(report) => println!("{}\n⏱️ Thời gian truy vấn: {:.2?}", report, t0.elapsed()),
             Err(e) => eprintln!("❌ Lỗi: {}", e),
         },
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TU_KHOA_CAM: [&str; 6] = ["CRISIS", "Regime", "ENTRY_LOCK", "Score", "Breadth", "RANGING"];
+
+    fn db_san_co() -> bool {
+        std::path::Path::new(&resolve_db_path("screener_cache.db")).exists()
+    }
+
+    #[test]
+    fn bao_cao_zalo_khong_lot_thuat_ngu_ky_thuat() {
+        if !db_san_co() {
+            eprintln!("BO QUA: khong tim thay screener_cache.db");
+            return;
+        }
+        for title in [
+            "TỔNG KẾT ĐÓNG CỬA PHIÊN ATC (MARKET SUMMARY 15:15)",
+            "ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA (PRE-MARKET BRIEF 08:45)",
+        ] {
+            let report = build_market_brief(title).expect("render bao cao");
+            assert!(!report.is_empty());
+            for keyword in TU_KHOA_CAM {
+                assert!(
+                    !report.contains(keyword),
+                    "Lot thuat ngu ky thuat '{}' trong bao cao", keyword
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bao_cao_khong_tai_dien_so_lieu_pnj_khong_nguon() {
+        if !db_san_co() {
+            return;
+        }
+        let report = build_market_brief("TỔNG KẾT ĐÓNG CỬA PHIÊN ATC").expect("render");
+        for bia_dat in ["kim cương", "trích lập", "7.100", "6.271", "pha loãng"] {
+            assert!(
+                !report.contains(bia_dat),
+                "Bao cao chua thong tin khong co nguon: '{}'", bia_dat
+            );
+        }
+    }
+
+    #[test]
+    fn nhan_nguon_goc_phan_biet_eod_va_du_lieu_tam() {
+        assert_eq!(provenance_label(true), "✅ [Đã chốt sổ EOD]");
+        assert_eq!(provenance_label(false), "⏳ [Dữ liệu tạm — chưa đóng phiên]");
+        assert_ne!(provenance_label(true), provenance_label(false));
+    }
+
+    #[test]
+    fn co_chua_khoa_fail_closed_theo_ngon_ngu_doi_thuong() {
+        assert_eq!(friendly_regime(None), ("⚪", "Chưa xác định"));
+        assert_eq!(friendly_regime(Some("CRISIS")).1, "Rất yếu");
+        assert_eq!(friendly_regime(Some("RANGING")).1, "Trung tính");
+        assert_eq!(friendly_regime(Some("TRENDING")).1, "Khỏe");
+        for keyword in TU_KHOA_CAM {
+            assert!(!friendly_regime(Some("CRISIS")).1.contains(keyword));
+        }
+    }
+
+    #[test]
+    fn doc_co_boolean_chiu_duoc_khoang_trang() {
+        assert!(json_flag_true(r#"{"portfolio_critical_lock": true}"#, "portfolio_critical_lock"));
+        assert!(json_flag_true(r#"{"portfolio_critical_lock":true}"#, "portfolio_critical_lock"));
+        assert!(!json_flag_true(r#"{"portfolio_critical_lock": false}"#, "portfolio_critical_lock"));
+        assert!(!json_flag_true("{}", "portfolio_critical_lock"));
     }
 }
