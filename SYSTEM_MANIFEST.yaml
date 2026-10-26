@@ -750,12 +750,15 @@ entrypoints:
 # ── Research Modules Registry ───────────────────────────────
 research_modules:
   - id: "dividend_audit_engine"
-    name: "Quantitative Dividend & Total Return Auditor"
-    version: "2.1.0"
+    name: "Quantitative Dividend Total Return & Microstructure Auditor"
+    version: "2.3.0"
     path: "backend/src/research/dividend_audit_engine.py"
     test_path: "backend/tests/test_dividend_audit_engine.py"
+    status: "validation_required"
     invariants:
       - "FAIL_CLOSED_ON_ADJUSTED_PRICE"
-      - "EVENT_DRIVEN_EX_PAY_DATE_MATCH"
-      - "EXACT_DAY_COUNT_INTEREST_ACCRUAL"
-      - "MICROSTRUCTURE_SLIPPAGE_AWARE"
+      - "MANDATORY_INDEPENDENT_PROVENANCE_TWO_WAY"
+      - "CONSERVED_CASH_AND_EQUITY_LEDGER"
+      - "ADV20_WARMUP_WINDOW_ORDER_SLICING"
+      - "DECREE_126_STOCK_DIVIDEND_TAX_DEFERRED"
+      - "VIETNAM_T2_TRADING_CALENDAR"
