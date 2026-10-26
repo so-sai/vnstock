@@ -737,8 +737,13 @@ entrypoints:
 
   # ── Quantitative Research ──────────────────────────────
   dividend_audit:
-    description: "Quantitative Dividend & Total Return Auditor (V2.1) — Event-driven DRIP vs Bank 12M exact with T+2 & slippage"
+    description: "Quantitative Dividend & Total Return Auditor (V2.3) — Event-driven DRIP vs Bank 12M exact with T+2 & slippage"
     cli: "python -m backend.src.research.dividend_audit_engine"
+    category: research
+
+  foc_dividend_audit:
+    description: "Empirical Audit: FOC (FPT Online) vs 12-Month Bank Deposits (2021-2026, Option B Warmup)"
+    cli: "python backend/src/research/run_foc_empirical_audit.py"
     category: research
 
   # ── init-agent ────────────────────────────────────────
