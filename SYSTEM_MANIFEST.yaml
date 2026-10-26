@@ -735,8 +735,27 @@ entrypoints:
     cli: "python -m backend.src.backtest.unified_system_replay [--mode multi-factor] [--start YYYY-MM-DD]"
     category: backtest
 
+  # ── Quantitative Research ──────────────────────────────
+  dividend_audit:
+    description: "Quantitative Dividend & Total Return Auditor (V2.1) — Event-driven DRIP vs Bank 12M exact with T+2 & slippage"
+    cli: "python -m backend.src.research.dividend_audit_engine"
+    category: research
+
   # ── init-agent ────────────────────────────────────────
   init_agent:
     description: "Initialize IDE agent config files (.clinerules + .cursorrules) from bundled AGENTS.md"
     cli: "python ptck.py init-agent"
     category: system
+
+# ── Research Modules Registry ───────────────────────────────
+research_modules:
+  - id: "dividend_audit_engine"
+    name: "Quantitative Dividend & Total Return Auditor"
+    version: "2.1.0"
+    path: "backend/src/research/dividend_audit_engine.py"
+    test_path: "backend/tests/test_dividend_audit_engine.py"
+    invariants:
+      - "FAIL_CLOSED_ON_ADJUSTED_PRICE"
+      - "EVENT_DRIVEN_EX_PAY_DATE_MATCH"
+      - "EXACT_DAY_COUNT_INTEREST_ACCRUAL"
+      - "MICROSTRUCTURE_SLIPPAGE_AWARE"
