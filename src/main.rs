@@ -257,7 +257,7 @@ impl CdpClient {
         .map_err(|e| e.to_string())?;
         stream.set_nodelay(true).ok();
         stream
-            .set_read_timeout(Some(Duration::from_millis(1500)))
+            .set_read_timeout(Some(Duration::from_millis(3500)))
             .ok();
         let req = format!(
             "GET /json HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
@@ -330,7 +330,7 @@ impl CdpClient {
         .map_err(|e| e.to_string())?;
         stream.set_nodelay(true).ok();
         stream
-            .set_read_timeout(Some(Duration::from_millis(1500)))
+            .set_read_timeout(Some(Duration::from_millis(3500)))
             .ok();
 
         let handshake = format!(
@@ -548,7 +548,7 @@ impl CdpClient {
             return Err(format!("Chưa mở đúng nhóm '{}'. Đã hủy gửi để bảo đảm tuyệt đối không nhầm nhóm. ({})", TARGET_CONV_NAME, check));
         }
         if check == "SWITCHED" {
-            thread::sleep(Duration::from_millis(300));
+            thread::sleep(Duration::from_millis(500));
         }
 
         let js_text = Self::json_escape(text);
