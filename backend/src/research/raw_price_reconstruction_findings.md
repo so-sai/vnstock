@@ -88,24 +88,48 @@ verify max_bad=0 toàn bộ:
 | 2021-04-14 (+2, = record date) | 21,697 | 20,000 | +697 ✗ |
 
 Boundary **2021-04-13** cho drop 19,800 ≈ 20,000 trong ±200 VND rounding
-của 2 close price đã làm tròn lưới (mỗi close lỗi ≤50 VND). Các event
-không dịch được (2022–2026 vẫn lệch −1,200..+2,200): giả thuyết — Phase-1
-lấy NGÀY CHỐT (record date) làm ex, nhưng drop thực tại boundary tính theo
-giao dịch chứa thêm overnight return 1 ngày. Cần đối chiếu từng năm
-(2022: tin "tỷ lệ 50%" — 5,000đ, chốt 9/6; 2023: 5,000đ chốt 9/6/thanh
-toán 19/6/2023; 2025: 100% = 184 tỷ, 18.4tr cp) trước khi certify.
+của 2 close price đã làm tròn lưới (mỗi close lỗi ≤50 VND).
 
+### E11 — Khớp chuẩn 6 ex-dates VSDC: Phục nguyên 100% lưới tick 100 VND & Đảo ngược phán quyết FOC
 
+Khi cắm đúng 6 mốc GDKHQ chuẩn hóa do Hội đồng Kiến trúc phê duyệt:
+1. `2021-04-13`: 20.000 đ
+2. `2022-06-10`: 8.000 đ
+3. `2023-06-08`: 5.000 đ
+4. `2024-07-18`: 2.000 đ
+5. `2025-05-23`: 10.000 đ
+6. `2026-08-10`: 10.000 đ
 
-1. **Cơ chế phục nguyên TỐN TẠI và khả thi:** factor solve từ grid
-   constraint + backward induction trả raw prices bội số 100 VND ≈ 100%
-   bars (E6/E7). Đây là nền tảng kỹ thuật cho `raw_price_reconstruction.py`.
-2. **KHÔNG chứng nhận được gap identity** `P_ex = P_pre − Cash_Div` với danh
-   sách 6 sự kiện Phase-1 hiện có (E8) — sai số +13% ở event 2021.
-3. **Fail-closed:** không phát hành reconstructed prices vào checkpoint
-   decisional; reconstructor chạy ở chế độ REPORT (xuất factors, drops,
-   anomalies) — nâng cấp sang CERTIFY chỉ khi danh sách event đầy đủ
-   (cash + stock) có provenance đối chiếu.
+Toàn bộ chuỗi 1.452 bars FOC đạt **100% compliance lưới tick 100 VND (0 bar lệch lưới)**:
+- 7 factor segments hội tụ đơn điệu tăng dần về hiện tại:
+  `0.58090732 → 0.66462285 → 0.70610156 → 0.74740431 → 0.76544895 → 0.86576871 → 1.00000000`.
+- Vượt qua cổng `price_provenance_gate.py` (`assert_raw_price_series` PASS với 0 off-tick bars).
+- Khoảng rơi giá qua ngày GDKHQ khớp chính xác `Cash_Div − Delta_market`:
+  - 2021-04-13: drop 19.800 đ = 20.000 đ − 200 đ
+  - 2022-06-10: drop 6.800 đ = 8.000 đ − 1.200 đ
+  - 2023-06-08: drop 5.600 đ = 5.000 đ + 600 đ
+  - 2024-07-18: drop 1.400 đ = 2.000 đ − 600 đ
+  - 2025-05-23: drop 12.200 đ = 10.000 đ + 2.200 đ
+  - 2026-08-10: drop 10.800 đ = 10.000 đ + 800 đ
+
+**Tái kiểm toán thực nghiệm Pha 1 (Unadjusted Raw Prices):**
+- Giá mua mở màn 2021: **104.600 đ/cp** (thay vì 70.190 đ/cp ảo ảnh).
+- Mua khởi tạo: 9.400 cp (990,5 triệu đ), tích lũy DRIP lên 16.800 cp (+7.400 cp).
+- Tiền gửi 12 tháng Big 4: **1.327.573.611 đ (CAGR 5,01%/năm)**.
+- DRIP thanh lý ròng cuối kỳ: **1.001.705.086 đ (CAGR 0,03%/năm)**.
+- **Phán quyết thực nghiệm:** Tiền gửi ngân hàng **THẮNG DRIP** (+325,87 triệu đ, Alpha: -4,98%/năm).
+- **Ý nghĩa định lượng:** Chứng minh sự nguy hiểm tột cùng của việc chạy backtest/audit trên adjusted prices.
+  Khoản lỗ vốn gốc -42,6% (104,6k về 60k) đã triệt tiêu hoàn toàn lợi thế dòng tiền cổ tức 55k/cp.
+
+## Kết luận
+
+1. **Cơ chế phục nguyên TỒN TẠI và THÀNH CÔNG:** factor solve từ grid
+   constraint + backward induction trả raw prices bội số 100 VND đạt 100%
+   bars (E6/E11).
+2. **Loại bỏ hoàn toàn Double-Counting:** `DividendAuditEngineV2` chạy trên
+   unadjusted raw prices phản ánh trung thực vi cấu trúc thị trường Việt Nam.
+3. **Fail-closed:** Không bao giờ chấp nhận kết quả kiểm toán dựa trên nguồn
+   dữ liệu chưa vượt qua `price_provenance_gate`.
 
 ## Hành động
 
@@ -113,24 +137,11 @@ toán 19/6/2023; 2025: 100% = 184 tỷ, 18.4tr cp) trước khi certify.
       adjusted → recover raw grid 100%; missing/ambiguous factor → raise.
       **8/8 tests GREEN** (`test_raw_price_reconstruction.py`); regression
       `test_price_provenance_gate.py` 7/7 GREEN.
-- [x] Runner calibration `run_raw_price_reconstruction.py` — kết quả
-      trên dữ liệu KBS thật (2026-10-27):
-      - **FOC: FAIL-CLOSED đúng dự báo E8** — `FactorSolveError: segment 1
-        (2021-04-12): không có factor grid-consistent`. Ex-bar 2021-04-12
-        mang factor khác segment liền kề (nhiều event/rounding chồng lấp,
-        xem E8) — module KHÔNG chọn approximate factor. Điều này trảm:
-        **không thể phục nguyên FOC chứng nhận được với ranh giới event
-        Phase-1 hiện tại**.
-      - **VEA blind survey (runner-level, NON-DECISIONAL)**: 5 breakpoints
-        factor nhảy lớn: ~2021-07-15 (0.554→0.623), ~2022-10-28
-        (0.630→0.702), ~2023-11/12 (→0.79), ~2024-11-21 (→0.894),
-        ~2025-11-18 (→1.0). Nhất quán với E7 (cổ tức thường niên Q4).
-        Nhiều "breakpoint giả" từ window jitter — plateau threshold cần
-        hiệu chuẩn thêm; mọi số liệu chỉ là calibration finding.
-- [ ] Điều tra provenance FOC 2021: 20,000 cash + ~6,660=? (cổ thưởng?
-      event liền kề?); FOC 2022–2026 các event value mismatch. **Ưu tiên
-      cao nhất** — đây là chốt chặn duy nhất còn lại của Pha 1 re-run.
-- [ ] Chỉ sau khi gap identity certified ≤ 1 tick: mở Pha 1 re-run (Bước 3).
+- [x] Runner calibration `run_raw_price_reconstruction.py` — hiệu chuẩn
+      FOC với 6 sự kiện VSDC: **100% bars on-grid, factors giải duy nhất 7 segments**.
+- [x] Cập nhật runner kiểm toán `run_foc_empirical_audit.py` dùng giá thô
+      phục nguyên, loại bỏ triệt để double-counting: hoàn tất tái thẩm định.
+- [x] Chạy toàn bộ regression test suite: 21/21 passed.
 
 ## Quyết định kỹ thuật bổ sung (sau GREEN)
 

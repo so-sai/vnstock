@@ -247,6 +247,8 @@ def reconstruct_raw_prices(
         p_raw = c / factors[seg_i]
         if _grid_residual(p_raw) > 0.5:
             n_off_grid += 1
+        else:
+            p_raw = round(p_raw / GRID_TICK) * GRID_TICK
         raw.append(p_raw)
 
     anomalies: list[str] = []

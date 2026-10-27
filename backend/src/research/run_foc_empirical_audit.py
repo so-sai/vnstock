@@ -9,7 +9,7 @@ Tuân thủ nghiêm ngặt Quyết nghị Hội đồng Kiến trúc:
 4. Vi cấu trúc thị trường: Lô 100 cp, trượt giá 50 bps, trần thanh khoản 20% ADV20, chu kỳ T+2.
 """
 
-import sqlite3
+import json
 import sys
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -32,6 +32,14 @@ try:
         MarketBar,
         VietnamTradingCalendar,
     )
+    from src.research.price_provenance_gate import (
+        assert_raw_price_series,
+        tick_compliance,
+    )
+    from src.research.raw_price_reconstruction import (
+        CashEvent,
+        reconstruct_raw_prices,
+    )
 except ImportError:
     from backend.src.research.dividend_audit_engine import (
         CashDividendEvent,
@@ -39,6 +47,14 @@ except ImportError:
         EngineConfig,
         MarketBar,
         VietnamTradingCalendar,
+    )
+    from backend.src.research.price_provenance_gate import (
+        assert_raw_price_series,
+        tick_compliance,
+    )
+    from backend.src.research.raw_price_reconstruction import (
+        CashEvent,
+        reconstruct_raw_prices,
     )
 
 
@@ -51,27 +67,45 @@ VALID_ROW_SQL = (
 )
 
 
-def load_foc_clean_bars(db_path: Path) -> list[MarketBar]:
-    """Tải 1.406 phiên giao dịch sạch của FOC từ screener_cache.db."""
-    conn = sqlite3.connect(str(db_path))
-    cur = conn.cursor()
-    query = (
-        f"SELECT date, close, volume FROM daily_ohlcv "
-        f"WHERE symbol = 'FOC' AND date >= '2021-01-05' AND date <= '2026-10-23' "
-        f"AND {VALID_ROW_SQL} ORDER BY date ASC"
-    )
-    rows = cur.execute(query).fetchall()
-    conn.close()
+def load_foc_clean_bars() -> tuple[list[MarketBar], tuple[tuple[date, date, float], ...]]:
+    """Tải chuỗi dữ liệu FOC và phục nguyên giá thô (unadjusted raw price)
+    theo chuẩn tick grid 100 VND (Invariant RAW_PRICE_TICK_GRID_PROOF_REQUIRED).
 
-    bars = [
-        MarketBar(
-            trade_date=datetime.strptime(r[0], "%Y-%m-%d").date(),
-            raw_close=float(r[1]),
-            volume=float(r[2]),
-        )
-        for r in rows
-    ]
-    return bars
+    Chặn đứng hoàn toàn lỗi đếm 2 lần cổ tức (double-counting) từ chuỗi adjusted closes.
+    """
+    json_path = BACKEND_DIR / "data" / "kbs_foc_2021_2026.json"
+    if not json_path.exists():
+        json_path = Path(r"C:\Users\Admin\AppData\Local\Temp\opencode\kbs_foc_2021_2026.json")
+    if not json_path.exists():
+        raise FileNotFoundError(f"Không tìm thấy tệp dữ liệu KBS FOC: {json_path}")
+
+    raw_data = json.loads(json_path.read_text(encoding="utf-8"))
+    dates = [datetime.strptime(r["t"][:10], "%Y-%m-%d").date() for r in raw_data]
+    closes = [float(r["c"]) for r in raw_data]
+    volumes = [float(r["v"]) for r in raw_data]
+
+    events = (
+        CashEvent(date(2021, 4, 13), 20_000.0),
+        CashEvent(date(2022, 6, 10), 8_000.0),
+        CashEvent(date(2023, 6, 8), 5_000.0),
+        CashEvent(date(2024, 7, 18), 2_000.0),
+        CashEvent(date(2025, 5, 23), 10_000.0),
+        CashEvent(date(2026, 8, 10), 10_000.0),
+    )
+
+    recon_report = reconstruct_raw_prices("FOC", dates, closes, events=events)
+
+    # Cổng kiểm định vật lý: Kiểm tra 100% bar nằm trên lưới 100 VND (fail-closed)
+    gate_rep = tick_compliance("FOC_RECONSTRUCTED", recon_report.raw_closes)
+    assert_raw_price_series(gate_rep)
+
+    # Lọc phạm vi kiểm toán chính thức: 2021-01-05 đến 2026-10-23
+    audit_bars = []
+    for d, p, v in zip(dates, recon_report.raw_closes, volumes):
+        if date(2021, 1, 5) <= d <= date(2026, 10, 23):
+            audit_bars.append(MarketBar(trade_date=d, raw_close=p, volume=v))
+
+    return audit_bars, recon_report.segments
 
 
 def generate_dec_2020_warmup_bars(first_bar: MarketBar, calendar: VietnamTradingCalendar) -> list[MarketBar]:
@@ -132,26 +166,21 @@ def trace_initial_execution(
 
 
 def run_empirical_audit():
-    # BACKEND_DIR is backend/, so CSDL is at BACKEND_DIR / "data" / "screener_cache.db"
-    db_path = BACKEND_DIR / "data" / "screener_cache.db"
-    if not db_path.exists():
-        db_path = BACKEND_DIR.parent / "backend" / "data" / "screener_cache.db"
-
     calendar = VietnamTradingCalendar()
-    bars = load_foc_clean_bars(db_path)
+    bars, segments = load_foc_clean_bars()
     if not bars:
-        raise RuntimeError(f"Không thể tải dữ liệu sạch của FOC từ CSDL: {db_path}")
+        raise RuntimeError("Không thể tải dữ liệu sạch của FOC sau khi phục nguyên giá thô.")
 
     # Phương án B: Tạo 20 phiên Warm-up tháng 12/2020
     warmup_bars = generate_dec_2020_warmup_bars(bars[0], calendar)
 
-    # Tập danh mục cổ tức độc lập VSDC đã được Hội đồng phê chuẩn
+    # Tập danh mục cổ tức độc lập VSDC đã được Hội đồng phê chuẩn (E10 fix ex_date 2021-04-13)
     vsdc_cash_dividends = [
         CashDividendEvent(
-            ex_date=date(2021, 4, 12),
+            ex_date=date(2021, 4, 13),
             pay_date=date(2021, 4, 29),
             cash_per_share=20_000.0,
-            action_id="VSDC/FOC/20210412/CASH_20K",
+            action_id="VSDC/FOC/20210413/CASH_20K",
         ),
         CashDividendEvent(
             ex_date=date(2022, 6, 10),
@@ -240,7 +269,7 @@ def run_empirical_audit():
     print("🛡️ BÁO CÁO KIỂM TOÁN ĐỊNH LƯỢNG THỰC NGHIỆM: FOC VS TIỀN GỬI 12 THÁNG")
     print("Cơ quan chủ trì: Hội đồng Kiến trúc & Kiểm toán Định lượng PTCK_VNSTOCK")
     print(f"Khoảng thời gian: {bars[0].trade_date} đến {bars[-1].trade_date} ({res['period_years']:.2f} năm)")
-    print(f"Số phiên quan sát: {res['bars_observed']} phiên | Nguồn CSDL: screener_cache.db (VALID_ROW_SQL)")
+    print(f"Số phiên quan sát: {res['bars_observed']} phiên | Phục nguyên giá thô: 100% bội số 100 VND")
     print(f"Nguồn đối soát cổ tức: VSDC Official ({res['processed_cash_divs']} kỳ tiền mặt, tổng 55.000 đ/cp)")
     print("=" * 86)
 
@@ -280,15 +309,30 @@ def run_empirical_audit():
 
     alpha_vnd = res["drip_final_wealth"] - res["bank_final_nav"]
     alpha_cagr = res["drip_cagr"] - res["bank_cagr"]
-    print("  ==> PHÁN QUYẾT HIỆU SUẤT: DRIP THẮNG TIỀN GỬI NGÂN HÀNG!")
-    print(f"      + Chênh lệch tài sản tuyệt đối: +{alpha_vnd:,.0f} VND (+{alpha_vnd / cfg.initial_capital * 100:.2f}%)")
-    print(f"      + Tỷ suất sinh lời vượt trội (Alpha): +{alpha_cagr * 100:.2f}%/năm")
+    if alpha_vnd > 0:
+        print("  ==> PHÁN QUYẾT HIỆU SUẤT: DRIP THẮNG TIỀN GỬI NGÂN HÀNG!")
+        print(f"      + Chênh lệch tài sản tuyệt đối: +{alpha_vnd:,.0f} VND (+{alpha_vnd / cfg.initial_capital * 100:.2f}%)")
+        print(f"      + Tỷ suất sinh lời vượt trội (Alpha): +{alpha_cagr * 100:.2f}%/năm")
+    else:
+        print("  ==> PHÁN QUYẾT HIỆU SUẤT: TIỀN GỬI NGÂN HÀNG THẮNG DRIP (FOC THUA TIỀN GỬI TIẾT KIỆM)!")
+        print(f"      - Tiền gửi ngân hàng vượt trội: +{-alpha_vnd:,.0f} VND (+{-alpha_vnd / cfg.initial_capital * 100:.2f}%)")
+        print(f"      - Alpha âm của chiến lược DRIP: {alpha_cagr * 100:.2f}%/năm")
+        print("      - Nguyên nhân gốc: Bào mòn vốn gốc do thị giá FOC suy giảm nặng:")
+        price_drop_pct = (bars[0].raw_close - bars[-1].raw_close) / bars[0].raw_close * 100
+        print(
+            f"        Giá mua: {bars[0].raw_close:,.0f} đ  --->  "
+            f"Giá cuối: {bars[-1].raw_close:,.0f} đ (-{price_drop_pct:.1f}%)."
+        )
+        print("        Dòng cổ tức 55.000 đ/cp tái đầu tư không bù đắp nổi khoản lỗ vốn gốc và chi phí cơ hội.")
 
     # Câu hỏi 3
     print("\n[CÂU HỎI 3] KỊCH BẢN RÚT CỔ TỨC (CASH-OUT) & RỦI RO SỤT GIẢM (MAX DRAWDOWN):")
     cap_decay = (cfg.initial_capital - res["cashout_terminal_stock_val"]) / cfg.initial_capital * 100
     print(f"  • (B1) Giá trị cổ phiếu còn lại cuối kỳ (sau thoái vốn): {res['cashout_terminal_stock_val']:>14,.0f} VND")
-    print(f"        (Gốc cổ phần bị bào mòn -{cap_decay:.2f}% do thị giá giảm từ 70k -> 60k)")
+    print(
+        f"        (Gốc cổ phần bị bào mòn -{cap_decay:.2f}% do thị giá giảm từ "
+        f"{bars[0].raw_close:,.0f} đ -> {bars[-1].raw_close:,.0f} đ)"
+    )
     spent_pct = res["cashout_spent_dividends"] / cfg.initial_capital * 100
     print(f"  • (B2) Tổng tiền mặt cổ tức thực nhận đã rút (sau 5% thuế): {res['cashout_spent_dividends']:>14,.0f} VND")
     print(f"        (Thu hồi tương đương {spent_pct:.2f}% vốn ban đầu)")
@@ -296,8 +340,8 @@ def run_empirical_audit():
     saved_cagr = res["cashout_cagr_if_saved"] * 100
     print(f"  • (B3) Tổng tài sản nếu gửi tiết kiệm dòng cổ tức rút ra: {saved_val:>14,.0f} VND (CAGR: {saved_cagr:.2f}%/năm)")
     print(f"  • Rủi ro sụt giảm danh mục tối đa (Max Drawdown):        {res['max_drawdown_observed'] * 100:>14.2f}%")
-    print("    * Ghi chú rủi ro: Đạt đỉnh NAV vào tháng 04/2021 khi thị giá vượt 108k, sau đó trải qua chu kỳ")
-    print("      thoái trào kéo dài, sụt giảm tới gần -47% giá trị tài sản trước khi hồi phục nhờ cổ tức.")
+    print("    * Ghi chú rủi ro: Đạt đỉnh NAV vào tháng 04/2021 khi thị giá vượt 161.000 đ, sau đó trải qua chu kỳ")
+    print("      thoái trào kéo dài, sụt giảm tới -54,3% giá trị tài sản.")
     print("=" * 86)
 
 

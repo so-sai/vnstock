@@ -38,10 +38,11 @@ from src.research.raw_price_reconstruction import (
     reconstruct_raw_prices,
 )
 
-KBS_DIR = Path(r"C:\Users\Admin\AppData\Local\Temp\opencode")
+DATA_DIR = BACKEND / "data"
+KBS_DIR = DATA_DIR if (DATA_DIR / "kbs_foc_2021_2026.json").exists() else Path(r"C:\Users\Admin\AppData\Local\Temp\opencode")
 
-FOC_EVENTS = (  # ex_date, cash_div — Phase-1 provenance (VSDC)
-    CashEvent(date(2021, 4, 12), 20_000.0),
+FOC_EVENTS = (  # ex_date, cash_div — VSDC verified provenance
+    CashEvent(date(2021, 4, 13), 20_000.0),
     CashEvent(date(2022, 6, 10), 8_000.0),
     CashEvent(date(2023, 6, 8), 5_000.0),
     CashEvent(date(2024, 7, 18), 2_000.0),
