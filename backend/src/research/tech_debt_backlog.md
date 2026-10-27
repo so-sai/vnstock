@@ -487,6 +487,30 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   mã 3, khẳng định (a) trả 3, (b) chẩn đoán chứa nguyên văn tiếng Việt, (c) không traceback.
 - **PHÁN QUYẾT:** ⏳ **OPEN** (không ảnh hưởng dữ liệu; ưu tiên thấp).
 
+## 9. 🔴 OPEN — Phục nguyên GIÁ THÔ 2021–2026 cho FOC & VEA + chạy lại Pha 1/Pha 2 audit cổ tức
+
+- **WHAT:** (a) dựng lại chuỗi giá THÔ (lưới tick 100 VND) cho FOC & VEA 2021–2026 từ corporate
+  actions có provenance VSDC (giá thô = giá điều chỉnh `/` hệ số tính tuần tự), tự kiểm bằng
+  `price_provenance_gate` (100% bar phải nằm trên bội số 100; fail-closed nếu không đạt);
+  (b) đối soát VSDC 2 chiều cho VEA 2021–2026 (ngày GDKHQ + đ/cp);
+  (c) chạy lại `run_foc_empirical_audit.py` trên giá thô;
+  (d) mới chạy Pha 2 VEA trọn vẹn (DRIP vs Dividend Sweeper B3).
+- **WHY:** Kiểm toán 2026-10-27 chứng minh nguồn `kbs` trả chuỗi back-adjusted server-side
+  (VEA 2021: 89,2% bar lệch lưới tick; FOC 2021: 92,8%; API live trả close=27542.1496;
+  ex-date FOC 12/04/2021 rơi −4,5% thay vì −18,5%). Engine cộng cổ tức tiền mặt trên giá đã
+  loại cổ tức ⇒ **đếm cổ tức hai lần**; toàn bộ số liệu Pha 1 FOC (1,596 tỷ · 8,41% · B3 10,01% ·
+  8 phiên · −46,91%) là NON-DECISIONAL. Chi tiết: `vea_phase2_price_integrity_verdict.md`.
+- **WHERE:** `backend/src/research/price_provenance_gate.py` (cổng, ĐÃ CÓ) ·
+  `run_foc_empirical_audit.py` (chờ giá thô) · runner Pha 2 VEA (chưa viết, chờ Bước 1–2).
+- **DONE-WHEN:** gate PASS (0% lệch lưới) cho FOC & VEA 2021–2026; ex-date gap khớp cổ tức
+  công bố ±2%; Pha 1 & Pha 2 chạy lại có số liệu mới; manifest đổi trạng thái
+  `foc_dividend_audit` sang giá trị hợp lệ và `research_modules` ghi 1/5 (hoặc hơn) mã kiểm định.
+- **RISK:** (a) danh sách sự kiện VEA 2021–2026 thiếu 1 đợt ⇒ toàn bộ hệ số phục nguyên sai
+  (chặn bằng kiểm lưới tick); (b) vintage trộn trong DB cũ (không pull lại) ⇒ PHẢI phục nguyên
+  từ API vintage hiện tại, không từ DB; (c) CafeF export endpoint đang trả 400 — không dựa vào
+  một nguồn duy nhất; (d) mọi suy luận thanh khoản chỉ hiệu lực trong cửa sổ raw đã chứng minh (2026).
+- **PHÁN QUYẾT:** ⏳ **OPEN — CHỜ GO HỘI ĐỒNG** (phát hiện 2026-10-27; chặn Pha 2, treo Pha 1).
+
 ## Ghi chú vận hành
 
 - **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**

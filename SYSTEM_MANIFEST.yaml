@@ -745,6 +745,16 @@ entrypoints:
     description: "Empirical Audit: FOC (FPT Online) vs 12-Month Bank Deposits (2021-2026, Option B Warmup)"
     cli: "python backend/src/research/run_foc_empirical_audit.py"
     category: research
+    # ⚠️ TREO 2026-10-27 — Nguồn kbs trả chuỗi GIÁ ĐÃ ĐIỀU CHỈNH (back-adjusted server-side),
+    # vi phạm Invariant #1. Mọi số liệu Pha 1 là NON-DECISIONAL tới khi chạy lại trên giá thô.
+    # Bằng chứng + lộ trình: backend/src/research/vea_phase2_price_integrity_verdict.md
+    status: "non_decisional_adjusted_price_source"
+
+  # ── Price Provenance Gate (chặn chuỗi giá đã điều chỉnh trước mọi audit) ──
+  raw_price_gate:
+    description: "Cổng phát hiện chuỗi giá back-adjusted — kiểm tra lưới tick 100 VND theo năm + đối chiếu khoảng rơi ngày GDKHQ. Exit 1 = FAIL (fail-closed)."
+    cli: "python -m backend.src.research.price_provenance_gate --symbols VEA,FOC"
+    category: research
 
   # ── init-agent ────────────────────────────────────────
   init_agent:
@@ -767,3 +777,16 @@ research_modules:
       - "ADV20_WARMUP_WINDOW_ORDER_SLICING"
       - "DECREE_126_STOCK_DIVIDEND_TAX_DEFERRED"
       - "VIETNAM_T2_TRADING_CALENDAR"
+      - "RAW_PRICE_TICK_GRID_PROOF_REQUIRED"  # 2026-10-27: bắt buộc qua price_provenance_gate trước khi nạp bars
+
+  - id: "price_provenance_gate"
+    name: "Price Provenance Gate (Tick-Grid & Ex-Date Gap Auditor)"
+    version: "1.0.0"
+    path: "backend/src/research/price_provenance_gate.py"
+    test_path: "backend/tests/test_price_provenance_gate.py"
+    status: "active"
+    invariants:
+      - "TICK_GRID_100VND_PROOF_OF_RAW"
+      - "EXDATE_GAP_MATCHES_CASH_DIVIDEND"
+      - "FAIL_CLOSED_ON_EMPTY_SERIES"
+    verdict_ref: "backend/src/research/vea_phase2_price_integrity_verdict.md"
