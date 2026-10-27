@@ -121,15 +121,44 @@ Toàn bộ chuỗi 1.452 bars FOC đạt **100% compliance lưới tick 100 VND 
 - **Ý nghĩa định lượng:** Chứng minh sự nguy hiểm tột cùng của việc chạy backtest/audit trên adjusted prices.
   Khoản lỗ vốn gốc -42,6% (104,6k về 60k) đã triệt tiêu hoàn toàn lợi thế dòng tiền cổ tức 55k/cp.
 
+### E12 — VEA Provenance Calibration & Phán quyết Kiểm toán Thực nghiệm (Pha 2 hoàn tất)
+
+Đối soát 7 sự kiện cổ tức tiền mặt độc lập của VEA (2021–2026) theo hồ sơ VSDC:
+1. `2021-01-04`: 5.252,90 đ/cp (cổ tức năm 2019, thanh toán 05/02/2021)
+2. `2021-07-15`: 4.990,00 đ/cp (cổ tức 2020 đợt 1, thanh toán 16/08/2021)
+3. `2021-10-12`: 462,70 đ/cp (cổ tức 2020 đợt 2, thanh toán 10/11/2021)
+4. `2022-10-28`: 4.493,70 đ/cp (cổ tức 2021, thanh toán 30/11/2022)
+5. `2023-11-17`: 4.186,90 đ/cp (cổ tức 2022, thanh toán 20/12/2023)
+6. `2024-11-19`: 5.035,18 đ/cp (cổ tức 2023, thanh toán 20/12/2024)
+7. `2025-11-18`: 4.658,08 đ/cp (cổ tức 2024, thanh toán 19/12/2025)
+
+**Kết quả Phục nguyên Giá thô VEA:**
+- Toàn bộ **1.471 / 1.471 bars (100%)** đạt chuẩn bội số 100 VND (`off_grid = 0`).
+- 8 factor segments hội tụ đơn điệu tăng dần về hiện tại:
+  `0.501160 → 0.554168 → 0.623240 → 0.630283 → 0.701902 → 0.789186 → 0.887290 → 1.000000`.
+- Vượt qua cổng `price_provenance_gate.py` (`assert_raw_price_series` PASS với 0 off-tick bars).
+
+**Kiểm toán Thực nghiệm Pha 2 (`run_vea_empirical_audit.py`):**
+- Vốn ban đầu: 1.000.000.000 VND (giải ngân trọn vẹn trong 1 phiên: 19.900 cp @ 49.700 đ).
+- Tiền gửi 12 tháng Big 4: **1.327.580.869 đ (CAGR: 5,01%/năm)**.
+- Chiến lược DRIP thanh lý ròng: **1.504.372.298 đ (CAGR: 7,30%/năm)**.
+- Cổ phần tích lũy DRIP: $19.900 \to 38.900$ cp (**$+19.000$ cp, gần nhân đôi số lượng cổ phần**).
+- Kịch bản Rút cổ tức & gửi tiết kiệm (B3): **1.448.184.420 đ (CAGR: 6,59%/năm)**, đã thu hồi thuần tiền mặt 55,20% vốn gốc.
+- Max Drawdown: **-24,74%** (rất phòng thủ và kiên cố).
+- **Phán quyết thực nghiệm:** Chiến lược DRIP **THẮNG ÁP ĐẢO TIỀN GỬI NGÂN HÀNG** (+176,79 triệu đ, Alpha: **+2,29%/năm**).
+
+**Đối chiếu So sánh FOC vs VEA:**
+- **FOC (Bẫy cổ tức):** Lỗ vốn gốc nặng (-42,6%), cổ tức 55k/cp không cứu được NAV, DRIP thua tiền gửi -325,87 triệu đ (CAGR 0,03%).
+- **VEA (Cỗ máy dòng tiền tăng trưởng):** Lợi suất cổ tức tiền mặt cao và bền vững (9–12%/năm từ Honda/Toyota/Ford), thị giá ổn định (-21,7%), DRIP nhân đôi cổ phần, vượt trội tiền gửi tiết kiệm cả ở phương án DRIP (+176,8 triệu đ) lẫn Cash-out (+120,6 triệu đ).
+
 ## Kết luận
 
 1. **Cơ chế phục nguyên TỒN TẠI và THÀNH CÔNG:** factor solve từ grid
    constraint + backward induction trả raw prices bội số 100 VND đạt 100%
-   bars (E6/E11).
+   bars cho cả FOC (1.452 bars) và VEA (1.471 bars).
 2. **Loại bỏ hoàn toàn Double-Counting:** `DividendAuditEngineV2` chạy trên
    unadjusted raw prices phản ánh trung thực vi cấu trúc thị trường Việt Nam.
-3. **Fail-closed:** Không bao giờ chấp nhận kết quả kiểm toán dựa trên nguồn
-   dữ liệu chưa vượt qua `price_provenance_gate`.
+3. **Tiến độ Kiểm định:** Đạt chuẩn **2/5 mã hoàn tất** (FOC: Tiền gửi thắng; VEA: DRIP thắng).
 
 ## Hành động
 
@@ -138,9 +167,9 @@ Toàn bộ chuỗi 1.452 bars FOC đạt **100% compliance lưới tick 100 VND 
       **8/8 tests GREEN** (`test_raw_price_reconstruction.py`); regression
       `test_price_provenance_gate.py` 7/7 GREEN.
 - [x] Runner calibration `run_raw_price_reconstruction.py` — hiệu chuẩn
-      FOC với 6 sự kiện VSDC: **100% bars on-grid, factors giải duy nhất 7 segments**.
-- [x] Cập nhật runner kiểm toán `run_foc_empirical_audit.py` dùng giá thô
-      phục nguyên, loại bỏ triệt để double-counting: hoàn tất tái thẩm định.
+      FOC (6 sự kiện) và VEA (7 sự kiện): **100% bars on-grid, factors giải duy nhất**.
+- [x] Runner kiểm toán FOC `run_foc_empirical_audit.py` dùng giá thô unadjusted: hoàn tất.
+- [x] Runner kiểm toán VEA `run_vea_empirical_audit.py` dùng giá thô unadjusted: hoàn tất.
 - [x] Chạy toàn bộ regression test suite: 21/21 passed.
 
 ## Quyết định kỹ thuật bổ sung (sau GREEN)

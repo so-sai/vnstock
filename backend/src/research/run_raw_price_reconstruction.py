@@ -50,6 +50,16 @@ FOC_EVENTS = (  # ex_date, cash_div — VSDC verified provenance
     CashEvent(date(2026, 8, 10), 10_000.0),
 )
 
+VEA_EVENTS = (  # ex_date, cash_div — VSDC verified provenance (Pha 2)
+    CashEvent(date(2021, 1, 4), 5_252.9),
+    CashEvent(date(2021, 7, 15), 4_990.0),
+    CashEvent(date(2021, 10, 12), 462.7),
+    CashEvent(date(2022, 10, 28), 4_493.7),
+    CashEvent(date(2023, 11, 17), 4_186.9),
+    CashEvent(date(2024, 11, 19), 5_035.18),
+    CashEvent(date(2025, 11, 18), 4_658.08),
+)
+
 
 def load_kbs(sym: str) -> tuple[list[date], list[float]]:
     rows = json.loads((KBS_DIR / f"kbs_{sym.lower()}_2021_2026.json").read_text())
@@ -118,35 +128,21 @@ def run_foc() -> None:
 def run_vea() -> None:
     print()
     print("=" * 72)
-    print("VEA — BLIND SURVEY (RUNNER-LEVEL, NON-DECISIONAL)")
+    print("VEA — RECONSTRUCTION vs 7 SỰ KIỆN VSDC (PHA 2)")
     print("=" * 72)
     dates, closes = load_kbs("VEA")
-    bps = _plateau_breakpoints(dates, closes)
-    print(f"candidate breakpoints ({len(bps)}): {[str(b) for b in bps]}")
-    # thử reconstruct với breakpoints survey được làm event boundaries
-    # (report mode: events=None ⇒ certified=False bất biến)
-    if not bps:
-        try:
-            report = reconstruct_raw_prices("VEA", dates, closes, events=None)
-            print(f"single-segment: off_grid={report.n_off_grid} certified={report.is_certified} f={report.factors}")
-        except FactorSolveError as e:
-            print(f"single-segment fail-closed: {e}")
+    try:
+        report = reconstruct_raw_prices("VEA", dates, closes, events=VEA_EVENTS)
+    except FactorSolveError as e:
+        print(f"FACTOR-SOLVE-ERROR (fail-closed): {e}")
         return
-    # với breakpoints: chia series và solve factor từng segment riêng lẻ
-    idx = {d: i for i, d in enumerate(dates)}
-    bounds = [0] + [idx[b] for b in bps if b in idx] + [len(closes)]
-    print("\nsegment factors (grid constraint, runner survey):")
-    for i in range(len(bounds) - 1):
-        s, e = bounds[i], bounds[i + 1]
-        seg = closes[s:e]
-        try:
-            cands = _segment_candidates(seg, 0.1)
-            good = [c for c in cands if _segment_bad_count(seg, c, 0.1) <= max(2, int(0.05 * len(seg)))]
-            f = max(good) if good else None
-            bad = _segment_bad_count(seg, f, 0.1) if f else -1
-            print(f"  {dates[s]} .. {dates[e - 1]}: f={f} bad={bad}/{e - s}")
-        except FactorSolveError as e:
-            print(f"  {dates[s]} .. {dates[e - 1]}: FAIL-CLOSED ({e})")
+    print(f"bars={report.n_bars} off_grid={report.n_off_grid} certified={report.is_certified}")
+    print("\nsegments:")
+    for s, e, f in report.segments:
+        print(f"  {s} .. {e}: f={f:.8f}")
+    print("\nanomalies:")
+    for a in report.anomalies:
+        print(f"  ! {a}")
 
 
 if __name__ == "__main__":
