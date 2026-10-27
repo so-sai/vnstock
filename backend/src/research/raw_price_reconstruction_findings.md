@@ -75,7 +75,27 @@ KBS-derived. Nghĩa là **mọi nguồnagree với nhau**, nhưng **Phase-1 even
 values không khớp drop thực của data** — hoặc Phase-1 thiếu sub-event
 (cổ thưởng/phần bổ sung), hoặc có convention khác chưa nhận diện.
 
-## Kết luận hiệu chuẩn (P2)
+### E10 — Boundary event 2021 DỊCH 1–2 bars: provenance 20,000đ xác nhận
+
+Tin tức (Bing, 22-03-2021 + bài "chốt quyền trả cổ tức 20.000 đồng/cp vào
+ngày 14/4"): FOC chốt danh sách **14/4/2021**, thanh toán 29/4. Phase-1 khai
+ex 2021-04-12. Scan offset ±2..+3 bars trên event 1–2 (probe 17) với hard
+verify max_bad=0 toàn bộ:
+
+| Boundary 2021 | Drop suy ra | Cash provenance | Sai số |
+|---|---|---|---|
+| 2021-04-13 (+1) | 19,801 | 20,000 | −199 (≤ 2 tick rounding) |
+| 2021-04-14 (+2, = record date) | 21,697 | 20,000 | +697 ✗ |
+
+Boundary **2021-04-13** cho drop 19,800 ≈ 20,000 trong ±200 VND rounding
+của 2 close price đã làm tròn lưới (mỗi close lỗi ≤50 VND). Các event
+không dịch được (2022–2026 vẫn lệch −1,200..+2,200): giả thuyết — Phase-1
+lấy NGÀY CHỐT (record date) làm ex, nhưng drop thực tại boundary tính theo
+giao dịch chứa thêm overnight return 1 ngày. Cần đối chiếu từng năm
+(2022: tin "tỷ lệ 50%" — 5,000đ, chốt 9/6; 2023: 5,000đ chốt 9/6/thanh
+toán 19/6/2023; 2025: 100% = 184 tỷ, 18.4tr cp) trước khi certify.
+
+
 
 1. **Cơ chế phục nguyên TỐN TẠI và khả thi:** factor solve từ grid
    constraint + backward induction trả raw prices bội số 100 VND ≈ 100%
