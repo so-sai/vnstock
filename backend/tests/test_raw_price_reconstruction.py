@@ -202,3 +202,25 @@ def test_report_mode_with_undisclosed_breakpoints_fails_closed():
     adj = _build_adjusted(dates, raw, events)
     with pytest.raises(FactorSolveError):
         reconstruct_raw_prices("SYN_BLIND_BAD", dates, adj, events=None)
+
+
+# ── [WHY] HOSE mid-cap (10k-50k VND, e.g. SMB): lưới tick là 50 VND.
+#    Engine PHẢI hỗ trợ tham số tick=50.0, phục nguyên chính xác 100% bars.
+def test_reconstruct_hose_50_tick_grid():
+    dates = [date(2022, 9, 1 + k) for k in range(20)]
+    # raw closes trên lưới 50 VND (lẻ 50đ: 35050, 35150)
+    raw = [
+        35_050.0, 35_150.0, 35_250.0, 35_100.0, 35_200.0,  # seg 0 (10 bars)
+        35_350.0, 35_400.0, 35_300.0, 35_250.0, 35_350.0,
+        33_350.0, 33_450.0, 33_400.0, 33_550.0, 33_600.0,  # seg 1 (10 bars, drop 2000đ)
+        33_500.0, 33_700.0, 33_650.0, 33_750.0, 33_800.0,
+    ]
+    events = (CashEvent(ex_date=date(2022, 9, 11), cash=2_000.0),)
+    adj = _build_adjusted(dates, raw, events)
+
+    report = reconstruct_raw_prices("SYN_HOSE", dates, adj, events=events, tick=50.0)
+    assert report.n_bars == len(raw)
+    assert report.n_off_grid == 0
+    assert report.is_certified is True
+    for got, want in zip(report.raw_closes, raw):
+        assert abs(got - want) < 1.0

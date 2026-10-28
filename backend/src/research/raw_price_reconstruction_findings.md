@@ -147,30 +147,66 @@ Toàn bộ chuỗi 1.452 bars FOC đạt **100% compliance lưới tick 100 VND 
 - Max Drawdown: **-24,74%** (rất phòng thủ và kiên cố).
 - **Phán quyết thực nghiệm:** Chiến lược DRIP **THẮNG ÁP ĐẢO TIỀN GỬI NGÂN HÀNG** (+176,79 triệu đ, Alpha: **+2,29%/năm**).
 
-**Đối chiếu So sánh FOC vs VEA:**
-- **FOC (Bẫy cổ tức):** Lỗ vốn gốc nặng (-42,6%), cổ tức 55k/cp không cứu được NAV, DRIP thua tiền gửi -325,87 triệu đ (CAGR 0,03%).
-- **VEA (Cỗ máy dòng tiền tăng trưởng):** Lợi suất cổ tức tiền mặt cao và bền vững (9–12%/năm từ Honda/Toyota/Ford), thị giá ổn định (-21,7%), DRIP nhân đôi cổ phần, vượt trội tiền gửi tiết kiệm cả ở phương án DRIP (+176,8 triệu đ) lẫn Cash-out (+120,6 triệu đ).
+### E13 — SMB Provenance Calibration & Phán quyết Kiểm toán Thực nghiệm (Pha 3 hoàn tất)
+
+Đối soát 13 sự kiện cổ tức tiền mặt của SMB (CTCP Bia Sài Gòn - Miền Trung, HOSE) theo hồ sơ VSDC:
+1. `2020-12-22`: 1.000 đ/cp (phục vụ phục nguyên giá thô chuỗi warm-up Dec-2020)
+2. `2021-10-22`: 2.500 đ/cp (thanh toán 15/11/2021)
+3. `2022-02-18`: 1.000 đ/cp (thanh toán 15/03/2022)
+4. `2022-09-20`: 2.500 đ/cp (thanh toán 14/10/2022)
+5. `2023-02-20`: 1.000 đ/cp (thanh toán 15/03/2023)
+6. `2023-07-17`: 2.500 đ/cp (thanh toán 15/08/2023)
+7. `2023-10-24`: 1.000 đ/cp (thanh toán 15/11/2023)
+8. `2024-05-22`: 1.500 đ/cp (thanh toán 14/06/2024)
+9. `2024-09-16`: 2.000 đ/cp (thanh toán 15/10/2024)
+10. `2025-01-07`: 1.500 đ/cp (thanh toán 24/01/2025)
+11. `2025-08-13`: 2.000 đ/cp (thanh toán 15/09/2025)
+12. `2025-11-12`: 2.000 đ/cp (thanh toán 15/12/2025)
+13. `2026-05-25`: 1.000 đ/cp (thanh toán 15/06/2026)
+*(Tổng cổ tức tiền mặt trong kỳ kiểm toán 2021–2026: 20.500 đ/cp qua 12 đợt chi trả)*.
+
+**Kết quả Phục nguyên Giá thô SMB (Lưới Tick HOSE 50 VND):**
+- Mở rộng `raw_price_reconstruction.py` hỗ trợ tham số `tick: float = GRID_TICK` (nhận `50.0` VND cho cổ phiếu HOSE khoảng giá 10k–50k).
+- Toàn bộ **1.459 / 1.459 bars (100%)** đạt chuẩn bội số 50 VND (`off_grid = 0`).
+- 14 factor segments hội tụ đơn điệu tăng dần về hiện tại:
+  `0.58743142 → 0.60136792 → 0.63812195 → 0.65335714 → 0.69176744 → 0.70857831 → 0.75608108 → 0.77650667 → 0.80821769 → 0.85323120 → 0.88418380 → 0.92797030 → 0.97435000 → 1.00000000`.
+- Vượt qua cổng `price_provenance_gate.py` (`assert_raw_price_series` với `tick_size=50.0` PASS 0 off-tick bars).
+
+**Kiểm toán Thực nghiệm Pha 3 (`run_smb_empirical_audit.py`):**
+- Vốn ban đầu: 1.000.000.000 VND (Khớp lệnh phân lát 5 phiên do trần 20% ADV20: 23.400 cp @ giá bình quân ~42.300 đ).
+- Tiền gửi 12 tháng Big 4: **1.327.580.869 đ (CAGR: 5,01%/năm)**.
+- Chiến lược DRIP thanh lý ròng: **1.555.955.056 đ (CAGR: 7,92%/năm)**.
+- Cổ phần tích lũy DRIP: $23.400 \to 37.700$ cp (**$+14.300$ cp, +61,1% số lượng cổ phần**).
+- Kịch bản Rút cổ tức & gửi tiết kiệm (B3): **1.501.945.014 đ (CAGR: 7,27%/năm)**, thu hồi thuần tiền mặt 45,57% vốn gốc, vượt tiền gửi ngân hàng +174,36 triệu đ.
+- Max Drawdown: **-15,08%** (vô cùng phòng thủ và an toàn).
+- **Phán quyết thực nghiệm:** Chiến lược DRIP **THẮNG ÁP ĐẢO TIỀN GỬI NGÂN HÀNG** (+228,37 triệu đ thặng dư, Alpha: **+2,91%/năm**).
+
+**Đối chiếu So sánh 3 Cổ phiếu (FOC vs VEA vs SMB):**
+- **FOC (Dividend Yield Trap):** Lỗ vốn gốc nặng (-42,6%), cổ tức 55k/cp không bù nổi thị giá sụt giảm, DRIP thua tiền gửi ngân hàng -325,87 triệu đ (CAGR 0,03% vs 5,01%, Alpha -4,98%).
+- **VEA (Cash-Cow Compounder):** Cổ tức 9–12%/năm, giá biến động vừa phải (-21,7%), DRIP nhân đôi cổ phần ($19.900 \to 38.900$ cp), thắng tiền gửi ngân hàng +176,79 triệu đ (CAGR 7,30% vs 5,01%, Alpha +2,29%, MDD -24,74%).
+- **SMB (Cash-Cow Compounder Thượng hạng):** Cổ tức đều đặn 20.500 đ/cp qua 12 đợt, thị giá giữ nguyên gần như tuyệt đối (-1,5% từ 42,2k về 41,55k sau 5,8 năm), DRIP tăng +61,1% cổ phần ($23.400 \to 37.700$ cp), thắng áp đảo tiền gửi ngân hàng +228,37 triệu đ (CAGR 7,92% vs 5,01%, Alpha +2,91%), Max Drawdown chỉ -15,08%!
 
 ## Kết luận
 
-1. **Cơ chế phục nguyên TỒN TẠI và THÀNH CÔNG:** factor solve từ grid
-   constraint + backward induction trả raw prices bội số 100 VND đạt 100%
-   bars cho cả FOC (1.452 bars) và VEA (1.471 bars).
+1. **Cơ chế phục nguyên TỒN TẠI và HOÀN HẢO trên cả 2 hệ thống sàn:**
+   - Sàn UPCoM (lưới 100 VND): FOC (1.452 bars), VEA (1.471 bars) đạt 100% on-grid.
+   - Sàn HOSE (lưới 50 VND cho thị giá 10k-50k): SMB (1.459 bars) đạt 100% on-grid.
 2. **Loại bỏ hoàn toàn Double-Counting:** `DividendAuditEngineV2` chạy trên
    unadjusted raw prices phản ánh trung thực vi cấu trúc thị trường Việt Nam.
-3. **Tiến độ Kiểm định:** Đạt chuẩn **2/5 mã hoàn tất** (FOC: Tiền gửi thắng; VEA: DRIP thắng).
+3. **Tiến độ Kiểm định:** Đạt chuẩn **3/5 mã hoàn tất** (FOC: Tiền gửi thắng; VEA: DRIP thắng; SMB: DRIP thắng).
 
 ## Hành động
 
 - [x] Viết `raw_price_reconstruction.py` (TDD RED→GREEN): synthetic
       adjusted → recover raw grid 100%; missing/ambiguous factor → raise.
-      **8/8 tests GREEN** (`test_raw_price_reconstruction.py`); regression
+      **9/9 tests GREEN** (`test_raw_price_reconstruction.py`); regression
       `test_price_provenance_gate.py` 7/7 GREEN.
 - [x] Runner calibration `run_raw_price_reconstruction.py` — hiệu chuẩn
-      FOC (6 sự kiện) và VEA (7 sự kiện): **100% bars on-grid, factors giải duy nhất**.
+      FOC (6 sự kiện), VEA (7 sự kiện), SMB (13 sự kiện): **100% bars on-grid, factors giải duy nhất**.
 - [x] Runner kiểm toán FOC `run_foc_empirical_audit.py` dùng giá thô unadjusted: hoàn tất.
 - [x] Runner kiểm toán VEA `run_vea_empirical_audit.py` dùng giá thô unadjusted: hoàn tất.
-- [x] Chạy toàn bộ regression test suite: 21/21 passed.
+- [x] Runner kiểm toán SMB `run_smb_empirical_audit.py` dùng giá thô unadjusted: hoàn tất.
+- [x] Chạy toàn bộ regression test suite: 22/22 passed.
 
 ## Quyết định kỹ thuật bổ sung (sau GREEN)
 

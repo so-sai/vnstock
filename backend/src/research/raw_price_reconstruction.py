@@ -75,7 +75,7 @@ def _grid_residual(price_over_factor: float, tick: float = GRID_TICK) -> float:
     return abs(q - round(q))
 
 
-def _segment_candidates(closes: Sequence[float], grid_tol: float) -> list[float]:
+def _segment_candidates(closes: Sequence[float], grid_tol: float, tick: float = GRID_TICK) -> list[float]:
     """Tất cả f = c0/(k*tick) khớp grid cho bar đầu của segment.
 
     Cho phép ≤5% bar "nhiễu" (noise làm tròn từ source); nghiệm reciprocal
@@ -85,21 +85,21 @@ def _segment_candidates(closes: Sequence[float], grid_tol: float) -> list[float]
     if len(closes) < SEG_MIN_BARS:
         raise FactorSolveError(f"segment quá ngắn ({len(closes)} < {SEG_MIN_BARS} bars) để giải factor — không đủ bằng chứng")
     c0 = closes[0]
-    k_lo = max(1, int(c0 / (CAND_F_RANGE[1] * GRID_TICK)))
-    k_hi = int(c0 / (CAND_F_RANGE[0] * GRID_TICK)) + 2
+    k_lo = max(1, int(c0 / (CAND_F_RANGE[1] * tick)))
+    k_hi = int(c0 / (CAND_F_RANGE[0] * tick)) + 2
     checked = closes[1:21]
     allowed_bad = max(1, int(0.05 * len(checked)))
     cands: list[float] = []
     for k0 in range(k_lo, k_hi + 1):
-        f = c0 / (k0 * GRID_TICK)
-        bad = sum(1 for c in checked if _grid_residual(c / f) > grid_tol)
+        f = c0 / (k0 * tick)
+        bad = sum(1 for c in checked if _grid_residual(c / f, tick=tick) > grid_tol)
         if bad <= allowed_bad:
             cands.append(f)
     return cands
 
 
-def _segment_bad_count(closes: Sequence[float], f: float, grid_tol: float) -> int:
-    return sum(1 for c in closes if _grid_residual(c / f) > grid_tol)
+def _segment_bad_count(closes: Sequence[float], f: float, grid_tol: float, tick: float = GRID_TICK) -> int:
+    return sum(1 for c in closes if _grid_residual(c / f, tick=tick) > grid_tol)
 
 
 def solve_factors(
@@ -107,6 +107,7 @@ def solve_factors(
     closes: Sequence[float],
     event_dates: Sequence[date] | None = None,
     grid_tol: float = GRID_TOL,
+    tick: float = GRID_TICK,
 ) -> list[float]:
     """Giải hệ số điều chỉnh từng segment (backward induction, fail-closed).
 
@@ -139,7 +140,7 @@ def solve_factors(
     # 1) Candidate từng segment
     all_cands: list[list[float]] = []
     for i, seg in enumerate(seg_list):
-        cands = _segment_candidates(seg, grid_tol)
+        cands = _segment_candidates(seg, grid_tol, tick=tick)
         if not cands:
             raise FactorSolveError(f"segment {i} ({dates[bounds[i]]}): không có factor grid-consistent")
         all_cands.append(cands)
@@ -155,7 +156,7 @@ def solve_factors(
             # lọc cứng: factor phải nhất quán grid trên TOÀN segment
             seg = seg_list[i]
             allowed = max(2, int(SEG_BAD_RATIO_MAX * len(seg)))
-            window = [c for c in window if _segment_bad_count(seg, c, grid_tol) <= allowed]
+            window = [c for c in window if _segment_bad_count(seg, c, grid_tol, tick=tick) <= allowed]
         if len(window) > 1:
             # lọc liên tục: khoảng rơi qua biên phải là cash-div hợp lý
             refined = []
@@ -169,7 +170,7 @@ def solve_factors(
         if len(window) > 1:
             # chọn nghiệm tốt nhất theo tổng sai số grid toàn segment
             seg = seg_list[i]
-            scores = sorted((sum(_grid_residual(c / f) for c in seg), f) for f in window)
+            scores = sorted((sum(_grid_residual(c / f, tick=tick) for c in seg), f) for f in window)
             best_score = scores[0][0]
             tied = [f for s, f in scores if s - best_score < 1e-6]
             if len(tied) > 1:
@@ -195,7 +196,7 @@ def solve_factors(
 
     # 3) Xác minh cứng từng segment (fail-closed nếu >5% bars lệch lưới)
     for i, seg in enumerate(seg_list):
-        bad = _segment_bad_count(seg, resolved[i], grid_tol)
+        bad = _segment_bad_count(seg, resolved[i], grid_tol, tick=tick)
         if bad > SEG_BAD_RATIO_MAX * len(seg):
             raise FactorSolveError(
                 f"segment {i} ({dates[bounds[i]]}): {bad}/{len(seg)} bars "
@@ -211,6 +212,7 @@ def reconstruct_raw_prices(
     events: Sequence[CashEvent] | None = None,
     grid_tol: float = GRID_TOL,
     gap_tol: float = GAP_TOL,
+    tick: float = GRID_TICK,
 ) -> ReconstructionReport:
     """Phục nguyên giá thô + chứng nhận gap identity (report-mode, fail-closed).
 
@@ -231,7 +233,7 @@ def reconstruct_raw_prices(
     # reciprocal/neighbor-k families — fail-closed: data chứa events không
     # khai báo ⇒ FactorSolveError thay vì đoán bừa). Breakpoint discovery
     # blind thuộc về runner calibration riêng, không thuộc core.
-    factors = solve_factors(dates, closes, event_dates=event_dates, grid_tol=grid_tol)
+    factors = solve_factors(dates, closes, event_dates=event_dates, grid_tol=grid_tol, tick=tick)
 
     idx_of = {d: i for i, d in enumerate(dates)}
     bounds = [0]
@@ -239,16 +241,16 @@ def reconstruct_raw_prices(
         bounds += [idx_of[ed] for ed in sorted(set(event_dates))]
     bounds.append(len(closes))
 
-    # raw = adj / f(segment); kiểm lưới 100 VND tuyệt đối (0.5 tick)
+    # raw = adj / f(segment); kiểm lưới tick tuyệt đối (0.5 tick)
     raw: list[float] = []
     n_off_grid = 0
     for i, c in enumerate(closes):
         seg_i = max(s for s in range(len(bounds) - 1) if i >= bounds[s])
         p_raw = c / factors[seg_i]
-        if _grid_residual(p_raw) > 0.5:
+        if _grid_residual(p_raw, tick=tick) > 0.5:
             n_off_grid += 1
         else:
-            p_raw = round(p_raw / GRID_TICK) * GRID_TICK
+            p_raw = round(p_raw / tick) * tick
         raw.append(p_raw)
 
     anomalies: list[str] = []
@@ -265,7 +267,7 @@ def reconstruct_raw_prices(
                 )
 
     if n_off_grid > 0:
-        anomalies.append(f"{symbol}: {n_off_grid} bars giá phục nguyên lệch lưới tick 100 VND")
+        anomalies.append(f"{symbol}: {n_off_grid} bars giá phục nguyên lệch lưới tick {tick:g} VND")
 
     is_certified = not anomalies
     segments = tuple((dates[bounds[i]], dates[bounds[i + 1] - 1], factors[i]) for i in range(len(bounds) - 1))

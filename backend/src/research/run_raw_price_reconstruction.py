@@ -60,6 +60,22 @@ VEA_EVENTS = (  # ex_date, cash_div — VSDC verified provenance (Pha 2)
     CashEvent(date(2025, 11, 18), 4_658.08),
 )
 
+SMB_EVENTS = (  # ex_date, cash_div — VSDC verified provenance (Pha 3 - HOSE 50 VND tick)
+    CashEvent(date(2020, 12, 22), 1_000.0),
+    CashEvent(date(2021, 10, 22), 2_500.0),
+    CashEvent(date(2022, 2, 18), 1_000.0),
+    CashEvent(date(2022, 9, 20), 2_500.0),
+    CashEvent(date(2023, 2, 20), 1_000.0),
+    CashEvent(date(2023, 7, 17), 2_500.0),
+    CashEvent(date(2023, 10, 24), 1_000.0),
+    CashEvent(date(2024, 5, 22), 1_500.0),
+    CashEvent(date(2024, 9, 16), 2_000.0),
+    CashEvent(date(2025, 1, 7), 1_500.0),
+    CashEvent(date(2025, 8, 13), 2_000.0),
+    CashEvent(date(2025, 11, 12), 2_000.0),
+    CashEvent(date(2026, 5, 25), 1_000.0),
+)
+
 
 def load_kbs(sym: str) -> tuple[list[date], list[float]]:
     rows = json.loads((KBS_DIR / f"kbs_{sym.lower()}_2021_2026.json").read_text())
@@ -145,8 +161,29 @@ def run_vea() -> None:
         print(f"  ! {a}")
 
 
+def run_smb() -> None:
+    print()
+    print("=" * 72)
+    print("SMB — RECONSTRUCTION vs 13 SỰ KIỆN VSDC (PHA 3 - LƯỚI TICK HOSE 50 VND)")
+    print("=" * 72)
+    dates, closes = load_kbs("SMB")
+    try:
+        report = reconstruct_raw_prices("SMB", dates, closes, events=SMB_EVENTS, tick=50.0)
+    except FactorSolveError as e:
+        print(f"FACTOR-SOLVE-ERROR (fail-closed): {e}")
+        return
+    print(f"bars={report.n_bars} off_grid={report.n_off_grid} certified={report.is_certified}")
+    print("\nsegments:")
+    for s, e, f in report.segments:
+        print(f"  {s} .. {e}: f={f:.8f}")
+    print("\nanomalies:")
+    for a in report.anomalies:
+        print(f"  ! {a}")
+
+
 if __name__ == "__main__":
     run_foc()
     run_vea()
+    run_smb()
     print("\nNON-DECISIONAL — calibration findings only (NQ-04, Mục 9).")
     sys.exit(0)
