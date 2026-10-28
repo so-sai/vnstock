@@ -35,22 +35,34 @@ try:
     from src.research.price_provenance_gate import (
         AdjustedPriceDetectedError,
         ExDateGapVerdict,
+        ReconstructedVerdict,
         TickComplianceReport,
         assert_raw_price_series,
         exdate_gap_check,
+        load_vintage_ohlcv,
         scan_symbol,
         tick_compliance,
+        verify_reconstructed_prices,
     )
+    from src.research.price_provenance_gate import main as gate_main
+    from src.research.cash_event_registry import CASH_EVENTS
+    from src.research.raw_price_reconstruction import CashEvent
 except ImportError:
     from backend.src.research.price_provenance_gate import (
         AdjustedPriceDetectedError,
         ExDateGapVerdict,
+        ReconstructedVerdict,
         TickComplianceReport,
         assert_raw_price_series,
         exdate_gap_check,
+        load_vintage_ohlcv,
         scan_symbol,
         tick_compliance,
+        verify_reconstructed_prices,
     )
+    from backend.src.research.price_provenance_gate import main as gate_main
+    from backend.src.research.cash_event_registry import CASH_EVENTS
+    from backend.src.research.raw_price_reconstruction import CashEvent
 
 
 # ── [WHY] Giá thô UPCoM/HOSE LUÔN nằm trên lưới 100 VND. Chuỗi tổng hợp này
@@ -147,3 +159,80 @@ def test_scan_symbol_flags_adjusted_by_year(tmp_path):
     assert rep_adj["overall"].is_tick_clean is False
     assert rep_adj["by_year"][2021].is_tick_clean is False
     assert isinstance(rep_adj["first_date"], date)
+
+
+# ══ CHẾ ĐỘ --reconstructed (NQ-04, 28/10/2026) ══════════════════════════════
+# [WHY] DB `daily_ohlcv` của FOC là vintage TRỘN (VCI adjusted 1.15504× + kbs):
+# quét trực tiếp DB sẽ FAIL vĩnh viễn và không chứng minh được gì về chuỗi sẽ
+# dùng để audit. Chế độ reconstructed phán quyết trên chuỗi ĐÃ phục nguyên từ
+# MỘT vintage KBS duy nhất (full precision 4dp) — đúng thứ sẽ nạp vào engine.
+FOC_VINTAGE_DIR = BACKEND / "data"
+_needs_foc_vintage = pytest.mark.skipif(
+    not (FOC_VINTAGE_DIR / "kbs_foc_2021_2026.json").exists(),
+    reason="vintage KBS FOC không có trong workspace (chỉ có trên máy đã crawl)",
+)
+
+
+@_needs_foc_vintage
+def test_reconstructed_foc_vintage_certifies_100pct_tick_grid():
+    """[WHY] DoD NQ-04: 100% bars bội 100 VND + gap identity qua biên phiên
+    GDKHQ, trên dữ liệu THẬT 2021–2026 (1452 bars, 6 cổ tức tiền mặt)."""
+    dates, closes, lows, highs = load_vintage_ohlcv("FOC", FOC_VINTAGE_DIR)
+    verdict = verify_reconstructed_prices(
+        "FOC", dates, closes, lows, highs, CASH_EVENTS["FOC"]
+    )
+    assert verdict.is_certified is True, verdict.reasons
+    assert verdict.n_off_tick == 0
+    assert verdict.n_bars == len(dates) == len(closes)
+    assert len(verdict.segments) == len(CASH_EVENTS["FOC"]) + 1
+    assert len(verdict.gap_deltas) == len(CASH_EVENTS["FOC"])
+    # Δ_market đo được: −1,200 … +2,200 VND (biến động phiên UPCoM), KHÔNG phải 0
+    assert verdict.max_abs_delta is not None
+    assert verdict.max_abs_delta < 2_500.0
+    assert any(abs(d) > 100.0 for d in verdict.gap_deltas)
+
+
+@_needs_foc_vintage
+def test_reconstructed_rejects_wrong_cash_on_real_vintage():
+    """[WHY] Ca chống vá quá tay: nới gate cho Δ_market KHÔNG được biến thành
+    "cổ tức nào cũng qua". Khai 2023-06-08 = 1,000đ (thực 5,000đ) ⇒ tham chiếu
+    rơi ra ngoài biên phiên ex ⇒ certified=False, nêu đúng ngày sai."""
+    dates, closes, lows, highs = load_vintage_ohlcv("FOC", FOC_VINTAGE_DIR)
+    wrong = tuple(
+        CashEvent(ex_date=e.ex_date, cash=1_000.0) if e.ex_date == date(2023, 6, 8) else e
+        for e in CASH_EVENTS["FOC"]
+    )
+    verdict = verify_reconstructed_prices("FOC", dates, closes, lows, highs, wrong)
+    assert verdict.is_certified is False
+    assert any("2023-06-08" in r for r in verdict.reasons)
+
+
+@_needs_foc_vintage
+def test_gate_cli_reconstructed_foc_exit_zero():
+    """[WHY] DoD cuối cùng của Hội đồng: `price_provenance_gate.py` cho FOC
+    phải đạt EXIT CODE 0 — đo trên đường CLI thật, không chỉ hàm nội bộ."""
+    assert gate_main(["--symbols", "FOC", "--reconstructed"]) == 0
+
+
+def test_gate_cli_reconstructed_unknown_symbol_fails_closed():
+    """[WHY] Không có event provenance ⇒ KHÔNG được lặng lẽ bỏ qua symbol rồi
+    trả exit 0 (Missing > Fake)."""
+    assert gate_main(["--symbols", "KHONGCO", "--reconstructed"]) == 2
+
+
+def test_gate_cli_reconstructed_missing_vintage_fails_closed(tmp_path):
+    """[WHY] Thiếu file vintage ⇒ không có bằng chứng ⇒ exit 2, không phán
+    quyết PASS dựa trên chuỗi rỗng."""
+    assert gate_main(["--symbols", "FOC", "--reconstructed", "--bars-dir", str(tmp_path)]) == 2
+
+
+def test_load_vintage_rejects_inverted_bar(tmp_path):
+    """[WHY] low > high trong file vintage = dữ liệu hỏng; dùng làm biên phiên
+    ex sẽ cho phán quyết vô nghĩa ⇒ chặn ngay khi nạp (fail-closed)."""
+    bad = tmp_path / "kbs_foc_2021_2026.json"
+    bad.write_text(
+        '[{"t": "2021-04-12 07:00", "o": 100000, "h": 90000, "l": 100000, "c": 95000, "v": 10}]',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError):
+        load_vintage_ohlcv("FOC", tmp_path)

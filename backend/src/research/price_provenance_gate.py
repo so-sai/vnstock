@@ -27,15 +27,42 @@ GDKHQ SAU t. Hệ quả quan sát được:
 DividendAuditEngineV2. Mọi chuỗi không vượt cổng ⇒ AdjustedPriceDetectedError
 (fail-closed). Cấm thay ngưỡng để "vượt" cổng: ngưỡng mặc định 1% là dung sai
 mất mát làm tròn, KHÔNG phải công tắc tắt.
+
+[WHY] V1.1 (NQ-04, 28/10/2026) — CHẾ ĐỘ `--reconstructed`: quét DB chỉ trả lời
+được "vintage trong DB có sạch không" (FOC: KHÔNG, vì DB trộn VCI adjusted
+1,15504× với kbs). Chuỗi sẽ thực sự đi vào engine là chuỗi PHỤC NGUYÊN từ MỘT
+vintage KBS duy nhất (`raw_price_reconstruction`), nên cổng phải phán quyết
+được trên chính chuỗi đó: 100% close bội lưới tick + gap identity qua biên độ
+phiên GDKHQ. Chế độ này KHÔNG nới ngưỡng của chế độ DB — nó thêm một đường
+kiểm tra CHẶT HƠN (max_off_tick_ratio = 0.0, tức 100% bars, đúng DoD NQ-04).
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+# [WHY] Hai đường import (repo-root `backend.src.research.*` và `src.research.*`
+# khi chạy từ backend/): runner audit cũ + pytest dùng cả hai; hard-code một
+# đường làm gãy đường còn lại (đo thực tế 28/10/2026: ModuleNotFoundError).
+try:
+    from src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
+    from src.research.raw_price_reconstruction import (
+        CashEvent,
+        FactorSolveError,
+        reconstruct_raw_prices,
+    )
+except ImportError:  # pragma: no cover - chỉ xảy ra khi import bằng `backend.`
+    from backend.src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
+    from backend.src.research.raw_price_reconstruction import (
+        CashEvent,
+        FactorSolveError,
+        reconstruct_raw_prices,
+    )
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -159,6 +186,126 @@ def exdate_gap_check(
     )
 
 
+@dataclass(frozen=True)
+class ReconstructedVerdict:
+    """Phán quyết trên chuỗi ĐÃ PHỤC NGUYÊN (chế độ `--reconstructed`)."""
+
+    symbol: str
+    n_bars: int
+    n_off_tick: int | None
+    max_abs_delta: float | None
+    is_certified: bool
+    reasons: tuple[str, ...]
+    segments: tuple[tuple[object, object, float], ...] = ()
+    gap_deltas: tuple[float, ...] = ()
+
+
+def load_vintage_ohlcv(symbol: str, bars_dir: Path | str) -> tuple[list, list[float], list[float], list[float]]:
+    """Nạp OHLC từ MỘT vintage KBS (`kbs_<sym>_2021_2026.json`) — fail-closed.
+
+    [WHY] Phục nguyên chỉ đúng khi toàn chuỗi đến từ MỘT lần pull API: giá trị
+    4 chữ số thập phân của KBS là đủ để solve factor grid; trộn vintage (DB VCI
+    1,15504×) sẽ tạo ra "grid giả" và factor sai. Hàm này cố tình KHÔNG đọc
+    `daily_ohlcv` để không bao giờ trộn nguồn.
+    [INVARIANT] Thiếu file ⇒ FileNotFoundError; bar hỏng/phi lý (low > high,
+    giá ≤ 0), trùng ngày, hoặc không tăng dần ⇒ ValueError. Không im lặng bỏ
+    bar (Missing > Fake).
+    [WHY] KHÔNG kiểm `low ≤ close ≤ high` toàn chuỗi: đo thực tế vintage FOC
+    2021–2026 có 7/1452 bar vi phạm (KBS trả o=h=l theo mức adjust cũ, close
+    chính xác 4dp, lệch ≤0.2%) tại các bar KHÔNG dùng làm bằng chứng; chặn cả
+    chuỗi sẽ chặn oan 1452 bars vì 7 bar không liên quan. Bar GDKHQ (bằng chứng
+    duy nhất dùng low/high) được kiểm chặt riêng trong `reconstruct_raw_prices`.
+    """
+    path = Path(bars_dir) / f"kbs_{symbol.lower()}_2021_2026.json"
+    if not path.exists():
+        raise FileNotFoundError(f"không có vintage OHLC cho {symbol}: {path}")
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    if not rows:
+        raise ValueError(f"vintage {path.name} rỗng — không có bằng chứng để phục nguyên")
+
+    dates: list = []
+    closes: list[float] = []
+    lows: list[float] = []
+    highs: list[float] = []
+    for r in rows:
+        try:
+            d = datetime.strptime(r["t"][:10], "%Y-%m-%d").date()
+            o, h, lo, c = float(r["o"]), float(r["h"]), float(r["l"]), float(r["c"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"bar hỏng trong {path.name}: {r!r} ({exc})") from exc
+        if not all(x > 0 and x == x and x != float("inf") for x in (o, h, lo, c)):
+            raise ValueError(f"{d}: giá không hợp lệ (o={o}, h={h}, l={lo}, c={c}) trong {path.name}")
+        if lo > h:
+            raise ValueError(f"{d}: bar bất khả (low={lo} > high={h}) trong {path.name}")
+        dates.append(d)
+        closes.append(c)
+        lows.append(lo)
+        highs.append(h)
+
+    if len(set(dates)) != len(dates):
+        raise ValueError(f"{path.name}: có ngày trùng — vintage bị ghép nhiều lần pull")
+    if any(b <= a for a, b in zip(dates, dates[1:])):
+        raise ValueError(f"{path.name}: chuỗi ngày không tăng dần")
+    return dates, closes, lows, highs
+
+
+def verify_reconstructed_prices(
+    symbol: str,
+    dates: list,
+    closes: list[float],
+    lows: list[float],
+    highs: list[float],
+    events: tuple[CashEvent, ...],
+    tick_size: float = TICK_SIZE_VND,
+) -> ReconstructedVerdict:
+    """Phục nguyên rồi phán quyết: 100% bars bội lưới tick + gap qua biên phiên.
+
+    [WHY] DoD NQ-04 đòi HAI điều kiện đồng thời: (i) factor từng segment đưa
+    TOÀN BỘ bars về bội 100 VND — nên `max_off_tick_ratio=0.0`, không dùng dung
+    sai 1% của chế độ DB; (ii) khoảng rơi qua GDKHQ khớp cổ tức trong biên độ
+    phiên ex (Δ_market được phép, nhưng phải nằm trong [low_ex, high_ex]).
+    [INVARIANT] Không có event provenance ⇒ ValueError (không chứng nhận mù).
+    Segment không giải được ⇒ verdict KHÔNG certified, không raise ra ngoài
+    (cổng phải báo cáo được lý do thay vì crash giữa script).
+    """
+    if not events:
+        raise ValueError(f"FAIL_CLOSED: {symbol} không có event cổ tức đã xác minh — không thể chứng nhận gap identity")
+    try:
+        report = reconstruct_raw_prices(symbol, dates, closes, events=events, tick=tick_size, lows=lows, highs=highs)
+    except FactorSolveError as exc:
+        return ReconstructedVerdict(
+            symbol=symbol,
+            n_bars=len(dates),
+            n_off_tick=None,
+            max_abs_delta=None,
+            is_certified=False,
+            reasons=(f"FACTOR_SOLVE_ERROR: {exc}",),
+        )
+
+    tick = tick_compliance(
+        f"{symbol}:reconstructed",
+        list(report.raw_closes),
+        tick_size=tick_size,
+        max_off_tick_ratio=0.0,  # [WHY] DoD: 100% bars, không dung sai
+        first_date=dates[0] if dates else None,
+        last_date=dates[-1] if dates else None,
+    )
+    reasons = list(report.anomalies)
+    if not tick.is_tick_clean:
+        reasons.append(f"{tick.n_off_tick}/{tick.n_bars} bars lệch lưới {tick_size:g} VND (DoD đòi 100% bars bội lưới)")
+    max_abs = max((abs(d) for d in report.gap_deltas), default=None)
+    return ReconstructedVerdict(
+        symbol=symbol,
+        n_bars=report.n_bars,
+        n_off_tick=tick.n_off_tick,
+        max_abs_delta=max_abs,
+        is_certified=not reasons,
+        reasons=tuple(reasons),
+        segments=report.segments,
+        gap_deltas=report.gap_deltas,
+    )
+
+
 def scan_symbol(
     db_path: Path | str,
     symbol: str,
@@ -209,11 +356,75 @@ def scan_symbol(
     }
 
 
+def _run_reconstructed(symbols: list[str], bars_dir: Path) -> int:
+    """Chạy cổng trên chuỗi PHỤC NGUYÊN từ vintage KBS (NQ-04 DoD)."""
+    print("=" * 80)
+    print("PRICE PROVENANCE GATE — CHẾ ĐỘ RECONSTRUCTED (100% BARS BỘI TICK)")
+    print(f"Vintage OHLC: {bars_dir}  (một nguồn duy nhất — không trộn DB)")
+    print("Event provenance: backend/src/research/cash_event_registry.py")
+    print("=" * 80)
+
+    exit_code = 0
+    for sym in symbols:
+        events = CASH_EVENTS.get(sym)
+        tick_size = TICK_SIZES.get(sym)
+        if not events or tick_size is None:
+            print(f"\n[{sym}] FAIL_CLOSED: không có registry cổ tức/lưới tick đã xác minh cho {sym}.")
+            exit_code = max(exit_code, 2)
+            continue
+        try:
+            dates, closes, lows, highs = load_vintage_ohlcv(sym, bars_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"\n[{sym}] FAIL_CLOSED: {exc}")
+            exit_code = max(exit_code, 2)
+            continue
+
+        try:
+            verdict = verify_reconstructed_prices(sym, dates, closes, lows, highs, events, tick_size=tick_size)
+        except ValueError as exc:
+            print(f"\n[{sym}] FAIL_CLOSED: {exc}")
+            exit_code = max(exit_code, 2)
+            continue
+
+        print(
+            f"\n[{sym}] {dates[0]} → {dates[-1]} | {verdict.n_bars} bars | "
+            f"lưới tick {tick_size:g} VND | {len(events)} cổ tức tiền mặt"
+        )
+        for s, e, f in verdict.segments:
+            print(f"  segment {s} .. {e}: factor={f:.8f}")
+        if verdict.gap_deltas:
+            print("  gap identity (Δ_market = drop thực − cổ tức khai báo):")
+            for ev, delta in zip(events, verdict.gap_deltas):
+                print(f"    {ev.ex_date}: cash={ev.cash:>10,.1f} | Δ_market={delta:>+9,.1f} VND")
+            print(f"  max |Δ_market| = {verdict.max_abs_delta:,.1f} VND (biên phiên GDKHQ)")
+
+        if verdict.is_certified:
+            print(
+                f"  ==> PHÁN QUYẾT: PASS — {verdict.n_off_tick}/{verdict.n_bars} bar lệch lưới; "
+                f"100% bars bội {tick_size:g} VND, gap identity qua biên phiên GDKHQ."
+            )
+        else:
+            print(f"  ==> PHÁN QUYẾT: FAIL — chuỗi {sym} KHÔNG đủ bằng chứng phục nguyên:")
+            for reason in verdict.reasons:
+                print(f"    ! {reason}")
+            exit_code = max(exit_code, 1)
+
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
-    """CLI: python -m backend.src.research.price_provenance_gate --symbols VEA,FOC"""
+    """CLI (chạy từ thư mục `backend/`, PYTHONPATH sạch):
+        python -m src.research.price_provenance_gate --symbols VEA,FOC
+        python -m src.research.price_provenance_gate --symbols FOC --reconstructed
+
+    Thêm `--reconstructed` (NQ-04): phán quyết trên chuỗi phục nguyên từ vintage
+    KBS trong `--bars-dir` (mặc định backend/data) thay vì quét DB.
+    """
     args = list(sys.argv[1:] if argv is None else argv)
     symbols: list[str] = ["VEA", "FOC"]
     db_path = Path(__file__).resolve().parent.parent.parent / "data" / "screener_cache.db"
+    bars_dir = Path(__file__).resolve().parent.parent.parent / "data"
+    reconstructed = False
 
     i = 0
     while i < len(args):
@@ -223,9 +434,18 @@ def main(argv: list[str] | None = None) -> int:
         elif args[i] == "--db" and i + 1 < len(args):
             db_path = Path(args[i + 1])
             i += 2
+        elif args[i] == "--bars-dir" and i + 1 < len(args):
+            bars_dir = Path(args[i + 1])
+            i += 2
+        elif args[i] == "--reconstructed":
+            reconstructed = True
+            i += 1
         else:
             print(f"Tham số không hợp lệ: {args[i]}")
             return 2
+
+    if reconstructed:
+        return _run_reconstructed(symbols, bars_dir)
 
     if not db_path.exists():
         print(f"FAIL_CLOSED: không tìm thấy CSDL {db_path}")
