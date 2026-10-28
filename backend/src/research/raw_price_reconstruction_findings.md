@@ -186,6 +186,75 @@ Toàn bộ chuỗi 1.452 bars FOC đạt **100% compliance lưới tick 100 VND 
 - **VEA (Cash-Cow Compounder):** Cổ tức 9–12%/năm, giá biến động vừa phải (-21,7%), DRIP nhân đôi cổ phần ($19.900 \to 38.900$ cp), thắng tiền gửi ngân hàng +176,79 triệu đ (CAGR 7,30% vs 5,01%, Alpha +2,29%, MDD -24,74%).
 - **SMB (Cash-Cow Compounder Thượng hạng):** Cổ tức đều đặn 20.500 đ/cp qua 12 đợt, thị giá giữ nguyên gần như tuyệt đối (-1,5% từ 42,2k về 41,55k sau 5,8 năm), DRIP tăng +61,1% cổ phần ($23.400 \to 37.700$ cp), thắng áp đảo tiền gửi ngân hàng +228,37 triệu đ (CAGR 7,92% vs 5,01%, Alpha +2,91%), Max Drawdown chỉ -15,08%!
 
+### E14 — Cổng V1.1 `--reconstructed`: FOC và VEA đạt EXIT 0, SMB lộ 1 mâu thuẫn biên phiên
+
+**Bối cảnh (NQ-04, 28/10/2026):** Hội đồng chấp nhận khoảng rơi qua ngày GDKHQ
+lệch cổ tức một lượng $\Delta_{market}$ (biến động phiên GDKHQ), với hai điều
+kiện: (i) factor từng segment phải đưa **100% bars** về bội 100 VND; (ii) cổng
+`price_provenance_gate.py` cho FOC phải đạt **EXIT CODE 0**.
+
+**Thay đổi kỹ thuật (TDD RED→GREEN, 27/27 tests):**
+
+1. `raw_price_reconstruction.reconstruct_raw_prices()` thêm **band mode**
+   (`lows`/`highs`): tham chiếu $P_{pre} - Cash$ phải nằm trong
+   $[low_{ex}, high_{ex}]$ — biên độ VẬT LÝ của phiên GDKHQ. Đây là bằng chứng
+   mạnh hơn dung sai tuyệt đối: $\Delta_{market}$ co giãn theo biến động thật
+   nhưng không thể vượt biên (cổ tức khai sai ⇒ tham chiếu rơi ra ngoài).
+   Mỗi $\Delta_{market}$ được ghi lại (`gap_deltas`), không im lặng.
+2. Band mode là **opt-in**: không truyền OHLC ⇒ gap identity tuyệt đối như cũ
+   (có test chống "vá quá tay" cho trường hợp này).
+3. `price_provenance_gate` V1.1 thêm `--reconstructed`: nạp vintage OHLC KBS
+   (`backend/data/kbs_<sym>_2021_2026.json`), phục nguyên, rồi phán quyết với
+   `max_off_tick_ratio = 0.0` (**100% bars**, không dùng dung sai 1% của chế độ
+   quét DB) + band gap identity. Danh sách event chuyển vào
+   `cash_event_registry.py` (single source of truth cho runner + gate).
+
+**Kết quả trên dữ liệu thật (KBS 2020-12-01 → 2026-10-27):**
+
+| Symbol | bars | off-grid | segments | max \|Δ_market\| | Gate `--reconstructed` |
+|---|---|---|---|---|---|
+| FOC | 1.452 | **0** | 7 | 2.200 VND | **EXIT 0 — PASS** |
+| VEA | 1.471 | **0** | 8 | 1.964,8 VND | **EXIT 0 — PASS** |
+| SMB | 1.459 | 0 | 14 | 500 VND | EXIT 1 — FAIL (1 event) |
+
+FOC — $\Delta_{market}$ theo từng mốc (đơn vị VND):
+`2021-04-13: −200 | 2022-06-10: −1.200 | 2023-06-08: +600 |
+2024-07-18: −600 | 2025-05-23: +2.200 | 2026-08-10: +800`.
+Toàn bộ 6 tham chiếu nằm trong biên phiên ex (đo bằng OHLC KBS cùng factor),
+nên **mâu thuẫn E8 được đóng** bằng bằng chứng vật lý, không phải bằng nới ngưỡng.
+
+**Phát hiện SMB (Pha 3, ngoài phạm vi nhiệm vụ (b) nhưng phải ghi):**
+- Grid: 1.459/1.459 bars bội 50 VND — đạt.
+- Gap: `2023-02-20` tham chiếu $41.150$ (=$42.150 - 1.000$) rơi **300 VND dưới**
+  $low_{ex}$ trong khi biên phiên chỉ rộng $49,4$ VND ($[41.450,6; 41.500,0]$),
+  $\Delta_{market} = -350$. Không thể là biến động thị trường: biên quá hẹp.
+  ⇒ Hoặc tiền cổ tức, hoặc ex-date 2023-02-20 sai một bar. **Cấm nới ngưỡng
+  band**; việc cần làm là kiểm lại provenance (VSDC + báo chí) như đã làm với
+  FOC 2021 (E10).
+
+**Ghi chú chất lượng vintage:** FOC 2021–2026 có **7/1452 bar** mà `close` nằm
+ngoài `[low, high]` (KBS trả `o=h=l` theo mức adjust cũ, `close` chính xác 4dp;
+lệch ≤0,2%). **0/6 bar GDKHQ** vi phạm. Vì vậy loader chỉ kiểm cấu trúc toàn
+chuỗi, còn **bar bằng chứng (GDKHQ) bị kiểm chặt** (`low ≤ close ≤ high`,
+`low ≤ high`) — chặn cả 1452 bar vì 7 bar không liên quan là sai phạm vi, còn
+dùng bar tự mâu thuẫn làm biên là Fake.
+
+**Hiệu lực của E11–E13 sau E14:**
+- E11 (FOC) và E12 (VEA): các con số phục nguyên **được xác nhận lại** bằng cổng
+  chính thức (EXIT 0). Lưu ý: đây là chứng nhận **chuỗi giá** (điều kiện cần),
+  KHÔNG phải phê duyệt kết quả kiểm toán thực nghiệm Pha 1/2.
+- E13 (SMB): tuyên bố "100% đạt" chỉ còn đúng cho **grid**; gap identity **12/13**
+  event. Trạng thái SMB hạ xuống **CHƯA CHỨNG NHẬN** cho tới khi xử lý 2023-02-20.
+
+**Lệnh tái lập:**
+```
+cd backend
+python -m src.research.price_provenance_gate --symbols FOC --reconstructed   # exit 0
+python -m src.research.price_provenance_gate --symbols VEA --reconstructed   # exit 0
+python -m src.research.price_provenance_gate --symbols SMB --reconstructed   # exit 1
+python -m src.research.run_raw_price_reconstruction
+```
+
 ## Kết luận
 
 1. **Cơ chế phục nguyên TỒN TẠI và HOÀN HẢO trên cả 2 hệ thống sàn:**
@@ -194,6 +263,12 @@ Toàn bộ chuỗi 1.452 bars FOC đạt **100% compliance lưới tick 100 VND 
 2. **Loại bỏ hoàn toàn Double-Counting:** `DividendAuditEngineV2` chạy trên
    unadjusted raw prices phản ánh trung thực vi cấu trúc thị trường Việt Nam.
 3. **Tiến độ Kiểm định:** Đạt chuẩn **3/5 mã hoàn tất** (FOC: Tiền gửi thắng; VEA: DRIP thắng; SMB: DRIP thắng).
+   - *Điều chỉnh 28/10/2026 (E14):* con số "3/5" là **kết quả kiểm toán thực
+     nghiệm** trên chuỗi giá phục nguyên; **trạng thái chứng nhận chuỗi giá**
+     hiện là **FOC PASS (gate exit 0), VEA PASS (gate exit 0), SMB CHƯA
+     CHỨNG NHẬN** (1 event GDKHQ 2023-02-20 ngoài biên phiên). Kết quả Pha 1
+     vẫn ở trạng thái **thu hồi** theo Nghị quyết 04 cho tới khi hội đồng
+     phê duyệt lại trên nền chuỗi đã được cổng certify.
 
 ## Hành động
 
@@ -207,6 +282,14 @@ Toàn bộ chuỗi 1.452 bars FOC đạt **100% compliance lưới tick 100 VND 
 - [x] Runner kiểm toán VEA `run_vea_empirical_audit.py` dùng giá thô unadjusted: hoàn tất.
 - [x] Runner kiểm toán SMB `run_smb_empirical_audit.py` dùng giá thô unadjusted: hoàn tất.
 - [x] Chạy toàn bộ regression test suite: 22/22 passed.
+- [x] **NQ-04 nhiệm vụ (b) — E14:** band mode OHLC (`lows`/`highs`) + ghi
+      `gap_deltas`; `price_provenance_gate --reconstructed` (V1.1);
+      `cash_event_registry.py` làm nguồn event duy nhất. **27/27 tests GREEN**;
+      FOC **exit 0**, VEA **exit 0**, SMB **exit 1** (2023-02-20).
+- [ ] **SMB provenance re-check 2023-02-20** (biên phiên chỉ rộng 49,4 VND,
+      tham chiếu lệch 300 VND) — cấm nới band, phải kiểm lại cash/ex-date.
+- [ ] **Pha 1 re-run chính thức** trên FOC đã certified (chờ hội đồng phê duyệt
+      điều kiện tiên quyết).
 
 ## Quyết định kỹ thuật bổ sung (sau GREEN)
 

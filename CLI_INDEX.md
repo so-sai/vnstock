@@ -130,7 +130,11 @@ nghiên cứu (calibration/audit), chỉ được tạo khi:
 
 Hiện có:
 - `run_foc_empirical_audit.py`, `run_vea_empirical_audit.py`, `run_smb_empirical_audit.py` (Pha 1 audits, NON-DECISIONAL)
-- `run_raw_price_reconstruction.py` (Pha 2B calibration — FOC/VEA)
+- `run_raw_price_reconstruction.py` (Pha 2B calibration — FOC/VEA/SMB, band mode OHLC)
+- `price_provenance_gate.py --reconstructed --symbols <SYM>` — **cổng chứng nhận
+  chuỗi giá phục nguyên** (100% bars bội lưới tick + gap qua biên phiên GDKHQ).
+  Exit 0 = được phép đưa chuỗi vào audit. Chạy từ `backend/`:
+  `python -m src.research.price_provenance_gate --symbols FOC --reconstructed`
 - `backend/scripts/run_ablation.py`, `run_oos_2026.py` (ablation/OOS)
 - `backend/src/backtest/run_batch_validation.py`, `run_hsr.py` (backtest harness)
 

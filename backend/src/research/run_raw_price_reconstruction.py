@@ -1,24 +1,25 @@
 """
-RAW PRICE RECONSTRUCTION — RUNNER CALIBRATION FOC/VEA (PHA 2B)
+RAW PRICE RECONSTRUCTION — RUNNER CALIBRATION FOC/VEA/SMB (PHA 2B)
 PTCK_VNSTOCK Quantitative Research Suite
 
-[WHY] Chạy `raw_price_reconstruction.py` trên dữ liệu KBS thật: FOC với
-6 sự kiện Phase-1 (kiểm gap identity — biên bản P2 E8 dự báo mâu thuẫn)
-và VEA blind scan (plateau detection mức runner, KHÔNG thuộc core —
-core fail-closed với undisclosed breakpoints).
+[WHY] Chạy `raw_price_reconstruction.py` trên dữ liệu KBS thật: phục nguyên
+giá thô rồi đối chiếu gap identity qua BIÊN ĐỘ PHIÊN GDKHQ (`[low_ex, high_ex]`)
+cho FOC (6 sự kiện), VEA (7 sự kiện) và SMB (13 sự kiện, lưới tick 50 VND).
+Đây là bằng chứng calibration trước khi cổng `price_provenance_gate
+--reconstructed` phán quyết chính thức.
 
 [ROOT CAUSE] Pha 1 (commit 15e09c8) chạy trên adjusted closes →
-double-counting. Runner này chứng minh bằng chứng chứng thực/trảm
-trên dữ liệu thật TRƯỚC khi bất kỳ re-run engine nào được phép.
+double-counting. Runner này chứng minh bằng chứng chứng thực/trảm trên dữ liệu
+thật; danh sách event lấy từ `cash_event_registry` (single source of truth,
+provenance VSDC) chứ không khai báo trùng lặp ở đây.
 
 [INVARIANT] NON-DECISIONAL — mọi số liệu xuất ra là calibration findings,
 không đưa vào checkpoint quyết định (Nghị quyết 04, Mục 9). Exit code:
-0 = runner hoàn tất (report được in); certification do module quyết định.
+0 = runner hoàn tất (report được in); certification do module/gate quyết định.
 """
 
 from __future__ import annotations
 
-import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -30,8 +31,13 @@ BACKEND = Path(__file__).resolve().parent.parent.parent
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
+from src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
+
+# [WHY] Nạp vintage qua đúng loader của cổng (một nguồn kiểm chứng duy nhất:
+# cấm trộn vintage DB VCI 1,15504× vào chuỗi KBS 4dp, và mọi bar hỏng cấu trúc
+# phải bị chặn ở cùng một chỗ).
+from src.research.price_provenance_gate import load_vintage_ohlcv
 from src.research.raw_price_reconstruction import (
-    CashEvent,
     FactorSolveError,
     _segment_bad_count,
     _segment_candidates,
@@ -39,49 +45,6 @@ from src.research.raw_price_reconstruction import (
 )
 
 DATA_DIR = BACKEND / "data"
-KBS_DIR = DATA_DIR if (DATA_DIR / "kbs_foc_2021_2026.json").exists() else Path(r"C:\Users\Admin\AppData\Local\Temp\opencode")
-
-FOC_EVENTS = (  # ex_date, cash_div — VSDC verified provenance
-    CashEvent(date(2021, 4, 13), 20_000.0),
-    CashEvent(date(2022, 6, 10), 8_000.0),
-    CashEvent(date(2023, 6, 8), 5_000.0),
-    CashEvent(date(2024, 7, 18), 2_000.0),
-    CashEvent(date(2025, 5, 23), 10_000.0),
-    CashEvent(date(2026, 8, 10), 10_000.0),
-)
-
-VEA_EVENTS = (  # ex_date, cash_div — VSDC verified provenance (Pha 2)
-    CashEvent(date(2021, 1, 4), 5_252.9),
-    CashEvent(date(2021, 7, 15), 4_990.0),
-    CashEvent(date(2021, 10, 12), 462.7),
-    CashEvent(date(2022, 10, 28), 4_493.7),
-    CashEvent(date(2023, 11, 17), 4_186.9),
-    CashEvent(date(2024, 11, 19), 5_035.18),
-    CashEvent(date(2025, 11, 18), 4_658.08),
-)
-
-SMB_EVENTS = (  # ex_date, cash_div — VSDC verified provenance (Pha 3 - HOSE 50 VND tick)
-    CashEvent(date(2020, 12, 22), 1_000.0),
-    CashEvent(date(2021, 10, 22), 2_500.0),
-    CashEvent(date(2022, 2, 18), 1_000.0),
-    CashEvent(date(2022, 9, 20), 2_500.0),
-    CashEvent(date(2023, 2, 20), 1_000.0),
-    CashEvent(date(2023, 7, 17), 2_500.0),
-    CashEvent(date(2023, 10, 24), 1_000.0),
-    CashEvent(date(2024, 5, 22), 1_500.0),
-    CashEvent(date(2024, 9, 16), 2_000.0),
-    CashEvent(date(2025, 1, 7), 1_500.0),
-    CashEvent(date(2025, 8, 13), 2_000.0),
-    CashEvent(date(2025, 11, 12), 2_000.0),
-    CashEvent(date(2026, 5, 25), 1_000.0),
-)
-
-
-def load_kbs(sym: str) -> tuple[list[date], list[float]]:
-    rows = json.loads((KBS_DIR / f"kbs_{sym.lower()}_2021_2026.json").read_text())
-    dates = [date.fromisoformat(r["t"][:10]) for r in rows]
-    closes = [float(r["c"]) for r in rows]
-    return dates, closes
 
 
 def _plateau_breakpoints(
@@ -122,68 +85,78 @@ def _plateau_breakpoints(
     return [dates[b] for b in bps]
 
 
-def run_foc() -> None:
+def run_symbol(sym: str, title: str) -> None:
+    """Phục nguyên 1 symbol trên vintage KBS + in bằng chứng calibration."""
+    print()
     print("=" * 72)
-    print("FOC — RECONSTRUCTION vs 6 SỰ KIỆN PHASE-1")
+    print(f"{sym} — {title}")
     print("=" * 72)
-    dates, closes = load_kbs("FOC")
+    events = CASH_EVENTS[sym]
+    tick = TICK_SIZES[sym]
     try:
-        report = reconstruct_raw_prices("FOC", dates, closes, events=FOC_EVENTS)
-    except FactorSolveError as e:
-        print(f"FACTOR-SOLVE-ERROR (fail-closed): {e}")
+        dates, closes, lows, highs = load_vintage_ohlcv(sym, DATA_DIR)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"FAIL_CLOSED (vintage): {exc}")
         return
-    print(f"bars={report.n_bars} off_grid={report.n_off_grid} certified={report.is_certified}")
+    try:
+        report = reconstruct_raw_prices(sym, dates, closes, events=events, tick=tick, lows=lows, highs=highs)
+    except FactorSolveError as exc:
+        print(f"FACTOR-SOLVE-ERROR (fail-closed): {exc}")
+        return
+
+    print(f"bars={report.n_bars} off_grid={report.n_off_grid} certified={report.is_certified} lưới={tick:g} VND")
     print("\nsegments:")
     for s, e, f in report.segments:
         print(f"  {s} .. {e}: f={f:.8f}")
+    print("\ngap identity (Δ_market = drop − cash, phải nằm trong biên phiên ex):")
+    for ev, delta in zip(events, report.gap_deltas):
+        print(f"  {ev.ex_date}: cash={ev.cash:>10,.1f} | Δ_market={delta:>+9,.1f}")
     print("\nanomalies:")
     for a in report.anomalies:
         print(f"  ! {a}")
+    if not report.anomalies:
+        print("  (không có)")
+
+
+def run_foc() -> None:
+    run_symbol("FOC", "RECONSTRUCTION vs 6 SỰ KIỆN VSDC (PHA 1)")
 
 
 def run_vea() -> None:
-    print()
-    print("=" * 72)
-    print("VEA — RECONSTRUCTION vs 7 SỰ KIỆN VSDC (PHA 2)")
-    print("=" * 72)
-    dates, closes = load_kbs("VEA")
-    try:
-        report = reconstruct_raw_prices("VEA", dates, closes, events=VEA_EVENTS)
-    except FactorSolveError as e:
-        print(f"FACTOR-SOLVE-ERROR (fail-closed): {e}")
-        return
-    print(f"bars={report.n_bars} off_grid={report.n_off_grid} certified={report.is_certified}")
-    print("\nsegments:")
-    for s, e, f in report.segments:
-        print(f"  {s} .. {e}: f={f:.8f}")
-    print("\nanomalies:")
-    for a in report.anomalies:
-        print(f"  ! {a}")
+    run_symbol("VEA", "RECONSTRUCTION vs 7 SỰ KIỆN VSDC (PHA 2)")
 
 
 def run_smb() -> None:
+    run_symbol("SMB", "RECONSTRUCTION vs 13 SỰ KIỆN VSDC (PHA 3, LƯỚI 50 VND)")
+
+
+def run_survey() -> None:
+    """Survey blind breakpoints mức runner (NON-DECISIONAL, không chứng nhận).
+
+    [WHY] In TÓM TẮT chứ không in từng mốc: đo thực tế 40 mốc phát hiện / 7 mốc
+    khai báo ⇒ nhiễu >80% (plateau trượt window không phân biệt được biến động
+    giá với breakpoint). In từng dòng sẽ khiến người đọc tưởng có 33 "sự kiện
+    lạ" cần xử lý — sai sự thật. Con số duy nhất đáng dùng là: detect có chứa
+    đủ 7 mốc khai báo hay không.
+    """
     print()
     print("=" * 72)
-    print("SMB — RECONSTRUCTION vs 13 SỰ KIỆN VSDC (PHA 3 - LƯỚI TICK HOSE 50 VND)")
+    print("SURVEY BREAKPOINTS (blind, runner-level) — VEA vs 7 event khai báo")
     print("=" * 72)
-    dates, closes = load_kbs("SMB")
-    try:
-        report = reconstruct_raw_prices("SMB", dates, closes, events=SMB_EVENTS, tick=50.0)
-    except FactorSolveError as e:
-        print(f"FACTOR-SOLVE-ERROR (fail-closed): {e}")
-        return
-    print(f"bars={report.n_bars} off_grid={report.n_off_grid} certified={report.is_certified}")
-    print("\nsegments:")
-    for s, e, f in report.segments:
-        print(f"  {s} .. {e}: f={f:.8f}")
-    print("\nanomalies:")
-    for a in report.anomalies:
-        print(f"  ! {a}")
+    dates, closes, _lows, _highs = load_vintage_ohlcv("VEA", DATA_DIR)
+    detected = set(_plateau_breakpoints(dates, closes))
+    declared = {e.ex_date for e in CASH_EVENTS["VEA"]}
+    hits = sorted(declared & detected)
+    print(f"detected={len(detected)} declared={len(declared)} trùng={len(hits)}/{len(declared)}")
+    print(f"khai báo KHÔNG thấy trong survey: {[str(d) for d in sorted(declared - detected)]}")
+    print("Kết luận sử dụng được: survey chỉ dùng làm DANH SÁCH ỨNG VIÊN;")
+    print("nhiễu plateau >80% ⇒ cấm dùng để kết luận hay sửa registry.")
 
 
 if __name__ == "__main__":
     run_foc()
     run_vea()
     run_smb()
+    run_survey()
     print("\nNON-DECISIONAL — calibration findings only (NQ-04, Mục 9).")
     sys.exit(0)
