@@ -42,6 +42,21 @@ raise (fail-closed), kèm khai báo suy giảm (`*_MISSING`). Cấm mọi defaul
 Số đo, bằng chứng và phán quyết: `backend/src/research/*.md` + `tech_debt_backlog.md`.
 Công cụ quét: `scripts/scan_timeseries_hazards.py`.
 
+## 5 LUẬT VẬN HÀNH AGENT (CLI-FIRST · [WHY] · CHỐNG TRÔI DẠT)
+
+**D. CLI-FIRST — cấm tự đẻ script thay CLI.** Trước khi viết bất kỳ script mới nào,
+BẮT BUỘC tra `CLI_INDEX.md` + `python ptck.py <lệnh> --help`. Nếu nghiệp vụ đã có lệnh
+⇒ BẮT BUỘC dùng CLI, cấm tạo `run_*.py`/`probe*.py` thay thế. Ngoại lệ duy nhất:
+research runner trong `backend/src/research/` theo đúng điều kiện ở `CLI_INDEX.md`
+(docstring 3 tầng + đăng ký + `NON-DECISIONAL`). Scratch probe chỉ ở `%TEMP%\opencode`,
+kết quả có giá trị phải hợp nhất vào module + test chính thức, không commit scratch.
+
+**E. NGUYÊN TẮC `[WHY]` — code không có lý do là code sẽ bị xóa oan.** Mọi hằng số,
+công thức, ngưỡng lọc, phạt trượt giá, hệ số điều chỉnh, hoặc khối xử lý bug dữ liệu
+vi cấu trúc BẮT BUỘC có comment `# [WHY]: <lý do thực tế> — xóa/sửa sẽ gây <rủi ro>`
+đặt NGAY TRÊN dòng code đó. Cấm comment chỉ kể `WHAT`/`HOW`. Người/Agent sau đọc code
+mà không thấy `[WHY]` ở một hằng số "lạ" thì phải dừng, không được tự ý "dọn dẹp".
+
 ## Quy ước vận hành
 
 - Dữ liệu: OHLCV `YYYY-MM-DD`; ADV_20D ≥ 50k; pos ≤ 10–15% ADV. CAGR = calendar-year;
