@@ -3532,6 +3532,15 @@ def cmd_daily_cycle(args):
         print_audit_report(hr, lang_mode=_VERBOSE_LANG)
 
 
+def cmd_dividend_audit(args):
+    """Kiểm toán thực nghiệm Cổ tức tái đầu tư (DRIP) vs Tiền gửi 12 tháng Big 4."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    from src.research.cli_dividend_service import handle_cli_dividend_audit
+
+    handle_cli_dividend_audit(args)
+
+
 def cmd_archetype(args):
     """Giai đoạn 1: Business Archetype — DNA classification."""
     if sys.platform == "win32":
@@ -7610,6 +7619,31 @@ def build_parser():
     )
     p_el.set_defaults(func=cmd_evidence_ledger)
 
+    # ── Kiểm toán Cổ tức tái đầu tư (DRIP) vs Tiền gửi 12 tháng Big 4 ──
+    p_div = sub.add_parser(
+        "dividend-audit",
+        parents=[lang_parent],
+        help="Kiểm toán thực nghiệm Cổ tức tái đầu tư (DRIP) vs Tiền gửi 12 tháng Big 4",
+    )
+    p_div.add_argument(
+        "--symbol",
+        type=str,
+        default="ALL",
+        help="Mã cổ phiếu cần kiểm toán (VD: FOC, VEA, SMB, ALL)",
+    )
+    p_div.add_argument(
+        "--capital",
+        type=float,
+        default=1_000_000_000.0,
+        help="Vốn đầu tư ban đầu (VND, mặc định 1.000.000.000)",
+    )
+    p_div.add_argument(
+        "--json",
+        action="store_true",
+        help="Xuất định dạng JSON có cấu trúc",
+    )
+    p_div.set_defaults(func=cmd_dividend_audit)
+
     # Freshness Sentinel: cho phép `--force-stale` ở CẢ HAI vị trí (trước và sau
     # subcommand). Gắn bằng vòng lặp thay vì sửa tay ~100 subparser.
     for _sub in sub.choices.values():
@@ -7635,7 +7669,7 @@ BYPASS_COMMANDS = {
     "init-agent", "hooks-install", "status", "stale", "twap", "break-glass",
     "serve", "telemetry", "gap-analyzer", "data-quality", "symbol-audit",
     "pit-audit", "evidence-ledger", "fetch-macro", "sbv-update",
-    "fetch-financials", "import-financials", "cafef-crawl", "forensic-fpr",
+    "fetch-financials", "import-financials", "cafef-crawl", "forensic-fpr", "dividend-audit",
 }
 
 
