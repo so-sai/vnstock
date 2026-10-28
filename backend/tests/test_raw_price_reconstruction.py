@@ -58,20 +58,25 @@ except ImportError:
 #    backward-ratio convention (r_k = P_raw(ex_k)/P_raw(pre_k); mọi bar
 #    TRƯỚC ex_k bị nhân tích luỹ product các r_k).
 def _build_adjusted(dates, raw_closes, events):
+    return _adjust_like(dates, raw_closes, events, raw_closes)
+
+
+def _adjust_like(dates, raw_closes, events, series):
+    """Nhân cùng hệ số back-adjust lên BẤT KỲ series nào (OHLC) trong thang thô."""
     idx_of = {d: i for i, d in enumerate(dates)}
     ratios = []
     for ev in events:
         j = idx_of[ev.ex_date]
         assert j > 0, "ex-date must not be the first bar"
         ratios.append((j, raw_closes[j] / raw_closes[j - 1]))
-    adj = []
-    for i, p in enumerate(raw_closes):
+    out = []
+    for i, p in enumerate(series):
         f = 1.0
         for j, r in ratios:
             if j > i:
                 f *= r
-        adj.append(p * f)
-    return adj
+        out.append(p * f)
+    return out
 
 
 def _synthetic_foc_like():
@@ -202,6 +207,114 @@ def test_report_mode_with_undisclosed_breakpoints_fails_closed():
     adj = _build_adjusted(dates, raw, events)
     with pytest.raises(FactorSolveError):
         reconstruct_raw_prices("SYN_BLIND_BAD", dates, adj, events=None)
+
+
+# ── Band mode (OHLC ex-session bound) — NQ-04 điều chỉnh DoD ngày 28/10/2026:
+#    "Cho phép khoảng rơi giá đóng cửa giữa 2 phiên biên lệch khỏi cổ tức một
+#     lượng Δ_market (biến động phiên GDKHQ), nhưng factor f giải ra trên từng
+#     segment PHẢI đưa 100% bars về bội 100 VND."
+#
+#    [WHY] Δ_market không được là "cửa sau" để bỏ qua gap identity: nó bị chặn
+#    bằng biên độ VẬT LÝ của chính phiên GDKHQ — giá tham chiếu P_pre − Cash
+#    phải nằm trong [low_ex, high_ex]. Cổ tức khai sai ⇒ tham chiếu rơi ra
+#    ngoài biên ⇒ KHÔNG certify. Đây là bằng chứng mạnh hơn dung sai tuyệt đối
+#    vì nó co giãn theo biến động thật của phiên (UPCoM ±10-15%).
+def _synthetic_with_market_move():
+    """Như _synthetic_foc_like nhưng phiên GDKHQ 2021-04-12 đóng cửa +2,000đ
+    so với giá tham chiếu (= Δ_market thật, không phải cổ tức)."""
+    dates, raw, events = _synthetic_foc_like()
+    shifted = list(raw)
+    for i in range(7, len(shifted)):  # từ bar ex trở đi: thị trường hồi +2,000
+        shifted[i] += 2_000.0
+    lows = [c - 500.0 for c in shifted]
+    highs = [c + 500.0 for c in shifted]
+    # phiên ex 1: mở gần tham chiếu 84,600 rồi tăng trần → biên rộng, ref nằm trong
+    lows[7], highs[7] = 84_000.0, 87_500.0
+    # phiên ex 2 (2021-04-23): rơi đúng 10,000 = cổ tức, biên hẹp quanh close
+    lows[18], highs[18] = 78_000.0, 79_500.0
+    return dates, shifted, events, lows, highs
+
+
+def test_band_mode_certifies_market_delta_within_ex_session_range():
+    dates, raw, events, lows, highs = _synthetic_with_market_move()
+    adj = _build_adjusted(dates, raw, events)
+    # band phải cùng thang với chuỗi đầu vào (adjusted) — cùng convention
+    adj_lows = _adjust_like(dates, raw, events, lows)
+    adj_highs = _adjust_like(dates, raw, events, highs)
+
+    report = reconstruct_raw_prices(
+        "SYN_BAND", dates, adj, events=events, lows=adj_lows, highs=adj_highs
+    )
+    assert report.is_certified is True, report.anomalies
+    assert report.anomalies == ()
+    assert report.n_off_grid == 0
+    # DoD 100% bars bội 100 VND — không một ngoại lệ
+    assert all(abs(c / 100.0 - round(c / 100.0)) < 1e-9 for c in report.raw_closes)
+    for got, want in zip(report.raw_closes, raw):
+        assert abs(got - want) < 1.0
+    # Δ_market phải được GHI LẠI làm bằng chứng kiểm toán (không im lặng)
+    assert len(report.gap_deltas) == len(events)
+    assert abs(report.gap_deltas[0] - (-2_000.0)) < 1.0   # drop 18k vs cash 20k
+    assert abs(report.gap_deltas[1]) < 1.0                # drop 10k = cash 10k
+
+
+def test_band_mode_rejects_cash_dividend_outside_ex_session_range():
+    """[WHY] Cổ tức khai 8k trong khi thực trả 20k ⇒ tham chiếu 96,600 rơi
+    NGOÀI biên phiên ex [84,000–87,500] ⇒ fail-closed, không được certify."""
+    dates, raw, events, lows, highs = _synthetic_with_market_move()
+    adj = _build_adjusted(dates, raw, events)
+    wrong = (
+        CashEvent(ex_date=date(2021, 4, 12), cash=8_000.0),
+        CashEvent(ex_date=date(2021, 4, 23), cash=10_000.0),
+    )
+    report = reconstruct_raw_prices(
+        "SYN_BAND_BAD", dates, adj, events=wrong,
+        lows=_adjust_like(dates, raw, events, lows),
+        highs=_adjust_like(dates, raw, events, highs),
+    )
+    assert report.is_certified is False
+    assert any("2021-04-12" in a for a in report.anomalies)
+
+
+def test_band_mode_is_opt_in_strict_gap_still_default():
+    """[WHY] Không có OHLC ⇒ vẫn dùng gap identity tuyệt đối (GAP_TOL). Band
+    mode KHÔNG được âm thầm nới lỏng mặc định cho mọi caller cũ."""
+    dates, raw, events, _lows, _highs = _synthetic_with_market_move()
+    adj = _build_adjusted(dates, raw, events)
+    report = reconstruct_raw_prices("SYN_STRICT", dates, adj, events=events)
+    assert report.is_certified is False
+    assert any("2021-04-12" in a for a in report.anomalies)
+
+
+def test_band_mode_requires_complete_ohlc_pair():
+    """[WHY] Missing > Fake: cho low mà thiếu high (hoặc ngược lại) ⇒ không đủ
+    biên để phán quyết ⇒ ValueError, tuyệt đối không tự suy ra biên còn lại."""
+    dates, raw, events, lows, highs = _synthetic_with_market_move()
+    adj = _build_adjusted(dates, raw, events)
+    adj_lows = _adjust_like(dates, raw, events, lows)
+    adj_highs = _adjust_like(dates, raw, events, highs)
+    with pytest.raises(ValueError):
+        reconstruct_raw_prices("SYN_HALF", dates, adj, events=events, lows=adj_lows)
+    with pytest.raises(ValueError):
+        reconstruct_raw_prices("SYN_HALF", dates, adj, events=events, highs=adj_highs)
+    with pytest.raises(ValueError):
+        reconstruct_raw_prices(
+            "SYN_LEN", dates, adj, events=events, lows=adj_lows[:-1], highs=adj_highs
+        )
+
+
+def test_band_mode_rejects_inverted_ex_session_range():
+    """[WHY] low > high ở phiên GDKHQ = bar hỏng; dùng nó làm biên sẽ luôn
+    FAIL (hoặc luôn PASS nếu đảo) — phải chặn bằng ValueError."""
+    dates, raw, events, lows, highs = _synthetic_with_market_move()
+    adj = _build_adjusted(dates, raw, events)
+    bad_lows = list(_adjust_like(dates, raw, events, lows))
+    adj_highs = _adjust_like(dates, raw, events, highs)
+    bad_lows[7], adj_highs[7] = adj_highs[7] + 1.0, adj_highs[7]
+    with pytest.raises(ValueError):
+        reconstruct_raw_prices(
+            "SYN_INV", dates, adj, events=events, lows=bad_lows, highs=adj_highs
+        )
 
 
 # ── [WHY] HOSE mid-cap (10k-50k VND, e.g. SMB): lưới tick là 50 VND.

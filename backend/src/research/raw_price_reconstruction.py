@@ -26,6 +26,10 @@ tồn lưới) bằng backward induction + kiểm tra liên tục giá qua biên
 (3) Certification CHỈ khi mọi cash event khớp gap identity
     `P_ex = P_pre − Cash_Div` trong dung sai. Thiếu evidence (report mode)
     hoặc mâu thuẫn ⇒ `is_certified=False` + anomaly tường minh.
+(4) Band mode (có OHLC): khoảng rơi được phép lệch cổ tức một lượng
+    Δ_market của phiên GDKHQ, nhưng CHỈ trong biên vật lý của chính phiên
+    đó — tham chiếu `P_pre − Cash` phải nằm trong `[low_ex, high_ex]`.
+    Δ_market luôn được ghi lại (`gap_deltas`) để kiểm toán, không im lặng.
 """
 
 from __future__ import annotations
@@ -86,11 +90,20 @@ class ReconstructionReport:
     factors: tuple[float, ...]
     segments: tuple[tuple[date, date, float], ...]
     anomalies: tuple[str, ...]
+    # Δ_market từng event = drop thực − cổ tức khai báo (VND). Bằng chứng kiểm
+    # toán: Δ lớn nhưng vẫn trong biên phiên ⇒ hợp lệ; Δ bị ghi lại để người
+    # đọc thấy mức nhiễu thị trường, KHÔNG được coi là 0 khi thiếu dữ liệu.
+    gap_deltas: tuple[float, ...] = ()
 
 
 def _grid_residual(price_over_factor: float, tick: float = GRID_TICK) -> float:
     q = price_over_factor / tick
     return abs(q - round(q))
+
+
+def _segment_index(bounds: Sequence[int], i: int) -> int:
+    """Chỉ số segment chứa bar i (bounds = các mốc cắt đã sắp tăng)."""
+    return max(s for s in range(len(bounds) - 1) if i >= bounds[s])
 
 
 def _segment_candidates(closes: Sequence[float], grid_tol: float, tick: float = GRID_TICK) -> list[float]:
@@ -231,12 +244,19 @@ def reconstruct_raw_prices(
     grid_tol: float = GRID_TOL,
     gap_tol: float = GAP_TOL,
     tick: float = GRID_TICK,
+    lows: Sequence[float] | None = None,
+    highs: Sequence[float] | None = None,
 ) -> ReconstructionReport:
     """Phục nguyên giá thô + chứng nhận gap identity (report-mode, fail-closed).
 
     `events=None`: report mode — vẫn phục nguyên + solve factors nhưng KHÔNG
     bao giờ certify (không có gap evidence). Với events: mọi mâu thuẫn giữa
     drop thực và cổ tức khai báo ⇒ anomaly + `is_certified=False`.
+
+    `lows`/`highs` (tuỳ chọn, phải đi CẶP): bật band mode — khoảng rơi qua
+    ngày GDKHQ được phép lệch cổ tức một lượng Δ_market của phiên, nhưng
+    tham chiếu `P_pre − Cash` PHẢI nằm trong biên `[low_ex, high_ex]`.
+    Không truyền ⇒ gap identity tuyệt đối (GAP_TOL) như trước.
     """
     if dates is None or closes is None:
         raise ValueError("dates/closes không được None")
@@ -244,6 +264,13 @@ def reconstruct_raw_prices(
         raise ValueError("chuỗi rỗng — không có bằng chứng để phục nguyên")
     if len(dates) != len(closes):
         raise ValueError("dates và closes phải cùng độ dày")
+    # [WHY]: biên độ phiên là bằng chứng VẬT LÝ thay cho dung sai tuyệt đối —
+    # thiếu một nửa (low hoặc high) thì không có biên, phải chặn thay vì tự
+    # suy ra (Missing > Fake).
+    if (lows is None) != (highs is None):
+        raise ValueError("lows/highs phải cung cấp ĐỒNG THỜI — thiếu một nửa là không có biên độ phiên GDKHQ")
+    if lows is not None and (len(lows) != len(dates) or len(highs) != len(dates)):
+        raise ValueError("lows/highs phải cùng độ dài với dates/closes")
 
     event_dates = [e.ex_date for e in events] if events is not None else None
     # report mode (events=None): GIẢ ĐOÁN single-segment — KHÔNG tự đoán
@@ -259,11 +286,27 @@ def reconstruct_raw_prices(
         bounds += [idx_of[ed] for ed in sorted(set(event_dates))]
     bounds.append(len(closes))
 
+    # Kiểm tra biên độ phiên GDKHQ TRƯỚC khi phán quyết (bar hỏng không được
+    # dùng làm bằng chứng: low > high sẽ khiến band luôn FAIL/PASS vô nghĩa).
+    # [WHY] close của bar ex PHẢI nằm trong [low, high] của chính nó — bar tự
+    # mâu thuẫn (KBS 7/1452 bar lỗi kiểu này) mà vẫn được dùng làm biên thì
+    # phán quyết gap identity dựa trên bar không có thật.
+    if lows is not None and events is not None:
+        for ev in events:
+            j = idx_of[ev.ex_date]
+            if not (lows[j] > 0 and lows[j] <= highs[j]):
+                raise ValueError(f"bar {ev.ex_date}: biên độ phiên GDKHQ không hợp lệ (low={lows[j]!r}, high={highs[j]!r})")
+            if not (lows[j] <= closes[j] <= highs[j]):
+                raise ValueError(
+                    f"bar {ev.ex_date}: close {closes[j]!r} nằm ngoài biên độ "
+                    f"phiên [{lows[j]!r}, {highs[j]!r}] — bar không dùng được làm bằng chứng"
+                )
+
     # raw = adj / f(segment); kiểm lưới tick tuyệt đối (0.5 tick)
     raw: list[float] = []
     n_off_grid = 0
     for i, c in enumerate(closes):
-        seg_i = max(s for s in range(len(bounds) - 1) if i >= bounds[s])
+        seg_i = _segment_index(bounds, i)
         p_raw = c / factors[seg_i]
         if _grid_residual(p_raw, tick=tick) > 0.5:
             n_off_grid += 1
@@ -272,17 +315,43 @@ def reconstruct_raw_prices(
         raw.append(p_raw)
 
     anomalies: list[str] = []
+    gap_deltas: list[float] = []
     if events is None:
         anomalies.append(f"{symbol}: report mode — không có danh sách event để chứng nhận gap identity")
-    else:
+    elif lows is None:
+        # Gap identity tuyệt đối (không có OHLC để dựng biên phiên GDKHQ).
         for ev in events:
             j = idx_of[ev.ex_date]
             drop = raw[j - 1] - raw[j]
+            gap_deltas.append(drop - ev.cash)
             if abs(drop - ev.cash) > gap_tol:
                 anomalies.append(
                     f"{ev.ex_date}: drop={drop:.1f} ≠ cash={ev.cash:.1f} "
                     "(mâu thuẫn provenance — cổ tức khai báo không khớp data)"
                 )
+    else:
+        # Band mode: Δ_market hợp lệ, nhưng bị chặn bởi biên độ phiên GDKHQ.
+        # [WHY]: đo thực tế FOC 2022–2026 Δ_market = −1,200 … +2,200 VND
+        # (−0.9% … +2.6% P_pre) — đúng cỡ biến động UPCoM một phiên, nên
+        # dung sai tuyệt đối 1 tick sẽ trượt oan; biên [low_ex, high_ex] mới
+        # là bằng chứng đủ mạnh (cổ tức khai sai ⇒ tham chiếu rơi ra ngoài).
+        for ev in events:
+            j = idx_of[ev.ex_date]
+            pre_raw = raw[j - 1]
+            drop = pre_raw - raw[j]
+            delta = drop - ev.cash
+            gap_deltas.append(delta)
+            ref = pre_raw - ev.cash
+            seg_j = _segment_index(bounds, j)
+            lo = lows[j] / factors[seg_j]
+            hi = highs[j] / factors[seg_j]
+            if lo - gap_tol <= ref <= hi + gap_tol:
+                continue
+            anomalies.append(
+                f"{ev.ex_date}: tham chiếu {ref:.1f} (P_pre {pre_raw:.1f} − cash {ev.cash:.1f}) "
+                f"rơi NGOÀI biên độ phiên GDKHQ [{lo:.1f}, {hi:.1f}] "
+                f"(Δ_market={delta:+.1f}) — cổ tức khai báo không khớp data"
+            )
 
     if n_off_grid > 0:
         anomalies.append(f"{symbol}: {n_off_grid} bars giá phục nguyên lệch lưới tick {tick:g} VND")
@@ -298,4 +367,5 @@ def reconstruct_raw_prices(
         factors=tuple(factors),
         segments=segments,
         anomalies=tuple(anomalies),
+        gap_deltas=tuple(gap_deltas),
     )
