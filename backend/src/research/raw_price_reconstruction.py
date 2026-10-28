@@ -34,14 +34,32 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
+# [WHY]: Lưới tick 100 VND của HOSE/UPCoM là bất biến của dữ liệu giá thô —
+# xóa/đổi sẽ khiến mọi so sánh grid-consistency vô nghĩa (hằng số nền của
+# toàn bộ thuật toán; xem NQ-04 DoD 100% close bội 100).
 GRID_TICK = 100.0
-SEG_MIN_BARS = 5  # segment quá ngắn không đủ bằng chứng giải factor
-GRID_TOL = 0.1  # grid units (10 VND) — dung sai solve, bao trùm
-# noise làm tròn tỉ lệ 4 dp của KBS (RMS ~0.66 VND)
-SEG_BAD_RATIO_MAX = 0.05  # >5% bars lệch lưới ⇒ factor sai, fail-closed
-GAP_TOL = 100.0  # dung sai gap identity = 1 tick
-CAND_F_RANGE = (0.3, 3.0)  # miền search f = c0/(k*tick)
-CONTINUITY_RANGE = (0.5, 1.05)  # P_ex/P_pre hợp lý qua biên (cash div)
+# [WHY]: Segment < 5 bars không đủ ràng buộc để phân biệt factor thật với
+# neighbor-k/reciprocal family — thí nghiệm probe cho 179 nghiệm đồng điểm
+# trên 6 bars. Hạ ngưỡng ⇒ nguy cơ chọn factor rác (Missing > Fake).
+SEG_MIN_BARS = 5
+# [WHY]: 0.1 grid = 10 VND. Đo thực tế KBS làm tròn tỉ lệ 4 dp gây RMS
+# ~0.66 VND/bar, tích lũy theo số event. Siết < 0.02 ⇒ segment dài không
+# solve được; nới > 0.25 ⇒ neighbor-k lọt vào (sai factor).
+GRID_TOL = 0.1
+# [WHY]: >5% bars lệch lưới nghĩa là factor SAI cho segment này — dừng phục
+# nguyên thay vì "chọn gần đúng" (Missing > Fake).
+SEG_BAD_RATIO_MAX = 0.05
+# [WHY]: 1 tick (100 VND) = sai số tối đa của gap identity do close đã làm
+# tròn về lưới; nhỏ hơn ⇒ mismatch giả; lớn hơn ⇒ bỏ sót event thật.
+GAP_TOL = 100.0
+# [WHY]: Hệ số back-adjust thực tế rơi trong (0.3, 3.0) — ngoài dải này là
+# cổ tức/thưởng phi thực tế (>70% giá hoặc tăng vốn 3×). Thu hẹp sai ⇒
+# miss factor hợp lệ; mở rộng ⇒ tăng nhiễu candidate.
+CAND_F_RANGE = (0.3, 3.0)
+# [WHY]: P_ex/P_pre ∈ [0.5, 1.05] — cận dưới loại reciprocal f/2 (drop
+# 50%, không phải cổ tức tiền mặt hợp lý); cận trên cho phép giá tăng nhẹ
+# qua biên (ex-date không nhất thiết giảm nếu có tin tốt).
+CONTINUITY_RANGE = (0.5, 1.05)
 
 
 class FactorSolveError(RuntimeError):
