@@ -3541,6 +3541,29 @@ def cmd_dividend_audit(args):
     handle_cli_dividend_audit(args)
 
 
+def cmd_why_audit(args):
+    """Linter `[WHY]` report-only — liệt kê hằng số/ngưỡng thiếu lý do (AGENTS luật E)."""
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    from src.tools.why_contract import main as why_main
+
+    # [WHY] Phải `raise SystemExit` chứ không `return`: dispatcher ở `main()` gọi
+    # `args.func(args)` rồi BỎ giá trị trả về, nên `return 1` của `--strict` sẽ
+    # bị nuốt và CI thấy exit 0 — tức là `--strict` thành vô dụng trong im lặng.
+    argv: list[str] = []
+    if args.root:
+        argv += ["--root", args.root]
+    if args.top is not None:
+        argv += ["--top", str(args.top)]
+    if args.category:
+        argv += ["--category", args.category]
+    if args.json:
+        argv.append("--json")
+    if args.strict:
+        argv.append("--strict")
+    raise SystemExit(why_main(argv))
+
+
 def cmd_archetype(args):
     """Giai đoạn 1: Business Archetype — DNA classification."""
     if sys.platform == "win32":
@@ -7644,6 +7667,43 @@ def build_parser():
     )
     p_div.set_defaults(func=cmd_dividend_audit)
 
+    # ── Linter `[WHY]` report-only (AGENTS.md luật E) ──
+    p_why = sub.add_parser(
+        "why-audit",
+        parents=[lang_parent],
+        help="Linter [WHY] report-only: liệt kê hằng số/ngưỡng thiếu lý do (không sửa gì)",
+    )
+    p_why.add_argument(
+        "--root",
+        type=str,
+        default=None,
+        help="Thư mục quét (mặc định backend/src)",
+    )
+    p_why.add_argument(
+        "--top",
+        type=int,
+        default=None,
+        help="Số mục in tối đa mỗi file (mặc định 20)",
+    )
+    p_why.add_argument(
+        "--category",
+        type=str,
+        default=None,
+        choices=["constant", "literal-threshold", "parse-error"],
+        help="Chỉ hiện một nhóm vi phạm",
+    )
+    p_why.add_argument(
+        "--json",
+        action="store_true",
+        help="Xuất JSON thô",
+    )
+    p_why.add_argument(
+        "--strict",
+        action="store_true",
+        help="Trả exit code 1 khi có vi phạm (mặc định report-only: luôn 0)",
+    )
+    p_why.set_defaults(func=cmd_why_audit)
+
     # Freshness Sentinel: cho phép `--force-stale` ở CẢ HAI vị trí (trước và sau
     # subcommand). Gắn bằng vòng lặp thay vì sửa tay ~100 subparser.
     for _sub in sub.choices.values():
@@ -7670,6 +7730,7 @@ BYPASS_COMMANDS = {
     "serve", "telemetry", "gap-analyzer", "data-quality", "symbol-audit",
     "pit-audit", "evidence-ledger", "fetch-macro", "sbv-update",
     "fetch-financials", "import-financials", "cafef-crawl", "forensic-fpr", "dividend-audit",
+    "why-audit",
 }
 
 

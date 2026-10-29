@@ -542,8 +542,9 @@ E15/E16), VEA hiện **HOSE**, và `test_cli_dividend_service.py` khoá literal
       → **HOÀN TẤT 29/10/2026 (E16):** vá cùng 3 lỗ hổng qua module SSOT
       `audit_provenance.py`; VEA Alpha +2,29%/năm (MDD −24,74%), SMB +2,91%/năm
       (MDD −15,08%); **tiến độ 3/5**, nhãn NON-DECISIONAL.
-- [ ] Backlog (NQ-04): linter `[WHY]` report-only sau khi xong đợt 5 mã.
-      → **ĐỦ ĐIỀU KIỆN MỞ 29/10/2026 (E17):** đã đạt 5/5 mã.
+- [x] **Linter `[WHY]` report-only (NQ-04):** `backend/src/tools/why_contract.py` +
+      `ptck.py why-audit`; quét thật `backend/src` = **1.047 vi phạm** (constant 581,
+      literal-threshold 466), 0 parse-error, exit 0 (chỉ `--strict` trả 1).
 - [x] **Pha 4 — PAT (UPCoM, siêu cổ tức chu kỳ):** registry 9 event (tổng
       63.055 đ/cp từ VCI IQ), lưới 100 VND, tầng 3 xác nhận 4/4 event gap;
       `run_pat_empirical_audit.py` EXIT 0, Alpha −7,57%/năm, MDD −57,88%.

@@ -45,6 +45,17 @@ Cờ toàn cục: `--verbose-lang {compact,annotated,full,auto}` (mọi lệnh),
 | `gap-analyzer` | Missing symbols/dates | — |
 | `forensic-fpr` | Tỷ lệ báo động giả trên rổ VN30 | — |
 | `evidence-ledger` | Decision candidates + budget + opportunity cost | `{list,resolve,opportunity-cost,stats}`, `--year`, `--hold-days` |
+| `why-audit` | Linter `[WHY]` **report-only**: liệt kê hằng số/ngưỡng thiếu lý do (AGENTS luật E) | `--root` (mặc định `backend/src`), `--top`, `--category {constant,literal-threshold,parse-error}`, `--json`, `--strict` |
+
+**`why-audit` — report-only, KHÔNG chặn CI.** Mặc định luôn exit 0 kể cả khi có vi
+phạm; chỉ `--strict` mới trả 1 (dùng khi muốn tự kiểm một thư mục nhỏ). Lệnh này
+không đọc DB, không sửa gì, nằm trong `BYPASS_COMMANDS`. Phạm vi nhận diện **cố ý
+hẹp** và ghi ngay trong báo cáo: (a) hằng số số học cấp module/lớp (kể cả biểu thức
+số, bỏ 0/±1), (b) literal số \|x\|≥2 trong điều kiện `if`/`while`/`assert`, bỏ cặp
+so sánh có `len(...)` (kiểm tra số phần tử, không phải ngưỡng). Đo 29/10/2026 trên
+`backend/src`: **1.047 vi phạm** (constant 581, literal-threshold 466), 0 parse-error
+— đây là số đo nền để theo dõi mức tuân thủ tăng/giảm, không phải danh sách việc
+phải vá hết. Chạy: `python ptck.py why-audit --top 10`.
 
 ## 3. Tín hiệu, sức khỏe doanh nghiệp, dòng vốn
 
