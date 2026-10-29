@@ -273,3 +273,82 @@ def test_load_vintage_rejects_inverted_bar(tmp_path):
     )
     with pytest.raises(ValueError):
         load_vintage_ohlcv("FOC", tmp_path)
+
+
+# ══ TẦNG 3 — KIỂM CHÉO VENDOR (V1.2, 29/10/2026) ════════════════════════════
+# [WHY] PAT có 4/9 event là phiên gap nên phải nghiệm thu bằng tầng trần/sàn
+# (yếu). Nếu tầng 3 cũng không chạy được cho những event đó, cổng sẽ PASS bằng
+# đúng loại bằng chứng yếu nhất — phải chặn. Test dưới đây khoá chính sách đó.
+def _synth_vendor_series(ex: date, n: int = 40, factor: float = 1.0, base: float = 50_000.0):
+    """Chuỗi ngày giao dịch giả + hệ số điều chỉnh trước ex (1.0 = không điều chỉnh)."""
+    from datetime import timedelta
+
+    kbs, db = {}, {}
+    d = ex - timedelta(days=n // 2)
+    i = 0
+    while len(db) < n:
+        if d.weekday() < 5:
+            price = base + 100.0 * i
+            db[d] = price
+            kbs[d] = price * (factor if d < ex else 1.0)
+            i += 1
+        d += timedelta(days=1)
+    return kbs, db
+
+
+def test_cross_vendor_conflict_blocks_certification():
+    """[WHY] Vendor kia điều chỉnh 5.000 đ trong khi registry khai 1.000 đ ⇒
+    phải CHẶN, kể cả khi band OHLC của tầng 2 đã PASS (mâu thuẫn provenance
+    không được phép bị tầng yếu hơn che khuất)."""
+    from src.research.price_provenance_gate import evaluate_cross_vendor
+
+    ex = date(2024, 3, 15)
+    pre = 50_000.0 + 100.0 * 19
+    kbs, db = _synth_vendor_series(ex, factor=(pre - 5_000.0) / pre)
+    checks, blocking, _ = evaluate_cross_vendor(
+        "TST", [(ex, 1_000.0)], kbs, db, gap_checks=("in-range",)
+    )
+    assert checks[0].status == "conflict"
+    assert blocking and "CONFLICT" in blocking[0]
+
+
+def test_cross_vendor_missing_evidence_blocks_only_limit_band_events():
+    """[WHY] Chính sách 2 mức: thiếu dữ liệu tầng 3 cho event `limit-band` ⇒
+    CHẶN (bằng chứng yếu cần xác nhận độc lập); cho event `in-range` ⇒ chỉ ghi
+    chú (band OHLC đã đủ mạnh). Nếu hai ca này cùng số phận thì hoặc cổng quá
+    dễ, hoặc quá khắt khe — cả hai đều sai."""
+    from src.research.price_provenance_gate import evaluate_cross_vendor
+
+    ex = date(2030, 1, 10)  # ngoài mọi chuỗi ⇒ chắc chắn insufficient-data
+    kbs, db = _synth_vendor_series(date(2024, 3, 15), n=20)
+    _, blocking_limit, _ = evaluate_cross_vendor("TST", [(ex, 1_000.0)], kbs, db, ("limit-band",))
+    _, blocking_band, notes_band = evaluate_cross_vendor("TST", [(ex, 1_000.0)], kbs, db, ("in-range",))
+    assert blocking_limit and "THIẾU BẰNG CHỨNG" in blocking_limit[0]
+    assert not blocking_band
+    assert any("insufficient-data" in n or "KHÔNG kết luận" in n for n in notes_band)
+
+
+@pytest.mark.parametrize("sym", ["PAT", "DSN"])
+def test_gate_cli_reconstructed_phase4_5_exit_zero(sym):
+    """[WHY] DoD Pha 4/5: cổng phải đạt EXIT 0 trên chuỗi certified của PAT
+    (UPCoM, lưới 100, 4 event gap có tầng 3 xác nhận) và DSN (HOSE, lưới 50)."""
+    if not (BACKEND / "data" / f"kbs_{sym.lower()}_20").parent.exists():
+        pytest.skip("thiếu thư mục vintage")
+    if not any((BACKEND / "data").glob(f"kbs_{sym.lower()}_*.json")):
+        pytest.skip(f"vintage KBS {sym} không có trong workspace")
+    assert gate_main(["--symbols", sym, "--reconstructed"]) == 0
+
+
+def test_pat_limit_band_scope_is_exactly_four_events():
+    """[WHY] Chống trôi allow-list: PAT được nghiệm thu trần/sàn đúng 4/9 event
+    (2022-08-04, 2024-04-12, 2025-04-24, 2026-09-15). Danh sách dài hơn ⇒ ai đó
+    đã nới tầng yếu; ngắn hơn ⇒ event gap bị trả về FAIL oan."""
+    from src.research.cash_event_registry import LIMIT_BAND_EVENTS
+
+    assert set(LIMIT_BAND_EVENTS["PAT"]) == {
+        date(2022, 8, 4),
+        date(2024, 4, 12),
+        date(2025, 4, 24),
+        date(2026, 9, 15),
+    }
+    assert set(LIMIT_BAND_EVENTS["DSN"]) == {date(2026, 5, 18)}

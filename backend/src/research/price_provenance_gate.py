@@ -56,6 +56,12 @@ try:
         LIMIT_BAND_EVENTS,
         TICK_SIZES,
     )
+    from src.research.cross_vendor_agreement import (
+        EventCrossCheck,
+        cross_vendor_steps,
+        format_cross_vendor_table,
+        load_db_closes,
+    )
     from src.research.raw_price_reconstruction import (
         CashEvent,
         FactorSolveError,
@@ -67,6 +73,12 @@ except ImportError:  # pragma: no cover - chỉ xảy ra khi import bằng `back
         DAILY_LIMIT_PCT,
         LIMIT_BAND_EVENTS,
         TICK_SIZES,
+    )
+    from backend.src.research.cross_vendor_agreement import (
+        EventCrossCheck,
+        cross_vendor_steps,
+        format_cross_vendor_table,
+        load_db_closes,
     )
     from backend.src.research.raw_price_reconstruction import (
         CashEvent,
@@ -210,15 +222,42 @@ class ReconstructedVerdict:
     gap_deltas: tuple[float, ...] = ()
     # Nhãn tầng nghiệm thu từng event: "in-range" (band OHLC) hoặc "limit-band".
     gap_checks: tuple[str, ...] = ()
+    # [WHY] Chuỗi close THÔ đã phục nguyên: engine audit BẮT BUỘC nhận đúng
+    # chuỗi này (nếu runner tự phục nguyên lại, một thay đổi tham số ở cổng sẽ
+    # làm báo cáo chạy trên chuỗi khác với chuỗi đã được chứng nhận).
+    raw_closes: tuple[float, ...] = ()
+
+
+def resolve_vintage_path(symbol: str, bars_dir: Path | str) -> Path:
+    """Đường dẫn vintage KBS DUY NHẤT cho `symbol` (mẫu `kbs_<sym>_*.json`).
+
+    [WHY] Tách khỏi `load_vintage_ohlcv` để runner audit đọc được `volume` từ
+    CÙNG file mà cổng đã chứng nhận — nếu runner tự ghép tên file riêng thì một
+    ngày nào đó nó sẽ đọc vintage khác với vintage đã certify (đúng loại trôi
+    lệch mà registry/SSOT ra đời để chặn).
+    """
+    matches = sorted(Path(bars_dir).glob(f"kbs_{symbol.lower()}_*.json"))
+    if not matches:
+        raise FileNotFoundError(f"không có vintage OHLC cho {symbol} trong {bars_dir} (mẫu kbs_{symbol.lower()}_*.json)")
+    if len(matches) > 1:
+        raise ValueError(
+            f"{symbol}: có {len(matches)} vintage cùng mã ({[m.name for m in matches]}) — "
+            "không được trộn/đoán, phải giữ đúng một lần pull"
+        )
+    return matches[0]
 
 
 def load_vintage_ohlcv(symbol: str, bars_dir: Path | str) -> tuple[list, list[float], list[float], list[float]]:
-    """Nạp OHLC từ MỘT vintage KBS (`kbs_<sym>_2021_2026.json`) — fail-closed.
+    """Nạp OHLC từ MỘT vintage KBS (`kbs_<sym>_<khoảng năm>.json`) — fail-closed.
 
     [WHY] Phục nguyên chỉ đúng khi toàn chuỗi đến từ MỘT lần pull API: giá trị
     4 chữ số thập phân của KBS là đủ để solve factor grid; trộn vintage (DB VCI
     1,15504×) sẽ tạo ra "grid giả" và factor sai. Hàm này cố tình KHÔNG đọc
     `daily_ohlcv` để không bao giờ trộn nguồn.
+    [WHY] Khớp mẫu `kbs_<sym>_*.json` thay vì hard-code `..._2021_2026`: PAT
+    niêm yết UPCoM 06/2022 nên vintage đúng phải tên `kbs_pat_2022_2026.json`;
+    tên cứng 2021_2026 đã làm cổng FAIL_CLOSED oan cho PAT (đo 29/10/2026) dù
+    dữ liệu đầy đủ. Nhiều hơn một file khớp ⇒ ValueError (không được đoán).
     [INVARIANT] Thiếu file ⇒ FileNotFoundError; bar hỏng/phi lý (low > high,
     giá ≤ 0), trùng ngày, hoặc không tăng dần ⇒ ValueError. Không im lặng bỏ
     bar (Missing > Fake).
@@ -228,9 +267,7 @@ def load_vintage_ohlcv(symbol: str, bars_dir: Path | str) -> tuple[list, list[fl
     chuỗi sẽ chặn oan 1452 bars vì 7 bar không liên quan. Bar GDKHQ (bằng chứng
     duy nhất dùng low/high) được kiểm chặt riêng trong `reconstruct_raw_prices`.
     """
-    path = Path(bars_dir) / f"kbs_{symbol.lower()}_2021_2026.json"
-    if not path.exists():
-        raise FileNotFoundError(f"không có vintage OHLC cho {symbol}: {path}")
+    path = resolve_vintage_path(symbol, bars_dir)
     rows = json.loads(path.read_text(encoding="utf-8"))
     if not rows:
         raise ValueError(f"vintage {path.name} rỗng — không có bằng chứng để phục nguyên")
@@ -326,6 +363,7 @@ def verify_reconstructed_prices(
         segments=report.segments,
         gap_deltas=report.gap_deltas,
         gap_checks=report.gap_checks,
+        raw_closes=report.raw_closes,
     )
 
 
@@ -379,7 +417,46 @@ def scan_symbol(
     }
 
 
-def _run_reconstructed(symbols: list[str], bars_dir: Path) -> int:
+def evaluate_cross_vendor(
+    symbol: str,
+    events,
+    kbs_closes: dict,
+    db_closes: dict,
+    gap_checks: tuple[str, ...] = (),
+) -> tuple[tuple[EventCrossCheck, ...], tuple[str, ...], tuple[str, ...]]:
+    """Tầng 3: kiểm chéo KBS/VCI. Trả `(checks, blocking_reasons, notes)`.
+
+    [WHY] Chính sách phải nói rõ vì sao có 2 mức: (i) `conflict` = hai vendor nói
+    khác nhau về CÙNG một khoản cổ tức ⇒ chặn tuyệt đối, không có ngoại lệ;
+    (ii) `insufficient-data` chỉ chặn khi event đó đang được nghiệm thu bằng
+    tầng trần/sàn (`limit-band`, yếu hơn band OHLC 5-10×) — lúc đó cần ít nhất
+    MỘT bằng chứng độc lập thứ hai. Với event đã đạt band OHLC, tầng 3 thiếu
+    dữ liệu chỉ là ghi chú, vì band OHLC tự nó đã là bằng chứng mạnh (giá phải
+    rơi đúng vào [low_ex, high_ex]).
+    [INVARIANT] Không bao giờ gộp `vendor-lag` vào `agree`: nó là thông tin
+    (DB chưa pull lại kỳ mới nhất) và phải hiện ra ở cổng.
+    """
+    checks = cross_vendor_steps(symbol, events, kbs_closes, db_closes)
+    blocking: list[str] = []
+    notes: list[str] = []
+    labels = gap_checks if len(gap_checks) == len(checks) else ("",) * len(checks)
+    for c, tier in zip(checks, labels):
+        if c.status == "conflict":
+            blocking.append(f"TẦNG 3 CONFLICT {c.ex_date}: {c.note}")
+        elif c.status == "insufficient-data":
+            if tier == "limit-band":
+                blocking.append(
+                    f"TẦNG 3 THIẾU BẰNG CHỨNG {c.ex_date}: {c.note} — event đang nghiệm thu "
+                    "bằng tầng trần/sàn (yếu) nên cần kiểm chéo độc lập"
+                )
+            else:
+                notes.append(f"TẦNG 3 {c.ex_date}: {c.note} (band OHLC đã đủ mạnh)")
+        elif c.status == "vendor-lag":
+            notes.append(f"TẦNG 3 {c.ex_date}: {c.note}")
+    return tuple(checks), tuple(blocking), tuple(notes)
+
+
+def _run_reconstructed(symbols: list[str], bars_dir: Path, db_path: Path) -> int:
     """Chạy cổng trên chuỗi PHỤC NGUYÊN từ vintage KBS (NQ-04 DoD)."""
     print("=" * 80)
     print("PRICE PROVENANCE GATE — CHẾ ĐỘ RECONSTRUCTED (100% BARS BỘI TICK)")
@@ -422,6 +499,34 @@ def _run_reconstructed(symbols: list[str], bars_dir: Path) -> int:
                 print(f"    {ev.ex_date}: cash={ev.cash:>10,.1f} | Δ_market={delta:>+9,.1f} VND | {tier}{mark}")
             print(f"  max |Δ_market| = {verdict.max_abs_delta:,.1f} VND (biên phiên GDKHQ)")
 
+        # ── Tầng 3: kiểm chéo vendor KBS vs DB VCI (độc lập với band OHLC) ──
+        # [WHY] Đặt SAU tầng 2 và chỉ có quyền CHẶN thêm, không có quyền nâng
+        # cấp: một event rơi ra ngoài band OHLC vẫn FAIL dù tầng 3 nói "agree".
+        blocking: list[str] = []
+        notes: list[str] = []
+        kbs_closes = dict(zip(dates, closes))
+        try:
+            db_closes = load_db_closes(sym, db_path)
+        except (ValueError, sqlite3.Error) as exc:
+            # [WHY] Không đọc được DB ⇒ tầng 3 không chạy. Với event đang dựa vào
+            # tầng trần/sàn (bằng chứng yếu) đó là THIẾU bằng chứng ⇒ FAIL; với
+            # event đã đạt band OHLC chỉ ghi chú, không hạ cấp tầng 2.
+            n_limit_pre = sum(1 for t in verdict.gap_checks if t == "limit-band")
+            msg = f"TẦNG 3 KHÔNG CHẠY ĐƯỢC ({exc})"
+            if n_limit_pre:
+                blocking.append(f"{msg} — {n_limit_pre} event đang dựa vào tầng trần/sàn")
+            else:
+                notes.append(msg)
+        else:
+            checks, blocking, notes = evaluate_cross_vendor(sym, events, kbs_closes, db_closes, verdict.gap_checks)
+            for line in format_cross_vendor_table(sym, checks):
+                print(line)
+
+        for note in notes:
+            print(f"  GHI CHÚ {note}")
+        for bad in blocking:
+            print(f"  ! {bad}")
+
         n_limit = sum(1 for t in verdict.gap_checks if t == "limit-band")
         if verdict.is_certified and n_limit:
             # [WHY] Minh bạch mức độ bằng chứng: tầng trần/sàn không phân biệt
@@ -433,10 +538,11 @@ def _run_reconstructed(symbols: list[str], bars_dir: Path) -> int:
                 "các event còn lại đạt band OHLC."
             )
 
-        if verdict.is_certified:
+        if verdict.is_certified and not blocking:
             print(
                 f"  ==> PHÁN QUYẾT: PASS — {verdict.n_off_tick}/{verdict.n_bars} bar lệch lưới; "
-                f"100% bars bội {tick_size:g} VND, gap identity qua biên phiên GDKHQ."
+                f"100% bars bội {tick_size:g} VND, gap identity qua biên phiên GDKHQ, "
+                "kiểm chéo vendor không có mâu thuẫn."
             )
         else:
             print(f"  ==> PHÁN QUYẾT: FAIL — chuỗi {sym} KHÔNG đủ bằng chứng phục nguyên:")
@@ -480,7 +586,10 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     if reconstructed:
-        return _run_reconstructed(symbols, bars_dir)
+        if not db_path.exists():
+            print(f"FAIL_CLOSED: không tìm thấy CSDL {db_path} — tầng 3 kiểm chéo vendor cần DB")
+            return 2
+        return _run_reconstructed(symbols, bars_dir, db_path)
 
     if not db_path.exists():
         print(f"FAIL_CLOSED: không tìm thấy CSDL {db_path}")
