@@ -30,6 +30,12 @@ tồn lưới) bằng backward induction + kiểm tra liên tục giá qua biên
     Δ_market của phiên GDKHQ, nhưng CHỈ trong biên vật lý của chính phiên
     đó — tham chiếu `P_pre − Cash` phải nằm trong `[low_ex, high_ex]`.
     Δ_market luôn được ghi lại (`gap_deltas`) để kiểm toán, không im lặng.
+(5) Tầng trần/sàn luật định (NQ-07): khi phiên GDKHQ gap-up/gap-down (cả dải
+    nằm một phía so với tham chiếu), event ĐƯỢC KHAI BÁO trong
+    `limit_band_events` có thể nghiệm thu bằng Δ_market nằm trong
+    ±limit_pct × P_ref (HOSE 7%, UPCoM 15%) + dải giá nằm trong biên luật
+    định + hướng Δ hợp logic. Tầng này YẾU hơn (4) nên mặc định TẮT, không
+    bật theo symbol, và mọi event dùng nó phải mang nhãn `limit-band`.
 """
 
 from __future__ import annotations
@@ -94,6 +100,9 @@ class ReconstructionReport:
     # toán: Δ lớn nhưng vẫn trong biên phiên ⇒ hợp lệ; Δ bị ghi lại để người
     # đọc thấy mức nhiễu thị trường, KHÔNG được coi là 0 khi thiếu dữ liệu.
     gap_deltas: tuple[float, ...] = ()
+    # Nhãn tầng nghiệm thu từng event: "in-range" (band OHLC, mạnh) hoặc
+    # "limit-band" (trần/sàn luật định, yếu — chỉ event khai báo mới dùng được).
+    gap_checks: tuple[str, ...] = ()
 
 
 def _grid_residual(price_over_factor: float, tick: float = GRID_TICK) -> float:
@@ -246,6 +255,8 @@ def reconstruct_raw_prices(
     tick: float = GRID_TICK,
     lows: Sequence[float] | None = None,
     highs: Sequence[float] | None = None,
+    limit_pct: float | None = None,
+    limit_band_events: Sequence[date] = (),
 ) -> ReconstructionReport:
     """Phục nguyên giá thô + chứng nhận gap identity (report-mode, fail-closed).
 
@@ -257,6 +268,10 @@ def reconstruct_raw_prices(
     ngày GDKHQ được phép lệch cổ tức một lượng Δ_market của phiên, nhưng
     tham chiếu `P_pre − Cash` PHẢI nằm trong biên `[low_ex, high_ex]`.
     Không truyền ⇒ gap identity tuyệt đối (GAP_TOL) như trước.
+
+    `limit_pct` + `limit_band_events` (NQ-07): với ĐÚNG các ngày GDKHQ được
+    khai báo, nếu band OHLC thất bại (phiên gap-up/gap-down) thì dùng tầng
+    trần/sàn luật định. Không khai báo ⇒ không bao giờ dùng tầng này.
     """
     if dates is None or closes is None:
         raise ValueError("dates/closes không được None")
@@ -316,6 +331,7 @@ def reconstruct_raw_prices(
 
     anomalies: list[str] = []
     gap_deltas: list[float] = []
+    gap_checks: list[str] = []
     if events is None:
         anomalies.append(f"{symbol}: report mode — không có danh sách event để chứng nhận gap identity")
     elif lows is None:
@@ -335,6 +351,7 @@ def reconstruct_raw_prices(
         # (−0.9% … +2.6% P_pre) — đúng cỡ biến động UPCoM một phiên, nên
         # dung sai tuyệt đối 1 tick sẽ trượt oan; biên [low_ex, high_ex] mới
         # là bằng chứng đủ mạnh (cổ tức khai sai ⇒ tham chiếu rơi ra ngoài).
+        declared_limit = set(limit_band_events)
         for ev in events:
             j = idx_of[ev.ex_date]
             pre_raw = raw[j - 1]
@@ -346,6 +363,34 @@ def reconstruct_raw_prices(
             lo = lows[j] / factors[seg_j]
             hi = highs[j] / factors[seg_j]
             if lo - gap_tol <= ref <= hi + gap_tol:
+                gap_checks.append("in-range")
+                continue
+            # Tầng 2 (NQ-07): CHỈ event được khai báo + có limit_pct.
+            # [WHY] Tầng này yếu hơn ~5-10× (không phân biệt được cổ tức sai
+            # ≤ limit_pct với biến động thị trường) nên phải fail-closed về
+            # phạm vi: khai báo từng ngày, không bật theo symbol.
+            if limit_pct is not None and ev.ex_date in declared_limit:
+                # [WHY] Quy ước dấu: `gap_deltas` = drop − cash (P_pre − P_ex − cash);
+                # NQ-07 định nghĩa Δ_market = P_close_ex − P_ref = −(drop − cash).
+                # Đảo dấu tại đây để công thức trần/sàn đọc đúng chiều biến động,
+                # tránh footgun "so sánh +2,000 với ngưỡng của −2,000".
+                delta_market = -delta
+                within_limit = abs(delta_market) <= limit_pct * ref + gap_tol
+                floor_ok = ref * (1.0 - limit_pct) - gap_tol <= lo
+                ceil_ok = hi <= ref * (1.0 + limit_pct) + gap_tol
+                # (Không cần kiểm "hướng Δ": close nằm trong [lo, hi] đã bị chặn
+                # bởi integrity check ở trên, nên dải hoàn toàn trên ref ⇒ close
+                # > ref là hệ quả toán học, không phải giả định.)
+                if within_limit and floor_ok and ceil_ok:
+                    gap_checks.append("limit-band")
+                    continue
+                anomalies.append(
+                    f"{ev.ex_date}: tham chiếu {ref:.1f} ngoài band OHLC [{lo:.1f}, {hi:.1f}] "
+                    f"và KHÔNG đạt tầng trần/sàn ±{limit_pct * 100:.0f}%: "
+                    f"Δ_market={delta_market:+.1f} ({100 * delta_market / ref:+.2f}% P_ref), "
+                    f"dải giá {'ngoài' if not (floor_ok and ceil_ok) else 'trong'} biên luật định — "
+                    "cổ tức khai báo không khớp data"
+                )
                 continue
             anomalies.append(
                 f"{ev.ex_date}: tham chiếu {ref:.1f} (P_pre {pre_raw:.1f} − cash {ev.cash:.1f}) "
@@ -368,4 +413,5 @@ def reconstruct_raw_prices(
         segments=segments,
         anomalies=tuple(anomalies),
         gap_deltas=tuple(gap_deltas),
+        gap_checks=tuple(gap_checks),
     )

@@ -317,6 +317,97 @@ def test_band_mode_rejects_inverted_ex_session_range():
         )
 
 
+# ── Tầng trần/sàn luật định (NQ-07, 29/10/2026) ────────────────────────────
+# [WHY] NQ-07 chỉ ra band OHLC hiện tại sai mô hình khi phiên GDKHQ gap-up/
+# gap-down (cả dải [low, high] nằm MỘT PHÍA so với P_ref) — khi đó P_ref nằm
+# ngoài dải dù cổ tức đúng 100%. Bổ sung tầng nghiệm thu theo biên trần/sàn
+# luật định (HOSE ±7%, UPCoM ±15%).
+# [INVARIANT] Tầng này YẾU hơn band OHLC ~5-10 lần (nó không phân biệt được
+# một khoản cổ tức sai ≤7% với biến động thị trường). Vì vậy nó KHÔNG được bật
+# mặc định và KHÔNG được bật theo symbol: chỉ bật cho ĐÚNG event nằm trong
+# `limit_band_events` (registry khai báo từng ngày + lý do vi cấu trúc).
+def _synthetic_gap_up_ex_day():
+    """Phiên GDKHQ 2021-04-12 gap-up: cả dải giá nằm TRÊN tham chiếu 84,600."""
+    dates, raw, events = _synthetic_foc_like()
+    shifted = list(raw)
+    for i in range(7, len(shifted)):
+        shifted[i] += 2_000.0
+    lows = [c - 500.0 for c in shifted]
+    highs = [c + 500.0 for c in shifted]
+    # ex 1: chỉ khớp trong [85,500; 87,500] — hoàn toàn trên P_ref = 84,600
+    lows[7], highs[7] = 85_500.0, 87_500.0
+    # ex 2 (2021-04-23): rơi đúng 10,000 = cổ tức, dải hẹp quanh close
+    lows[18], highs[18] = 78_000.0, 79_500.0
+    return dates, shifted, events, lows, highs
+
+
+def test_limit_band_accepts_gap_up_day_only_when_event_is_declared():
+    dates, raw, events, lows, highs = _synthetic_gap_up_ex_day()
+    adj = _build_adjusted(dates, raw, events)
+    adj_lows, adj_highs = (
+        _adjust_like(dates, raw, events, lows),
+        _adjust_like(dates, raw, events, highs),
+    )
+    ex1 = date(2021, 4, 12)
+
+    # (a) chưa khai báo event ⇒ strict band ⇒ KHÔNG certify (mặc định không đổi)
+    strict = reconstruct_raw_prices(
+        "GAP", dates, adj, events=events, lows=adj_lows, highs=adj_highs,
+        limit_pct=0.07,
+    )
+    assert strict.is_certified is False
+    assert any("2021-04-12" in a for a in strict.anomalies)
+
+    # (b) khai báo đúng event đó ⇒ dùng tầng trần/sàn, có nhãn "limit-band"
+    loose = reconstruct_raw_prices(
+        "GAP", dates, adj, events=events, lows=adj_lows, highs=adj_highs,
+        limit_pct=0.07, limit_band_events=(ex1,),
+    )
+    assert loose.is_certified is True, loose.anomalies
+    assert loose.gap_checks[0] == "limit-band"
+    assert loose.gap_checks[1] == "in-range"
+    # gap_deltas giữ quy ước drop − cash: 18,000 − 20,000 = −2,000
+    assert abs(loose.gap_deltas[0] - (-2_000.0)) < 1.0
+    assert loose.n_off_grid == 0
+    assert all(abs(c / 100.0 - round(c / 100.0)) < 1e-9 for c in loose.raw_closes)
+
+
+def test_limit_band_rejects_error_beyond_statutory_limit():
+    """[WHY] Chống vá quá tay: allow-list KHÔNG phải giấy phép. Khai 10,000
+    thay vì 20,000 ⇒ Δ_market = +12,000 = 14,2% > trần/sàn 7% ⇒ vẫn FAIL."""
+    dates, raw, events, lows, highs = _synthetic_gap_up_ex_day()
+    adj = _build_adjusted(dates, raw, events)
+    wrong = (
+        CashEvent(ex_date=date(2021, 4, 12), cash=10_000.0),
+        CashEvent(ex_date=date(2021, 4, 23), cash=10_000.0),
+    )
+    report = reconstruct_raw_prices(
+        "GAP_BAD", dates, adj, events=wrong,
+        lows=_adjust_like(dates, raw, events, lows),
+        highs=_adjust_like(dates, raw, events, highs),
+        limit_pct=0.07, limit_band_events=(date(2021, 4, 12),),
+    )
+    assert report.is_certified is False
+    assert any("2021-04-12" in a for a in report.anomalies)
+
+
+def test_limit_band_requires_bar_integrity_even_when_declared():
+    """[WHY] Ca chống vá quá tay: allow-list + trần/sàn KHÔNG miễn trừ kiểm tra
+    toàn vẹn bar. Bar GDKHQ tự mâu thuẫn (close ngoài [low, high]) ⇒ ValueError,
+    không được "cứu" bằng tầng trần/sàn."""
+    dates, raw, events, lows, highs = _synthetic_gap_up_ex_day()
+    broken_raw = list(raw)
+    broken_raw[7] = 84_000.0  # close dưới cả low của phiên ⇒ bar không có thật
+    adj = _build_adjusted(dates, broken_raw, events)
+    with pytest.raises(ValueError):
+        reconstruct_raw_prices(
+            "GAP_DIR", dates, adj, events=events,
+            lows=_adjust_like(dates, broken_raw, events, lows),
+            highs=_adjust_like(dates, broken_raw, events, highs),
+            limit_pct=0.07, limit_band_events=(date(2021, 4, 12),),
+        )
+
+
 # ── [WHY] HOSE mid-cap (10k-50k VND, e.g. SMB): lưới tick là 50 VND.
 #    Engine PHẢI hỗ trợ tham số tick=50.0, phục nguyên chính xác 100% bars.
 def test_reconstruct_hose_50_tick_grid():
