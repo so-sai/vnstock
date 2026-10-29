@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -26,77 +26,97 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 try:
+    from src.research.audit_provenance import (
+        AUDIT_WINDOW_START,
+        build_vsdc_dividends,
+        dividend_cash_total,
+    )
+    from src.research.cash_event_registry import CASH_EVENTS, DAILY_LIMIT_PCT, LIMIT_BAND_EVENTS, TICK_SIZES
     from src.research.dividend_audit_engine import (
-        CashDividendEvent,
         DividendAuditEngineV2,
         EngineConfig,
         MarketBar,
         VietnamTradingCalendar,
     )
     from src.research.price_provenance_gate import (
+        AdjustedPriceDetectedError,
         assert_raw_price_series,
+        load_vintage_ohlcv,
         tick_compliance,
     )
-    from src.research.raw_price_reconstruction import (
-        CashEvent,
-        reconstruct_raw_prices,
-    )
+    from src.research.raw_price_reconstruction import reconstruct_raw_prices
 except ImportError:
+    from backend.src.research.audit_provenance import (
+        AUDIT_WINDOW_START,
+        build_vsdc_dividends,
+        dividend_cash_total,
+    )
+    from backend.src.research.cash_event_registry import (
+        CASH_EVENTS,
+        DAILY_LIMIT_PCT,
+        LIMIT_BAND_EVENTS,
+        TICK_SIZES,
+    )
     from backend.src.research.dividend_audit_engine import (
-        CashDividendEvent,
         DividendAuditEngineV2,
         EngineConfig,
         MarketBar,
         VietnamTradingCalendar,
     )
     from backend.src.research.price_provenance_gate import (
+        AdjustedPriceDetectedError,
         assert_raw_price_series,
+        load_vintage_ohlcv,
         tick_compliance,
     )
-    from backend.src.research.raw_price_reconstruction import (
-        CashEvent,
-        reconstruct_raw_prices,
-    )
-
-# 7 sự kiện cổ tức tiền mặt độc lập VSDC của VEA (2021-2026)
-VEA_EVENTS = (
-    CashEvent(date(2021, 1, 4), 5_252.90),
-    CashEvent(date(2021, 7, 15), 4_990.00),
-    CashEvent(date(2021, 10, 12), 462.70),
-    CashEvent(date(2022, 10, 28), 4_493.70),
-    CashEvent(date(2023, 11, 17), 4_186.90),
-    CashEvent(date(2024, 11, 19), 5_035.18),
-    CashEvent(date(2025, 11, 18), 4_658.08),
-)
+    from backend.src.research.raw_price_reconstruction import reconstruct_raw_prices
 
 
 def load_vea_clean_bars() -> tuple[list[MarketBar], list[MarketBar], tuple[tuple[date, date, float], ...]]:
-    """Tải chuỗi dữ liệu VEA và phục nguyên giá thô (unadjusted raw price)
-    theo chuẩn tick grid 100 VND (Invariant RAW_PRICE_TICK_GRID_PROOF_REQUIRED).
+    """Tải chuỗi VEA và phục nguyên giá thô theo lưới tick HOSE 100 VND.
+
+    [WHY] Ba lỗ hổng kỷ luật đã vá (29/10/2026, trước lần re-run Pha 2), giống hệt
+    Pha 1 FOC — đo được ở bản cũ: 7 event khai báo lại inline, 0 lần kiểm
+    `is_certified`, 0 nhãn NON-DECISIONAL:
+    (1) event lấy từ `cash_event_registry` (SSOT) — không còn bản sao trong runner;
+    (2) phục nguyên BAND MODE với OHLC cùng vintage (bằng chứng vật lý), không chỉ
+        tick compliance;
+    (3) FAIL-CLOSED nếu `is_certified` = False: cấm chạy audit trên chuỗi chưa
+        được cổng chứng nhận gap identity.
     """
-    json_path = BACKEND_DIR / "data" / "kbs_vea_2021_2026.json"
-    if not json_path.exists():
-        json_path = Path(r"C:\Users\Admin\AppData\Local\Temp\opencode\kbs_vea_2021_2026.json")
-    if not json_path.exists():
-        raise FileNotFoundError(f"Không tìm thấy tệp dữ liệu KBS VEA: {json_path}")
+    dates, closes, lows, highs = load_vintage_ohlcv("VEA", BACKEND_DIR / "data")
+    tick = TICK_SIZES["VEA"]
 
-    raw_data = json.loads(json_path.read_text(encoding="utf-8"))
-    dates = [datetime.strptime(r["t"][:10], "%Y-%m-%d").date() for r in raw_data]
-    closes = [float(r["c"]) for r in raw_data]
-    volumes = [float(r["v"]) for r in raw_data]
+    recon_report = reconstruct_raw_prices(
+        "VEA",
+        dates,
+        closes,
+        events=CASH_EVENTS["VEA"],
+        tick=tick,
+        lows=lows,
+        highs=highs,
+        limit_pct=DAILY_LIMIT_PCT.get("VEA"),
+        limit_band_events=tuple(LIMIT_BAND_EVENTS.get("VEA", {})),
+    )
 
-    recon_report = reconstruct_raw_prices("VEA", dates, closes, events=VEA_EVENTS)
-
-    # Cổng kiểm định vật lý: Kiểm tra 100% bar nằm trên lưới 100 VND (fail-closed)
-    gate_rep = tick_compliance("VEA_RECONSTRUCTED", recon_report.raw_closes)
+    # Cổng kiểm định vật lý: Kiểm tra 100% bar nằm trên lưới tick (fail-closed)
+    gate_rep = tick_compliance("VEA_RECONSTRUCTED", list(recon_report.raw_closes), tick_size=tick)
     assert_raw_price_series(gate_rep)
+    if not recon_report.is_certified:
+        raise AdjustedPriceDetectedError(
+            "FAIL_CLOSED: chuỗi VEA phục nguyên chưa được chứng nhận gap identity — "
+            f"cấm chạy audit. Anomalies: {list(recon_report.anomalies)}"
+        )
 
+    volumes = [
+        float(r["v"]) for r in json.loads((BACKEND_DIR / "data" / "kbs_vea_2021_2026.json").read_text(encoding="utf-8"))
+    ]
     audit_bars = []
     warmup_bars = []
     for d, p, v in zip(dates, recon_report.raw_closes, volumes):
-        if d < date(2021, 1, 4):
+        if d < AUDIT_WINDOW_START:
             warmup_bars.append(MarketBar(trade_date=d, raw_close=p, volume=v))
-        elif date(2021, 1, 4) <= d <= date(2026, 10, 23):
+        elif AUDIT_WINDOW_START <= d <= date(2026, 10, 23):
             audit_bars.append(MarketBar(trade_date=d, raw_close=p, volume=v))
 
     # Cắt đúng 20 phiên cuối của Dec 2020 làm warm-up window ADV20
@@ -151,51 +171,10 @@ def run_vea_audit():
     if not bars:
         raise RuntimeError("Không thể tải dữ liệu sạch của VEA sau khi phục nguyên giá thô.")
 
-    # 7 sự kiện cổ tức độc lập VSDC của VEA
-    vsdc_cash_dividends = [
-        CashDividendEvent(
-            ex_date=date(2021, 1, 4),
-            pay_date=date(2021, 2, 5),
-            cash_per_share=5_252.90,
-            action_id="VSDC/VEA/20210104/CASH_5253",
-        ),
-        CashDividendEvent(
-            ex_date=date(2021, 7, 15),
-            pay_date=date(2021, 8, 16),
-            cash_per_share=4_990.00,
-            action_id="VSDC/VEA/20210715/CASH_4990",
-        ),
-        CashDividendEvent(
-            ex_date=date(2021, 10, 12),
-            pay_date=date(2021, 11, 10),
-            cash_per_share=462.70,
-            action_id="VSDC/VEA/20211012/CASH_463",
-        ),
-        CashDividendEvent(
-            ex_date=date(2022, 10, 28),
-            pay_date=date(2022, 11, 30),
-            cash_per_share=4_493.70,
-            action_id="VSDC/VEA/20221028/CASH_4494",
-        ),
-        CashDividendEvent(
-            ex_date=date(2023, 11, 17),
-            pay_date=date(2023, 12, 20),
-            cash_per_share=4_186.90,
-            action_id="VSDC/VEA/20231117/CASH_4187",
-        ),
-        CashDividendEvent(
-            ex_date=date(2024, 11, 19),
-            pay_date=date(2024, 12, 20),
-            cash_per_share=5_035.18,
-            action_id="VSDC/VEA/20241119/CASH_5035",
-        ),
-        CashDividendEvent(
-            ex_date=date(2025, 11, 18),
-            pay_date=date(2025, 12, 19),
-            cash_per_share=4_658.08,
-            action_id="VSDC/VEA/20251118/CASH_4658",
-        ),
-    ]
+    # [WHY] Cổ tức SUY RA từ registry (SSOT) + metadata thanh toán; bản sao inline
+    # 7 event đã bị xoá để không còn hai nguồn sự thật (xem audit_provenance).
+    vsdc_cash_dividends = build_vsdc_dividends("VEA", AUDIT_WINDOW_START)
+    total_cash_per_share = dividend_cash_total(vsdc_cash_dividends)
     independent_provenance_set = {d.action_id for d in vsdc_cash_dividends}
 
     # Lãi suất bình quân tiền gửi 12 tháng nhóm NHTM Nhà nước (Big 4) 2021-2026
@@ -253,7 +232,14 @@ def run_vea_audit():
     print("Cơ quan chủ trì: Hội đồng Kiến trúc & Kiểm toán Định lượng PTCK_VNSTOCK (Pha 2)")
     print(f"Khoảng thời gian: {bars[0].trade_date} đến {bars[-1].trade_date} ({res['period_years']:.2f} năm)")
     print(f"Số phiên quan sát: {res['bars_observed']} phiên | Phục nguyên giá thô: 100% bội số 100 VND")
-    print(f"Nguồn đối soát cổ tức: VSDC Official ({res['processed_cash_divs']} kỳ tiền mặt, tổng 29.079,46 đ/cp)")
+    print(
+        f"Nguồn đối soát cổ tức: VSDC Official ({res['processed_cash_divs']} kỳ tiền mặt, "
+        f"tổng {total_cash_per_share:,.2f} đ/cp) — suy ra từ cash_event_registry"
+    )
+    print("Chứng nhận chuỗi giá: price_provenance_gate --reconstructed = EXIT 0 (VEA certified)")
+    # [WHY] Nhãn bắt buộc theo NQ-04 Mục 9 / AGENTS: cửa sổ 2025–2026 là OOS,
+    # mọi con số trên đó KHÔNG được dùng để chọn/tối ưu tham số hay chiến lược.
+    print("NHÃN: NON-DECISIONAL — 2025-2026 là cửa sổ OOS; báo cáo này mô tả, KHÔNG dùng để quyết định.")
     print("=" * 86)
 
     # Câu hỏi 1

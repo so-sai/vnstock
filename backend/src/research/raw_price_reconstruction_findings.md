@@ -315,6 +315,59 @@ Vì vậy: (i) tầng này mặc định TẮT; (ii) chỉ bật cho 1 event có
 lập; (iii) nếu sau này có event thứ hai cần tầng này, đó là **tín hiệu phải
 điều tra provenance**, không phải lý do mở rộng allow-list.
 
+### E16 — Re-run Pha 2 (VEA) + Pha 3 (SMB) trên chuỗi certified: tiến độ 3/5
+
+**Bối cảnh:** E15 chỉ vá runner Pha 1. Đo lại runner Pha 2/3 cùng thời điểm cho thấy
+**đúng 3 lỗ hổng kỷ luật y hệt tái xuất hiện** — bằng chứng đây là lỗi hệ thống của
+đường audit, không phải sơ suất cá nhân:
+
+| Runner | event khai báo inline | kiểm `is_certified` | nhãn NON-DECISIONAL | đọc registry |
+|---|---|---|---|---|
+| `run_vea_empirical_audit.py` | 7 | 0 | 0 | 0 |
+| `run_smb_empirical_audit.py` | 13 | 0 | 0 | 0 |
+
+**Nguyên nhân gốc (một, không phải ba):** registry chỉ chứa dữ liệu *giá*
+(ex_date, cash), còn engine audit cần thêm *thanh toán* (pay_date) và *danh tính*
+(action_id để đếm nguồn độc lập). Thiếu chỗ chứa ⇒ mỗi runner tự dựng lại cả cục,
+kéo theo cả cash/ex_date ⇒ sinh bản sao thứ hai của SSOT.
+
+**Vá:** module `audit_provenance.py` — `build_vsdc_dividends(symbol, window_start)`
+dựng danh sách từ `CASH_EVENTS`, ghép metadata pay_date/action_id khoá theo ex_date.
+Fail-closed hai chiều: event trong registry thiếu metadata ⇒ raise; metadata mồ côi
+(event đã bị xoá khỏi registry) ⇒ raise. Ranh giới kỳ audit do `AUDIT_WINDOW_START`
+(2021-01-04) quyết định, nên SMB tự động còn 12 event (loại 2020-12-22 warm-up) mà
+không cần danh sách chép tay thứ hai.
+
+**TDD:** 5 test RED (`ModuleNotFoundError`) → 5 GREEN: (a) VEA 7 event + tổng
+29.079,46 đ/cp khớp registry; (b) SMB 12 event + tổng 20.500 đ/cp, loại 2020-12-22;
+(c) registry thêm event mà thiếu metadata ⇒ DỪNG; (d) metadata mồ côi ⇒ DỪNG;
+(e) action_id duy nhất + đúng namespace `VSDC/<SYM>/`.
+
+Hai runner nay dùng band mode OHLC + fail-closed `is_certified` + nhãn OOS, và **tổng
+cổ tức in ra được tính từ dữ liệu** thay vì hardcode (hardcode từng khớp nhưng sẽ
+nói dối ngay khi registry đổi).
+
+**Kết quả re-run (exit 0 cả hai; so với baseline trước khi vá — tái lập y hệt):**
+
+| Chỉ tiêu | VEA (Pha 2) | SMB (Pha 3) |
+|---|---|---|
+| Số phiên quan sát | 1.446 | 1.433 |
+| Tiền gửi Big 4 12 tháng (CAGR) | 5,01% | 5,01% |
+| DRIP thanh lý ròng (CAGR) | 7,30% | 7,92% |
+| Alpha DRIP vs tiền gửi | **+2,29%/năm** | **+2,91%/năm** |
+| Kịch bản B3 cash-out | 1.448.184.420 đ (6,59%) | 1.501.945.014 đ (7,27%) |
+| Max Drawdown | **−24,74%** | **−15,08%** |
+
+⇒ **Tiến độ chính thức: 3/5 mã** (FOC 1/5, VEA 2/5, SMB 3/5) — cả ba đều chạy trên
+chuỗi đã được cổng chứng nhận exit 0. Số liệu VEA/SMB trùng khớp từng đồng với
+baseline đo trước khi vá: đường nạp dữ liệu đã đổi hoàn toàn (registry + band +
+certification) mà kết quả không đổi ⇒ kết quả không phụ thuộc đường nạp.
+
+**Lưu ý bắt buộc khi đọc bảng trên:** VEA +2,29%/năm và SMB +2,91%/năm nằm trong
+cửa sổ có 2025–2026 là OOS ⇒ **NON-DECISIONAL**, không được dùng để chọn mã, chọn
+tham số hay tuyên bố "chiến lược thắng tiền gửi". Alpha dương ở đây chỉ là mô tả
+lịch sử trên một chuỗi giá đã kiểm chứng vật lý.
+
 ## Kết luận
 
 1. **Cơ chế phục nguyên TỒN TẠI và HOÀN HẢO trên cả 2 hệ thống sàn:**
@@ -334,6 +387,9 @@ lập; (iii) nếu sau này có event thứ hai cần tầng này, đó là **t�
      **Re-run Pha 1 FOC hoàn tất trên chuỗi certified → tiến độ chính thức
      1/5**, số liệu tái lập y hệt E11 (Alpha −4,98%/năm, MDD −54,33%),
      gắn nhãn NON-DECISIONAL cho cửa sổ OOS 2025–2026.
+   - *Cập nhật 29/10/2026 (E16):* re-run Pha 2 (VEA) + Pha 3 (SMB) trên chuỗi
+     certified ⇒ **tiến độ 3/5**; ba lỗ hổng kỷ luật của runner được vá bằng
+     module SSOT `audit_provenance.py` (fail-closed hai chiều với registry).
 
 ## Hành động
 
@@ -361,6 +417,9 @@ lập; (iii) nếu sau này có event thứ hai cần tầng này, đó là **t�
       → **HOÀN TẤT 29/10/2026:** runner audit FOC dùng registry + fail-closed
       certification; kết quả tái lập y hệt E11; tiến độ **1/5**.
 - [ ] Pha 2 VEA + Pha 3 SMB re-run chính thức trên chuỗi certified (2/5, 3/5).
+      → **HOÀN TẤT 29/10/2026 (E16):** vá cùng 3 lỗ hổng qua module SSOT
+      `audit_provenance.py`; VEA Alpha +2,29%/năm (MDD −24,74%), SMB +2,91%/năm
+      (MDD −15,08%); **tiến độ 3/5**, nhãn NON-DECISIONAL.
 - [ ] Backlog (NQ-04): linter `[WHY]` report-only sau khi xong đợt 5 mã.
 
 ## Quyết định kỹ thuật bổ sung (sau GREEN)
