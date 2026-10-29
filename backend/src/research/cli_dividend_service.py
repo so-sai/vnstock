@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -22,186 +21,22 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from src.research.audit_provenance import AUDIT_WINDOW_START, build_vsdc_dividends
+from src.research.cash_event_registry import CASH_EVENTS, EXCHANGES, TICK_SIZES
 from src.research.dividend_audit_engine import (
-    CashDividendEvent,
     DividendAuditEngineV2,
     EngineConfig,
     VietnamTradingCalendar,
 )
+from src.research.symbol_audit_pipeline import BANK_RATES_BIG4
 
-# Lãi suất bình quân tiền gửi 12 tháng nhóm NHTM Nhà nước (Big 4) 2021-2026
-BANK_RATES_BIG4 = {
-    2021: 0.0560,
-    2022: 0.0740,
-    2023: 0.0550,
-    2024: 0.0520,
-    2025: 0.0530,
-    2026: 0.0540,
-}
-
-# 6 sự kiện cổ tức tiền mặt VSDC của FOC (2021-2026)
-FOC_VSDC_DIVIDENDS = [
-    CashDividendEvent(
-        ex_date=date(2021, 4, 13),
-        pay_date=date(2021, 4, 29),
-        cash_per_share=20_000.0,
-        action_id="VSDC/FOC/20210413/CASH_20000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2022, 6, 10),
-        pay_date=date(2022, 6, 30),
-        cash_per_share=8_000.0,
-        action_id="VSDC/FOC/20220610/CASH_8000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2023, 6, 8),
-        pay_date=date(2023, 6, 30),
-        cash_per_share=5_000.0,
-        action_id="VSDC/FOC/20230608/CASH_5000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2024, 7, 18),
-        pay_date=date(2024, 8, 9),
-        cash_per_share=2_000.0,
-        action_id="VSDC/FOC/20240718/CASH_2000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2025, 5, 23),
-        pay_date=date(2025, 6, 20),
-        cash_per_share=10_000.0,
-        action_id="VSDC/FOC/20250523/CASH_10000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2026, 8, 10),
-        pay_date=date(2026, 9, 15),
-        cash_per_share=10_000.0,
-        action_id="VSDC/FOC/20260810/CASH_10000",
-    ),
-]
-
-# 7 sự kiện cổ tức tiền mặt VSDC của VEA (2021-2026)
-VEA_VSDC_DIVIDENDS = [
-    CashDividendEvent(
-        ex_date=date(2021, 1, 4),
-        pay_date=date(2021, 2, 5),
-        cash_per_share=5_252.90,
-        action_id="VSDC/VEA/20210104/CASH_5253",
-    ),
-    CashDividendEvent(
-        ex_date=date(2021, 7, 15),
-        pay_date=date(2021, 8, 16),
-        cash_per_share=4_990.00,
-        action_id="VSDC/VEA/20210715/CASH_4990",
-    ),
-    CashDividendEvent(
-        ex_date=date(2021, 10, 12),
-        pay_date=date(2021, 11, 10),
-        cash_per_share=462.70,
-        action_id="VSDC/VEA/20211012/CASH_463",
-    ),
-    CashDividendEvent(
-        ex_date=date(2022, 10, 28),
-        pay_date=date(2022, 11, 30),
-        cash_per_share=4_493.70,
-        action_id="VSDC/VEA/20221028/CASH_4494",
-    ),
-    CashDividendEvent(
-        ex_date=date(2023, 11, 17),
-        pay_date=date(2023, 12, 20),
-        cash_per_share=4_186.90,
-        action_id="VSDC/VEA/20231117/CASH_4187",
-    ),
-    CashDividendEvent(
-        ex_date=date(2024, 11, 19),
-        pay_date=date(2024, 12, 20),
-        cash_per_share=5_035.18,
-        action_id="VSDC/VEA/20241119/CASH_5035",
-    ),
-    CashDividendEvent(
-        ex_date=date(2025, 11, 18),
-        pay_date=date(2025, 12, 19),
-        cash_per_share=4_658.08,
-        action_id="VSDC/VEA/20251118/CASH_4658",
-    ),
-]
-
-# 12 sự kiện cổ tức tiền mặt VSDC của SMB (2021-2026)
-SMB_VSDC_DIVIDENDS = [
-    CashDividendEvent(
-        ex_date=date(2021, 10, 22),
-        pay_date=date(2021, 11, 15),
-        cash_per_share=2_500.0,
-        action_id="VSDC/SMB/20211022/CASH_2500",
-    ),
-    CashDividendEvent(
-        ex_date=date(2022, 2, 18),
-        pay_date=date(2022, 3, 15),
-        cash_per_share=1_000.0,
-        action_id="VSDC/SMB/20220218/CASH_1000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2022, 9, 20),
-        pay_date=date(2022, 10, 14),
-        cash_per_share=2_500.0,
-        action_id="VSDC/SMB/20220920/CASH_2500",
-    ),
-    CashDividendEvent(
-        ex_date=date(2023, 2, 20),
-        pay_date=date(2023, 3, 15),
-        cash_per_share=1_000.0,
-        action_id="VSDC/SMB/20230220/CASH_1000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2023, 7, 17),
-        pay_date=date(2023, 8, 15),
-        cash_per_share=2_500.0,
-        action_id="VSDC/SMB/20230717/CASH_2500",
-    ),
-    CashDividendEvent(
-        ex_date=date(2023, 10, 24),
-        pay_date=date(2023, 11, 15),
-        cash_per_share=1_000.0,
-        action_id="VSDC/SMB/20231024/CASH_1000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2024, 5, 22),
-        pay_date=date(2024, 6, 14),
-        cash_per_share=1_500.0,
-        action_id="VSDC/SMB/20240522/CASH_1500",
-    ),
-    CashDividendEvent(
-        ex_date=date(2024, 9, 16),
-        pay_date=date(2024, 10, 15),
-        cash_per_share=2_000.0,
-        action_id="VSDC/SMB/20240916/CASH_2000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2025, 1, 7),
-        pay_date=date(2025, 1, 24),
-        cash_per_share=1_500.0,
-        action_id="VSDC/SMB/20250107/CASH_1500",
-    ),
-    CashDividendEvent(
-        ex_date=date(2025, 8, 13),
-        pay_date=date(2025, 9, 15),
-        cash_per_share=2_000.0,
-        action_id="VSDC/SMB/20250813/CASH_2000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2025, 11, 12),
-        pay_date=date(2025, 12, 15),
-        cash_per_share=2_000.0,
-        action_id="VSDC/SMB/20251112/CASH_2000",
-    ),
-    CashDividendEvent(
-        ex_date=date(2026, 5, 25),
-        pay_date=date(2026, 6, 15),
-        cash_per_share=1_000.0,
-        action_id="VSDC/SMB/20260525/CASH_1000",
-    ),
-]
-
-SUPPORTED_BENCHMARKS = ("FOC", "VEA", "SMB")
+# [WHY] Danh sách mã CLI hỗ trợ SUY RA từ registry cổ tức (SSOT), không khai lại:
+# trước đây tuple này còn sót ("FOC", "VEA", "SMB") và ba bản sao cổ tức inline
+# (FOC 6 / VEA 7 / SMB 12 event) sống song song với registry. Đo 29/10/2026:
+# bản sao FOC trong CLI ghi pay_date 2023-06-30 trong khi SSOT là 2023-06-19 ⇒
+# CLI và runner báo hai con số lãi tiền gửi khác nhau cho cùng một mã, mà báo
+# cáo CLI vẫn ghi "Nguồn: VSDC". Thêm mã vào registry là CLI tự có, không cần sửa.
+SUPPORTED_BENCHMARKS = tuple(CASH_EVENTS)
 
 
 def audit_single_symbol(symbol: str, initial_capital: float = 1_000_000_000.0) -> dict[str, Any]:
@@ -209,6 +44,11 @@ def audit_single_symbol(symbol: str, initial_capital: float = 1_000_000_000.0) -
     sym = symbol.strip().upper()
     calendar = VietnamTradingCalendar()
 
+    # [WHY] Ba mã Pha 1–3 giữ nguyên loader riêng của runner đã nghiệm thu (đổi
+    # loader là đổi chuỗi bar đã công bố với Hội đồng); PAT/DSN dùng pipeline
+    # chung vì chúng không có runner cũ để bảo toàn. Cổ tức thì KHÔNG chia nhánh:
+    # mọi mã đều đọc `build_vsdc_dividends` (SSOT), nếu không thì CLI lại là bản
+    # sao thứ sáu — đúng lỗi vừa xóa.
     if sym == "FOC":
         from src.research.run_foc_empirical_audit import (
             generate_dec_2020_warmup_bars,
@@ -218,11 +58,6 @@ def audit_single_symbol(symbol: str, initial_capital: float = 1_000_000_000.0) -
 
         bars, segments = load_foc_clean_bars()
         warmup_bars = generate_dec_2020_warmup_bars(bars[0], calendar)
-        lot_size = 100
-        tick_size = 100.0
-        div_events = FOC_VSDC_DIVIDENDS
-        bank_rates_big4 = BANK_RATES_BIG4
-        exchange = "UPCoM"
     elif sym == "VEA":
         from src.research.run_vea_empirical_audit import (
             load_vea_clean_bars,
@@ -230,11 +65,6 @@ def audit_single_symbol(symbol: str, initial_capital: float = 1_000_000_000.0) -
         )
 
         bars, warmup_bars, segments = load_vea_clean_bars()
-        lot_size = 100
-        tick_size = 100.0
-        div_events = VEA_VSDC_DIVIDENDS
-        bank_rates_big4 = BANK_RATES_BIG4
-        exchange = "UPCoM"
     elif sym == "SMB":
         from src.research.run_smb_empirical_audit import (
             load_smb_clean_bars,
@@ -242,16 +72,33 @@ def audit_single_symbol(symbol: str, initial_capital: float = 1_000_000_000.0) -
         )
 
         bars, warmup_bars, segments = load_smb_clean_bars()
-        lot_size = 100
-        tick_size = 50.0
-        div_events = SMB_VSDC_DIVIDENDS
-        bank_rates_big4 = BANK_RATES_BIG4
-        exchange = "HOSE"
+    elif sym in CASH_EVENTS:
+        from src.research.symbol_audit_pipeline import (
+            load_certified_series,
+            trace_initial_execution,
+        )
+
+        series = load_certified_series(sym)
+        bars = list(series.audit_bars)
+        warmup_bars = list(series.warmup_bars)
     else:
         raise ValueError(
             f"Mã '{sym}' chưa hoàn tất đối soát provenance VSDC và phục nguyên giá thô unadjusted.\n"
             f"Các mã đã được chứng nhận kiểm toán định lượng: {', '.join(SUPPORTED_BENCHMARKS)}."
         )
+
+    lot_size = 100
+    # [WHY] Lưới tick + sàn đọc từ registry: đây là tham số LUẬT (HOSE ±7%/lưới
+    # 50, UPCoM ±15%/lưới 100), không phải hằng số của CLI. Nhãn sàn từng sai
+    # ("VEA — UPCoM" trong khi VEA là HOSE) vì nó được viết inline ngay tại đây.
+    tick_size = TICK_SIZES[sym]
+    exchange = EXCHANGES[sym]
+    bank_rates_big4 = BANK_RATES_BIG4
+    # [WHY] `AUDIT_WINDOW_START` (2021-01-04) chứ KHÔNG phải bars[0].trade_date:
+    # SMB có event 2020-12-22 chỉ phục vụ phục nguyên giá thô, không có metadata
+    # thanh toán ⇒ truyền mốc sớm hơn sẽ làm `build_vsdc_dividends` ném
+    # MissingDividendMetadataError (đúng fail-closed, nhưng là lỗi giả).
+    div_events = build_vsdc_dividends(sym, AUDIT_WINDOW_START)
 
     cfg = EngineConfig(
         symbol=sym,
