@@ -50,14 +50,24 @@ from pathlib import Path
 # khi chạy từ backend/): runner audit cũ + pytest dùng cả hai; hard-code một
 # đường làm gãy đường còn lại (đo thực tế 28/10/2026: ModuleNotFoundError).
 try:
-    from src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
+    from src.research.cash_event_registry import (
+        CASH_EVENTS,
+        DAILY_LIMIT_PCT,
+        LIMIT_BAND_EVENTS,
+        TICK_SIZES,
+    )
     from src.research.raw_price_reconstruction import (
         CashEvent,
         FactorSolveError,
         reconstruct_raw_prices,
     )
 except ImportError:  # pragma: no cover - chỉ xảy ra khi import bằng `backend.`
-    from backend.src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
+    from backend.src.research.cash_event_registry import (
+        CASH_EVENTS,
+        DAILY_LIMIT_PCT,
+        LIMIT_BAND_EVENTS,
+        TICK_SIZES,
+    )
     from backend.src.research.raw_price_reconstruction import (
         CashEvent,
         FactorSolveError,
@@ -198,6 +208,8 @@ class ReconstructedVerdict:
     reasons: tuple[str, ...]
     segments: tuple[tuple[object, object, float], ...] = ()
     gap_deltas: tuple[float, ...] = ()
+    # Nhãn tầng nghiệm thu từng event: "in-range" (band OHLC) hoặc "limit-band".
+    gap_checks: tuple[str, ...] = ()
 
 
 def load_vintage_ohlcv(symbol: str, bars_dir: Path | str) -> tuple[list, list[float], list[float], list[float]]:
@@ -271,7 +283,17 @@ def verify_reconstructed_prices(
     if not events:
         raise ValueError(f"FAIL_CLOSED: {symbol} không có event cổ tức đã xác minh — không thể chứng nhận gap identity")
     try:
-        report = reconstruct_raw_prices(symbol, dates, closes, events=events, tick=tick_size, lows=lows, highs=highs)
+        report = reconstruct_raw_prices(
+            symbol,
+            dates,
+            closes,
+            events=events,
+            tick=tick_size,
+            lows=lows,
+            highs=highs,
+            limit_pct=DAILY_LIMIT_PCT.get(symbol),
+            limit_band_events=tuple(LIMIT_BAND_EVENTS.get(symbol, {})),
+        )
     except FactorSolveError as exc:
         return ReconstructedVerdict(
             symbol=symbol,
@@ -303,6 +325,7 @@ def verify_reconstructed_prices(
         reasons=tuple(reasons),
         segments=report.segments,
         gap_deltas=report.gap_deltas,
+        gap_checks=report.gap_checks,
     )
 
 
@@ -393,10 +416,22 @@ def _run_reconstructed(symbols: list[str], bars_dir: Path) -> int:
         for s, e, f in verdict.segments:
             print(f"  segment {s} .. {e}: factor={f:.8f}")
         if verdict.gap_deltas:
-            print("  gap identity (Δ_market = drop thực − cổ tức khai báo):")
-            for ev, delta in zip(events, verdict.gap_deltas):
-                print(f"    {ev.ex_date}: cash={ev.cash:>10,.1f} | Δ_market={delta:>+9,.1f} VND")
+            print("  gap identity (Δ_market = drop − cash; nhãn = tầng nghiệm thu):")
+            for ev, delta, tier in zip(events, verdict.gap_deltas, verdict.gap_checks):
+                mark = "" if tier == "in-range" else "  ⇐ TRẦN/SÀN (yếu hơn)"
+                print(f"    {ev.ex_date}: cash={ev.cash:>10,.1f} | Δ_market={delta:>+9,.1f} VND | {tier}{mark}")
             print(f"  max |Δ_market| = {verdict.max_abs_delta:,.1f} VND (biên phiên GDKHQ)")
+
+        n_limit = sum(1 for t in verdict.gap_checks if t == "limit-band")
+        if verdict.is_certified and n_limit:
+            # [WHY] Minh bạch mức độ bằng chứng: tầng trần/sàn không phân biệt
+            # được cổ tức sai ≤ limit% với biến động thị trường, nên danh sách
+            # event + số lượng phải hiện ra, không được gộp vào "PASS" chung.
+            print(
+                f"  LƯU Ý BẰNG CHỨNG: {n_limit}/{len(verdict.gap_checks)} event nghiệm thu bằng "
+                f"tầng trần/sàn ±{100 * DAILY_LIMIT_PCT.get(sym, 0.0):.0f}% (yếu hơn band OHLC); "
+                "các event còn lại đạt band OHLC."
+            )
 
         if verdict.is_certified:
             print(

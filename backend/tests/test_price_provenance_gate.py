@@ -45,7 +45,7 @@ try:
         verify_reconstructed_prices,
     )
     from src.research.price_provenance_gate import main as gate_main
-    from src.research.cash_event_registry import CASH_EVENTS
+    from src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
     from src.research.raw_price_reconstruction import CashEvent
 except ImportError:
     from backend.src.research.price_provenance_gate import (
@@ -61,7 +61,7 @@ except ImportError:
         verify_reconstructed_prices,
     )
     from backend.src.research.price_provenance_gate import main as gate_main
-    from backend.src.research.cash_event_registry import CASH_EVENTS
+    from backend.src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
     from backend.src.research.raw_price_reconstruction import CashEvent
 
 
@@ -208,6 +208,43 @@ def test_reconstructed_rejects_wrong_cash_on_real_vintage():
 
 
 @_needs_foc_vintage
+def test_reconstructed_foc_all_events_use_strict_band():
+    """[WHY] Chống trôi chuẩn: FOC tuyệt đối KHÔNG được hưởng tầng trần/sàn
+    (không có event nào trong allow-list) — 6/6 phải là "in-range"."""
+    dates, closes, lows, highs = load_vintage_ohlcv("FOC", FOC_VINTAGE_DIR)
+    verdict = verify_reconstructed_prices(
+        "FOC", dates, closes, lows, highs, CASH_EVENTS["FOC"]
+    )
+    assert verdict.gap_checks == ("in-range",) * len(CASH_EVENTS["FOC"])
+
+
+def test_reconstructed_smb_certifies_with_exactly_one_declared_limit_event():
+    """[WHY] NQ-07: SMB 2023-02-20 là phiên gap-up (2 bước giá) — được nghiệm
+    thu bằng tầng trần/sàn ±7%, và CHỈ event đó (12 event còn lại phải in-range).
+    Nếu con số này khác, phạm vi nới lỏng đã trôi."""
+    smb_dir = BACKEND / "data"
+    if not (smb_dir / "kbs_smb_2021_2026.json").exists():
+        pytest.skip("vintage KBS SMB không có trong workspace")
+    dates, closes, lows, highs = load_vintage_ohlcv("SMB", smb_dir)
+    verdict = verify_reconstructed_prices(
+        "SMB", dates, closes, lows, highs, CASH_EVENTS["SMB"], tick_size=TICK_SIZES["SMB"]
+    )
+    assert verdict.is_certified is True, verdict.reasons
+    assert verdict.n_off_tick == 0
+    assert verdict.gap_checks.count("limit-band") == 1
+    assert verdict.gap_checks.count("in-range") == len(CASH_EVENTS["SMB"]) - 1
+    idx = [e.ex_date for e in CASH_EVENTS["SMB"]].index(date(2023, 2, 20))
+    assert verdict.gap_checks[idx] == "limit-band"
+    assert abs(verdict.gap_deltas[idx] - (-350.0)) < 1.0
+
+
+def test_gate_cli_reconstructed_smb_exit_zero():
+    """[WHY] NQ-07 yêu cầu SMB về EXIT 0 — đo trên đường CLI thật."""
+    if not (BACKEND / "data" / "kbs_smb_2021_2026.json").exists():
+        pytest.skip("vintage KBS SMB không có trong workspace")
+    assert gate_main(["--symbols", "SMB", "--reconstructed"]) == 0
+
+
 def test_gate_cli_reconstructed_foc_exit_zero():
     """[WHY] DoD cuối cùng của Hội đồng: `price_provenance_gate.py` cho FOC
     phải đạt EXIT CODE 0 — đo trên đường CLI thật, không chỉ hàm nội bộ."""

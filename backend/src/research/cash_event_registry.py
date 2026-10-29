@@ -46,6 +46,31 @@ TICK_SIZES: dict[str, float] = {
     "SMB": 50.0,  # HOSE mid-cap — giá 30-40k, lưới 50 VND
 }
 
+# [WHY] Biên trần/sàn luật định theo sàn (NQ-07): HOSE ±7%, UPCoM ±15%. Đây là
+# hằng số QUY CHẾ, không phải tham số nghiên cứu: sửa/nới ⇒ tầng nghiệm thu
+# trần/sàn mất giá trị pháp lý và không còn chặn được cổ tức khai sai lớn.
+DAILY_LIMIT_PCT: dict[str, float] = {
+    "FOC": 0.15,  # UPCoM
+    "VEA": 0.07,  # HOSE
+    "SMB": 0.07,  # HOSE
+}
+
+# [WHY] Tầng trần/sàn YẾU hơn band OHLC ~5-10× (không phân biệt được cổ tức sai
+# ≤7% với biến động thị trường). Vì vậy nó chỉ được bật cho TỪNG event đã khai
+# báo + có căn cứ vi cấu trúc, KHÔNG bật theo symbol. Bật cả symbol ⇒ một mã
+# mất toàn bộ khả năng phát hiện cổ tức thiếu.
+# SMB 2023-02-20: cả phiên chỉ khớp 2 bước giá 41.450/41.500 (biên 50 đ) trong
+# khi P_ref = 42.150 − 1.000 = 41.150 ⇒ phiên gap-up, P_ref nằm dưới low_ex
+# 300 đ (+0,73% ≤ ±7%). VSDC/SMB/20230220/CASH_1K xác nhận 1.000 đ/cp.
+LIMIT_BAND_EVENTS: dict[str, dict[date, str]] = {
+    "SMB": {
+        date(2023, 2, 20): (
+            "gap-up ATO: 2 bước giá 41.450/41.500, P_ref=41.150 ⇒ Δ_market +350 đ "
+            "(+0,85%) trong ±7% HOSE; VSDC/SMB/20230220/CASH_1K"
+        )
+    },
+}
+
 # [WHY] FPT Online (UPCoM). Nguồn: VSDC + nghị quyết ĐHĐCĐ + báo chí, đã đối
 # chiếu 3 nguồn trong biên bản P2 (E8/E10). 2021: chốt danh sách 14/4/2021,
 # GDKHQ thực tế 13/4/2021 (drop 19,801 ≈ 20,000 VND — E10). 2022: tỷ lệ 50%

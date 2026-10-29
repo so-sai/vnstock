@@ -31,7 +31,12 @@ BACKEND = Path(__file__).resolve().parent.parent.parent
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
+from src.research.cash_event_registry import (
+    CASH_EVENTS,
+    DAILY_LIMIT_PCT,
+    LIMIT_BAND_EVENTS,
+    TICK_SIZES,
+)
 
 # [WHY] Nạp vintage qua đúng loader của cổng (một nguồn kiểm chứng duy nhất:
 # cấm trộn vintage DB VCI 1,15504× vào chuỗi KBS 4dp, và mọi bar hỏng cấu trúc
@@ -99,7 +104,17 @@ def run_symbol(sym: str, title: str) -> None:
         print(f"FAIL_CLOSED (vintage): {exc}")
         return
     try:
-        report = reconstruct_raw_prices(sym, dates, closes, events=events, tick=tick, lows=lows, highs=highs)
+        report = reconstruct_raw_prices(
+            sym,
+            dates,
+            closes,
+            events=events,
+            tick=tick,
+            lows=lows,
+            highs=highs,
+            limit_pct=DAILY_LIMIT_PCT.get(sym),
+            limit_band_events=tuple(LIMIT_BAND_EVENTS.get(sym, {})),
+        )
     except FactorSolveError as exc:
         print(f"FACTOR-SOLVE-ERROR (fail-closed): {exc}")
         return
@@ -108,9 +123,9 @@ def run_symbol(sym: str, title: str) -> None:
     print("\nsegments:")
     for s, e, f in report.segments:
         print(f"  {s} .. {e}: f={f:.8f}")
-    print("\ngap identity (Δ_market = drop − cash, phải nằm trong biên phiên ex):")
-    for ev, delta in zip(events, report.gap_deltas):
-        print(f"  {ev.ex_date}: cash={ev.cash:>10,.1f} | Δ_market={delta:>+9,.1f}")
+    print("\ngap identity (Δ_market = drop − cash; nhãn = tầng nghiệm thu):")
+    for ev, delta, tier in zip(events, report.gap_deltas, report.gap_checks):
+        print(f"  {ev.ex_date}: cash={ev.cash:>10,.1f} | Δ_market={delta:>+9,.1f} | {tier}")
     print("\nanomalies:")
     for a in report.anomalies:
         print(f"  ! {a}")
