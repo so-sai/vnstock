@@ -135,6 +135,9 @@ Hiện có:
   chuỗi giá phục nguyên** (100% bars bội lưới tick + gap qua biên phiên GDKHQ).
   Exit 0 = được phép đưa chuỗi vào audit. Chạy từ `backend/`:
   `python -m src.research.price_provenance_gate --symbols FOC --reconstructed`
+  Event không đạt band OHLC (phiên gap-up/gap-down) **chỉ** được nghiệm thu qua
+  `LIMIT_BAND_EVENTS` (registry, khai báo từng ngày) và in nhãn `limit-band` +
+  dòng "LƯU Ý BẰNG CHỨNG" — tầng này yếu hơn, cấm nới theo symbol.
 - `backend/scripts/run_ablation.py`, `run_oos_2026.py` (ablation/OOS)
 - `backend/src/backtest/run_batch_validation.py`, `run_hsr.py` (backtest harness)
 
