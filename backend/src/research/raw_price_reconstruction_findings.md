@@ -363,6 +363,15 @@ chuỗi đã được cổng chứng nhận exit 0. Số liệu VEA/SMB trùng k
 baseline đo trước khi vá: đường nạp dữ liệu đã đổi hoàn toàn (registry + band +
 certification) mà kết quả không đổi ⇒ kết quả không phụ thuộc đường nạp.
 
+**Mở rộng cùng nguyên nhân gốc (FOC):** runner Pha 1 vẫn còn danh sách 6
+`CashDividendEvent` inline (E15 mới chỉ bỏ bản sao `CashEvent`). Chuyển nốt sang
+`build_vsdc_dividends("FOC", ...)` ⇒ 6 event, tổng 55.000 đ/cp tính từ dữ liệu
+(thay vì chuỗi hardcode), ba runner nay dùng **cùng một** cơ chế. Re-run FOC:
+CAGR DRIP 0,03%, Alpha −4,98%/năm, B3 1.166.176.990 đ (2,69%/năm), MDD −54,33% —
+trùng khớp E15. Từ đây quy tắc "cấm khai báo lại event inline trong runner"
+(`CLI_INDEX.md`) là điều kiện **máy kiểm được**
+(`test_{foc,vea,smb}_dividends_derived_from_registry_exactly`).
+
 **Lưu ý bắt buộc khi đọc bảng trên:** VEA +2,29%/năm và SMB +2,91%/năm nằm trong
 cửa sổ có 2025–2026 là OOS ⇒ **NON-DECISIONAL**, không được dùng để chọn mã, chọn
 tham số hay tuyên bố "chiến lược thắng tiền gửi". Alpha dương ở đây chỉ là mô tả

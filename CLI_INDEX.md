@@ -129,7 +129,10 @@ nghiên cứu (calibration/audit), chỉ được tạo khi:
 4. Đầu ra ghi rõ `NON-DECISIONAL` nếu đụng OOS 2025–2026.
 
 Hiện có:
-- `run_foc_empirical_audit.py`, `run_vea_empirical_audit.py`, `run_smb_empirical_audit.py` (Pha 1 audits, NON-DECISIONAL)
+- `run_foc_empirical_audit.py`, `run_vea_empirical_audit.py`, `run_smb_empirical_audit.py` (Pha 1/2/3 audits, NON-DECISIONAL)
+  — **bắt buộc**: cổ tức lấy từ `audit_provenance.build_vsdc_dividends(symbol, AUDIT_WINDOW_START)`
+  (SSOT = `cash_event_registry` + metadata pay_date/action_id), phục nguyên band mode OHLC,
+  và fail-closed nếu `is_certified = False`. Cấm khai báo lại event inline trong runner.
 - `run_raw_price_reconstruction.py` (Pha 2B calibration — FOC/VEA/SMB, band mode OHLC)
 - `price_provenance_gate.py --reconstructed --symbols <SYM>` — **cổng chứng nhận
   chuỗi giá phục nguyên** (100% bars bội lưới tick + gap qua biên phiên GDKHQ).

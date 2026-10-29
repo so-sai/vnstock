@@ -47,6 +47,14 @@ AUDIT_WINDOW_START = date(2021, 1, 4)
 # Sửa một dòng ở đây ⇒ provenance và dòng tiền cùng sai, và test
 # `test_action_ids_are_unique_and_namespaced` sẽ chỉ ra ngay.
 _DIVIDEND_METADATA: dict[str, dict[date, tuple[date, str]]] = {
+    "FOC": {
+        date(2021, 4, 13): (date(2021, 4, 29), "VSDC/FOC/20210413/CASH_20K"),
+        date(2022, 6, 10): (date(2022, 6, 30), "VSDC/FOC/20220610/CASH_8K"),
+        date(2023, 6, 8): (date(2023, 6, 19), "VSDC/FOC/20230608/CASH_5K"),
+        date(2024, 7, 18): (date(2024, 7, 31), "VSDC/FOC/20240718/CASH_2K"),
+        date(2025, 5, 23): (date(2025, 6, 5), "VSDC/FOC/20250523/CASH_10K"),
+        date(2026, 8, 10): (date(2026, 8, 25), "VSDC/FOC/20260810/CASH_10K"),
+    },
     "VEA": {
         date(2021, 1, 4): (date(2021, 2, 5), "VSDC/VEA/20210104/CASH_5253"),
         date(2021, 7, 15): (date(2021, 8, 16), "VSDC/VEA/20210715/CASH_4990"),

@@ -62,10 +62,22 @@ def test_smb_dividends_exclude_warmup_and_match_audit_total():
     assert dividend_cash_total(divs) == pytest.approx(20_500.0, abs=1e-6)
 
 
+def test_foc_dividends_derived_from_registry_exactly():
+    """[WHY] FOC: 6 event, tổng 55.000 đ/cp (báo cáo E15 in cứng con số này). Ba mã
+    phải cùng một cơ chế — nếu FOC vẫn giữ danh sách riêng thì quy tắc 'cấm khai
+    báo inline' trong CLI_INDEX là lời nói suông."""
+    divs = build_vsdc_dividends("FOC", AUDIT_WINDOW_START)
+    assert len(divs) == len(CASH_EVENTS["FOC"]) == 6
+    assert [(d.ex_date, d.cash_per_share) for d in divs] == [
+        (e.ex_date, e.cash) for e in CASH_EVENTS["FOC"]
+    ]
+    assert dividend_cash_total(divs) == pytest.approx(55_000.0, abs=1e-6)
+
+
 def test_new_registry_event_without_metadata_fails_closed(monkeypatch):
     """[WHY] Thêm event vào registry mà quên pay_date/action_id ⇒ phải DỪNG ngay
     (thiếu provenance thanh toán = không có bằng chứng độc lập), cấm chạy audit
-    với event "vô danh". `FOC` không có metadata ⇒ cũng phải DỪNG."""
+    với event "vô danh"."""
     import src.research.audit_provenance as ap
 
     patched = dict(ap.CASH_EVENTS)
@@ -73,6 +85,10 @@ def test_new_registry_event_without_metadata_fails_closed(monkeypatch):
     monkeypatch.setattr(ap, "CASH_EVENTS", patched)
     with pytest.raises(MissingDividendMetadataError):
         build_vsdc_dividends("SMB", AUDIT_WINDOW_START)
+
+    # Mã hoàn toàn không có metadata (vd mã mới thêm vào registry) cũng phải DỪNG.
+    no_meta = {k: v for k, v in ap._DIVIDEND_METADATA.items() if k != "FOC"}
+    monkeypatch.setattr(ap, "_DIVIDEND_METADATA", no_meta)
     with pytest.raises(MissingDividendMetadataError):
         build_vsdc_dividends("FOC", AUDIT_WINDOW_START)
 

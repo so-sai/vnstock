@@ -25,9 +25,13 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 try:
+    from src.research.audit_provenance import (
+        AUDIT_WINDOW_START,
+        build_vsdc_dividends,
+        dividend_cash_total,
+    )
     from src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
     from src.research.dividend_audit_engine import (
-        CashDividendEvent,
         DividendAuditEngineV2,
         EngineConfig,
         MarketBar,
@@ -41,9 +45,13 @@ try:
     )
     from src.research.raw_price_reconstruction import reconstruct_raw_prices
 except ImportError:
+    from backend.src.research.audit_provenance import (
+        AUDIT_WINDOW_START,
+        build_vsdc_dividends,
+        dividend_cash_total,
+    )
     from backend.src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
     from backend.src.research.dividend_audit_engine import (
-        CashDividendEvent,
         DividendAuditEngineV2,
         EngineConfig,
         MarketBar,
@@ -177,45 +185,12 @@ def run_empirical_audit():
     # Phương án B: Tạo 20 phiên Warm-up tháng 12/2020
     warmup_bars = generate_dec_2020_warmup_bars(bars[0], calendar)
 
-    # Tập danh mục cổ tức độc lập VSDC đã được Hội đồng phê chuẩn (E10 fix ex_date 2021-04-13)
-    vsdc_cash_dividends = [
-        CashDividendEvent(
-            ex_date=date(2021, 4, 13),
-            pay_date=date(2021, 4, 29),
-            cash_per_share=20_000.0,
-            action_id="VSDC/FOC/20210413/CASH_20K",
-        ),
-        CashDividendEvent(
-            ex_date=date(2022, 6, 10),
-            pay_date=date(2022, 6, 30),
-            cash_per_share=8_000.0,
-            action_id="VSDC/FOC/20220610/CASH_8K",
-        ),
-        CashDividendEvent(
-            ex_date=date(2023, 6, 8),
-            pay_date=date(2023, 6, 19),
-            cash_per_share=5_000.0,
-            action_id="VSDC/FOC/20230608/CASH_5K",
-        ),
-        CashDividendEvent(
-            ex_date=date(2024, 7, 18),
-            pay_date=date(2024, 7, 31),
-            cash_per_share=2_000.0,
-            action_id="VSDC/FOC/20240718/CASH_2K",
-        ),
-        CashDividendEvent(
-            ex_date=date(2025, 5, 23),
-            pay_date=date(2025, 6, 5),
-            cash_per_share=10_000.0,
-            action_id="VSDC/FOC/20250523/CASH_10K",
-        ),
-        CashDividendEvent(
-            ex_date=date(2026, 8, 10),
-            pay_date=date(2026, 8, 25),
-            cash_per_share=10_000.0,
-            action_id="VSDC/FOC/20260810/CASH_10K",
-        ),
-    ]
+    # [WHY] Cổ tức SUY RA từ registry (SSOT) + metadata thanh toán; bản sao inline
+    # 6 event đã bị xoá để không còn hai nguồn sự thật (xem audit_provenance).
+    # E10 (fix ex_date 2021-04-13) giờ nằm ở registry — sửa một nơi, cả cổng và
+    # audit đổi theo.
+    vsdc_cash_dividends = build_vsdc_dividends("FOC", AUDIT_WINDOW_START)
+    total_cash_per_share = dividend_cash_total(vsdc_cash_dividends)
     independent_provenance_set = {d.action_id for d in vsdc_cash_dividends}
 
     # Lãi suất bình quân tiền gửi 12 tháng nhóm NHTM Nhà nước (Big 4) 2021-2026
@@ -273,7 +248,10 @@ def run_empirical_audit():
     print("Cơ quan chủ trì: Hội đồng Kiến trúc & Kiểm toán Định lượng PTCK_VNSTOCK")
     print(f"Khoảng thời gian: {bars[0].trade_date} đến {bars[-1].trade_date} ({res['period_years']:.2f} năm)")
     print(f"Số phiên quan sát: {res['bars_observed']} phiên | Phục nguyên giá thô: 100% bội số 100 VND")
-    print(f"Nguồn đối soát cổ tức: VSDC Official ({res['processed_cash_divs']} kỳ tiền mặt, tổng 55.000 đ/cp)")
+    print(
+        f"Nguồn đối soát cổ tức: VSDC Official ({res['processed_cash_divs']} kỳ tiền mặt, "
+        f"tổng {total_cash_per_share:,.2f} đ/cp) — suy ra từ cash_event_registry"
+    )
     print("Chứng nhận chuỗi giá: price_provenance_gate --reconstructed = EXIT 0 (FOC certified)")
     # [WHY] Nhãn bắt buộc theo NQ-04 Mục 9 / AGENTS: cửa sổ 2025–2026 là OOS,
     # mọi con số trên đó KHÔNG được dùng để chọn/tối ưu tham số hay chiến lược.
