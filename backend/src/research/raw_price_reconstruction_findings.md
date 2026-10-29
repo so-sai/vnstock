@@ -377,14 +377,122 @@ cửa sổ có 2025–2026 là OOS ⇒ **NON-DECISIONAL**, không được dùng
 tham số hay tuyên bố "chiến lược thắng tiền gửi". Alpha dương ở đây chỉ là mô tả
 lịch sử trên một chuỗi giá đã kiểm chứng vật lý.
 
+### E17 — Pha 4 (PAT) + Pha 5 (DSN): hoàn tất 5/5, tầng 3 kiểm chéo vendor và lỗ hổng phủ dữ liệu thật
+
+**Bối cảnh (NQ-08):** sau E16 còn 2 mã. Chọn cặp đối chứng có chủ đích: **PAT**
+(CTCP Phốt pho Vàng Việt Trì, UPCoM) là "siêu cổ tức chu kỳ hàng hóa" — chi
+10.000–10.655 đ/cp mỗi đợt khi giá phốt pho vàng ở đỉnh 2022–2023 rồi hạ dần ⇒
+DRIP mua lại đúng vùng giá cao; **DSN** (Công viên nước Đầm Sen, HOSE) là "bò sữa
+tiền mặt" — 1.500–1.600 đ + 2.400–2.500 đ/cp/năm, đều đặn 2021–2026. Nếu cả hai
+đều thua tiền gửi thì kết luận "cổ tức đều = thắng" của VEA/SMB không phải quy
+luật chung, chỉ là đặc thù doanh nghiệp.
+
+**Event provenance:** VCI IQ events API (`eventCode=DIV`: `exrightDate`,
+`valuePerShare`, `payoutDate`), đối chiếu 29/10/2026 — không suy từ chuỗi giá.
+PAT: 11 sự kiện DIV, **chỉ 9 dùng được** (2021-12-06 và 2022-04-19 rơi TRƯỚC bar
+đầu 2022-06-17; đưa vào sẽ làm `idx_of[ex_date]` KeyError) ⇒ tổng 63.055 đ/cp.
+DSN: 10 sự kiện ⇒ tổng 20.000 đ/cp.
+
+**Lưới tick (kiểm định độc lập lần 2–3):** PAT 100 VND (UPCoM) — 1.072 bar,
+`off_grid = 0`. DSN 50 VND (HOSE) — 1.471 bar, `off_grid = 0`; đo đối chứng: lưới
+100 VND **làm gãy 64/115 bar** ở segment cuối ⇒ 50 là lưới đúng. Vậy "HOSE
+10k–50k ⇒ lưới 50" đã được xác nhận trên hai cấu trúc giá khác nhau (SMB, DSN),
+không còn là may mắn khớp.
+
+**Vì sao phải thêm tầng 3 (kiểm chéo vendor KBS vs DB VCI):** tầng 1 (lưới tick)
+chỉ chứng minh chuỗi phục nguyên nằm trên lưới giá; tầng 2 (band OHLC ngày GDKHQ)
+chỉ dùng được khi phiên ex giao dịch HAI PHÍA giá tham chiếu. Đo thật: **4/9 event
+PAT và 1/10 event DSN là phiên gap** (cả dải `[low_ex, high_ex]` một phía P_ref)
+⇒ tầng 2 buộc phải hạ xuống tầng trần/sàn ±15%/±7%, yếu hơn band 5–10×. Nếu chỉ
+có vậy thì "bằng chứng" cho 5 event đó chỉ là niềm tin vào chính nguồn đang bị
+kiểm toán — lập luận vòng tròn.
+
+Cơ chế: hai vendor cùng back-adjust multiplicative theo cùng công thức ⇒ nếu CẢ
+HAI áp cùng khoản cổ tức tại cùng `ex_date` thì `R(t) = KBS(t)/DB(t)` là HẰNG SỐ
+qua ex; nếu một bên chưa pull lại thì R nhảy đúng một bước `f = 1 − cash/P_pre`.
+Vậy **bước nhảy của tỷ số là phép đo cash độc lập với giá khớp và độc lập band
+OHLC**. Chi tiết đo (quyết định + số đo, không chỉ nhãn):
+
+| Tham số | Giá trị | Căn cứ đo |
+|---|---|---|
+| Cửa sổ | 10 **bar** mỗi phía, chặn hai đầu bởi event kề, trần 120 ngày | cửa sổ 10 ngày lịch thất bại vì lỗ hổng phủ DB (xem dưới) |
+| Ước lượng bước nhảy | **trung vị** tỷ số, không dùng mean log | 4/10 bar "sau" của DSN quanh 2026-05-18 lệch tới ±1,2% (ingest một phần) kéo mean log từ 4,34% xuống 4,14% ⇒ implied 1.530 thay vì 1.600, đủ gắn `conflict` SAI |
+| `AGREE_STEP_PCT_MAX` | 0,3% | 8/8 event cũ PAT + 9/10 DSN cho \|step\| ≤ 0,009%; event thật lệch 4,342–4,361% (cách ngưỡng 14×) |
+| `IMPLIED_CASH_TOLERANCE` | 3% | PAT 2026-09-15: implied 2.926 vs khai 2.900 (0,9%) do giá tham chiếu lấy từ close gần nhất, không phải ATO |
+| `MIN_BARS` | 3 mỗi phía | với 2 bar, một bar lỗi là đủ đổi dấu bước nhảy |
+
+**Kết quả tầng 3 (0 conflict trên cả 2 mã):**
+
+| Mã | agree | vendor-lag | conflict | Chi tiết |
+|---|---|---|---|---|
+| PAT | 8 | 1 (2026-09-15, +4,361%) | 0 | implied 2.925 vs khai 2.900 (lệch 0,87%): DB chưa điều chỉnh kỳ mới nhất |
+| DSN | 9 | 1 (2026-05-18, +4,342%) | 0 | implied **1.600 khớp tuyệt đối** cash khai báo |
+
+`vendor-lag` là thông tin (DB chưa pull lại kỳ mới nhất), **không bao giờ được gộp
+vào `agree`**. `conflict` ⇒ `ProvenanceConflictError` (fail-closed). Chính sách
+cổng 2 mức: `conflict` chặn tuyệt đối; `insufficient-data` chỉ chặn khi event đó
+đang nghiệm thu bằng `limit-band` (bằng chứng yếu cần xác nhận độc lập), còn event
+`in-range` chỉ ghi chú. Đây là lý do "thêm tầng 3" **chỉ nâng chuẩn, không hạ**:
+một event rơi ngoài band OHLC vẫn FAIL dù tầng 3 nói agree.
+
+**Phát hiện dữ liệu thật (ghi lại vì sẽ cần khi backfill):**
+
+- **DSN: DB VCI thiếu 39 bar trong 2026-04..2026-07** (tháng 2026-05 còn **2/20
+  bar**; KBS 1.471 bar vs DB 1.406 bar hợp lệ). Đây là lỗ hổng phủ thật, không
+  phải mã ngừng giao dịch — và nó là lý do cửa sổ kiểm chéo phải tính theo SỐ BAR
+  thay vì số ngày lịch.
+- **PAT: 8 bar DB invalid** trong 2026-06-04..2026-06-18 (bị `VALID_ROW_SQL` loại;
+  `invalid = 0` với DSN). Chế độ đọc là **panel lịch sử** nên dùng
+  `VALID_ROW_SQL` và KHÔNG dùng `is_stale` (AGENTS luật B).
+- Cả hai hiện tượng trên là lý do tầng 3 phải fail-closed khi DB không đọc được,
+  nhưng chỉ fail khi cần (event dựa vào `limit-band`).
+
+**Cổng `--reconstructed` cho 5 mã: EXIT 0, tất cả PASS** (FOC, VEA, SMB, PAT,
+DSN). 4 event `limit-band` của PAT đều có tầng 3 xác nhận; DSN 2026-05-18 có
+implied 1.600 khớp tuyệt đối. Ghi chú còn treo (không blocking): FOC 2026-08-10
+`vendor-lag` implied 9.893 vs 10.000; VEA/SMB có 1 event `insufficient-data` ở
+event sát đầu chuỗi (event đó đã đạt band OHLC).
+
+**Kết quả kiểm toán Pha 4–5 (EXIT 0; nhãn NON-DECISIONAL cho 2025–2026):**
+
+| Chỉ tiêu | PAT (Pha 4, UPCoM) | DSN (Pha 5, HOSE) |
+|---|---|---|
+| Kỳ audit | 2022-07-15 → 2026-10-23 | 2021-01-04 → 2026-10-23 |
+| Số phiên | 1.049 (4,27 năm) | 1.444 (5,80 năm) |
+| Cổ tức | 9 kỳ, 63.055 đ/cp | 10 kỳ, 20.000 đ/cp |
+| Tầng nghiệm thu gap | in-range 5 / limit-band 4 | in-range 9 / limit-band 1 |
+| Tiền gửi Big 4 (CAGR) | 5,48% | 5,01% |
+| DRIP thanh lý ròng (CAGR) | **−2,09%** | **+1,47%** |
+| Alpha DRIP vs tiền gửi | **−7,57%/năm** | **−3,54%/năm** |
+| Max Drawdown | **−57,88%** | **−30,23%** |
+| Phán quyết | Tiền gửi thắng | Tiền gửi thắng |
+
+⇒ **Tiến độ chính thức: 5/5 mã** (FOC, VEA, SMB, PAT, DSN), tất cả trên chuỗi đã
+được cổng chứng nhận exit 0. PAT là ca xấu nhất có thể tưởng tượng cho DRIP: cổ
+tức rất cao nhưng thị giá giảm 51,4% và MDD sâu nhất trong 5 mã — **cổ tức cao
+không bù được suy giảm thị giá khi mua ở đỉnh chu kỳ**.
+
+**Vá lỗ hổng thứ tư (cùng bản chất "bản sao SSOT", phát hiện khi làm Pha 4–5):**
+`cli_dividend_service.py` còn **ba danh sách cổ tức inline** (FOC 6 / VEA 7 / SMB
+12 `CashDividendEvent`) và một tuple `SUPPORTED_BENCHMARKS = ("FOC","VEA","SMB")`
+khai cứng; đo được bản sao FOC ghi pay_date **2023-06-30** trong khi SSOT là
+**2023-06-19** ⇒ CLI và runner báo hai con số lãi tiền gửi khác nhau cho cùng một
+mã, mà báo cáo CLI vẫn ghi "Nguồn: VSDC". Đồng thời nhãn sàn in **sai** "VEA —
+UPCoM" (VEA là HOSE). Vá: CLI đọc `build_vsdc_dividends` + `TICK_SIZES` +
+`EXCHANGES` (đưa vào registry), `SUPPORTED_BENCHMARKS = tuple(CASH_EVENTS)`; ba
+mã Pha 1–3 giữ loader runner đã nghiệm thu, PAT/DSN dùng pipeline chung. Bằng
+chứng không trôi số: FOC vẫn **Alpha −4,98%/năm, B3 = 1.166.176.990 đ** (trùng
+E15/E16), VEA hiện **HOSE**, và `test_cli_dividend_service.py` khoá literal
+`CashDividendEvent(` không được xuất hiện lại trong CLI.
+
 ## Kết luận
 
 1. **Cơ chế phục nguyên TỒN TẠI và HOÀN HẢO trên cả 2 hệ thống sàn:**
-   - Sàn UPCoM (lưới 100 VND): FOC (1.452 bars), VEA (1.471 bars) đạt 100% on-grid.
-   - Sàn HOSE (lưới 50 VND cho thị giá 10k-50k): SMB (1.459 bars) đạt 100% on-grid.
+   - Sàn UPCoM (lưới 100 VND): FOC (1.452 bars), VEA (1.471 bars), PAT (1.072 bars) đạt 100% on-grid.
+   - Sàn HOSE (lưới 50 VND cho thị giá 10k-50k): SMB (1.459 bars), DSN (1.471 bars) đạt 100% on-grid.
 2. **Loại bỏ hoàn toàn Double-Counting:** `DividendAuditEngineV2` chạy trên
    unadjusted raw prices phản ánh trung thực vi cấu trúc thị trường Việt Nam.
-3. **Tiến độ Kiểm định:** Đạt chuẩn **3/5 mã hoàn tất** (FOC: Tiền gửi thắng; VEA: DRIP thắng; SMB: DRIP thắng).
+3. **Tiến độ Kiểm định:** Đạt chuẩn **5/5 mã hoàn tất** (FOC: Tiền gửi thắng; VEA: DRIP thắng; SMB: DRIP thắng; PAT: Tiền gửi thắng; DSN: Tiền gửi thắng).
    - *Điều chỉnh 28/10/2026 (E14):* con số "3/5" là **kết quả kiểm toán thực
      nghiệm** trên chuỗi giá phục nguyên; **trạng thái chứng nhận chuỗi giá**
      hiện là **FOC PASS (gate exit 0), VEA PASS (gate exit 0), SMB CHƯA
@@ -399,6 +507,11 @@ lịch sử trên một chuỗi giá đã kiểm chứng vật lý.
    - *Cập nhật 29/10/2026 (E16):* re-run Pha 2 (VEA) + Pha 3 (SMB) trên chuỗi
      certified ⇒ **tiến độ 3/5**; ba lỗ hổng kỷ luật của runner được vá bằng
      module SSOT `audit_provenance.py` (fail-closed hai chiều với registry).
+   - *Cập nhật 29/10/2026 (E17, NQ-08):* Pha 4 (PAT) + Pha 5 (DSN) hoàn tất trên
+     chuỗi certified ⇒ **tiến độ 5/5** (PAT Alpha −7,57%/năm, MDD −57,88%;
+     DSN −3,54%/năm, MDD −30,23%). Thêm **tầng 3 kiểm chéo vendor KBS/VCI** và
+     đưa CLI `dividend-audit` về SSOT (xóa 3 bản sao cổ tức inline, sửa nhãn
+     sàn VEA = HOSE).
 
 ## Hành động
 
@@ -430,6 +543,23 @@ lịch sử trên một chuỗi giá đã kiểm chứng vật lý.
       `audit_provenance.py`; VEA Alpha +2,29%/năm (MDD −24,74%), SMB +2,91%/năm
       (MDD −15,08%); **tiến độ 3/5**, nhãn NON-DECISIONAL.
 - [ ] Backlog (NQ-04): linter `[WHY]` report-only sau khi xong đợt 5 mã.
+      → **ĐỦ ĐIỀU KIỆN MỞ 29/10/2026 (E17):** đã đạt 5/5 mã.
+- [x] **Pha 4 — PAT (UPCoM, siêu cổ tức chu kỳ):** registry 9 event (tổng
+      63.055 đ/cp từ VCI IQ), lưới 100 VND, tầng 3 xác nhận 4/4 event gap;
+      `run_pat_empirical_audit.py` EXIT 0, Alpha −7,57%/năm, MDD −57,88%.
+- [x] **Pha 5 — DSN (HOSE, cash cow):** registry 10 event (20.000 đ/cp), lưới
+      50 VND (đo đối chứng: lưới 100 gãy 64/115 bar), tầng 3 xác nhận event gap
+      2026-05-18 (implied 1.600 khớp tuyệt đối); `run_dsn_empirical_audit.py`
+      EXIT 0, Alpha −3,54%/năm, MDD −30,23%.
+- [x] **Tầng 3 `cross_vendor_agreement.py`** (tỷ số KBS/DB, trung vị, cửa sổ 10
+      bar, `conflict` ⇒ fail-closed): 6/6 test GREEN; tích hợp vào cổng với
+      chính sách 2 mức (`limit-band` thiếu bằng chứng ⇒ chặn).
+- [x] **CLI `dividend-audit` về SSOT:** xóa 3 danh sách cổ tức inline, nhãn sàn
+      + lưới tick + danh sách mã đọc từ registry; FOC tái lập đúng
+      −4,98%/năm & 1.166.176.990 đ; test khoá không tái xuất hiện bản sao.
+- [ ] **Backfill lỗ hổng phủ DB** (phát hiện ở E17, KHÔNG chặn 5/5): DSN thiếu
+      39 bar trong 2026-04..07, PAT có 8 bar invalid 2026-06-04..06-18. Không
+      được `fillna`; phải crawl lại từ nguồn và đi qua cổng provenance.
 
 ## Quyết định kỹ thuật bổ sung (sau GREEN)
 

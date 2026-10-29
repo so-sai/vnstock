@@ -38,7 +38,7 @@ Cờ toàn cục: `--verbose-lang {compact,annotated,full,auto}` (mọi lệnh),
 
 | Lệnh | Chức năng | Cờ chính |
 |---|---|---|
-| `dividend-audit` | Kiểm toán DRIP vs tiền gửi 12 tháng Big 4 | `--symbol FOC\|VEA\|ALL`, `--capital`, `--json` |
+| `dividend-audit` | Kiểm toán DRIP vs tiền gửi 12 tháng Big 4 | `--symbol FOC\|VEA\|SMB\|PAT\|DSN\|ALL`, `--capital`, `--json` |
 | `symbol-audit` | Giải phẫu 4 cổng 1 mã (Hàng hóa/Ngành→Định giá→Dòng tiền→Kỹ thuật) | `--symbol` (bắt buộc) |
 | `pit-audit` | Đối soát Period End + Ingested (chống look-ahead) | `--symbols`, `--as-of`, `--json-out` |
 | `data-quality` | Độ tin cậy dữ liệu (TẦNG 0) | — |
@@ -130,17 +130,30 @@ nghiên cứu (calibration/audit), chỉ được tạo khi:
 
 Hiện có:
 - `run_foc_empirical_audit.py`, `run_vea_empirical_audit.py`, `run_smb_empirical_audit.py` (Pha 1/2/3 audits, NON-DECISIONAL)
+- `run_pat_empirical_audit.py`, `run_dsn_empirical_audit.py` (Pha 4/5 audits, NON-DECISIONAL —
+  PAT UPCoM lưới 100, DSN HOSE lưới 50). Hai runner này dùng pipeline chung
+  `symbol_audit_pipeline.py` (`load_certified_series` + `print_audit_report`) thay vì tự
+  nạp/phục nguyên, vì chúng không có runner cũ cần bảo toàn số đã nghiệm thu.
   — **bắt buộc**: cổ tức lấy từ `audit_provenance.build_vsdc_dividends(symbol, AUDIT_WINDOW_START)`
   (SSOT = `cash_event_registry` + metadata pay_date/action_id), phục nguyên band mode OHLC,
-  và fail-closed nếu `is_certified = False`. Cấm khai báo lại event inline trong runner.
+  và fail-closed nếu `is_certified = False`. Cấm khai báo lại event inline trong runner
+  hoặc trong CLI `dividend-audit` (test khoá literal `CashDividendEvent(`).
 - `run_raw_price_reconstruction.py` (Pha 2B calibration — FOC/VEA/SMB, band mode OHLC)
 - `price_provenance_gate.py --reconstructed --symbols <SYM>` — **cổng chứng nhận
-  chuỗi giá phục nguyên** (100% bars bội lưới tick + gap qua biên phiên GDKHQ).
+  chuỗi giá phục nguyên** (100% bars bội lưới tick + gap qua biên phiên GDKHQ +
+  **tầng 3 kiểm chéo vendor** KBS/VCI).
   Exit 0 = được phép đưa chuỗi vào audit. Chạy từ `backend/`:
-  `python -m src.research.price_provenance_gate --symbols FOC --reconstructed`
+  `python -m src.research.price_provenance_gate --symbols FOC,VEA,SMB,PAT,DSN --reconstructed`
   Event không đạt band OHLC (phiên gap-up/gap-down) **chỉ** được nghiệm thu qua
   `LIMIT_BAND_EVENTS` (registry, khai báo từng ngày) và in nhãn `limit-band` +
   dòng "LƯU Ý BẰNG CHỨNG" — tầng này yếu hơn, cấm nới theo symbol.
+  **Tầng 3** (`cross_vendor_agreement.py`) đo bước nhảy tỷ số close KBS/DB VCI qua
+  ex_date: `conflict` ⇒ chặn tuyệt đối; `insufficient-data` chỉ chặn event đang dựa
+  vào `limit-band`; `vendor-lag` là ghi chú (DB chưa pull lại kỳ mới nhất). Cần DB
+  tồn tại ở chế độ `--reconstructed`; đọc DB bằng `VALID_ROW_SQL`, KHÔNG `is_stale`.
+- `symbol_audit_pipeline.py` — **thư viện dùng chung**, không phải CLI: 3 tầng
+  fail-closed (band mode → certify → cross-vendor) + in báo cáo; runner Pha 4/5 và
+  CLI `dividend-audit` (nhánh PAT/DSN) cùng dùng, nên không có đường nạp thứ hai.
 - `backend/scripts/run_ablation.py`, `run_oos_2026.py` (ablation/OOS)
 - `backend/src/backtest/run_batch_validation.py`, `run_hsr.py` (backtest harness)
 
