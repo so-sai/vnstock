@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from src.research.cash_event_registry import CASH_EVENTS, EXCHANGES, TICK_SIZES
 from src.research.cli_dividend_service import (
@@ -115,3 +116,21 @@ def test_audit_verdicts_consistency():
     dsn_res = audit_single_symbol("DSN")
     assert dsn_res["verdict"] == "DIVIDEND_YIELD_TRAP"
     assert dsn_res["alpha_vnd"] < 0
+
+
+def test_manifest_certification_matches_registry():
+    """[WHY] Nhãn `validation_required` → `active` ngày 29/10/2026 chỉ có giá trị
+    nếu nó nói ĐÚNG tập mã đã qua cổng provenance. Khoá manifest với registry:
+    thêm mã vào `cash_event_registry` mà quên chứng nhận (hoặc ngược lại, khai
+    chứng nhận một mã chưa có trong registry) thì test đỏ ngay — thay vì manifest
+    âm thầm tuyên bố "đã nghiệm thu" một thứ chưa ai đo."""
+    manifest_path = Path(__file__).resolve().parents[2] / "SYSTEM_MANIFEST.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    modules = {m["id"]: m for m in manifest["research_modules"]}
+    engine = modules["dividend_audit_engine"]
+
+    assert engine["status"] == "active"
+    assert set(engine["benchmarks_certified"]) == set(CASH_EVENTS)
+    assert engine["version"] == "2.4.0"
+    # Runner FOC từng bị treo vì nguồn giá back-adjusted; nay phải là active.
+    assert manifest["entrypoints"]["foc_dividend_audit"]["status"] == "active"

@@ -745,10 +745,14 @@ entrypoints:
     description: "Empirical Audit: FOC (FPT Online) vs 12-Month Bank Deposits (2021-2026, Option B Warmup)"
     cli: "python backend/src/research/run_foc_empirical_audit.py"
     category: research
-    # ⚠️ TREO 2026-10-27 — Nguồn kbs trả chuỗi GIÁ ĐÃ ĐIỀU CHỈNH (back-adjusted server-side),
-    # vi phạm Invariant #1. Mọi số liệu Pha 1 là NON-DECISIONAL tới khi chạy lại trên giá thô.
-    # Bằng chứng + lộ trình: backend/src/research/vea_phase2_price_integrity_verdict.md
-    status: "non_decisional_adjusted_price_source"
+    # [WHY] Từng bị TREO 2026-10-27 vì nguồn kbs trả chuỗi back-adjusted
+    # server-side (vi phạm Invariant #1). Đã gỡ 29/10/2026 (E15–E17): runner đọc
+    # cổ tức qua build_vsdc_dividends + phục nguyên giá thô trên chuỗi được
+    # price_provenance_gate --reconstructed certify EXIT 0. Số Pha 1 tái lập y
+    # hệt E11 (Alpha −4,98%/năm). Không xoá ghi chú lịch sử: nếu ai đổi loader
+    # về nguồn adjusted thì nhãn treo phải bật lại.
+    # Bằng chứng: backend/src/research/raw_price_reconstruction_findings.md (E11, E15–E18)
+    status: "active"
 
   # ── Price Provenance Gate (chặn chuỗi giá đã điều chỉnh trước mọi audit) ──
   raw_price_gate:
@@ -766,10 +770,17 @@ entrypoints:
 research_modules:
   - id: "dividend_audit_engine"
     name: "Quantitative Dividend Total Return & Microstructure Auditor"
-    version: "2.3.0"
+    version: "2.4.0"
     path: "backend/src/research/dividend_audit_engine.py"
     test_path: "backend/tests/test_dividend_audit_engine.py"
-    status: "validation_required"
+    # [WHY] Chuyển validation_required → active ngày 29/10/2026 sau khi đủ 5/5 mã
+    # benchmark (FOC, VEA, SMB, PAT, DSN) đều chạy trên chuỗi giá THÔ đã được
+    # price_provenance_gate --reconstructed certify EXIT 0. Trước đó nhãn này là
+    # đúng: engine đang chạy trên chuỗi back-adjusted của kbs ⇒ đếm cổ tức hai
+    # lần. Không được hạ lại nhãn nếu một mã mới chưa qua cổng provenance.
+    status: "active"
+    benchmarks_certified: ["FOC", "VEA", "SMB", "PAT", "DSN"]
+    verdict_ref: "backend/src/research/raw_price_reconstruction_findings.md"
     invariants:
       - "FAIL_CLOSED_ON_ADJUSTED_PRICE"
       - "MANDATORY_INDEPENDENT_PROVENANCE_TWO_WAY"
@@ -778,6 +789,7 @@ research_modules:
       - "DECREE_126_STOCK_DIVIDEND_TAX_DEFERRED"
       - "VIETNAM_T2_TRADING_CALENDAR"
       - "RAW_PRICE_TICK_GRID_PROOF_REQUIRED"  # 2026-10-27: bắt buộc qua price_provenance_gate trước khi nạp bars
+      - "CROSS_VENDOR_RATIO_CONFIRMATION"  # 29/10/2026 (tầng 3): tỷ số KBS/VCI qua ex_date, conflict ⇒ fail-closed
 
   - id: "price_provenance_gate"
     name: "Price Provenance Gate (Tick-Grid & Ex-Date Gap Auditor)"

@@ -1,8 +1,10 @@
 """
-DIVIDEND TOTAL RETURN & LIQUIDITY AUDIT ENGINE (V2.3 - HARDENED SPEC)
+DIVIDEND TOTAL RETURN & LIQUIDITY AUDIT ENGINE (V2.4 - HARDENED SPEC)
 PTCK_VNSTOCK Quantitative Research Suite
 
-Status: validation_required (Strict Research Audit)
+Status: active — nghiệm thu 5/5 mã benchmark (FOC, VEA, SMB, PAT, DSN) ngày 29/10/2026
+trên chuỗi giá THÔ đã certified bởi price_provenance_gate --reconstructed (EXIT 0).
+Cửa sổ OOS 2025-2026 vẫn NON-DECISIONAL: engine mô tả, không dùng để chọn tham số.
 Invariants Enforced:
 1. FAIL_CLOSED_ON_ADJUSTED_PRICE: Chặn đứng giá điều chỉnh trước.
 2. MANDATORY_INDEPENDENT_PROVENANCE: Bắt buộc đối soát 2 chiều với corporate actions độc lập.

@@ -485,6 +485,51 @@ chứng không trôi số: FOC vẫn **Alpha −4,98%/năm, B3 = 1.166.176.990 �
 E15/E16), VEA hiện **HOSE**, và `test_cli_dividend_service.py` khoá literal
 `CashDividendEvent(` không được xuất hiện lại trong CLI.
 
+## E18 — Nghiệm thu 5/5: giải phóng nhãn `validation_required`, đối chiếu số "306,5%" của Hội đồng
+
+**Bối cảnh:** Biên bản nghiệm thu linter (commit `c22199c`) phát lệnh GO Pha 4 cho
+PAT với tiến độ ghi là **3/5**. Trạng thái đó đã cũ: Pha 4 và Pha 5 hoàn tất và
+push từ trước biên bản (các commit `36a97d1` → `93eb477`). Hạng mục còn lại của
+Nghị quyết là **giải phóng nhãn** `status: validation_required` của
+`dividend_audit_engine` — đã thực hiện trong E18 này.
+
+**Chạy lại xác nhận 29/10/2026 (không sửa gì, chỉ đo lại):**
+
+| Lệnh | Kết quả |
+|---|---|
+| `price_provenance_gate --symbols PAT,DSN --reconstructed` | EXIT 0 — PAT `0/1072 bar lệch lưới`, DSN `0/1471 bar lệch lưới`, cả hai PASS |
+| `run_pat_empirical_audit` | EXIT 0 — 1.049 phiên, 9 kỳ / 63.055 đ/cp, bank 5,48%, DRIP −2,09%, **Alpha −7,57%**, MDD **−57,88%** |
+| `run_dsn_empirical_audit` | EXIT 0 — Alpha −3,54%, MDD −30,23% (E17) |
+
+**Đối chiếu con số "cổ tức 2022 = 30.650 đ/cp (306,5%)" trong biên bản:** không
+mâu thuẫn với registry, nhưng là **tổng theo NĂM TÀI CHÍNH**, không phải theo
+`ex_date` trong năm dương lịch:
+
+| ex_date | cash |
+|---|---|
+| 2022-08-04 | 10.000 |
+| 2022-12-19 | 10.000 |
+| 2023-04-07 | 10.655 |
+| **Tổng** | **30.655 ≈ 30.650** |
+
+Cả ba đều nằm trong cửa sổ audit (bắt đầu 2022-07-15) nên đã được tính đủ trong
+63.055 đ/cp. Hai sự kiện **2021-12-06 và 2022-04-19** bị loại không phải vì
+"không có thật" mà vì `ex_date` rơi **TRƯỚC bar đầu tiên 2022-06-17** (PAT chỉ có
+chuỗi UPCoM từ 17/06/2022) — đưa vào sẽ làm `idx_of[ex_date]` KeyError. Đây là
+fail-closed đúng: không có bar để đối chiếu thì không được giả định.
+
+**Thay đổi nhãn (governance, không phải code nghiệp vụ):**
+
+- `SYSTEM_MANIFEST.yaml`: `dividend_audit_engine` — `validation_required` → `active`,
+  version `2.3.0` → `2.4.0`, thêm `benchmarks_certified` (5 mã) + `verdict_ref`
+  trỏ về tài liệu này, và invariant `CROSS_VENDOR_RATIO_CONFIRMATION`.
+- `SYSTEM_MANIFEST.yaml`: `foc_dividend_audit` — gỡ nhãn treo
+  `non_decisional_adjusted_price_source` (đã đóng từ E15) → `active`, giữ ghi chú
+  lịch sử để nếu ai đổi loader về nguồn adjusted thì nhãn treo phải bật lại.
+- `dividend_audit_engine.py`: dòng `Status:` trong docstring cập nhật theo, kèm
+  nhắc **OOS 2025–2026 vẫn NON-DECISIONAL** — `active` là nhãn *chuỗi dữ liệu đã
+  được chứng nhận*, KHÔNG phải giấy phép dùng số OOS để chọn tham số.
+
 ## Kết luận
 
 1. **Cơ chế phục nguyên TỒN TẠI và HOÀN HẢO trên cả 2 hệ thống sàn:**
