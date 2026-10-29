@@ -255,6 +255,66 @@ python -m src.research.price_provenance_gate --symbols SMB --reconstructed   # e
 python -m src.research.run_raw_price_reconstruction
 ```
 
+### E15 — Re-run Pha 1 FOC trên chuỗi certified (1/5) + tầng trần/sàn có allow-list cho SMB
+
+**Bước 1 — Re-run Pha 1 FOC (NQ-07 Mục IV.1):**
+
+Trước khi re-run, vá 3 lỗ hổng kỷ luật của runner audit (phát hiện khi đối chiếu
+Hiến pháp):
+1. Event cổ tức khai báo **trùng lặp** trong runner (đúng bẫy trôi lặng đã bị
+   loại ở cổng) → nay lấy `CASH_EVENTS["FOC"]` từ registry (SSOT).
+2. Runner chỉ kiểm lưới tick, **không kiểm `is_certified`** → nay fail-closed:
+   chuỗi chưa chứng nhận gap identity ⇒ `AdjustedPriceDetectedError`, cấm audit.
+3. Thiếu nhãn OOS → nay in `NHÃN: NON-DECISIONAL — 2025-2026 là cửa sổ OOS`.
+
+Kết quả re-run trên chuỗi **exit 0** (`2021-01-05 → 2026-10-23`, 1.426 phiên):
+
+| Chỉ tiêu | Giá trị | So với E11 (trước khi có cổng) |
+|---|---|---|
+| Vốn/giá vào lệnh đầu | 990.504.031 đ / 104.600 đ | trùng khớp |
+| Tiền gửi Big 4 12 tháng | 1.327.573.611 đ (CAGR 5,01%) | trùng khớp |
+| DRIP thanh lý ròng | 1.001.705.086 đ (CAGR 0,03%) | trùng khớp |
+| Alpha DRIP vs tiền gửi | **−4,98%/năm** | trùng khớp |
+| Max Drawdown | −54,33% | trùng khớp |
+
+⇒ **Tiến độ chính thức: 1/5 mã** (FOC hoàn tất trên chuỗi đã được cổng chứng
+nhận). Việc các con số **tái lập y hệt** trên đường dữ liệu đã đổi (registry +
+band + certification) là kiểm tra chéo độc lập: kết quả không phụ thuộc vào
+đường nạp. Mọi số trên vẫn mang nhãn NON-DECISIONAL cho cửa sổ 2025–2026.
+
+**Bước 2 — Giải mã SMB 2023-02-20 (NQ-07 Mục III) và tầng nghiệm thu thứ hai:**
+
+NQ-07 chỉ ra đúng một khiếm khuyết mô hình: band OHLC đòi
+$P_{ref} \in [low_{ex}, high_{ex}]$, điều này **chỉ suy được khi phiên GDKHQ
+giao dịch cả hai phía** tham chiếu. Với phiên gap-up (SMB 20/02/2023: cả phiên
+chỉ khớp 2 bước giá 41.450 / 41.500, $P_{ref}=41.150$) thì $P_{ref} < low_{ex}$
+dù cổ tức đúng 100%.
+
+Cơ chế bổ sung (đã triển khai, TDD 17/17 module + 16/16 gate):
+- Điều kiện nghiệm thu tầng 2: $|\Delta_{market}| \le limit\% \times P_{ref}$,
+  **và** toàn dải $[low_{ex}, high_{ex}]$ nằm trong biên luật định suy từ
+  $P_{ref}$ ($limit$ = 7% HOSE, 15% UPCoM — hằng số quy chế).
+- **Phạm vi nới lỏng bị giới hạn theo TỪNG EVENT**, không theo symbol:
+  `LIMIT_BAND_EVENTS` chỉ chứa `SMB 2023-02-20` kèm căn cứ vi cấu trúc + mã
+  VSDC. Mọi event khác vẫn phải qua band OHLC.
+- Mọi event dùng tầng 2 mang nhãn `limit-band` trong report và cổng in dòng
+  `LƯU Ý BẰNG CHỨNG: 1/13 event ... (yếu hơn band OHLC)`.
+
+Kết quả cổng `--reconstructed` sau NQ-07 (đo trên CLI thật):
+
+| Symbol | bars | off-grid | in-range | limit-band | Exit |
+|---|---|---|---|---|---|
+| FOC | 1.452 | 0 | **6/6** | 0 | **0** |
+| VEA | 1.471 | 0 | **7/7** | 0 | **0** |
+| SMB | 1.459 | 0 | 12/13 | 1/13 (2023-02-20, Δ=+0,85%) | **0** |
+
+**Giới hạn bằng chứng phải công bố (không được giấu):** tầng trần/sàn **không
+phân biệt được** một khoản cổ tức khai sai ≤7% (HOSE) với biến động thị trường
+thật trong phiên — cùng một $\Delta_{market}$ có thể do cả hai nguyên nhân.
+Vì vậy: (i) tầng này mặc định TẮT; (ii) chỉ bật cho 1 event có hồ sơ VSDC độc
+lập; (iii) nếu sau này có event thứ hai cần tầng này, đó là **tín hiệu phải
+điều tra provenance**, không phải lý do mở rộng allow-list.
+
 ## Kết luận
 
 1. **Cơ chế phục nguyên TỒN TẠI và HOÀN HẢO trên cả 2 hệ thống sàn:**
@@ -269,6 +329,11 @@ python -m src.research.run_raw_price_reconstruction
      CHỨNG NHẬN** (1 event GDKHQ 2023-02-20 ngoài biên phiên). Kết quả Pha 1
      vẫn ở trạng thái **thu hồi** theo Nghị quyết 04 cho tới khi hội đồng
      phê duyệt lại trên nền chuỗi đã được cổng certify.
+   - *Cập nhật 29/10/2026 (E15, NQ-07):* cả **3/3 mã đạt gate exit 0**
+     (SMB nghiệm thu qua tầng trần/sàn ±7% cho đúng 1 event khai báo).
+     **Re-run Pha 1 FOC hoàn tất trên chuỗi certified → tiến độ chính thức
+     1/5**, số liệu tái lập y hệt E11 (Alpha −4,98%/năm, MDD −54,33%),
+     gắn nhãn NON-DECISIONAL cho cửa sổ OOS 2025–2026.
 
 ## Hành động
 
@@ -288,8 +353,15 @@ python -m src.research.run_raw_price_reconstruction
       FOC **exit 0**, VEA **exit 0**, SMB **exit 1** (2023-02-20).
 - [ ] **SMB provenance re-check 2023-02-20** (biên phiên chỉ rộng 49,4 VND,
       tham chiếu lệch 300 VND) — cấm nới band, phải kiểm lại cash/ex-date.
+      → **ĐÓNG 29/10/2026 (NQ-07):** VSDC `VSDC/SMB/20230220/CASH_1K` xác nhận
+      ngày + 1.000 đ/cp đúng; phiên gap-up 2 bước giá ⇒ nghiệm thu bằng tầng
+      trần/sàn ±7% (allow-list đúng 1 event, nhãn `limit-band`).
 - [ ] **Pha 1 re-run chính thức** trên FOC đã certified (chờ hội đồng phê duyệt
       điều kiện tiên quyết).
+      → **HOÀN TẤT 29/10/2026:** runner audit FOC dùng registry + fail-closed
+      certification; kết quả tái lập y hệt E11; tiến độ **1/5**.
+- [ ] Pha 2 VEA + Pha 3 SMB re-run chính thức trên chuỗi certified (2/5, 3/5).
+- [ ] Backlog (NQ-04): linter `[WHY]` report-only sau khi xong đợt 5 mã.
 
 ## Quyết định kỹ thuật bổ sung (sau GREEN)
 

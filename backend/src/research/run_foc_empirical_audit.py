@@ -16,7 +16,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 # Đảm bảo import được module nội bộ
@@ -25,6 +25,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 try:
+    from src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
     from src.research.dividend_audit_engine import (
         CashDividendEvent,
         DividendAuditEngineV2,
@@ -33,14 +34,14 @@ try:
         VietnamTradingCalendar,
     )
     from src.research.price_provenance_gate import (
+        AdjustedPriceDetectedError,
         assert_raw_price_series,
+        load_vintage_ohlcv,
         tick_compliance,
     )
-    from src.research.raw_price_reconstruction import (
-        CashEvent,
-        reconstruct_raw_prices,
-    )
+    from src.research.raw_price_reconstruction import reconstruct_raw_prices
 except ImportError:
+    from backend.src.research.cash_event_registry import CASH_EVENTS, TICK_SIZES
     from backend.src.research.dividend_audit_engine import (
         CashDividendEvent,
         DividendAuditEngineV2,
@@ -49,11 +50,12 @@ except ImportError:
         VietnamTradingCalendar,
     )
     from backend.src.research.price_provenance_gate import (
+        AdjustedPriceDetectedError,
         assert_raw_price_series,
+        load_vintage_ohlcv,
         tick_compliance,
     )
     from backend.src.research.raw_price_reconstruction import (
-        CashEvent,
         reconstruct_raw_prices,
     )
 
@@ -72,34 +74,35 @@ def load_foc_clean_bars() -> tuple[list[MarketBar], tuple[tuple[date, date, floa
     theo chuẩn tick grid 100 VND (Invariant RAW_PRICE_TICK_GRID_PROOF_REQUIRED).
 
     Chặn đứng hoàn toàn lỗi đếm 2 lần cổ tức (double-counting) từ chuỗi adjusted closes.
+
+    [WHY] Ba lỗ hổng kỷ luật đã vá (28/10/2026, trước lần re-run chính thức):
+    (1) Event cổ tức lấy từ `cash_event_registry` (SSOT) thay vì khai báo lại
+        trong runner — hai nguồn event là đúng cái bẫy trôi lệch đã bị Hội đồng
+        loại bỏ ở cổng;
+    (2) Phục nguyên chạy BAND MODE với OHLC cùng vintage (bằng chứng vật lý),
+        không chỉ tick compliance;
+    (3) **Fail-closed cứng**: `is_certified` phải True, nếu không thì DỪNG —
+        trước đây runner chỉ kiểm lưới tick rồi chạy audit trên chuỗi chưa được
+        chứng nhận gap identity (vi phạm Invariant #1 của chính nó).
     """
-    json_path = BACKEND_DIR / "data" / "kbs_foc_2021_2026.json"
-    if not json_path.exists():
-        json_path = Path(r"C:\Users\Admin\AppData\Local\Temp\opencode\kbs_foc_2021_2026.json")
-    if not json_path.exists():
-        raise FileNotFoundError(f"Không tìm thấy tệp dữ liệu KBS FOC: {json_path}")
+    dates, closes, lows, highs = load_vintage_ohlcv("FOC", BACKEND_DIR / "data")
+    events = CASH_EVENTS["FOC"]
 
-    raw_data = json.loads(json_path.read_text(encoding="utf-8"))
-    dates = [datetime.strptime(r["t"][:10], "%Y-%m-%d").date() for r in raw_data]
-    closes = [float(r["c"]) for r in raw_data]
-    volumes = [float(r["v"]) for r in raw_data]
-
-    events = (
-        CashEvent(date(2021, 4, 13), 20_000.0),
-        CashEvent(date(2022, 6, 10), 8_000.0),
-        CashEvent(date(2023, 6, 8), 5_000.0),
-        CashEvent(date(2024, 7, 18), 2_000.0),
-        CashEvent(date(2025, 5, 23), 10_000.0),
-        CashEvent(date(2026, 8, 10), 10_000.0),
-    )
-
-    recon_report = reconstruct_raw_prices("FOC", dates, closes, events=events)
+    recon_report = reconstruct_raw_prices("FOC", dates, closes, events=events, tick=TICK_SIZES["FOC"], lows=lows, highs=highs)
 
     # Cổng kiểm định vật lý: Kiểm tra 100% bar nằm trên lưới 100 VND (fail-closed)
-    gate_rep = tick_compliance("FOC_RECONSTRUCTED", recon_report.raw_closes)
+    gate_rep = tick_compliance("FOC_RECONSTRUCTED", list(recon_report.raw_closes))
     assert_raw_price_series(gate_rep)
+    if not recon_report.is_certified:
+        raise AdjustedPriceDetectedError(
+            "FAIL_CLOSED: chuỗi FOC phục nguyên chưa được chứng nhận gap identity — "
+            f"cấm chạy audit. Anomalies: {list(recon_report.anomalies)}"
+        )
 
     # Lọc phạm vi kiểm toán chính thức: 2021-01-05 đến 2026-10-23
+    volumes = [
+        float(r["v"]) for r in json.loads((BACKEND_DIR / "data" / "kbs_foc_2021_2026.json").read_text(encoding="utf-8"))
+    ]
     audit_bars = []
     for d, p, v in zip(dates, recon_report.raw_closes, volumes):
         if date(2021, 1, 5) <= d <= date(2026, 10, 23):
@@ -271,6 +274,10 @@ def run_empirical_audit():
     print(f"Khoảng thời gian: {bars[0].trade_date} đến {bars[-1].trade_date} ({res['period_years']:.2f} năm)")
     print(f"Số phiên quan sát: {res['bars_observed']} phiên | Phục nguyên giá thô: 100% bội số 100 VND")
     print(f"Nguồn đối soát cổ tức: VSDC Official ({res['processed_cash_divs']} kỳ tiền mặt, tổng 55.000 đ/cp)")
+    print("Chứng nhận chuỗi giá: price_provenance_gate --reconstructed = EXIT 0 (FOC certified)")
+    # [WHY] Nhãn bắt buộc theo NQ-04 Mục 9 / AGENTS: cửa sổ 2025–2026 là OOS,
+    # mọi con số trên đó KHÔNG được dùng để chọn/tối ưu tham số hay chiến lược.
+    print("NHÃN: NON-DECISIONAL — 2025-2026 là cửa sổ OOS; báo cáo này mô tả, KHÔNG dùng để quyết định.")
     print("=" * 86)
 
     # Câu hỏi 1
