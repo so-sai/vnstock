@@ -509,7 +509,32 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   (chặn bằng kiểm lưới tick); (b) vintage trộn trong DB cũ (không pull lại) ⇒ PHẢI phục nguyên
   từ API vintage hiện tại, không từ DB; (c) CafeF export endpoint đang trả 400 — không dựa vào
   một nguồn duy nhất; (d) mọi suy luận thanh khoản chỉ hiệu lực trong cửa sổ raw đã chứng minh (2026).
-- **PHÁN QUYẾT:** ⏳ **OPEN — CHỜ GO HỘI ĐỒNG** (phát hiện 2026-10-27; chặn Pha 2, treo Pha 1).
+- **PHÁN QUYẾT:** ✅ **ĐÓNG 29/10/2026 (E15/E16/E17)** — *giữ nguyên nội dung phát hiện để làm lịch
+  sử*: cổng `--reconstructed` nay certify **cả 5 mã** (FOC, VEA, SMB, PAT, DSN) exit 0; Pha 1–5 đã
+  chạy lại trên chuỗi thô đã chứng nhận (`raw_price_reconstruction_findings.md` E15–E17). Phần
+  "chờ GO Hội đồng" ở trên không còn hiệu lực.
+
+## 16. 🟡 OPEN — Lỗ hổng PHỦ dữ liệu `daily_ohlcv` của DSN (2026-04..07) và PAT (2026-06)
+
+- **WHAT:** (a) DSN thiếu **39 bar** trong 2026-04..2026-07 (tháng 2026-05 chỉ còn **2/20 bar**);
+  (b) PAT có **8 bar invalid** trong 2026-06-04..2026-06-18 (bị `VALID_ROW_SQL` loại vì
+  `low/close/high` không hợp lệ). Cần crawl lại từ nguồn và backfill **qua cổng provenance**.
+- **WHY:** phát hiện 29/10/2026 khi làm tầng 3 kiểm chéo vendor (E17). Đo bằng SQL trực tiếp trên
+  `screener_cache.db` (chế độ panel lịch sử, `VALID_ROW_SQL`): DSN 1.406 bar hợp lệ / KBS 1.471;
+  PAT invalid 8, DSN invalid 0. Hệ quả đã thấy: cửa sổ kiểm chéo 10 ngày lịch quanh ex DSN
+  2026-05-18 chỉ còn 1 bar mỗi phía ⇒ **phải đổi sang cửa sổ theo SỐ BAR** và dùng trung vị
+  (4/10 bar "sau" lệch tới ±1,2% làm mean log suy ra implied 1.530 thay vì 1.600 ⇒ `conflict` SAI).
+  Không chặn 5/5 vì cổng + tầng 3 vẫn certify được chuỗi từ vintage KBS.
+- **WHERE:** `backend/data/screener_cache.db` (`daily_ohlcv`), đường ingest/backfill hiện có;
+  kiểm chứng lại bằng `python -m src.research.price_provenance_gate --symbols DSN,PAT --reconstructed`
+  và `tests/test_cross_vendor_agreement.py`.
+- **DONE-WHEN:** độ phủ DSN/PAT khớp lịch giao dịch (không thiếu bar trong 2026-04..07 và
+  2026-06); 0 bar invalid; tầng 3 vẫn `agree`/`vendor-lag` (không sinh `conflict` mới).
+- **RISK:** (a) `fillna`/nội suy bar thiếu là vi phạm Missing > Fake ⇒ tuyệt đối cấm, phải crawl
+  nguồn; (b) bar PAT invalid không được "sửa tay" cho khớp band — nếu sửa để tầng 3 hết conflict
+  thì đúng là vá quá tay mà tầng 3 tồn tại để chặn; (c) backfill có thể đổi `close` lịch sử ⇒ phải
+  chạy lại cổng + 5 runner và so số trước/sau, không được im lặng đổi số đã báo Hội đồng.
+- **PHÁN QUYẾT:** ⏳ **OPEN** (phát hiện 2026-10-29, không chặn nghiệm thu 5/5).
 
 ## Ghi chú vận hành
 
