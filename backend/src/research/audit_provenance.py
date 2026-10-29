@@ -78,6 +78,37 @@ _DIVIDEND_METADATA: dict[str, dict[date, tuple[date, str]]] = {
         date(2025, 11, 12): (date(2025, 12, 15), "VSDC/SMB/20251112/CASH_2000"),
         date(2026, 5, 25): (date(2026, 6, 15), "VSDC/SMB/20260525/CASH_1000"),
     },
+    # [WHY] PAT — pay_date lấy từ `payoutDate` của VCI IQ events API (đối chiếu
+    # 29/10/2026), KHÔNG suy từ ex_date: PAT có đợt trả sang tháng 1-2 năm sau
+    # (2025-12-24 → 2026-01-15) nên T+2 + lịch trả sai sẽ lệch lãi tiền gửi của
+    # khoản cổ tức lớn nhất (10.000 đ/cp). CHỈ khai 9 event nằm trong chuỗi bar;
+    # khai thêm 2 event tiền-niêm-yết sẽ thành metadata mồ côi ⇒ fail-closed.
+    "PAT": {
+        date(2022, 8, 4): (date(2022, 8, 16), "VSDC/PAT/20220804/CASH_10K"),
+        date(2022, 12, 19): (date(2023, 1, 10), "VSDC/PAT/20221219/CASH_10K"),
+        date(2023, 4, 7): (date(2023, 4, 24), "VSDC/PAT/20230407/CASH_10655"),
+        date(2023, 12, 19): (date(2024, 1, 18), "VSDC/PAT/20231219/CASH_9K"),
+        date(2024, 4, 12): (date(2024, 5, 2), "VSDC/PAT/20240412/CASH_1K"),
+        date(2024, 11, 19): (date(2024, 12, 20), "VSDC/PAT/20241119/CASH_7K"),
+        date(2025, 4, 24): (date(2025, 5, 9), "VSDC/PAT/20250424/CASH_2500"),
+        date(2025, 12, 24): (date(2026, 1, 15), "VSDC/PAT/20251224/CASH_10K"),
+        date(2026, 9, 15): (date(2026, 9, 25), "VSDC/PAT/20260915/CASH_2900"),
+    },
+    # [WHY] DSN — pay_date lấy từ `payoutDate` VCI IQ (đối chiếu 29/10/2026).
+    # 10 event, tổng đúng 20.000 đ/cp trong kỳ audit: đây là con số đối chiếu
+    # với tổng cổ tức doanh nghiệp công bố, nên lệch một đợt là lộ ngay.
+    "DSN": {
+        date(2021, 2, 26): (date(2021, 3, 15), "VSDC/DSN/20210226/CASH_2500"),
+        date(2021, 12, 28): (date(2022, 1, 26), "VSDC/DSN/20211228/CASH_1500"),
+        date(2022, 11, 15): (date(2022, 12, 15), "VSDC/DSN/20221115/CASH_1500"),
+        date(2023, 4, 18): (date(2023, 5, 19), "VSDC/DSN/20230418/CASH_2500"),
+        date(2023, 12, 28): (date(2024, 1, 12), "VSDC/DSN/20231228/CASH_2400"),
+        date(2024, 3, 14): (date(2024, 4, 3), "VSDC/DSN/20240314/CASH_1600"),
+        date(2024, 12, 26): (date(2025, 1, 22), "VSDC/DSN/20241226/CASH_2400"),
+        date(2025, 3, 20): (date(2025, 4, 10), "VSDC/DSN/20250320/CASH_1600"),
+        date(2026, 1, 13): (date(2026, 2, 11), "VSDC/DSN/20260113/CASH_2400"),
+        date(2026, 5, 18): (date(2026, 6, 17), "VSDC/DSN/20260518/CASH_1600"),
+    },
 }
 
 

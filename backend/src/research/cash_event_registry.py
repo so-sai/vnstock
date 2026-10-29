@@ -40,10 +40,14 @@ except ImportError:  # pragma: no cover - chỉ xảy ra khi import bằng `back
 # [WHY]: Lưới tick theo sàn — UPCoM/HOSE bluechip 100 VND, HOSE mid-cap
 # (10k–50k) 50 VND, HNX/UPCoM 100 VND. Dùng sai lưới ⇒ solve factor ra
 # nghiệm vô nghĩa (mọi bar "lệch grid" hoặc family f×2 lọt vào).
+# DSN 50 VND: đo 29/10/2026 trên 1.471 bar KBS — tick 50 cho off_grid=0,
+# tick 100 làm gãy 64/115 bar ở segment cuối ⇒ 100 là SAI lưới cho DSN.
 TICK_SIZES: dict[str, float] = {
     "FOC": 100.0,
     "VEA": 100.0,
     "SMB": 50.0,  # HOSE mid-cap — giá 30-40k, lưới 50 VND
+    "PAT": 100.0,  # UPCoM — đo 1.072 bar, off_grid=0
+    "DSN": 50.0,  # HOSE mid-cap — giá 34-62k, lưới 50 VND
 }
 
 # [WHY] Biên trần/sàn luật định theo sàn (NQ-07): HOSE ±7%, UPCoM ±15%. Đây là
@@ -53,6 +57,8 @@ DAILY_LIMIT_PCT: dict[str, float] = {
     "FOC": 0.15,  # UPCoM
     "VEA": 0.07,  # HOSE
     "SMB": 0.07,  # HOSE
+    "PAT": 0.15,  # UPCoM
+    "DSN": 0.07,  # HOSE
 }
 
 # [WHY] Tầng trần/sàn YẾU hơn band OHLC ~5-10× (không phân biệt được cổ tức sai
@@ -62,11 +68,53 @@ DAILY_LIMIT_PCT: dict[str, float] = {
 # SMB 2023-02-20: cả phiên chỉ khớp 2 bước giá 41.450/41.500 (biên 50 đ) trong
 # khi P_ref = 42.150 − 1.000 = 41.150 ⇒ phiên gap-up, P_ref nằm dưới low_ex
 # 300 đ (+0,73% ≤ ±7%). VSDC/SMB/20230220/CASH_1K xác nhận 1.000 đ/cp.
+#
+# PAT (UPCoM, đo 29/10/2026 trên vintage KBS 1.072 bar): 4/9 event là phiên
+# GAP — cả dải [low_ex, high_ex] nằm một phía P_ref nên band OHLC không dùng
+# được. CẢ 4 event đều có xác nhận độc lập từ tầng 3 (tỷ số KBS/VCI):
+#   2022-08-04: P_pre 148.000, ref 138.000, band [139.499, 149.900], Δ −2.000
+#               (−1,45%) ⇒ giá mở cửa tăng ngay trên ref. Tầng 3: agree.
+#   2024-04-12: P_pre 98.000, ref 97.000, band [97.600, 98.100], Δ −600
+#               (−0,62%). Tầng 3: agree.
+#   2025-04-24: P_pre 90.000, ref 87.500, band [88.200, 91.000], Δ −2.000
+#               (−2,29%). Tầng 3: agree.
+#   2026-09-15: P_pre 70.000, ref 67.100, band [66.500, 66.800], Δ +300
+#               (+0,45%) — phiên gap-down. Tầng 3: vendor-lag, bước tỷ số
+#               +4,361% quy ra 2.925 đ/cp vs khai 2.900 (lệch 0,87%).
+# DSN (HOSE): 2026-05-18: P_pre 38.450, ref 36.850, band [37.150, 37.800],
+#               Δ −650 (−1,76%) ≤ ±7%. Tầng 3: vendor-lag, bước +4,342% quy ra
+#               1.600 đ/cp khớp tuyệt đối cash khai báo.
+# Xóa một dòng ⇒ event quay lại fail-closed (đúng ý đồ): allow-list là NGHIỆM
+# THU có bằng chứng, không phải công tắc tắt kiểm tra.
 LIMIT_BAND_EVENTS: dict[str, dict[date, str]] = {
     "SMB": {
         date(2023, 2, 20): (
             "gap-up ATO: 2 bước giá 41.450/41.500, P_ref=41.150 ⇒ Δ_market +350 đ "
             "(+0,85%) trong ±7% HOSE; VSDC/SMB/20230220/CASH_1K"
+        )
+    },
+    "PAT": {
+        date(2022, 8, 4): (
+            "gap-up: ref 138.000 dưới low_ex 139.499 ⇒ Δ_market −2.000 (−1,45%) "
+            "trong ±15% UPCoM; tầng 3 cross-vendor agree (bước tỷ số −0,001%)"
+        ),
+        date(2024, 4, 12): (
+            "gap-up: ref 97.000 dưới low_ex 97.600 ⇒ Δ_market −600 (−0,62%) "
+            "trong ±15% UPCoM; tầng 3 cross-vendor agree (+0,003%)"
+        ),
+        date(2025, 4, 24): (
+            "gap-up: ref 87.500 dưới low_ex 88.200 ⇒ Δ_market −2.000 (−2,29%) "
+            "trong ±15% UPCoM; tầng 3 cross-vendor agree (−0,001%)"
+        ),
+        date(2026, 9, 15): (
+            "gap-down: ref 67.100 trên high_ex 66.800 ⇒ Δ_market +300 (+0,45%) "
+            "trong ±15% UPCoM; tầng 3 vendor-lag, implied 2.925 vs cash 2.900"
+        ),
+    },
+    "DSN": {
+        date(2026, 5, 18): (
+            "gap-up: ref 36.850 dưới low_ex 37.150 ⇒ Δ_market −650 (−1,76%) "
+            "trong ±7% HOSE; tầng 3 vendor-lag, implied 1.600 khớp cash khai báo"
         )
     },
 }
@@ -118,8 +166,62 @@ SMB_EVENTS: tuple[CashEvent, ...] = (
     CashEvent(ex_date=date(2026, 5, 25), cash=1_000.0),
 )
 
+# [WHY] PAT (CTCP Phốt pho Vàng Việt Trì, UPCoM, niêm yết 06/2022) — "siêu cổ
+# tức chu kỳ hàng hóa": chi 10.000-10.655 đ/cp mỗi đợt trong 2022-2023 rồi hạ
+# dần khi giá phốt pho vàng hạ nhiệt. Nguồn: VCI IQ events API
+# (`iq-insight-service/v1/events`, eventCode=DIV) — 11 sự kiện DIV, đối chiếu
+# 29/10/2026. CHỈ lấy 9 event có ex_date nằm TRONG chuỗi bar (bar đầu
+# 2022-06-17): 2021-12-06 (2.000 đ) và 2022-04-19 (7.600 đ) rơi TRƯỚC bar đầu
+# nên không dùng để phục nguyên — thêm vào sẽ làm `idx_of[ex_date]` KeyError.
+# Sai một dòng ⇒ factor segment sai bậc ⇒ toàn bộ 1.072 bar lệch lưới 100 VND.
+PAT_EVENTS: tuple[CashEvent, ...] = (
+    CashEvent(ex_date=date(2022, 8, 4), cash=10_000.0),
+    CashEvent(ex_date=date(2022, 12, 19), cash=10_000.0),
+    CashEvent(ex_date=date(2023, 4, 7), cash=10_655.0),
+    CashEvent(ex_date=date(2023, 12, 19), cash=9_000.0),
+    CashEvent(ex_date=date(2024, 4, 12), cash=1_000.0),
+    CashEvent(ex_date=date(2024, 11, 19), cash=7_000.0),
+    CashEvent(ex_date=date(2025, 4, 24), cash=2_500.0),
+    CashEvent(ex_date=date(2025, 12, 24), cash=10_000.0),
+    CashEvent(ex_date=date(2026, 9, 15), cash=2_900.0),
+)
+
+# [WHY] DSN (CTCP Công viên nước Đầm Sen, HOSE) — "bò sữa tiền mặt thuần túy":
+# 2.400-2.500 đ/cp/năm (đợt chính) + 1.500-1.600 đ (đợt giữa năm) suốt 2021-2026.
+# Nguồn: VCI IQ events API (eventCode=DIV), 10 sự kiện, đối chiếu 29/10/2026.
+# Đây là ca kiểm định lưới tick 50 VND trên HOSE (SMB đã xác nhận 50 VND; DSN
+# xác nhận lần hai, độc lập về cấu trúc giá 34-62k). Sửa cash ⇒ factor lệch ⇒
+# 1.471 bar rơi khỏi lưới 50.
+DSN_EVENTS: tuple[CashEvent, ...] = (
+    CashEvent(ex_date=date(2021, 2, 26), cash=2_500.0),
+    CashEvent(ex_date=date(2021, 12, 28), cash=1_500.0),
+    CashEvent(ex_date=date(2022, 11, 15), cash=1_500.0),
+    CashEvent(ex_date=date(2023, 4, 18), cash=2_500.0),
+    CashEvent(ex_date=date(2023, 12, 28), cash=2_400.0),
+    CashEvent(ex_date=date(2024, 3, 14), cash=1_600.0),
+    CashEvent(ex_date=date(2024, 12, 26), cash=2_400.0),
+    CashEvent(ex_date=date(2025, 3, 20), cash=1_600.0),
+    CashEvent(ex_date=date(2026, 1, 13), cash=2_400.0),
+    CashEvent(ex_date=date(2026, 5, 18), cash=1_600.0),
+)
+
+# [WHY] Sàn niêm yết là DỮ LIỆU PROVENANCE, không phải nhãn trang trí: nó quyết
+# định biên trần/sàn (UPCoM ±15%, HOSE ±7%) và bảng so sánh 5 mã. Trước đây nhãn
+# này sống inline trong `cli_dividend_service.py` và đã in SAI "VEA — UPCoM" (VEA
+# là HOSE, đo 29/10/2026) ⇒ người đọc báo cáo hiểu sai cả cơ chế giá lẫn biên
+# luật định. Gom về registry để chỉ còn MỘT nguồn.
+EXCHANGES: dict[str, str] = {
+    "FOC": "UPCoM",
+    "VEA": "HOSE",
+    "SMB": "HOSE",
+    "PAT": "UPCoM",
+    "DSN": "HOSE",
+}
+
 CASH_EVENTS: dict[str, tuple[CashEvent, ...]] = {
     "FOC": FOC_EVENTS,
     "VEA": VEA_EVENTS,
     "SMB": SMB_EVENTS,
+    "PAT": PAT_EVENTS,
+    "DSN": DSN_EVENTS,
 }

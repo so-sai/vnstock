@@ -108,8 +108,44 @@ def test_orphan_metadata_fails_closed(monkeypatch):
 def test_action_ids_are_unique_and_namespaced():
     """[WHY] `independent_provenance_set` của engine đếm bằng action_id; trùng id
     ⇒ engine tưởng có ít nguồn độc lập hơn thực tế và provenance bị đánh giá sai."""
-    for sym in ("VEA", "SMB"):
+    for sym in ("VEA", "SMB", "PAT", "DSN"):
         divs = build_vsdc_dividends(sym, AUDIT_WINDOW_START)
         ids = [d.action_id for d in divs]
         assert len(set(ids)) == len(ids)
         assert all(i.startswith(f"VSDC/{sym}/") for i in ids)
+
+
+def test_pat_dividends_cover_whole_series_with_9_events():
+    """[WHY] PAT niêm yết 06/2022 nhưng lịch sử DIV có 11 đợt: 2 đợt TRƯỚC bar
+    đầu (2021-12-06, 2022-04-19) không được đưa vào registry vì
+    `reconstruct_raw_prices` tra `idx_of[ex_date]` và sẽ KeyError; đồng thời
+    không được đưa vào metadata (sẽ thành metadata mồ côi). Tổng 63.055 đ/cp là
+    con số báo cáo Pha 4 phải in ra từ dữ liệu, không hardcode."""
+    divs = build_vsdc_dividends("PAT", date(2022, 6, 17))
+    assert len(divs) == len(CASH_EVENTS["PAT"]) == 9
+    assert divs[0].ex_date == date(2022, 8, 4)  # đợt đầu TIÊN trong chuỗi bar
+    assert dividend_cash_total(divs) == pytest.approx(63_055.0, abs=1e-6)
+
+
+def test_dsn_dividends_total_matches_declared_cash_flow():
+    """[WHY] DSN: 10 đợt, tổng đúng 20.000 đ/cp trong kỳ 2021-2026 — con số đối
+    chiếu với dòng tiền cổ tức doanh nghiệp công bố. Lệch một đợt (vd quên
+    1.600 đ kỳ 2026-05-18) sẽ làm cả báo cáo Pha 5 sai mà không ai thấy."""
+    divs = build_vsdc_dividends("DSN", AUDIT_WINDOW_START)
+    assert len(divs) == len(CASH_EVENTS["DSN"]) == 10
+    assert dividend_cash_total(divs) == pytest.approx(20_000.0, abs=1e-6)
+    # pay_date phải SAU ex_date (fail-closed nếu ai đó đảo cột khi chép tay).
+    assert all(d.pay_date > d.ex_date for d in divs)
+
+
+def test_all_registry_symbols_have_metadata_and_tick():
+    """[WHY] Chốt chặn toàn cục: thêm mã vào registry mà quên tick/lưới/sàn ⇒
+    cổng fail-closed ở chế độ `--reconstructed` chỉ khi người ta nhớ chạy đúng
+    mã đó. Test này quét MỌI mã trong registry để lỗ hổng lộ ngay ở CI."""
+    from src.research.cash_event_registry import DAILY_LIMIT_PCT, TICK_SIZES
+
+    for sym in CASH_EVENTS:
+        assert sym in TICK_SIZES, f"{sym} thiếu lưới tick ⇒ solve factor vô nghĩa"
+        assert sym in DAILY_LIMIT_PCT, f"{sym} thiếu biên trần/sàn theo sàn"
+        assert build_vsdc_dividends(sym, AUDIT_WINDOW_START), f"{sym} không có event trong kỳ audit"
+
