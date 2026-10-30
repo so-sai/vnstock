@@ -255,8 +255,14 @@ class CanonicalAssetRegistry:
                 [DataSource.YAHOO],
                 DataSource.YAHOO,
                 "World gold XAU/USD",
+                # [WHY] Trần 20.000 (25/10/2026 nâng từ 5.000): GC=F đóng cửa cao
+                # nhất đo được là 5.318,40 (2026-01-26) — trần cũ 5.000 từ chối 52
+                # dòng THẬT trong macro_history (2026-01-26..2026-03-17), khiến
+                # macro_history_v2 mất 25 dòng so với v1 và mọi phép tính GSR đọc
+                # v2 trong giai đoạn blow-off top bị hụt mẫu. 20.000 vẫn cách lỗi
+                # thang ×10 (~53.184) gần 3 lần ⇒ vẫn fail-closed với unit sai.
                 1500,
-                5000,
+                20000,
                 1,
                 "yahoo_gc_f_raw",
             ),
@@ -291,8 +297,14 @@ class CanonicalAssetRegistry:
                 [DataSource.YAHOO],
                 DataSource.YAHOO,
                 "World silver XAG/USD",
+                # [WHY] Trần 500 (25/10/2026 nâng từ 100): SI=F đóng cửa cao nhất
+                # đo được là 115,08 (2026-01-26) — trần cũ 100 từ chối 5 dòng THẬT
+                # (2026-01-23..2026-01-29, đúng tuần blow-off top của kim loại quý)
+                # nên macro_history_v2 thiếu đúng đoạn biến động quyết định. 500
+                # vẫn cách lỗi thang ×10 (~1.150) hơn 2 lần, và cách lỗi đơn vị
+                # VND/oz (~2,5 triệu) rất xa ⇒ không mở cửa cho dữ liệu sai thang.
                 5,
-                100,
+                500,
                 1,
                 "yahoo_si_f_raw",
             ),
