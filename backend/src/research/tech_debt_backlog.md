@@ -514,7 +514,7 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   chạy lại trên chuỗi thô đã chứng nhận (`raw_price_reconstruction_findings.md` E15–E17). Phần
   "chờ GO Hội đồng" ở trên không còn hiệu lực.
 
-## 16. 🟡 OPEN — Lỗ hổng PHỦ dữ liệu `daily_ohlcv` của DSN (2026-04..07) và PAT (2026-06)
+## 16. ✅ DONE (30/10/2026, E19) — Lỗ hổng PHỦ dữ liệu `daily_ohlcv` của DSN (2026-04..07) và PAT (2026-06)
 
 - **WHAT:** (a) DSN thiếu **39 bar** trong 2026-04..2026-07 (tháng 2026-05 chỉ còn **2/20 bar**);
   (b) PAT có **8 bar invalid** trong 2026-06-04..2026-06-18 (bị `VALID_ROW_SQL` loại vì
@@ -534,7 +534,29 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   nguồn; (b) bar PAT invalid không được "sửa tay" cho khớp band — nếu sửa để tầng 3 hết conflict
   thì đúng là vá quá tay mà tầng 3 tồn tại để chặn; (c) backfill có thể đổi `close` lịch sử ⇒ phải
   chạy lại cổng + 5 runner và so số trước/sau, không được im lặng đổi số đã báo Hội đồng.
-- **PHÁN QUYẾT:** ⏳ **OPEN** (phát hiện 2026-10-29, không chặn nghiệm thu 5/5).
+- **PHÁN QUYẾT:** ✅ **ĐÓNG 30/10/2026 (E19, chi tiết + số đo: `raw_price_reconstruction_findings.md` E19)**
+  - **DSN (a) — ĐÃ VÁ bằng nguồn, không `fillna`:** `ptck.py backfill-history --symbols DSN
+    --start 2026-04-08 --end 2026-07-31` EXIT 0 (+39 dòng, 1.407→1.446, `src=vci`,
+    `RATIO_X1000_1.04`). Cửa sổ 2026-04-01..07-31: **46 → 80 bar hợp lệ**, date-set khớp
+    **tuyệt đối 80/80** vintage KBS (0 thiếu, 0 thừa), 0 bar volume-0. Tháng 04=15 / 05=20 /
+    06=22 / 07=23 trùng số phiên VNINDEX.
+  - **Chẩn đoán cũ "vendor-lag +4,342%" là SAI:** đó là **chuyển thang giá bên trong DB**
+    (5 bar `kbs` giá thô 2026-04-08..05-15 xen với chuỗi VCI adjusted; `1/0,958395 − 1 =
+    +4,342%`), không phải vendor chậm. Sau khi vá: **10/10 event `agree`, 0 conflict**,
+    bước nhảy 2026-05-18 = **+0,003%** ⇒ event `limit-band` duy nhất của DSN nay có xác nhận
+    độc lập ở tầng 3.
+  - **PAT (b) — TÁI PHÂN LOẠI, không phải lỗ hổng phủ:** thử backfill VCI trả 22 bar tháng
+    06/2026 nhưng **17 bar phẳng `o=h=l=c` volume=0** (padding), trong khi vintage KBS chỉ có
+    **5 bar thật** (06-05, 06-12, 06-19, 06-26, 06-30) và VNINDEX có đủ 22 phiên ⇒ 17 phiên đó
+    là **ngày đình chỉ/không giao dịch**, không phải thiếu dữ liệu. Nạp padding = dựng bar giả
+    ⇒ **đã revert** (copy `backups/screener_cache_20261030_0913.bak`, hash
+    `PAT 2026-06 rows=13 valid=5 sha=539509414b2fbadd`, `PRAGMA integrity_check=ok`); giữ 8
+    zero-row đã quarantine, `VALID_ROW_SQL` tiếp tục loại. PAT chuyển sang nhóm **DORMANT**.
+  - **Không trôi số:** `dividend-audit --symbol ALL` EXIT 0 — FOC −4,98% · VEA +2,29% ·
+    SMB +2,91% · PAT −7,57% · DSN −3,54% (y hệt E15–E18); gate `--reconstructed` 5/5 PASS;
+    **81 passed** trên 7 file test.
+  - **Bẫy vận hành:** `ptck.py restore-backup` chỉ phục hồi **alerts**, KHÔNG phục hồi
+    `screener_cache.db` — phục hồi DB phải copy file `.bak` đè lên, rồi kiểm hash + integrity.
 
 ## Ghi chú vận hành
 

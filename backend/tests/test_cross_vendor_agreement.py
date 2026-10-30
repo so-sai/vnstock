@@ -153,10 +153,22 @@ def test_real_pat_has_no_conflict_and_one_vendor_lag():
     assert sum(1 for c in checks if c.status == "agree") == 8
 
 
-def test_real_dsn_has_no_conflict_and_one_vendor_lag():
-    """[WHY] DSN: 9/10 event khớp, 1 event 2026-05-18 là vendor-lag — cùng bản
-    chất với PAT, xác nhận đây là hiện tượng hệ thống của DB (lag kỳ mới nhất),
-    không phải lỗi dữ liệu riêng lẻ."""
+def test_real_dsn_has_no_conflict_and_all_events_agree_after_backfill():
+    """[WHY] DSN: 10/10 event khớp sau khi vá lỗ hổng phủ 2026-04..07 (30/10/2026).
+
+    [WHY] Trước backfill, event 2026-05-18 từng bị gắn `vendor-lag` +4,342% và
+    được ghi chú là "DB-VCI chưa điều chỉnh kỳ này". Chẩn đoán đó SAI: 5 bar
+    `kbs` trong DB giai đoạn 2026-04-08..05-15 là giá THÔ (bội lưới), còn phần
+    VCI lịch sử là giá ĐÃ ĐIỀU CHỈNH ⇒ bước nhảy đúng bằng
+    1/0,958395 − 1 = +4,34%, tức là chuyển thang giá BÊN TRONG DB, không phải
+    một vendor chậm. Vá bằng `backfill-history` (VCI, cùng quy ước adjusted)
+    ⇒ bước nhảy về +0,003% và event thành `agree`.
+
+    [WHY] Test khoá cả hai chiều: (a) không có conflict, (b) MỌI event agree.
+    Nếu ai nạp lại bar thô vào khoảng này, hoặc để lỗ hổng phủ tái xuất, bước
+    nhảy sẽ hiện lại và test đỏ — đúng lúc cần biết. KHÔNG nới thành "cho phép
+    1 vendor-lag": làm vậy sẽ xoá mất chốt chặn vừa vá.
+    """
     kbs, db = _real_inputs("DSN", "kbs_dsn_2021_2026.json")
     events = [
         (date(2021, 2, 26), 2_500.0),
@@ -172,6 +184,7 @@ def test_real_dsn_has_no_conflict_and_one_vendor_lag():
     ]
     checks = cross_vendor_steps("DSN", events, kbs, db)
     assert_no_conflict(checks)
-    lags = [c.ex_date for c in checks if c.status == "vendor-lag"]
-    assert lags == [date(2026, 5, 18)]
-    assert sum(1 for c in checks if c.status == "agree") == 9
+    assert {c.status for c in checks} == {"agree"}
+    assert sum(1 for c in checks if c.status == "agree") == 10
+    by_date = {c.ex_date: c for c in checks}
+    assert abs(by_date[date(2026, 5, 18)].step_pct) < 0.3

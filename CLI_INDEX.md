@@ -162,6 +162,11 @@ Hiện có:
   ex_date: `conflict` ⇒ chặn tuyệt đối; `insufficient-data` chỉ chặn event đang dựa
   vào `limit-band`; `vendor-lag` là ghi chú (DB chưa pull lại kỳ mới nhất). Cần DB
   tồn tại ở chế độ `--reconstructed`; đọc DB bằng `VALID_ROW_SQL`, KHÔNG `is_stale`.
+  Còn treo sau E19: PAT 2026-09-15, FOC 2026-08-10 — DSN đã về 10/10 `agree`.
+  **`vendor-lag` KHÔNG đồng nghĩa "vendor chậm"**: bước nhảy ~4,3% của DSN
+  2026-05-18 hoá ra là **chuyển thang giá trong DB** (bar thô xen bar adjusted,
+  `1/0,958395 − 1`), vá bằng `backfill-history` là hết. Trước khi kết luận vendor
+  chậm, phải kiểm phân bố `source` trong cửa sổ (E19).
 - `symbol_audit_pipeline.py` — **thư viện dùng chung**, không phải CLI: 3 tầng
   fail-closed (band mode → certify → cross-vendor) + in báo cáo; runner Pha 4/5 và
   CLI `dividend-audit` (nhánh PAT/DSN) cùng dùng, nên không có đường nạp thứ hai.

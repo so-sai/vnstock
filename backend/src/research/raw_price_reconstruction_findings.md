@@ -530,6 +530,81 @@ fail-closed đúng: không có bar để đối chiếu thì không được gi�
   nhắc **OOS 2025–2026 vẫn NON-DECISIONAL** — `active` là nhãn *chuỗi dữ liệu đã
   được chứng nhận*, KHÔNG phải giấy phép dùng số OOS để chọn tham số.
 
+## E19 — Vá lỗ hổng phủ `daily_ohlcv`: DSN backfill 39 bar, PAT tái phân loại "đình chỉ giao dịch"
+
+**Bối cảnh:** mục 16 của `tech_debt_backlog.md` (phát hiện ở E17). Hai hiện tượng khác bản
+chất nhưng từng bị ghi chung là "thiếu dữ liệu"; E19 tách rõ và xử lý riêng từng ca. Không
+`fillna`, không nội suy, không nhân bản bar: chỉ crawl lại từ vendor và đi qua cổng provenance
+(NQ-09).
+
+**Mốc an toàn trước khi sửa:** `ptck.py db backup` →
+`backend/data/backups/screener_cache_20261030_0913.bak` (224.210.944 byte). Snapshot trước
+thay đổi: DSN 2026-04-01..07-31 `rows=46 valid=46 sha=7cbb6c6c58543d80`; PAT 2026-06-01..06-30
+`rows=13 valid=5 sha=539509414b2fbadd`.
+
+### E19.1 — DSN: thiếu 39 bar là LỖ HỔNG PHỦ thật ⇒ backfill
+
+| Chỉ tiêu | Trước | Sau |
+|---|---|---|
+| DSN bar hợp lệ 2026-04-01..07-31 | 46 | **80** |
+| Số dòng `daily_ohlcv` của DSN | 1.407 | **1.446** (+39) |
+| Khớp date-set với vintage KBS (80 bar) | thiếu 41 / thừa 0 | **80/80, 0 thiếu, 0 thừa** |
+| Bar volume = 0 trong cửa sổ | 0 | 0 |
+| Tầng 3, event 2026-05-18 | `vendor-lag` +4,342% | **`agree` +0,003%** |
+| Tầng 3, tổng | 9 agree / 1 vendor-lag | **10/10 agree, 0 conflict** |
+
+Phân bố theo tháng sau backfill: 2026-04 = 15, 05 = 20, 06 = 22, 07 = 23 — trùng khít số phiên
+VNINDEX cùng tháng (20/20/22/23; tháng 4 chỉ tính từ 08/04).
+
+Lệnh dùng: `python ptck.py backfill-history --symbols DSN --start 2026-04-08 --end 2026-07-31`
+(chuỗi fallback VCI → TCBS → DNSE → KBS), EXIT 0, `src=vci`,
+`INGESTION_SCALE_TRANSFORM symbol=DSN rows=84 reason=RATIO_X1000_1.04 (close<1000 → VND x1000)`
+— nguồn trả nghìn đồng nên `save_data_upsert` nhân 1.000, đúng quy ước lưu VND.
+
+**ROOT CAUSE của nhãn "vendor-lag +4,342%" (chẩn đoán cũ SAI):** 5 bar `kbs` trong DB giai đoạn
+2026-04-08..05-15 là giá **THÔ** (bội lưới 50 VND), còn toàn bộ phần VCI lịch sử là giá **ĐÃ
+ĐIỀU CHỈNH**. Bước nhảy của tỷ số KBS/DB đúng bằng chênh thang `1/0,958395 − 1 = +4,342%` —
+tức **chuyển thang giá BÊN TRONG DB**, không phải "VCI chưa pull lại kỳ 2/2025". Vá bằng chuỗi
+cùng quy ước adjusted ⇒ bước nhảy về +0,003%.
+
+Hệ quả có lợi: event DSN 2026-05-18 là event DUY NHẤT nghiệm thu bằng `limit-band` (yếu hơn band
+OHLC 5–10×); nay nó có xác nhận độc lập ở tầng 3 thay vì chỉ là ghi chú.
+
+### E19.2 — PAT: 8 bar "invalid" KHÔNG phải thiếu dữ liệu ⇒ tái phân loại đình chỉ giao dịch
+
+Thử backfill PAT đúng lệnh (`--symbols PAT --start 2026-06-01 --end 2026-06-30`): EXIT 0,
+`+9 dòng (1081→1090)`, `src=vci`. **Đã REVERT** — lý do đo được:
+
+| Đo | Kết quả |
+|---|---|
+| VCI trả tháng 06/2026 cho PAT | **22 bar**, trong đó **17 bar phẳng `o=h=l=c`, volume = 0** |
+| Vintage KBS tháng 06/2026 | **5 bar thật**: 06-05, 06-12, 06-19, 06-26, 06-30 (volume 10.000–44.800) |
+| VNINDEX tháng 06/2026 | 22 phiên ⇒ lịch giao dịch KHÔNG thiếu, 17 phiên kia không phải nghỉ lễ |
+| 8 zero-row cũ trong DB | `kbs\|poisoned:kbs_zero` / `poisoned:auto_detect`, `is_stale=1` ⇒ `VALID_ROW_SQL` đã loại |
+
+⇒ 17 bar volume-0 là **ngày PAT không có giao dịch** (đình chỉ/tạm ngừng), vendor lấp bằng bar
+phẳng. Nạp chúng = dựng bar giả từ "không có giao dịch" ⇒ vi phạm Missing > Fake. Vậy PAT được
+**tái phân loại** từ "lỗ hổng phủ" sang **đình chỉ giao dịch (DORMANT)**: thiếu bar là trạng thái
+thật, không phải lỗi nguồn. DB đã phục hồi đúng snapshot
+(`PAT 2026-06: rows=13 valid=5 sha=539509414b2fbadd`, `PRAGMA integrity_check = ok`).
+
+**Bẫy vận hành ghi lại:** `ptck.py restore-backup` chỉ phục hồi **alerts**, KHÔNG phục hồi
+`screener_cache.db`. Phục hồi DB phải **copy file `.bak` đè lên `screener_cache.db`** (đã làm),
+rồi kiểm lại bằng hash + `PRAGMA integrity_check`.
+
+### E19.3 — Không trôi số đã báo Hội đồng (RISK (c) của mục 16)
+
+| Lệnh | Kết quả |
+|---|---|
+| `ptck.py dividend-audit --symbol ALL` | EXIT 0 — **FOC −4,98% · VEA +2,29% · SMB +2,91% · PAT −7,57% · DSN −3,54%** (y hệt E15–E18) |
+| `price_provenance_gate --symbols FOC,VEA,SMB,PAT,DSN --reconstructed` | EXIT 0 — 5/5 PASS; PAT 8 agree + 1 vendor-lag 2026-09-15; FOC 1 vendor-lag 2026-08-10 (implied 9.893) |
+| pytest 7 file (provenance · cross-vendor · raw reconstruction · dividend · why-contract) | **81 passed** |
+
+Test `test_real_dsn_has_no_conflict_and_one_vendor_lag` được thay bằng
+`test_real_dsn_has_no_conflict_and_all_events_agree_after_backfill`: bản cũ ghi nhận "1 vendor-lag"
+(nay đã chứng minh là chẩn đoán sai), bản mới khoá **10/10 agree** và `|step| < 0,3` tại
+2026-05-18. Cố ý KHÔNG nới thành "cho phép 1 vendor-lag" — nới ra là xoá chốt chặn vừa vá.
+
 ## Kết luận
 
 1. **Cơ chế phục nguyên TỒN TẠI và HOÀN HẢO trên cả 2 hệ thống sàn:**
@@ -603,9 +678,14 @@ fail-closed đúng: không có bar để đối chiếu thì không được gi�
 - [x] **CLI `dividend-audit` về SSOT:** xóa 3 danh sách cổ tức inline, nhãn sàn
       + lưới tick + danh sách mã đọc từ registry; FOC tái lập đúng
       −4,98%/năm & 1.166.176.990 đ; test khoá không tái xuất hiện bản sao.
-- [ ] **Backfill lỗ hổng phủ DB** (phát hiện ở E17, KHÔNG chặn 5/5): DSN thiếu
+- [x] **Backfill lỗ hổng phủ DB** (phát hiện ở E17, KHÔNG chặn 5/5): DSN thiếu
       39 bar trong 2026-04..07, PAT có 8 bar invalid 2026-06-04..06-18. Không
       được `fillna`; phải crawl lại từ nguồn và đi qua cổng provenance.
+      → **ĐÓNG 30/10/2026 (E19):** DSN backfill `backfill-history` +39 dòng
+      (46→80 bar hợp lệ, khớp tuyệt đối 80 bar vintage KBS), tầng 3 **10/10
+      agree** (2026-05-18: +4,342% → +0,003%); PAT **tái phân loại** — 17/22
+      bar VCI là padding volume-0 cho ngày đình chỉ, KBS chỉ có 5 bar thật
+      ⇒ đã revert, giữ 8 zero-row bị `VALID_ROW_SQL` loại. Số 5/5 không trôi.
 
 ## Quyết định kỹ thuật bổ sung (sau GREEN)
 
