@@ -537,9 +537,10 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
 - **PHÁN QUYẾT:** ✅ **ĐÓNG 30/10/2026 (E19, chi tiết + số đo: `raw_price_reconstruction_findings.md` E19)**
   - **DSN (a) — ĐÃ VÁ bằng nguồn, không `fillna`:** `ptck.py backfill-history --symbols DSN
     --start 2026-04-08 --end 2026-07-31` EXIT 0 (+39 dòng, 1.407→1.446, `src=vci`,
-    `RATIO_X1000_1.04`). Cửa sổ 2026-04-01..07-31: **46 → 80 bar hợp lệ**, date-set khớp
-    **tuyệt đối 80/80** vintage KBS (0 thiếu, 0 thừa), 0 bar volume-0. Tháng 04=15 / 05=20 /
-    06=22 / 07=23 trùng số phiên VNINDEX.
+    `RATIO_X1000_1.04`). Cửa sổ đúng khoảng backfill 2026-04-08..07-31: **41 → 80 bar hợp lệ**;
+    trọn 4 tháng 2026-04-01..07-31: **46 → 85 bar**. Date-set khớp **tuyệt đối 85/85** vintage
+    KBS (0 thiếu, 0 thừa), 0 bar volume-0. Tháng 04=20 / 05=20 / 06=22 / 07=23 trùng số phiên
+    VNINDEX.
   - **Chẩn đoán cũ "vendor-lag +4,342%" là SAI:** đó là **chuyển thang giá bên trong DB**
     (5 bar `kbs` giá thô 2026-04-08..05-15 xen với chuỗi VCI adjusted; `1/0,958395 − 1 =
     +4,342%`), không phải vendor chậm. Sau khi vá: **10/10 event `agree`, 0 conflict**,

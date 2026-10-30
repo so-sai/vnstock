@@ -546,15 +546,16 @@ thay đổi: DSN 2026-04-01..07-31 `rows=46 valid=46 sha=7cbb6c6c58543d80`; PAT 
 
 | Chỉ tiêu | Trước | Sau |
 |---|---|---|
-| DSN bar hợp lệ 2026-04-01..07-31 | 46 | **80** |
+| DSN bar hợp lệ 2026-04-08..07-31 (đúng khoảng backfill) | 41 | **80** |
+| DSN bar hợp lệ 2026-04-01..07-31 (trọn 4 tháng) | 46 | **85** |
 | Số dòng `daily_ohlcv` của DSN | 1.407 | **1.446** (+39) |
-| Khớp date-set với vintage KBS (80 bar) | thiếu 41 / thừa 0 | **80/80, 0 thiếu, 0 thừa** |
+| Khớp date-set với vintage KBS (85 bar) | thiếu 39 / thừa 0 | **85/85, 0 thiếu, 0 thừa** |
 | Bar volume = 0 trong cửa sổ | 0 | 0 |
 | Tầng 3, event 2026-05-18 | `vendor-lag` +4,342% | **`agree` +0,003%** |
 | Tầng 3, tổng | 9 agree / 1 vendor-lag | **10/10 agree, 0 conflict** |
 
-Phân bố theo tháng sau backfill: 2026-04 = 15, 05 = 20, 06 = 22, 07 = 23 — trùng khít số phiên
-VNINDEX cùng tháng (20/20/22/23; tháng 4 chỉ tính từ 08/04).
+Phân bố theo tháng sau backfill: 2026-04 = 20, 05 = 20, 06 = 22, 07 = 23 — trùng khít
+số phiên VNINDEX cùng tháng (20/20/22/23).
 
 Lệnh dùng: `python ptck.py backfill-history --symbols DSN --start 2026-04-08 --end 2026-07-31`
 (chuỗi fallback VCI → TCBS → DNSE → KBS), EXIT 0, `src=vci`,
@@ -682,7 +683,7 @@ Test `test_real_dsn_has_no_conflict_and_one_vendor_lag` được thay bằng
       39 bar trong 2026-04..07, PAT có 8 bar invalid 2026-06-04..06-18. Không
       được `fillna`; phải crawl lại từ nguồn và đi qua cổng provenance.
       → **ĐÓNG 30/10/2026 (E19):** DSN backfill `backfill-history` +39 dòng
-      (46→80 bar hợp lệ, khớp tuyệt đối 80 bar vintage KBS), tầng 3 **10/10
+      (46→85 bar hợp lệ, khớp tuyệt đối 85/85 bar vintage KBS), tầng 3 **10/10
       agree** (2026-05-18: +4,342% → +0,003%); PAT **tái phân loại** — 17/22
       bar VCI là padding volume-0 cho ngày đình chỉ, KBS chỉ có 5 bar thật
       ⇒ đã revert, giữ 8 zero-row bị `VALID_ROW_SQL` loại. Số 5/5 không trôi.
