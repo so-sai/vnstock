@@ -559,6 +559,45 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   - **Bẫy vận hành:** `ptck.py restore-backup` chỉ phục hồi **alerts**, KHÔNG phục hồi
     `screener_cache.db` — phục hồi DB phải copy file `.bak` đè lên, rồi kiểm hash + integrity.
 
+## 17. ⧗ OPEN — `GOLD_XAU` vẫn là chuỗi HỖN HỢP quy ước (NQ-10 nhiệm vụ 1 mới làm xong bạc)
+
+**Trạng thái:** bạc (`XAGUSD`) ĐÃ SẠCH (2026-10-30); **vàng CHƯA**.
+
+**Số đo (30/10/2026, trước khi sửa bạc):**
+
+| Biến | Dòng v1 / ngày phân biệt | Lệch max so với ticker tải lại | Bar cuối tuần | v2 thiếu |
+|---|---|---|---|---|
+| `XAGUSD` | 361 / 319 (42 trùng) | 5,314% @ 2026-09-10 | 2 (2026-10-04 CN, 2026-10-17 T7) | 5 ngày (do trần cũ 100) |
+| `GOLD_XAU` | 2.700 / 1.407 (**1.293 trùng**) | **1,590% @ 2026-10-27** | 2 (cùng 2 ngày) | **25 ngày** (do trần cũ 5.000) |
+
+`GOLD_XAU` v1 nằm trong khoảng 2021-04-05 → 2026-10-29; nguồn trộn `NULL` và `'yahoo'`;
+52 dòng > 5.000 (2026-01-26 → 2026-03-17, max 5.318,40) là dữ liệu THẬT bị trần registry từ
+chối. Trần đã nâng lên **20.000** (commit cùng đợt), nhưng **v2 vẫn thiếu 25 ngày** cho tới
+khi nạp lại chuỗi.
+
+**Vì sao chưa sửa:** `--replace-series` sẽ thay TOÀN BỘ chuỗi vàng, ảnh hưởng trực tiếp
+`governor/uncertainty_layer.py`, `research/gold_h2_series.py`, `research/commodity_hit_rate.py`
+(đều đọc `macro_history_v2`). Đây là thay đổi có blast radius, cần quyết định riêng + chạy lại
+3 consumer để so trước/sau.
+
+**Cách sửa (đã có sẵn công cụ, không cần code mới):**
+
+```
+ptck.py backfill-macro --variables GOLD_XAU --start 2021-01-01 --min-rows 1000 \
+        --replace-series --reason "chuỗi cũ hỗn hợp quy ước: 1293 dòng trùng, 2 bar cuối tuần, lệch 1,59%"
+```
+
+Sau khi chạy: verify (a) v1 = v2 date-set, (b) 0 bar cuối tuần, (c) 0 dòng trùng, (d) in lại
+`silver stationarity` xem Engle–Granger có đổi kết luận không, (e) chạy 3 consumer trên DB
+shadow để so trước/sau.
+
+**Defect phụ (chưa sửa, cần quyết định thiết kế):** `macro_history_v2` không có bất biến "mọi
+ngày của v1 phải có mặt". Vì vậy khi canonical validator từ chối dữ liệu, **không có cảnh báo
+nào** — lệch date-set là dấu hiệu duy nhất và phải tự đi tìm. Đề xuất: cổng kiểm trong
+`db_core.save_data_upsert` hoặc một lệnh `db audit-macro-coverage`.
+
+**Bằng chứng & số liệu đầy đủ:** `backend/src/research/silver_gsr_prerequisites.md`.
+
 ## Ghi chú vận hành
 
 - **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**

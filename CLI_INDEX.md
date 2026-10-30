@@ -26,13 +26,24 @@ Cờ toàn cục: `--verbose-lang {compact,annotated,full,auto}` (mọi lệnh),
 | `fetch-macro` | Fed/FRED/US10Y/USD/Brent + VGB 10Y | `--force`, `--skip-vgb` |
 | `sbv-update` | 5-step recovery lãi suất SBV (backup→fixtures→pytest→scrape) | — |
 | `backfill-history` | Khôi phục lịch sử mã thiếu | — |
-| `backfill-macro` | Backfill 1 năm PTD macro tickers | — |
+| `backfill-macro` | Backfill lịch sử macro (Yahoo) + cổng chất lượng trước khi ghi | `--days`, `--variables A,B`, `--start YYYY-MM-DD`, `--min-rows N`, `--overlap-tol PCT`, `--replace-series`, `--reason "..."` |
 | `backfill-regime` | Backfill `regime_history` ngày thiếu | — |
 | `check-calendar` | Đối chiếu lịch lễ với nguồn online | — |
 | `cafef-crawl` | Crawl BCTC 20 quý | `--symbols`, `--source {vci,tcbs,cafef,api,vietstock,synthetic}`, `--full` |
 | `import-financials` | Import PE/PB/... từ CSV/XLSX → z-scores | `--file`, `--sheet` |
 | `bctc-20q` | Import 20 quý BCTC → z-scores định giá nội tại | — |
 | `db` | Vacuum/stats/optimize/backup SQLite | `db {vacuum,stats,optimize,backup}` |
+
+**`backfill-macro` — cổng chất lượng (NQ-10, 30/10/2026).** Trước khi ghi, mọi chuỗi
+phải qua: (1) `--min-rows` — ngưỡng số dòng tối thiểu (dùng `--min-rows 1000` cho
+kiểm định thống kê); (2) cổng chồng lấn `--overlap-tol` — so bản tải mới với dữ liệu
+đã lưu trên các ngày trùng, lệch quá ngưỡng ⇒ **EXIT 2, không ghi** (bẫy scale-switch
+E19, chặn trước thay vì phát hiện sau); (3) `value = 0` bị coi là sentinel missing ⇒
+chặn, nhưng **KHÔNG** chặn `value < 0` (WTI 2020-04-20 = −37,63 là thật).
+Khi đã xác định chuỗi cũ là hỗn hợp nhiều quy ước: `--replace-series --reason "..."` sẽ
+chuyển **toàn bộ** chuỗi cũ sang `macro_history_quarantine` / `macro_history_v2_quarantine`
+kèm `reason` + `quarantined_at`, rồi nạp lại từ **một** nguồn. Cấm "giữ phần tốt, thay
+phần xấu" bằng suy đoán.
 
 ## 2. Kiểm toán dữ liệu, cổ tức, PIT
 
@@ -106,6 +117,15 @@ phải vá hết. Chạy: `python ptck.py why-audit --top 10`.
 | `capitulation` | Paper ledger forward H+5/H+20/H+30 theo vùng P_cap |
 | `paper` / `sandbox` / `phase5` / `quantstats` | Paper trading / dashboard / UAT / live calibration |
 | `phase4` | CAS-DSM: Capitulation Detector + Scale-In + Abortion |
+| `silver stationarity` | ADF · Hurst · VR · OU half-life · Engle–Granger cho bạc & GSR (**NON-DECISIONAL**) — cờ `--start`, `--end` |
+
+**`silver stationarity`** đọc `macro_history_v2` (`value IS NOT NULL AND value > 0`,
+KHÔNG `is_stale`), in hai khối tách bạch: *toàn mẫu* (chứa OOS 2025–2026 ⇒
+NON-DECISIONAL) và *in-sample ≤ 2024-12-31* (mới được dùng để đăng ký giả thuyết).
+Giá trị tới hạn ADF là tiệm cận (1% −3,43 · 5% −2,86 · 10% −2,57); Engle–Granger
+dùng bảng MacKinnon N=2 (1% −3,90 · 5% −3,34 · 10% −3,04) vì residual là biến ước
+lượng. Module toán: `backend/src/analysis/stationarity.py` (không có `statsmodels`
+trong venv). Kết quả 30/10/2026 và cách đọc: `backend/src/research/silver_gsr_prerequisites.md`.
 
 ## 7. Báo cáo & pipeline định kỳ
 

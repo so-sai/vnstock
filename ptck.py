@@ -2159,49 +2159,148 @@ def cmd_backfill(args):
 
 
 def cmd_backfill_macro(args):
-    """Backfill historical data for all 24 macro tickers into macro_history and macro_history_v2."""
+    """Backfill lịch sử macro tickers (Yahoo) vào macro_history / macro_history_v2.
+
+    [WHY] `--variables` + `--start` + `--min-rows` (NQ-10): cần kéo SÂU một chuỗi
+    (`XAGUSD` 10 năm) mà không phải tải cả 24 ticker, và cần chặn ở bước GHI nếu
+    chuỗi vẫn cụt (318 dòng từng bị dùng để dựng tham số GSR — mẫu cụt).
+    [WHY] Trước khi ghi, so vùng chồng lấn với dữ liệu đã lưu: nếu vendor đổi quy
+    ước điều chỉnh (futures roll), các ngày cũ sẽ lệch — lệch quá ngưỡng thì DỪNG
+    thay vì âm thầm viết lại lịch sử (bẫy scale-switch E19, áp dụng trước).
+    """
     import yfinance as yf
     import pandas as pd
-    from src.daily_updater import MACRO_TICKERS
+
+    from datetime import datetime
+
+    from src.database.db_core import get_connection, save_data_upsert
+    from src.engine.macro_backfill import (
+        MacroSeriesInvalid,
+        check_overlap,
+        melt_close_frame,
+        quarantine_series,
+        resolve_tickers,
+        table_exists,
+        validate_series,
+    )
+
+    try:
+        tickers = resolve_tickers(getattr(args, "variables", None))
+    except MacroSeriesInvalid as exc:
+        print(f"  [FAIL] {exc}")
+        raise SystemExit(2) from exc
 
     days = getattr(args, "days", 252) or 252
-    tickers = dict(MACRO_TICKERS)
+    start = getattr(args, "start", None)
+    min_rows = int(getattr(args, "min_rows", 0) or 0)
+    overlap_tol = float(getattr(args, "overlap_tol", 0.5) or 0.5)
+    replace_series = bool(getattr(args, "replace_series", False))
+    replace_reason = getattr(args, "reason", None) or ""
     period = f"{max(int(days), 5)}d"
+
+    if replace_series and not replace_reason.strip():
+        print("  [FAIL] --replace-series bắt buộc đi kèm --reason (audit trail).")
+        raise SystemExit(2)
 
     print("=" * 60)
     print(f"  PTCK — {_ll('BACKFILL MACRO')} ({len(tickers)} Tickers)")
     print("=" * 60)
     print(f"  {_ll('Tickers')}: {', '.join(tickers.keys())}")
-    print(f"  {_ll('Period')}:  {period}")
+    print(f"  {_ll('Period')}:  {('start=' + start) if start else period}")
+    if min_rows:
+        print(f"  {_ll('Min rows')}: {min_rows}")
     print()
 
-    data = yf.download(
-        list(tickers.values()), period=period, interval="1d", progress=False
-    )
+    download_kwargs = {"interval": "1d", "progress": False}
+    if start:
+        download_kwargs["start"] = start
+    else:
+        download_kwargs["period"] = period
+    data = yf.download(list(tickers.values()), **download_kwargs)
     if data.empty:
         print(f"  [{_ll('FAIL')}] Không nhận được dữ liệu từ Yahoo Finance.")
-        return
+        raise SystemExit(2)
 
     close_data = data["Close"] if isinstance(data.columns, pd.MultiIndex) else data
     inv_map = {v: k for k, v in tickers.items()}
-    close_data = close_data.rename(columns=inv_map)
-    df_melted = close_data.reset_index().melt(
-        id_vars=["Date"], var_name="variable", value_name="value"
-    )
-    df_melted.rename(columns={"Date": "date"}, inplace=True)
-    df_melted["date"] = pd.to_datetime(df_melted["date"]).dt.strftime("%Y-%m-%d")
-    df_melted = df_melted.dropna()
-    df_melted["value"] = df_melted["value"].round(6)
+    df_melted = melt_close_frame(close_data, inv_map)
 
-    if df_melted.empty:
-        print(f"  [{_ll('FAIL')}] Không có dữ liệu sau khi melt.")
-        return
+    try:
+        stats = validate_series(df_melted, min_rows=min_rows, required=list(tickers))
+    except MacroSeriesInvalid as exc:
+        print(f"  [{_ll('FAIL')}] {exc}")
+        raise SystemExit(2) from exc
 
     print(f"  {_ll('Downloaded')}: {len(df_melted)} {_ll('rows')}")
+    print(f"  {'Biến':<16}{'n':>7}  {'từ':<12}{'đến':<12}")
+    for name, st in sorted(stats.items()):
+        print(f"  {name:<16}{st['n']:>7}  {st['first']:<12}{st['last']:<12}")
 
-    from src.database.db_core import get_connection, save_data_upsert
-
+    # ── Cổng chồng lấn: bản tải mới không được mâu thuẫn với dữ liệu đã lưu ──
     with get_connection() as conn:
+        stale = {}
+        for name, st in stats.items():
+            for date, value in conn.execute(
+                "SELECT date, value FROM macro_history WHERE variable = ? "
+                "AND date BETWEEN ? AND ? ORDER BY rowid",
+                (name, st["first"], st["last"]),
+            ):
+                if value is not None:
+                    stale[date] = value  # rowid sau thắng (classifier đọc bản mới nhất)
+            if stale:
+                new_pairs = dict(
+                    zip(
+                        df_melted.loc[df_melted["variable"] == name, "date"],
+                        df_melted.loc[df_melted["variable"] == name, "value"],
+                        strict=False,
+                    )
+                )
+                report = check_overlap(new_pairs, stale, tol_pct=overlap_tol)
+                if report["n"] and report["max_abs_pct"] > overlap_tol:
+                    if not replace_series:
+                        print(
+                            f"  [FAIL] {name}: lệch {report['max_abs_pct']:.3f}% so với dữ liệu đã lưu "
+                            f"tại {report['worst_date']} (ngưỡng {overlap_tol}%, "
+                            f"n={report['n']}) — nghi đổi quy ước. Không ghi."
+                        )
+                        print(
+                            "         Nếu đã xác định chuỗi cũ là hỗn hợp nhiều quy ước: chạy lại với "
+                            "--replace-series --reason \"...\" (cách ly toàn bộ chuỗi cũ rồi nạp lại 1 nguồn)."
+                        )
+                        raise SystemExit(2)
+                    print(
+                        f"  ⚠ {name}: lệch {report['max_abs_pct']:.3f}% tại {report['worst_date']} "
+                        f"— được phép vì --replace-series"
+                    )
+                if report["n"] and not replace_series:
+                    print(
+                        f"  ↳ {name}: vùng chồng lấn n={report['n']}, "
+                        f"lệch max {report['max_abs_pct']:.4f}% (ngưỡng {overlap_tol}%) — OK"
+                    )
+            stale = {}
+
+        if replace_series:
+            for name in tickers:
+                for tbl in ("macro_history", "macro_history_v2"):
+                    if not table_exists(conn, tbl):
+                        continue
+                    try:
+                        stats_q = quarantine_series(
+                            conn,
+                            name,
+                            reason=replace_reason,
+                            stamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            table=tbl,
+                        )
+                    except MacroSeriesInvalid as exc:
+                        print(f"  ↳ {tbl}/{name}: {exc} — bỏ qua bảng này")
+                        continue
+                    print(
+                        f"  🗄  cách ly {tbl}/{name}: {stats_q['moved']} dòng "
+                        f"({stats_q['distinct_dates']} ngày, "
+                        f"{stats_q['first']}..{stats_q['last']})"
+                    )
+
         save_data_upsert("macro_history", df_melted, conn)
 
     v2_records = []
@@ -2680,8 +2779,227 @@ def cmd_gold(args):
             print(f"  [{_ll('FAIL')}] Gold dashboard: {e}")
 
 
+def cmd_silver_stationarity(args):
+    """Kiểm định tiên quyết cho bạc & GSR: ADF · Hurst · VR · OU half-life · Engle–Granger.
+
+    [WHY] NQ-10 nhiệm vụ 2: phải trả lời bằng SỐ đo (a) log giá bạc là random walk hay
+    hồi quy trung bình, (b) GSR có half-life đo được không, (c) vàng–bạc có đồng tích
+    hợp không — trước khi bất kỳ ngưỡng 65–70 nào được coi là "điểm cân bằng". Không
+    có lệnh này thì các con số đó chỉ tồn tại trong đầu người viết báo cáo.
+
+    [WHY] Đọc `macro_history_v2` (đã có UNIQUE index theo variable+date) chứ không đọc
+    v1: v1 KHÔNG có ràng buộc duy nhất nên có thể chứa nhiều dòng cùng ngày (đo được
+    30/10/2026: XAGUSD v1 có 42 dòng trùng; GOLD_XAU v1 có 1.293 dòng trùng). Nếu đọc
+    v1 rồi `dict()` lấy dòng cuối, thứ tự dòng quyết định giá trị ⇒ kết quả không tái
+    lập. Vẫn in số dòng v1 để phát hiện lệch (dấu hiệu registry cap chặn dữ liệu thật).
+
+    [WHY] Mọi khối kết quả đều in kèm cỡ mẫu và nhãn NON-DECISIONAL: cửa sổ 2025–2026
+    là OOS, cấm dùng để chọn/tinh chỉnh tham số (AGENTS bất biến #3). Vì vậy báo cáo
+    tách riêng khối IN-SAMPLE ≤ 2024-12-31 — chỉ khối đó được dùng để đăng ký giả
+    thuyết; khối toàn mẫu chỉ để tham khảo.
+    """
+    import numpy as np
+
+    from src.analysis.stationarity import (
+        DiagnosticsUnavailable,
+        adf,
+        engle_granger,
+        hurst_from_log_prices,
+        ou_half_life,
+        summarize_series,
+        variance_ratio,
+    )
+    from src.database.db_core import get_connection
+
+    # [WHY] Mốc OOS của dự án. Không đổi theo tham số CLI: nếu cho phép "dời" mốc OOS
+    # thì chính việc dời mốc đã là một quyết định tune, và nó sẽ không để lại dấu vết.
+    OOS_START = "2025-01-01"
+
+    start = getattr(args, "start", None) or "1900-01-01"
+    end = getattr(args, "end", None) or "2100-01-01"
+
+    # [WHY] `value > 0`: XAU/XAG là giá kim loại quý, giá ≤ 0 là dữ liệu hỏng. Cố ý
+    # KHÔNG áp dụng cho toàn bộ biến macro (WTI 2020-04-20 đóng cửa −37,63 là thật).
+    SQL = (
+        "SELECT date, value FROM macro_history_v2 "
+        "WHERE variable = ? AND value IS NOT NULL AND value > 0 "
+        "AND date BETWEEN ? AND ? ORDER BY date"
+    )
+    with get_connection() as conn:
+        silver_rows = conn.execute(SQL, ("XAGUSD", start, end)).fetchall()
+        gold_rows = conn.execute(SQL, ("GOLD_XAU", start, end)).fetchall()
+        v1_silver = conn.execute(
+            "SELECT COUNT(DISTINCT date), COUNT(*) FROM macro_history "
+            "WHERE variable='XAGUSD' AND value IS NOT NULL",
+        ).fetchone()
+        v1_gold = conn.execute(
+            "SELECT COUNT(DISTINCT date), COUNT(*) FROM macro_history "
+            "WHERE variable='GOLD_XAU' AND value IS NOT NULL",
+        ).fetchone()
+
+    print("=" * 72)
+    print("  PTCK — SILVER STATIONARITY & COINTEGRATION")
+    print("  ⚠ NON-DECISIONAL: không dùng để phát sinh tín hiệu giao dịch.")
+    print("=" * 72)
+
+    if not silver_rows or not gold_rows:
+        print("  [FAIL] Thiếu chuỗi trong macro_history_v2 — không kiểm định được.")
+        print(f"         XAGUSD={len(silver_rows)} dòng, GOLD_XAU={len(gold_rows)} dòng.")
+        raise SystemExit(2)
+
+    print(f"  Nguồn: macro_history_v2 | XAGUSD {len(silver_rows)} dòng "
+          f"({silver_rows[0][0]}..{silver_rows[-1][0]})")
+    print(f"                            | GOLD_XAU {len(gold_rows)} dòng "
+          f"({gold_rows[0][0]}..{gold_rows[-1][0]})")
+    print(f"  Đối chiếu v1: XAGUSD {v1_silver[0]} ngày/{v1_silver[1]} dòng · "
+          f"GOLD_XAU {v1_gold[0]} ngày/{v1_gold[1]} dòng")
+    for name, rows_v2, (n_dates_v1, n_rows_v1) in (
+        ("XAGUSD", silver_rows, v1_silver),
+        ("GOLD_XAU", gold_rows, v1_gold),
+    ):
+        if n_rows_v1 != n_dates_v1:
+            print(f"    ⚠ {name}: v1 có {n_rows_v1 - n_dates_v1} dòng TRÙNG ngày "
+                  "(không tái lập được thứ tự ⇒ chỉ dùng v2).")
+        if n_dates_v1 > len(rows_v2):
+            print(f"    ⚠ {name}: v1 có {n_dates_v1} ngày nhưng v2 chỉ {len(rows_v2)} "
+                  "⇒ có dòng bị canonical validator từ chối (kiểm trần/sàn registry).")
+
+    silver = {d: float(v) for d, v in silver_rows}
+    gold = {d: float(v) for d, v in gold_rows}
+    shared = sorted(set(silver) & set(gold))
+
+    def report(title: str, dates: list[str], *, detail: bool) -> None:
+        """In một khối kết quả cho tập ngày `dates` (đã align giữa bạc và vàng)."""
+        print()
+        print(f"  ── {title} ──")
+        if not dates:
+            print("    (không có ngày chung)")
+            return
+        ag = np.array([silver[d] for d in dates], dtype=float)
+        au = np.array([gold[d] for d in dates], dtype=float)
+        gsr = au / ag
+        log_ag = np.log(ag)
+        log_gsr = np.log(gsr)
+
+        st = summarize_series(ag, label="XAGUSD")
+        print(f"    mẫu: {st['n']} phiên, {dates[0]}..{dates[-1]} | "
+              f"XAGUSD {st['min']:.3f}–{st['max']:.3f} | σ năm hoá {st['ann_vol_pct']:.1f}%")
+        print(f"    GSR: cuối kỳ {gsr[-1]:.2f} | min {gsr.min():.2f} max {gsr.max():.2f} "
+              f"| trung vị {float(np.median(gsr)):.2f}")
+        pctile = float((gsr <= gsr[-1]).mean() * 100.0)
+        print(f"    phân vị của GSR cuối kỳ trong mẫu: {pctile:.1f}% | "
+              f"tỷ lệ phiên GSR ≤ 65: {float((gsr <= 65).mean() * 100):.1f}% | ≤ 70: "
+              f"{float((gsr <= 70).mean() * 100):.1f}%")
+
+        try:
+            a = adf(log_ag, deterministic="constant")
+            verdict = "BÁC BỎ random walk (có lực kéo về)" if a["reject_unit_root_5pct"] \
+                else "KHÔNG bác bỏ random walk"
+            print(f"    ADF log XAGUSD : t = {a['statistic']:+.2f} "
+                  f"(n={a['n_obs']}, {a['lags']} trễ, CV 5% {a['critical_values']['5%']}) "
+                  f"⇒ {verdict}")
+        except DiagnosticsUnavailable as exc:
+            print(f"    ADF log XAGUSD : không đủ điều kiện — {exc}")
+
+        try:
+            h = hurst_from_log_prices(log_ag)
+            print(f"    Hurst (R/S trên log-return) : H = {h['hurst']:.3f} "
+                  f"(R²={h['r2']:.2f}, {h['n_returns']} return) ⇒ {h['interpretation']}")
+        except DiagnosticsUnavailable as exc:
+            print(f"    Hurst : không đủ điều kiện — {exc}")
+
+        if detail:
+            try:
+                v = variance_ratio(ag, qs=(2, 5, 10, 20, 40))
+                parts = ", ".join(f"VR({q})={d['vr']:.2f}" for q, d in v["horizon"].items())
+                print(f"    Variance ratio   : {parts}")
+                print("      (z iid chỉ tham khảo — bạc có cụm biến động, giả định "
+                      "homoskedastic bị vi phạm)")
+            except DiagnosticsUnavailable as exc:
+                print(f"    Variance ratio : không đủ điều kiện — {exc}")
+
+        try:
+            a_gsr = adf(log_gsr, deterministic="constant")
+            verdict = "BÁC BỎ random walk" if a_gsr["reject_unit_root_5pct"] \
+                else "KHÔNG bác bỏ random walk"
+            print(f"    ADF log GSR    : t = {a_gsr['statistic']:+.2f} "
+                  f"(n={a_gsr['n_obs']}, {a_gsr['lags']} trễ) ⇒ {verdict}")
+        except DiagnosticsUnavailable as exc:
+            print(f"    ADF log GSR    : không đủ điều kiện — {exc}")
+
+        try:
+            ou = ou_half_life(log_gsr)
+            if ou["half_life_days"] is None:
+                print(f"    OU half-life   : KHÔNG ĐO ĐƯỢC (lý do {ou['reason']}, "
+                      f"β={ou['beta']:+.4f}) — không gán 0/∞ thay thế")
+            else:
+                print(f"    OU half-life   : {ou['half_life_days']:.1f} phiên "
+                      f"(φ={ou['phi']:.4f}, t(β)={ou['t_stat']:+.2f}) | "
+                      f"trung bình dài hạn suy ra: GSR = {np.exp(ou['long_run_mean']):.2f}")
+                print(f"      ⇒ độ lệch khỏi cân bằng giảm một nửa sau ~{ou['half_life_days']:.0f} "
+                      f"phiên (còn 25% sau ~{2 * ou['half_life_days']:.0f} phiên)")
+        except DiagnosticsUnavailable as exc:
+            print(f"    OU half-life   : không đủ điều kiện — {exc}")
+
+        try:
+            eg = engle_granger(np.log(au), np.log(ag))
+            verdict = "BÁC BỎ H0 (có đồng tích hợp)" if eg["reject_no_cointegration_5pct"] \
+                else "KHÔNG bác bỏ H0 (không đủ bằng chứng đồng tích hợp)"
+            print(f"    Engle–Granger  : log(vàng) = {eg['alpha']:+.3f} + "
+                  f"{eg['beta']:.3f}·log(bạc), residual ADF t = "
+                  f"{eg['residual_adf']['statistic']:+.2f} (CV EG 5% "
+                  f"{eg['critical_values']['5%']}) ⇒ {verdict}")
+        except DiagnosticsUnavailable as exc:
+            print(f"    Engle–Granger  : không đủ điều kiện — {exc}")
+
+    report("TOÀN MẪU (chứa OOS 2025–2026 ⇒ NON-DECISIONAL)", shared, detail=True)
+    in_sample = [d for d in shared if d < OOS_START]
+    report(f"IN-SAMPLE ≤ {OOS_START} (chỉ khối này được đăng ký giả thuyết)", in_sample, detail=False)
+
+    # ── Khối riêng của bạc: dùng TOÀN BỘ chuỗi, không bị cắt theo chân vàng ──
+    # [WHY] Ghép cặp với vàng (chỉ có từ 2021-04-05) làm mất 5 năm đầu của bạc
+    # (2016-01..2021-04). NQ-10 hỏi riêng "log giá bạc có random walk không", câu trả
+    # lời đó không cần vàng — cắt mẫu xuống 1.403 phiên là tự làm yếu kiểm định.
+    silver_dates = sorted(silver)
+    ag_only = np.array([silver[d] for d in silver_dates], dtype=float)
+    log_ag_only = np.log(ag_only)
+    pre_oos = [d for d in silver_dates if d < OOS_START]
+    print()
+    print("  ── BẠC RIÊNG (không phụ thuộc chân vàng) ──")
+    for label, dates_sub in (
+        ("toàn chuỗi", silver_dates),
+        (f"≤ {OOS_START}", pre_oos),
+    ):
+        log_sub = np.log(np.array([silver[d] for d in dates_sub], dtype=float))
+        try:
+            a = adf(log_sub, deterministic="constant")
+            h = hurst_from_log_prices(log_sub)
+            print(f"    {label:<12} n={len(dates_sub):>5} ({dates_sub[0]}..{dates_sub[-1]}) | "
+                  f"ADF t={a['statistic']:+.2f} ⇒ "
+                  f"{'bác bỏ RW' if a['reject_unit_root_5pct'] else 'không bác bỏ RW'} | "
+                  f"H={h['hurst']:.3f} ({h['interpretation']})")
+        except DiagnosticsUnavailable as exc:
+            print(f"    {label:<12} không đủ điều kiện — {exc}")
+    print("    Lưu ý: khối '≤ 2025-01-01' là mẫu dùng được để đăng ký giả thuyết;")
+    print("           khối 'toàn chuỗi' chứa OOS 2025–2026 ⇒ NON-DECISIONAL.")
+
+    print()
+    print("=" * 72)
+    print("  Ghi chú bắt buộc khi trích dẫn:")
+    print("  · 'Không bác bỏ' KHÔNG phải 'đã chứng minh random walk' — chỉ là thiếu")
+    print("    bằng chứng chống lại H0 ở mức 5% với mẫu hiện có.")
+    print("  · Giá trị tới hạn là TIỆM CẬN (N → ∞), không hiệu chỉnh cho N hữu hạn.")
+    print("  · Chuỗi vàng GOLD_XAU chưa được thay bằng một nguồn liên tục (còn 1.293")
+    print("    dòng trùng ở v1) ⇒ kết quả Engle–Granger chỉ là chỉ báo sơ bộ.")
+    print("  · Không có kết quả nào ở đây được dùng để đặt ngưỡng giao dịch.")
+    print("=" * 72)
+
+
 def cmd_silver(args):
     """Silver information."""
+    if args.subcommand == "stationarity":
+        cmd_silver_stationarity(args)
+        return
     if args.subcommand == "gs-ratio":
         try:
             from core.macro.precious_metal_ratio import get_gs_ratio_from_db
@@ -6130,9 +6448,19 @@ def build_parser():
     p_silver.add_argument(
         "subcommand",
         nargs="?",
-        choices=["gs-ratio", "seed"],
+        choices=["gs-ratio", "seed", "stationarity"],
         default=None,
-        help="Silver subcommand",
+        help="Silver subcommand (stationarity = ADF/Hurst/VR/OU/cointegration, NON-DECISIONAL)",
+    )
+    p_silver.add_argument(
+        "--start",
+        default=None,
+        help="Mốc bắt đầu YYYY-MM-DD (chỉ dùng cho `stationarity`)",
+    )
+    p_silver.add_argument(
+        "--end",
+        default=None,
+        help="Mốc kết thúc YYYY-MM-DD (chỉ dùng cho `stationarity`)",
     )
     p_silver.set_defaults(func=cmd_silver)
 
@@ -7125,10 +7453,45 @@ def build_parser():
     p_bfm = sub.add_parser(
         "backfill-macro",
         parents=[lang_parent],
-        help="Backfill 1y historical data cho PTD macro tickers",
+        help="Backfill lịch sử macro tickers (Yahoo) — chọn biến, mốc bắt đầu, ngưỡng chất lượng",
     )
     p_bfm.add_argument(
-        "--days", type=int, default=252, help="Số ngày lịch sử (mặc định 252)"
+        "--days", type=int, default=252, help="Số ngày lịch sử khi không dùng --start (mặc định 252)"
+    )
+    p_bfm.add_argument(
+        "--variables",
+        default=None,
+        help="Danh sách biến cách nhau bằng dấu phẩy (VD: XAGUSD,GOLD_XAU). Mặc định: toàn bộ",
+    )
+    p_bfm.add_argument(
+        "--start",
+        default=None,
+        help="Mốc bắt đầu YYYY-MM-DD (ưu tiên hơn --days; VD: 2016-01-01 cho full history)",
+    )
+    p_bfm.add_argument(
+        "--min-rows",
+        type=int,
+        default=0,
+        dest="min_rows",
+        help="Ngưỡng tối thiểu số dòng/biến; không đạt ⇒ không ghi (chống mẫu cụt)",
+    )
+    p_bfm.add_argument(
+        "--overlap-tol",
+        type=float,
+        default=0.5,
+        dest="overlap_tol",
+        help="Ngưỡng lệch %% cho phép ở vùng chồng lấn với dữ liệu đã lưu (mặc định 0.5)",
+    )
+    p_bfm.add_argument(
+        "--replace-series",
+        action="store_true",
+        dest="replace_series",
+        help="Cách ly TOÀN BỘ chuỗi cũ (sang macro_history_quarantine) rồi nạp lại từ 1 nguồn",
+    )
+    p_bfm.add_argument(
+        "--reason",
+        default=None,
+        help="Lý do cách ly (bắt buộc khi dùng --replace-series; ghi vào audit trail)",
     )
     p_bfm.set_defaults(func=cmd_backfill_macro)
 
