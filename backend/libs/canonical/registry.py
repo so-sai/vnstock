@@ -255,13 +255,15 @@ class CanonicalAssetRegistry:
                 [DataSource.YAHOO],
                 DataSource.YAHOO,
                 "World gold XAU/USD",
-                # [WHY] Trần 20.000 (25/10/2026 nâng từ 5.000): GC=F đóng cửa cao
-                # nhất đo được là 5.318,40 (2026-01-26) — trần cũ 5.000 từ chối 52
-                # dòng THẬT trong macro_history (2026-01-26..2026-03-17), khiến
-                # macro_history_v2 mất 25 dòng so với v1 và mọi phép tính GSR đọc
-                # v2 trong giai đoạn blow-off top bị hụt mẫu. 20.000 vẫn cách lỗi
-                # thang ×10 (~53.184) gần 3 lần ⇒ vẫn fail-closed với unit sai.
-                1500,
+                # [WHY] Sàn 200 (30/10/2026 nâng từ 1.500 — hạ xuống): vàng giao
+                # ngưỡng 1.073,90–1.499,50 suốt 2016-01-04..2020-03-20 (đáy
+                # 2016-01-04 = 1.073,90). Sàn 1.500 đặt theo "giá hợp lý" của
+                # 2026 đã từ chối ĐÚNG 968 phiên lịch sử thật, khiến v2 chỉ còn
+                # 1.755/2.723 dòng và mọi phép GSR đọc v2 bị hụt 4,2 năm đầu.
+                # 200 vẫn là vành đai chống lỗi đơn vị: USD/gram (1.073,9 /
+                # 31,1035 = 34,5), ÷10 (107,39), ÷100 (10,74), giá âm đều bị chặn.
+                # Trần 20.000 giữ nguyên (xem [WHY] ngay dưới).
+                200,
                 20000,
                 1,
                 "yahoo_gc_f_raw",

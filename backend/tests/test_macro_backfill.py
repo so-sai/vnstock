@@ -33,9 +33,7 @@ import pandas as pd
 import pytest
 
 PROJECT_ROOT = None
-for _par in [Path(__file__).resolve().parent.parent.parent] + list(
-    Path(__file__).resolve().parent.parent.parent.parents
-):
+for _par in [Path(__file__).resolve().parent.parent.parent] + list(Path(__file__).resolve().parent.parent.parent.parents):
     if (_par / "AGENTS.md").exists() and (_par / "backend").is_dir():
         PROJECT_ROOT = _par
         break
@@ -47,6 +45,7 @@ from src.engine.macro_backfill import (  # noqa: E402
     MacroSeriesInvalid,
     check_overlap,
     melt_close_frame,
+    normalize_v2_records,
     quarantine_series,
     resolve_tickers,
     validate_series,
@@ -196,10 +195,7 @@ def mem_db():
     import sqlite3
 
     con = sqlite3.connect(":memory:")
-    con.execute(
-        "CREATE TABLE macro_history(date TEXT, variable TEXT, value REAL, "
-        "is_stale INTEGER DEFAULT 0, source TEXT)"
-    )
+    con.execute("CREATE TABLE macro_history(date TEXT, variable TEXT, value REAL, is_stale INTEGER DEFAULT 0, source TEXT)")
     con.executemany(
         "INSERT INTO macro_history(date, variable, value, is_stale, source) VALUES (?,?,?,?,?)",
         [
@@ -222,13 +218,9 @@ def test_cach_ly_chuyen_toan_bo_chuoi_va_giu_nguyen_trang(mem_db):
     assert out["moved"] == 4
     assert out["distinct_dates"] == 3
     assert out["first"] == "2026-10-04" and out["last"] == "2026-10-29"
-    kept = mem_db.execute(
-        "SELECT variable, COUNT(*) FROM macro_history GROUP BY variable"
-    ).fetchall()
+    kept = mem_db.execute("SELECT variable, COUNT(*) FROM macro_history GROUP BY variable").fetchall()
     assert kept == [("GOLD_XAU", 1)]
-    q = mem_db.execute(
-        "SELECT COUNT(*), COUNT(DISTINCT reason), MIN(quarantined_at) FROM macro_history_quarantine"
-    ).fetchone()
+    q = mem_db.execute("SELECT COUNT(*), COUNT(DISTINCT reason), MIN(quarantined_at) FROM macro_history_quarantine").fetchone()
     assert q == (4, 1, "2026-10-30 10:00:00")
 
 
@@ -244,3 +236,105 @@ def test_cach_ly_chuoi_khong_ton_tai_thi_fail(mem_db):
     hành tưởng đã làm sạch. Phải raise."""
     with pytest.raises(MacroSeriesInvalid):
         quarantine_series(mem_db, "XAGUS", reason="typo", stamp="2026-10-30 10:00:00")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# normalize_v2_records — chống "nuốt lỗi im lặng" ở cổng canonical
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _melted(variable: str = "GOLD_XAU") -> pd.DataFrame:
+    """Frame melt tối thiểu (đúng 3 cột `melt_close_frame` sinh ra)."""
+    return pd.DataFrame(
+        {
+            "variable": [variable, variable],
+            "date": ["2016-01-04", "2026-01-29"],
+            "value": [1073.90, 5318.40],
+        }
+    )
+
+
+def test_normalize_v2_giu_du_dong_hop_le():
+    """[WHY] Đường hạnh phúc: 2 dòng đo thật (đáy 2016, đỉnh 2026) phải ra 2
+    record đủ trường provenance, không rơi dòng nào."""
+    seen = []
+
+    def fake_normalize(**kwargs):
+        seen.append(kwargs)
+
+        class Rec:
+            variable = kwargs["variable"]
+            date = kwargs["date"]
+            value = kwargs["raw_value"]
+            raw_value = kwargs["raw_value"]
+            confidence = 0.85
+            source = type("S", (), {"value": "yahoo"})()
+            unit = type("U", (), {"value": "usd_per_ounce"})()
+            raw_unit = "yahoo_gc_f_raw"
+            asset_class = type("A", (), {"value": "commodity"})()
+
+        return Rec()
+
+    records, failures = normalize_v2_records(_melted(), normalize=fake_normalize)
+    assert len(records) == 2
+    assert failures == []
+    assert [r["date"] for r in records] == ["2016-01-04", "2026-01-29"]
+    assert records[0]["value"] == pytest.approx(1073.90)
+
+
+def test_normalize_v2_bao_loi_thay_vi_nuot():
+    """[WHY] Ca thật 30/10/2026: 968 dòng 2016-2020 bị `ValidationError` (sàn
+    1.500) nhưng ptck.py bắt `except (..., Exception): pass` rồi vẫn in "OK ...
+    1755 rows vào v2" và exit 0. Người vận hành tưởng đã nạp đủ 10 năm. Helper
+    phải TRẢ VỀ danh sách lỗi để caller chặn, không được im lặng."""
+
+    def fake_normalize(**kwargs):
+        if kwargs["raw_value"] < 1500:
+            raise ValueError(f"{kwargs['variable']} value {kwargs['raw_value']} < min 1500")
+        return type(
+            "Rec",
+            (),
+            {
+                "variable": kwargs["variable"],
+                "date": kwargs["date"],
+                "value": kwargs["raw_value"],
+                "raw_value": kwargs["raw_value"],
+                "confidence": 0.85,
+                "source": type("S", (), {"value": "yahoo"})(),
+                "unit": type("U", (), {"value": "usd_per_ounce"})(),
+                "raw_unit": "yahoo_gc_f_raw",
+                "asset_class": type("A", (), {"value": "commodity"})(),
+            },
+        )()
+
+    records, failures = normalize_v2_records(_melted(), normalize=fake_normalize)
+    assert len(records) == 1
+    assert len(failures) == 1
+    variable, date, value, err = failures[0]
+    assert (variable, date, value) == ("GOLD_XAU", "2016-01-04", pytest.approx(1073.90))
+    assert "min 1500" in str(err)
+
+
+def test_normalize_v2_khong_nuot_loi_lap_trinh():
+    """[WHY] Chống vá quá tay: chỉ bắt lỗi DỮ LIỆU (ValueError/ValidationError).
+    `TypeError` do code sai (vd đổi chữ ký Normalizer) phải nổ NGAY, không được
+    biến thành "dòng dữ liệu xấu" rồi lặng lẽ bỏ qua."""
+
+    def boom(**kwargs):
+        raise TypeError("signature changed")
+
+    with pytest.raises(TypeError):
+        normalize_v2_records(_melted(), normalize=boom)
+
+
+def test_normalize_v2_voi_normalizer_that_nhan_day_2016():
+    """[WHY] Hợp đồng giữa helper và registry thật: sau khi hạ sàn GOLD_XAU
+    1.500 → 200, đáy 2016-01-04 (1.073,90) phải qua cổng canonical. Test này
+    khoá lại đúng chuỗi nhân quả của NQ-17 (968 phiên từng bị chặn)."""
+    libs = PROJECT_ROOT / "backend" / "libs"
+    if str(libs) not in sys.path:
+        sys.path.insert(0, str(libs))
+    pytest.importorskip("canonical")
+    records, failures = normalize_v2_records(_melted())
+    assert failures == [], f"còn dòng bị chặn: {failures[:3]}"
+    assert len(records) == 2

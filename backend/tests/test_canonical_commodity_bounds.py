@@ -30,9 +30,7 @@ from pathlib import Path
 import pytest
 
 PROJECT_ROOT = None
-for _par in [Path(__file__).resolve().parent.parent.parent] + list(
-    Path(__file__).resolve().parent.parent.parent.parents
-):
+for _par in [Path(__file__).resolve().parent.parent.parent] + list(Path(__file__).resolve().parent.parent.parent.parents):
     if (_par / "AGENTS.md").exists() and (_par / "backend").is_dir():
         PROJECT_ROOT = _par
         break
@@ -94,3 +92,49 @@ def test_tran_san_khong_duoc_bo_trong():
         spec = reg.get(variable)
         assert spec.max_value is not None, f"{variable} mất trần ⇒ cổng thành no-op"
         assert spec.max_value > observed_max
+
+
+def test_vang_nhan_day_lich_su_2016_2020(norm):
+    """[WHY] NQ-17 (30/10/2026) nạp lại GOLD_XAU 2016-2026: 2.723 dòng vào v1
+    nhưng chỉ 1.755 vào v2. Nguyên nhân đo được: sàn `min_value=1500` từ chối
+    ĐÚNG 968 phiên 2016-01-04..2020-03-20 (giá thật 1.073,90–1.499,50) — vàng
+    trước 2019-08 luôn dưới 1.500, nên cổng canonical coi 4,2 năm dữ liệu thật
+    là rác. Sàn phải là vành đai chống lỗi đơn vị, không phải "mức giá hợp lý"
+    của thời điểm viết spec. Ba mốc dưới đây là đáy thật của từng năm."""
+    for date, value in (
+        ("2016-01-04", 1073.90),
+        ("2016-12-15", 1129.80),
+        ("2018-08-15", 1174.00),
+        ("2019-05-01", 1268.00),
+        ("2020-03-20", 1499.50),
+    ):
+        rec = norm.normalize("GOLD_XAU", date, value, "yahoo")
+        assert rec.value == pytest.approx(value)
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        34.5,  # USD/gram (1.073,9 / 31,1035) — lỗi đơn vị rất thật với vàng
+        107.39,  # ÷10 của đáy 2016
+        10.739,  # ÷100
+        -12.0,  # giá âm
+    ],
+)
+def test_san_vang_chan_loi_don_vi_giam(norm, bad_value):
+    """[WHY] Chống vá quá tay theo chiều ngược: hạ sàn để nhận 1.073,90 KHÔNG
+    được biến sàn thành no-op. Vàng hay bị nhầm đơn vị "lượng/chỉ/gram" và bị
+    chia 10/100 khi đổi nguồn; các giá trị đó phải còn bị chặn."""
+    with pytest.raises(ValidationError) as exc:
+        norm.normalize("GOLD_XAU", "2016-01-04", bad_value, "yahoo")
+    assert "min" in str(exc.value)
+
+
+def test_san_vang_huu_han_va_thap_hon_day_thuc():
+    """[WHY] Cùng lý do với test trần: `min_value=None` sẽ làm test sàn xanh giả
+    trong khi mở cửa cho 0/âm/giá trị rác. Sàn phải hữu hạn, dương, và nằm dưới
+    đáy đo thật 1.073,90 (không được kê sát để "vừa bài test")."""
+    spec = CanonicalAssetRegistry().get("GOLD_XAU")
+    assert spec.min_value is not None, "GOLD_XAU mất sàn ⇒ cổng thành no-op"
+    assert spec.min_value > 0
+    assert spec.min_value < 1073.90

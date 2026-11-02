@@ -2178,6 +2178,7 @@ def cmd_backfill_macro(args):
         MacroSeriesInvalid,
         check_overlap,
         melt_close_frame,
+        normalize_v2_records,
         quarantine_series,
         resolve_tickers,
         table_exists,
@@ -2235,6 +2236,27 @@ def cmd_backfill_macro(args):
     print(f"  {'Biến':<16}{'n':>7}  {'từ':<12}{'đến':<12}")
     for name, st in sorted(stats.items()):
         print(f"  {name:<16}{st['n']:>7}  {st['first']:<12}{st['last']:<12}")
+
+    # ── Cổng canonical (v2) phải chạy TRƯỚC mọi thao tác ghi/cách ly ──
+    # [WHY] `macro_history_v2` là bảng 3 consumer đọc trước (uncertainty_layer,
+    # gold_h2_series, commodity_hit_rate). Trước 30/10/2026 vòng lặp chuẩn hoá nằm
+    # SAU lệnh ghi v1 và bắt `except (..., Exception): pass`, nên 968 phiên
+    # GOLD_XAU 2016-2020 bị sàn 1.500 từ chối mà lệnh vẫn in "OK" + exit 0.
+    # Chuẩn hoá trước ⇒ lỗi thì KHÔNG ghi v1, KHÔNG cách ly, exit ≠ 0: fail-closed.
+    try:
+        v2_records, v2_failures = normalize_v2_records(df_melted)
+    except ImportError as exc:
+        print(f"  ⚠  canonical không khả dụng ({exc}) — chỉ ghi v1, KHÔNG ghi v2")
+        v2_records, v2_failures = [], []
+    if v2_failures:
+        print(
+            f"  [{_ll('FAIL')}] {len(v2_failures)}/{len(df_melted)} dòng bị cổng canonical "
+            f"từ chối — không ghi gì (kể cả v1), không cách ly chuỗi cũ."
+        )
+        for variable, date, value, err in v2_failures[:5]:
+            print(f"         {variable} {date} value={value:.4f}: {err}")
+        print("         Sửa sàn/trần registry hoặc nguồn dữ liệu rồi chạy lại — KHÔNG bỏ qua dòng.")
+        raise SystemExit(3)
 
     # ── Cổng chồng lấn: bản tải mới không được mâu thuẫn với dữ liệu đã lưu ──
     with get_connection() as conn:
@@ -2302,42 +2324,8 @@ def cmd_backfill_macro(args):
                     )
 
         save_data_upsert("macro_history", df_melted, conn)
-
-    v2_records = []
-    try:
-        from canonical import Normalizer
-        from canonical.validator import ValidationError
-
-        norm = Normalizer()
-        for _, row in df_melted.iterrows():
-            try:
-                rec = norm.normalize(
-                    variable=row["variable"],
-                    date=row["date"],
-                    raw_value=float(row["value"]),
-                    source="yahoo",
-                )
-                v2_records.append(
-                    {
-                        "variable": rec.variable,
-                        "date": rec.date,
-                        "value": rec.value,
-                        "asset_class": rec.asset_class.value,
-                        "unit": rec.unit.value,
-                        "source": rec.source.value,
-                        "raw_value": rec.raw_value,
-                        "raw_unit": rec.raw_unit,
-                        "confidence": rec.confidence,
-                    }
-                )
-            except (ValueError, ValidationError, Exception):
-                pass
-        if v2_records:
-            df_v2 = pd.DataFrame(v2_records)
-            with get_connection() as conn:
-                save_data_upsert("macro_history_v2", df_v2, conn)
-    except Exception as e:
-        print(f"  ⚠️  macro_history_v2 normalize warning: {e}")
+        if v2_records and table_exists(conn, "macro_history_v2"):
+            save_data_upsert("macro_history_v2", pd.DataFrame(v2_records), conn)
 
     print(
         f"  [{_ll('OK')}] Đã seed {len(df_melted)} {_ll('rows')} vào macro_history "
@@ -2989,8 +2977,12 @@ def cmd_silver_stationarity(args):
     print("  · 'Không bác bỏ' KHÔNG phải 'đã chứng minh random walk' — chỉ là thiếu")
     print("    bằng chứng chống lại H0 ở mức 5% với mẫu hiện có.")
     print("  · Giá trị tới hạn là TIỆM CẬN (N → ∞), không hiệu chỉnh cho N hữu hạn.")
-    print("  · Chuỗi vàng GOLD_XAU chưa được thay bằng một nguồn liên tục (còn 1.293")
-    print("    dòng trùng ở v1) ⇒ kết quả Engle–Granger chỉ là chỉ báo sơ bộ.")
+    # [WHY] Dòng cảnh báo cũ ("vàng còn 1.293 dòng trùng ⇒ EG chỉ là sơ bộ") đã SAI
+    # sau NQ-17/NQ-17b (02/11/2026): v1 ≡ v2 = 2.723 phiên sạch. Giữ câu cũ sẽ khiến
+    # người đọc hạ thấp một kết quả đo trên chuỗi sạch — hoặc tệ hơn, tin rằng chuỗi
+    # vẫn nhiễm khi nó đã được cách ly + nạp lại. In trạng thái THẬT của hai chân.
+    print("  · Hai chân đã sạch (NQ-17b): GOLD_XAU v1≡v2, không dòng trùng, không bar")
+    print("    cuối tuần; Engle–Granger ở trên đo trên cặp chuỗi 2016-01-04..2026-10-30.")
     print("  · Không có kết quả nào ở đây được dùng để đặt ngưỡng giao dịch.")
     print("=" * 72)
 

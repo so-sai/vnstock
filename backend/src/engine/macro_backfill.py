@@ -24,7 +24,7 @@ phát hiện ra điều đó.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 import pandas as pd
@@ -246,6 +246,77 @@ def quarantine_series(
         "first": min(dates) if dates else None,
         "last": max(dates) if dates else None,
     }
+
+
+def normalize_v2_records(
+    df: pd.DataFrame,
+    *,
+    normalize: Callable[..., Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[tuple[str, str, float, Exception]]]:
+    """Chuyển frame melt (`variable`,`date`,`value`) sang record `macro_history_v2`.
+
+    [WHY] `macro_history_v2` là bảng DUY NHẤT có `source`/`unit` và là bảng mà
+    `uncertainty_layer`, `gold_h2_series`, `commodity_hit_rate` đọc trước; v1 chỉ
+    là bản sao lịch sử. Vì vậy mỗi dòng rơi khỏi v2 là một mắt mẫu mất thật, chứ
+    không phải "v2 thiếu cho gọn".
+
+    [ROOT CAUSE] `cmd_backfill_macro` cũ gọi `Normalizer` trong vòng lặp với
+    `except (ValueError, ValidationError, Exception): pass` (ptck.py:2333). Ca
+    thật 30/10/2026: sàn `GOLD_XAU.min_value=1500` từ chối 968 phiên 2016-01-04..
+    2020-03-20 (giá 1.073,90–1.499,50), lệnh vẫn in "Đã seed 2723 rows (1755 rows
+    vào macro_history_v2)" và exit 0 ⇒ mất 4,2 năm lịch sử mà không một cảnh báo.
+    Bắt cả `Exception` còn nguy hiểm hơn: lỗi lập trình (đổi chữ ký Normalizer,
+    TypeError) bị hạ cấp thành "dòng dữ liệu xấu" và bỏ qua.
+
+    [INVARIANT] (1) Trả về (records, failures) — KHÔNG tự bỏ qua: mọi dòng lỗi
+    được đếm kèm (variable, date, value, error) để caller chặn ghi. (2) Chỉ bắt
+    `ValueError` (bao gồm `ValidationError`) — lỗi dữ liệu; lỗi lập trình phải nổ.
+    (3) Không sửa/đoán giá trị để "cho qua cổng": sai thì thiếu, không bịa.
+    """
+    if normalize is None:
+        from canonical import Normalizer
+
+        engine = Normalizer()
+
+        def normalize(**kwargs: Any) -> Any:  # type: ignore[misc]
+            return engine.normalize(**kwargs)
+
+    records: list[dict[str, Any]] = []
+    failures: list[tuple[str, str, float, Exception]] = []
+    for _, row in df.iterrows():
+        # [WHY] Tách `float(...)` khỏi lời gọi `normalize`: cột value là chuỗi rác
+        # thì đó là lỗi DỮ LIỆU (ghi vào failures); còn TypeError ném ra TỪ
+        # `normalize` là lỗi LẬP TRÌNH (đổi chữ ký) và phải nổ ngay — gộp chung
+        # một `except (ValueError, TypeError)` sẽ tái sinh đúng cái bẫy đang sửa.
+        try:
+            raw = float(row["value"])
+        except (TypeError, ValueError) as exc:
+            failures.append((str(row["variable"]), str(row["date"]), float("nan"), exc))
+            continue
+        try:
+            rec = normalize(
+                variable=row["variable"],
+                date=row["date"],
+                raw_value=raw,
+                source="yahoo",
+            )
+        except ValueError as exc:
+            failures.append((str(row["variable"]), str(row["date"]), raw, exc))
+            continue
+        records.append(
+            {
+                "variable": rec.variable,
+                "date": rec.date,
+                "value": rec.value,
+                "asset_class": rec.asset_class.value,
+                "unit": rec.unit.value,
+                "source": rec.source.value,
+                "raw_value": rec.raw_value,
+                "raw_unit": rec.raw_unit,
+                "confidence": rec.confidence,
+            }
+        )
+    return records, failures
 
 
 def _table_columns(conn, table: str) -> list[str]:
