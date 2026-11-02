@@ -181,32 +181,34 @@ impl CdpClient {
         let local_app_data = env::var("LOCALAPPDATA")
             .unwrap_or_else(|_| r"C:\Users\Admin\AppData\Local".to_string());
         let zalo_base = PathBuf::from(local_app_data).join("Programs").join("Zalo");
-        let root_exe = zalo_base.join("Zalo.exe");
-        let exe_path = if root_exe.exists() {
-            root_exe
-        } else {
-            let mut zalo_exe: Option<(std::time::SystemTime, PathBuf)> = None;
-            if let Ok(entries) = std::fs::read_dir(&zalo_base) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_dir() {
-                        if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                            if name.starts_with("Zalo-") {
-                                let candidate = p.join("Zalo.exe");
-                                if let Ok(meta) = std::fs::metadata(&candidate) {
-                                    let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
-                                    if zalo_exe.as_ref().map_or(true, |(best_t, _)| mtime > *best_t) {
-                                        zalo_exe = Some((mtime, candidate));
-                                    }
+        let mut zalo_exe: Option<(std::time::SystemTime, PathBuf)> = None;
+        if let Ok(entries) = std::fs::read_dir(&zalo_base) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with("Zalo-") {
+                            let candidate = p.join("Zalo.exe");
+                            if let Ok(meta) = std::fs::metadata(&candidate) {
+                                let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                                if zalo_exe.as_ref().map_or(true, |(best_t, _)| mtime > *best_t) {
+                                    zalo_exe = Some((mtime, candidate));
                                 }
                             }
                         }
                     }
                 }
             }
-            match zalo_exe {
-                Some((_, p)) => p,
-                None => return Err("Không tìm thấy Zalo.exe trong AppData\\Local\\Programs\\Zalo.".to_string()),
+        }
+        let exe_path = match zalo_exe {
+            Some((_, p)) => p,
+            None => {
+                let root_exe = zalo_base.join("Zalo.exe");
+                if root_exe.exists() {
+                    root_exe
+                } else {
+                    return Err("Không tìm thấy Zalo.exe trong AppData\\Local\\Programs\\Zalo.".to_string());
+                }
             }
         };
 
@@ -214,17 +216,19 @@ impl CdpClient {
             "⚡ [Self-Boot] Đang khởi động lại Zalo PC kèm cổng CDP 58721: {}",
             exe_path.display()
         );
-            let _ = Command::new("powershell")
-                .creation_flags(CREATE_NO_WINDOW)
-                .args([
-                    "-NoProfile",
-                    "-Command",
-                    &format!(
-                        "Stop-Process -Name Zalo -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; Start-Process -FilePath '{}' -ArgumentList '--remote-debugging-port=58721' | Out-Null",
-                        exe_path.display()
-                    ),
-                ])
-                .output();
+        let work_dir = exe_path.parent().unwrap_or(&zalo_base);
+        let _ = Command::new("powershell")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "Stop-Process -Name Zalo, ZaloCall, ZaloCap -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; Start-Process -FilePath '{}' -ArgumentList '--remote-debugging-port=58721' -WorkingDirectory '{}' -WindowStyle Normal | Out-Null",
+                    exe_path.display(),
+                    work_dir.display()
+                ),
+            ])
+            .output();
             for _ in 0..20 {
                 thread::sleep(Duration::from_millis(500));
                 if Self::find_zalo_ws_path(58721).is_ok() {
