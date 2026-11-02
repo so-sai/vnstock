@@ -45,6 +45,13 @@ chuyển **toàn bộ** chuỗi cũ sang `macro_history_quarantine` / `macro_his
 kèm `reason` + `quarantined_at`, rồi nạp lại từ **một** nguồn. Cấm "giữ phần tốt, thay
 phần xấu" bằng suy đoán.
 
+**`backfill-macro` — cổng canonical fail-closed (NQ-17b, 02/11/2026).** Trước khi **ghi bất cứ
+thứ gì** (kể cả v1 và trước khi cách ly), toàn bộ frame được chuẩn hoá qua `canonical.Normalizer`
+(`normalize_v2_records`). Có dòng bị từ chối (sàn/trần registry, unit sai, giá ≤ 0) ⇒ in 5 ca
+đầu + `EXIT 3`, **không ghi v1, không ghi v2, không cách ly chuỗi cũ**. Ca thật đã bắt: 968
+phiên `GOLD_XAU` 2016–2020 bị sàn `min_value=1500` chặn (đã hạ còn 200) — trước đây lệnh vẫn
+in "OK" và exit 0. Hệ quả bất biến: một lần chạy thành công luôn có `v1 ≡ v2` về date-set.
+
 ## 2. Kiểm toán dữ liệu, cổ tức, PIT
 
 | Lệnh | Chức năng | Cờ chính |

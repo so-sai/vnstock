@@ -559,9 +559,42 @@ Nguyên tắc: không tự thực thi khi chưa có GO; mọi mục phải fail-
   - **Bẫy vận hành:** `ptck.py restore-backup` chỉ phục hồi **alerts**, KHÔNG phục hồi
     `screener_cache.db` — phục hồi DB phải copy file `.bak` đè lên, rồi kiểm hash + integrity.
 
-## 17. ⧗ OPEN — `GOLD_XAU` vẫn là chuỗi HỖN HỢP quy ước (NQ-10 nhiệm vụ 1 mới làm xong bạc)
+## 17. ✅ DONE (02/11/2026, NQ-17 + NQ-17b) — `GOLD_XAU` chuẩn hoá toàn chuỗi
 
-**Trạng thái:** bạc (`XAGUSD`) ĐÃ SẠCH (2026-10-30); **vàng CHƯA**.
+> **KẾT QUẢ ĐO LẠI TỪ DB (2026-11-02 14:24, sau `--replace-series` lần 2):**
+>
+> | Chỉ tiêu | Trước (30/10) | Sau NQ-17 (30/10) | **Sau NQ-17b (02/11)** |
+> |---|---|---|---|
+> | v1 dòng / ngày phân biệt | 2.700 / 1.407 (**1.293 trùng**) | 2.723 / 2.723 | **2.723 / 2.723** |
+> | v2 dòng / khoảng | 1.407 (2021-04-05..) | 1.755 (**thiếu 968 ngày**) | **2.723 ≡ v1, 2016-01-04..2026-10-30** |
+> | Bar cuối tuần | 2 | 0 | **0** |
+> | Giá trị > 5.000 | 52 dòng (bị trần 5.000 chặn) | 27 dòng trong v2 | **27 phiên, max 5.318,40 (2026-01-29)** |
+> | Đáy lịch sử | — | 1.500 (sàn chặn 2016-2020) | **1.073,90 (2016-01-04) — đã qua cổng** |
+> | Audit | — | q(v1) 2.701 · q(v2) 1.408 | **q(v1) 2.701+2.723+1 · q(v2) 1.408+1.755+1** |
+>
+> **Ba lỗi gốc phát hiện khi nghiệm thu (đều đã sửa + test):**
+> (a) `canonical/registry.py` đặt `GOLD_XAU.min_value = 1500` — nhưng vàng giao dịch
+> 1.073,90–1.499,50 suốt 2016-01-04..2020-03-20, nên cổng canonical từ chối **đúng 968 phiên
+> thật** (v2 chỉ còn 1.755 dòng). Sàn hạ về **200** (vẫn chặn USD/gram = 34,5; ÷10 = 107,39; ÷100; âm).
+> (b) `ptck.py:2333` bắt `except (ValueError, ValidationError, Exception): pass` ⇒ mất 968 phiên
+> mà vẫn in "OK … 1755 rows vào macro_history_v2" và **exit 0**. Nay chuyển sang
+> `normalize_v2_records()` (đếm lỗi, chỉ bắt `ValueError`, lỗi lập trình phải nổ) và chuẩn hoá
+> **trước** khi ghi/cách ly: có dòng bị từ chối ⇒ **không ghi gì, exit 3**.
+> (c) Bar **2026-11-02 chưa settle** (3.915,60 lúc 14:24) đã được cách ly kèm lý do — bằng chứng
+> cùng loại: bar 2026-10-30 ghi lúc 15:33 là 3.997,70 (trong phiên) nhưng settle thật 3.898,90
+> (**−2,471%**). Không được dùng bar đang chạy làm close.
+>
+> **Ảnh hưởng lên kiểm định:** mẫu GSR đổi từ 1.403 → **2.722 phiên** (vàng 2016-2026 thay vì
+> 2021-2026). Kết luận đổi theo hướng *mạnh hơn*: ADF log GSR toàn mẫu t = **−3,02** (bác bỏ RW
+> ở 5%) nhưng in-sample t = **−2,54** (không bác bỏ); EG β = 0,881, residual t = −2,85 (vẫn
+> không đồng tích hợp); in-sample chỉ **7/2.261 phiên ≤ 65** (toàn bộ trong 2021-02-01..2021-03-02).
+> Số liệu cũ ("51–73 phiên", "GSR 78,43", "chưa từng ≤ 65") **đã bị thay**.
+>
+> **Test khoá:** `test_canonical_commodity_bounds.py` (13: thêm sàn + chống bỏ sàn),
+> `test_macro_backfill.py` (18: thêm 4 test cho `normalize_v2_records`, gồm ca "không nuốt
+> TypeError" và ca Normalizer thật nhận đáy 2016). **109 passed** trên 8 file macro.
+
+**Trạng thái cũ (giữ làm lịch sử, 30/10/2026):** bạc (`XAGUSD`) ĐÃ SẠCH; **vàng CHƯA**.
 
 **Số đo (30/10/2026, trước khi sửa bạc):**
 
@@ -591,12 +624,30 @@ Sau khi chạy: verify (a) v1 = v2 date-set, (b) 0 bar cuối tuần, (c) 0 dòn
 `silver stationarity` xem Engle–Granger có đổi kết luận không, (e) chạy 3 consumer trên DB
 shadow để so trước/sau.
 
-**Defect phụ (chưa sửa, cần quyết định thiết kế):** `macro_history_v2` không có bất biến "mọi
-ngày của v1 phải có mặt". Vì vậy khi canonical validator từ chối dữ liệu, **không có cảnh báo
-nào** — lệch date-set là dấu hiệu duy nhất và phải tự đi tìm. Đề xuất: cổng kiểm trong
-`db_core.save_data_upsert` hoặc một lệnh `db audit-macro-coverage`.
+**Defect phụ — ĐÃ SỬA 02/11/2026 (NQ-17b):** `macro_history_v2` không có bất biến "mọi ngày của
+v1 phải có mặt", và trước đây canonical validator từ chối dữ liệu mà **không có cảnh báo nào**.
+Nay `cmd_backfill_macro` chuẩn hoá canonical **trước** khi ghi: dòng bị từ chối ⇒ in 5 ca đầu +
+`exit 3`, không ghi v1, không cách ly. Lệch date-set từ nay là *bất khả* trong một lần chạy
+thành công (cùng transaction với `save_data_upsert`), không còn là "dấu hiệu duy nhất".
+Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro toàn cầu.
 
 **Bằng chứng & số liệu đầy đủ:** `backend/src/research/silver_gsr_prerequisites.md`.
+
+## 18. ⧗ OPEN — Bar macro **đang chạy** vẫn lọt vào chuỗi khi backfill trong giờ giao dịch toàn cầu
+
+- **WHAT:** `backfill-macro` tải `yf.download` và ghi thẳng bar của **phiên hiện tại** (bar
+  chưa settle). Ca 2026-11-02: GC=F trả 3.915,60 lúc 14:24 VN (phiên COMEX mở 06:00 VN, đóng
+  ~05:00 VN hôm sau) ⇒ đã phải cách ly thủ công kèm lý do.
+- **WHY (số đo):** cùng cơ chế, bar 2026-10-30 ghi lúc 15:33 là **3.997,70** nhưng settle thật
+  **3.898,90** — lệch **−2,471%**. Một bar như vậy không phải "close"; nếu để lại, mọi thống kê
+  `ATR/σ/GSR` ngày cuối bị lệch và lần backfill sau (v1 không có UNIQUE index) sẽ **nhân bản**
+  dòng thay vì ghi đè.
+- **WHERE:** `ptck.py cmd_backfill_macro` (sau `melt_close_frame`), `backend/src/engine/macro_backfill.py`.
+- **DONE-WHEN:** có cổng bỏ bar `date >= hôm nay` (hoặc cờ `--allow-live-bar`) + test RED→GREEN;
+  log ghi rõ "bỏ N bar chưa settle". Không dùng `fillna`/nội suy để bù.
+- **RISK:** cắt quá tay sẽ bỏ cả bar đã settle của phiên hôm qua (với hợp đồng mở 23h, "hôm nay"
+  theo giờ VN ≠ phiên Mỹ) ⇒ phải dựa trên **giờ đóng cửa của sàn** (17:00 ET), không dựa trên
+  `date == today` của VN.
 
 ## Ghi chú vận hành
 

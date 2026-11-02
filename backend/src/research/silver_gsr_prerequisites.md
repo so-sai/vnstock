@@ -1,7 +1,9 @@
 # Bạc & GSR — Pháp y dữ liệu + Kiểm định tiên quyết (NON-DECISIONAL)
 
 **Loại:** Research note — **NON-DECISIONAL**. Không sinh tín hiệu, không đặt ngưỡng giao dịch.
-**Ngày đo:** 2026-10-30. **Phạm vi:** NQ-10/NQ-HĐKT nhiệm vụ 1 (dữ liệu) và nhiệm vụ 2 (kiểm định).
+**Ngày đo:** 2026-10-30; **cập nhật 2026-11-02** (NQ-17b: sửa sàn `GOLD_XAU` 1.500 → 200
+và cổng canonical fail-closed ⇒ toàn bộ số liệu §3 được đo lại trên mẫu 2016-01-04 → 2026-10-30).
+**Phạm vi:** NQ-10/NQ-HĐKT nhiệm vụ 1 (dữ liệu) và nhiệm vụ 2 (kiểm định).
 **Nguồn số:** `ptck.py backfill-macro` (Yahoo `SI=F`, `GC=F`) + `ptck.py silver stationarity`
 + `backend/data/screener_cache.db` (`macro_history`, `macro_history_v2`, `*_quarantine`).
 
@@ -11,13 +13,17 @@
 
 1. **Chuỗi bạc cũ (2025-06-10 → 2026-10-29) là chuỗi NHIỄM** và không tái lập được từ một
    lần tải duy nhất. Đã **cách ly toàn bộ** rồi nạp lại một nguồn liên tục 2016-01-04 →
-   2026-10-29 (2.721 phiên). Toàn bộ số liệu báo cáo ngày 30/10 (bản trước) **phải thay**
+   2026-10-30 (2.722 phiên). Toàn bộ số liệu báo cáo ngày 30/10 (bản trước) **phải thay**
    — xem §2.
-2. **Không có bằng chứng** log giá bạc hay log GSR khác random walk ở mức 5% trên mẫu hiện
-   có (ADF t = −0,63 và −2,39 trên toàn mẫu). Vì vậy **không được** tuyên bố "GSR có điểm
-   cân bằng 65–70", và **không được** coi half-life 51–73 phiên là tham số.
-3. **Chuỗi vàng `GOLD_XAU` vẫn là chuỗi cũ chưa thay** (1.293 dòng trùng ở v1, lệch tới
-   1,59% so với `GC=F` tải lại). Kết quả Engle–Granger dưới đây **chỉ là chỉ báo sơ bộ**.
+2. **Không có bằng chứng** log giá bạc khác random walk ở mức 5% trên mẫu hiện có (ADF
+   t = −0,65 toàn mẫu / −1,39 in-sample). Với **log GSR**, toàn mẫu cho t = −3,02 (bác bỏ RW
+   ở 5%) nhưng **in-sample ≤ 2024-12-31 chỉ t = −2,54** (không bác bỏ) ⇒ kết luận dùng được
+   để đăng ký giả thuyết là *chưa đủ bằng chứng* về mean-reversion. Vì vậy **không được**
+   tuyên bố "GSR có điểm cân bằng 65–70", và **không được** coi half-life 89–94 phiên là tham số.
+3. **Chuỗi vàng `GOLD_XAU` đã được thay (NQ-17 + NQ-17b, 30/10–02/11/2026)**: v1 ≡ v2 =
+   **2.723 phiên** 2016-01-04 → 2026-10-30, 0 dòng trùng, 0 bar cuối tuần, đáy 1.073,90
+   (2016-01-04) và đỉnh 5.318,40 (2026-01-29) đều qua cổng canonical. Kết quả Engle–Granger
+   dưới đây vì thế đo trên **đúng cặp chuỗi sạch 10,8 năm**, không còn là "chỉ báo sơ bộ".
 
 ---
 
@@ -126,49 +132,59 @@ xem `backend/tests/test_stationarity_diagnostics.py`).
 
 | Cửa sổ | n | ADF (log XAGUSD) | Hurst (R/S trên log-return) |
 |---|---|---|---|
-| 2016-01-04 → 2026-10-29 (**chứa OOS**) | 2.721 | t = **−0,63** ⇒ không bác bỏ RW | H = **0,574** (random-walk) |
+| 2016-01-04 → 2026-10-30 (**chứa OOS**) | 2.722 | t = **−0,65** ⇒ không bác bỏ RW | H = **0,574** (random-walk) |
 | 2016-01-04 → 2024-12-31 (**in-sample**) | 2.261 | t = **−1,39** ⇒ không bác bỏ RW | H = **0,557** (random-walk) |
 
-### 3.2 Vàng–bạc & GSR (cặp giao ngày chung, vàng chỉ có từ 2021-04-05)
+### 3.2 Vàng–bạc & GSR (cặp giao ngày chung, cả hai chân đều 2016-01-04 → 2026-10-30)
 
-| Chỉ tiêu | Toàn mẫu (1.403 phiên, chứa OOS) | In-sample ≤ 2024-12-31 (943 phiên) |
+| Chỉ tiêu | Toàn mẫu (2.722 phiên, chứa OOS) | In-sample ≤ 2024-12-31 (2.261 phiên) |
 |---|---|---|
-| GSR cuối kỳ | 78,43 (phân vị 34,3%) | 91,26 (phân vị 96,6%) |
-| GSR min–max / trung vị | 44,14–105,41 / 82,69 | 65,97–97,39 / 83,30 |
-| Tỷ lệ phiên GSR ≤ 65 / ≤ 70 | 8,4% / 19,3% | 0,0% / 7,6% |
-| ADF log GSR | t = **−2,39** ⇒ không bác bỏ RW | t = **−2,64** ⇒ không bác bỏ RW |
-| Variance ratio (bạc) | VR(2)=0,95 · VR(5)=0,91 · VR(10)=0,83 · VR(20)=0,76 · VR(40)=0,81 | — |
-| OU half-life (log GSR) | **73,1 phiên** (φ=0,9906, t(β)=−2,63) | **50,8 phiên** (φ=0,9864, t(β)=−2,64) |
-| Trung bình dài hạn suy ra từ AR(1) | GSR ≈ **80,49** | GSR ≈ **83,38** |
-| Engle–Granger (log vàng ~ log bạc) | β = **0,799**, residual ADF t = **−2,63** (CV EG 5% = −3,34) | β = **0,802**, t = **−1,97** |
+| GSR cuối kỳ | 76,58 (phân vị 33,6%) | 91,26 (phân vị 93,5%) |
+| GSR min–max / trung vị | 44,16–125,89 / 80,40 | 63,40–125,89 / 80,43 |
+| Tỷ lệ phiên GSR ≤ 65 / ≤ 70 | 4,6% / 15,8% | 0,3% (7 phiên) / 10,2% |
+| ADF log GSR | t = **−3,02** ⇒ **bác bỏ** RW ở 5% (CV −2,86) | t = **−2,54** ⇒ không bác bỏ RW |
+| Variance ratio (bạc) | VR(2)=0,95 · VR(5)=0,95 · VR(10)=0,87 · VR(20)=0,82 · VR(40)=0,83 | — |
+| OU half-life (log GSR) | **88,7 phiên** (φ=0,9922, t(β)=−3,26) | **94,4 phiên** (φ=0,9927, t(β)=−2,82) |
+| Trung bình dài hạn suy ra từ AR(1) | GSR ≈ **79,66** | GSR ≈ **81,25** |
+| Engle–Granger (log vàng ~ log bạc) | β = **0,881**, residual ADF t = **−2,85** (CV EG 5% = −3,34) | β = **0,905**, t = **−2,20** |
 
 ### 3.3 Cách đọc — và giới hạn
 
-* **ADF:** không bác bỏ H0 ở cả bạc lẫn GSR ⇒ *không đủ bằng chứng* nói chuỗi hồi quy trung
-  bình. "Không bác bỏ" **không** đồng nghĩa "đã chứng minh random walk" — chỉ là mẫu hiện có
-  chưa đủ sức bác bỏ. Giá trị tới hạn dùng là **tiệm cận** (N → ∞), không hiệu chỉnh hữu hạn.
-* **OU half-life:** điểm ước lượng 51–73 phiên **nhưng** t(β) = −2,63 không vượt −2,86 ở 5%
-  ⇒ bản thân β chưa chắc khác 0 ⇒ half-life chưa đủ tin cậy để làm tham số. Ghi nhận là
-  *hypothesis-generating*, không phải *parameter*.
-* **Engle–Granger:** t = −2,63 > −3,34 ⇒ **không bác bỏ** "không đồng tích hợp". Cộng thêm
-  rủi ro chuỗi vàng còn nhiễm (§0.3) ⇒ **chưa thể** dùng cặp vàng–bạc như một hệ đồng tích hợp.
-* **Vùng 65–70:** trong in-sample, GSR **chưa từng** xuống ≤ 65 (0,0% số phiên) và chỉ 7,6%
-  số phiên ≤ 70. Vì vậy "65–70 là điểm cân bằng" **không có cơ sở thống kê** từ dữ liệu này;
-  nó là một *quan sát lịch sử ngắn*, không phải hằng số cân bằng.
+* **ADF:** bạc không bác bỏ H0 ở cả hai cửa sổ ⇒ *không đủ bằng chứng* nói log giá bạc hồi
+  quy trung bình. **Log GSR thì khác:** toàn mẫu bác bỏ RW (t = −3,02), nhưng đó là cửa sổ
+  chứa OOS 2025–2026 nên **NON-DECISIONAL**; in-sample chỉ t = −2,54 ⇒ quyết định vẫn phải
+  dựa trên in-sample và ở đó **chưa bác bỏ được**. "Không bác bỏ" **không** đồng nghĩa "đã
+  chứng minh random walk" — chỉ là mẫu hiện có chưa đủ sức bác bỏ. Giá trị tới hạn dùng là
+  **tiệm cận** (N → ∞), không hiệu chỉnh hữu hạn.
+* **OU half-life:** điểm ước lượng 89–94 phiên, t(β) = −3,26 (toàn mẫu) / −2,82 (in-sample)
+  ⇒ **in-sample vẫn chưa vượt −2,86 ở 5%** ⇒ β chưa chắc khác 0 ⇒ half-life chưa đủ tin cậy
+  để làm tham số. Ghi nhận là *hypothesis-generating*, không phải *parameter*.
+* **Engle–Granger:** t = −2,85 (toàn mẫu) / −2,20 (in-sample), đều > −3,34 ⇒ **không bác bỏ**
+  "không đồng tích hợp". Nay đã loại bỏ được lý do "chuỗi vàng còn nhiễm" (NQ-17b), nên kết
+  luận mạnh hơn: **cặp vàng–bạc không đủ bằng chứng đồng tích hợp** trên chính dữ liệu sạch.
+* **Vùng 65–70:** in-sample chỉ có **7/2.261 phiên (0,3%)** chạm ≤ 65, và **toàn bộ** nằm trong
+  đợt squeeze bạc 2021-02-01 → 2021-03-02 (đáy 63,40 ngày 2021-02-01); 10,2% số phiên ≤ 70.
+  Vì vậy "65–70 là điểm cân bằng" **không có cơ sở thống kê** từ dữ liệu này; nó là một *quan
+  sát lịch sử*, không phải hằng số cân bằng.
 * **Variance ratio:** VR < 1 ở mọi q cho dấu hiệu mean-reversion nhẹ, nhưng z đi kèm chỉ đúng
   dưới giả định homoskedastic — bạc có cụm biến động lớn (2020-03, 2026-01) nên z **không**
   được trích dẫn như p-value.
 
-**Cấm:** dùng 51 hay 73 phiên làm "chu kỳ hồi quy"; đặt ngưỡng vào/ra quanh 65–70; suy ra
+**Cấm:** dùng 89 hay 94 phiên làm "chu kỳ hồi quy"; đặt ngưỡng vào/ra quanh 65–70; suy ra
 "bạc rẻ" từ bất kỳ ô nào của bảng trên. Muốn chuyển sang DECISIONAL: phải **đăng ký giả
 thuyết trước**, rồi kiểm chứng XUÔI bằng forward paper-trading (AGENTS bất biến #3).
 
 ---
 
-## 4. Việc còn treo (đã ghi vào `tech_debt_backlog.md`)
+## 4. Việc còn treo
 
-1. `GOLD_XAU`: 1.293 dòng trùng ở v1, chuỗi hỗn hợp quy ước (lệch max 1,59% tại 2026-10-27),
-   v2 vẫn thiếu 25 ngày > 5.000 cho tới khi chạy lại `--replace-series`. Blast radius khi thay:
-   `uncertainty_layer.py`, `gold_h2_series.py`, `commodity_hit_rate.py`.
-2. `macro_history_v2` không có ràng buộc "mọi ngày của v1 phải có mặt" ⇒ lệch date-set là
-   **dấu hiệu duy nhất** phát hiện validator từ chối dữ liệu. Cần một cổng kiểm tự động.
+1. ~~`GOLD_XAU` chuỗi hỗn hợp quy ước~~ — **ĐÓNG 02/11/2026** (NQ-17 + NQ-17b): v1 ≡ v2 =
+   2.723 phiên sạch, audit `macro_history_quarantine` 2.701 + 2.723 dòng,
+   `macro_history_v2_quarantine` 1.408 + 1.755 dòng.
+2. ~~`macro_history_v2` không có cổng "mọi ngày của v1 phải có mặt"~~ — **ĐÓNG 02/11/2026**:
+   `cmd_backfill_macro` nay chuẩn hoá canonical **trước** khi ghi, đếm lỗi và `SystemExit(3)`
+   nếu có dòng bị từ chối (không ghi v1, không cách ly). Ca thật bị bắt: 968 phiên 2016-2020
+   do sàn `min_value=1500` (đã hạ còn 200).
+3. **Còn mở:** bar macro của phiên **đang chạy** vẫn có thể lọt vào chuỗi khi backfill trong
+   giờ giao dịch toàn cầu (ca 2026-11-02: GC=F 3.915,60 lúc 14:24 đã được cách ly thủ công
+   với lý do "chưa settle"). Cần cổng "chỉ nhận bar đã settle" ở tầng `backfill-macro`.
