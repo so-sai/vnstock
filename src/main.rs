@@ -1320,16 +1320,32 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     }
 
     let mut has_breadth_row = false;
-    if let Ok(mut stmt) = db_scr
-        .conn
-        .prepare("SELECT 1 FROM market_wide_breadth_daily WHERE date=?1 LIMIT 1;")
-    {
+    let mut breadth_degraded: Option<i64> = None;
+    let mut br_adv = 0i64;
+    let mut br_dec = 0i64;
+    let mut br_unc = 0i64;
+    let mut br_ceil = 0i64;
+    let mut br_flr = 0i64;
+    let mut br_total = 0i64;
+
+    if let Ok(mut stmt) = db_scr.conn.prepare(
+        "SELECT total_active, advances, declines, unchanged, ceiling, floor, degraded FROM market_wide_breadth_daily WHERE date=?1 LIMIT 1;",
+    ) {
         if let Ok(mut rows) = stmt.query(params![vni_date]) {
-            has_breadth_row = matches!(rows.next(), Ok(Some(_)));
+            if let Ok(Some(row)) = rows.next() {
+                has_breadth_row = true;
+                br_total = row.get(0).unwrap_or(0);
+                br_adv = row.get(1).unwrap_or(0);
+                br_dec = row.get(2).unwrap_or(0);
+                br_unc = row.get(3).unwrap_or(0);
+                br_ceil = row.get(4).unwrap_or(0);
+                br_flr = row.get(5).unwrap_or(0);
+                breadth_degraded = row.get(6).ok();
+            }
         }
     }
 
-    let quality_known = reg_degraded == Some(0) && has_breadth_row;
+    let quality_known = (reg_degraded == Some(0) || (reg_degraded.is_none() && breadth_degraded == Some(0))) && has_breadth_row;
     let is_eod_final = quality_known;
 
     let mut entry_lock = !quality_known
@@ -1415,13 +1431,26 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     }
     if quality_known {
         let score_str = format!("{:.2}", reg_score.unwrap_or(0.0)).replace('.', ",");
-        let breadth_str = format!("{:.1}", reg_breadth.unwrap_or(0.0)).replace('.', ",");
+        let eff_breadth = reg_breadth.unwrap_or_else(|| {
+            if br_total > 0 {
+                (br_adv as f64 / br_total as f64) * 100.0
+            } else {
+                0.0
+            }
+        });
+        let breadth_str = format!("{:.1}", eff_breadth).replace('.', ",");
         out.push_str(&format!(
             "• Sức khỏe thị trường: {} {} — mức {}/1,00, {}% cổ phiếu tăng giá\n",
             reg_icon, reg_label, score_str, breadth_str
         ));
     } else {
         out.push_str("• Sức khỏe thị trường: ⏳ Chưa kiểm định chất lượng phiên — số liệu chỉ để tham khảo\n");
+    }
+    if has_breadth_row && br_total > 0 {
+        out.push_str(&format!(
+            "• Độ rộng toàn sàn ({} mã): {} mã tăng ({} trần) | {} mã giảm ({} sàn) | {} đứng giá\n",
+            br_total, br_adv, br_ceil, br_dec, br_flr, br_unc
+        ));
     }
 
     // 3. HUYẾT MẠCH VĨ MÔ
@@ -1432,11 +1461,21 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     let mut vgb10y = None;
     let mut gold_xau = None;
     let mut silver_xag = None;
+    let mut usd_vnd = None;
 
     if let Ok(mut m_stmt) = db_scr.conn.prepare(
         "SELECT value FROM macro_history WHERE variable=?1 ORDER BY date DESC LIMIT 1;",
     ) {
-        for &var in &["FED_TARGET_RATE", "US10Y", "DXY", "INTERBANK_ON", "VGB10Y", "GOLD_XAU", "XAGUSD"] {
+        for &var in &[
+            "FED_TARGET_RATE",
+            "US10Y",
+            "DXY",
+            "INTERBANK_ON",
+            "VGB10Y",
+            "GOLD_XAU",
+            "XAGUSD",
+            "USD_VND",
+        ] {
             if let Ok(mut rows) = m_stmt.query(params![var]) {
                 if let Ok(Some(row)) = rows.next() {
                     let val: f64 = row.get(0).unwrap_or(0.0);
@@ -1448,6 +1487,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                         "VGB10Y" => vgb10y = Some(val),
                         "GOLD_XAU" => gold_xau = Some(val),
                         "XAGUSD" => silver_xag = Some(val),
+                        "USD_VND" => usd_vnd = Some(val),
                         _ => {}
                     }
                 }
@@ -1455,57 +1495,127 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         }
     }
 
-    if !is_summary {
-        out.push_str("\n🌐 HUYẾT MẠCH VĨ MÔ\n");
-        if let Some(on) = interbank_on {
-            let on_status = if on < 4.0 {
-                "(Dồi dào, ổn định)"
-            } else if on < 5.0 {
-                "(Bình thường, ổn định)"
-            } else {
-                "(⚠️ Cảnh báo căng thẳng)"
-            };
-            let on_str = format!("{:.2}", on).replace('.', ",");
-            out.push_str(&format!("• Liên ngân hàng O/N: {}% {}\n", on_str, on_status));
+    out.push_str("\n🌐 HUYẾT MẠCH VĨ MÔ\n");
+    if let Some(on) = interbank_on {
+        let on_status = if on < 4.0 {
+            "(Dồi dào, ổn định)"
+        } else if on < 5.0 {
+            "(Bình thường, ổn định)"
+        } else {
+            "(⚠️ Cảnh báo căng thẳng)"
+        };
+        let on_str = format!("{:.2}", on).replace('.', ",");
+        out.push_str(&format!("• Liên ngân hàng O/N: {}% {}\n", on_str, on_status));
+    }
+
+    let mut macro_items = Vec::new();
+    if let Some(uv) = usd_vnd {
+        macro_items.push(format!("USD/VND {}đ", format_int_dots(uv.round() as i64)));
+    }
+    if let Some(d) = dxy {
+        let d_icon = if d < 102.0 { "🟢" } else if d <= 104.0 { "🟡" } else { "🔴" };
+        let d_str = format!("{:.2}", d).replace('.', ",");
+        macro_items.push(format!("DXY {} {}", d_str, d_icon));
+    }
+    if let Some(u) = us10y {
+        let u_icon = if u < 4.2 { "🟢" } else if u <= 4.7 { "🟡" } else { "🔴" };
+        let u_str = format!("{:.2}", u).replace('.', ",");
+        macro_items.push(format!("US10Y {}% {}", u_str, u_icon));
+    }
+    if let Some(f) = fed_rate {
+        let f_str = format!("{:.2}", f).replace('.', ",");
+        macro_items.push(format!("Fed {}%", f_str));
+    } else if let Some(v) = vgb10y {
+        let v_str = format!("{:.2}", v).replace('.', ",");
+        macro_items.push(format!("TPCP 10Y {}%", v_str));
+    }
+    if !macro_items.is_empty() {
+        out.push_str(&format!("• Tỷ giá & Lãi suất: {}\n", macro_items.join(" | ")));
+    }
+
+    if let (Some(gold), Some(silver)) = (gold_xau, silver_xag) {
+        let gsr = if silver > 0.0 { gold / silver } else { 0.0 };
+        out.push_str("\n🧭 LA BÀN KIM LOẠI QUÝ (PRECIOUS METALS COMPASS)\n");
+        let gold_str = format_number_vnd(gold);
+        let silver_str = format_number_vnd(silver);
+        let gsr_str = format!("{:.2}", gsr).replace('.', ",");
+        out.push_str(&format!("• Vàng thế giới (GOLD_XAU): {} USD/oz (Pha tích lũy phân phối đỉnh)\n", gold_str));
+        out.push_str(&format!("• Bạc thế giới (XAGUSD): {} USD/oz (H=0,57 bước đi ngẫu nhiên, chưa vào vùng gom)\n", silver_str));
+        let gsr_note = if gsr >= 85.0 {
+            "GSR >= 85: Bạc bắt đầu vào vùng chiết khấu sâu"
+        } else {
+            "GSR < 85: Bạc chưa vào vùng chiết khấu sâu / undervalued"
+        };
+        out.push_str(&format!("• Tỷ lệ Vàng/Bạc (GSR): {} ({})\n", gsr_str, gsr_note));
+        out.push_str("• Bạc vật chất trong nước: Premium nới rộng (+20-25%) — Rủi ro kẹt thanh khoản cao\n");
+    }
+
+    // DÒNG TIỀN KHỐI NGOẠI
+    let mut foreign_total = 0.0;
+    let mut foreign_buys = Vec::new();
+    let mut foreign_sells = Vec::new();
+    let mut has_foreign_data = false;
+
+    if let Ok(mut f_stmt) = db_scr.conn.prepare(
+        "SELECT COALESCE(SUM(net_value), 0.0), COUNT(*) FROM market_foreign_history WHERE date=?1;",
+    ) {
+        if let Ok(mut rows) = f_stmt.query(params![vni_date]) {
+            if let Ok(Some(row)) = rows.next() {
+                foreign_total = row.get(0).unwrap_or(0.0);
+                let count: i64 = row.get(1).unwrap_or(0);
+                has_foreign_data = count > 0;
+            }
+        }
+    }
+
+    if has_foreign_data {
+        if let Ok(mut b_stmt) = db_scr.conn.prepare(
+            "SELECT symbol, net_value FROM market_foreign_history WHERE date=?1 ORDER BY net_value DESC LIMIT 3;",
+        ) {
+            if let Ok(mut rows) = b_stmt.query(params![vni_date]) {
+                while let Ok(Some(row)) = rows.next() {
+                    let s: String = row.get(0).unwrap_or_default();
+                    let v: f64 = row.get(1).unwrap_or(0.0);
+                    if v > 0.0 {
+                        foreign_buys.push(format!("[{}] (+{} tỷ)", s, format_number_vnd(v)));
+                    }
+                }
+            }
         }
 
-        let mut macro_items = Vec::new();
-        if let Some(d) = dxy {
-            let d_icon = if d < 102.0 { "🟢" } else if d <= 104.0 { "🟡" } else { "🔴" };
-            let d_str = format!("{:.2}", d).replace('.', ",");
-            macro_items.push(format!("DXY {} {}", d_str, d_icon));
-        }
-        if let Some(u) = us10y {
-            let u_icon = if u < 4.2 { "🟢" } else if u <= 4.7 { "🟡" } else { "🔴" };
-            let u_str = format!("{:.2}", u).replace('.', ",");
-            macro_items.push(format!("US10Y {}% {}", u_str, u_icon));
-        }
-        if let Some(f) = fed_rate {
-            let f_str = format!("{:.2}", f).replace('.', ",");
-            macro_items.push(format!("Fed {}%", f_str));
-        } else if let Some(v) = vgb10y {
-            let v_str = format!("{:.2}", v).replace('.', ",");
-            macro_items.push(format!("TPCP 10Y {}%", v_str));
-        }
-        if !macro_items.is_empty() {
-            out.push_str(&format!("• Tỷ giá & Lãi suất: {}\n", macro_items.join(" | ")));
+        if let Ok(mut s_stmt) = db_scr.conn.prepare(
+            "SELECT symbol, net_value FROM market_foreign_history WHERE date=?1 ORDER BY net_value ASC LIMIT 3;",
+        ) {
+            if let Ok(mut rows) = s_stmt.query(params![vni_date]) {
+                while let Ok(Some(row)) = rows.next() {
+                    let s: String = row.get(0).unwrap_or_default();
+                    let v: f64 = row.get(1).unwrap_or(0.0);
+                    if v < 0.0 {
+                        foreign_sells.push(format!("[{}] ({} tỷ)", s, format_number_vnd(v)));
+                    }
+                }
+            }
         }
 
-        if let (Some(gold), Some(silver)) = (gold_xau, silver_xag) {
-            let gsr = if silver > 0.0 { gold / silver } else { 0.0 };
-            out.push_str("\n🧭 LA BÀN KIM LOẠI QUÝ (PRECIOUS METALS COMPASS)\n");
-            let gold_str = format!("{:.1}", gold).replace('.', ",");
-            let silver_str = format!("{:.2}", silver).replace('.', ",");
-            let gsr_str = format!("{:.2}", gsr).replace('.', ",");
-            out.push_str(&format!("• Vàng thế giới (GOLD_XAU): {} USD/oz (Pha tích lũy phân phối đỉnh)\n", gold_str));
-            out.push_str(&format!("• Bạc thế giới (XAGUSD): {} USD/oz (H=0,57 bước đi ngẫu nhiên, chưa vào vùng gom)\n", silver_str));
-            let gsr_note = if gsr >= 85.0 {
-                "GSR >= 85: Bạc bắt đầu vào vùng chiết khấu sâu"
-            } else {
-                "GSR < 85: Bạc chưa vào vùng chiết khấu sâu / undervalued"
-            };
-            out.push_str(&format!("• Tỷ lệ Vàng/Bạc (GSR): {} ({})\n", gsr_str, gsr_note));
-            out.push_str("• Bạc vật chất trong nước: Premium nới rộng (+20-25%) — Rủi ro kẹt thanh khoản cao\n");
+        let flow_title = if is_summary {
+            "🌐 DÒNG TIỀN KHỐI NGOẠI (KẾT PHIÊN)"
+        } else {
+            "🌐 DÒNG TIỀN KHỐI NGOẠI"
+        };
+        out.push_str(&format!("\n{}\n", flow_title));
+        let sign_f = if foreign_total >= 0.0 { "+" } else { "" };
+        let action_f = if foreign_total >= 0.0 { "Khối ngoại mua ròng" } else { "Khối ngoại bán ròng" };
+        out.push_str(&format!(
+            "• Tổng giá trị ròng: {}{} tỷ ({})\n",
+            sign_f,
+            format_number_vnd(foreign_total),
+            action_f
+        ));
+        if !foreign_buys.is_empty() {
+            out.push_str(&format!("• Top Mua ròng: {}\n", foreign_buys.join(", ")));
+        }
+        if !foreign_sells.is_empty() {
+            out.push_str(&format!("• Top Bán ròng: {}\n", foreign_sells.join(", ")));
         }
     }
 
@@ -1607,33 +1717,79 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     }
 
     struct SymDetail {
-        symbol: &'static str,
+        symbol: String,
         price: f64,
         pct: f64,
         vol: f64,
         note: String,
     }
 
+    let mut candidate_symbols: Vec<String> = vec![
+        "SHB".to_string(),
+        "TCB".to_string(),
+        "MBB".to_string(),
+        "VCB".to_string(),
+        "ACB".to_string(),
+        "HPG".to_string(),
+        "FPT".to_string(),
+        "MSN".to_string(),
+        "SSI".to_string(),
+    ];
+
+    // Lấy thêm Top thanh khoản phiên từ daily_ohlcv
+    if let Ok(mut top_stmt) = db_scr.conn.prepare(
+        "SELECT symbol FROM daily_ohlcv WHERE date=?1 AND is_stale=0 AND symbol!='VNINDEX' AND volume>=1000000 ORDER BY volume DESC LIMIT 8;",
+    ) {
+        if let Ok(mut rows) = top_stmt.query(params![vni_date]) {
+            while let Ok(Some(row)) = rows.next() {
+                let s: String = row.get(0).unwrap_or_default();
+                if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
+                    candidate_symbols.push(s);
+                }
+            }
+        }
+    }
+
+    // Lấy thêm Top tăng giá có thanh khoản (Breakout / Ngược dòng)
+    if let Ok(mut gain_stmt) = db_scr.conn.prepare(
+        "SELECT d0.symbol FROM daily_ohlcv d0 JOIN daily_ohlcv d1 ON d0.symbol=d1.symbol \
+         WHERE d0.date=?1 AND d1.date=(SELECT MAX(date) FROM daily_ohlcv WHERE symbol=d0.symbol AND date<?1 AND is_stale=0) \
+         AND d0.is_stale=0 AND d0.symbol!='VNINDEX' AND d0.volume>=500000 \
+         ORDER BY ((d0.close-d1.close)/d1.close) DESC LIMIT 5;",
+    ) {
+        if let Ok(mut rows) = gain_stmt.query(params![vni_date]) {
+            while let Ok(Some(row)) = rows.next() {
+                let s: String = row.get(0).unwrap_or_default();
+                if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
+                    candidate_symbols.push(s);
+                }
+            }
+        }
+    }
+
+    // Lấy thêm Top giảm giá có thanh khoản (Áp lực bán lớn)
+    if let Ok(mut drop_stmt) = db_scr.conn.prepare(
+        "SELECT d0.symbol FROM daily_ohlcv d0 JOIN daily_ohlcv d1 ON d0.symbol=d1.symbol \
+         WHERE d0.date=?1 AND d1.date=(SELECT MAX(date) FROM daily_ohlcv WHERE symbol=d0.symbol AND date<?1 AND is_stale=0) \
+         AND d0.is_stale=0 AND d0.symbol!='VNINDEX' AND d0.volume>=500000 \
+         ORDER BY ((d0.close-d1.close)/d1.close) ASC LIMIT 5;",
+    ) {
+        if let Ok(mut rows) = drop_stmt.query(params![vni_date]) {
+            while let Ok(Some(row)) = rows.next() {
+                let s: String = row.get(0).unwrap_or_default();
+                if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
+                    candidate_symbols.push(s);
+                }
+            }
+        }
+    }
+
     let mut group_surge: Vec<SymDetail> = Vec::new();
     let mut group_pressure: Vec<SymDetail> = Vec::new();
     let mut group_narrow: Vec<String> = Vec::new();
 
-    for &sym in &["SHB", "FPT", "MBB", "TCB", "VCB", "ACB", "HPG"] {
-        let mut c0 = 0.0;
-        let mut c1 = 0.0;
-        let mut v0 = 0.0;
-        let mut v1 = 0.0;
-
-        if let Ok(mut rows) = ohlcv_stmt.query(params![sym]) {
-            if let Ok(Some(row)) = rows.next() {
-                c0 = row.get(0).unwrap_or(0.0);
-                v0 = row.get(1).unwrap_or(0.0);
-            }
-            if let Ok(Some(row)) = rows.next() {
-                c1 = row.get(0).unwrap_or(0.0);
-                v1 = row.get(1).unwrap_or(0.0);
-            }
-        }
+    for sym in candidate_symbols {
+        let (c0, c1, v0, v1) = get_ohlcv_snapshot(&mut ohlcv_stmt, &sym);
         if c0 <= 0.0 {
             continue;
         }
@@ -1641,11 +1797,13 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         let pct: f64 = if c1 > 0.0 { ((c0 - c1) / c1) * 100.0 } else { 0.0 };
         let vol_ratio: f64 = if v1 > 0.0 { v0 / v1 } else { 1.0 };
 
-        let is_surge = (pct > 0.0 && (vol_ratio >= 1.2 || pct >= 1.0)) || v0 >= 25_000_000.0;
+        let is_surge = (pct > 0.0 && (vol_ratio >= 1.2 || pct >= 1.5)) || v0 >= 25_000_000.0;
         let is_pressure = !is_surge && (pct <= -1.2 || (vol_ratio >= 1.3 && pct < 0.0));
 
         if is_surge {
-            let note = if pct > 0.0 && vol_ratio >= 1.2 {
+            let note = if pct >= 3.0 {
+                "Dòng tiền bứt phá ngược dòng".to_string()
+            } else if pct > 0.0 && vol_ratio >= 1.2 {
                 format!("Cầu đỡ chủ động, +{:.0}% Vol", (vol_ratio - 1.0) * 100.0)
             } else if v0 >= 25_000_000.0 {
                 "Dẫn đầu thanh khoản toàn sàn".to_string()
@@ -1665,14 +1823,14 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                 note,
             });
         } else if is_pressure {
-            let note = if vol_ratio >= 1.3 && pct < 0.0 {
+            let note = if pct <= -5.0 {
+                "Áp lực bán tháo / giảm sâu".to_string()
+            } else if pct <= -3.0 {
+                "Áp lực cung lớn, giảm mạnh".to_string()
+            } else if vol_ratio >= 1.3 && pct < 0.0 {
                 "Vol tăng trong nhịp giảm".to_string()
             } else if pct <= -1.8 {
                 "Cung tăng, áp lực kỹ thuật".to_string()
-            } else if pct <= -1.68 {
-                "Áp lực bán gia tăng".to_string()
-            } else if pct <= -1.64 {
-                "Điều chỉnh kỹ thuật".to_string()
             } else {
                 "Điều chỉnh theo nhịp chung".to_string()
             };
@@ -1696,9 +1854,12 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         }
     }
 
+    group_surge.sort_by(|a, b| b.pct.partial_cmp(&a.pct).unwrap_or(std::cmp::Ordering::Equal));
+    group_pressure.sort_by(|a, b| a.pct.partial_cmp(&b.pct).unwrap_or(std::cmp::Ordering::Equal));
+
     if !group_surge.is_empty() {
-        out.push_str("  ⚡ Đột phá / Hấp thụ mạnh:\n");
-        for item in group_surge {
+        out.push_str("  ⚡ Đột phá / Ngược dòng / Hấp thụ mạnh:\n");
+        for item in group_surge.into_iter().take(5) {
             let sign_s = if item.pct >= 0.0 { "+" } else { "" };
             let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
             let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
@@ -1714,36 +1875,27 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     }
 
     if !group_pressure.is_empty() {
-        out.push_str("  📉 Áp lực điều chỉnh:\n");
-        for item in group_pressure {
+        out.push_str("  📉 Áp lực điều chỉnh / Bán tháo:\n");
+        for item in group_pressure.into_iter().take(5) {
             let sign_s = if item.pct >= 0.0 { "+" } else { "" };
             let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
             let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
-            if is_summary {
-                out.push_str(&format!(
-                    "    • [{}] Giá {} ({} | {})\n",
-                    item.symbol,
-                    format_int_dots(item.price.round() as i64),
-                    pct_fmt,
-                    vol_fmt
-                ));
-            } else {
-                out.push_str(&format!(
-                    "    • [{}] Giá {} ({} | {}) — {}\n",
-                    item.symbol,
-                    format_int_dots(item.price.round() as i64),
-                    pct_fmt,
-                    vol_fmt,
-                    item.note
-                ));
-            }
+            out.push_str(&format!(
+                "    • [{}] Giá {} ({} | {}) — {}\n",
+                item.symbol,
+                format_int_dots(item.price.round() as i64),
+                pct_fmt,
+                vol_fmt,
+                item.note
+            ));
         }
     }
 
     if !group_narrow.is_empty() {
+        let display_narrow: Vec<String> = group_narrow.into_iter().take(5).collect();
         out.push_str(&format!(
             "  💤 Tích lũy hẹp: {}\n",
-            group_narrow.join(", ")
+            display_narrow.join(", ")
         ));
     }
 
