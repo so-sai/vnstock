@@ -38,7 +38,9 @@ jobs:
         run: ruff format --check --config backend/pyproject.toml backend/src
       - name: Dangling import check (AST)
         run: |
-          pip install pytest
+          # backend/pyproject.toml đặt addopts "--timeout=300" nên BẮT BUỘC có
+          # plugin pytest-timeout, nếu không pytest sẽ fail "unrecognized arguments".
+          pip install pytest pytest-timeout
           cd backend
           python -m pytest tests/test_dangling_imports.py -q -p no:cacheprovider
 

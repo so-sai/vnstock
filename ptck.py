@@ -5474,10 +5474,9 @@ def cmd_cafef_crawl(args):
         scripts_dir = PROJECT_ROOT / "scripts"
         if str(scripts_dir) not in sys.path:
             sys.path.insert(0, str(scripts_dir))
-        try:
-            from scripts.ingest_tcbs_to_db import ingest_tcbs_json
-        except ImportError:
-            from ingest_tcbs_to_db import ingest_tcbs_json
+        # scripts_dir đã nằm ở sys.path[0] phía trên → import thẳng module, tránh
+        # nhập nhằng "scripts" (backend/src/scripts vs scripts/ ở repo root).
+        from ingest_tcbs_to_db import ingest_tcbs_json
         from src.financial.valuation_engine import ValuationEngine
 
         total_facts = 0
