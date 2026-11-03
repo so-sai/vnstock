@@ -755,6 +755,13 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
   27/10, 28/10, 29/10, 30/10, 02/11), **0 lỗi khóa**, sau ROLLBACK trở lại đúng 23 dòng.
   Đồng thời lộ ra **12 ngày nợ thật** 05/10..20/10 (xem Mục 22) — catch-up sẽ bù MtM các phiên
   này ngay lần chạy đầu sau bản vá.
+- **BẰNG CHỨNG SỐNG (11:46 ngày 03/11, trước giờ chốt sổ):** chạy `ptck.py eod-run --date
+  2026-11-03` khi phiên chưa có nến ⇒ **exit 3**, `paper_equity_curve` 03/11 = **0 dòng**
+  (equity 02/11 giữ nguyên 832.482.848), `market_wide_breadth_daily`/`regime_history` 03/11 = 0
+  dòng, và `eod_run_ledger` **23 → 24 dòng** với `MAX(as_of_date) = 2026-11-03`,
+  `status=FAILED`, `last_error = "FAIL-CLOSED: không có nến EOD nào cho 2026-11-03…"`.
+  Nghĩa là: sổ cái **đã thoát khỏi trạng thái đóng băng 16/07/2026** ngay ở lần ghi đầu tiên
+  sau bản vá, và nó ghi đúng sự thật (nợ) thay vì im lặng.
 
 ## 22. ⧗ OPEN — Chuỗi `paper_equity_curve` khuyết **22 phiên** (18/09 → 20/10/2026)
 
