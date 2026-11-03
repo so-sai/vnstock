@@ -117,13 +117,18 @@ def test_non_trading_day_is_exempt_from_zero_bar_failure():
 
 
 def test_eod_pipeline_guards_bars_before_accounting():
-    """[WHY] Guard phải đứng TRƯỚC idempotency + trước khi PaperTradingEngine ghi equity;
-    nếu chỉ đặt sau, đường carry-forward giả vẫn mở.
+    """[WHY] Guard phải đứng TRƯỚC mọi đường ghi (engines, PaperTradingEngine); nếu chỉ đặt
+    sau, đường carry-forward giả vẫn mở. Nó đứng SAU idempotency vì phép đọc đó chỉ trả SKIP
+    khi phiên đã có dấu vết hạch toán — lúc đó không còn gì để ghi.
     """
     from src.engine import eod_runner
 
     src = inspect.getsource(eod_runner.run_eod_pipeline)
     assert "assert_eod_bars_present" in src
     i_guard = src.index("assert_eod_bars_present")
-    assert i_guard < src.index("_is_already_processed")
+    i_idem = src.index("_is_already_processed")
+    assert i_idem < i_guard, "idempotency (đọc, rẻ) đứng trước; cổng dữ liệu đứng sau nó"
+    assert i_guard < src.index("engine_results = run_post_update_engines()"), (
+        "phải chặn trước khi engines ghi snapshot"
+    )
     assert i_guard < src.index("PaperTradingEngine.run_daily")

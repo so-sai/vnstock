@@ -666,7 +666,10 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
 - **DONE-WHEN:** 0 nến trong **phiên giao dịch** ⇒ `EODNoBarsError`, **không** ghi equity,
   ledger `FAILED`, CLI **exit 3**; ngày nghỉ (cuối tuần / `NON_TRADING_SESSIONS`) ⇒
   `SKIPPED / NON_TRADING_SESSION`; nến `is_stale=1` **không** được tính là dữ liệu.
-- **PHÁN QUYẾT:** ✅ **DONE** — commit `3ac1250`. Bằng chứng: 5 test RED→GREEN
+- **PHÁN QUYẾT:** ✅ **DONE** — commit `3ac1250` + bản vá thứ tự cổng cùng ngày (cổng đứng
+  **sau** idempotency để giữ nguyên ngữ nghĩa `SKIPPED / ALREADY_PROCESSED`, nhưng vẫn trước
+  mọi đường ghi; lỗi thứ tự do `test_scheduler::test_run_skips_when_already_processed` bắt).
+  Bằng chứng: 5 test RED→GREEN
   (`backend/tests/test_eod_no_bars_guard_2026_11_03.py`), gồm ca chống vá quá tay
   ("chỉ có nến stale ⇒ vẫn phải 0"), ca cuối tuần không được FAILED, và test cấu trúc
   buộc cổng đứng **trước** `_is_already_processed` (để `--force` không lách).

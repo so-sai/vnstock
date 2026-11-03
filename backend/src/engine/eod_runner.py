@@ -388,9 +388,23 @@ def run_eod_pipeline(
     corr_id = None
 
     try:
-        # --- CỔNG DỮ LIỆU (Mục 19): EOD không có nến ⇒ DỪNG trước mọi hạch toán ---
+        # --- IDEMPOTENCY CHECK (trước transaction — chỉ đọc) ---
+        if not force and _is_already_processed(as_of_date, portfolio_id):
+            result.update(
+                {
+                    "status": "SKIPPED",
+                    "reason": "ALREADY_PROCESSED",
+                    "note": f"{as_of_date} đã xử lý — không chạy lại.",
+                }
+            )
+            logger.info(f"[EOD] {as_of_date}: already processed — skipped.")
+            return result
+
+        # --- CỔNG DỮ LIỆU (Mục 19): không có nến ⇒ DỪNG trước khi hạch toán ---
         # [WHY]: thiếu cổng này, 02/11/2026 đã ghi equity carry-forward giả và trả SUCCESS
-        # (xem EODNoBarsError). Đặt TRƯỚC idempotency để `--force` cũng không lách được.
+        # (xem EODNoBarsError). Đứng SAU idempotency (một phép đọc rẻ, chỉ trả SKIP khi phiên
+        # đã có dấu vết hạch toán ⇒ không có gì để bảo vệ) nhưng TRƯỚC mọi đường ghi; `--force`
+        # bỏ qua idempotency nên vẫn đi qua cổng này.
         # Ngày nghỉ (cuối tuần/phantom holiday) = "không giao dịch", KHÔNG phải thiếu dữ liệu.
         if count_eod_bars(as_of_date) == 0 and is_non_trading_day(as_of_date):
             result.update(
@@ -403,18 +417,6 @@ def run_eod_pipeline(
             logger.info(f"[EOD] {as_of_date}: ngày nghỉ — skipped.")
             return result
         assert_eod_bars_present(as_of_date)
-
-        # --- IDEMPOTENCY CHECK (trước transaction — chỉ đọc) ---
-        if not force and _is_already_processed(as_of_date, portfolio_id):
-            result.update(
-                {
-                    "status": "SKIPPED",
-                    "reason": "ALREADY_PROCESSED",
-                    "note": f"{as_of_date} đã xử lý — không chạy lại.",
-                }
-            )
-            logger.info(f"[EOD] {as_of_date}: already processed — skipped.")
-            return result
 
         # --- ANALYTICS ENGINES (NGOÀI Global Transaction) ---
         # Các engine phân tích/viễn trắc (breadth, RS, flow forecast, regime,
