@@ -749,11 +749,54 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
 - **KHÔNG làm (có chủ đích):** **không** dựng lại lịch sử ledger 17/07..02/11 bằng tay — bảng
   không có cột provenance cho "reconstructed". Đường hợp lệ duy nhất là chính writer: với mỗi
   phiên nợ trong cửa sổ liên mạch, `detect_gap_days` thấy equity đã có nhưng ledger trống ⇒ ghi
-  `SUCCESS` kèm dòng audit. Sau phiên EOD 03/11, ledger sẽ tự tiến (kiểm bằng
-  `SELECT MAX(as_of_date), COUNT(*) FROM eod_run_ledger`).
-- **RISK:** lần chạy đầu sau bản vá có thể ghi bù ~20–30 dòng `SUCCESS` cho các phiên cũ trong
-  cửa sổ `CATCHUP_MAX_CALENDAR_GAP=30` ngày. Đó là **đồng bộ sổ cái theo dấu vết đã có**, không
-  phải hạch toán lại — không sinh lệnh, không đổi equity.
+  `SUCCESS` kèm dòng audit.
+- **PRE-FLIGHT (đo trên CSDL thật, ROLLBACK):** gọi `detect_gap_days("2026-11-03", SEL_PAPER_V1,
+  conn=<transaction>)` ⇒ ledger **23 → 32 dòng** (+9 `SUCCESS`: 21/10, 22/10, 23/10, 26/10,
+  27/10, 28/10, 29/10, 30/10, 02/11), **0 lỗi khóa**, sau ROLLBACK trở lại đúng 23 dòng.
+  Đồng thời lộ ra **12 ngày nợ thật** 05/10..20/10 (xem Mục 22) — catch-up sẽ bù MtM các phiên
+  này ngay lần chạy đầu sau bản vá.
+
+## 22. ⧗ OPEN — Chuỗi `paper_equity_curve` khuyết **22 phiên** (18/09 → 20/10/2026)
+
+- **WHAT:** `paper_equity_curve` của `SEL_PAPER_V1` có 72 dòng, nhưng **thiếu 22 phiên** có bar
+  hợp lệ: `2026-09-18`, `2026-09-22` … `2026-10-20`. Tháng 09 dừng ở **21/09**, tháng 10 bắt
+  đầu lại ở **21/10**. Mỗi phiên khuyết đều có **803–966 mã** bar hợp lệ, tức đây là EOD **không
+  chạy**, không phải phiên nghỉ hay thiếu dữ liệu nguồn.
+- **ROOT CAUSE (hai lớp):**
+  1. Catch-up không chạy được từ 16/07/2026 vì tranh khóa SQLite (Mục 21) ⇒ mọi phiên lỡ đều
+     không được bù, và không có cảnh báo vì nhánh catch-up là non-blocking.
+  2. Cửa sổ `CATCHUP_MAX_CALENDAR_GAP = 30` ngày lịch: tại as_of 03/11, nó chỉ với tới ~04/10
+     ⇒ **12 phiên** 05/10..20/10 được bù tự động, **10 phiên** 18/09..02/10 nằm NGOÀI cửa sổ và
+     sẽ vẫn khuyết kể cả sau khi Mục 21 xong.
+- **WHY (số đo):** chạy thử `_catchup_gap_days("2026-11-03", …)` trên **bản sao** CSDL (217,8 MB,
+  không chạm dữ liệu thật): `gap_days = 12` (05/10..20/10), `mtm_only = 12`, `caught_up = []`,
+  `errors = []`; 12 dòng equity sinh ra nằm trong **936,9M … 949,3M**, rất khớp với mốc thật
+  **954,3M** ngày 21/10 ⇒ định giá dùng **close lịch sử của đúng phiên**, không phải giá hôm nay.
+  Đây là bái toán "Missing", không phải "Fake" — nhưng 10 phiên còn lại phải do con người quyết.
+- **WHERE:** `backend/src/engine/eod_runner.py` (`CATCHUP_MAX_CALENDAR_GAP`, `detect_gap_days`,
+  `_catchup_gap_days`), dữ liệu `paper_equity_curve`.
+- **DONE-WHEN (đề xuất, chờ Hội đồng):** hoặc (a) nâng cửa sổ có chủ đích kèm giới hạn tuyệt đối
+  (ví dụ ≤ 60 phiên và chỉ khi `daily_ohlcv` đủ phủ từng phiên), hoặc (b) one-off repair 10 phiên
+  18/09..02/10 bằng đúng cơ chế `mtm_only` + ghi rõ `created_at` là mốc tái tạo. Cấm `fillna`,
+  cấm nội suy giữa hai mốc equity.
+- **RISK:** bù sai một phiên có corporate action (chia tách/cổ tức) sẽ làm lệch cả chuỗi drawdown
+  phía sau. Trước khi repair phải đối chiếu `corporate_actions` của 10 phiên đó.
+
+## 23. ⧗ OPEN — 8 dòng dữ liệu giả niên đại **2099** nằm trong bảng paper trading thật
+
+- **WHAT:** `paper_equity_curve` có **7 dòng** và `paper_cash_ledger` có **1 dòng** mang ngày
+  `2099-01-04 … 2099-01-12`, `portfolio_id = SEL_PAPER_V1`, `created_at = 2026-09-28T15:42:2x`
+  (đúng khung giờ một lần chạy test). Giá trị `total_equity` cả 7 dòng đều **975.372.848**.
+- **WHY (số đo):** đây là ngày sentinel của test lọt vào CSDL production. Hệ quả: mọi phép
+  `MIN/MAX(date)`, "phiên mới nhất", hay cửa sổ `ORDER BY date DESC` không kèm `WHERE date <=
+  hôm nay` sẽ trả về **2099** — im lặng và khó thấy. Chưa gây sai số nào đã quan sát được vì các
+  consumer hiện lọc theo khoảng ngày, nhưng đây là mìn.
+- **WHERE:** `paper_equity_curve`, `paper_cash_ledger` (không phải lỗi code đường chạy — là dữ
+  liệu rác của test).
+- **DONE-WHEN:** xác định được test/script đã ghi (nguồn duy nhất: 2026-09-28 15:42), chặn nguồn
+  đó bằng `__TEST__` namespace như `conftest.py`, rồi **xoá đúng 8 dòng** kèm backup. Không xoá
+  theo kiểu `DELETE WHERE date > hôm nay` mở rộng.
+- **RISK:** xoá nhầm dòng thật; phải đối chiếu `created_at` + `portfolio_id` trước khi xoá.
 
 ## Ghi chú vận hành
 
