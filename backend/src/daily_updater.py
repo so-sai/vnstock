@@ -935,6 +935,30 @@ def run_post_update_engines():
         logger.exception("⚠️ Prediction Registry: %s", e)
         record_engine_fault("prediction_registry", str(e))
 
+    # Market-wide breadth refresh — NGUỒN của `market_wide_breadth_daily`.
+    # [WHY]: `eod-run` trước 03/11/2026 chỉ chạy breadth_engine (ghi market_pulse.json +
+    # breadth cho regime), KHÔNG ghi bảng market_wide_breadth_daily; bước đó nằm duy nhất
+    # trong daily_closer (lệnh `close`). Không ai chạy `close` từ 23/10 ⇒ bảng đóng băng
+    # 6 phiên (26/10..02/11) ⇒ `breadth_degraded_flag()` trả None ⇒ `regime_history.
+    # is_degraded` NULL 6 phiên. Bước này PHẢI chạy TRƯỚC regime persistence bên dưới,
+    # và chỉ ghi phần thiếu (sync_missing) để không viết lại lịch sử mỗi ngày.
+    try:
+        from src.analysis.market_wide_breadth import sync_missing
+
+        _bw = sync_missing()
+        results["market_wide_breadth"] = _bw
+        logger.info(
+            "✅ Market-wide breadth: %s (inserted=%d, refreshed=%s, drift=%d)",
+            _bw["end"],
+            _bw["inserted"],
+            _bw["refreshed"],
+            _bw["drift_count"],
+        )
+    except Exception as e:
+        results["market_wide_breadth"] = f"FAIL: {e}"
+        logger.exception("❌ Market-wide breadth: %s", e)
+        record_engine_fault("market_wide_breadth", str(e))
+
     # Regime persistence: ghi regime_history cho hôm nay (cập nhật EMA seed)
     try:
         import pandas as pd
@@ -962,7 +986,17 @@ def run_post_update_engines():
                 from src.database.series_quality import breadth_degraded_flag
 
                 df_row = pd.DataFrame([row])
-                df_row["is_degraded"] = [breadth_degraded_flag(conn, verdict["date"])]
+                _flag = breadth_degraded_flag(conn, verdict["date"])
+                # [WHY]: `is_degraded` là input lọc LIVE (`is_degraded = 0`) của 14 consumer.
+                # Ghi NULL = "không biết" sẽ bị consumer hiểu sai (bỏ phiên HOẶC coi là lành
+                # tuỳ truy vấn) — đúng sự cố 6 phiên 26/10..02/11. Thà KHÔNG ghi regime phiên
+                # đó (lỗ hổng thấy được, ledger ghi lỗi) còn hơn ghi một dòng thiếu provenance.
+                if _flag is None:
+                    raise ValueError(
+                        "regime_history.is_degraded: không có dòng market_wide_breadth_daily cho "
+                        f"{verdict['date']} — fail-closed, không ghi regime phiên này."
+                    )
+                df_row["is_degraded"] = [_flag]
                 save_data_upsert("regime_history", df_row, conn)
                 try:
                     from src.database.eod_write_audit import record_eod_write_audit

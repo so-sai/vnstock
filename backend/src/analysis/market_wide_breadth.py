@@ -170,7 +170,116 @@ def run_series(bars: dict[str, list[tuple]]) -> list[dict]:
     return out
 
 
-def backfill(series: list[dict]) -> int:
+def _signature(r: dict) -> tuple:
+    """[WHY] So khớp một dòng đã lưu với kết quả tính lại **theo đúng 9 trường nghiệp vụ**.
+    Không so `created_at` (provenance chứ không phải nội dung) — nếu so cả nó, mọi dòng
+    đều bị coi là "khác" và bị ghi đè vô hạn.
+    """
+    return (
+        r["total_active"],
+        r["advances"],
+        r["declines"],
+        r["unchanged"],
+        r["ceiling"],
+        r["floor"],
+        r["breadth_pct"],
+        r["ad_ratio"],
+        r["degraded"],
+    )
+
+
+def _read_existing() -> dict[str, tuple]:
+    """Đọc các dòng đã có (chỉ để so khớp, không sửa)."""
+    con = sqlite3.connect(str(DB))
+    try:
+        cur = con.execute(
+            "SELECT date, total_active, advances, declines, unchanged, ceiling, floor, "
+            "breadth_pct, ad_ratio, degraded FROM market_wide_breadth_daily"
+        )
+        return {r[0]: tuple(r[1:]) for r in cur.fetchall()}
+    except sqlite3.OperationalError:
+        # bảng chưa tồn tại (DB mới) → coi như chưa có dòng nào
+        return {}
+    finally:
+        con.close()
+
+
+def sync_missing(start: str = "2020-01-01", end: str | None = None) -> dict:
+    """Đồng bộ bảng độ rộng cho pipeline EOD: chỉ ghi phần THIẾU + phiên hiện tại.
+
+    [WHY] `eod-run` là đường chạy EOD duy nhất nhưng trước 03/11/2026 không hề ghi
+    `market_wide_breadth_daily` (bước đó chỉ nằm trong `daily_closer`). Bảng đóng băng
+    từ 23/10 ⇒ `breadth_degraded_flag()` trả `None` ⇒ `regime_history.is_degraded`
+    NULL 6 phiên (26/10..02/11), làm 14 consumer lọc `is_degraded = 0` hiểu sai phiên.
+
+    [ROOT CAUSE] Thiếu caller ở `daily_updater.run_post_update_engines()` — nơi EOD
+    chạy các engine sau cập nhật — và `backfill()` sẵn có thì ghi đè TOÀN chuỗi
+    (INSERT OR REPLACE mọi ngày), tức mỗi lần EOD sẽ viết lại 1.465 dòng lịch sử và
+    đổi `created_at` của chúng. Hàm này tách đúng phần cần ghi.
+
+    [INVARIANT]
+      - Tính chuỗi từ lịch sử ĐẦY ĐỦ để cửa sổ `degraded` (60 phiên) có đủ mẫu số;
+        nhưng CHỈ ghi (a) phiên chưa có dòng, (b) phiên `end` khi giá trị tính lại
+        khác dòng đã lưu (sửa lỗi ingest một phần trong ngày).
+      - Dòng lịch sử không bao giờ bị ghi đè ⇒ `created_at` giữ nguyên provenance.
+      - Cổng coverage của `run_series` vẫn fail-closed: panel < 750 mã ⇒ ném lỗi,
+        không ghi gì.
+      - Lệch số liệu lịch sử (drift) được BÁO CÁO chứ không tự sửa: sửa lịch sử phải
+        là quyết định của con người, không phải tác dụng phụ của EOD hàng ngày.
+
+    Returns:
+        dict: end, inserted, refreshed, drift_count, drift (tối đa 20 ngày).
+    """
+    from datetime import date as _date
+    from datetime import timedelta as _td
+
+    end = end or latest_db_date()
+    if not end:
+        raise RuntimeError("daily_ohlcv rỗng — không xác định được phiên cần đồng bộ độ rộng.")
+
+    # Buffer 10 ngày lịch để phiên đầu cửa sổ có `prev` thật (xem main()).
+    _buf_start = (_date.fromisoformat(start) - _td(days=10)).isoformat()
+    bars = load_bars(_buf_start, end)
+    series = run_series(bars)  # ném PanelCoverageError nếu phiên mới nhất < 750 mã
+    # [WHY] Buffer 10 ngày chỉ để tính `prev` cho phiên đầu; KHÔNG được ghi ra ngoài cửa sổ
+    # `start..end` (bảng bắt đầu 2020-01-02; dry-run 03/11/2026 lộ ra 7 ngày 23..31/12/2019
+    # sẽ bị chèn nếu thiếu clamp).
+    series = [s for s in series if start <= s["date"] <= end]
+    if not series or series[-1]["date"] != end:
+        got = series[-1]["date"] if series else "none"
+        raise RuntimeError(f"không tính được độ rộng cho {end}: phiên mới nhất có bar hợp lệ là {got} — từ chối ghi lùi ngày.")
+
+    existing = _read_existing()
+    to_write: list[dict] = []
+    inserted = 0
+    refreshed = False
+    for r in series:
+        stored = existing.get(r["date"])
+        if stored is None:
+            to_write.append(r)
+            inserted += 1
+        elif r["date"] == end and _signature(r) != stored:
+            to_write.append(r)
+            refreshed = True
+
+    drift = [
+        r["date"]
+        for r in series
+        if r["date"] != end and existing.get(r["date"]) is not None and _signature(r) != existing[r["date"]]
+    ]
+    if to_write:
+        _upsert_rows(to_write)
+    return {
+        "end": end,
+        "inserted": inserted,
+        "refreshed": refreshed,
+        "drift_count": len(drift),
+        "drift": drift[:20],
+    }
+
+
+def _upsert_rows(series: list[dict]) -> int:
+    """Đường ghi DUY NHẤT vào `market_wide_breadth_daily` (INSERT OR REPLACE)."""
     import datetime
 
     con = sqlite3.connect(str(DB))
@@ -217,6 +326,15 @@ def backfill(series: list[dict]) -> int:
     n = con.total_changes
     con.close()
     return n
+
+
+def backfill(series: list[dict]) -> int:
+    """Ghi ĐÈ toàn bộ chuỗi được truyền vào (giữ cho `main --backfill` và daily_closer).
+
+    [WHY] Đây là đường thủ công có chủ đích (người vận hành quyết định viết lại). Pipeline
+    EOD KHÔNG được dùng hàm này — xem `sync_missing()` để tránh ghi đè lịch sử mỗi phiên.
+    """
+    return _upsert_rows(series)
 
 
 def proxy_comparison(bars: dict[str, list[tuple]], target: str) -> dict:
