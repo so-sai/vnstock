@@ -2399,14 +2399,20 @@ def cmd_sel(args):
 
 def cmd_eod_run(args):
     """EOD Runner — tự phục hồi (retry) + lũy đẳng (idempotent) + chống race (SQLite lock) + Giao dịch bù (catch-up)."""
-    from src.engine.eod_runner import run_eod_pipeline
+    from src.engine.eod_runner import EODNoBarsError, run_eod_pipeline
 
-    result = run_eod_pipeline(
-        as_of_date=getattr(args, "date", None),
-        force=getattr(args, "force", False),
-        retry_sleep=getattr(args, "retry_sleep", 15 * 60),
-        catchup=getattr(args, "catchup", True),
-    )
+    try:
+        result = run_eod_pipeline(
+            as_of_date=getattr(args, "date", None),
+            force=getattr(args, "force", False),
+            retry_sleep=getattr(args, "retry_sleep", 15 * 60),
+            catchup=getattr(args, "catchup", True),
+        )
+    except EODNoBarsError as exc:
+        # [WHY] Mã thoát ≠ 0 để cron/scheduler thấy thất bại (Mục 19). Trước đây lỗi này
+        # in SUCCESS rồi exit 0 nên không ai biết equity của phiên đã không được cập nhật.
+        print(f"\n[ALARM] {exc}")
+        raise SystemExit(3) from exc
     status = result.get("status")
     icon = {"SUCCESS": "[OK]", "SKIPPED": "[SKIP]", "FAILED": "[ALARM]"}.get(
         status, "[?]"

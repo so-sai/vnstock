@@ -45,6 +45,54 @@ from src.database.db_core import get_connection, safe_json_dumps
 
 logger = logging.getLogger("PTCK_SYSTEM")
 
+
+class EODNoBarsError(RuntimeError):
+    """[WHY] EOD của một phiên KHÔNG có nến là lỗi dữ liệu, không phải "phiên trống".
+
+    [ROOT CAUSE] Trước 03/11/2026, `run_eod_pipeline` không kiểm tra số nến: lần chạy
+    15:18 ngày 02/11/2026 (khi `daily-update` chưa nạp bar nào) vẫn trả SUCCESS và ghi
+    `paper_equity_curve` 02/11 TRÙNG KHÍT dòng 30/10 (858.127.848) — equity giả, chỉ lộ
+    ra khi nhìn `created_at` (15:19:02) và `market_pulse` cùng lúc báo "không có dữ liệu".
+
+    [INVARIANT] Không nến ⇒ không hạch toán, không ghi equity; ledger ghi FAILED để
+    catch-up biết đây là ngày nợ. Ngày nghỉ (cuối tuần/phantom holiday) được miễn trừ
+    TƯỜNG MINH — "không giao dịch" khác "thiếu dữ liệu" (AGENTS §2).
+    """
+
+
+def count_eod_bars(as_of_date: str, conn=None) -> int:
+    """Số nến hợp lệ (`is_stale = 0`) của một phiên."""
+    sql = "SELECT COUNT(*) FROM daily_ohlcv WHERE date = ? AND COALESCE(is_stale, 0) = 0"
+    if conn is not None:
+        row = conn.execute(sql, (as_of_date,)).fetchone()
+        return int(row[0]) if row else 0
+    with get_connection() as c:
+        row = c.execute(sql, (as_of_date,)).fetchone()
+    return int(row[0]) if row else 0
+
+
+def is_non_trading_day(as_of_date: str) -> bool:
+    """[WHY] Phân biệt "không có bar vì nghỉ" với "nguồn không có bar" (AGENTS §2):
+    cuối tuần / phantom holiday không được biến thành FAILED, nhưng cũng không được
+    hạch toán như một phiên có giao dịch.
+    """
+    from datetime import date as _date
+
+    from src.database.panel_quality import is_non_trading_session
+
+    if is_non_trading_session(as_of_date):
+        return True
+    return _date.fromisoformat(as_of_date).weekday() >= 5
+
+
+def assert_eod_bars_present(as_of_date: str, conn=None) -> int:
+    """Cổng fail-closed của Mục 19: 0 nến ⇒ ném `EODNoBarsError`."""
+    n = count_eod_bars(as_of_date, conn=conn)
+    if n == 0:
+        raise EODNoBarsError(f"FAIL-CLOSED: không có nến EOD nào cho {as_of_date} — cấm ghi nhận equity curve giả mạo.")
+    return n
+
+
 # --- Cấu hình Retry -----------------------------------------------------------
 MAX_RETRIES = 3
 RETRY_SLEEP_SECONDS = 15 * 60  # 15 phút
@@ -340,6 +388,22 @@ def run_eod_pipeline(
     corr_id = None
 
     try:
+        # --- CỔNG DỮ LIỆU (Mục 19): EOD không có nến ⇒ DỪNG trước mọi hạch toán ---
+        # [WHY]: thiếu cổng này, 02/11/2026 đã ghi equity carry-forward giả và trả SUCCESS
+        # (xem EODNoBarsError). Đặt TRƯỚC idempotency để `--force` cũng không lách được.
+        # Ngày nghỉ (cuối tuần/phantom holiday) = "không giao dịch", KHÔNG phải thiếu dữ liệu.
+        if count_eod_bars(as_of_date) == 0 and is_non_trading_day(as_of_date):
+            result.update(
+                {
+                    "status": "SKIPPED",
+                    "reason": "NON_TRADING_SESSION",
+                    "note": f"{as_of_date} là ngày nghỉ — không có nến, không hạch toán.",
+                }
+            )
+            logger.info(f"[EOD] {as_of_date}: ngày nghỉ — skipped.")
+            return result
+        assert_eod_bars_present(as_of_date)
+
         # --- IDEMPOTENCY CHECK (trước transaction — chỉ đọc) ---
         if not force and _is_already_processed(as_of_date, portfolio_id):
             result.update(
@@ -398,6 +462,11 @@ def run_eod_pipeline(
                 logger.exception(f"[EOD] {as_of_date}: accounting lỗi → sẽ rollback: {e}")
                 result.update({"status": "FAILED", "reason": "ACCOUNTING_ERROR", "error": last_error})
                 raise  # để global_transaction thực hiện ROLLBACK
+    except EODNoBarsError as exc:
+        # Fail-closed: ghi nợ vào ledger rồi ném tiếp để scheduler thấy mã thoát ≠ 0.
+        last_error = str(exc)
+        result.update({"status": "FAILED", "reason": "NO_EOD_BARS", "error": last_error})
+        logger.critical(f"[EOD] {as_of_date}: {last_error}")
     except ResourceLockedException:
         # Concurrency Guard: tiến trình EOD khác đang chiếm khóa CSDL.
         # Global Transaction chưa từng mở → không cần rollback.
@@ -423,6 +492,10 @@ def run_eod_pipeline(
         logger.error(f"[EOD] {as_of_date}: FAILED → ghi nợ ledger (corr={corr_id}).")
     if corr_id:
         result["correlation_id"] = corr_id
+    if result.get("reason") == "NO_EOD_BARS":
+        # [WHY] Ledger đã ghi FAILED ở trên; ném tiếp để cron/scheduler KHÔNG thấy exit 0
+        # (đúng lỗi (a): báo SUCCESS khi không hạch toán được gì).
+        raise EODNoBarsError(result.get("error") or "NO_EOD_BARS")
     return result
 
 
