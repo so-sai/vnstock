@@ -44,8 +44,15 @@ def _calculate_input_hash(data: Any) -> str:
         return "UNKNOWN_HASH"
 
 
-def ensure_audit_ledger_schema(conn=None) -> None:
-    """Tạo bảng eod_write_audit_ledger nếu chưa tồn tại (idempotent DDL)."""
+def ensure_audit_ledger_schema(conn=None, commit: bool = True) -> None:
+    """Tạo bảng eod_write_audit_ledger nếu chưa tồn tại (idempotent DDL).
+
+    [WHY] `commit=False` dành cho `conn` do transaction của caller sở hữu
+    (`BEGIN IMMEDIATE` của `acid.global_transaction`). `executescript()` phát
+    COMMIT NGẦM trước khi chạy script, còn `conn.commit()` chốt luôn transaction
+    ⇒ nếu dùng ở đây, mọi ROLLBACK sau đó mất tác dụng và bút toán dở dang được
+    ghi vĩnh viễn. Chế độ này chạy từng câu lệnh, không commit.
+    """
     ddl = """
     CREATE TABLE IF NOT EXISTS eod_write_audit_ledger (
         audit_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,12 +69,17 @@ def ensure_audit_ledger_schema(conn=None) -> None:
     CREATE INDEX IF NOT EXISTS idx_audit_table_date ON eod_write_audit_ledger (target_table, as_of_date);
     """
     if conn is not None:
-        conn.executescript(ddl)
-        conn.commit()
-    else:
-        with get_connection() as c:
-            c.executescript(ddl)
-            c.commit()
+        if commit:
+            conn.executescript(ddl)
+            conn.commit()
+        else:
+            for stmt in ddl.split(";"):
+                if stmt.strip():
+                    conn.execute(stmt)
+        return
+    with get_connection() as c:
+        c.executescript(ddl)
+        c.commit()
 
 
 def record_eod_write_audit(
@@ -80,9 +92,15 @@ def record_eod_write_audit(
     status: str = "SUCCESS",
     notes: str | None = None,
     conn=None,
+    commit: bool = True,
 ) -> int:
-    """Ghi một dòng bất biến (append-only) vào sổ cái kiểm toán eod_write_audit_ledger."""
-    ensure_audit_ledger_schema(conn=conn)
+    """Ghi một dòng bất biến (append-only) vào sổ cái kiểm toán eod_write_audit_ledger.
+
+    [WHY] `commit=False` khi `conn` thuộc transaction của caller (xem
+    `ensure_audit_ledger_schema`): audit PHẢI chết/chung sống với bút toán chính
+    trong cùng transaction, không được tự chốt transaction.
+    """
+    ensure_audit_ledger_schema(conn=conn, commit=commit)
     now_iso = datetime.now().isoformat()
 
     params_str = (
@@ -101,7 +119,8 @@ def record_eod_write_audit(
 
     if conn is not None:
         cur = conn.execute(sql, args)
-        conn.commit()
+        if commit:
+            conn.commit()
         audit_id = cur.lastrowid
     else:
         with get_connection() as c:

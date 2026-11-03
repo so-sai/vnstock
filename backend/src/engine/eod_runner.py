@@ -20,6 +20,7 @@ Ba cơ chế bắt buộc cho Forward Testing integrity:
 import logging
 import sqlite3
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -151,28 +152,99 @@ def _resolve_eod_date() -> str:
 # ============================================================================
 #  EOD RUN LEDGER — Sổ cái vận hành bền vững (persistent memory cho Catch-up)
 # ============================================================================
-def _ensure_ledger_schema():
+LEDGER_RETRIES = 5
+# [WHY] 5 lần, backoff 0,2 → 0,4 → 0,8 → 1,6 → 3,2s (tổng ~6,2s): đủ dài để vượt một
+# phiên ghi ngắn của cron/agent khác, đủ ngắn để ledger fallback không treo EOD.
+LEDGER_BASE_DELAY = 0.2
+
+
+def _ensure_ledger_schema(conn=None):
     """Tạo bảng eod_run_ledger nếu chưa có.
 
     Đây là 'bộ nhớ dài hạn' của scheduler: mỗi phiên EOD ghi lại kết quả.
     Nhờ nó, ngày T+1 biết chắc ngày T có thất bại (nợ) không — thay vì chỉ
     dựa vào log dễ mất. Là nền tảng cho Gap Detection + Sequential Backfill.
+
+    [WHY] Nhận `conn` của transaction: `CREATE TABLE IF NOT EXISTS` là DDL (cần write
+    lock). Mở kết nối thứ hai để DDL trong lúc transaction đang giữ `BEGIN IMMEDIATE`
+    sẽ chờ tới hết `busy_timeout` rồi ném "database is locked" — đúng cơ chế đã làm
+    catch-up chết và `eod_run_ledger` đứng yên từ 16/07/2026.
+    [INVARIANT] Conn do transaction sở hữu thì KHÔNG commit ở đây (transaction tự
+    COMMIT/ROLLBACK); chỉ commit khi hàm tự mở kết nối.
     """
-    with get_connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS eod_run_ledger (
-                as_of_date   TEXT NOT NULL,
-                portfolio_id TEXT NOT NULL,
-                status       TEXT NOT NULL,
-                attempts     INTEGER DEFAULT 0,
-                last_error   TEXT,
-                catchup_of   TEXT,           -- NULL nếu chạy đúng ngày; else = ngày gốc nợ
-                created_at   TEXT NOT NULL,
-                updated_at   TEXT NOT NULL,
-                PRIMARY KEY (as_of_date, portfolio_id)
-            )
-        """)
-        conn.commit()
+    ddl = """
+        CREATE TABLE IF NOT EXISTS eod_run_ledger (
+            as_of_date   TEXT NOT NULL,
+            portfolio_id TEXT NOT NULL,
+            status       TEXT NOT NULL,
+            attempts     INTEGER DEFAULT 0,
+            last_error   TEXT,
+            catchup_of   TEXT,           -- NULL nếu chạy đúng ngày; else = ngày gốc nợ
+            created_at   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL,
+            PRIMARY KEY (as_of_date, portfolio_id)
+        )
+    """
+    if conn is not None:
+        conn.execute(ddl)
+        return
+    with get_connection() as conn_own:
+        conn_own.execute(ddl)
+        conn_own.commit()
+
+
+def _ledger_write(
+    conn,
+    as_of_date: str,
+    portfolio_id: str,
+    status: str,
+    attempts: int,
+    last_error: str | None,
+    catchup_of: str | None,
+    commit: bool,
+) -> None:
+    """UPSERT một dòng ledger + audit trên `conn` cho trước.
+
+    [WHY] Tách khỏi `_record_ledger` để đường TRONG transaction (conn của Global
+    Transaction) và đường fallback (kết nối riêng, có retry) dùng chung đúng một câu
+    SQL. Nếu hai đường chép SQL riêng, chúng sẽ trôi khỏi nhau (bài học Mục 20).
+    [INVARIANT] `commit=False` khi `conn` thuộc transaction: commit giữa chừng sẽ phá
+    ROLLBACK toàn cục và để lại bút toán dở dang.
+    """
+    _ensure_ledger_schema(conn)
+    now = datetime.now().isoformat()
+    conn.execute(
+        """
+        INSERT INTO eod_run_ledger
+            (as_of_date, portfolio_id, status, attempts, last_error,
+             catchup_of, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(as_of_date, portfolio_id) DO UPDATE SET
+            status=excluded.status,
+            attempts=excluded.attempts,
+            last_error=excluded.last_error,
+            catchup_of=excluded.catchup_of,
+            updated_at=excluded.updated_at
+    """,
+        (as_of_date, portfolio_id, status, attempts, last_error, catchup_of, now, now),
+    )
+    try:
+        from src.database.eod_write_audit import record_eod_write_audit
+
+        record_eod_write_audit(
+            as_of_date=as_of_date,
+            caller_module=f"eod_runner.{portfolio_id}",
+            target_table="eod_run_ledger",
+            parameters={"status": status, "attempts": attempts, "catchup_of": catchup_of},
+            input_data={"status": status, "last_error": last_error},
+            output_score=None,
+            status=status,
+            notes=f"EOD runner ledger update: {last_error or 'SUCCESS'}",
+            conn=conn,
+            commit=commit,
+        )
+    except (sqlite3.Error, TypeError, ValueError) as _e_audit:
+        logger.debug("Audit write skipped: %s", _e_audit)
 
 
 def _record_ledger(
@@ -182,54 +254,73 @@ def _record_ledger(
     attempts: int = 0,
     last_error: str | None = None,
     catchup_of: str | None = None,
+    conn=None,
+    retries: int | None = None,
+    base_delay: float | None = None,
 ):
-    """Ghi/cập nhật trạng thái một phiên EOD vào sổ cái (idempotent UPSERT)."""
-    _ensure_ledger_schema()
-    now = datetime.now().isoformat()
-    with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO eod_run_ledger
-                (as_of_date, portfolio_id, status, attempts, last_error,
-                 catchup_of, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?)
-            ON CONFLICT(as_of_date, portfolio_id) DO UPDATE SET
-                status=excluded.status,
-                attempts=excluded.attempts,
-                last_error=excluded.last_error,
-                catchup_of=excluded.catchup_of,
-                updated_at=excluded.updated_at
-        """,
-            (as_of_date, portfolio_id, status, attempts, last_error, catchup_of, now, now),
-        )
-        conn.commit()
+    """Ghi/cập nhật trạng thái một phiên EOD vào sổ cái (idempotent UPSERT).
+
+    [WHY] `eod_run_ledger` đứng yên ở 16/07/2026 (23 dòng) suốt 3,5 tháng vì hàm này
+    luôn mở KẾT NỐI RIÊNG, kể cả khi được gọi từ trong `global_transaction()`
+    (`BEGIN IMMEDIATE`) — writer thứ hai chờ hết `busy_timeout` rồi ném
+    "database is locked", và `_catchup_gap_days` nuốt lỗi đó (non-blocking) nên
+    không ai biết. Hai chế độ:
+      - `conn` được truyền (đang trong transaction) ⇒ ghi trên chính conn đó,
+        KHÔNG commit, KHÔNG retry (khóa là của chính mình, retry vô nghĩa).
+      - `conn=None` (ledger fallback sau rollback, hoặc gọi rời) ⇒ kết nối riêng,
+        retry exponential backoff CHỈ với lỗi khóa.
+    [INVARIANT] Lỗi không phải khóa (schema/data) phải ném NGAY — retry sẽ chỉ làm
+    chậm pipeline và che giấu lỗi thật.
+    """
+    if conn is not None:
+        _ledger_write(conn, as_of_date, portfolio_id, status, attempts, last_error, catchup_of, commit=False)
+        return
+
+    retries = LEDGER_RETRIES if retries is None else retries
+    base = LEDGER_BASE_DELAY if base_delay is None else base_delay
+    last_exc: sqlite3.OperationalError | None = None
+    for attempt in range(retries):
         try:
-            from src.database.eod_write_audit import record_eod_write_audit
-
-            record_eod_write_audit(
-                as_of_date=as_of_date,
-                caller_module=f"eod_runner.{portfolio_id}",
-                target_table="eod_run_ledger",
-                parameters={"status": status, "attempts": attempts, "catchup_of": catchup_of},
-                input_data={"status": status, "last_error": last_error},
-                output_score=None,
-                status=status,
-                notes=f"EOD runner ledger update: {last_error or 'SUCCESS'}",
-                conn=conn,
+            with get_connection() as conn_own:
+                _ledger_write(conn_own, as_of_date, portfolio_id, status, attempts, last_error, catchup_of, commit=True)
+            return
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "locked" not in msg and "busy" not in msg:
+                raise
+            last_exc = exc
+            logger.warning(
+                "[LEDGER] %s/%s: khóa SQLite (lần %d/%d) — thử lại sau %.1fs",
+                as_of_date,
+                portfolio_id,
+                attempt + 1,
+                retries,
+                base * (2**attempt),
             )
-        except (sqlite3.Error, TypeError, ValueError) as _e_audit:
-            logger.debug("Audit write skipped: %s", _e_audit)
+            if attempt + 1 < retries:
+                time.sleep(base * (2**attempt))
+    assert last_exc is not None  # chỉ tới đây khi đã có ít nhất 1 lỗi khóa
+    raise last_exc
 
 
-def _ledger_succeeded(as_of_date: str, portfolio_id: str) -> bool:
+def _ledger_succeeded(as_of_date: str, portfolio_id: str, conn=None) -> bool:
     """Ngày này đã có kết quả 'xử lý xong' trong ledger chưa?
 
     Coi là xong nếu status thuộc {SUCCESS, CATCHUP_FULL, CATCHUP_MTM_ONLY}.
+
+    [WHY] Nhận `conn` để lời gọi từ trong transaction không mở kết nối thứ hai
+    (đọc thì không tranh khóa ghi, nhưng giữ một đường duy nhất dễ kiểm toán hơn).
     """
-    _ensure_ledger_schema()
     done = (STATUS_SUCCESS, STATUS_CATCHUP_FULL, STATUS_CATCHUP_MTM_ONLY)
-    with get_connection() as conn:
+    if conn is not None:
+        _ensure_ledger_schema(conn)
         row = conn.execute(
+            "SELECT status FROM eod_run_ledger WHERE as_of_date=? AND portfolio_id=?", (as_of_date, portfolio_id)
+        ).fetchone()
+        return bool(row) and row[0] in done
+    _ensure_ledger_schema()
+    with get_connection() as conn_own:
+        row = conn_own.execute(
             "SELECT status FROM eod_run_ledger WHERE as_of_date=? AND portfolio_id=?", (as_of_date, portfolio_id)
         ).fetchone()
     return bool(row) and row[0] in done
@@ -248,7 +339,12 @@ def _trading_sessions_up_to(as_of_date: str, limit: int) -> list:
     return sorted(r[0] for r in rows)
 
 
-def detect_gap_days(as_of_date: str, portfolio_id: str = DEFAULT_PORTFOLIO_ID, scan_limit: int = CATCHUP_SCAN_LIMIT) -> list:
+def detect_gap_days(
+    as_of_date: str,
+    portfolio_id: str = DEFAULT_PORTFOLIO_ID,
+    scan_limit: int = CATCHUP_SCAN_LIMIT,
+    conn=None,
+) -> list:
     """GAP DETECTION: các phiên < as_of_date CHƯA được xử lý xong (ngày nợ).
 
     Quét 'scan_limit' phiên gần nhất TRƯỚC as_of_date, lọc ra những phiên
@@ -256,6 +352,10 @@ def detect_gap_days(as_of_date: str, portfolio_id: str = DEFAULT_PORTFOLIO_ID, s
     paper trade/equity). Trả về danh sách TĂNG DẦN để bù đúng thứ tự thời gian.
 
     Chỉ tính ngày nợ TRƯỚC as_of_date (ngày hiện tại xử lý riêng ở luồng chính).
+
+    [WHY] Nhận `conn` của transaction: hàm này GHI ledger (đồng bộ trạng thái cho
+    phiên có trade/equity nhưng ledger trống) ⇒ phải dùng cùng writer, nếu không
+    lại tái hiện "database is locked" (Mục 21).
     """
     sessions = _trading_sessions_up_to(as_of_date, scan_limit)
     gaps = []
@@ -272,12 +372,12 @@ def detect_gap_days(as_of_date: str, portfolio_id: str = DEFAULT_PORTFOLIO_ID, s
         if gap_days > CATCHUP_MAX_CALENDAR_GAP:
             continue
         # Đã xử lý xong (ledger) hoặc đã có dấu vết trade/equity → không nợ
-        if _ledger_succeeded(d, portfolio_id):
+        if _ledger_succeeded(d, portfolio_id, conn=conn):
             continue
         if _is_already_processed(d, portfolio_id):
             # Có trade/equity nhưng ledger trống (chạy từ trước khi có ledger)
             # → coi như xong, đồng bộ ledger để lần sau khỏi quét lại
-            _record_ledger(d, portfolio_id, STATUS_SUCCESS)
+            _record_ledger(d, portfolio_id, STATUS_SUCCESS, conn=conn)
             continue
         gaps.append(d)
     return gaps
@@ -294,11 +394,13 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str, offline: bool = True, 
         KHÔNG tái tạo lệnh cũ. Ghi ledger CATCHUP_MTM_ONLY + cảnh báo con người.
 
     ACID: nhận conn (Global Transaction) → mọi ghi kế toán chạy chung cursor,
-    chịu ROLLBACK nếu lỗi. _record_ledger (sổ cái vận hành) dùng KẾT NỐI RIÊNG.
+    chịu ROLLBACK nếu lỗi. Sổ cái vận hành (`_record_ledger`) cũng ghi trên
+    CHÍNH conn đó — trước 03/11/2026 nó mở kết nối riêng và chết vì
+    "database is locked" (Mục 21); ledger fallback sau transaction mới retry.
 
     Xử lý TĂNG DẦN theo thời gian để dòng tiền/settlement diễn ra đúng trình tự.
     """
-    gaps = detect_gap_days(as_of_date, portfolio_id)
+    gaps = detect_gap_days(as_of_date, portfolio_id, conn=conn)
     report = {"gap_days": gaps, "caught_up": [], "mtm_only": [], "errors": []}
 
     from src.engine.paper_trading_engine import PaperTradingEngine
@@ -321,20 +423,25 @@ def _catchup_gap_days(as_of_date: str, portfolio_id: str, offline: bool = True, 
                     PaperTradingEngine.run_daily(
                         decision_date=d, offline=offline, mtm_only=False, catchup_enqueue=True, conn=conn
                     )
-                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_FULL, catchup_of=as_of_date)
+                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_FULL, catchup_of=as_of_date, conn=conn)
                     report["caught_up"].append(d)
                     logger.info(f"[CATCHUP] {d}: tín hiệu bù ĐÃ NẠP HÀNG ĐỢI (sẽ ép khớp @ open {as_of_date}).")
                 else:
                     # STALE — chỉ MtM/settlement, không phát lệnh cũ
                     PaperTradingEngine.run_daily(decision_date=d, offline=offline, mtm_only=True, conn=conn)
-                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_MTM_ONLY, catchup_of=as_of_date)
+                    _record_ledger(d, portfolio_id, STATUS_CATCHUP_MTM_ONLY, catchup_of=as_of_date, conn=conn)
                     report["mtm_only"].append(d)
                     logger.warning(
                         f"[CATCHUP] {d}: STALE — chỉ MtM/settle (tín hiệu hết hạn). "
                         f"⚠️ Cần con người xem xét quyết định giao dịch ngày này."
                     )
             except Exception as e:
-                _record_ledger(d, portfolio_id, STATUS_FAILED, last_error=str(e), catchup_of=as_of_date)
+                # [WHY] Ghi FAILED trên cùng conn: nếu chính conn đã hỏng (interrupt/kill-switch)
+                # thì để lỗi ledger giết luôn cả vòng catch-up là phản tác dụng — log rõ rồi đi tiếp.
+                try:
+                    _record_ledger(d, portfolio_id, STATUS_FAILED, last_error=str(e), catchup_of=as_of_date, conn=conn)
+                except sqlite3.Error as _e_ledger:
+                    logger.error(f"[CATCHUP] {d}: không ghi được ledger FAILED: {_e_ledger}")
                 report["errors"].append({"date": d, "error": str(e)})
                 logger.exception(f"[CATCHUP] {d}: bù thất bại: {e}")
 
@@ -368,8 +475,12 @@ def run_eod_pipeline(
         corruption khi cronjob tự chạy lại).
       - Lõi Viễn trắc (VQA/SEL/macro/stacktrace) ghi .jsonl NGOÀI SQLite →
         sống sót rollback.
-      - Sổ cái vận hành (eod_run_ledger) ghi QUA KẾT NỐI RIÊNG sau khi
-        rollback + nhả lock (Ledger Fallback) → tránh deadlock khóa ghi WAL.
+      - Sổ cái vận hành (eod_run_ledger) ghi HAI CHẾ ĐỘ (Mục 21):
+          * trong Global Transaction → ghi trên chính `conn` đó (một writer duy nhất);
+          * sau rollback + nhả lock (Ledger Fallback) → kết nối riêng + retry
+            exponential backoff khi gặp "database is locked".
+        Trước 03/11/2026 chỉ có chế độ thứ hai nhưng catch-up lại gọi nó TRONG
+        transaction ⇒ luôn ném "database is locked" ⇒ ledger đứng yên từ 16/07/2026.
 
     Args:
       as_of_date: ngày xử lý. None → EOD mới nhất trong DB.
