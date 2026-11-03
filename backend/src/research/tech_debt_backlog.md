@@ -649,6 +649,65 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
   theo giờ VN ≠ phiên Mỹ) ⇒ phải dựa trên **giờ đóng cửa của sàn** (17:00 ET), không dựa trên
   `date == today` của VN.
 
+## 19. ✅ DONE (03/11/2026, NQ-14) — `eod-run` báo SUCCESS khi phiên **không có nến** (fail-open)
+
+- **WHAT:** `run_eod_pipeline()` không kiểm tra `daily_ohlcv` có nến của `as_of_date` hay
+  không trước khi hạch toán. Phiên 02/11/2026 lúc **15:18**, lệnh `eod-run --date 2026-11-02`
+  trả **SUCCESS với 0 bar** và ghi `paper_equity_curve` 02/11 **trùng khít** dòng 30/10
+  (`market_value 849.559.000`, `total_equity 858.127.848`, `created_at 15:19:02`) — trong khi
+  MARKET PULSE cùng lúc in "Ngày 2026-11-02 không có dữ liệu". Chỉ nhờ chạy lại `--force`
+  lúc 15:25 thì equity thật mới vào (`total 832.482.848`, **−2,99%**, unrealized −169,6M).
+- **WHY (số đo):** đây là fail-open nguy hiểm nhất của chuỗi EOD: một dòng equity **giả** mang
+  đúng định danh phiên, không exception, không log lỗi, ledger không ghi nợ ⇒ mọi báo cáo
+  hiệu suất sau đó đọc phải số sai. Cùng cơ chế sẽ tái diễn mỗi lần `eod-run` chạy trước
+  `daily-update` hoặc khi ingest hỏng.
+- **WHERE:** `backend/src/engine/eod_runner.py` (`EODNoBarsError`, `count_eod_bars`,
+  `assert_eod_bars_present`, `is_non_trading_day` + cổng đầu `run_eod_pipeline`), `ptck.py::cmd_eod_run`.
+- **DONE-WHEN:** 0 nến trong **phiên giao dịch** ⇒ `EODNoBarsError`, **không** ghi equity,
+  ledger `FAILED`, CLI **exit 3**; ngày nghỉ (cuối tuần / `NON_TRADING_SESSIONS`) ⇒
+  `SKIPPED / NON_TRADING_SESSION`; nến `is_stale=1` **không** được tính là dữ liệu.
+- **PHÁN QUYẾT:** ✅ **DONE** — commit `3ac1250`. Bằng chứng: 5 test RED→GREEN
+  (`backend/tests/test_eod_no_bars_guard_2026_11_03.py`), gồm ca chống vá quá tay
+  ("chỉ có nến stale ⇒ vẫn phải 0"), ca cuối tuần không được FAILED, và test cấu trúc
+  buộc cổng đứng **trước** `_is_already_processed` (để `--force` không lách).
+- **RISK:** nếu cron EOD từng chạy vào ngày nghỉ lễ chưa khai báo trong `NON_TRADING_SESSIONS`
+  thì job sẽ exit 3 (báo động giả) — chấp nhận được, vì im lặng hạch toán còn tệ hơn; cách xử
+  lý đúng là bổ sung ngày lễ vào registry, **không** nới cổng.
+
+## 20. ✅ DONE (03/11/2026, NQ-14) — EOD không ghi `market_wide_breadth_daily` ⇒ `is_degraded` NULL 6 phiên
+
+- **WHAT:** `run_post_update_engines()` (đường `eod-run` gọi) chỉ chạy `breadth_engine`
+  (ghi `market_pulse.json` + breadth cho regime), **không** ghi bảng
+  `market_wide_breadth_daily`; bước đó nằm duy nhất trong `daily_closer` (lệnh `close`).
+  Không ai chạy `close` từ 23/10 ⇒ bảng đóng băng, `breadth_degraded_flag()` trả `None`,
+  `daily_updater` ghi `regime_history.is_degraded = NULL` cho **6 phiên liền**
+  (26/10, 27/10, 28/10, 29/10, 30/10, 02/11).
+- **WHY (số đo):** khớp **6/6** phiên: bảng độ rộng có dòng cuối 23/10 (`degraded=0`) ⇒
+  đúng 6 phiên sau đó NULL, không thừa không thiếu. 14 điểm đọc LIVE/SIGNAL lọc
+  `is_degraded = 0` nên mỗi phiên NULL bị hiểu sai (loại bỏ hoặc coi là lành tuỳ truy vấn).
+  Bảng độ rộng 02/11 khi tính lại từ panel đầy đủ: **859 mã hoạt động, 139 tăng / 549 giảm,
+  net −47,73%** — khác hẳn 16,2% của regime vì regime lọc `Vol20d > 50k` (329 mã); hai số
+  **không** mâu thuẫn nhưng phải khai báo mẫu số. Ngoài ra 6 dòng do tiến trình song song
+  ghi lúc **15:41** được tính từ panel còn khuyết (849 vs 859 mã với 02/11) ⇒ đã tính lại.
+- **WHERE:** `backend/src/analysis/market_wide_breadth.py` (`sync_missing`, `_upsert_rows`,
+  `_signature`, `_read_existing`), `backend/src/daily_updater.py` (gọi `sync_missing` **trước**
+  regime persistence + từ chối ghi `is_degraded` NULL).
+- **DONE-WHEN:** sau EOD, bảng độ rộng có dòng phiên mới nhất **trước** khi `regime_history`
+  được ghi; cờ suy giảm luôn 0/1; bù dữ liệu không ghi đè lịch sử (giữ `created_at`).
+- **PHÁN QUYẾT:** ✅ **DONE** — commit `f5b7ae9`. Bằng chứng: 6 test RED→GREEN
+  (`backend/tests/test_eod_breadth_refresh_2026_11_03.py`), trong đó có ca "dòng lịch sử giữ
+  nguyên `created_at`", ca "cổng coverage < 750 mã ⇒ không ghi dòng nào", ca "buffer 10 ngày
+  không được ghi ra ngoài cửa sổ" (dry-run 03/11 lộ 7 ngày 2019 — đã chặn), và test cấu trúc
+  buộc `sync_missing` đứng trước `detect_regime(`. `test_regime_degraded_contract` (bất biến
+  store ↔ nguồn suy ra) từ **đỏ (6 NULL)** chuyển **xanh (0 NULL)** sau khi bù.
+- **ĐO ĐẠC SAU KHI BÙ:** bảng 1.705 dòng, `MAX(date)=2026-11-02`; 6 phiên 26/10..02/11 được
+  tính lại (`created_at 2026-11-03T11:11:30`) với chênh lệch **+6…+19 mã** so với bản ghi
+  lúc 15:41; `regime_history.is_degraded` 6 phiên = **0** (không phiên nào < 750 mã).
+  Gọi lại `sync_missing()` ⇒ `inserted=0, refreshed=False` (lũy đẳng).
+- **NỢ CÒN LẠI (không sửa trong mục này):** tính lại toàn chuỗi cho **50 phiên 2026-04-02..
+  2026-07-27** lệch bản đã lưu tối đa **1 mã / 0,23 điểm %**, **0** cờ `degraded` đổi ⇒
+  **không** ghi đè (sửa lịch sử phải là quyết định của con người). Ghi nhận để điều tra sau.
+
 ## Ghi chú vận hành
 
 - **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**
