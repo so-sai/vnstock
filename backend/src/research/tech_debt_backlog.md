@@ -711,6 +711,50 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
   2026-07-27** lệch bản đã lưu tối đa **1 mã / 0,23 điểm %**, **0** cờ `degraded` đổi ⇒
   **không** ghi đè (sửa lịch sử phải là quyết định của con người). Ghi nhận để điều tra sau.
 
+## 21. ✅ DONE (03/11/2026, NQ-15) — `eod_run_ledger` đứng yên 3,5 tháng vì tranh khóa SQLite trong catch-up
+
+- **WHAT:** `eod_run_ledger` dừng ở `2026-07-16` (**23 dòng**) dù EOD vẫn chạy hằng ngày. Mỗi
+  phiên, log có đúng một dòng `[DATA] catch-up thất bại (non-blocking): database is locked`,
+  EOD vẫn trả SUCCESS nên không ai truy vết. Lớp lũy đẳng thứ nhất (ledger) chết âm thầm,
+  chỉ còn lớp thứ hai (`paper_equity_curve`) đỡ.
+- **ROOT CAUSE:** `_catchup_gap_days()` chạy BÊN TRONG `global_transaction()`
+  (`BEGIN IMMEDIATE` = đang giữ write lock của SQLite/WAL), nhưng ba helper nó gọi —
+  `_ensure_ledger_schema()`, `_ledger_succeeded()`, `_record_ledger()` — đều **tự mở kết nối
+  riêng** và thực hiện DDL/INSERT. Trong WAL chỉ có MỘT writer: writer thứ hai chờ hết
+  `busy_timeout` (15 s) rồi ném `database is locked`; `run_eod_pipeline` bắt và chỉ log
+  (non-blocking theo Council NQ-15) ⇒ ledger không bao giờ tiến. Ngoài ra `_ensure_ledger_schema`
+  và `record_eod_write_audit` còn gọi `executescript()`/`commit()` — nếu chỉ "vá" bằng cách
+  truyền conn transaction vào mà không xử lý commit, transaction sẽ bị **chốt giữa chừng**,
+  phá toàn bộ ROLLBACK của Global Transaction.
+- **WHY (số đo, probe trên CSDL THẬT, rollback sạch):**
+  - đường CŨ (`conn=None` trong lúc `BEGIN IMMEDIATE` đang mở): `OperationalError('database is
+    locked')` sau **16.566 ms** (đúng `busy_timeout=15000`);
+  - đường MỚI (`conn` của transaction): ghi xong trong **6,3 ms**, `in_transaction=True`,
+    dòng ledger thấy được ngay trong transaction;
+  - `commit=True` trên conn transaction ⇒ `in_transaction=False` sau khi ghi audit, `ROLLBACK`
+    báo `cannot rollback - no transaction is active` (**đây là bẫy đã chặn**).
+  Diễn giải: mỗi phiên EOD mất ~16,5 s treo vào một thao tác ghi lẽ ra chỉ 6 ms, rồi vẫn thất bại.
+- **WHERE:** `backend/src/engine/eod_runner.py` (`_ensure_ledger_schema`, `_ledger_write`,
+  `_record_ledger` + retry, `_ledger_succeeded`, `detect_gap_days`, `_catchup_gap_days`),
+  `backend/src/database/eod_write_audit.py` (`commit=False` cho conn thuộc transaction).
+- **DONE-WHEN:** (a) trong transaction, mọi ghi ledger dùng chính `conn` đó và **không** commit;
+  (b) ngoài transaction (ledger fallback) retry exponential backoff **chỉ** với lỗi khóa,
+  ném sau `LEDGER_RETRIES`; (c) lỗi không phải khóa ném NGAY (không retry mù).
+- **PHÁN QUYẾT:** ✅ **DONE** — commit `5cf8354`. Bằng chứng: 6 test RED→GREEN
+  (`backend/tests/test_eod_ledger_lock_2026_11_03.py`), gồm: ghi vào conn được tiêm, retry
+  2 lần rồi thành công, bỏ cuộc sau `LEDGER_RETRIES`, **không** retry lỗi `no such table`,
+  test cấu trúc AST (mọi `_record_ledger`/`_ledger_succeeded`/`detect_gap_days` trong catch-up
+  phải có `conn`), và ca chống-vá-quá-tay: `BEGIN IMMEDIATE` → ghi ledger → `ROLLBACK` phải
+  sạch cả `eod_run_ledger` lẫn `eod_write_audit_ledger`.
+- **KHÔNG làm (có chủ đích):** **không** dựng lại lịch sử ledger 17/07..02/11 bằng tay — bảng
+  không có cột provenance cho "reconstructed". Đường hợp lệ duy nhất là chính writer: với mỗi
+  phiên nợ trong cửa sổ liên mạch, `detect_gap_days` thấy equity đã có nhưng ledger trống ⇒ ghi
+  `SUCCESS` kèm dòng audit. Sau phiên EOD 03/11, ledger sẽ tự tiến (kiểm bằng
+  `SELECT MAX(as_of_date), COUNT(*) FROM eod_run_ledger`).
+- **RISK:** lần chạy đầu sau bản vá có thể ghi bù ~20–30 dòng `SUCCESS` cho các phiên cũ trong
+  cửa sổ `CATCHUP_MAX_CALENDAR_GAP=30` ngày. Đó là **đồng bộ sổ cái theo dấu vết đã có**, không
+  phải hạch toán lại — không sinh lệnh, không đổi equity.
+
 ## Ghi chú vận hành
 
 - **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**
