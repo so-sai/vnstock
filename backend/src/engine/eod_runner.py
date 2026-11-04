@@ -569,7 +569,12 @@ def run_eod_pipeline(
                 }
                 result.update({"status": "SUCCESS", "engine_results": engine_results})
                 logger.info(f"[EOD] {as_of_date}: SUCCESS (corr={corr_id})")
-                return result
+                # [WHY] KHÔNG `return` tại đây (Mục 24, 04/11/2026): thoát hàm ngay trong
+                # khối `with global_transaction(...)` sẽ nhảy qua toàn bộ "LEDGER FALLBACK"
+                # bên dưới — nơi DUY NHẤT ghi `STATUS_SUCCESS` cho phiên hiện tại. Hệ quả
+                # thật: phiên 03/11 hạch toán xong, equity 841.146.848,35 đã ghi, nhưng
+                # `eod_run_ledger` vẫn mang dòng FAILED của lần chạy 11:46 ⇒ hôm sau bị coi
+                # là ngày nợ và bù lại (double-entry). — thêm `return` ở đây là tái sinh lỗi.
             except Exception as e:
                 last_error = str(e)
                 logger.exception(f"[EOD] {as_of_date}: accounting lỗi → sẽ rollback: {e}")
@@ -592,6 +597,16 @@ def run_eod_pipeline(
         logger.critical(f"[EOD] {as_of_date}: TRANSACTION TIMEOUT — {last_error}")
         result.update({"status": "FAILED", "reason": "TRANSACTION_TIMEOUT", "error": last_error})
         # Ledger fallback sẽ ghi FAILED ở bên dưới
+    except Exception as exc:
+        # [WHY] (Mục 24, 04/11/2026) Lỗi hạch toán được `raise` từ trong khối
+        # `with global_transaction(...)` để transaction ROLLBACK, nhưng trước bản vá nó
+        # thoát luôn khỏi hàm ⇒ khối ledger fallback bên dưới KHÔNG chạy ⇒ phiên lỗi không
+        # có dòng nào trong `eod_run_ledger` (im lặng = "chưa từng chạy", đúng lỗi Mục 21).
+        # Tới đây transaction đã rollback và nhả write-lock nên ghi nợ bằng kết nối riêng là
+        # an toàn. Phải `raise` lại để scheduler/cron thấy exit ≠ 0 — cấm nuốt lỗi.
+        last_error = last_error or str(exc)
+        _record_ledger(as_of_date, portfolio_id, STATUS_FAILED, attempts=1, last_error=last_error)
+        raise
 
     # --- LEDGER FALLBACK: ghi trạng thái qua KẾT NỐI RIÊNG (sau rollback+unlock) ---
     # Correlation ID đối chiếu rollback (CSDL) ↔ telemetry .jsonl (log rời rạc).
