@@ -763,7 +763,7 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
   Nghĩa là: sổ cái **đã thoát khỏi trạng thái đóng băng 16/07/2026** ngay ở lần ghi đầu tiên
   sau bản vá, và nó ghi đúng sự thật (nợ) thay vì im lặng.
 
-## 22. ⧗ OPEN — Chuỗi `paper_equity_curve` khuyết **22 phiên** (18/09 → 20/10/2026)
+## 22. ⧗ OPEN (12/22 phiên đã bù) — Chuỗi `paper_equity_curve` khuyết **22 phiên** (18/09 → 20/10/2026)
 
 - **WHAT:** `paper_equity_curve` của `SEL_PAPER_V1` có 72 dòng, nhưng **thiếu 22 phiên** có bar
   hợp lệ: `2026-09-18`, `2026-09-22` … `2026-10-20`. Tháng 09 dừng ở **21/09**, tháng 10 bắt
@@ -788,22 +788,58 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
   cấm nội suy giữa hai mốc equity.
 - **RISK:** bù sai một phiên có corporate action (chia tách/cổ tức) sẽ làm lệch cả chuỗi drawdown
   phía sau. Trước khi repair phải đối chiếu `corporate_actions` của 10 phiên đó.
+- **TIẾN ĐỘ (03/11/2026, NQ-16 §II.2 — "cho phép bù 12 phiên gần nhất"):** ✅ **12 phiên
+  05/10..20/10 ĐÃ bù** ngay trong lần `eod-run --date 2026-11-03` đầu tiên sau bản vá Mục 21
+  (15:20:27), bằng đúng cơ chế `CATCHUP_MTM_ONLY`, `catchup_of = 2026-11-03`; equity sinh ra nằm
+  trong **933,4M … 949,3M** (khớp mốc thật 954,3M ngày 21/10), **0 lỗi khóa**, `CATCHUP_MAX_CALENDAR_GAP
+  = 30` **không** bị nới. Cùng lúc 9 phiên 21/10..02/11 được đồng bộ `SUCCESS` (ledger 24 → 45 dòng).
+  Đo lại 04/11: `paper_equity_curve` **78 dòng**, `MIN/MAX = 2026-06-15 / 2026-11-03`.
+- **CÒN LẠI (10 phiên, phải chờ Hội đồng):** `2026-09-18`, `2026-09-22`, `2026-09-23`,
+  `2026-09-24`, `2026-09-25`, `2026-09-28`, `2026-09-29`, `2026-09-30`, `2026-10-01`, `2026-10-02`
+  — tất cả có 803–966 bar hợp lệ, **không** có dòng `eod_run_ledger` tương ứng (nhất quán: ledger
+  không nói dối là đã chạy). Điều kiện mở khoá theo NQ-16: rà soát `corporate_actions` của danh
+  mục trong 18/09–02/10 **trước**, rồi mới chạy backfill độc lập có audit trail. Cấm `fillna`,
+  cấm nội suy giữa hai mốc equity.
 
-## 23. ⧗ OPEN — 8 dòng dữ liệu giả niên đại **2099** nằm trong bảng paper trading thật
+## 23. ✅ DONE (04/11/2026, NQ-16 §II.1) — 8 dòng dữ liệu giả niên đại **2099** trong bảng paper trading thật
 
 - **WHAT:** `paper_equity_curve` có **7 dòng** và `paper_cash_ledger` có **1 dòng** mang ngày
   `2099-01-04 … 2099-01-12`, `portfolio_id = SEL_PAPER_V1`, `created_at = 2026-09-28T15:42:2x`
-  (đúng khung giờ một lần chạy test). Giá trị `total_equity` cả 7 dòng đều **975.372.848**.
+  (equity) và `2026-09-25T17:26:51` (cash ledger — lần chạy đầu), giá trị `total_equity` cả 7 dòng
+  đều **975.372.848,35**.
 - **WHY (số đo):** đây là ngày sentinel của test lọt vào CSDL production. Hệ quả: mọi phép
   `MIN/MAX(date)`, "phiên mới nhất", hay cửa sổ `ORDER BY date DESC` không kèm `WHERE date <=
-  hôm nay` sẽ trả về **2099** — im lặng và khó thấy. Chưa gây sai số nào đã quan sát được vì các
-  consumer hiện lọc theo khoảng ngày, nhưng đây là mìn.
-- **WHERE:** `paper_equity_curve`, `paper_cash_ledger` (không phải lỗi code đường chạy — là dữ
-  liệu rác của test).
-- **DONE-WHEN:** xác định được test/script đã ghi (nguồn duy nhất: 2026-09-28 15:42), chặn nguồn
-  đó bằng `__TEST__` namespace như `conftest.py`, rồi **xoá đúng 8 dòng** kèm backup. Không xoá
-  theo kiểu `DELETE WHERE date > hôm nay` mở rộng.
-- **RISK:** xoá nhầm dòng thật; phải đối chiếu `created_at` + `portfolio_id` trước khi xoá.
+  hôm nay` sẽ trả về **2099** — im lặng và khó thấy (Sentinel freshness, `daily-update`,
+  `eod-run`, vẽ equity curve).
+- **ROOT CAUSE:** không tồn tại cổng nào khẳng định "ngày ghi vào sổ kế toán phải ≤ hôm nay";
+  test dùng 2099 để không đụng dữ liệu thật nhưng lại trỏ vào **CSDL thật** với `portfolio_id`
+  thật thay vì namespace `__TEST__`.
+- **WHERE:** `backend/src/database/date_sanity.py` (mới), `paper_equity_curve`, `paper_cash_ledger`.
+- **DONE-WHEN:** (a) 0 dòng có `date > hôm nay` trong 2 bảng kế toán; (b) purge chỉ xoá phần
+  tương lai, mọi dòng `date <= as_of` còn nguyên; (c) đếm-trước-xoá-sau: số dòng khác `expected`
+  ⇒ `RuntimeError` ("lệch"), **không xoá gì**; (d) có payload cách ly JSON trước khi xoá.
+- **PHÁN QUYẾT:** ✅ **DONE** — commit `74c7e03`.
+- **BẰNG CHỨNG (đo trên CSDL thật, 04/11/2026):**
+  - RED trước khi vá: `ModuleNotFoundError: No module named 'src.database.date_sanity'`
+    (4 test đơn vị) và 2 test sống đỏ đúng bất biến: `paper_equity_curve: 7 dòng ngày tương lai`,
+    `paper_cash_ledger: 1 dòng ngày tương lai (> 2026-11-04), ví dụ ['2099-01-04']`.
+  - GREEN sau khi vá: **6/6 passed** (`backend/tests/test_paper_ledger_no_future_dates_2026_11_04.py`),
+    gồm ca chống-vá-quá-tay (2020 + "hôm nay" phải còn, chỉ 2 dòng 2099 bị xoá; `--expected` lệch
+    ⇒ bảng nguyên vẹn) và 2 test sống bắt bất biến trên CSDL thật.
+  - Purge thật (backup + payload + `BEGIN IMMEDIATE` + verify + COMMIT):
+    `paper_equity_curve` 7 dòng, `paper_cash_ledger` 1 dòng ⇒ **xoá đúng 8 dòng**,
+    `future=0` cả hai bảng sau purge.
+  - `MAX(date)`: equity **2099-01-12 → 2026-11-03** (78 dòng), cash ledger **2099-01-04 →
+    2026-07-23** (6 dòng). `eod_run_ledger` vẫn 45 dòng, `MAX = 2026-11-03`.
+  - Quét toàn CSDL (46 bảng có cột ngày): **0 dòng** khớp `LIKE '2099%'` — không còn rác ở
+    bảng nào khác.
+  - Dòng thật còn nguyên: equity `2026-11-02 = 832.482.848,35`, `2026-11-03 = 841.146.848,35`.
+  - **Backup:** `backend/data/backups/screener_cache_20261104_0927_pre_purge2099.bak` (228,7 MB,
+    sqlite backup API); **payload cách ly:** `backend/data/backups/iso_purge2099_20261104_0927.json`.
+- **CHƯA làm (có chủ đích):** chưa chặn được *nguồn* sinh ra 2099 (test 28/09 đã bị xoá/đổi),
+  nên bất biến hiện được giữ bằng **lớp đọc**: test sống `test_live_paper_ledgers_have_no_future_dates`
+  đỏ ngay lần chạy kế tiếp nếu rác quay lại. Việc buộc mọi test dùng namespace `__TEST__` cho hai
+  bảng này vẫn là việc của `conftest.py` — chưa cần vì nguồn ghi đã biến mất.
 
 ## Ghi chú vận hành
 
