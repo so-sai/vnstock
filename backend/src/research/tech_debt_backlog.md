@@ -841,6 +841,66 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
   đỏ ngay lần chạy kế tiếp nếu rác quay lại. Việc buộc mọi test dùng namespace `__TEST__` cho hai
   bảng này vẫn là việc của `conftest.py` — chưa cần vì nguồn ghi đã biến mất.
 
+## 24. ✅ DONE (04/11/2026, NQ-16 §III) — `eod_run_ledger` **không bao giờ** ghi `SUCCESS` cho phiên hiện tại
+
+- **WHAT:** Phiên 03/11/2026 hạch toán thành công (equity **841.146.848,35**, breadth 839 mã
+  `+4,648%` `degraded=0`, regime `0,1684 / CRISIS`, `eod-run` **exit 0**) nhưng
+  `eod_run_ledger(2026-11-03)` vẫn mang `status = FAILED`, `attempts = 1`,
+  `updated_at = 11:46:37` — dòng nợ của lần chạy 11:46 khi phiên chưa có nến.
+- **WHY (hệ quả thật):** sổ cái nói dối theo hướng nguy hiểm — phiên đã xong bị coi là **nợ**.
+  Lần chạy hôm sau, `detect_gap_days` sẽ thấy "ledger FAILED" và bù lại phiên 03/11 ⇒
+  **double-entry** trên equity/settlement, đúng thứ mà ledger sinh ra để chống.
+- **ROOT CAUSE:** `run_eod_pipeline()` gọi `return result` **ngay bên trong**
+  `with global_transaction(...)`. `return` thoát khỏi hàm (và khối `with`) nên toàn bộ khối
+  "LEDGER FALLBACK" phía dưới — nơi **duy nhất** ghi `STATUS_SUCCESS` cho phiên hiện tại —
+  **không bao giờ chạy**. Đường SUCCESS vì thế chỉ tồn tại trên giấy: ledger chỉ nhận `FAILED`
+  (nhánh lỗi) hoặc `SUCCESS` phát sinh **gián tiếp** từ catch-up (`detect_gap_days` thấy equity
+  đã có thì tự đồng bộ). Vì ledger đóng băng từ 16/07/2026 (Mục 21) nên lỗi này chưa từng lộ ra.
+  Cùng cơ chế đó khiến lỗi hạch toán (`raise` trong `with`) cũng thoát khỏi hàm **mà không ghi
+  dòng nợ nào** — sổ cái im lặng coi phiên lỗi là "chưa từng chạy".
+- **WHERE:** `backend/src/engine/eod_runner.py` (`run_eod_pipeline`).
+- **DONE-WHEN:** (a) hạch toán SUCCESS ⇒ ledger có `status = SUCCESS` cho `as_of_date`;
+  (b) đường SUCCESS **không** kèm `FAILED` (không nợ giả); (c) đường lỗi vẫn ghi `FAILED` rồi
+  **ném tiếp** (exit ≠ 0); (d) không có `return` nào trong khối `with global_transaction(...)`.
+- **PHÁN QUYẾT:** ✅ **DONE** — commit `4f470bb`.
+- **BẰNG CHỨNG:**
+  - RED (trước vá): 3/4 test đỏ —
+    `test_success_path_records_ledger_success: đường SUCCESS KHÔNG ghi gì vào eod_run_ledger`;
+    `test_failure_path_still_records_ledger_failed` (lỗi hạch toán không ghi nợ);
+    `test_no_return_inside_global_transaction_block: ['run_eod_pipeline: return tại dòng 572']`.
+  - GREEN (sau vá): **4/4** — `backend/tests/test_eod_ledger_success_path_2026_11_04.py`.
+  - Bản vá: bỏ `return result` trong `with`; thêm `except Exception` ghi `FAILED` (sau khi
+    `global_transaction` đã rollback và nhả write-lock) rồi `raise` lại — cấm nuốt lỗi.
+  - Regression: **145/145 passed** (13 file cũ + Mục 23 + Mục 24).
+  - Sửa dữ liệu (04/11 09:36): ghi lại `SUCCESS` cho 03/11 bằng **chính writer**
+    `_record_ledger` sau khi đối chiếu 3 bằng chứng của phiên — `FAILED/attempts=1 →
+    SUCCESS/attempts=0`, `last_error NULL`, audit id **1757** (`EOD runner ledger update:
+    SUCCESS`). Ledger vẫn **45 dòng**, `MAX(as_of_date) = 2026-11-03`.
+- **KHÔNG làm (có chủ đích):** không sửa tay bằng SQL, không dựng lại lịch sử; trạng thái
+  `SUCCESS` được ghi bởi đúng hàm UPSERT của writer.
+
+## 25. ⧗ OPEN — Có **writer thứ hai** ghi `paper_equity_curve` ngoài tiến trình `eod-run` (quan sát 03/11)
+
+- **WHAT:** Trình tự thời gian đo được trên CSDL thật ngày 03/11/2026:
+  `eod-run` của runner **exit 0 lúc 15:20:28** (DoD snapshot đọc `created_at =
+  15:20:27.880889`), nhưng **sau đó** vẫn có `regime_history` 03/11 được ghi lúc
+  **15:20:51,8** (audit id **1756**) và `paper_equity_curve` 03/11 bị ghi lại lúc
+  **15:20:56,2**. Giá trị không đổi (`841.146.848,35`), nhưng `created_at` — marker "một
+  writer duy nhất" — đã bị đẩy về sau khi tiến trình chính kết thúc.
+- **WHY (rủi ro):** `eod_run_ledger` không có dòng nào trong khoảng 15:20:28–15:20:56,
+  tức writer thứ hai **không đi qua** `run_eod_pipeline` (không idempotency, không
+  transaction, không audit). Nếu hai writer chạy song song trên cùng phiên, equity/settlement
+  có thể bị tính hai lần; nếu writer thứ hai dùng `--force`, nó phá luôn tính lũy đẳng.
+- **GIẢ THUYẾT (chưa xác minh):** một cron/job bên ngoài (Hermes ticker hoặc agent khác
+  trong worktree này) chạy `ptck.py eod-run --force` / `ptck.py paper` quanh 15:20.
+- **DONE-WHEN:** xác định được tiến trình (PID + command line) đã ghi lúc 15:20:51/56; nếu là
+  cron thì siết job (bỏ `--force`, chốt giờ sau `eod-run`); nếu là code thì cấm mọi đường ghi
+  equity ngoài `run_eod_pipeline`; thêm test/cảnh báo "equity có `created_at` mới hơn
+  `eod_run_ledger.updated_at` của cùng phiên".
+- **CHƯA làm:** không sửa gì trên dữ liệu — giá trị phiên 03/11 đã đối chiếu khớp 3 nguồn
+  (equity 841.146.848,35 · breadth 839 mã · regime 0,1684 CRISIS), nên đây là vấn đề
+  **provenance/đồng thời**, không phải sai số.
+
 ## Ghi chú vận hành
 
 - **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**
