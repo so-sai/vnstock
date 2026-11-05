@@ -901,6 +901,60 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
   (equity 841.146.848,35 · breadth 839 mã · regime 0,1684 CRISIS), nên đây là vấn đề
   **provenance/đồng thời**, không phải sai số.
 
+## 26. ✅ DONE (05/11/2026, NQ-17) — Không có cổng nào chặn "tính biến động qua ngày khuyết"
+
+- **WHAT:** Ngày 04/11/2026 EOD **không chạy** (cron miss) ⇒ `daily_ohlcv` không có bar 04/11.
+  Sáng 05/11, `eod-run --date 2026-11-05` lúc **15:42** vẫn hạch toán: `paper_equity_curve`
+  05/11 được ghi và ledger ghi **SUCCESS**; tới **17:33** catch-up mới bù 04/11
+  (`CATCHUP_FULL`) rồi **ghi lại** equity 05/11 (`created_at 17:33:12`).
+- **WHY (hệ quả):** trong khoảng 15:42–17:33, mọi phép "1 phiên" (biến động ngày, breadth
+  velocity, ATR ratio, PnL) đang so **05/11 với 03/11** — gộp 2 phiên thành 1, đúng cơ chế
+  sinh ra con số **"+41 điểm ảo"** mà Hội đồng cảnh báo ở NQ-17 §I.1.
+- **ROOT CAUSE:** tầng Python không có hàm trả lời "phiên liền trước của X là ngày nào và nó
+  có thật trong `daily_ohlcv` không". Mọi nơi tự suy diễn `date − 1 ngày` hoặc `shift(1)`,
+  mù với cuối tuần, `VN_HOLIDAYS` và phantom holiday `2026-09-01`. Rust **đã** có
+  `is_vn_trading_day` / `missing_trading_days_between` / `expected_prev_trading_day`
+  (`src/main.rs`, 4 call-site + 9 unit test) — Python thì chưa ⇒ hai bên vênh nhau đúng ở
+  điểm nối CSDL.
+- **WHERE:** `backend/src/database/session_continuity.py` (mới),
+  `backend/src/engine/eod_runner.py` (`EODSessionGapError`, `_assert_previous_session_accounted`),
+  `ptck.py` (`cmd_eod_run`).
+- **DONE-WHEN:** (a) "phiên liền trước" = ngày làm việc gần nhất TRƯỚC X; (b) lễ/phantom
+  holiday không bị báo "khuyết"; (c) khuyết phiên liền trước ⇒ `EODSessionGapError`, không
+  hạch toán, ledger `FAILED`, CLI **exit 4** (≠ 3 = phiên hiện tại 0 nến); (d) cổng đứng
+  **sau catch-up, trước `PaperTradingEngine`**.
+- **PHÁN QUYẾT:** ✅ **DONE** — commit `9c36690`.
+- **BẰNG CHỨNG:** RED 2 failed (`EODSessionGapError` chưa tồn tại; thiếu
+  `_assert_previous_session_accounted`) → GREEN **9/9**
+  (`backend/tests/test_session_continuity_2026_11_05.py`), regression **154/154**.
+  Ca chống-vá-quá-tay: có đủ 04/11 + 05/11 ⇒ pipeline chạy bình thường, ledger `SUCCESS`;
+  `2026-09-03` lùi đúng về `2026-08-31` (bỏ 01/09 phantom + 02/09 lễ); test sống: phiên mới
+  nhất của CSDL thật luôn có phiên liền trước.
+- **THIẾT KẾ 4 CHỐT CHẶN:** `backend/src/research/regression_armor_design.md` (đo trên CSDL
+  thật: `breadth ⊇ ohlcv` = 0 ngày thiếu; `breadth \ regime` = 229 ngày **hợp lệ** vì regime
+  ra đời 12/2020 ⇒ "khớp 100%" toàn lịch sử là bất khả thi, phải scoped window).
+
+## 27. ⧗ OPEN — Ba chốt chặn hồi quy còn lại (NQ-17 §II) + Restatement Audit
+
+- **#2 Gap-aware Sync:** `daily-update --date X` **không** quét `MAX(date) → X`; sự cố 04/11
+  chỉ được bù khi con người gọi `daily-update --date 2026-11-04` lúc 17:31. Đề xuất: trước khi
+  cào X, tính `find_missing_sessions(...)` và backfill tuần tự các phiên khuyết **≤ 30 ngày**
+  (ngoài hạn ⇒ chỉ báo, không tự bù — tôn trọng Mục 22). **Cần Hội đồng chốt:** cho phép tự
+  động gọi backfill mạng trong `daily-update` hay chỉ báo động + chặn EOD như Mục 26?
+- **#3 Date-set Asymmetry (scoped):** `CONTRACT_EPOCH = 2026-06-15` cho cặp `equity/ledger`;
+  cửa sổ **60 phiên gần nhất** cho `ohlcv/breadth/regime`; bỏ qua `NON_TRADING_SESSIONS`.
+  Đo 05/11: 1.666 / 1.708 / 1.479 ngày; 40 phiên gần nhất khớp 100%; `breadth \ regime`
+  = 229 ngày từ 2020-01-02..2020-11-30 là **hợp lệ** (regime chưa tồn tại) ⇒ cấm viết test
+  "khớp 100% toàn lịch sử".
+- **#4 Lint call-site (Rust):** guard đã có + 9 unit test; còn thiếu bảo đảm **mọi** chỗ đọc
+  2 bar liên tiếp đều đi qua `missing_trading_days_between`. Làm bằng test Python quét
+  `src/main.rs` theo **hàm** (không regex SQL đơn lẻ). **Chặn:** `src/main.rs` hiện đang dirty
+  do agent khác (commit `4eca9b4`) — không được sửa/commit đè.
+- **#5 Restatement Audit (mới, do số đo sinh ra):** ngày 05/11 17:31, `market_wide_breadth_daily`
+  của **02/11 và 03/11 bị ghi lại**: `−47,73 → −48,578` và `+4,648 → +5,276` (active 839 → 834),
+  không có bản ghi "ai/căn cứ nào". Đề xuất: cấm UPDATE phiên **đã đóng** trừ khi có audit
+  `RESTATED` nêu lý do — bảo vệ tính tái lập của báo cáo đã công bố.
+
 ## Ghi chú vận hành
 
 - **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**
