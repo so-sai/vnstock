@@ -144,12 +144,56 @@ impl Db {
 // ============================================================================
 // 3. ZERO-WAIT ZALO PC CDP CLIENT (Cached ws_path + Content-Length + TCP_NODELAY)
 // ============================================================================
+// [WHY]: Tham số khởi chạy Zalo PC bắt buộc phải kèm `--disable-renderer-accessibility` bên cạnh `--remote-debugging-port=58721` — xóa cờ này sẽ làm Zalo sập liên tục (0x80000003 / 0xc000041d).
+const ZALO_CDP_LAUNCH_ARGS: &str = "--remote-debugging-port=58721 --disable-renderer-accessibility";
+
 pub struct CdpClient {
     stream: TcpStream,
     msg_id: u32,
 }
 
+impl Drop for CdpClient {
+    fn drop(&mut self) {
+        let close_frame = Self::build_close_frame();
+        let _ = self.stream.write_all(&close_frame);
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+}
+
 impl CdpClient {
+    /// [WHY]: Cung cấp chuỗi tham số chuẩn khi khởi động Zalo PC kèm cổng điều khiển CDP 58721 và tắt đồng bộ cây Accessibility.
+    /// [ROOT CAUSE]: Trong Zalo PC (Electron x86 v26.10.20), khi `UIAutomationCore.DLL` của Windows (kích hoạt bởi bộ gõ EVKey64 / TextInputFramework)
+    /// truy vấn `WM_GETOBJECT` lúc danh sách tin nhắn ảo hóa đang cập nhật DOM, hàm `AXPlatformNodeWin` tại `Zalo.exe + 0x047ab9ab` vấp lỗi
+    /// `libc++ vector[] index out of bounds (__n < size())` làm sập toàn bộ tiến trình Zalo (`0x80000003` -> `0xc000041d`).
+    /// [INVARIANT]: Mọi lệnh khởi chạy `Zalo.exe` phải luôn truyền `--disable-renderer-accessibility` cùng với `--remote-debugging-port=58721`.
+    pub fn zalo_launch_args() -> &'static str {
+        ZALO_CDP_LAUNCH_ARGS
+    }
+
+    /// [WHY]: Quyết định có cần `Stop-Process` khởi động lại Zalo PC hay không.
+    /// [ROOT CAUSE]: Nếu cổng TCP 58721 đã mở (Zalo đã chạy đúng chế độ CDP) nhưng luồng UI tạm bận chưa phản hồi `/json` kịp trong 1 lần thử,
+    /// việc gọi `Stop-Process -Name Zalo -Force` sẽ bức tử oan phiên Zalo đang hoạt động của người dùng.
+    /// [INVARIANT]: Tuyệt đối không ép tắt Zalo khi `port_listening == true`; chỉ khởi động lại khi cổng CDP hoàn toàn chưa mở (`!port_listening && !ws_ready`).
+    pub fn should_force_restart_zalo(port_listening: bool, ws_ready: bool) -> bool {
+        !port_listening && !ws_ready
+    }
+
+    /// [WHY]: Tạo khung đóng kết nối WebSocket chuẩn RFC 6455 (Client-to-Server Masked Close Frame) khi hủy `CdpClient`.
+    /// [ROOT CAUSE]: Đóng trần `TcpStream` mà không gửi Opcode Close (0x88) khiến `Chrome_DevToolsHandlerThread` của Zalo giữ trạng thái phiên treo.
+    /// [INVARIANT]: Khung trả về luôn dài 6 byte: `[0x88, 0x80, mask0, mask1, mask2, mask3]`.
+    pub fn build_close_frame() -> [u8; 6] {
+        [0x88, 0x80, 0x37, 0xfa, 0x21, 0x3d]
+    }
+
+    pub fn is_cdp_port_listening(port: u16) -> bool {
+        let addr = format!("127.0.0.1:{}", port);
+        if let Ok(sock_addr) = addr.parse() {
+            TcpStream::connect_timeout(&sock_addr, Duration::from_millis(500)).is_ok()
+        } else {
+            false
+        }
+    }
+
     pub fn connect_zalo() -> Result<Self, String> {
         if let Ok(ws_path) = Self::find_zalo_ws_path(58721) {
             if let Ok(client) = Self::connect(58721, &ws_path) {
@@ -178,6 +222,18 @@ impl CdpClient {
         if Self::find_zalo_ws_path(58721).is_ok() {
             return Ok(());
         }
+        // [WHY]: Nếu cổng 58721 đang lắng nghe, Zalo đã được bật kèm CDP nhưng đang bận xử lý tạm thời — thử lại tối đa 5 lần thay vì giết tiến trình.
+        let port_open = Self::is_cdp_port_listening(58721);
+        if !Self::should_force_restart_zalo(port_open, false) {
+            for _ in 0..5 {
+                thread::sleep(Duration::from_millis(400));
+                if Self::find_zalo_ws_path(58721).is_ok() {
+                    return Ok(());
+                }
+            }
+            return Err("Cổng CDP 58721 đang mở nhưng Zalo đang bận hoặc tab chính chưa sẵn sàng (đã giữ nguyên tiến trình Zalo, không ép tắt).".to_string());
+        }
+
         let local_app_data = env::var("LOCALAPPDATA")
             .unwrap_or_else(|_| r"C:\Users\Admin\AppData\Local".to_string());
         let zalo_base = PathBuf::from(local_app_data).join("Programs").join("Zalo");
@@ -213,18 +269,22 @@ impl CdpClient {
         };
 
         println!(
-            "⚡ [Self-Boot] Đang khởi động lại Zalo PC kèm cổng CDP 58721: {}",
+            "⚡ [Self-Boot] Đang khởi động lại Zalo PC kèm cổng CDP 58721 (đã tắt Renderer Accessibility chống sập): {}",
             exe_path.display()
         );
         let work_dir = exe_path.parent().unwrap_or(&zalo_base);
+        let launch_args = Self::zalo_launch_args();
+        // [WHY]: Khởi chạy Zalo.exe qua WMI `Win32_Process.Create` để tiến trình con tách khỏi Windows Job Object của shell/CLI gọi nó —
+        // tránh việc Zalo bị hệ điều hành tự động đóng theo khi câu lệnh CLI kết thúc.
         let _ = Command::new("powershell")
             .creation_flags(CREATE_NO_WINDOW)
             .args([
                 "-NoProfile",
                 "-Command",
                 &format!(
-                    "Stop-Process -Name Zalo, ZaloCall, ZaloCap -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; Start-Process -FilePath '{}' -ArgumentList '--remote-debugging-port=58721' -WorkingDirectory '{}' -WindowStyle Normal | Out-Null",
+                    "Stop-Process -Name Zalo, ZaloCall, ZaloCap -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; $cmd = '\"{}\" {}'; Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{ CommandLine = $cmd; CurrentDirectory = '{}' }} | Out-Null",
                     exe_path.display(),
+                    launch_args,
                     work_dir.display()
                 ),
             ])
@@ -434,6 +494,45 @@ impl CdpClient {
         Err("Timeout chờ kết quả CDP Runtime.evaluate".to_string())
     }
 
+    /// [WHY]: Zalo PC chạy trên nền Chromium/Electron. Các sự kiện bàn phím giả lập qua `document.dispatchEvent(new KeyboardEvent)`
+    /// mang cờ `isTrusted = false` và bị tầng xử lý chatbox chặn (không thực thi gửi tin). Đồng thời Zalo PC không có nút gửi.
+    /// [ROOT CAUSE]: Cần gửi lệnh Chrome DevTools Protocol `Input.dispatchKeyEvent` để Chromium xử lý như một phím gõ vật lý thực sự.
+    /// [INVARIANT]: Gửi đủ cặp `rawKeyDown` và `keyUp` với mã phím 13 (Enter) để kích hoạt toàn vẹn Event Loop gửi tin của Zalo.
+    pub fn dispatch_enter_key(&mut self) -> Result<(), String> {
+        self.msg_id += 1;
+        let id1 = self.msg_id;
+        let msg_down = format!(
+            r#"{{"id":{},"method":"Input.dispatchKeyEvent","params":{{"type":"rawKeyDown","windowsVirtualKeyCode":13,"key":"Enter","code":"Enter","unmodifiedText":"\r","text":"\r"}}}}"#,
+            id1
+        );
+        self.send_ws_frame(&msg_down)?;
+        let id1_pat = format!("\"id\":{}", id1);
+        for _ in 0..5 {
+            if let Ok(frame) = self.read_ws_frame() {
+                if frame.contains(&id1_pat) {
+                    break;
+                }
+            }
+        }
+
+        self.msg_id += 1;
+        let id2 = self.msg_id;
+        let msg_up = format!(
+            r#"{{"id":{},"method":"Input.dispatchKeyEvent","params":{{"type":"keyUp","windowsVirtualKeyCode":13,"key":"Enter","code":"Enter"}}}}"#,
+            id2
+        );
+        self.send_ws_frame(&msg_up)?;
+        let id2_pat = format!("\"id\":{}", id2);
+        for _ in 0..5 {
+            if let Ok(frame) = self.read_ws_frame() {
+                if frame.contains(&id2_pat) {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn read_latest_message(&mut self) -> Result<String, String> {
         let js = format!(
             r#"
@@ -524,10 +623,10 @@ impl CdpClient {
         );
         let mut check = self.eval_js(&check_js).unwrap_or_default();
         if check == "SEARCHING" {
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(800));
             let pick_js = r#"
             (() => {
-                const results = document.querySelectorAll('.search-item, [class*="search-result"], [class*="item-search"], .conv-item, [class*="conv-item"], [data-id*="search"]');
+                const results = document.querySelectorAll('.search-item, [class*="search-result"], [class*="item-search"], [id*="group-item"], [data-id*="search"]');
                 let foundTexts = [];
                 for (const item of results) {
                     const t = (item.innerText || '').replace(/\u00a0/g, ' ').toLowerCase();
@@ -564,23 +663,25 @@ impl CdpClient {
                 input.focus();
                 document.execCommand('selectAll', false, null);
                 document.execCommand('insertText', false, "{}");
-                const ev = new KeyboardEvent('keydown', {{
-                    key: 'Enter',
-                    code: 'Enter',
-                    keyCode: 13,
-                    which: 13,
-                    bubbles: true,
-                    cancelable: true
-                }});
-                input.dispatchEvent(ev);
-                const sendBtn = document.querySelector('[data-translate-title="STR_SEND"], .send-msg-btn, #sendBtn');
-                if (sendBtn) sendBtn.click();
-                return 'SENT_OK';
+                return 'PASTED';
             }})()
             "#,
             js_text
         );
-        self.eval_js(&js)
+        let res = self.eval_js(&js)?;
+        if res != "PASTED" {
+            return Err(format!("Lỗi dán văn bản vào khung chat: {}", res));
+        }
+
+        // [WHY]: Zalo PC chạy trên nền Chromium/Electron. Các sự kiện bàn phím giả lập qua `document.dispatchEvent(new KeyboardEvent)`
+        // đều mang cờ untrusted (isTrusted = false) và bị tầng chatbox Zalo bỏ qua, đồng thời giao diện không có nút gửi.
+        // [ROOT CAUSE]: Phải phát lệnh CDP `Input.dispatchKeyEvent` chuẩn phần cứng để Chromium kích hoạt gửi tin.
+        // [INVARIANT]: Gửi đủ cặp `rawKeyDown` và `keyUp` với virtual keycode 13 (Enter).
+        // [WHY]: Cần trễ 150ms để layout engine của Chromium cập nhật caret và DOM sau khi dán khối text lớn (>3KB)
+        // trước khi phát tín hiệu phím Enter phần cứng.
+        thread::sleep(Duration::from_millis(150));
+        self.dispatch_enter_key()?;
+        Ok("SENT_OK".to_string())
     }
 
     fn json_escape(s: &str) -> String {
@@ -698,14 +799,20 @@ pub fn ensure_watch_daemons_running() {
     let root = resolve_project_root();
     let mc_exe = root.join("minh_chung.exe");
     if !is_named_mutex_alive("Local\\MinhChung_Daemon_Instance_Mutex") && mc_exe.exists() {
-        let _ = Command::new(&mc_exe)
-            .arg("watch")
-            .current_dir(&root)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+        // [WHY]: Khởi chạy daemon `minh_chung.exe watch` qua WMI `Win32_Process.Create` để tiến trình chạy nền
+        // tách hoàn toàn khỏi Windows Job Object của tiến trình gọi, không bị đóng theo khi lệnh `boot` kết thúc.
+        let _ = Command::new("powershell")
             .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "$cmd = '\"{}\" watch'; Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{ CommandLine = $cmd; CurrentDirectory = '{}' }} | Out-Null",
+                    mc_exe.display(),
+                    root.display()
+                ),
+            ])
+            .output();
     }
 }
 
@@ -717,12 +824,34 @@ fn resolve_python_cmd(root: &std::path::Path) -> PathBuf {
     PathBuf::from("python")
 }
 
-/// [WHY] Đồng bộ toàn diện dữ liệu đầu vào cho báo cáo đóng cửa ATC qua CLI `ptck.py` (Lãi suất, Vĩ mô và Nến EOD).
+/// [WHY]: Kiểm tra xem bảng `daily_ohlcv` đã có nến EOD của phiên hiện tại hay chưa trước khi chạy `eod-run`.
+/// [ROOT CAUSE]: Lệnh `ptck.py eod-run` chỉ hạch toán trên `MAX(date)` có sẵn trong `daily_ohlcv` chứ không tự kéo nến mới từ sàn;
+/// nếu không chạy `ptck.py daily-close` trước khi `daily_ohlcv` bị trễ ngày, cả 4 bảng (`daily_ohlcv`, `regime_history`, `market_wide_breadth_daily`, `eod_run_ledger`) sẽ đứng yên ở ngày cũ.
+/// [INVARIANT]: Trả về `true` khi `latest_ohlcv_date` là `None` hoặc nhỏ hơn `today_iso`; trả về `false` khi đã có dữ liệu `>= today_iso` (không crawl lại thừa).
+pub fn needs_daily_close_sync(latest_ohlcv_date: Option<&str>, today_iso: &str) -> bool {
+    match latest_ohlcv_date {
+        Some(d) => d < today_iso,
+        None => true,
+    }
+}
+
+fn query_latest_ohlcv_date() -> Option<String> {
+    let db_path = resolve_db_path("screener_cache.db");
+    let db = Db::open_readonly(&db_path).ok()?;
+    db.conn
+        .query_row(
+            "SELECT MAX(date) FROM daily_ohlcv WHERE COALESCE(is_stale, 0) = 0 AND close > 0 AND high >= low",
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+}
+
+/// [WHY] Đồng bộ toàn diện dữ liệu đầu vào cho báo cáo đóng cửa ATC qua CLI `ptck.py` (Lãi suất, Vĩ mô, Nến OHLCV/Regime/Breadth và Hạch toán EOD).
 /// [ROOT CAUSE] Nếu gọi kéo nến EOD trong phiên giao dịch (09:00 - 15:14 Thứ Hai - Thứ Sáu), dữ liệu upstream chưa chốt phiên
-/// sẽ trả về bar dở dang/sai lệch. Ngược lại, nếu chỉ chặn theo giờ mà không xét ngày trong tuần, các lần chạy bù buổi sáng (trước 09:00)
-/// hoặc cuối tuần sẽ bị chặn oan.
+/// sẽ trả về bar dở dang/sai lệch. Ngược lại, ngoài phiên mà chỉ gọi `eod-run` nhưng thiếu `daily-close` thì DB không có nến mới.
 /// [INVARIANT] Missing > Fake (Fail-closed): Tuyệt đối không kéo EOD trong khung giờ nhạy cảm 09:00 - 15:14 của ngày làm việc.
-/// Ngoài khung giờ này, gọi `ptck.py eod-run` với cơ chế lũy đẳng (idempotent) để bảo đảm tính trọn vẹn của nến EOD.
+/// Ngoài khung giờ này, kiểm tra `needs_daily_close_sync`: nếu thiếu nến ngày mới thì gọi `ptck.py daily-close` trước rồi mới gọi `ptck.py eod-run`.
 pub fn run_cli_sync() -> String {
     let t0 = Instant::now();
     let root = resolve_project_root();
@@ -747,7 +876,7 @@ pub fn run_cli_sync() -> String {
 
     // Chốt chặn Time-Gate EOD (Missing > Fake):
     // Chỉ chặn kéo EOD khi đang trong phiên giao dịch Thứ Hai - Thứ Sáu từ 09:00 đến 15:14.
-    // Ngoài khung giờ này (sau 15:15, trước 09:00 sáng, hoặc cuối tuần), cho phép gọi ptck.py eod-run.
+    // Ngoài khung giờ này (sau 15:15, trước 09:00 sáng, hoặc cuối tuần), cho phép gọi daily-close + eod-run.
     let st = get_win32_local_time();
     let is_weekday = st.w_day_of_week >= 1 && st.w_day_of_week <= 5;
     let minutes_of_day = (st.w_hour as u32) * 60 + (st.w_minute as u32);
@@ -770,7 +899,20 @@ pub fn run_cli_sync() -> String {
         );
         "⏸️ Bỏ qua (trong phiên GD)"
     } else {
-        println!("📈 [CLI Pipeline] Đang đồng bộ dữ liệu nến EOD qua `ptck.py eod-run`...");
+        let today_iso = format!("{:04}-{:02}-{:02}", st.w_year, st.w_month, st.w_day);
+        let latest_ohlcv = query_latest_ohlcv_date();
+        if needs_daily_close_sync(latest_ohlcv.as_deref(), &today_iso) {
+            println!(
+                "📥 [CLI Pipeline] `daily_ohlcv` đang ở {:?} (< {}), gọi `ptck.py daily-close` để kéo nến EOD + Breadth + Regime...",
+                latest_ohlcv, today_iso
+            );
+            let _ = Command::new(&py_bin)
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["ptck.py", "daily-close"])
+                .current_dir(&root)
+                .output();
+        }
+        println!("📈 [CLI Pipeline] Đang đồng bộ sổ cái EOD qua `ptck.py eod-run`...");
         let eod_ok = Command::new(&py_bin)
             .creation_flags(CREATE_NO_WINDOW)
             .args(["ptck.py", "eod-run"])
@@ -786,7 +928,7 @@ pub fn run_cli_sync() -> String {
     };
 
     format!(
-        "🔄 [Minh Chứng - Đồng bộ CLI `ptck.py` hoàn tất trong {:.2?}]\n• Lãi suất Liên NH (`sbv-update`): {}\n• Vĩ mô & Tỷ giá (`fetch-macro`): {}\n• Nến EOD & Vị thế (`eod-run`): {}",
+        "🔄 [Minh Chứng - Đồng bộ CLI `ptck.py` hoàn tất trong {:.2?}]\n• Lãi suất Liên NH (`sbv-update`): {}\n• Vĩ mô & Tỷ giá (`fetch-macro`): {}\n• Nến EOD & Vị thế (`daily-close` + `eod-run`): {}",
         t0.elapsed(),
         if sbv_ok { "✅ OK" } else { "⚠️ Dùng bản cache" },
         if macro_ok { "✅ OK" } else { "⚠️ Dùng bản cache" },
@@ -2365,7 +2507,9 @@ fn main() {
                     }
                     // CdpClient and ZaloMutexGuard drop here (~2.5ms total hold time!)
                 }
-                thread::sleep(Duration::from_millis(100));
+                // [WHY]: Chu kỳ quét 500ms giảm 5 lần tần suất mở/đóng socket TCP TIME_WAIT và phiên DevToolsAgentHost so với 100ms,
+                // bảo vệ luồng Chrome_DevToolsHandlerThread của Zalo khỏi quá tải mà vẫn giữ độ trễ phản hồi < 1 giây.
+                thread::sleep(Duration::from_millis(500));
             }
         }
         other => match build_stock_report(other) {
@@ -2445,5 +2589,62 @@ mod tests {
         assert!(json_flag_true(r#"{"portfolio_critical_lock":true}"#, "portfolio_critical_lock"));
         assert!(!json_flag_true(r#"{"portfolio_critical_lock": false}"#, "portfolio_critical_lock"));
         assert!(!json_flag_true("{}", "portfolio_critical_lock"));
+    }
+
+    #[test]
+    fn cdp_json_escape_giu_nguyen_ven_chuoi_va_xuong_dong() {
+        let raw = "Báo cáo ATC\n• Dòng 1: \"HPG\" \\ 21.250đ\r\n";
+        let escaped = CdpClient::json_escape(raw);
+        assert!(!escaped.contains('\n'));
+        assert!(!escaped.contains('\r'));
+        assert!(escaped.contains("\\n"));
+        assert!(escaped.contains("\\\"HPG\\\""));
+        assert!(escaped.contains("\\\\"));
+    }
+
+    // [WHY]: Chặn lỗi sập Zalo PC (Exception 0x80000003 / 0xc000041d tại Zalo.exe+0x047ab9ab)
+    // do UIAutomationCore.DLL duyệt cây AXPlatformNodeWin gây lỗi vector[] index out of bounds.
+    #[test]
+    fn tham_so_khoi_dong_zalo_bat_buoc_tat_renderer_accessibility() {
+        let args = CdpClient::zalo_launch_args();
+        assert!(
+            args.contains("--remote-debugging-port=58721"),
+            "Thiếu cổng CDP 58721 trong tham số khởi động Zalo: {}",
+            args
+        );
+        assert!(
+            args.contains("--disable-renderer-accessibility"),
+            "Thiếu cờ --disable-renderer-accessibility chống crash UIAutomation: {}",
+            args
+        );
+    }
+
+    // [WHY]: Ca kiểm thử chống vá quá tay (anti-overkill) — khi cổng TCP 58721 đã mở (Zalo đang chạy đúng chế độ CDP)
+    // nhưng chỉ bận tạm thời chưa trả kịp /json, tuyệt đối không được gọi Stop-Process bức tử Zalo của người dùng.
+    #[test]
+    fn khong_ep_tat_zalo_khi_cong_cdp_dang_mo_nhung_ban_tam_thoi() {
+        assert!(!CdpClient::should_force_restart_zalo(true, true));
+        assert!(!CdpClient::should_force_restart_zalo(true, false));
+        assert!(CdpClient::should_force_restart_zalo(false, false));
+    }
+
+    // [WHY]: Đảm bảo khi đóng kết nối CDP luôn gửi đúng khung WebSocket Close (opcode 0x88 + bit mask 0x80 theo RFC 6455)
+    // để giải phóng phiên DevToolsAgentHost sạch sẽ, tránh rò rỉ tài nguyên trên Chrome_DevToolsHandlerThread.
+    #[test]
+    fn khung_dong_websocket_dung_chuan_rfc6455_masked_close() {
+        let frame = CdpClient::build_close_frame();
+        assert_eq!(frame[0], 0x88, "Byte đầu phải là FIN + Opcode Close (0x88)");
+        assert_eq!(frame[1], 0x80, "Byte thứ hai phải bật cờ MASK (0x80) với payload len = 0");
+        assert_eq!(frame.len(), 6, "Khung Close rỗng có mask phải dài đúng 6 byte");
+    }
+
+    // [WHY]: Đảm bảo `run_cli_sync` nhận diện đúng khi `daily_ohlcv` bị trễ ngày (chưa chạy `daily-close`)
+    // và không crawl lại thừa khi dữ liệu ngày hiện tại đã nạp đủ (ca chống vá quá tay).
+    #[test]
+    fn nhan_dien_dung_khi_can_chay_daily_close_nang_cap_ohlcv() {
+        assert!(needs_daily_close_sync(Some("2026-11-03"), "2026-11-05"));
+        assert!(needs_daily_close_sync(None, "2026-11-05"));
+        assert!(!needs_daily_close_sync(Some("2026-11-05"), "2026-11-05"));
+        assert!(!needs_daily_close_sync(Some("2026-11-06"), "2026-11-05"));
     }
 }

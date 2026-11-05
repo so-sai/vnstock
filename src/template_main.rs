@@ -26,7 +26,8 @@ const WAKE_PREFIXES: &[&str] = &["/mm", "minh mẫu", "minh mau"];
 const INSTANCE_MUTEX: &str = "Local\\MinhMau_Daemon_Instance_Mutex";
 const DB_FILE_NAME: &str = "agent_data.db";
 const CDP_PORT: u16 = 58721;
-const POLL_INTERVAL_MS: u64 = 100;
+// [WHY]: Chu kỳ 500ms tránh bão kết nối TCP TIME_WAIT lên Chrome_DevToolsHandlerThread của Zalo PC.
+const POLL_INTERVAL_MS: u64 = 500;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 // ============================================================================
@@ -280,8 +281,9 @@ impl CdpClient {
                 .args([
                     "-NoProfile",
                     "-Command",
+                    // [WHY]: Bắt buộc truyền `--disable-renderer-accessibility` để chặn lỗi vector[] out-of-bounds trong AXPlatformNodeWin (Zalo.exe+0x047ab9ab).
                     &format!(
-                        "Stop-Process -Name Zalo -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; Start-Process -FilePath '{}' -ArgumentList '--remote-debugging-port={}' | Out-Null",
+                        "Stop-Process -Name Zalo -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; Start-Process -FilePath '{}' -ArgumentList '--remote-debugging-port={} --disable-renderer-accessibility' | Out-Null",
                         exe_path.display(),
                         CDP_PORT
                     ),
