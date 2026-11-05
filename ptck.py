@@ -2399,7 +2399,7 @@ def cmd_sel(args):
 
 def cmd_eod_run(args):
     """EOD Runner — tự phục hồi (retry) + lũy đẳng (idempotent) + chống race (SQLite lock) + Giao dịch bù (catch-up)."""
-    from src.engine.eod_runner import EODNoBarsError, run_eod_pipeline
+    from src.engine.eod_runner import EODNoBarsError, EODSessionGapError, run_eod_pipeline
 
     try:
         result = run_eod_pipeline(
@@ -2408,6 +2408,12 @@ def cmd_eod_run(args):
             retry_sleep=getattr(args, "retry_sleep", 15 * 60),
             catchup=getattr(args, "catchup", True),
         )
+    except EODSessionGapError as exc:
+        # [WHY] Mã thoát 4 tách biệt với 3 (= phiên hiện tại 0 nến): 4 nghĩa là "phiên trước
+        # khuyết ⇒ không được hạch toán". Trước 05/11/2026 trường hợp này lặng lẽ trả SUCCESS
+        # và ghi equity trên nền dữ liệu khuyết, phải chờ catch-up ghi lại.
+        print(f"\n[ALARM] {exc}")
+        raise SystemExit(4) from exc
     except EODNoBarsError as exc:
         # [WHY] Mã thoát ≠ 0 để cron/scheduler thấy thất bại (Mục 19). Trước đây lỗi này
         # in SUCCESS rồi exit 0 nên không ai biết equity của phiên đã không được cập nhật.

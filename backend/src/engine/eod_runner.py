@@ -21,7 +21,7 @@ import logging
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -59,6 +59,46 @@ class EODNoBarsError(RuntimeError):
     catch-up biết đây là ngày nợ. Ngày nghỉ (cuối tuần/phantom holiday) được miễn trừ
     TƯỜNG MINH — "không giao dịch" khác "thiếu dữ liệu" (AGENTS §2).
     """
+
+
+class EODSessionGapError(RuntimeError):
+    """[WHY] Hạch toán phiên X khi phiên liền trước của X không có bar ⇒ mọi so sánh "1
+    phiên" đang gộp nhiều phiên, và equity/PnL bị hạch toán trên nền dữ liệu khuyết.
+
+    [ROOT CAUSE] 04/11/2026 cron miss ⇒ `daily_ohlcv` không có bar 04/11; `eod-run --date
+    2026-11-05` lúc 15:42 vẫn ghi `paper_equity_curve` 05/11 + ledger SUCCESS, rồi catch-up
+    mới bù 04/11 lúc 17:33 và **ghi lại** equity 05/11.
+
+    [INVARIANT] Khuyết phiên liền trước ⇒ không hạch toán, ledger ghi FAILED, CLI thoát mã
+    4 (phân biệt với 3 = phiên hiện tại không có nến). Cổng đứng SAU catch-up — nếu catch-up
+    bù được thì đi tiếp — nhưng TRƯỚC mọi đường ghi kế toán.
+    """
+
+
+def _assert_previous_session_accounted(as_of_date: str, conn=None) -> str:
+    """Bảo đảm phiên liền trước (lịch giao dịch, không phải `X - 1 ngày`) có bar.
+
+    [WHY] `daily_ohlcv` là nguồn duy nhất biết phiên nào có giao dịch thật; dùng `DISTINCT
+    date` (đã lọc `is_stale = 0`) thay vì tin vào lịch suy diễn — nếu nguồn khuyết một phiên
+    bất thường (nghỉ đột xuất), hàm vẫn báo đúng "khuyết" chứ không đoán bừa.
+    """
+    from src.database.session_continuity import SessionGapError, assert_previous_session_present
+
+    sql = "SELECT DISTINCT date FROM daily_ohlcv WHERE date >= ? AND COALESCE(is_stale, 0) = 0"
+    # [WHY] Chỉ quét 40 ngày lịch quanh as_of: đủ phủ mọi kỳ nghỉ (Tết dài nhất 5 phiên) mà
+    # không kéo toàn bảng 1.666 phiên mỗi lần EOD. — mở rộng thành full scan là phí vô ích.
+    window_start = (datetime.strptime(as_of_date, "%Y-%m-%d") - timedelta(days=40)).strftime("%Y-%m-%d")
+    if conn is not None:
+        present = {r[0] for r in conn.execute(sql, (window_start,))}
+    else:
+        with get_connection() as c:
+            present = {r[0] for r in c.execute(sql, (window_start,))}
+    try:
+        return assert_previous_session_present(as_of_date, present)
+    except SessionGapError as exc:
+        # [WHY] Đổi sang kiểu lỗi riêng của EOD để CLI ánh xạ được mã thoát 4 (≠ 3 = phiên
+        # hiện tại 0 nến). Giữ NGUYÊN thông điệp gốc — nó chứa danh sách ngày phải backfill.
+        raise EODSessionGapError(str(exc)) from exc
 
 
 def count_eod_bars(as_of_date: str, conn=None) -> int:
@@ -552,6 +592,14 @@ def run_eod_pipeline(
                     except Exception as e:
                         logger.exception(f"[EOD] catch-up thất bại (non-blocking): {e}")
                         result["catchup"] = {"error": str(e)}
+
+                # --- 1.6. CỔNG LIỀN KỀ (Mục 26, 05/11/2026): phiên trước phải CÓ THẬT ---
+                # [WHY] Đặt SAU catch-up (catch-up có quyền bù trước) nhưng TRƯỚC mọi đường
+                # ghi kế toán: 04/11/2026 cron miss ⇒ 05/11 vẫn hạch toán trên nền khuyết,
+                # rồi catch-up 17:33 phải ghi lại equity 05/11. Nếu cổng này đứng sau
+                # `PaperTradingEngine`, equity giả đã kịp ghi (đúng lỗi Mục 19 tái diễn).
+                prev_session = _assert_previous_session_accounted(as_of_date, conn=conn)
+                result["previous_session"] = prev_session
 
                 # --- 3. PAPER TRADING (chỉ kế toán, nằm trong transaction) ---
                 logger.info(f"[EOD] {as_of_date}: chạy paper trading (corr={corr_id})")

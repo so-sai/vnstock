@@ -54,9 +54,22 @@ def _install_success_stubs(monkeypatch, ledger_calls, *, failing=False):
     import src.engine.eod_runner as eod
     import src.engine.paper_trading_engine as pte
 
+    class _FakeCursor:
+        """[WHY] Từ 05/11/2026 pipeline đọc `DISTINCT date` để kiểm tra phiên liền trước;
+        conn giả phải trả về đúng phiên liền trước của ngày test, nếu không cổng Mục 26
+        sẽ chặn và test này đo sai thứ nó muốn đo.
+        """
+
+        def __iter__(self):
+            return iter([("2026-11-02",), ("2026-11-04",)])
+
+    class _FakeConn:
+        def execute(self, _sql, _params=()):
+            return _FakeCursor()
+
     class _FakeTxn:
         def __enter__(self):
-            return (SimpleNamespace(name="fake-conn"), SimpleNamespace(correlation_id="corr-test"))
+            return (_FakeConn(), SimpleNamespace(correlation_id="corr-test"))
 
         def __exit__(self, *exc):
             return False
