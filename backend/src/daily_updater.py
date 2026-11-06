@@ -39,6 +39,7 @@ from src.database.data_freshness import upsert_freshness
 from src.database.data_quality_failover import FailoverMultiSourceAdapter
 from src.database.db_core import get_connection, optimize_sqlite_engine, safe_json_dump, save_data_upsert
 from src.database.foreign_flow_guard import ForeignFlowViolation, guard_foreign_frame
+from src.database.trading_calendar import load_vn_holidays
 
 # Canonical Asset Registry
 _LIBS = PROJECT_ROOT / "backend" / "libs"
@@ -123,34 +124,21 @@ _CALENDAR_PATH_CANDIDATES = (
 
 
 def _load_vn_holidays() -> frozenset[str]:
-    """Đọc lịch VN từ SSOT. FAIL-CLOSED: thiếu/hỏng file ⇒ `RuntimeError`, KHÔNG trả set rỗng.
+    """Đọc lịch VN từ SSOT. FAIL-CLOSED: thiếu/hỏng file ⇒ `TradingCalendarError`.
+
+    [WHY] Phần đọc + kiểm tra định dạng nằm ở `src/database/trading_calendar.py` để bản macro
+    (`time_series_aligner`) dùng CHUNG đúng một chính sách lỗi — trước đây bản macro fail-open
+    (trả `set()`), nghĩa là cùng một file mà hai lịch khác nhau khi file hỏng.
 
     [WHY] Trả set rỗng khi file hỏng là fail-OPEN nguy hiểm nhất có thể: mọi ngày lễ biến
     thành "phiên", bộ dò khuyết phiên báo động giả mỗi ngày, và `daily-update` sẽ cào lại
     những phiên không tồn tại. "Không biết" ≠ "không có ngày lễ" (AGENTS §4A) — thà dừng.
+
+    [WHY] Truyền `_CALENDAR_PATH_CANDIDATES` tường minh (thay vì để module kia tự suy đường
+    dẫn) vì bản đóng gói PyInstaller có thể đặt JSON ở vị trí khác; test fail-closed cũng
+    monkeypatch chính biến này để mô phỏng file thiếu/hỏng.
     """
-    path = next((p for p in _CALENDAR_PATH_CANDIDATES if p.exists()), None)
-    if path is None:
-        raise RuntimeError(
-            "Không tìm thấy SSOT lịch giao dịch `weekend_holidays.json` (đã thử: "
-            f"{[str(p) for p in _CALENDAR_PATH_CANDIDATES]}). Không được chạy với lịch rỗng."
-        )
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        days = payload["holidays"]
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        raise RuntimeError(f"SSOT lịch giao dịch hỏng ({path}): {e}") from e
-    if not isinstance(days, list) or not days:
-        raise RuntimeError(f"SSOT lịch giao dịch rỗng/không phải list ({path}) — fail-closed.")
-    out: set[str] = set()
-    for d in days:
-        if not isinstance(d, str):
-            raise RuntimeError(f"SSOT lịch giao dịch có phần tử không phải chuỗi: {d!r}")
-        try:
-            out.add(datetime.strptime(d, "%Y-%m-%d").date().isoformat())
-        except ValueError as e:
-            raise RuntimeError(f"SSOT lịch giao dịch có ngày sai định dạng: {d!r}") from e
-    return frozenset(out)
+    return load_vn_holidays(_CALENDAR_PATH_CANDIDATES)
 
 
 VN_HOLIDAYS = _load_vn_holidays()

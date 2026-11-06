@@ -11,7 +11,6 @@ Pairwise deletion for holidays:
   No forward-fill for PTD (stale_flag only for governor display).
 """
 
-import json
 import logging
 import sys
 from datetime import date, timedelta
@@ -96,20 +95,21 @@ def _generate_nyse_holidays(start_year: int, end_year: int) -> set[date]:
 
 
 def _load_vn_holidays() -> set[date]:
-    """Load VN holidays from config json."""
-    holidays = set()
-    cal_path = PROJECT_ROOT / "backend" / "src" / "config" / "weekend_holidays.json"
-    if not cal_path.exists():
-        cal_path = Path(__file__).resolve().parent.parent.parent / "config" / "weekend_holidays.json"
-    if cal_path.exists():
-        try:
-            with open(cal_path) as f:
-                data = json.load(f)
-            for h in data.get("holidays", []):
-                holidays.add(date.fromisoformat(h))
-        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError) as e:
-            logger.warning(f"Cannot load VN holiday calendar: {e}")
-    return holidays
+    """Đọc ngày nghỉ VN từ SSOT — FAIL-CLOSED (Mục 29, NQ-18 §II.2).
+
+    [WHY] Bản cũ `try/except` rồi trả `holidays = set()`: khi file hỏng/thiếu, MỌI ngày lễ
+    biến thành phiên giao dịch. Đó là fail-open đúng kiểu AGENTS §4A cấm ("không biết" ≠ 0):
+    lịch rỗng không phải "không có ngày lễ" mà là "chưa đọc được lịch". Hậu quả cụ thể: nến
+    macro bị ghép sang phiên không tồn tại, và `VNSessionCalendar` (dùng bởi freshness sentinel,
+    session resolver, stale-prev guard) trả `is_trading_day=True` cho ngày sàn đóng.
+
+    [WHY] Dùng CHUNG loader với `daily_updater` (`src/database/trading_calendar.py`) thay vì
+    tự parse JSON: trước đây hai đường đọc cùng một file nhưng khác chính sách lỗi, nên "một
+    nguồn sự thật" vẫn có thể sinh hai lịch khác nhau — đúng căn bệnh của sự cố 31/08/2026.
+    """
+    from src.database.trading_calendar import load_vn_holidays
+
+    return {date.fromisoformat(d) for d in load_vn_holidays()}
 
 
 def _is_weekend(d: date) -> bool:
