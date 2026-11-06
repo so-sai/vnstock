@@ -342,29 +342,46 @@ def collect_session_alignment(
         raise ValueError(f"không xác định được phiên gần nhất ≤ {as_of_iso}")
 
     market = session_window_end(as_of, market_window)
+    market_set = set(market)
     market_missing: dict[str, list[str]] = {}
+    market_spurious: dict[str, list[str]] = {}
     for table in MARKET_TABLES:
         min_bars = MIN_VALID_BARS_PER_SESSION if table == "daily_ohlcv" else None
         present = _present_dates(conn, table, "date", min_bars=min_bars, since=market[0])
         market_missing[table] = [d for d in market if d not in present]
+        # [WHY] CHIỀU NGƯỢC (NQ-18 §II.2): dòng tồn tại trên NGÀY KHÔNG GIAO DỊCH. Đo 06/11/2026
+        # `2026-09-01` (Quốc khánh) có dòng ở breadth/regime/equity mà mọi cổng cũ báo xanh —
+        # vì bất biến chỉ được phát biểu "đủ phiên" chứ không "khớp đúng tập phiên". Một dòng
+        # ma làm consumer đọc "phiên liền trước" quanh đó sai và tạo điểm equity không có phiên.
+        market_spurious[table] = sorted(d for d in present if market[0] <= d <= market[-1] and d not in market_set)
 
     if accounting_window is None:
         expect = [d for d in _calendar_sessions(contract_epoch, as_of) if d >= contract_epoch]
     else:
         expect = session_window_end(as_of, accounting_window)
 
+    expect_set = set(expect)
     accounting_missing: dict[str, list[str]] = {}
+    accounting_spurious: dict[str, list[str]] = {}
     for table, column in ACCOUNTING_TABLES.items():
         present = _present_dates(conn, table, column, since=expect[0])
         accounting_missing[table] = [d for d in expect if d not in present]
+        accounting_spurious[table] = sorted(d for d in present if expect[0] <= d <= expect[-1] and d not in expect_set)
 
-    ok = not any(market_missing.values()) and not any(accounting_missing.values())
+    ok = (
+        not any(market_missing.values())
+        and not any(market_spurious.values())
+        and not any(accounting_missing.values())
+        and not any(accounting_spurious.values())
+    )
     return {
         "as_of": as_of,
         "market_window": [market[0], market[-1], len(market)],
         "accounting_window": [expect[0], expect[-1], len(expect)],
         "market_missing": market_missing,
+        "market_spurious": market_spurious,
         "accounting_missing": accounting_missing,
+        "accounting_spurious": accounting_spurious,
         "ok": ok,
     }
 
@@ -394,6 +411,10 @@ def assert_session_set_alignment(conn, as_of_iso: str | None = None, **kwargs) -
     [INVARIANT] KHÔNG miễn trừ nội bộ: hàm này không có tham số "bỏ qua ngày X". Nợ kế thừa
     (nếu có) phải được nêu TÊN ở caller/test — để không ai vô tình thêm một ngày vào danh
     sách miễn trừ trong im lặng.
+
+    [INVARIANT] HAI CHIỀU (NQ-18 §II.2): thiếu phiên ⇒ lỗi; và dòng tồn tại trên NGÀY KHÔNG
+    GIAO DỊCH cũng là lỗi. Đo 06/11/2026: `2026-09-01` có dòng ở breadth/regime/equity nhưng
+    mọi cổng một chiều đều xanh — đúng lỗ hổng mà hàm này phải bịt.
     """
     report = collect_session_alignment(conn, as_of_iso, **kwargs)
     if report["ok"]:
@@ -405,6 +426,12 @@ def assert_session_set_alignment(conn, as_of_iso: str | None = None, **kwargs) -
     for table, days in report["accounting_missing"].items():
         if days:
             lines.append(f"  [accounting] {table}: thiếu {len(days)} phiên {days}")
+    for table, days in report["market_spurious"].items():
+        if days:
+            lines.append(f"  [NON-SESSION] {table}: {len(days)} dòng trên ngày KHÔNG giao dịch {days}")
+    for table, days in report["accounting_spurious"].items():
+        if days:
+            lines.append(f"  [NON-SESSION] {table}: {len(days)} dòng trên ngày KHÔNG giao dịch {days}")
     raise SessionSetMismatchError(
         f"LỆCH TẬP NGÀY tại {report['as_of']} — thị trường {report['market_window']}, "
         f"kế toán {report['accounting_window']}:\n" + "\n".join(lines)

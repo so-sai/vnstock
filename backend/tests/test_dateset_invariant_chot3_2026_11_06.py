@@ -211,15 +211,27 @@ def test_holidays_are_never_expected_sessions():
 def test_live_market_alignment_is_exact():
     """[WHY] Sentinel 60 phiên: chỉ cần một phiên khuyết lọt vào là test đỏ NGAY hôm sau,
     thay vì để EOD hạch toán trên nền khuyết rồi phát hiện sau 2 giờ (sự cố 04/11).
+
+    [SỬA 06/11/2026, NQ-18 §II.2] Trước đây test này khẳng định `ok is True`. Từ khi Chốt #3
+    có thêm CHIỀU NGƯỢC, `ok` còn phụ thuộc "không có dòng trên ngày không giao dịch" — mà
+    CSDL thật đang có đúng 3 dòng như vậy ở ngày `2026-09-01` (nợ đo được, chưa thanh lý).
+    Vì thế ở đây khẳng định phần CHIỀU THIẾU (mục đích gốc của sentinel này) và ghim phần
+    dòng thừa; tập dòng thừa được ghim CHÍNH XÁC ở
+    `test_dateset_reverse_direction_2026_11_06.py::test_live_known_orphans_are_pinned_exactly`.
+    Không nới lỏng: nếu thiếu một phiên, `market_missing` sẽ khác rỗng ⇒ test này đỏ.
     """
-    from src.database.session_continuity import assert_session_set_alignment
+    from src.database.session_continuity import collect_session_alignment
 
     con = sqlite3.connect(f"file:{LIVE_DB.as_posix()}?mode=ro", uri=True)
     try:
-        report = assert_session_set_alignment(con)
+        report = collect_session_alignment(con)
     finally:
         con.close()
-    assert report["ok"] is True, report
+    assert not any(report["market_missing"].values()), report
+    assert report["market_window"][2] == 60
+    assert report["market_spurious"]["market_wide_breadth_daily"] == ["2026-09-01"], report
+    assert report["market_spurious"]["regime_history"] == ["2026-09-01"], report
+    assert report["market_spurious"]["daily_ohlcv"] == [], report
 
 
 def test_live_accounting_last_20_sessions_is_clean():
