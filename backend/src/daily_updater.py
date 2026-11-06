@@ -101,9 +101,39 @@ logger.addHandler(console_handler)
 logging.raiseExceptions = False
 
 # ============================================================
-# 2. VIETNAMESE HOLIDAY CALENDAR (2024-2026)
+# 2. VIETNAMESE HOLIDAY CALENDAR (2023-2026)
 # ============================================================
+# [WHY] Danh sách này là LỊCH SÀN ĐÓNG CỬA, không phải "lịch nghỉ của người lao động".
+# Nó được đối chiếu với DỮ LIỆU THẬT: quét 2023-01-01..2026-11-05 (06/11/2026) tìm mọi ngày
+# được lịch coi là phiên mà cả ba bảng độc lập (`daily_ohlcv`, `market_wide_breadth_daily`,
+# `regime_history`) đều 0 dòng, trong khi hai bên kỳ nghỉ đều có ~1.000 bar. Ba writer độc
+# lập cùng trống ⇒ sàn đóng cửa, không phải crawler chết (AGENTS §2). Thiếu một ngày ở đây
+# làm mọi phép "biến động 1 phiên" gộp nhiều phiên thành một (NQ-17 §I.1); THỪA một ngày
+# làm bộ dò khuyết phiên báo động giả vĩnh viễn (NQ-18 §II.2). — sửa danh sách này phải
+# kèm số đo, không sửa theo trí nhớ.
 VN_HOLIDAYS = {
+    # --- 2023 ---
+    # [WHY] 01/01/2023 là Chủ nhật ⇒ nghỉ bù thứ Hai 02/01. Đo: 0 bar / 0 breadth / 0 regime,
+    # 30/12/2022 = 1.014 bar, 03/01/2023 = 998 bar.
+    "2023-01-02",
+    # [WHY] Tết Quý Mão: sàn nghỉ 20/01–26/01 (7 ngày). Đo: cả 7 ngày 0 dòng ở 3 bảng;
+    # 19/01 = 985 bar, 27/01 = 1.013 bar. Trước khi sửa, `previous_session("2023-01-24")`
+    # trả 2023-01-23 (một ngày 0 bar) ⇒ mọi cửa sổ phiên quanh Tết 2023 sai.
+    "2023-01-20",
+    "2023-01-23",
+    "2023-01-24",
+    "2023-01-25",
+    "2023-01-26",
+    # [WHY] 30/04 và 01/05/2023 rơi vào Chủ nhật/thứ Hai ⇒ sàn nghỉ 29/04–03/05. Đo:
+    # 28/04 = 1.021 bar, 04/05 = 1.021 bar, ba ngày giữa 0 dòng ở cả 3 bảng.
+    "2023-05-01",
+    "2023-05-02",
+    "2023-05-03",
+    # [WHY] Quốc khánh 2023: 02/09 là thứ Bảy, 03/09 Chủ nhật ⇒ nghỉ 01/09 và 04/09.
+    # Đo: 31/08 = 1.087 bar, 05/09 = 1.098 bar, hai ngày nghỉ 0 dòng ở cả 3 bảng.
+    "2023-09-01",
+    "2023-09-04",
+    # --- 2024 ---
     "2024-01-01",
     "2024-02-08",
     "2024-02-09",
@@ -118,6 +148,9 @@ VN_HOLIDAYS = {
     # phiên" quanh Tết 2024 gộp 3 phiên thành một (bẫy NQ-17 §I.1) — bỏ 2 dòng này sẽ
     # tái diễn lỗi đó. (Lưu ý: `src/main.rs:832-833` vẫn còn 2 ngày này — xem Mục 29.)
     "2024-04-18",
+    # [WHY] Giỗ Tổ 18/04 (thứ Năm) + 30/04–01/05 ⇒ sàn nghỉ 29/04–01/05. Đo: 26/04 = 1.120
+    # bar, 02/05 = 1.109 bar, 29/04 = 0 dòng ở cả 3 bảng.
+    "2024-04-29",
     "2024-04-30",
     "2024-05-01",
     "2024-09-02",
@@ -132,8 +165,15 @@ VN_HOLIDAYS = {
     "2025-04-30",
     "2025-05-01",
     "2025-05-02",
+    # [WHY] Quốc khánh 2025: sàn nghỉ 01/09 và 02/09. Đo: 29/08 = 1.149 bar, 03/09 = 1.045
+    # bar, 01/09 = 0 dòng ở cả 3 bảng. Thiếu 01/09 ⇒ `previous_session("2025-09-02")` trả
+    # về chính ngày 01/09 (0 bar) và bộ dò khuyết phiên báo CRITICAL vĩnh viễn.
+    "2025-09-01",
     "2025-09-02",
     "2026-01-01",
+    # [WHY] Tết Dương lịch 2026: sàn nghỉ 01/01 (thứ Năm) VÀ 02/01 (thứ Sáu). Đo: 31/12/2025
+    # = 981 bar, 05/01/2026 = 963 bar, 02/01 = 0 dòng ở cả 3 bảng.
+    "2026-01-02",
     "2026-02-16",
     "2026-02-17",
     "2026-02-18",
