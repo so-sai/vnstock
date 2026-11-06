@@ -278,10 +278,29 @@ def sync_missing(start: str = "2020-01-01", end: str | None = None) -> dict:
     }
 
 
-def _upsert_rows(series: list[dict]) -> int:
-    """Đường ghi DUY NHẤT vào `market_wide_breadth_daily` (INSERT OR REPLACE)."""
+def _upsert_rows(
+    series: list[dict],
+    *,
+    caller_module: str = "analysis.market_wide_breadth",
+    reason: str | None = None,
+) -> int:
+    """Đường ghi DUY NHẤT vào `market_wide_breadth_daily` (INSERT OR REPLACE).
+
+    [WHY] CHỐT #5 (Mục 27, NQ-17 §III): ghi đè một phiên ĐÃ ĐÓNG mà không có dòng
+    `RESTATED` là lỗi toàn vẹn — 05/11/2026 17:31 đã xảy ra đúng vậy (02/11
+    `−47,73 → −48,578`, 03/11 `+4,648 → +5,276`) và không ai truy được vì sao. Vì thế:
+    (a) đọc trạng thái CŨ trước khi replace để biết dòng nào thật sự bị đổi;
+    (b) ghi đè + audit `RESTATED` nằm TRONG CÙNG transaction — audit lỗi ⇒ rollback,
+        dữ liệu cũ giữ nguyên (không thể "ghi đè lậu").
+    — bỏ bước (a) sẽ làm audit ghi `SUCCESS` cho cả ghi đè; bỏ (b) sẽ cho phép mất dấu vết.
+    """
     import datetime
 
+    from src.database.restatement_guard import is_backwrite, record_restatement
+
+    # [WHY] Đọc TRƯỚC khi ghi: sau `INSERT OR REPLACE` thì giá trị cũ biến mất vĩnh viễn,
+    # không còn cách nào dựng lại "old" cho audit.
+    existing = _read_existing()
     con = sqlite3.connect(str(DB))
     con.execute(TABLE_DDL)
     now = datetime.datetime.now().isoformat(timespec="seconds")
@@ -302,15 +321,48 @@ def _upsert_rows(series: list[dict]) -> int:
         )
         for r in series
     ]
-    con.executemany("INSERT OR REPLACE INTO market_wide_breadth_daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-    con.commit()
+    # [WHY] `processing_date` = phiên MỚI NHẤT trong lô, đúng định nghĩa "current_processing_date"
+    # của NQ-17 §III. Mọi dòng có `date < processing_date` là phiên đã đóng trong lần chạy này.
+    processing_date = max(r["date"] for r in series)
+    restated = []
+    for r in series:
+        prev = existing.get(r["date"])
+        if (
+            prev is not None
+            and prev != _signature(r)
+            and is_backwrite(r["date"], processing_date, "market_wide_breadth_daily")
+        ):
+            restated.append((r, prev))
+
+    reason_text = reason or (
+        "panel recompute (sync_missing/backfill/catch-up) thay đổi giá trị đã lưu của một "
+        "phiên đã đóng — số liệu công bố trước đó không còn tái lập được với panel hiện tại"
+    )
+    with con:
+        con.executemany("INSERT OR REPLACE INTO market_wide_breadth_daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        for r, prev in restated:
+            # [WHY] `commit=False`: audit phải chết/chung sống với bút toán chính. Nếu để nó
+            # tự commit thì transaction đã chốt trước khi audit ghi → mất tính nguyên tử.
+            record_restatement(
+                as_of_date=r["date"],
+                target_table="market_wide_breadth_daily",
+                caller_module=caller_module,
+                reason=reason_text,
+                old_values=list(prev),
+                new_values=list(_signature(r)),
+                processing_date=processing_date,
+                output_score=float(r["breadth_pct"]),
+                conn=con,
+                commit=False,
+            )
+
     try:
         from src.database.eod_write_audit import record_eod_write_audit
 
         for r in series:
             record_eod_write_audit(
                 as_of_date=r["date"],
-                caller_module="analysis.market_wide_breadth",
+                caller_module=caller_module,
                 target_table="market_wide_breadth_daily",
                 parameters={"advances": r["advances"], "declines": r["declines"], "total": r["total_active"]},
                 input_data=r,
@@ -334,7 +386,13 @@ def backfill(series: list[dict]) -> int:
     [WHY] Đây là đường thủ công có chủ đích (người vận hành quyết định viết lại). Pipeline
     EOD KHÔNG được dùng hàm này — xem `sync_missing()` để tránh ghi đè lịch sử mỗi phiên.
     """
-    return _upsert_rows(series)
+    # [WHY] Nêu rõ caller + lý do: đây là đường DUY NHẤT ghi đè có chủ đích toàn chuỗi, nên
+    # mọi dòng `RESTATED` do nó sinh ra phải truy được về `--backfill`, không phải về EOD.
+    return _upsert_rows(
+        series,
+        caller_module="analysis.market_wide_breadth.backfill",
+        reason="chạy `market_wide_breadth --backfill`: ghi đè toàn chuỗi theo yêu cầu người vận hành",
+    )
 
 
 def proxy_comparison(bars: dict[str, list[tuple]], target: str) -> dict:
