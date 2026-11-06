@@ -137,6 +137,16 @@ VN_HOLIDAYS = {
     "2026-04-27",
     "2026-04-30",
     "2026-05-01",
+    # [WHY] Kỳ nghỉ Quốc khánh 2026 là 31/08–02/09 (thứ Hai → thứ Tư), KHÔNG phải chỉ
+    # 02/09. Bằng chứng độc lập (đo 06/11/2026): `daily_ohlcv` 0 bar, `market_wide_breadth_daily`
+    # 0 dòng, `regime_history` 0 dòng cho CẢ 31/08 và 01/09 — ba bảng độc lập cùng trống.
+    # Rust `src/main.rs:839` đã liệt kê `2026-08-31` + `2026-09-01` trong `VN_HOLIDAYS` và có
+    # unit test `missing_trading_days_between("2026-08-31","2026-09-03") == []`.
+    # Thiếu 2 ngày này ở Python ⇒ mọi bộ dò khuyết phiên báo động GIẢ vào 31/08 vĩnh viễn
+    # (và `daily-update` sẽ cào lại một phiên không tồn tại). — xóa 2 dòng này sẽ tái diễn
+    # đúng lỗi Python↔Rust vênh lịch (NQ-17 §I.2).
+    "2026-08-31",
+    "2026-09-01",
     "2026-09-02",
 }
 

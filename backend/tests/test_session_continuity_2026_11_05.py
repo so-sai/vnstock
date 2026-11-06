@@ -61,10 +61,15 @@ def test_previous_session_skips_holidays_and_phantom_session():
     """[WHY] Chống vá quá tay theo hướng ngược: nếu coi 01/09 (phantom holiday) hoặc
     02/09 (Quốc khánh) là phiên, hệ thống sẽ báo "khuyết phiên" SAI vào đúng kỳ nghỉ và
     chặn EOD vô cớ.
+
+    [SỬA 06/11/2026] Bản cũ khẳng định `previous_session("2026-09-03") == "2026-08-31"`,
+    tức coi 31/08 là phiên. Sai: Rust (`src/main.rs:839`) xếp **cả** 31/08 vào `VN_HOLIDAYS`
+    và có test `missing_trading_days_between("2026-08-31","2026-09-03") == []`; ba bảng dữ
+    liệu đều trống 31/08. Phiên liền trước 03/09 là **28/08** (thứ Sáu).
     """
     from src.database.session_continuity import previous_session
 
-    assert previous_session("2026-09-03") == "2026-08-31", "01/09 phantom + 02/09 lễ → 31/08"
+    assert previous_session("2026-09-03") == "2026-08-28", "31/08 + 01/09 + 02/09 nghỉ → 28/08"
     assert previous_session("2026-04-28") == "2026-04-24", "27/04 lễ → 24/04 (thứ Sáu)"
 
 
