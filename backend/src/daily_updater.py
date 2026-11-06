@@ -110,8 +110,13 @@ VN_HOLIDAYS = {
     "2024-02-12",
     "2024-02-13",
     "2024-02-14",
-    "2024-02-15",
-    "2024-02-16",
+    # [WHY] KHÔNG đưa 2024-02-15 và 2024-02-16 vào đây. Kỳ nghỉ Tết Giáp Thìn kết thúc
+    # 14/02; HOSE giao dịch lại thứ Năm 15/02. Đo trên `screener_cache.db` (06/11/2026):
+    # 15/02 = 1.092 bar / vol 1.995.796.205, 16/02 = 1.139 bar / vol 1.819.204.976 —
+    # ngang phiên thường (07/02 = 1.093 bar, 19/02 = 1.114 bar). Xếp 2 ngày này vào nghỉ
+    # làm `previous_session("2024-02-19")` trả 2024-02-07, tức mọi phép "biến động 1
+    # phiên" quanh Tết 2024 gộp 3 phiên thành một (bẫy NQ-17 §I.1) — bỏ 2 dòng này sẽ
+    # tái diễn lỗi đó. (Lưu ý: `src/main.rs:832-833` vẫn còn 2 ngày này — xem Mục 29.)
     "2024-04-18",
     "2024-04-30",
     "2024-05-01",
