@@ -101,99 +101,59 @@ logger.addHandler(console_handler)
 logging.raiseExceptions = False
 
 # ============================================================
-# 2. VIETNAMESE HOLIDAY CALENDAR (2023-2026)
+# 2. VIETNAMESE HOLIDAY CALENDAR (2023-2027) — ĐỌC TỪ SSOT
 # ============================================================
-# [WHY] Danh sách này là LỊCH SÀN ĐÓNG CỬA, không phải "lịch nghỉ của người lao động".
-# Nó được đối chiếu với DỮ LIỆU THẬT: quét 2023-01-01..2026-11-05 (06/11/2026) tìm mọi ngày
-# được lịch coi là phiên mà cả ba bảng độc lập (`daily_ohlcv`, `market_wide_breadth_daily`,
-# `regime_history`) đều 0 dòng, trong khi hai bên kỳ nghỉ đều có ~1.000 bar. Ba writer độc
-# lập cùng trống ⇒ sàn đóng cửa, không phải crawler chết (AGENTS §2). Thiếu một ngày ở đây
-# làm mọi phép "biến động 1 phiên" gộp nhiều phiên thành một (NQ-17 §I.1); THỪA một ngày
-# làm bộ dò khuyết phiên báo động giả vĩnh viễn (NQ-18 §II.2). — sửa danh sách này phải
-# kèm số đo, không sửa theo trí nhớ.
-VN_HOLIDAYS = {
-    # --- 2023 ---
-    # [WHY] 01/01/2023 là Chủ nhật ⇒ nghỉ bù thứ Hai 02/01. Đo: 0 bar / 0 breadth / 0 regime,
-    # 30/12/2022 = 1.014 bar, 03/01/2023 = 998 bar.
-    "2023-01-02",
-    # [WHY] Tết Quý Mão: sàn nghỉ 20/01–26/01 (7 ngày). Đo: cả 7 ngày 0 dòng ở 3 bảng;
-    # 19/01 = 985 bar, 27/01 = 1.013 bar. Trước khi sửa, `previous_session("2023-01-24")`
-    # trả 2023-01-23 (một ngày 0 bar) ⇒ mọi cửa sổ phiên quanh Tết 2023 sai.
-    "2023-01-20",
-    "2023-01-23",
-    "2023-01-24",
-    "2023-01-25",
-    "2023-01-26",
-    # [WHY] 30/04 và 01/05/2023 rơi vào Chủ nhật/thứ Hai ⇒ sàn nghỉ 29/04–03/05. Đo:
-    # 28/04 = 1.021 bar, 04/05 = 1.021 bar, ba ngày giữa 0 dòng ở cả 3 bảng.
-    "2023-05-01",
-    "2023-05-02",
-    "2023-05-03",
-    # [WHY] Quốc khánh 2023: 02/09 là thứ Bảy, 03/09 Chủ nhật ⇒ nghỉ 01/09 và 04/09.
-    # Đo: 31/08 = 1.087 bar, 05/09 = 1.098 bar, hai ngày nghỉ 0 dòng ở cả 3 bảng.
-    "2023-09-01",
-    "2023-09-04",
-    # --- 2024 ---
-    "2024-01-01",
-    "2024-02-08",
-    "2024-02-09",
-    "2024-02-12",
-    "2024-02-13",
-    "2024-02-14",
-    # [WHY] KHÔNG đưa 2024-02-15 và 2024-02-16 vào đây. Kỳ nghỉ Tết Giáp Thìn kết thúc
-    # 14/02; HOSE giao dịch lại thứ Năm 15/02. Đo trên `screener_cache.db` (06/11/2026):
-    # 15/02 = 1.092 bar / vol 1.995.796.205, 16/02 = 1.139 bar / vol 1.819.204.976 —
-    # ngang phiên thường (07/02 = 1.093 bar, 19/02 = 1.114 bar). Xếp 2 ngày này vào nghỉ
-    # làm `previous_session("2024-02-19")` trả 2024-02-07, tức mọi phép "biến động 1
-    # phiên" quanh Tết 2024 gộp 3 phiên thành một (bẫy NQ-17 §I.1) — bỏ 2 dòng này sẽ
-    # tái diễn lỗi đó. (Lưu ý: `src/main.rs:832-833` vẫn còn 2 ngày này — xem Mục 29.)
-    "2024-04-18",
-    # [WHY] Giỗ Tổ 18/04 (thứ Năm) + 30/04–01/05 ⇒ sàn nghỉ 29/04–01/05. Đo: 26/04 = 1.120
-    # bar, 02/05 = 1.109 bar, 29/04 = 0 dòng ở cả 3 bảng.
-    "2024-04-29",
-    "2024-04-30",
-    "2024-05-01",
-    "2024-09-02",
-    "2024-09-03",
-    "2025-01-01",
-    "2025-01-27",
-    "2025-01-28",
-    "2025-01-29",
-    "2025-01-30",
-    "2025-01-31",
-    "2025-04-07",
-    "2025-04-30",
-    "2025-05-01",
-    "2025-05-02",
-    # [WHY] Quốc khánh 2025: sàn nghỉ 01/09 và 02/09. Đo: 29/08 = 1.149 bar, 03/09 = 1.045
-    # bar, 01/09 = 0 dòng ở cả 3 bảng. Thiếu 01/09 ⇒ `previous_session("2025-09-02")` trả
-    # về chính ngày 01/09 (0 bar) và bộ dò khuyết phiên báo CRITICAL vĩnh viễn.
-    "2025-09-01",
-    "2025-09-02",
-    "2026-01-01",
-    # [WHY] Tết Dương lịch 2026: sàn nghỉ 01/01 (thứ Năm) VÀ 02/01 (thứ Sáu). Đo: 31/12/2025
-    # = 981 bar, 05/01/2026 = 963 bar, 02/01 = 0 dòng ở cả 3 bảng.
-    "2026-01-02",
-    "2026-02-16",
-    "2026-02-17",
-    "2026-02-18",
-    "2026-02-19",
-    "2026-02-20",
-    "2026-04-27",
-    "2026-04-30",
-    "2026-05-01",
-    # [WHY] Kỳ nghỉ Quốc khánh 2026 là 31/08–02/09 (thứ Hai → thứ Tư), KHÔNG phải chỉ
-    # 02/09. Bằng chứng độc lập (đo 06/11/2026): `daily_ohlcv` 0 bar, `market_wide_breadth_daily`
-    # 0 dòng, `regime_history` 0 dòng cho CẢ 31/08 và 01/09 — ba bảng độc lập cùng trống.
-    # Rust `src/main.rs:839` đã liệt kê `2026-08-31` + `2026-09-01` trong `VN_HOLIDAYS` và có
-    # unit test `missing_trading_days_between("2026-08-31","2026-09-03") == []`.
-    # Thiếu 2 ngày này ở Python ⇒ mọi bộ dò khuyết phiên báo động GIẢ vào 31/08 vĩnh viễn
-    # (và `daily-update` sẽ cào lại một phiên không tồn tại). — xóa 2 dòng này sẽ tái diễn
-    # đúng lỗi Python↔Rust vênh lịch (NQ-17 §I.2).
-    "2026-08-31",
-    "2026-09-01",
-    "2026-09-02",
-}
+# [WHY] KHÔNG hard-code lại danh sách ngày lễ ở đây. Nguồn sự thật DUY NHẤT là
+# `backend/src/config/weekend_holidays.json` (Mục 29, NQ-18 §II.2). Trước 06/11/2026 lịch
+# tồn tại **ba** bản sao chép tay (`daily_updater.VN_HOLIDAYS`, `src/main.rs:VN_HOLIDAYS`,
+# `config/weekend_holidays.json`) và đã lệch nhau thật:
+#   • Python thiếu `2026-08-31` ⇒ bộ dò khuyết phiên báo CRITICAL MỖI NGÀY (đã sửa 3bebe15);
+#   • cả hai phía thiếu 14 ngày nghỉ 2023–2026 ⇒ `previous_session` dừng ở ngày 0 bar;
+#   • cả hai phía THỪA `2024-02-15`/`2024-02-16` ⇒ 2 phiên thật (1.092 và 1.139 bar) bị coi
+#     là nghỉ, mọi phép "biến động 1 phiên" quanh Tết 2024 gộp 3 phiên thành một.
+# Cách kiểm chứng (đã chạy, xem `tests/test_calendar_ssot_2026_11_06.py`): mọi ngày có
+# >=100 bar hợp lệ phải là phiên; mọi ngày không phải phiên phải 0 dòng ở cả ba bảng độc lập
+# (`daily_ohlcv`, `market_wide_breadth_daily`, `regime_history`) — ba writer cùng trống mới
+# chứng minh "sàn đóng cửa", khác "crawler chết" (AGENTS §2). — hard-code lại danh sách ở
+# đây sẽ tái diễn đúng lỗi trôi lệch này.
+_CALENDAR_PATH_CANDIDATES = (
+    Path(__file__).resolve().parent / "config" / "weekend_holidays.json",
+    Path(PROJECT_ROOT) / "backend" / "src" / "config" / "weekend_holidays.json",
+)
+
+
+def _load_vn_holidays() -> frozenset[str]:
+    """Đọc lịch VN từ SSOT. FAIL-CLOSED: thiếu/hỏng file ⇒ `RuntimeError`, KHÔNG trả set rỗng.
+
+    [WHY] Trả set rỗng khi file hỏng là fail-OPEN nguy hiểm nhất có thể: mọi ngày lễ biến
+    thành "phiên", bộ dò khuyết phiên báo động giả mỗi ngày, và `daily-update` sẽ cào lại
+    những phiên không tồn tại. "Không biết" ≠ "không có ngày lễ" (AGENTS §4A) — thà dừng.
+    """
+    path = next((p for p in _CALENDAR_PATH_CANDIDATES if p.exists()), None)
+    if path is None:
+        raise RuntimeError(
+            "Không tìm thấy SSOT lịch giao dịch `weekend_holidays.json` (đã thử: "
+            f"{[str(p) for p in _CALENDAR_PATH_CANDIDATES]}). Không được chạy với lịch rỗng."
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        days = payload["holidays"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise RuntimeError(f"SSOT lịch giao dịch hỏng ({path}): {e}") from e
+    if not isinstance(days, list) or not days:
+        raise RuntimeError(f"SSOT lịch giao dịch rỗng/không phải list ({path}) — fail-closed.")
+    out: set[str] = set()
+    for d in days:
+        if not isinstance(d, str):
+            raise RuntimeError(f"SSOT lịch giao dịch có phần tử không phải chuỗi: {d!r}")
+        try:
+            out.add(datetime.strptime(d, "%Y-%m-%d").date().isoformat())
+        except ValueError as e:
+            raise RuntimeError(f"SSOT lịch giao dịch có ngày sai định dạng: {d!r}") from e
+    return frozenset(out)
+
+
+VN_HOLIDAYS = _load_vn_holidays()
 
 
 def is_trading_day(date_obj: datetime) -> bool:
