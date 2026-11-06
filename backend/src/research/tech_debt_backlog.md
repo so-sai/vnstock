@@ -934,28 +934,94 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
   thật: `breadth ⊇ ohlcv` = 0 ngày thiếu; `breadth \ regime` = 229 ngày **hợp lệ** vì regime
   ra đời 12/2020 ⇒ "khớp 100%" toàn lịch sử là bất khả thi, phải scoped window).
 
-## 27. ⧗ OPEN — Ba chốt chặn hồi quy còn lại (NQ-17 §II) + Restatement Audit
+## 27. ✅ DONE (06/11/2026, NQ-17) — Chốt #2 + Chốt #3 + Chốt #5 (Chốt #4 deferred)
 
-- **#2 Gap-aware Sync:** `daily-update --date X` **không** quét `MAX(date) → X`; sự cố 04/11
-  chỉ được bù khi con người gọi `daily-update --date 2026-11-04` lúc 17:31. Đề xuất: trước khi
-  cào X, tính `find_missing_sessions(...)` và backfill tuần tự các phiên khuyết **≤ 30 ngày**
-  (ngoài hạn ⇒ chỉ báo, không tự bù — tôn trọng Mục 22). **Cần Hội đồng chốt:** cho phép tự
-  động gọi backfill mạng trong `daily-update` hay chỉ báo động + chặn EOD như Mục 26?
-- **#3 Date-set Asymmetry (scoped):** `CONTRACT_EPOCH = 2026-06-15` cho cặp `equity/ledger`;
-  cửa sổ **60 phiên gần nhất** cho `ohlcv/breadth/regime`; bỏ qua `NON_TRADING_SESSIONS`.
-  Đo 05/11: 1.666 / 1.708 / 1.479 ngày; 40 phiên gần nhất khớp 100%; `breadth \ regime`
-  = 229 ngày từ 2020-01-02..2020-11-30 là **hợp lệ** (regime chưa tồn tại) ⇒ cấm viết test
-  "khớp 100% toàn lịch sử".
-- **#4 Lint call-site (Rust):** guard đã có + 9 unit test; còn thiếu bảo đảm **mọi** chỗ đọc
-  2 bar liên tiếp đều đi qua `missing_trading_days_between`. Làm bằng test Python quét
-  `src/main.rs` theo **hàm** (không regex SQL đơn lẻ). **Chặn:** `src/main.rs` hiện đang dirty
-  do agent khác (commit `4eca9b4`) — không được sửa/commit đè.
-- **#5 Restatement Audit (mới, do số đo sinh ra):** ngày 05/11 17:31, `market_wide_breadth_daily`
-  của **02/11 và 03/11 bị ghi lại**: `−47,73 → −48,578` và `+4,648 → +5,276` (active 839 → 834),
-  không có bản ghi "ai/căn cứ nào". Đề xuất: cấm UPDATE phiên **đã đóng** trừ khi có audit
-  `RESTATED` nêu lý do — bảo vệ tính tái lập của báo cáo đã công bố.
+- **BÁO CÁO NGHIỆM THU:** `backend/src/research/muc27_acceptance_2026_11_06.md` (NON-DECISIONAL).
+- **REGRESSION:** **185/185 PASS** (154 test cũ + 31 test mới), `EXIT_THAT=0` thật.
+
+### 27.0 Phát sinh bắt buộc (đã sửa trước) — lịch Quốc khánh 2026 lệch Rust
+
+- **WHAT:** `backend/src/daily_updater.py` thiếu `2026-08-31` và `2026-09-01` trong `VN_HOLIDAYS`.
+  Rust (`src/main.rs:839`) có **cả hai**, kèm unit test `missing_trading_days_between("2026-08-31",
+  "2026-09-03") == []`.
+- **WHY (nếu không sửa):** Chốt #2 sẽ in CRITICAL **mỗi ngày** vào 31/08 và Chốt #3 sẽ đỏ vĩnh viễn
+  ⇒ cả hai bị tắt trong tuần đầu. Bằng chứng: `daily_ohlcv` 0 bar / `market_wide_breadth_daily`
+  0 dòng / `regime_history` 0 dòng cho cả 31/08 và 01/09.
+- **PHÁN QUYẾT:** ✅ DONE — commit `3bebe15`; RED 2 → GREEN 12/12; sửa khẳng định **sai** trong
+  test cũ (`previous_session("2026-09-03")` = `2026-08-28`, không phải `2026-08-31`).
+
+### 27.1 ✅ Chốt #2 — PHƯƠNG ÁN (B): báo động, KHÔNG tự bù (commit `4104639`)
+
+- **WHAT:** `session_continuity.detect_session_gaps()` (thuần, chỉ đọc, **không gọi mạng**) +
+  `daily_updater.alert_session_gaps()` gọi **trước** `update_vnindex`.
+- **INVARIANT:** phân loại rạch ròi `missing` (0 bar) / `partial` (< 100 bar) / `stale_only`
+  (toàn `is_stale=1`); quét lỗi ⇒ `session_gaps=None` + `session_gaps_error` (**không** `[]`).
+- **KHÓA CHỐNG TRÔI DẠT:** test patch `backfill_market_history` thành recorder ⇒ mọi "cải tiến"
+  thêm tự bù sẽ **đỏ ngay** (NQ-17 §IV: tự bù che giấu sự cố, trễ hạn bản tin 15:30, đụng NQ-16).
+
+### 27.2 ✅ Chốt #3 — bất biến tập ngày có PHẠM VI (commit `6e013d8`)
+
+- **WHAT:** `CONTRACT_EPOCH=2026-06-15`, `MARKET_WINDOW_SESSIONS=60`,
+  `ACCOUNTING_WINDOW_SESSIONS=20`; `collect_session_alignment` (báo cáo) +
+  `assert_session_set_alignment` (fail-closed, **không có** tham số "bỏ qua ngày X").
+- **VÌ SAO mẫu số là LỊCH:** 04/11/2026 thiếu ở **cả** equity **và** ledger ⇒ so-chéo-hai-bảng
+  trông y hệt "khớp". Chỉ lịch phiên mới bắt được.
+- **ĐO 06/11/2026:** 60 phiên `2026-08-11..2026-11-05` **0 thiếu** ở cả 3 bảng; 20 phiên kế toán
+  `2026-10-09..2026-11-05` **0 thiếu**; nợ kế thừa từ epoch: equity **22** phiên, ledger **54**
+  phiên, lỗ hổng muộn nhất **`2026-10-02`** (ghim số trong test; lỗ hổng mới ⇒ số đếm đổi ⇒ đỏ).
+
+### 27.3 ✅ Chốt #5 — Restatement Audit Guard (commit `c6fa870`)
+
+- **WHAT:** `src/database/restatement_guard.py` — `RESTATEMENT_GUARD_EPOCH=2026-11-06`,
+  `is_backwrite`, `record_restatement`, `assert_restatement_audited`,
+  `find_unaudited_restatements`; cắm vào `market_wide_breadth._upsert_rows` (đọc trạng thái cũ
+  **trước** replace, ghi `RESTATED` **cùng transaction**, `commit=False`).
+- **FAIL-CLOSED THẬT:** audit lỗi ⇒ `with con:` rollback ⇒ **ghi đè bất khả thi**, có test chứng
+  minh dữ liệu cũ giữ nguyên.
+- **SỐ ĐO BUỘC ĐỔI THIẾT KẾ:** `market_wide_breadth_daily` có **1.707/1.708** dòng cùng
+  `created_at = 2026-11-05T15:41:34` (một lần backfill toàn lịch sử) và `regime_history` **không có
+  cột `created_at`** ⇒ fail-closed toàn lịch sử = 1.706 "vi phạm" vĩnh viễn. Vì vậy cổng chính ở
+  **thời điểm ghi**, quét ngược chỉ từ mốc 06/11/2026 + khai báo `TABLES_WITHOUT_PROVENANCE`.
+- **KHÔNG dựng lại audit cho sự kiện 05/11** (02/11 `−47,73 → −48,578`, 03/11 `+4,648 → +5,276`):
+  giá trị cũ đã bị ghi đè, dựng lại sẽ là **fake** (AGENTS §1) — sự kiện được ghi kèm số đo ở đây.
+- **KẾ THỪA:** `status='RESTATED'` đã tồn tại và đã dùng 2 lần cho `regime_history` (22–23/10) —
+  không phát minh định dạng mới.
+
+### 27.4 ⧗ Chốt #4 — DEFERRED (lint call-site Rust)
+
+- Guard đã có + 9 unit test; còn thiếu bảo đảm **mọi** chỗ đọc 2 bar liên tiếp đều đi qua
+  `missing_trading_days_between`. **CHẶN:** `src/main.rs` dirty do agent khác (`4eca9b4`) —
+  Hội đồng chỉ đạo không chạm. → chuyển sang **Mục 28** khi file sạch.
+
+## 28. ⧗ OPEN — Nợ ĐO ĐƯỢC còn lại sau Mục 27 (không giấu vào "nợ cũ")
+
+| # | Nợ | Số đo 06/11/2026 | Ghi chú |
+|---|---|---|---|
+| 1 | `paper_equity_curve` thiếu **22** phiên từ `2026-06-15` | lỗ hổng muộn nhất `2026-10-02` | phần lớn thuộc Mục 22 |
+| 2 | `eod_run_ledger` thiếu **54** phiên từ epoch | lỗ hổng muộn nhất `2026-10-02` | ledger ra đời muộn hơn equity |
+| 3 | `paper_equity_curve` có **1 dòng cho phiên phantom `2026-09-01`** | 1 dòng | ngày KHÔNG giao dịch — cần thanh lý riêng |
+| 4 | Mục 22 — 10 phiên `2026-09-18 … 2026-10-02` | nằm trong nợ #1/#2 | chờ đối soát `corporate_actions` |
+| 5 | Chốt #4 — lint call-site Rust | — | xem §27.4 (chờ `src/main.rs` sạch) |
+
+**DONE-WHEN:** (a) mỗi dòng nợ được trả bằng backfill/thanh lý **có audit**, hoặc (b) được
+phân loại tường minh là "không thể tái lập" kèm lý do; (c) số đếm ghim trong
+`test_dateset_invariant_chot3_2026_11_06.py` được cập nhật **cùng lúc** (không nới baseline).
+
+## 29. ⧗ OPEN — Lịch phiên phải có MỘT nguồn sự thật (Python ↔ Rust)
+
+- **WHAT:** `backend/src/daily_updater.py:VN_HOLIDAYS` và `src/main.rs:VN_HOLIDAYS` là **hai bản
+  sao chép tay**. Sự cố 31/08/2026 (Mục 27.0) là bằng chứng: Rust có, Python thiếu, và không có
+  gì phát hiện lệch.
+- **WHY:** mọi bộ dò khuyết phiên / bộ lọc biến động 1 phiên đều phụ thuộc lịch; lệch một ngày
+  ⇒ hoặc báo động giả mỗi ngày, hoặc **bỏ qua đúng ngày khuyết** (nguy hiểm hơn).
+- **DONE-WHEN:** có test đối chiếu hai danh sách (đọc `src/main.rs`, so tập ngày) **hoặc** một
+  nguồn dữ liệu chung (JSON/SQLite) mà cả hai bên đọc. Test phải đỏ khi thêm/bớt một ngày ở một
+  bên.
+- **RISK:** đọc `src/main.rs` trong test sẽ giòn khi agent Rust refactor → ưu tiên nguồn chung.
+  Chờ Chốt #4 (Mục 28 #5) để làm cùng lúc, tránh chạm file đang dirty.
 
 ## Ghi chú vận hành
+
 
 - **CẢNH BÁO PHỐI HỢP (2026-10-16):** trong working tree này có **một tiến trình auto-commit khác**
   (author `Alpha Forge V4.6 <alpha@ptck-vnstock.local>`) quét `git add`-style toàn cây ⇒ **các bản vá
