@@ -129,3 +129,95 @@ def assert_previous_session_present(as_of_iso: str, present: set[str] | list[str
 
 def _shift(iso: str, days: int) -> str:
     return (date.fromisoformat(iso) + timedelta(days=days)).isoformat()
+
+
+# =====================================================================
+# CHỐT #2 (Mục 27, NQ-17 §IV — PHƯƠNG ÁN B): CHỈ BÁO ĐỘNG, KHÔNG TỰ BÙ
+# =====================================================================
+
+# [WHY] Ngưỡng "phiên có thật": đo trên `screener_cache.db` (06/11/2026) có 1.666 phiên
+# ≥ 100 mã hợp lệ trên tổng ~890 mã đang giao dịch mỗi phiên. Một phiên chỉ còn < 100 bar
+# KHÔNG phải "phiên thưa" mà là ingest chết giữa đường — coi nó là "đã có" chính là Fake
+# (AGENTS §1: missing > fake). — hạ ngưỡng này sẽ làm cổng mù với đúng ca 04/11.
+MIN_VALID_BARS_PER_SESSION = 100
+
+
+def detect_session_gaps(
+    conn,
+    as_of_iso: str,
+    lookback_sessions: int = 60,
+) -> dict:
+    """Quét lỗ hổng phiên trong `lookback_sessions` phiên gần nhất. **KHÔNG backfill.**
+
+    [WHY] NQ-17 §IV chọn phương án (B): `daily-update` chỉ được BÁO ĐỘNG rồi để
+    `eod-run` fail-closed (exit 4). Tự động gọi backfill mạng trong `daily-update` sẽ
+    (i) làm lệch hạn bản tin ATC 15:30 vì kéo nến ~900 mã, (ii) che giấu lỗi suy thoái
+    vận hành (mất một phiên là SỰ CỐ, không phải chuyện thường để máy tự vá), (iii) đụng
+    giới hạn NQ-16 về corporate actions. — cấm thêm bất kỳ lời gọi backfill vào hàm này.
+
+    [INVARIANT] Phân loại RẠCH RÒI bốn trạng thái (AGENTS §2), không gộp thành một con số
+    "mã thiếu" mờ nghĩa:
+      * `missing`      — phiên KHÔNG có một bar hợp lệ nào (dữ liệu chưa về);
+      * `partial`      — có bar nhưng < `MIN_VALID_BARS_PER_SESSION` (ingest chết giữa đường);
+      * `stale_only`   — có dòng nhưng TẤT CẢ `is_stale = 1` (nguồn trả dữ liệu cũ);
+      * `ok`           — đủ phủ.
+    Ngày nghỉ (cuối tuần / `VN_HOLIDAYS` / phantom holiday) KHÔNG nằm trong cửa sổ nên
+    không bao giờ bị báo "khuyết" — đó là phân biệt "không giao dịch" ≠ "thiếu dữ liệu".
+
+    [INVARIANT] Hàm này KHÔNG ghi gì vào CSDL và KHÔNG gọi mạng. Nếu bản thân nó lỗi,
+    caller phải ghi `None` + lỗi (không được trả 0 giả — AGENTS §4A).
+
+    Returns:
+        {"as_of", "window_start", "checked_sessions", "missing", "partial",
+         "stale_only", "has_gap"}
+    """
+    as_of = as_of_iso
+    if not is_session_day(as_of):
+        prev = previous_session(as_of)
+        if prev is None:
+            raise ValueError(f"không xác định được phiên gần nhất ≤ {as_of_iso}")
+        as_of = prev
+
+    window: list[str] = [as_of]
+    cur = as_of
+    while len(window) < lookback_sessions:
+        prev = previous_session(cur)
+        if prev is None:
+            break
+        window.append(prev)
+        cur = prev
+    window.reverse()
+    window_start = window[0]
+
+    rows = conn.execute(
+        "SELECT date, COUNT(*), SUM(CASE WHEN COALESCE(is_stale, 0) = 0 THEN 1 ELSE 0 END) "
+        "FROM daily_ohlcv WHERE date >= ? AND date <= ? GROUP BY date",
+        (window_start, as_of),
+    )
+    counts: dict[str, tuple[int, int]] = {}
+    for d, total, fresh in rows:
+        counts[str(d)] = (int(total or 0), int(fresh or 0))
+
+    missing: list[str] = []
+    partial: list[str] = []
+    stale_only: list[str] = []
+    for d in window:
+        total, fresh = counts.get(d, (0, 0))
+        if fresh >= MIN_VALID_BARS_PER_SESSION:
+            continue
+        if fresh > 0:
+            partial.append(d)
+        elif total > 0:
+            stale_only.append(d)
+        else:
+            missing.append(d)
+
+    return {
+        "as_of": as_of,
+        "window_start": window_start,
+        "checked_sessions": len(window),
+        "missing": missing,
+        "partial": partial,
+        "stale_only": stale_only,
+        "has_gap": bool(missing or partial or stale_only),
+    }

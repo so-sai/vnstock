@@ -1172,6 +1172,55 @@ def run_forensic_cache_refresh():
 # ============================================================
 # 8. MAIN ORCHESTRATOR
 # ============================================================
+def alert_session_gaps(target_date: str, report: dict) -> dict | None:
+    """CHỐT #2 (Mục 27, NQ-17 §IV — Phương án B): BÁO ĐỘNG lỗ hổng phiên. KHÔNG tự bù.
+
+    [WHY] Hội đồng chọn (B): `daily-update` thấy khuyết ngày thì in cảnh báo CRITICAL rồi
+    để `eod-run` fail-closed (exit 4). Cấm tự gọi `backfill_market_history` ở đây:
+      * lệch hạn bản tin ATC 15:30 (kéo nến ~900 mã mất 30–45 phút, cạn rate-limit vendor);
+      * che giấu lỗi suy thoái vận hành (mất một phiên là SỰ CỐ: mạng, sàn nghỉ đột xuất
+        hay crawler chết — người trực phải biết);
+      * NQ-16: bù nến lịch sử tiềm ẩn sai lệch chia tách/cổ tức nếu không đối soát có ý thức.
+    — thêm một lời gọi backfill trong hàm này là vi phạm phán quyết, không phải "cải tiến".
+
+    [INVARIANT] Không ném lỗi ra ngoài (daily-update vẫn phải cào phiên hiện tại). Nếu
+    không quét được, ghi `report["session_gaps"] = None` + `session_gaps_error` (KHÔNG ghi 0
+    — AGENTS §4A "không biết ≠ 0").
+    """
+    report["session_gaps"] = None
+    try:
+        from src.database.session_continuity import detect_session_gaps
+
+        with get_connection() as conn:
+            gaps = detect_session_gaps(conn, target_date)
+        report["session_gaps"] = gaps
+        if not gaps["has_gap"]:
+            return gaps
+
+        # [WHY] CRITICAL chứ không phải WARNING: một phiên khuyết làm mọi phép so sánh "1
+        # phiên" (biến động, breadth velocity, ATR ratio, PnL) gộp nhiều phiên thành một —
+        # đúng cơ chế sinh ra con số "+41 điểm ảo" (NQ-17 §I.1). WARNING sẽ bị lướt qua.
+        logger.critical(
+            "[SESSION_GAP] %s: KHUYẾT %d phiên trong %d phiên gần nhất (từ %s). "
+            "missing=%s partial=%s stale_only=%s. "
+            "KHÔNG tự bù (NQ-17 §IV-B). Người trực/tiến trình NGOÀI GIỜ giao dịch phải chạy: "
+            "python ptck.py daily-update --date <NGAY_KHUYET>. "
+            "Tới khi bù xong, `eod-run` sẽ DỪNG với exit 4.",
+            target_date,
+            len(gaps["missing"]) + len(gaps["partial"]) + len(gaps["stale_only"]),
+            gaps["checked_sessions"],
+            gaps["window_start"],
+            gaps["missing"],
+            gaps["partial"],
+            gaps["stale_only"],
+        )
+        return gaps
+    except Exception as e:  # noqa: BLE001 - cổng báo động KHÔNG được làm chết daily-update
+        report["session_gaps_error"] = f"{type(e).__name__}: {e}"
+        logger.error("[SESSION_GAP] không quét được lỗ hổng phiên cho %s: %s", target_date, e)
+        return None
+
+
 def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50, throttle_sec: float = 1.8):
     if manifest_path:
         run_daily_update._manifest_path = manifest_path
@@ -1210,6 +1259,11 @@ def run_daily_update(target_date=None, manifest_path=None, batch_size: int = 50,
         "duration_seconds": 0,
         "timestamp": datetime.now().isoformat(),
     }
+
+    # --- CHỐT #2 (Mục 27, NQ-17 §IV-B): báo động lỗ hổng phiên TRƯỚC khi cào ---
+    # [WHY] Đặt TRƯỚC toàn bộ đường cào để cảnh báo hiện ra dù phần cào sau đó có chết giữa
+    # đường: người trực cần biết "hôm qua khuyết" ngay đầu log, không phải sau 40 phút.
+    alert_session_gaps(target_date, report)
 
     try:
         logger.info("🌍 Cập nhật cảm biến vĩ mô...")
