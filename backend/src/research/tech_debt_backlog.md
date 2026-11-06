@@ -995,30 +995,79 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
 
 ## 28. ⧗ OPEN — Nợ ĐO ĐƯỢC còn lại sau Mục 27 (không giấu vào "nợ cũ")
 
+**Cập nhật 06/11/2026 (NQ-18 §II.1) — số đo lại, KHÔNG nới:** 60 phiên thị trường
+`2026-08-11..2026-11-05` và 20 phiên kế toán `2026-10-09..2026-11-05` đều **0% missing**
+(xác nhận lại sau toàn bộ đợt sửa lịch `f30d8c5`→`60eab8d`; lịch đổi **không** làm đổi cửa sổ).
+
 | # | Nợ | Số đo 06/11/2026 | Ghi chú |
 |---|---|---|---|
-| 1 | `paper_equity_curve` thiếu **22** phiên từ `2026-06-15` | lỗ hổng muộn nhất `2026-10-02` | phần lớn thuộc Mục 22 |
-| 2 | `eod_run_ledger` thiếu **54** phiên từ epoch | lỗ hổng muộn nhất `2026-10-02` | ledger ra đời muộn hơn equity |
-| 3 | `paper_equity_curve` có **1 dòng cho phiên phantom `2026-09-01`** | 1 dòng | ngày KHÔNG giao dịch — cần thanh lý riêng |
+| 1 | `paper_equity_curve` thiếu **22** phiên từ `2026-06-15` | `2026-07-17 … 2026-10-02` | phần lớn thuộc Mục 22; ngoài cửa sổ 20 phiên ⇒ không chặn EOD |
+| 2 | `eod_run_ledger` thiếu **54** phiên từ epoch | `2026-07-10 … 2026-10-02` | ledger ra đời muộn hơn equity |
+| 3 | Dòng trên **ngày KHÔNG giao dịch** `2026-09-01` — **3 dòng** | breadth 1, regime 1, equity 1; `daily_ohlcv` 0, ledger 0 | **đo lại bằng Chốt #3 hai chiều** (`20295b5`); thanh lý cần GO riêng vì là ghi/xoá dữ liệu — phải ghi audit, không "xoá lén" |
 | 4 | Mục 22 — 10 phiên `2026-09-18 … 2026-10-02` | nằm trong nợ #1/#2 | chờ đối soát `corporate_actions` |
-| 5 | Chốt #4 — lint call-site Rust | — | xem §27.4 (chờ `src/main.rs` sạch) |
+| 5 | Chốt #4 — lint call-site Rust | — | xem §27.4 (chờ `src/main.rs` sạch) — **vẫn deferred**, Hội đồng chỉ đạo không chạm file |
+| 6 | `time_series_aligner._load_vn_holidays()` (macro) **fail-open** khi file SSOT hỏng | trả `set()` + `logger.warning` | cùng file SSOT với `daily_updater` nhưng **không** fail-closed; hậu quả chỉ là lệch lịch nến macro, không chặn EOD ⇒ hạ ưu tiên, nhưng phải đóng để §29 trọn vẹn |
 
 **DONE-WHEN:** (a) mỗi dòng nợ được trả bằng backfill/thanh lý **có audit**, hoặc (b) được
 phân loại tường minh là "không thể tái lập" kèm lý do; (c) số đếm ghim trong
 `test_dateset_invariant_chot3_2026_11_06.py` được cập nhật **cùng lúc** (không nới baseline).
+Nợ #3 nay được ghim **chính xác theo tên bảng + ngày** ở
+`test_dateset_reverse_direction_2026_11_06.py::test_live_known_orphans_are_pinned_exactly`
+⇒ một dòng thừa MỚI là đỏ, không thể trôi.
 
-## 29. ⧗ OPEN — Lịch phiên phải có MỘT nguồn sự thật (Python ↔ Rust)
+## 29. ⧗ OPEN (Python DONE, Rust chờ) — Lịch phiên phải có MỘT nguồn sự thật
 
-- **WHAT:** `backend/src/daily_updater.py:VN_HOLIDAYS` và `src/main.rs:VN_HOLIDAYS` là **hai bản
-  sao chép tay**. Sự cố 31/08/2026 (Mục 27.0) là bằng chứng: Rust có, Python thiếu, và không có
-  gì phát hiện lệch.
-- **WHY:** mọi bộ dò khuyết phiên / bộ lọc biến động 1 phiên đều phụ thuộc lịch; lệch một ngày
-  ⇒ hoặc báo động giả mỗi ngày, hoặc **bỏ qua đúng ngày khuyết** (nguy hiểm hơn).
-- **DONE-WHEN:** có test đối chiếu hai danh sách (đọc `src/main.rs`, so tập ngày) **hoặc** một
-  nguồn dữ liệu chung (JSON/SQLite) mà cả hai bên đọc. Test phải đỏ khi thêm/bớt một ngày ở một
-  bên.
-- **RISK:** đọc `src/main.rs` trong test sẽ giòn khi agent Rust refactor → ưu tiên nguồn chung.
-  Chờ Chốt #4 (Mục 28 #5) để làm cùng lúc, tránh chạm file đang dirty.
+### 29.1 ✅ DONE — Lịch lịch sử đã được đối chiếu DỮ LIỆU, không còn "tin theo trí nhớ"
+
+Trước khi làm SSOT, phải sửa cái sai (nếu không sẽ đóng băng cái sai vào nguồn chuẩn).
+Quét `2023-01-01..2026-11-05` tìm mọi bất đồng giữa lịch và dữ liệu, **hai chiều**:
+
+- **Lịch THỪA (coi là nghỉ nhưng có dữ liệu thật)** — commit `f30d8c5`: `2024-02-15` (1.092 bar,
+  vol 1,99 tỷ) và `2024-02-16` (1.139 bar, 1,82 tỷ), trong khi `2024-02-08..14` = **0 bar ở cả 3
+  bảng** ⇒ kỳ nghỉ Tết Giáp Thìn kết thúc 14/02, HOSE giao dịch lại 15/02. Hệ quả cũ:
+  `previous_session("2024-02-19")` trả `2024-02-07` ⇒ mọi phép "biến động 1 phiên" quanh Tết 2024
+  gộp **3 phiên thành một**.
+- **Lịch THIẾU (coi là phiên nhưng 0 dòng ở cả 3 bảng độc lập)** — commit `8fd7dd7`: **14 ngày**
+  (`2023-01-02, 01-20, 01-23..26, 05-01..03, 09-01, 09-04, 2024-04-29, 2025-09-01, 2026-01-02`).
+  Ba bảng do ba writer độc lập ghi, cùng trống ⇒ sàn đóng cửa (AGENTS §2), không phải crawler chết.
+  Hệ quả cũ: `previous_session` dừng ở một ngày **0 bar** ⇒ bộ dò khuyết phiên báo CRITICAL vĩnh viễn.
+- **KHÔNG sửa bằng niềm tin:** mỗi commit có test đọc thẳng CSDL thật, ghim bar/volume hai bên kỳ
+  nghỉ (chống xoá dữ liệu) và ghim ngày giao dịch lại **vẫn là phiên** (chống vá quá tay).
+
+### 29.2 ✅ DONE — MỘT nguồn sự thật (commit `60eab8d`)
+
+- **WHAT:** SSOT = `backend/src/config/weekend_holidays.json` (file **đã tồn tại**, macro
+  `time_series_aligner` đã đọc) — không tạo file thứ ba. Schema v2: `schema_version`, `_note`,
+  `_why`, `validated_against` (db + ngày đo + quy tắc + provenance 2027), `holidays` = **59 ngày**
+  (2023–2026 **đã kiểm chứng bằng dữ liệu** + 2027 **kế thừa từ Rust**, khai báo rõ là chưa kiểm
+  chứng được vì ở tương lai).
+- **Python:** `daily_updater._load_vn_holidays()` đọc SSOT, validate ISO/tập không rỗng,
+  **FAIL-CLOSED** (`RuntimeError`); `VN_HOLIDAYS = _load_vn_holidays()`. Xoá ~80 dòng hard-code.
+  `time_series_aligner` (macro) đọc **cùng file** ⇒ hai đường tự thống nhất.
+- **Bỏ `2026-02-15`:** là **Chủ Nhật** — file cam kết chỉ chứa ngày lễ *đặc biệt* (weekend tự
+  check trong code). Rust vẫn giữ ⇒ được lọc khỏi phép so parity (xem 29.3).
+- **5 test** (`test_calendar_ssot_2026_11_06.py`): Python == JSON **và** không còn set hard-code;
+  contract file (ISO, sorted, không trùng, không cuối tuần); fail-closed (thiếu file / JSON hỏng /
+  rỗng / ngày sai định dạng); parity Rust ghim 15 ngày lệch; **audit 3 chiều với dữ liệu thật**
+  (A: phiên mà 3 bảng trống = lịch thiếu · B: ngày nghỉ mà ≥100 bar = lịch thừa · C: dòng dẫn xuất
+  trên ngày nghỉ = dòng ma).
+
+### 29.3 ⧗ CÒN LẠI — Rust vẫn là bản sao thứ hai (15 ngày lệch, đã ghim)
+
+| Hướng lệch | Ngày | Bản chất |
+|---|---|---|
+| Rust **thừa** (coi là nghỉ) | `2024-02-15`, `2024-02-16` | **SAI** — dữ liệu chứng minh là 2 phiên thật; Rust đang bỏ mất 2 phiên |
+| Rust **thiếu** (coi là phiên) | 12 ngày 2023 + `2024-04-29` | Rust **chưa có lịch 2023**; `2024-04-29` thiếu ở Rust (Python đúng) |
+
+- **CHẶN:** `src/main.rs` đang dirty do agent Rust (`4eca9b4`) — Hội đồng chỉ đạo **không chạm**
+  (§27.4). Vì vậy **không** đổi Rust sang đọc JSON trong lượt này.
+- **GIẢM RỦI RO:** parity test đọc literal `const VN_HOLIDAYS` trong `src/main.rs` và ghim **đúng**
+  2 ngày rust-only + 13 ngày json-only ⇒ lệch **MỚI** (thêm/bớt một ngày ở một bên) làm test đỏ
+  ngay; refactor làm đổi cấu trúc const cũng đỏ (kèm thông điệp rõ). Đây là "dây báo trôi lệch"
+  tạm thời cho tới khi Rust đọc cùng JSON.
+- **DONE-WHEN (phần Rust):** `src/main.rs` đọc/parse `backend/src/config/weekend_holidays.json`
+  (hoặc sinh file `.rs` từ JSON bằng build script) và parity test chuyển sang khẳng định
+  **lệch = ∅**; xoá `KNOWN_RUST_ONLY`/`KNOWN_JSON_ONLY`.
 
 ## Ghi chú vận hành
 

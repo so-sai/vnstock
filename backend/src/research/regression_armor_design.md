@@ -11,10 +11,17 @@ thấy 2/4 chốt **đã tồn tại ở phía Rust**, và 1/4 chốt **không t
 
 | # | Chốt chặn | Trạng thái đo được (05/11/2026) | Phán quyết |
 |---|---|---|---|
+> **CẬP NHẬT 06/11/2026 (NQ-18):** bảng dưới là **ảnh chụp 05/11/2026**, giữ nguyên để truy vết
+> quyết định. Trạng thái thực tế hiện nay: **#1, #2, #3, #5 DONE** (`9c36690`, `4104639`, `6e013d8`
+> + `20295b5`, `c6fa870`); **#4 vẫn OPEN** (chờ `src/main.rs` sạch). Chi tiết: `muc27_acceptance_2026_11_06.md`
+> và `muc29_calendar_ssot_2026_11_06.md`.
+
+| # | Chốt chặn | Trạng thái đo được (05/11/2026) | Phán quyết |
+|---|---|---|---|
 | 1 | Temporal Gap Guard (cấm tính biến động qua ngày khuyết) | Rust **đã có** (`missing_trading_days_between`, dùng ở 1235/1315/1596/1634, 9 unit test); Python **chưa có** → đã bổ sung | ✅ **DONE** (Mục 26, `9c36690`) |
-| 2 | Gap-aware Sync (sync phải biết bù ngày) | **Chưa có** ở Python: `daily-update --date X` chỉ cào X, không quét `MAX(date) → X` | ⧗ **OPEN** (Mục 27), cần Hội đồng chốt chính sách |
-| 3 | Date-set Asymmetry Guard | Không thể "khớp 100%" toàn lịch sử — xem §2 | ⧗ **OPEN**, phải **scoped window** |
-| 4 | Linter AST Rust | Guard đã có + đã có unit test; `src/main.rs` đang **dirty** (agent khác) | ⧗ **OPEN**, đổi thành lint **call-site**, không viết lại guard |
+| 2 | Gap-aware Sync (sync phải biết bù ngày) | **Chưa có** ở Python: `daily-update --date X` chỉ cào X, không quét `MAX(date) → X` | ✅ **DONE** — chọn phương án (B): báo động, KHÔNG tự bù (`4104639`) |
+| 3 | Date-set Asymmetry Guard | Không thể "khớp 100%" toàn lịch sử — xem §2 | ✅ **DONE** — scoped window (`6e013d8`) + **chiều ngược** (`20295b5`) |
+| 4 | Linter AST Rust | Guard đã có + đã có unit test; `src/main.rs` đang **dirty** (agent khác) | ⧗ **OPEN** (Mục 28 #5) — lint **call-site**, không viết lại guard |
 
 ## 1. Vì sao 2.400 test mà vẫn lọt lỗi vận hành — bằng chứng cụ thể
 
@@ -83,6 +90,11 @@ Viết "khớp 100% toàn lịch sử" sẽ đỏ vĩnh viễn và bị tắt �
   không bị báo khuyết, và test sống trên CSDL thật. **RED 2 → GREEN 9/9; regression 154/154.**
 
 ## 4. Hai chốt còn lại — thiết kế đã sửa, chờ Hội đồng
+
+> **CẬP NHẬT 06/11/2026 (NQ-18):** mục này đã **được Hội đồng chốt và thực thi**. §4.1 chốt theo
+> **phương án (B)**: `daily-update` chỉ báo động, `eod-run` dừng exit 4, người vận hành chạy
+> `daily-update --date YYYY-MM-DD`; **cấm** tự bù mạng (`4104639`). §4.2 làm đúng phạm vi nêu ở đây
+> và bổ sung **chiều ngược** (`6e013d8`, `20295b5`). §4.3 **vẫn OPEN** (Mục 28 #5).
 
 ### 4.1 Chốt #2 — Gap-aware Sync (Mục 27)
 
