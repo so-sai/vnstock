@@ -42,14 +42,15 @@ if str(BACKEND_DIR) not in sys.path:
 
 LIVE_DB = BACKEND_DIR / "data" / "screener_cache.db"
 
-# [WHY] GHIM số đo 06/11/2026: đúng 3 bảng có dòng trên ngày không giao dịch `2026-09-01`.
-# Đây KHÔNG phải miễn trừ cho tương lai — nếu một dòng thừa MỚI xuất hiện (bất kỳ ngày nào,
-# bất kỳ bảng nào trong phạm vi), dict này lệch và test đỏ ngay.
+# [WHY] TRƯỚC 06/11/2026 (sau khi thanh lý Mục 28 #3 bằng `ptck.py quarantine-nonsession`):
+# dict này từng ghim 3 dòng trên ngày Quốc khánh `2026-09-01`. Nay tập đó phải RỖNG — và rỗng
+# ở đây KHÔNG phải "nới lỏng": bất kỳ dòng thừa nào xuất hiện lại (cùng ngày hay ngày khác,
+# bảng nào) đều làm dict lệch ⇒ đỏ. Nợ đã TRẢ, không phải nợ được miễn.
 KNOWN_LIVE_ORPHANS: dict[str, list[str]] = {
     "daily_ohlcv": [],
-    "market_wide_breadth_daily": ["2026-09-01"],
-    "regime_history": ["2026-09-01"],
-    "paper_equity_curve": ["2026-09-01"],
+    "market_wide_breadth_daily": [],
+    "regime_history": [],
+    "paper_equity_curve": [],
     "eod_run_ledger": [],
 }
 
@@ -206,17 +207,21 @@ def test_live_known_orphans_are_pinned_exactly():
     )
 
 
-def test_live_gate_is_armed_on_the_known_orphans():
-    """[WHY] Chứng minh cổng THẬT SỰ chặn trên CSDL sống, không chỉ trên DB giả: gọi
-    `assert_session_set_alignment` phải ném lỗi và nêu tên `2026-09-01`. Nếu test này xanh
-    nghĩa là cổng đã mù.
+def test_live_gate_passes_after_quarantine_proving_the_repair_is_real():
+    """[WHY] Chứng minh việc thanh lý (Mục 28 #3, `ptck.py quarantine-nonsession`) ĐÃ CÓ TÁC
+    DỤNG THẬT trên CSDL sống — không chỉ "test đã được sửa cho xanh". Nếu ai đó khôi phục
+    lại 3 dòng ma (hoặc tạo dòng mới), `assert_session_set_alignment` sẽ ném lỗi và test này đỏ.
+
+    [WHY] Không dùng `accounting_window=None` ở đây: mở rộng về epoch sẽ chạm 22/54 lỗ hổng
+    kế thừa của Mục 22/28 — nợ ĐÃ ĐO khác với lỗi MỚI. Cửa sổ hợp đồng 60/20 là thứ phải sạch.
     """
-    from src.database.session_continuity import SessionSetMismatchError, assert_session_set_alignment
+    from src.database.session_continuity import assert_session_set_alignment
 
     con = sqlite3.connect(f"file:{LIVE_DB.as_posix()}?mode=ro", uri=True)
     try:
-        with pytest.raises(SessionSetMismatchError) as exc:
-            assert_session_set_alignment(con, accounting_window=None)
+        report = assert_session_set_alignment(con)
     finally:
         con.close()
-    assert "2026-09-01" in str(exc.value)
+    assert report["ok"] is True, report
+    assert not any(report["market_spurious"].values()), report["market_spurious"]
+    assert not any(report["accounting_spurious"].values()), report["accounting_spurious"]

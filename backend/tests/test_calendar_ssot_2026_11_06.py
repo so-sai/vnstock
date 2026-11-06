@@ -67,10 +67,10 @@ KNOWN_JSON_ONLY = [
     "2024-04-29",
 ]
 
-# [WHY] Nợ đo được, KHÔNG phải miễn trừ: `2026-09-01` (Quốc khánh) có dòng ở breadth/regime/
-# equity nhưng 0 bar ở `daily_ohlcv` ⇒ là DÒNG MA do pipeline cũ, không phải lỗi lịch.
-# Việc thanh lý nằm ở Mục 28 #3; ở đây ghim lại để không ai lặng lẽ thêm ngày thứ hai.
-KNOWN_PHANTOM_ROW_DAYS = ["2026-09-01"]
+# [WHY] TRƯỚC 06/11/2026: `2026-09-01` có dòng dẫn xuất nhưng 0 bar ⇒ DÒNG MA (Mục 28 #3).
+# Nay đã cách ly bằng `ptck.py quarantine-nonsession` (audit RESTATED #3478–3480) ⇒ phải RỖNG.
+# Đây là nợ ĐÃ TRẢ, không phải nợ được miễn: một ngày ma MỚI là đỏ ngay.
+KNOWN_PHANTOM_ROW_DAYS: list[str] = []
 
 AUDIT_START = "2023-01-01"
 

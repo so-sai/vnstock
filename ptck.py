@@ -8070,6 +8070,37 @@ def build_parser():
     )
     p_why.set_defaults(func=cmd_why_audit)
 
+    # quarantine-nonsession — cách ly dòng trên NGÀY KHÔNG GIAO DỊCH (Mục 28 #3)
+    p_qn = sub.add_parser(
+        "quarantine-nonsession",
+        parents=[lang_parent],
+        help="Cách ly dòng trên ngày KHÔNG giao dịch (mặc định CHỈ IN; cần --apply để xoá)",
+    )
+    p_qn.add_argument(
+        "--apply",
+        action="store_true",
+        help="Thực sự xoá + ghi audit RESTATED (mặc định là dry-run, không sửa gì)",
+    )
+    p_qn.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        help="Chỉ quét từ ngày này (mặc định CONTRACT_EPOCH = 2026-06-15)",
+    )
+    p_qn.add_argument(
+        "--all-history",
+        action="store_true",
+        dest="all_history",
+        help="Quét TOÀN BỘ lịch sử (mặc định chỉ từ CONTRACT_EPOCH)",
+    )
+    p_qn.add_argument(
+        "--reason",
+        type=str,
+        default="PHANTOM_NON_SESSION: dòng dẫn xuất trên ngày sàn đóng cửa",
+        help="Lý do ghi vào audit (bắt buộc phải có nội dung)",
+    )
+    p_qn.set_defaults(func=cmd_quarantine_nonsession)
+
     # Freshness Sentinel: cho phép `--force-stale` ở CẢ HAI vị trí (trước và sau
     # subcommand). Gắn bằng vòng lặp thay vì sửa tay ~100 subparser.
     for _sub in sub.choices.values():
@@ -8086,6 +8117,80 @@ def build_parser():
     return parser
 
 
+def cmd_quarantine_nonsession(args):
+    """Cách ly dòng trên NGÀY KHÔNG GIAO DỊCH — mặc định CHỈ IN (dry-run).
+
+    [WHY] Mặc định dry-run vì đây là lệnh XOÁ dữ liệu thật: một lần gõ thiếu cờ không được
+    phép xoá lịch sử. `--apply` là chữ ký có chủ đích của con người.
+
+    [WHY] Exit code 4 khi phát hiện "ngày không phải phiên nhưng có >=100 bar thật": đó là
+    LỊCH SAI, không phải dòng ma. Tự ý xoá sẽ phá huỷ phiên thật (bài học 2024-02-15/16).
+    """
+    import os
+    import sqlite3
+
+    from src.database.nonsession_quarantine import (
+        CalendarDataConflictError,
+        NONSESSION_TABLES,
+        quarantine_nonsession_rows,
+        scan_nonsession_rows,
+    )
+    from src.database.session_continuity import CONTRACT_EPOCH
+
+    db = os.environ.get("PTCK_SCREENER_DB") or str(PROJECT_ROOT / "backend" / "data" / "screener_cache.db")
+    since = args.since or CONTRACT_EPOCH
+    all_history = bool(getattr(args, "all_history", False))
+
+    conn = sqlite3.connect(str(db))
+    try:
+        report = scan_nonsession_rows(conn, since=since, include_history=all_history)
+
+        print("=" * 64)
+        print("  CÁCH LY DÒNG TRÊN NGÀY KHÔNG GIAO DỊCH")
+        print("=" * 64)
+        print(f"  DB          : {db}")
+        print(f"  Phạm vi     : {'TOÀN BỘ lịch sử' if all_history else f'từ {since}'}")
+        print(f"  Bảng quét   : {', '.join(NONSESSION_TABLES)}")
+        print(f"  Dòng tìm thấy: {report['count']}")
+        for row in report["rows"]:
+            print(
+                f"    • {row['table']:28s} {row['date']}  rowid={row['rowid']:>9}  "
+                f"bar_hop_le={row['valid_bars']}"
+            )
+        if report["conflicts"]:
+            print("\n  [CẤM XOÁ] ngày không phải phiên nhưng CÓ DỮ LIỆU THẬT:")
+            for c in report["conflicts"]:
+                print(f"    ! {c['table']} {c['date']} = {c['valid_bars']} bar")
+            print("  ⇒ LỊCH SAI. Sửa SSOT `weekend_holidays.json` rồi chạy lại. KHÔNG xoá dữ liệu thật.")
+            raise SystemExit(4)
+
+        if report["clean"]:
+            print("\n  [OK] Không có dòng nào trên ngày không giao dịch trong phạm vi này.")
+            return
+
+        if not args.apply:
+            print("\n  [DRY-RUN] Chưa xoá gì. Thêm `--apply` để cách ly + ghi audit RESTATED.")
+            return
+
+        try:
+            result = quarantine_nonsession_rows(
+                conn,
+                report,
+                caller_module="cli.quarantine-nonsession",
+                reason=args.reason,
+            )
+        except CalendarDataConflictError as exc:
+            print(f"\n  [CẤM XOÁ] {exc}")
+            raise SystemExit(4) from exc
+
+        print(f"\n  [ĐÃ XOÁ] {result['deleted']} dòng, audit RESTATED: {result['audit_ids']}")
+        for g in result["groups"]:
+            print(f"    • {g['table']:28s} {g['date']}  {g['rows']} dòng")
+        print("\n  [TỰ KIỂM] đã quét lại trong cùng transaction — sạch.")
+    finally:
+        conn.close()
+
+
 # ── Freshness Sentinel Gate (Giải pháp C) ──────────────────────────────
 # Whitelist = các lệnh ĐƯỢC PHÉP chạy trên dữ liệu cũ (ingestion/ops/fix).
 # Mọi lệnh khác — kể cả lệnh thêm sau này — đều đi qua cổng (fail-closed).
@@ -8096,7 +8201,7 @@ BYPASS_COMMANDS = {
     "serve", "telemetry", "gap-analyzer", "data-quality", "symbol-audit",
     "pit-audit", "evidence-ledger", "fetch-macro", "sbv-update",
     "fetch-financials", "import-financials", "cafef-crawl", "forensic-fpr", "dividend-audit",
-    "why-audit",
+    "why-audit", "quarantine-nonsession",
 }
 
 

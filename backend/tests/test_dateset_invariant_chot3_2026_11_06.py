@@ -214,11 +214,9 @@ def test_live_market_alignment_is_exact():
 
     [SỬA 06/11/2026, NQ-18 §II.2] Trước đây test này khẳng định `ok is True`. Từ khi Chốt #3
     có thêm CHIỀU NGƯỢC, `ok` còn phụ thuộc "không có dòng trên ngày không giao dịch" — mà
-    CSDL thật đang có đúng 3 dòng như vậy ở ngày `2026-09-01` (nợ đo được, chưa thanh lý).
-    Vì thế ở đây khẳng định phần CHIỀU THIẾU (mục đích gốc của sentinel này) và ghim phần
-    dòng thừa; tập dòng thừa được ghim CHÍNH XÁC ở
-    `test_dateset_reverse_direction_2026_11_06.py::test_live_known_orphans_are_pinned_exactly`.
-    Không nới lỏng: nếu thiếu một phiên, `market_missing` sẽ khác rỗng ⇒ test này đỏ.
+    CSDL thật từng có đúng 3 dòng như vậy ở ngày `2026-09-01` (nợ đo được). Sau khi thanh lý
+    (Mục 28 #3) nợ đó đã TRẢ, nên `ok is True` được khẳng định LẠI — kèm ghim hai chiều rỗng
+    để nếu một dòng ma quay lại thì đỏ. Không nới lỏng: thiếu một phiên vẫn đỏ.
     """
     from src.database.session_continuity import collect_session_alignment
 
@@ -229,9 +227,9 @@ def test_live_market_alignment_is_exact():
         con.close()
     assert not any(report["market_missing"].values()), report
     assert report["market_window"][2] == 60
-    assert report["market_spurious"]["market_wide_breadth_daily"] == ["2026-09-01"], report
-    assert report["market_spurious"]["regime_history"] == ["2026-09-01"], report
-    assert report["market_spurious"]["daily_ohlcv"] == [], report
+    assert not any(report["market_spurious"].values()), report
+    assert not any(report["accounting_spurious"].values()), report
+    assert report["ok"] is True, report
 
 
 def test_live_accounting_last_20_sessions_is_clean():
