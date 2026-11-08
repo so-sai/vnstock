@@ -1003,19 +1003,50 @@ Còn mở (Mục 18): cổng "chỉ nhận bar đã settle" cho chuỗi macro to
 |---|---|---|---|
 | 1 | `paper_equity_curve` thiếu **22** phiên từ `2026-06-15` | `2026-07-17 … 2026-10-02` | phần lớn thuộc Mục 22; ngoài cửa sổ 20 phiên ⇒ không chặn EOD |
 | 2 | `eod_run_ledger` thiếu **54** phiên từ epoch | `2026-07-10 … 2026-10-02` | ledger ra đời muộn hơn equity |
-| 3 | Dòng trên **ngày KHÔNG giao dịch** `2026-09-01` — **3 dòng** | breadth 1, regime 1, equity 1; `daily_ohlcv` 0, ledger 0 | **đo lại bằng Chốt #3 hai chiều** (`20295b5`); thanh lý cần GO riêng vì là ghi/xoá dữ liệu — phải ghi audit, không "xoá lén" |
+| 3 | ✅ **DONE 06/11/2026** — dòng trên **ngày KHÔNG giao dịch** `2026-09-01` | trước: breadth 1, regime 1, equity 1 (`daily_ohlcv` 0, ledger 0) · **sau: 0 dòng ở mọi bảng, mọi lịch sử** | thanh lý bằng `ptck.py quarantine-nonsession --apply` (commit `426e9bc`), audit `RESTATED` #3478–3480 — xem §28.3 |
 | 4 | Mục 22 — 10 phiên `2026-09-18 … 2026-10-02` | nằm trong nợ #1/#2 | chờ đối soát `corporate_actions` |
 | 5 | Chốt #4 — lint call-site Rust | — | xem §27.4 (chờ `src/main.rs` sạch) — **vẫn deferred**, Hội đồng chỉ đạo không chạm file |
-| 6 | `time_series_aligner._load_vn_holidays()` (macro) **fail-open** khi file SSOT hỏng | trả `set()` + `logger.warning` | cùng file SSOT với `daily_updater` nhưng **không** fail-closed; hậu quả chỉ là lệch lịch nến macro, không chặn EOD ⇒ hạ ưu tiên, nhưng phải đóng để §29 trọn vẹn |
+| 6 | ✅ **DONE 06/11/2026** — `time_series_aligner._load_vn_holidays()` (macro) **fail-open** | trước: trả `set()` + `logger.warning` khi file hỏng · **sau: `TradingCalendarError`, và dùng CHUNG loader với `daily_updater`** | commit `c11c7f3` — xem §29.4 |
 
 **DONE-WHEN:** (a) mỗi dòng nợ được trả bằng backfill/thanh lý **có audit**, hoặc (b) được
 phân loại tường minh là "không thể tái lập" kèm lý do; (c) số đếm ghim trong
 `test_dateset_invariant_chot3_2026_11_06.py` được cập nhật **cùng lúc** (không nới baseline).
-Nợ #3 nay được ghim **chính xác theo tên bảng + ngày** ở
+Nợ #3 nay **đã trả** (`426e9bc`) và được ghim **chính xác theo tên bảng + ngày** ở
 `test_dateset_reverse_direction_2026_11_06.py::test_live_known_orphans_are_pinned_exactly`
 ⇒ một dòng thừa MỚI là đỏ, không thể trôi.
 
-## 29. ⧗ OPEN (Python DONE, Rust chờ) — Lịch phiên phải có MỘT nguồn sự thật
+### 28.3 ✅ DONE 06/11/2026 — thanh lý 3 dòng trên ngày không giao dịch `2026-09-01` (commit `426e9bc`)
+
+- **ĐƯỜNG THANH LÝ:** `ptck.py quarantine-nonsession` (mặc định **DRY-RUN**, `--apply` mới xoá,
+  `--since` / `--all-history` / `--reason`) → `src/database/nonsession_quarantine.py`.
+  [WHY cần CLI + dry-run] đây là lệnh XOÁ dữ liệu thật; một lần gõ thiếu cờ không được phép
+  xoá lịch sử — `--apply` là chữ ký có chủ đích của con người.
+- **ĐÃ XOÁ (3 dòng, audit `RESTATED` #3478–3480, caller `cli.quarantine-nonsession`):**
+  `market_wide_breadth_daily` (`advances=1, declines=0, unchanged=938`, `breadth_pct=0,106`),
+  `regime_history` (`breadth_pct=0,0` — dẫn xuất từ chính breadth hỏng đó),
+  `paper_equity_curve` (`total_equity=1.008.488.848,3466899` — **trùng hệt** dòng `2026-08-28`,
+  tức chép lại trạng thái phiên trước, giá không cập nhật).
+- **SNAPSHOT TRƯỚC KHI XOÁ:** `%TEMP%\opencode\screener_cache_before_quarantine_2026_11_06.db`
+  (218,7 MB) — payload cũ còn nguyên trong audit nên dựng lại được từ sổ kiểm toán.
+- **CHỐNG VÁ QUÁ TAY (bất biến của công cụ):** ngày không phải phiên mà `daily_ohlcv` có
+  ≥ `MIN_VALID_BARS_PER_SESSION` bar **hợp lệ** ⇒ `CalendarDataConflictError`, **KHÔNG xoá gì**.
+  Ca `2024-02-15` (1.092 bar) / `2024-02-16` (1.139 bar) là bằng chứng: tin lịch cũ mà xoá thì
+  đã phá huỷ 2 phiên thật. `is_stale=1` **không** được tính là dữ liệu thật.
+- **FAIL-CLOSED:** audit và DELETE cùng transaction (audit lỗi ⇒ rollback, có test); xoá xong
+  tự quét lại trong cùng transaction; xoá theo `rowid` + điều kiện ngày (không theo khoảng);
+  chạy lần hai là NO-OP.
+- **ĐO LẠI SAU THANH LÝ:** `collect_session_alignment` ⇒ `ok = True`; `market_spurious` **và**
+  `accounting_spurious` đều **rỗng**; 60 phiên `2026-08-11..11-05` và 20 phiên kế toán
+  `2026-10-09..11-05` vẫn **0% missing**. Nợ #1/#2 **không đổi** (equity 22, ledger 54 gaps):
+  `2026-09-01` là non-session nên nó chưa bao giờ là gap — xoá dòng ma không "che" nợ nào.
+- **PIN CHẶT HƠN (không nới):** `KNOWN_LIVE_ORPHANS` tất cả **rỗng**, `KNOWN_PHANTOM_ROW_DAYS
+  = []`, `test_live_market_alignment_is_exact` khẳng định **lại** `ok is True`, và
+  `test_live_gate_passes_after_quarantine_proving_the_repair_is_real` thay cho test "cổng đang
+  kêu" — nếu 3 dòng ma quay lại, cổng ném lỗi và test đỏ.
+- **TEST:** 8 test mới; RED chứng minh bằng cách **move module đi** (`ModuleNotFoundError`),
+  GREEN 8/8. Regression **219/219 PASS**, `EXIT_THAT=0`.
+
+## 29. ⧗ OPEN (Python DONE 3/3, Rust chờ) — Lịch phiên phải có MỘT nguồn sự thật
 
 ### 29.1 ✅ DONE — Lịch lịch sử đã được đối chiếu DỮ LIỆU, không còn "tin theo trí nhớ"
 
@@ -1043,7 +1074,8 @@ Quét `2023-01-01..2026-11-05` tìm mọi bất đồng giữa lịch và dữ l
   chứng được vì ở tương lai).
 - **Python:** `daily_updater._load_vn_holidays()` đọc SSOT, validate ISO/tập không rỗng,
   **FAIL-CLOSED** (`RuntimeError`); `VN_HOLIDAYS = _load_vn_holidays()`. Xoá ~80 dòng hard-code.
-  `time_series_aligner` (macro) đọc **cùng file** ⇒ hai đường tự thống nhất.
+  `time_series_aligner` (macro) đọc **cùng file** ⇒ hai đường tự thống nhất về *dữ liệu*
+  (nay thống nhất luôn về *chính sách lỗi* — §29.4).
 - **Bỏ `2026-02-15`:** là **Chủ Nhật** — file cam kết chỉ chứa ngày lễ *đặc biệt* (weekend tự
   check trong code). Rust vẫn giữ ⇒ được lọc khỏi phép so parity (xem 29.3).
 - **5 test** (`test_calendar_ssot_2026_11_06.py`): Python == JSON **và** không còn set hard-code;
@@ -1068,6 +1100,24 @@ Quét `2023-01-01..2026-11-05` tìm mọi bất đồng giữa lịch và dữ l
 - **DONE-WHEN (phần Rust):** `src/main.rs` đọc/parse `backend/src/config/weekend_holidays.json`
   (hoặc sinh file `.rs` từ JSON bằng build script) và parity test chuyển sang khẳng định
   **lệch = ∅**; xoá `KNOWN_RUST_ONLY`/`KNOWN_JSON_ONLY`.
+
+### 29.4 ✅ DONE 06/11/2026 — MỘT loader, MỘT chính sách lỗi (commit `c11c7f3`; đóng nợ #6)
+
+- **WHAT:** `src/database/trading_calendar.py` = loader DUY NHẤT (`load_vn_holidays()`,
+  `TradingCalendarError`, `DEFAULT_CALENDAR_PATHS`). `daily_updater._load_vn_holidays()`
+  delegate (truyền tường minh `_CALENDAR_PATH_CANDIDATES` cho bản đóng gói PyInstaller);
+  `time_series_aligner._load_vn_holidays()` **bỏ `try/except` fail-open**, dùng chung loader.
+- **WHY phải gom:** §29.2 chỉ hợp nhất *dữ liệu* về một file; **chính sách lỗi** vẫn có hai bản.
+  Khi file hỏng: `daily_updater` dừng, còn `VNSessionCalendar` (freshness sentinel, session
+  resolver, stale-prev guard) vẫn "sống" với lịch **rỗng** ⇒ mọi ngày lễ thành phiên, nến macro
+  ghép sang ngày sàn đóng. Đúng fail-open AGENTS §4A cấm ("không biết" ≠ 0) và là sự cố 31/08
+  ở dạng khó thấy hơn.
+- **CHỐNG VÁ QUÁ TAY:** loader TỪ CHỐI `schema_version < 2` — khôi phục file lịch cũ (thiếu 14
+  ngày nghỉ, thừa 2 phiên Tết 2024) là **dừng**, không được "đọc được là dùng". Kiểm chứng
+  đầu-cuối: `VNSessionCalendar.is_trading_day` = `False` cho `2026-08-31` + `2026-09-01`,
+  `True` cho `2026-11-05`, `prev_trading_day(2026-09-03) = 2026-08-28`.
+- **TEST:** 8 test mới (`test_macro_calendar_failclosed_2026_11_06.py`); RED = 4 ca
+  "DID NOT RAISE" (macro vẫn trả `set()`), GREEN 8/8. Regression **219/219 PASS**, `EXIT_THAT=0`.
 
 ## Ghi chú vận hành
 
