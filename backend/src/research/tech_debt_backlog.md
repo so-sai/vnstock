@@ -1119,6 +1119,54 @@ Quét `2023-01-01..2026-11-05` tìm mọi bất đồng giữa lịch và dữ l
 - **TEST:** 8 test mới (`test_macro_calendar_failclosed_2026_11_06.py`); RED = 4 ca
   "DID NOT RAISE" (macro vẫn trả `set()`), GREEN 8/8. Regression **219/219 PASS**, `EXIT_THAT=0`.
 
+## 30. ✅ DONE 09/11/2026 — Hợp đồng biên "không biết ≠ 1.0" + guardrail Rust (0c2fdf7, 5baece7, 58bf2ce)
+
+**Bối cảnh:** sự cố musl libc + OpenSSH (vá 05/11/2026, 10.6p2) là *In-band Error Signaling* —
+`crypt()` báo "không tính được" bằng chuỗi `"*"`, trùng ký hiệu "tài khoản khoá" của `/etc/shadow`
+⇒ `strcmp("*","*") == 0` ⇒ bypass. Repo **không** có `crypt()`/PAM/sshd nên không thể dính đúng
+CVE đó, nhưng **cùng lớp lỗi** thì có (4 chỗ). Đợt này đóng cả 4 + dựng guardrail để không tái sinh.
+
+| # | Chỗ fail-open | Trước | Sau | Commit |
+|---|---|---|---|---|
+| 1 | `quality_score_engine.compute_report` khi registry lỗi | `integrity_score=1.0`, `recommendation="clean (no events)"` | `None` + `degraded=True` + `"UNKNOWN: …"`, **không** append `_dis_history` | `0c2fdf7` |
+| 2 | `cao_validation/activation_gate` | `dis >= 0.50` (None ⇒ TypeError; 1.0 giả ⇒ lọt) | `integrity_gate_passes(None) = False`; log in `UNKNOWN` | `0c2fdf7` |
+| 3 | `trust_accumulator` / `TrustState` | default `data_integrity_score=1.0` (cả khi load state thiếu trường) | default `None` ⇒ `effective_dis=0.0` (không cộng niềm tin), state giữ `None` | `0c2fdf7` |
+| 4 | `ptck_core` kernel (breadth + biên PyO3) | `breadth_ratio([]) = 0.0`; `window > n_days ⇒ zeros`; 7 × `.unwrap()` ở biên | `PyValueError`; 7 × `?` | `5baece7` |
+| 5 | `lttb_wasm` | `buf[0]/buf[4]/buf[off+4]` không kiểm độ dài ⇒ panic index-OOB | `slice_has_min_bar` + `count = min(count, len/stride)` + guard `best_off` | `5baece7` |
+
+**Guardrail mới (chống tái sinh):**
+- `#![forbid(unsafe_code)]` cho `ptck_core` + `lttb_wasm` (cả hai 0 `unsafe`). `src/main.rs` có 7 FFI
+  Win32 hợp pháp ⇒ **không** forbid toàn workspace.
+- `overflow-checks = true` ở `[profile.release]` cả 3 crate — tràn số phải panic, không wrap im lặng.
+- `scripts/check_unsafe_allowlist.py` + 5 test: chặn `unsafe` **mới** ngoài trần
+  (`src/main.rs`=7, `frontend/src-tauri`=0, `src/template_main.rs`=10 vì không được compile), bắt buộc
+  2 crate kernel còn `forbid`, bỏ qua chữ "unsafe" trong comment/string.
+- CI: job `unsafe-guard`, `rust-static` (`cargo clippy --all-targets -- -D warnings` cho `ptck_core` +
+  `lttb_wasm/wasm32`, `cargo test` host cho `lttb_wasm`), `deps-audit` (`cargo audit` 3 lockfile +
+  `pip-audit`). Trước đợt này **Rust không có lưới CI nào**.
+
+**Bằng chứng (đo trên máy dev 09/11/2026):**
+- `test_boundary_contract_failclosed_2026_11_09.py`: RED 9 failed → **GREEN 9/9** (kèm ca chống vá
+  quá tay: registry SỐNG + 0 sự kiện vẫn `1.0`, `degraded=False`). Live smoke: `DIS=1.0, degraded=False,
+  recommendation="clean"` (registry rỗng — đúng).
+- `test_ptck_core_failclosed_2026_11_09.py` + `test_ptck_core_breadth.py`: **17 passed**; RED 4 failed
+  ("DID NOT RAISE") trước bản vá.
+- `lttb_wasm` unit test: **5/5**; ca "metadata 100 bar, buffer 5 bar" chứng minh **PANIC_INDEX_OOB**
+  trên mã cũ (repro `rustc` trong `%TEMP%`) → hết panic trên mã mới.
+- `cargo clippy --all-targets -- -D warnings`: sạch cả 2 crate. Guard trên repo thật: `OK`.
+- Full `pytest backend/tests`: **2645 passed, 11 failed** — cả 11 là nợ môi trường/dữ liệu **có sẵn**
+  (`PanelCoverageError` VNINDEX lệch phiên ở `test_regional_influence_engine`/`test_macro_lag_engine`/
+  `test_replay_integration`; `bun` không có trong PATH; erratum §3.1 thiếu số đo `565`), **không**
+  test kernel nào đỏ. Ghi lại đúng số, không tô hồng.
+
+**CÒN TREO (không giấu):**
+- 3 job CI mới **chưa chạy lần nào trên GitHub** — chỉ mới parse YAML + chạy lệnh tương đương trên
+  Windows. Lần push kế tiếp là lần xác nhận thật; nếu `pip-audit`/`cargo audit` đỏ vì advisory mới
+  thì đó là tín hiệu đúng, không phải lỗi cấu hình.
+- Mục 28 #5 (Chốt #4 — lint call-site Rust trong `src/main.rs`) **vẫn deferred**: file còn dirty do
+  agent Rust; cổng unsafe không thay thế được việc đọc call-site.
+- Nợ dữ liệu #1/#2/#4 (§28) **chưa** backfill: cần đối soát `corporate_actions` trước (chờ GO).
+
 ## Ghi chú vận hành
 
 
