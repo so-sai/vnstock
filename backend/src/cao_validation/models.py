@@ -129,7 +129,9 @@ class TrustState:
     drift_score: float
     structural_shift: bool
     distribution_equivalent: bool
-    data_integrity_score: float = 1.0
+    # [WHY] `None` = CHƯA ĐO ĐƯỢC. Default cũ `1.0` khiến state chưa từng được đo (hoặc state
+    # cũ thiếu trường) được đọc là "pipeline hoàn hảo" ⇒ lọt cổng DIS>=0.50. Thà None.
+    data_integrity_score: float | None = None
 
 
 # ====================================================================

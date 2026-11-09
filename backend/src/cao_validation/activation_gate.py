@@ -18,6 +18,21 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# [WHY] Ngưỡng DIS để coi "dữ liệu đủ tin" — hằng số tường minh để test và cổng dùng CHUNG một
+# nguồn; trước đây 0.50 nằm rải trong biểu thức nên không thể kiểm chứng riêng.
+INTEGRITY_GATE_THRESHOLD = 0.50
+
+
+def integrity_gate_passes(dis: float | None) -> bool:
+    """[WHY] `None` = CHƯA ĐO ĐƯỢC ⇒ KHÔNG đạt (fail-closed). Trước 09/11/2026 biểu thức là
+    `dis >= 0.50`, và `None >= 0.50` sẽ TypeError; tệ hơn, nhánh lỗi của Data Quality Monitor
+    lại trả 1.0 nên "mù thông tin" lọt cổng như dữ liệu hoàn hảo. Nay hợp đồng là: không có số
+    đo ⇒ không có quyền promote (AGENTS §4A: "không biết" ≠ nhãn lành).
+    """
+    if dis is None:
+        return False
+    return dis >= INTEGRITY_GATE_THRESHOLD
+
 
 def _hydrate_path():
     if getattr(sys, "frozen", False):
@@ -92,7 +107,7 @@ def evaluate_promotion(
         max_drift=max_drift,
         strictness=threshold.strictness,
     )
-    integrity_ok = trust_state.data_integrity_score >= 0.50
+    integrity_ok = integrity_gate_passes(trust_state.data_integrity_score)
     gates = {
         "distribution_equivalent": ctx.distribution_match,
         "consistency_met": ctx.consistency_met,
@@ -104,6 +119,10 @@ def evaluate_promotion(
     }
     failures = [name for name, met in gates.items() if not met]
     can_promote = all(gates.values())
+    dis = trust_state.data_integrity_score
+    # [WHY] `None` không format được bằng `:.3f` và cũng không được in thành "0.000" (0.0 là
+    # một số đo thật, khác hẳn "chưa đo"). In đúng chữ UNKNOWN để log không nói dối.
+    dis_text = "UNKNOWN" if dis is None else f"{dis:.3f}"
     if can_promote:
         message = (
             f"PROMOTABLE [{regime}]: all {len(gates)} gates pass. "
@@ -111,10 +130,11 @@ def evaluate_promotion(
             f"consistency={ctx.consistency:.3f}>={ctx.required_consistency}, "
             f"samples={ctx.sample_count}>={ctx.required_samples}, "
             f"drift={ctx.drift_score:.3f}<={ctx.max_drift}, "
-            f"dis={trust_state.data_integrity_score:.3f}>=0.50"
+            f"dis={dis_text}>={INTEGRITY_GATE_THRESHOLD:.2f}"
         )
     else:
         message = f"BLOCKED [{regime}]: {len(failures)}/{len(gates)} gates fail. " + ", ".join(failures)
+
     logger.info("[CAO_GATE] %s", message)
     return PromotionVerdict(
         can_promote=can_promote,

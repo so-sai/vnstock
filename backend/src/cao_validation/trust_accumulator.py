@@ -70,15 +70,16 @@ class TrustAccumulator:
     def update(
         self,
         score: ConsistencyScore,
-        data_integrity_score: float = 1.0,
+        data_integrity_score: float | None = None,
     ) -> TrustState:
         """Update trust state with a new consistency score.
 
         Args:
             score: ConsistencyScore from consistency engine
-            data_integrity_score: DIS ∈ [0, 1] from Data Quality Monitor.
-                1.0 = clean pipeline (no modulation).
-                < 1.0 reduces effective consistency → slower trust accumulation.
+            data_integrity_score: DIS ∈ [0, 1] từ Data Quality Monitor.
+                `None` = CHƯA ĐO ĐƯỢC ⇒ không cộng dồn niềm tin (hệ số 0.0) và state
+                giữ `None`. 1.0 = pipeline sạch (không điều chỉnh).
+                < 1.0 giảm consistency hiệu dụng → trust tích luỹ chậm hơn.
 
         Returns:
             Updated TrustState for the score's regime
@@ -86,10 +87,14 @@ class TrustAccumulator:
         regime = score.regime if score.regime in REGIME_WEIGHTS else DEFAULT_REGIME
         regime_weight = REGIME_WEIGHTS.get(regime, 0.5)
         stability_factor = self._compute_stability_factor(regime, score.overall)
-        dis = max(0.0, min(1.0, data_integrity_score))
+        # [WHY] Default cũ là `data_integrity_score: float = 1.0` ⇒ ai quên truyền DIS sẽ
+        # cộng dồn niềm tin như thể pipeline hoàn hảo. Nay default là `None`: không có số đo
+        # thì `effective_dis = 0.0` (không cộng niềm tin) nhưng state ghi `None` để không ai
+        # đọc nhầm thành "đã đo và bằng 0". Đây là "không biết" ≠ 0 (AGENTS §4A).
+        effective_dis = 0.0 if data_integrity_score is None else max(0.0, min(1.0, data_integrity_score))
         point = TrustHistoryPoint(
             decision_id=score.decision_id,
-            consistency=score.overall * dis,  # DIS modulates effective consistency
+            consistency=score.overall * effective_dis,  # DIS điều chỉnh consistency hiệu dụng
             regime=regime,
             regime_weight=regime_weight,
             stability_factor=stability_factor,
@@ -97,7 +102,7 @@ class TrustAccumulator:
         )
         self._history[regime].append(point)
         state = self._recompute_state(regime)
-        state.data_integrity_score = dis
+        state.data_integrity_score = data_integrity_score
         self._states[regime] = state
         self._persist_state(regime, state)
         return state
@@ -224,7 +229,9 @@ class TrustAccumulator:
                         drift_score=data.get("drift_score", 0.0),
                         structural_shift=False,
                         distribution_equivalent=False,
-                        data_integrity_score=data.get("data_integrity_score", 1.0),
+                        # [WHY] KHÔNG default 1.0: state cũ/thiếu trường từng được đọc thành
+                        # "pipeline hoàn hảo" mà chưa ai đo. Thiếu dấu vết ⇒ None (chưa đo).
+                        data_integrity_score=data.get("data_integrity_score"),
                     )
             except (json.JSONDecodeError, TypeError, ValueError, KeyError) as _e:
                 logger.debug("Load trust_state_%s lỗi (bỏ qua): %s", regime, _e)

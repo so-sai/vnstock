@@ -113,7 +113,10 @@ class DataIntegrityReport:
         even if DIS looks acceptable.
     """
 
-    integrity_score: float  # weakest-link DIS ∈ [0, 1]
+    # [WHY] `None` = CHƯA ĐO ĐƯỢC (sổ sự kiện không đọc nổi), khác hẳn 1.0 = "sạch" và 0.0 =
+    # "tệ nhất". Trước 09/11/2026 trường này là `float` và nhánh lỗi trả 1.0 ⇒ "không biết"
+    # mang nhãn LÀNH, đúng lớp lỗi in-band của sự cố musl/OpenSSH (xem AGENTS §4A).
+    integrity_score: float | None  # weakest-link DIS ∈ [0, 1]; None = chưa đo được
     divi: float  # Data Integrity Volatility Index ∈ [0, 1]
     source_scores: dict[str, float]  # per-pipeline breakdown
     events_in_window: int
@@ -121,3 +124,6 @@ class DataIntegrityReport:
     recommendation: str  # narrative for CAO
     integrity_method: str = "weakest_link_10th_pct"
     timestamp: datetime = field(default_factory=datetime.now)
+    # [WHY] Cờ khai báo suy giảm (AGENTS §4A: "không biết" phải kèm `*_MISSING`), để consumer
+    # không phải đoán qua giá trị số — một cổng đọc `degraded` không thể bị "1.0 đẹp mã" lừa.
+    degraded: bool = False

@@ -69,11 +69,20 @@ class QualityScoreEngine:
         now = now or datetime.now()
         try:
             events = self._registry.get_events(source=source)
-        except Exception:
+        except Exception as e:  # mọi lỗi đọc sổ đều là "chưa đo được"
             logger.exception("[DQ_SCORE] get_events failed")
-            return self._empty_report(now)
+            # [WHY] Trước 09/11/2026 nhánh này trả `_empty_report()` với `integrity_score=1.0`
+            # + `recommendation="clean (no events)"` ⇒ đúng lớp lỗi in-band: "không đọc được
+            # sổ" bị báo thành "dữ liệu hoàn hảo", rồi chảy vào `activation_gate` (DIS>=0.50)
+            # và `trust_accumulator`. Nay trả `None` (không biết) + `degraded=True`, KHÔNG
+            # append vào `_dis_history` (một điểm 1.0 giả sẽ làm DIVI/trend sai vĩnh viễn).
+            return self._degraded_report(now, reason=type(e).__name__)
 
         if not events:
+            # [WHY] Giữ 1.0 ở đây là CÓ CHỦ ĐÍCH, không phải nới lỏng: registry SỐNG và trả
+            # rỗng nghĩa là "chưa có sự kiện nào được ghi" — khác với "không đọc được sổ"
+            # (nhánh except ở trên). Nếu biến ca này thành unknown/degraded thì mọi cổng đỏ
+            # ngay sau khi cài (registry mới luôn rỗng), và người trực sẽ tắt cổng.
             report = DataIntegrityReport(
                 integrity_score=1.0,
                 divi=0.0,
@@ -161,15 +170,20 @@ class QualityScoreEngine:
         normalized = min(1.0, variance / 0.25)
         return normalized
 
-    def _empty_report(self, now: datetime) -> DataIntegrityReport:
+    def _degraded_report(self, now: datetime, *, reason: str) -> DataIntegrityReport:
+        """[WHY] Báo cáo khi CHƯA ĐO ĐƯỢC (sổ sự kiện lỗi). Đây KHÔNG phải "sạch" và cũng
+        KHÔNG phải "tệ nhất": `integrity_score=None` + `degraded=True` buộc consumer phải xử
+        lý tường minh, thay vì lặng lẽ đọc một con số 1.0 không có cơ sở đo.
+        """
         return DataIntegrityReport(
-            integrity_score=1.0,
+            integrity_score=None,
             divi=0.0,
             source_scores={},
             events_in_window=0,
             dominant_severity=EventSeverity.TRACE,
-            recommendation="clean (no events)",
+            recommendation=f"UNKNOWN: không đọc được sổ sự kiện ({reason})",
             timestamp=now,
+            degraded=True,
         )
 
     @staticmethod
@@ -214,8 +228,12 @@ def get_quality_engine() -> QualityScoreEngine:
     return _engine
 
 
-def compute_integrity_score() -> float:
-    """Convenience: return just the DIS scalar (weakest-link)."""
+def compute_integrity_score() -> float | None:
+    """Convenience: return just the DIS scalar (weakest-link) — `None` khi chưa đo được.
+
+    [WHY] Không ép `None` về một số: người gọi phải tự quyết định fail-closed hay không, và
+    một con số bịa (1.0/0.0) sẽ đi thẳng vào cổng activation mà không ai thấy.
+    """
     return get_quality_engine().compute_report().integrity_score
 
 

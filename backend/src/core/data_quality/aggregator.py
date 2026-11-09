@@ -55,10 +55,14 @@ class DataQualityAggregator:
         """Per-pipeline integrity scores."""
         snapshots = self._registry.source_summary()
         report = self._engine.compute_report()
+        # [WHY] Khi báo cáo bị `degraded` (sổ sự kiện không đọc được), `source_scores` rỗng —
+        # `.get(src, 1.0)` cũ sẽ biến "mù thông tin" thành "mọi nguồn đều hoàn hảo". Nay trả
+        # None cho từng nguồn để dashboard/consumer buộc phải hiển thị UNKNOWN.
+        degraded = report.degraded or report.integrity_score is None
         return [
             {
                 "source": src,
-                "integrity_score": report.source_scores.get(src, 1.0),
+                "integrity_score": None if degraded else report.source_scores.get(src, 1.0),
                 "events": snap.events_in_window if snap else 0,
                 "max_severity": snap.max_severity.value if snap else "TRACE",
             }
