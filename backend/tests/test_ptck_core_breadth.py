@@ -1,6 +1,7 @@
 """test_ptck_core_breadth.py — TDD: Rust ptck_core vs Pandas parity (np.allclose atol=1e-12)"""
 
 import numpy as np
+import pytest
 
 import ptck_core
 
@@ -40,9 +41,15 @@ class TestRollingBreadthParity:
         assert rust.size == 0
 
     def test_breadth_ratio_scalar(self):
+        """[WHY] ĐỔI HỢP ĐỒNG 09/11/2026: `breadth_ratio([])` từng trả `0.0` (=0% trên MA20) —
+        đúng mẫu "báo lỗi bằng giá trị hợp lệ". Nay rỗng ⇒ `ValueError`; đầu vào hợp lệ vẫn
+        cho đúng 0.6 (dòng dưới), nên không phải "vá quá tay" thành cấm tất cả.
+        """
         above = np.array([1, 0, 1, 1, 0], dtype=np.uint8)
         assert abs(ptck_core.breadth_ratio(above) - 0.6) < 1e-12
-        assert ptck_core.breadth_ratio(np.array([], dtype=np.uint8)) == 0.0
+        with pytest.raises(ValueError, match="empty"):
+            ptck_core.breadth_ratio(np.array([], dtype=np.uint8))
+
 
 
 class TestFusedBreadthParity:
@@ -68,9 +75,15 @@ class TestFusedBreadthParity:
         assert np.allclose(rust, ref, atol=1e-10)
 
     def test_fused_window_larger_than_days(self):
+        """[WHY] ĐỔI HỢP ĐỒNG 09/11/2026 (AGENTS §1/§4A): trước đây `window=20` trên 10 phiên trả
+        toàn `0.0` — đọc thành "0% mã trên MA20" (capitulation) dù MA20 KHÔNG TÍNH ĐƯỢC. Nay
+        phải RAISE. Đây là ca chống-vá-quá-tay ngược lại: đổi lỗi, KHÔNG đổi kết quả đầu vào
+        hợp lệ (test parity 1700×60 vẫn giữ nguyên bên trên).
+        """
         prices = np.ones((5, 10), dtype=np.float64)
-        rust = np.asarray(ptck_core.compute_fused_breadth(prices, window=20))
-        assert np.all(rust == 0.0)
+        with pytest.raises(ValueError, match="window"):
+            ptck_core.compute_fused_breadth(prices, window=20)
+
 
     def test_fused_window_one(self):
         rng = np.random.default_rng(7)

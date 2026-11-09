@@ -6,7 +6,8 @@
 //!
 //! Also exposes scalar helper `breadth_ratio` for single-slice parity checks.
 
-use numpy::{PyArray1, PyReadonlyArray2, PyReadonlyArray1};
+use numpy::{PyArray1, PyReadonlyArray1, PyReadonlyArray2};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -19,8 +20,17 @@ pub fn compute_rolling_breadth<'py>(
 ) -> PyResult<Bound<'py, PyArray1<f64>>> {
     let arr = above.as_array();
     let (n_sym, n_days) = (arr.nrows(), arr.ncols());
-    if n_sym == 0 || n_days == 0 {
+    // [WHY] `n_days == 0` = "không có ngày nào" ⇒ mảng rỗng là sự thật, KHÔNG raise.
+    if n_days == 0 {
         return Ok(PyArray1::<f64>::zeros(py, 0, false));
+    }
+    // [WHY] `n_sym == 0` mà có ngày: breadth KHÔNG XÁC ĐỊNH (0/0). Trước 09/11/2026 nhánh này
+    // trả `zeros` ⇒ bị đọc thành "0% cổng phiếu trên MA20" — một kết luận sập thị trường bịa
+    // từ dữ liệu rỗng (AGENTS §1: Missing > Fake). Nay RAISE để caller biết là thiếu dữ liệu.
+    if n_sym == 0 {
+        return Err(PyValueError::new_err(
+            "compute_rolling_breadth: empty input (0 symbols with n_days>0) — breadth không xác định",
+        ));
     }
     // Fast path: iterate columns, parallel over days with Rayon.
     // NumPy ndarray is (n_sym, n_days) C-order: arr[[i,j]] is at i*n_days + j.
@@ -45,8 +55,12 @@ pub fn compute_rolling_breadth<'py>(
 #[pyfunction]
 pub fn breadth_ratio(py: Python<'_>, above: PyReadonlyArray1<u8>) -> PyResult<f64> {
     let arr = above.as_array();
+    // [WHY] Trước 09/11/2026: `if arr.is_empty() { return Ok(0.0); }` — đúng mẫu "báo lỗi bằng
+    // giá trị hợp lệ" (0.0 = 0% mã trên MA20). Nay RAISE: không có mã ⇒ không có tỷ lệ.
     if arr.is_empty() {
-        return Ok(0.0);
+        return Err(PyValueError::new_err(
+            "breadth_ratio: empty input — không có mã nào để tính tỷ lệ (không được trả 0.0)",
+        ));
     }
     let cnt: usize = arr.iter().map(|&v| (v != 0) as usize).sum();
     let _ = py; // keep GIL token explicit
@@ -66,11 +80,27 @@ pub fn compute_fused_breadth<'py>(
 ) -> PyResult<Bound<'py, PyArray1<f64>>> {
     let arr = prices.as_array();
     let (n_sym, n_days) = (arr.nrows(), arr.ncols());
-    if n_sym == 0 || n_days == 0 || window == 0 {
-        return Ok(PyArray1::<f64>::zeros(py, n_days, false));
+    // [WHY] `n_days == 0` = không có ngày nào ⇒ mảng rỗng là sự thật.
+    if n_days == 0 {
+        return Ok(PyArray1::<f64>::zeros(py, 0, false));
+    }
+    // [WHY] `window == 0` là tham số vô nghĩa; `n_sym == 0` là không có gì để tính; và
+    // `window > n_days` là KHÔNG THỂ tính MA (thiếu lịch sử). Cả ba trước đây trả `zeros` ⇒
+    // đọc thành "0% mã trên MA20" (capitulation giả) thay vì "không tính được" (AGENTS §4A).
+    if window == 0 {
+        return Err(PyValueError::new_err(
+            "compute_fused_breadth: window=0 không hợp lệ",
+        ));
+    }
+    if n_sym == 0 {
+        return Err(PyValueError::new_err(
+            "compute_fused_breadth: empty input (0 symbols)",
+        ));
     }
     if window > n_days {
-        return Ok(PyArray1::<f64>::zeros(py, n_days, false));
+        return Err(PyValueError::new_err(format!(
+            "compute_fused_breadth: window={window} > n_days={n_days} — không thể tính MA{window}"
+        )));
     }
     // Flat is_above buffer (n_sym * n_days) u8, computed in parallel over symbols with sliding window.
     // Each symbol's MA is sliding sum: O(n_days) per symbol, no per-day inner loop over window.

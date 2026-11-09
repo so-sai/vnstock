@@ -13,3 +13,9 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.23", features = ["extension-module"] }
 numpy = "0.23"
 rayon = "1.11"
+
+[profile.release]
+# [WHY] Tràn số phải PANIC, không được wrap im lặng. Kernel này tính breadth/CAGR/NAV: một lần
+# wrap i64/u64 cho ra con số "hợp lệ" nhưng sai (đúng lớp lỗi in-band của musl). Chi phí
+# kiểm tra tràn không đáng kể so với vòng lặp NumPy/Rayon ở đây.
+overflow-checks = true

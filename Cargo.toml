@@ -18,3 +18,7 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+# [WHY] Tràn số phải panic thay vì wrap im lặng. Binary này tính lot size/giá trị lệnh từ số
+# thực của người dùng và số dư: một lần wrap cho ra con số "hợp lệ" nhưng sai — đúng lớp lỗi
+# in-band (giá trị dữ liệu hợp lệ mang nghĩa lỗi) mà sự cố musl/OpenSSH đã chứng minh.
+overflow-checks = true

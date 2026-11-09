@@ -6,7 +6,7 @@
 //! - Metrics: total_return, cagr (365.25), sharpe (√252), max_drawdown, win_rate, total_trades, final_nav
 //! - Parallel: `weights_grid.into_par_iter()` with `py.allow_threads` (zero GIL, zero pickle)
 
-use numpy::{PyArray1, PyReadonlyArray2};
+use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -25,6 +25,11 @@ pub struct SimResult {
 
 // ── Core single-combo simulation (pure Rust, no GIL) ───────────────────────
 
+// [WHY] `#[allow(clippy::too_many_arguments)]` là khai báo CÓ CHỦ ĐÍCH, không phải nới lỏng CI:
+// đây là kernel số học nhận 10 tham số vô hướng, gom thành struct sẽ tạo một kiểu chỉ dùng
+// nội bộ và làm chậm đường nóng; các tham số đều là hằng số chiến lược độc lập (stop/take/
+// min_hold/fee…), không có nhóm ngữ nghĩa nào để đóng gói. CI vẫn `-D warnings` cho mọi lint khác.
+#[allow(clippy::too_many_arguments)]
 fn simulate_one(
     factors: &[f64], // flat: n_days * 4, row-major
     n_days: usize,
@@ -146,6 +151,9 @@ fn simulate_one(
 
 // ── PyO3 entry: parallel grid ──────────────────────────────────────────────
 
+// [WHY] Cùng lý do như `simulate_one`: chữ ký 9 tham số phản chiếu ĐÚNG API Python mà
+// `grid_search_v2.py` đang gọi (đổi sang struct sẽ phá hợp đồng gọi và phải sửa call-site).
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (factor_matrix, weights_grid, entry_thresh=0.60, exit_thresh=0.35, trailing_stop=0.05, trailing_take=0.15, min_hold=5, fee=0.0045))]
 pub fn simulate_grid_parallel<'py>(
@@ -209,20 +217,21 @@ pub fn simulate_grid_parallel<'py>(
     });
 
     // Convert to Python list of dicts (PyO3 stable)
-    let out: Vec<PyObject> = results
-        .into_iter()
-        .map(|r| {
-            let d = pyo3::types::PyDict::new_bound(py);
-            d.set_item("total_return", r.total_return).unwrap();
-            d.set_item("cagr", r.cagr).unwrap();
-            d.set_item("sharpe", r.sharpe).unwrap();
-            d.set_item("max_drawdown", r.max_drawdown).unwrap();
-            d.set_item("win_rate", r.win_rate).unwrap();
-            d.set_item("total_trades", r.total_trades).unwrap();
-            d.set_item("final_nav", r.final_nav).unwrap();
-            d.into_pyobject(py).unwrap().into_any().unbind()
-        })
-        .collect();
+    // [WHY] KHÔNG `unwrap()` ở biên PyO3 (quy tắc 4: "cấm unwrap ở boundary"): panic sau khi
+    // đã tính xong biến một lỗi lập trình thành exception khó truy, và ở crate khác cấu hình
+    // `panic=abort` thì cả tiến trình Python chết theo. Dùng `?` để trả `PyErr` thật.
+    let mut out: Vec<PyObject> = Vec::with_capacity(results.len());
+    for r in results {
+        let d = pyo3::types::PyDict::new(py);
+        d.set_item("total_return", r.total_return)?;
+        d.set_item("cagr", r.cagr)?;
+        d.set_item("sharpe", r.sharpe)?;
+        d.set_item("max_drawdown", r.max_drawdown)?;
+        d.set_item("win_rate", r.win_rate)?;
+        d.set_item("total_trades", r.total_trades)?;
+        d.set_item("final_nav", r.final_nav)?;
+        out.push(d.into_any().unbind());
+    }
     Ok(out)
 }
 
