@@ -7,6 +7,11 @@
 # hoặc clone mà không cài pre-commit). 
 #
 #   - Job `lint`:    ruff check + ruff format --check (khớp .pre-commit-config.yaml)
+#   - Job `unsafe-guard`: chặn `unsafe` MỚI ngoài allowlist + bắt buộc 2 crate kernel còn
+#     `#![forbid(unsafe_code)]` (Lớp-2 bù cho Win32/Tauri không thể forbid).
+#   - Job `rust-static`: cargo clippy -D warnings (ptck_core + lttb_wasm/wasm32) + unit test
+#     host của lttb_wasm. Trước 09/11/2026 Rust KHÔNG có lưới CI nào.
+#   - Job `deps-audit`: cargo audit (3 lockfile) + pip-audit (backend/requirements.txt).
 #   - Job `test`:    pytest toàn suite backend
 #   - Job `quant-gate`: Scoped Warning Gate (Layer 3) — pytest -W error::FutureWarning
 #     chỉ trên phân hệ quant, để API pandas/… bị deprecate BẮT BUỘC fail CI trước
@@ -43,6 +48,61 @@ jobs:
           pip install pytest pytest-timeout
           cd backend
           python -m pytest tests/test_dangling_imports.py -q -p no:cacheprovider
+
+  unsafe-guard:
+    name: Rust unsafe allowlist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Guard — no new unsafe outside allowlist
+        run: python scripts/check_unsafe_allowlist.py
+
+  rust-static:
+    name: Rust clippy + kernel tests
+    runs-on: ubuntu-latest
+    env:
+      # [WHY] pyo3 0.23 chỉ chính thức hỗ trợ tới Python 3.13; CI dùng 3.12 để không phải
+      # dựa vào cờ forward-compat. Trên máy dev Python 3.14 vẫn build được nhờ cờ này.
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Clippy ptck_core (all targets, -D warnings)
+        run: cargo clippy --manifest-path backend/crates/ptck_core/Cargo.toml --all-targets -- -D warnings
+      - name: Unit test lttb_wasm (host target)
+        run: cargo test --manifest-path crates/lttb_wasm/Cargo.toml
+      - name: Clippy lttb_wasm (wasm32, -D warnings)
+        run: cargo clippy --manifest-path crates/lttb_wasm/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
+
+  deps-audit:
+    name: Dependency audit (RustSec + pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit — 3 lockfile (root, ptck_core, lttb_wasm)
+        run: |
+          cargo audit --file Cargo.lock
+          cargo audit --file backend/crates/ptck_core/Cargo.lock
+          cargo audit --file crates/lttb_wasm/Cargo.lock
+      - name: pip-audit — backend requirements
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt --progress-spinner off
 
   test:
     name: Full Test Suite
