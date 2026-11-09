@@ -91,7 +91,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          # [WHY] pip-audit đọc metadata của pip/packaging; chạy trên 3.12 là bản ổn định
+          # nhất, tránh việc công cụ audit tự đỏ vì Python 3.14 chưa được hỗ trợ — audit
+          # phải đỏ khi CÓ advisory, không phải khi tool chưa kịp cập nhật.
+          python-version: "3.12"
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: cargo audit — 3 lockfile (root, ptck_core, lttb_wasm)
