@@ -1191,3 +1191,51 @@ CVE đó, nhưng **cùng lớp lỗi** thì có (4 chỗ). Đợt này đóng c�
   Khi thi hành phải đo LẠI và cập nhật số kèm ngày — không chép lại số cũ như thể còn đúng.
 - Mục 6 có bẫy chế độ đọc: `is_stale = 0` chỉ đúng cho đường PIT/live, CẤM cho panel lịch sử
   (xem luật B trong `AGENTS.md`). Phân loại chế độ TRƯỚC khi sửa.
+
+## 31. ✅ DONE 11/11/2026 — Zero Touch ổ ngoài: chặn tái sinh checkout cũ (e9bf31e, 70cd58e)
+
+**Bối cảnh:** thư mục `E:\DEV\opensource_contrib\PTCK_VNSTOCK` bị xóa tay nhiều lần nhưng
+vẫn tái sinh (Recycle Bin ghi 2 lần xóa: 05/11 15:33 và 11/11 15:36; bản tái sinh có
+`.keep` 4 bytes tạo 09/11 16:06 — repo KHÔNG có code nào ghi `.keep`). 11/12 task
+Task Scheduler còn trỏ `E:\DEV\...` với `Last Result = 2` trong nhiều tháng.
+
+**Nguyên nhân gốc (đo được):**
+
+1. `step4_update_tauri_config()` ghi `bundle.resources[str(data_template)]` — đường dẫn
+   TUYỆT ĐỐI — vào `frontend/src-tauri/tauri.conf.json` (file version-control), nên key
+   ổ E cũ sống sót qua lần chuyển ổ.
+2. `src/main.rs:827` còn `r"E:\DEV\..."` trong `resolve_project_root()` (chỉ `.exists()`).
+3. `PTCK_FLOW_MAP_REPORT` nối 2 lệnh Python bằng `&&` trong một chuỗi `/TR` dài **314
+   ký tự** > giới hạn **261** của `schtasks` ⇒ schtasks từ chối, task im lặng giữ lệnh cũ.
+4. `setup_tasks()` luôn `exit 0` dù mọi task báo `Access is denied` (fail-open).
+
+**Đã sửa:** `relative_resource_key()` + purge key tuyệt đối cũ; bỏ đúng 1 dòng fallback
+ổ E (giữ nguyên logic `.exists()`); wrapper `backend/scripts/run_eod_flowmap.cmd` (nhận
+interpreter qua tham số, giữ đúng ngữ nghĩa `&&`, thiếu tham số ⇒ `exit 2`);
+`_resolve_python_exe()` ưu tiên venv nằm trong `PROJECT_ROOT`;
+`apply_working_directory()` đặt `WorkingDirectory = PROJECT_ROOT` (schtasks không có
+tham số này ⇒ task chạy với CWD = `C:\Windows\System32`); `setup_tasks()`/`remove_tasks()`
+trả mã lỗi thật; sửa cú pháp `except A, B, C:` (chỉ hợp lệ từ Python 3.14 — là
+SyntaxError trên 3.12/3.13 đang dùng trong CI).
+
+**Chốt chặn tự động (4 ca guard + 5 ca scheduler):** `bundle.resources` không được chứa
+đường dẫn tuyệt đối theo ổ; helper phải ra đường dẫn tương đối; quét toàn bộ file
+*tracked* không còn chuỗi workspace ổ ngoài; báo đỏ nếu cây ghost xuất hiện lại; giới
+hạn 261 ký tự; không còn đường dẫn checkout cũ; mọi script trong action phải tồn tại
+thật; `setup_tasks()` fail-closed khi `schtasks` từ chối.
+
+**Kiểm định:** RED 3 failed → GREEN 8/8 (`test_tauri_config_guard.py`, `EXIT_THAT=0`);
+RED 1 failed → GREEN 25/25 (scheduler). Chống vá quá tay: tiêm `E:\DEV` vào `build.ps1`
+⇒ chỉ 1 ca đỏ đúng tên file, 7 ca còn lại xanh. Đăng ký lại bằng quyền admin: **12/12
+task tạo thành công**, **13/13** task PTCK có `WorkingDirectory = D:\...`, **0** tham
+chiếu ổ E.
+
+**Còn ngoài repo (test không kiểm soát được):** metadata IDE vẫn trỏ ổ E —
+`%APPDATA%\Code\User\globalStorage\agent-host-config.json` (`workspaceTrust.trustedUris`),
+`%APPDATA%\Antigravity IDE\User\workspaceStorage\<hash>\workspace.json`,
+`%APPDATA%\{Code,Antigravity IDE}\User\globalStorage\storage.json`
+(`profileAssociations`). Hai script scratch untracked `backend/src/scripts/debug_scoring.py`
+và `debug_vn20.py` còn hardcode ổ E (không tracked ⇒ guard không quét).
+
+**Bài học:** "xóa tay" không phải biện pháp kiểm soát. Chỉ khi đường dẫn tuyệt đối bị
+cấm bằng test và cấu hình hẹn giờ được kiểm bằng test thì lỗi mới không tái sinh.
