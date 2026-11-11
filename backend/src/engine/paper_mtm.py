@@ -815,8 +815,8 @@ class PaperMtM:
         Tiền mặt KHÔNG được tính lại từ state hôm nay — cổ phiếu thưởng không sinh
         tiền, và state hôm nay đã gồm mọi biến động sau cửa sổ.
 
-        preview_adjust: {symbol: {"qty_factor": 1.5, "cost_shift": -1200.0}} — chỉ
-        dùng với `dry_run=True` để xem trước hiệu ứng CA TRƯỚC khi ghi sổ.
+        preview_adjust: {symbol: {"qty_factor": 1.5, "cost_factor": 1/1.5, "cost_shift": -1200.0}}
+        — chỉ dùng với `dry_run=True` để xem trước hiệu ứng CA TRƯỚC khi ghi sổ.
         [WHY]: nếu dry-run áp CA thật vào `paper_lots` thì đó không còn là xem
         trước, và một lần nhập sai tham số sẽ để lại sổ đã sửa không hoàn tác được.
 
@@ -889,9 +889,11 @@ class PaperMtM:
                     if preview_adjust and symbol in preview_adjust:
                         adj = preview_adjust[symbol]
                         # [WHY]: chỉ mô phỏng trong bộ nhớ cho dry-run; ghi thật
-                        # bị chặn ở đầu hàm.
+                        # bị chặn ở đầu hàm. cost_factor phải đi kèm qty_factor
+                        # (STOCK_DIV: qty ×1,5 ⇒ cost ÷1,5) nếu không preview sẽ
+                        # báo unrealized thiếu đúng phần vốn ảo.
                         qty = int(qty * float(adj.get("qty_factor", 1.0)))
-                        cb = cb + float(adj.get("cost_shift", 0.0))
+                        cb = cb * float(adj.get("cost_factor", 1.0)) + float(adj.get("cost_shift", 0.0))
                     close = self._get_close_exact(symbol, date, conn=c)
                     mv = qty * close
                     market_value += mv

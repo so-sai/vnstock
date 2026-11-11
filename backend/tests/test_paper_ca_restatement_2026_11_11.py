@@ -10,9 +10,7 @@ BOUNDARY: Sửa lịch sử kế toán phải fail-closed: không tái lập khi
 trong cửa sổ, không suy diễn giá khi thiếu nến, không áp dụng CA hai lần.
 """
 import pytest
-
 from conftest import TEST_DATES, TEST_PORTFOLIO, TEST_SYMBOL
-
 
 T0 = TEST_DATES[0]
 T1 = TEST_DATES[2]
@@ -214,4 +212,24 @@ def test_preview_adjust_bi_tu_choi_khi_khong_phai_dry_run(mtm, seed_test_ohlcv):
         mtm.restate_equity_since(
             T1, dry_run=False, preview_adjust={TEST_SYMBOL: {"qty_factor": 1.5, "cost_shift": 0.0}}
         )
+
+
+def test_preview_adjust_phai_tru_cost_basis_giong_apply(mtm, seed_test_ohlcv):
+    """[WHY] Cổ phiếu thưởng chia lại TỔNG VỐN trên nhiều CP: qty ×1,5 thì
+    cost_basis ÷1,5. Preview chỉ nhân qty mà quên chia cost sẽ báo Unrealized
+    sai lệch đúng bằng phần vốn ảo — Hội đồng duyệt nhầm một con số không tồn tại."""
+    mtm.book_buy(TEST_SYMBOL, 1000, 10000.0, T0)
+    mtm.mark_to_market(T1)
+
+    preview = mtm.restate_equity_since(
+        T1,
+        dry_run=True,
+        preview_adjust={TEST_SYMBOL: {"qty_factor": 1.5, "cost_factor": 1 / 1.5}},
+    )
+    mtm.register_and_apply_corporate_action(TEST_SYMBOL, T1, "STOCK_DIV", ratio=0.5)
+    applied = mtm.restate_equity_since(T1)
+
+    assert preview["rows"][0]["unrealized_pnl"] == applied["rows"][0]["unrealized_pnl"]
+    assert preview["rows"][0]["total_equity"] == applied["rows"][0]["total_equity"]
+
 

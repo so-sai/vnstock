@@ -2525,15 +2525,39 @@ def cmd_paper(args):
         else:
             # [WHY]: dry-run KHÔNG áp CA vào paper_lots — phải xem trước được hiệu
             # ứng rồi mới quyết định; áp thật ở bước xem trước là sửa sổ không lùi được.
+            from src.database.db_core import get_connection
+
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT applied, cash_per_share, ratio FROM paper_corporate_actions "
+                    "WHERE action_id=?",
+                    (f"{symbol}|{ex_date}|{ca_type}",),
+                ).fetchone()
+            # [WHY]: sự kiện đã applied nghĩa là qty/cost trong sổ ĐÃ gồm quyền lợi;
+            # mô phỏng thêm lần nữa sẽ báo MV phồng gấp 1,5 lần (đọc sai để duyệt).
+            already = bool(row and row[0])
             adjust = {}
-            if ca_type in ("STOCK_DIV", "SPLIT"):
-                adjust[symbol] = {"qty_factor": 1.0 + ratio, "cost_shift": 0.0}
+            if already:
+                print("  Chế độ: DRY-RUN — sự kiện đã applied, KHÔNG mô phỏng lặp.")
+                if abs(float(row[1] or 0.0) - cash_per_share) > 1e-9 or abs(
+                    float(row[2] or 0.0) - ratio
+                ) > 1e-12:
+                    print(
+                        f"  ⚠ Tham số đã ghi sổ khác tham số truyền vào "
+                        f"(cash={row[1]}, ratio={row[2]}) — sẽ bị từ chối khi --apply."
+                    )
+            elif ca_type in ("STOCK_DIV", "SPLIT"):
+                factor = 1.0 + ratio
+                adjust[symbol] = {"qty_factor": factor, "cost_factor": 1.0 / factor if factor else 1.0}
+                print("  Chế độ: DRY-RUN (chưa ghi sổ, chưa đổi paper_lots)")
             elif ca_type == "CASH_DIV":
                 adjust[symbol] = {"qty_factor": 1.0, "cost_shift": -cash_per_share}
+                print("  Chế độ: DRY-RUN (chưa ghi sổ, chưa đổi paper_lots)")
+            else:
+                print("  Chế độ: DRY-RUN (chưa ghi sổ, chưa đổi paper_lots)")
             result = engine.restate_equity_since(
                 restate_from, restate_to, dry_run=True, preview_adjust=adjust or None
             )
-            print("  Chế độ: DRY-RUN (chưa ghi sổ, chưa đổi paper_lots)")
 
         print(f"\n  {'Ngày':<12} | {'MV':>16} | {'Unrealized':>16} | {'Equity':>16}")
         print("  " + "-" * 70)
