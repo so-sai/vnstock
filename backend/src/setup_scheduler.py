@@ -26,7 +26,6 @@ WIN11 BLACK-SCREEN BUG (Documented 2026-08-01):
 
 import io
 import logging
-import os
 import shlex
 import subprocess
 import sys
@@ -36,6 +35,9 @@ if isinstance(sys.stdout, io.TextIOWrapper):
     if getattr(sys.stdout, "encoding", "").lower() != "utf-8":
         try:
             sys.stdout.reconfigure(encoding="utf-8")
+        # [WHY]: Cú pháp "except A, B, C:" không ngoặc chỉ hợp lệ từ Python 3.14
+        # (PEP 758) — trên 3.12/3.13 (môi trường CI) đây là SyntaxError, làm hỏng
+        # toàn bộ module scheduler. Giữ dạng có ngoặc để chạy được trên mọi bản.
         except OSError, AttributeError, ValueError:
             logging.getLogger(__name__).debug("Không reconfigure được stdout sang UTF-8 (bỏ qua)")
 elif hasattr(sys.stdout, "buffer"):
@@ -60,12 +62,35 @@ def _hydrate_path():
 
 PROJECT_ROOT = _hydrate_path()
 
-PYTHON_EXE = sys.executable
 BACKEND_DIR = PROJECT_ROOT / "backend"
 PTCK_CLI = PROJECT_ROOT / "ptck.py"
 DAILY_UPDATER = BACKEND_DIR / "src" / "daily_updater.py"
 DB_MAINTENANCE = BACKEND_DIR / "src" / "db_maintenance.py"
 DB_GUARDIAN = BACKEND_DIR / "src" / "database" / "database_guardian.py"
+# [WHY]: Chuỗi "eod-run && flow-map" dài 314 ký tự sau khi gốc dự án chuyển sang
+# D:\04. Software\... (dài hơn gốc E: cũ) — vượt giới hạn 261 ký tự của
+# `schtasks /TR` nên task không được cập nhật mà im lặng giữ lệnh cũ.
+# Wrapper giữ nguyên ngữ nghĩa "&&" (flow-map chỉ chạy khi eod-run thành công)
+# và nhận interpreter qua tham số để mọi đường dẫn vẫn nằm trong PROJECT_ROOT.
+EOD_FLOWMAP_WRAPPER = BACKEND_DIR / "scripts" / "run_eod_flowmap.cmd"
+
+
+def _resolve_python_exe() -> str:
+    """Interpreter dùng cho mọi task hẹn giờ.
+
+    [WHY] Task phải chạy ĐÚNG ổ đĩa của dự án và ĐÚNG bộ phụ thuộc: dùng venv
+    của dự án khi có (đường dẫn luôn nằm dưới PROJECT_ROOT), chỉ khi không có
+    venv (bản frozen/đóng gói) mới rơi về `sys.executable`.
+    [INVARIANT] Trả về đường dẫn tuyệt đối của một file thực thi tồn tại; không
+    bao giờ đoán "python" từ PATH.
+    """
+    venv = BACKEND_DIR / ".venv" / "Scripts" / "python.exe"
+    if venv.exists():
+        return str(venv)
+    return sys.executable
+
+
+PYTHON_EXE = _resolve_python_exe()
 
 TASKS = [
     {
@@ -86,7 +111,9 @@ TASKS = [
         # black-screen when both tasks try to use Playwright
         # while the monitor is off.
         "description": "EOD Pipeline tự phục hồi + lũy đẳng (Thứ 2-6, 16:00 — chạy sau PTCK_CLOSE_CYCLE 15 phút)",
-        "action": f'cmd.exe /c ""{PYTHON_EXE}" "{PTCK_CLI}" eod-run && "{PYTHON_EXE}" "{PTCK_CLI}" flow-map"',
+        # [WHY]: /TR chỉ nhận ≤261 ký tự; chuỗi nối trực tiếp trước đây dài 314
+        # ký tự nên schtasks từ chối và task giữ nguyên lệnh trỏ checkout cũ.
+        "action": f'cmd.exe /c ""{EOD_FLOWMAP_WRAPPER}" "{PYTHON_EXE}""',
         "frequency": "WEEKLY",
         "schedule": "/D MON,TUE,WED,THU,FRI /ST 16:00",
         "run_level": "HIGHEST",
@@ -194,6 +221,47 @@ TASKS = [
 #  specified for /ST option" — đã loại bỏ để --setup không bao giờ fail.)
 
 
+def _ps_quote(value: str) -> str:
+    """Bọc một chuỗi thành literal PowerShell an toàn (nháy đơn, nhân đôi `'`)."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def working_directory_command(task_name: str) -> str:
+    """Lệnh PowerShell đặt WorkingDirectory của 1 task về PROJECT_ROOT.
+
+    [WHY] `schtasks /Create` KHÔNG có tham số WorkingDirectory, nên task tạo ra
+    chạy với CWD = `C:\\Windows\\System32`. Mọi đường dẫn tương đối (log, output,
+    `.env`, cache) khi đó rơi vào thư mục hệ thống thay vì gốc dự án — hỏng im
+    lặng và khó truy (đúng loại lỗi "Missing > Fake"). Đặt tường minh về
+    PROJECT_ROOT để task luôn chạy trong đúng checkout.
+    [INVARIANT] Chỉ đổi WorkingDirectory; Execute/Arguments giữ nguyên chuỗi đã
+    đăng ký (không viết lại đường dẫn).
+    """
+    return (
+        f"$t = Get-ScheduledTask -TaskName {_ps_quote(task_name)}; "
+        "$a = $t.Actions[0]; "
+        f"Set-ScheduledTask -TaskName {_ps_quote(task_name)} -Action "
+        "(New-ScheduledTaskAction -Execute $a.Execute -Argument $a.Arguments "
+        f"-WorkingDirectory {_ps_quote(str(PROJECT_ROOT))}) | Out-Null"
+    )
+
+
+def apply_working_directory(task_name: str) -> tuple[bool, str]:
+    """Áp WorkingDirectory cho task vừa tạo. Trả (ok, thông điệp lỗi)."""
+    if sys.platform != "win32":
+        return True, ""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", working_directory_command(task_name)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode == 0:
+        return True, ""
+    return False, (result.stderr or result.stdout or "").strip()
+
+
 def _build_args(task: dict) -> list:
     """Mảng tham số chuẩn cho subprocess.run — KHÔNG có /SC trùng lặp.
 
@@ -207,7 +275,7 @@ def _build_args(task: dict) -> list:
     return args
 
 
-def setup_tasks():
+def setup_tasks() -> int:
     print("\n" + "=" * 60)
     print("🛡️ PTCK WINDOWS TASK SCHEDULER SETUP")
     print("=" * 60)
@@ -215,6 +283,7 @@ def setup_tasks():
     print(f"🐍 Python: {PYTHON_EXE}")
     print()
 
+    failed = []
     for task in TASKS:
         cmd_args = _build_args(task)
         print(f"⚡ Tạo task: {task['name']}")
@@ -224,9 +293,19 @@ def setup_tasks():
 
         result = subprocess.run(cmd_args, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode == 0:
-            print("   ✅ THÀNH CÔNG\n")
+            wd_ok, wd_err = apply_working_directory(task["name"])
+            if wd_ok:
+                print(f"   ✅ THÀNH CÔNG (WorkingDirectory: {PROJECT_ROOT})\n")
+            else:
+                failed.append(task["name"])
+                print(f"   ⚠️  Đã tạo task nhưng KHÔNG đặt được WorkingDirectory: {wd_err}\n")
         else:
             err = (result.stderr or result.stdout or "").strip()
+            # [WHY]: trước đây script vẫn exit 0 dù mọi task đều "Access is denied",
+            # nên 11 task tiếp tục trỏ về checkout ngoài mà không ai thấy (12 task
+            # giữ Last Result = 2 trong nhiều tháng). Ghi nhận lỗi + trả mã lỗi
+            # để runner/CI không coi là thành công.
+            failed.append(task["name"])
             print(f"   ❌ LỖI: {err}\n")
 
     print("=" * 60)
@@ -237,14 +316,39 @@ def setup_tasks():
         print(f'   schtasks /Delete /TN "{task["name"]}" /F')
     print("=" * 60)
 
+    if failed:
+        print(f"\n❌ {len(failed)}/{len(TASKS)} task KHÔNG được đăng ký: {', '.join(failed)}")
+        print("   Nguyên nhân thường gặp: thiếu quyền quản trị (Access is denied).")
+        return 1
+    print(f"\n✅ Đã đăng ký {len(TASKS)}/{len(TASKS)} task.")
+    return 0
 
-def remove_tasks():
+
+def remove_tasks() -> int:
     print("\n🗑️ Xóa tất cả PTCK tasks...")
+    failed = []
     for task in TASKS:
-        cmd = f'schtasks /Delete /TN "{task["name"]}" /F'
-        os.system(cmd)
-        print(f"   ✅ Đã xóa: {task['name']}")
+        result = subprocess.run(
+            ["schtasks", "/Delete", "/TN", task["name"], "/F"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode == 0:
+            print(f"   ✅ Đã xóa: {task['name']}")
+            continue
+        err = (result.stderr or result.stdout or "").strip()
+        # [WHY]: `os.system` bỏ qua mã trả về nên script in "✅ Đã xóa" cho cả task
+        # chưa từng bị xóa — sau đó task cũ vẫn chạy đúng lịch cũ. Fail-closed:
+        # chỉ báo xóa khi schtasks thật sự trả 0.
+        failed.append(task["name"])
+        print(f"   ❌ Không xóa được: {task['name']} — {err}")
+    if failed:
+        print(f"\n❌ {len(failed)}/{len(TASKS)} task chưa xóa được.")
+        return 1
     print("✅ Hoàn tất.")
+    return 0
 
 
 if __name__ == "__main__":
@@ -256,8 +360,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.setup:
-        setup_tasks()
+        sys.exit(setup_tasks())
     elif args.remove:
-        remove_tasks()
+        sys.exit(remove_tasks())
     else:
         print("Sử dụng: python setup_scheduler.py --setup hoặc --remove")
