@@ -34,6 +34,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -401,6 +402,39 @@ def step3_copy_binary(nuitka_exe: Path) -> Path:
 
 # ── Step 4: Update tauri.conf.json ──────────────────────────────────
 
+# [WHY]: `bundle.resources` is a version-controlled config. A key that starts
+# with a drive letter pins the bundle to ONE machine's folder layout and leaks
+# stale paths across machines (the 2026-11 external-drive key survived the
+# move). Detect such keys so the next build can purge them.
+# [INVARIANT]: values written by this pipeline are always relative to
+# `frontend/src-tauri`; an absolute key is removed, never kept.
+_ABSOLUTE_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def relative_resource_key(data_template: Path, tauri_dir: Path) -> str:
+    """Return the `bundle.resources` key for `data_template`, relative to Tauri.
+
+    [WHY] Tauri resolves `bundle.resources` keys relative to the directory that
+    holds `tauri.conf.json`. Emitting a relative key keeps the tracked config
+    identical on every machine and makes the build idempotent instead of
+    rewriting a versioned file with local absolute paths.
+    [ROOT CAUSE] This function replaces `resources[str(data_template)]`, which is
+    absolute by construction and produced the stale external-drive key.
+    [INVARIANT] The result never matches `^[A-Za-z]:[\\\\/]` and uses POSIX
+    separators; different drives are a hard error (fail-closed), never a
+    silent absolute fallback.
+    """
+    try:
+        rel = os.path.relpath(data_template, start=tauri_dir)
+    except ValueError as exc:  # Windows: different drives cannot be relative
+        raise RuntimeError(
+            f"Không thể tạo đường dẫn tương đối: data_template={data_template} "
+            f"và tauri_dir={tauri_dir} nằm trên hai ổ đĩa khác nhau. "
+            "Từ chối ghi đường dẫn tuyệt đối vào tauri.conf.json."
+        ) from exc
+    return Path(rel).as_posix()
+
+
 def step4_update_tauri_config(data_template: Path) -> None:
     """Update tauri.conf.json (Tauri v2 schema) with correct paths and NSIS config.
 
@@ -450,8 +484,12 @@ def step4_update_tauri_config(data_template: Path) -> None:
     # prodigy-sport/data-programs without this => backend "DB not found" crash.
     # ==============================================================================
     resources = bundle.setdefault("resources", {})
-    data_src = str(data_template)
-    resources[data_src] = "backend/data"
+    # [WHY]: Purge keys written by older builds on another machine/drive.
+    # Keeping them makes Tauri look for a folder that may not exist here (build
+    # failure) or may belong to a stale foreign checkout (Missing > Fake breach).
+    for stale_key in [k for k in resources if _ABSOLUTE_DRIVE_RE.match(str(k))]:
+        del resources[stale_key]
+    resources[relative_resource_key(data_template, TAURI_SRC_DIR)] = "backend/data"
 
     # Write back
     with open(config_path, "w", encoding="utf-8") as f:

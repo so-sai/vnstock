@@ -50,7 +50,7 @@
     "category": "Finance",
     "copyright": "© 2026 PTCK_VN",
     "resources": {
-      "E:\\DEV\\opensource_contrib\\PTCK_VNSTOCK\\backend\\build\\installer\\data_template": "backend/data"
+      "../../backend/build/installer/data_template": "backend/data"
     }
   },
   "plugins": {

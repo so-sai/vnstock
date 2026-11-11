@@ -773,9 +773,10 @@ fn resolve_project_root() -> PathBuf {
         }
     }
     // 4. Fallback danh sách đường dẫn khả dĩ trên các ổ đĩa
+    // [WHY]: chỉ giữ đường dẫn tuyệt đối của chính máy này; mọi ứng viên phải
+    //        tồn tại thật (.exists()) mới được dùng, không bao giờ tự tạo thư mục.
     for candidate in &[
         r"D:\04. Software\opensource_contrib\PTCK_VNSTOCK",
-        r"E:\DEV\opensource_contrib\PTCK_VNSTOCK",
         r"C:\PTCK_VNSTOCK",
     ] {
         let p = PathBuf::from(candidate);
