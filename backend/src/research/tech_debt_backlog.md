@@ -1239,3 +1239,61 @@ và `debug_vn20.py` còn hardcode ổ E (không tracked ⇒ guard không quét).
 
 **Bài học:** "xóa tay" không phải biện pháp kiểm soát. Chỉ khi đường dẫn tuyệt đối bị
 cấm bằng test và cấu hình hẹn giờ được kiểm bằng test thì lỗi mới không tái sinh.
+
+
+## 32. ✅ DONE 11/11/2026 — CA quá hạn làm méo 9 phiên equity: vá + tái lập (84cb318)
+
+**Triệu chứng (đo được):** `paper_equity_curve` của `SEL_PAPER_V1` hụt **577.610.000đ**
+trên 9 phiên `2026-10-29 → 2026-11-10` (~64 triệu/phiên). Vị thế TCB đứng ở 5.900 cp
+trong khi bar `daily_ohlcv` đã điều chỉnh ÷1,5 cho cổ tức cổ phiếu 100:50.
+
+**Nguyên nhân gốc:** `apply_corporate_actions(date)` chỉ quét
+`paper_corporate_actions WHERE ex_date=? AND applied=0` với `date` = ngày đang chạy.
+Sự kiện có GDKHQ `2026-10-29` (ĐKCC `2026-10-30`) không được đăng ký trước phiên đó ⇒
+không có lần chạy nào "trúng" ex_date ⇒ sự kiện **vĩnh viễn** không được áp dụng, không
+có log, không có cảnh báo. Sổ giữ khối lượng cũ trong khi giá đã chia ⇒ MV sai đúng
+phần cổ phiếu thưởng (5.900 × 1/3 × close).
+
+**Đã sửa (`backend/src/engine/paper_mtm.py`):**
+
+1. `register_and_apply_corporate_action(symbol, ex_date, action_type, ...)` — đăng ký và
+   áp **đúng 1 `action_id`** ngay, không phụ thuộc "hôm nay là ex_date".
+   - Idempotent: đã `applied=1` + tham số trùng ⇒ `ALREADY_APPLIED` (không nhân đôi CP).
+   - Đã `applied=1` + tham số KHÁC ⇒ **raise** (không im lặng ghi đè sự kiện thật).
+   - Không có lot mở ⇒ **raise** (không đánh dấu `applied` trên sổ rỗng).
+2. `restate_equity_since(start, end, dry_run, preview_adjust)` — tính lại
+   `market_value`/`unrealized_pnl`/`total_equity`/`unsettled_qty_val` cho **các dòng ĐÃ
+   CÓ** trong `paper_equity_curve`, dùng `_get_close_exact()` (close CHÍNH phiên, không
+   lùi bar cũ như `_get_close`).
+   - Giữ nguyên tiền mặt nguồn (`settled_cash`, `pending_cash_in`, `realized_pnl_cum`,
+     `buying_power`, `hdr_limit`) — cổ phiếu thưởng **không sinh tiền**; lấy state hôm
+     nay để tính lại tiền mặt phiên cũ là bịa số.
+   - **Fail-closed:** có mua/bán trong cửa sổ ⇒ raise; thiếu bar ⇒ raise
+     `Thiếu nến <SYM> @ <date>` (không fallback cost basis, không lùi bar).
+   - Audit: 1 dòng `eod_write_audit_ledger` `caller_module='paper_mtm.restate_equity_since'`,
+     `status='RESTATED'`, `target_table='paper_equity_curve'`, `input_hash` = SHA-256 của
+     payload JSON đã ghi (audit_id #10346).
+   - `dry_run=True` KHÔNG UPDATE, KHÔNG audit; `preview_adjust` chỉ hợp lệ khi `dry_run`
+     (lọt vào chế độ ghi thật ⇒ raise).
+3. CLI `python ptck.py paper ca-restate` — mặc định dry-run, `--apply` mới ghi sổ; nhãn
+   `NON-DECISIONAL`; đăng ký ở `CLI_INDEX.md`.
+
+**Bằng chứng (DB thật `backend/data/screener_cache.db`):**
+
+| Bước | Kết quả |
+|---|---|
+| Dry-run (9 phiên) | ΔMV tổng **577.610.000đ** — khớp probe độc lập từng phiên |
+| `--apply` | TCB `5.900 → 8.850` cp; cost basis `33.651,24 → 22.434,16` đ/cp (÷1,5) |
+| Tiền mặt | `settled_cash` **8.568.848,35đ không đổi**, `pending_cash_in = 0` |
+| Equity 2026-11-10 | `844.323.000 → 909.223.000` (MV) · equity `917.791.848` |
+| Audit | `RESTATED` + SHA-256 `e2759270…da9648` |
+| Dry-run lần 2 | Trùng khít số của lần apply, không mô phỏng lặp sự kiện đã `applied` |
+
+**Kỷ luật kiểm định:** `backend/tests/test_paper_ca_restatement_2026_11_11.py` — 11 ca,
+RED 11 failed → GREEN 11/11; `test_production_gates.py` 24/24 không hồi quy. Ca chống vá
+quá tay: dry-run preview phải ra **đúng** `unrealized_pnl` của lần apply (qty ×1,5 phải
+kèm cost ÷1,5 — nếu chỉ nhân qty thì preview báo thiếu đúng 5.007.500đ vốn ảo).
+
+**Còn mở (không thuộc Mục này):** `mark_to_market()` vẫn fallback `close = cost_basis`
+khi thiếu bar (dòng 680) — cùng họ "Missing > Fake" nhưng nằm trên đường ghi hàng ngày,
+cần xử lý riêng để không đổi hành vi EOD hiện hữu trong cùng commit này.
