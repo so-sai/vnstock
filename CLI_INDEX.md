@@ -123,6 +123,7 @@ phải vá hết. Chạy: `python ptck.py why-audit --top 10`.
 | `grid-search` | Tối ưu trọng số multi-factor + DecisionGuard |
 | `capitulation` | Paper ledger forward H+5/H+20/H+30 theo vùng P_cap |
 | `paper` / `sandbox` / `phase5` / `quantstats` | Paper trading / dashboard / UAT / live calibration |
+| `paper ca-restate` | Vá corporate action **quá hạn** lên `paper_lots` + tái lập `paper_equity_curve` (fail-closed, audit `RESTATED` + SHA-256). Cờ: `--symbol`, `--ex-date`, `--type STOCK_DIV\|SPLIT\|CASH_DIV`, `--ratio`, `--cash-per-share`, `--restate-from`, `--restate-to`, `--apply`, `--portfolio`. Mặc định **dry-run** (không chạm DB). **NON-DECISIONAL.** |
 | `phase4` | CAS-DSM: Capitulation Detector + Scale-In + Abortion |
 | `silver stationarity` | ADF · Hurst · VR · OU half-life · Engle–Granger cho bạc & GSR (**NON-DECISIONAL**) — cờ `--start`, `--end` |
 

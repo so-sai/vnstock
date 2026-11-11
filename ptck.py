@@ -2489,6 +2489,66 @@ def cmd_paper(args):
             date = row[0] if row and row[0] else None
         snapshot = engine.mtm.mark_to_market(date, hdr_limit=0.0)
         PaperMtM.print_report(snapshot)
+    elif action == "ca-restate":
+        from src.engine.paper_mtm import DEFAULT_PORTFOLIO_ID, PaperMtM
+
+        symbol = (getattr(args, "symbol", None) or "").upper()
+        ex_date = getattr(args, "ex_date", None)
+        ca_type = (getattr(args, "ca_type", None) or "STOCK_DIV").upper()
+        ratio = float(getattr(args, "ratio", 0.0) or 0.0)
+        cash_per_share = float(getattr(args, "cash_per_share", 0.0) or 0.0)
+        restate_from = getattr(args, "restate_from", None) or ex_date
+        restate_to = getattr(args, "restate_to", None)
+        do_apply = bool(getattr(args, "apply", False))
+        portfolio_id = getattr(args, "portfolio", None) or DEFAULT_PORTFOLIO_ID
+        if not symbol or not ex_date:
+            print(
+                "  Usage: python ptck.py paper ca-restate --symbol TCB --ex-date 2026-10-29 "
+                "--type STOCK_DIV --ratio 0.5 --restate-from 2026-10-29 [--restate-to DATE] [--apply]"
+            )
+            return
+
+        engine = PaperMtM(portfolio_id=portfolio_id)
+        print("\n" + "=" * 78)
+        print(f"  CA RESTATE — {portfolio_id} | {symbol} {ca_type} @ {ex_date}")
+        print("=" * 78)
+        if do_apply:
+            ca = engine.register_and_apply_corporate_action(
+                symbol, ex_date, ca_type, cash_per_share=cash_per_share, ratio=ratio
+            )
+            print(f"  Sự kiện: {ca['status']}")
+            if ca.get("qty_before") is not None:
+                print(f"  Vị thế : {ca['qty_before']:,} → {ca['qty_after']:,} cp")
+            if ca.get("cash") is not None:
+                print(f"  Tiền cổ tức chờ về: {ca['cash']:,.0f} đ")
+            result = engine.restate_equity_since(restate_from, restate_to, dry_run=False)
+        else:
+            # [WHY]: dry-run KHÔNG áp CA vào paper_lots — phải xem trước được hiệu
+            # ứng rồi mới quyết định; áp thật ở bước xem trước là sửa sổ không lùi được.
+            adjust = {}
+            if ca_type in ("STOCK_DIV", "SPLIT"):
+                adjust[symbol] = {"qty_factor": 1.0 + ratio, "cost_shift": 0.0}
+            elif ca_type == "CASH_DIV":
+                adjust[symbol] = {"qty_factor": 1.0, "cost_shift": -cash_per_share}
+            result = engine.restate_equity_since(
+                restate_from, restate_to, dry_run=True, preview_adjust=adjust or None
+            )
+            print("  Chế độ: DRY-RUN (chưa ghi sổ, chưa đổi paper_lots)")
+
+        print(f"\n  {'Ngày':<12} | {'MV':>16} | {'Unrealized':>16} | {'Equity':>16}")
+        print("  " + "-" * 70)
+        for r in result["rows"]:
+            print(
+                f"  {r['date']:<12} | {r['market_value']:>16,.0f} | "
+                f"{r['unrealized_pnl']:>16,.0f} | {r['total_equity']:>16,.0f}"
+            )
+        print("  " + "-" * 70)
+        print(f"  Phiên tái lập : {len(result['rows'])}  [{result['start_date']}..{result['end_date']}]")
+        print(f"  SHA-256       : {result['input_hash']}")
+        print("  NON-DECISIONAL — chỉ đối soát kế toán, không dùng để ra quyết định giao dịch.")
+        if not do_apply:
+            print("  → Thêm --apply để ghi sổ (CA + restate + audit RESTATED).")
+        print("=" * 78)
     else:  # report
         engine = PaperTradingEngine(offline=offline)
         report = engine.get_stability_report(
@@ -7708,9 +7768,10 @@ def build_parser():
     p_paper.add_argument(
         "action",
         nargs="?",
-        choices=["run", "report", "pnl"],
+        choices=["run", "report", "pnl", "ca-restate"],
         default="report",
-        help="run: sinh lệnh; report: ổn định; pnl: Mark-to-Market",
+        help="run: sinh lệnh; report: ổn định; pnl: Mark-to-Market; "
+        "ca-restate: áp CA quá hạn + tái lập đường vốn",
     )
     p_paper.add_argument(
         "--date",
@@ -7727,6 +7788,60 @@ def build_parser():
         "--online",
         action="store_true",
         help="Cho phép gọi API (mặc định OFFLINE — chống IP ban)",
+    )
+    # --- paper ca-restate (NQ-22 Mục IV: vá CA quá hạn + tái lập đường vốn) ---
+    p_paper.add_argument(
+        "--symbol",
+        default=None,
+        help="[ca-restate] Mã cổ phiếu nhận quyền (vd TCB)",
+    )
+    p_paper.add_argument(
+        "--ex-date",
+        dest="ex_date",
+        default=None,
+        help="[ca-restate] Ngày giao dịch không hưởng quyền (YYYY-MM-DD)",
+    )
+    p_paper.add_argument(
+        "--type",
+        dest="ca_type",
+        default="STOCK_DIV",
+        choices=["STOCK_DIV", "SPLIT", "CASH_DIV"],
+        help="[ca-restate] Loại quyền (mặc định STOCK_DIV)",
+    )
+    p_paper.add_argument(
+        "--ratio",
+        type=float,
+        default=0.0,
+        help="[ca-restate] Tỉ lệ thưởng/chia tách (0.5 = 100:50)",
+    )
+    p_paper.add_argument(
+        "--cash-per-share",
+        dest="cash_per_share",
+        type=float,
+        default=0.0,
+        help="[ca-restate] Cổ tức tiền mặt đồng/CP (CASH_DIV)",
+    )
+    p_paper.add_argument(
+        "--restate-from",
+        dest="restate_from",
+        default=None,
+        help="[ca-restate] Phiên bắt đầu tái lập (mặc định = --ex-date)",
+    )
+    p_paper.add_argument(
+        "--restate-to",
+        dest="restate_to",
+        default=None,
+        help="[ca-restate] Phiên kết thúc tái lập (mặc định = phiên cuối trong sổ)",
+    )
+    p_paper.add_argument(
+        "--apply",
+        action="store_true",
+        help="[ca-restate] GHI SỔ thật (mặc định chỉ dry-run xem trước)",
+    )
+    p_paper.add_argument(
+        "--portfolio",
+        default=None,
+        help="[ca-restate] portfolio_id (mặc định SEL_PAPER_V1)",
     )
     p_paper.set_defaults(func=cmd_paper)
 

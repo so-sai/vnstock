@@ -25,6 +25,8 @@ VÒNG ĐỜI THANH TOÁN T+2.5 (câu hỏi khai thác sâu):
     - unsettled_qty: đang chờ về, KHÓA (không bán).
 """
 
+import hashlib
+import json
 import logging
 import sys
 from contextlib import contextmanager
@@ -653,6 +655,316 @@ class PaperMtM:
     def _mark_ca_applied(self, action_id: str, conn=None):
         with _conn_or(conn) as __c:
             __c.execute("UPDATE paper_corporate_actions SET applied=1 WHERE action_id=?", (action_id,))
+
+    def register_and_apply_corporate_action(
+        self,
+        symbol: str,
+        ex_date: str,
+        action_type: str,
+        cash_per_share: float = 0.0,
+        ratio: float = 0.0,
+        notes: str | None = None,
+        conn=None,
+    ) -> dict:
+        """Đăng ký VÀ áp dụng CA ngay — kể cả sự kiện đã quá hạn (retroactive).
+
+        WHAT: giống `register_corporate_action` + `apply_corporate_actions` nhưng
+        nhắm đúng 1 `action_id`, không phụ thuộc "hôm nay là ex_date".
+
+        [WHY]: `apply_corporate_actions(date)` chỉ quét `ex_date == date`; sự kiện
+        bị lỡ trong quá khứ (TCB 100:50, ex 2026-10-29) KHÔNG BAO GIỜ được áp
+        dụng lại ⇒ giá bar đã điều chỉnh ÷1,5 nhưng sổ vẫn 5.900 cp ⇒ MV hụt
+        577.610.000đ trên 9 phiên. Xóa/sửa nhánh này sẽ tái phát đúng lỗi đó.
+
+        Fail-closed:
+          - Sự kiện đã `applied=1` + tham số KHÁC ⇒ raise (không im lặng ghi đè).
+          - Sự kiện đã `applied=1` + tham số trùng ⇒ `ALREADY_APPLIED` (idempotent).
+          - Không có lot mở ⇒ raise (không đánh dấu applied trên sổ rỗng).
+
+        ACID: nhận conn (Global Transaction); không tự commit.
+        """
+        action_id = f"{symbol}|{ex_date}|{action_type}"
+        with _conn_or(conn) as __c:
+            existing = __c.execute(
+                "SELECT applied, cash_per_share, ratio FROM paper_corporate_actions WHERE action_id=?",
+                (action_id,),
+            ).fetchone()
+            if existing is not None:
+                applied_old, cps_old, ratio_old = existing
+                # [WHY]: tham số lệch nghĩa là sự kiện thật khác sự kiện đã ghi sổ
+                # — nuốt tham số mới (INSERT OR REPLACE) là nguồn gốc sổ sách lệch.
+                if abs(float(cps_old or 0.0) - cash_per_share) > 1e-9 or abs(float(ratio_old or 0.0) - ratio) > 1e-12:
+                    raise RuntimeError(
+                        f"Sự kiện {action_id} đã đăng ký với tham số khác "
+                        f"(cash={cps_old}, ratio={ratio_old}) — không ghi đè bằng "
+                        f"(cash={cash_per_share}, ratio={ratio})"
+                    )
+                if applied_old:
+                    return {
+                        "action_id": action_id,
+                        "symbol": symbol,
+                        "type": action_type,
+                        "status": "ALREADY_APPLIED",
+                    }
+            else:
+                __c.execute(
+                    "INSERT INTO paper_corporate_actions (action_id, symbol, ex_date, "
+                    "action_type, cash_per_share, ratio, applied, notes, created_at) "
+                    "VALUES (?,?,?,?,?,?,0,?,?)",
+                    (
+                        action_id,
+                        symbol,
+                        ex_date,
+                        action_type,
+                        cash_per_share,
+                        ratio,
+                        notes,
+                        datetime.now().isoformat(),
+                    ),
+                )
+
+            lots = __c.execute(
+                "SELECT lot_id, quantity, cost_basis FROM paper_lots WHERE portfolio_id=? AND symbol=? AND is_closed=0",
+                (self.portfolio_id, symbol),
+            ).fetchall()
+
+            total_qty = sum(q for _, q, _ in lots)
+            # [WHY]: đánh dấu applied khi chưa có vị thế = "đã xử lý" một sự kiện
+            # chưa từng tác động lên sổ; sau này mua lại sẽ mất quyền lợi vĩnh viễn.
+            if total_qty == 0:
+                raise RuntimeError(
+                    f"Không có lot mở {symbol} để áp dụng {action_type} @ {ex_date} "
+                    f"(portfolio={self.portfolio_id}) — không đánh dấu applied"
+                )
+
+            result = {"action_id": action_id, "symbol": symbol, "type": action_type, "status": "APPLIED"}
+            if action_type == "CASH_DIV":
+                div_cash = cash_per_share * total_qty
+                for lot_id, q, cb in lots:
+                    __c.execute(
+                        "UPDATE paper_lots SET cost_basis=? WHERE lot_id=?",
+                        (max(cb - cash_per_share, 0.0), lot_id),
+                    )
+                sd = self._next_trading_days(ex_date, SETTLEMENT_DAYS)
+                self._update_cash(pending_delta=div_cash, conn=__c)
+                self._ledger(
+                    ex_date,
+                    "SELL_PROCEEDS",
+                    div_cash,
+                    symbol=symbol,
+                    settle_date=sd,
+                    settled=0,
+                    notes=f"CASH_DIV {cash_per_share}/CP x {total_qty} (retroactive)",
+                    conn=__c,
+                )
+                result.update({"cash": div_cash, "settle_date": sd})
+            elif action_type in ("STOCK_DIV", "SPLIT"):
+                factor = 1.0 + ratio
+                if factor <= 0:
+                    raise RuntimeError(f"Tỉ lệ {action_type} không hợp lệ: ratio={ratio}")
+                for lot_id, q, cb in lots:
+                    # [WHY]: int(q*factor) giữ đúng quy ước của `apply_corporate_actions`
+                    # (bỏ phần lẻ cổ phiếu) — dùng round() có thể sinh cổ phiếu không tồn tại.
+                    new_q = int(q * factor)
+                    __c.execute(
+                        "UPDATE paper_lots SET quantity=?, original_qty=?, cost_basis=? WHERE lot_id=?",
+                        (new_q, new_q, cb / factor, lot_id),
+                    )
+                result.update({"ratio": ratio, "qty_before": total_qty, "qty_after": int(total_qty * factor)})
+            else:
+                raise RuntimeError(f"action_type không hỗ trợ: {action_type}")
+
+            self._mark_ca_applied(action_id, conn=__c)
+
+        logger.info(f"[MtM] Applied CA retroactive {action_id} ({result.get('status')})")
+        return result
+
+    # ================================================== RESTATEMENT (sửa sổ)
+    def _get_close_exact(self, symbol: str, date: str, conn=None) -> float:
+        """Close ĐÚNG phiên `date`. Không lùi về bar trước (khác `_get_close`).
+
+        [WHY]: khi tái lập lịch sử, lấy close của phiên gần nhất ≤ date sẽ lặp
+        giá cũ cho phiên thiếu bar ⇒ đường vốn "đẹp" nhưng sai (Missing > Fake).
+        """
+        with _conn_or(conn) as __c:
+            row = __c.execute(
+                "SELECT close FROM daily_ohlcv WHERE symbol=? AND date=? AND close IS NOT NULL AND close > 0",
+                (symbol, date),
+            ).fetchone()
+        if not row:
+            raise RuntimeError(f"Thiếu nến {symbol} @ {date} — không tái lập được (không lấy giá vốn hay bar cũ thay thế)")
+        return float(row[0])
+
+    def restate_equity_since(
+        self,
+        start_date: str,
+        end_date: str | None = None,
+        dry_run: bool = False,
+        preview_adjust: dict | None = None,
+    ) -> dict:
+        """Tính lại `paper_equity_curve` trong [start_date, end_date] theo vị thế hiện tại.
+
+        WHAT: với từng phiên ĐÃ CÓ trong đường vốn, giữ nguyên tiền mặt nguồn
+        (`settled_cash`, `pending_cash_in`, `realized_pnl_cum`, `buying_power`,
+        `hdr_limit`) và tính lại `market_value` / `unrealized_pnl` /
+        `total_equity` / `unsettled_qty_val` bằng số lượng CP + giá close CHÍNH
+        phiên đó.
+
+        [WHY]: CA áp dụng muộn làm MV của các phiên đã qua hụt đúng phần cổ phiếu
+        thưởng; không tái lập thì đường vốn đã công bố là số sai (TCB: 577,61 tr).
+        Tiền mặt KHÔNG được tính lại từ state hôm nay — cổ phiếu thưởng không sinh
+        tiền, và state hôm nay đã gồm mọi biến động sau cửa sổ.
+
+        preview_adjust: {symbol: {"qty_factor": 1.5, "cost_shift": -1200.0}} — chỉ
+        dùng với `dry_run=True` để xem trước hiệu ứng CA TRƯỚC khi ghi sổ.
+        [WHY]: nếu dry-run áp CA thật vào `paper_lots` thì đó không còn là xem
+        trước, và một lần nhập sai tham số sẽ để lại sổ đã sửa không hoàn tác được.
+
+        Fail-closed (Missing > Fake):
+          - Có mua/bán trong cửa sổ ⇒ raise (vị thế hiện tại không đại diện quá khứ).
+          - Thiếu bar của bất kỳ mã nào ⇒ raise nêu mã + ngày.
+          - `preview_adjust` ở chế độ ghi thật ⇒ raise.
+          - dry_run ⇒ trả con số sẽ ghi nhưng KHÔNG UPDATE, KHÔNG audit.
+        """
+        if preview_adjust and not dry_run:
+            raise RuntimeError(
+                "preview_adjust chỉ hợp lệ khi dry_run=True — từ chối ghi sổ bằng vị thế mô phỏng không tồn tại"
+            )
+        with _conn_or(None) as c:
+            if end_date is None:
+                row = c.execute(
+                    "SELECT MAX(date) FROM paper_equity_curve WHERE portfolio_id=?",
+                    (self.portfolio_id,),
+                ).fetchone()
+                end_date = row[0] if row else None
+            if not end_date:
+                raise RuntimeError(f"Không có đường vốn để tái lập (portfolio={self.portfolio_id})")
+
+            traded = c.execute(
+                "SELECT symbol, open_date FROM paper_lots "
+                "WHERE portfolio_id=? AND open_date BETWEEN ? AND ? "
+                "ORDER BY open_date LIMIT 1",
+                (self.portfolio_id, start_date, end_date),
+            ).fetchone()
+            sold = c.execute(
+                "SELECT symbol, date FROM paper_realized_pnl "
+                "WHERE portfolio_id=? AND date BETWEEN ? AND ? ORDER BY date LIMIT 1",
+                (self.portfolio_id, start_date, end_date),
+            ).fetchone()
+            if traded or sold:
+                detail = f"mua {traded[0]} @ {traded[1]}" if traded else f"bán {sold[0]} @ {sold[1]}"
+                raise RuntimeError(
+                    f"Không tái lập được [{start_date}..{end_date}]: có giao dịch trong cửa sổ "
+                    f"({detail}) — vị thế hiện tại không đại diện cho quá khứ"
+                )
+
+            old_rows = c.execute(
+                "SELECT date, settled_cash, pending_cash_in, realized_pnl_cum, "
+                "buying_power, hdr_limit FROM paper_equity_curve "
+                "WHERE portfolio_id=? AND date BETWEEN ? AND ? ORDER BY date",
+                (self.portfolio_id, start_date, end_date),
+            ).fetchall()
+            if not old_rows:
+                raise RuntimeError(
+                    f"Không có dòng equity nào trong [{start_date}..{end_date}] "
+                    f"(portfolio={self.portfolio_id}) — không tạo dòng mới"
+                )
+
+            lots = c.execute(
+                "SELECT symbol, quantity, cost_basis, settle_date, open_date "
+                "FROM paper_lots WHERE portfolio_id=? AND is_closed=0",
+                (self.portfolio_id,),
+            ).fetchall()
+
+            now_iso = datetime.now().isoformat()
+            new_rows = []
+            for date, settled_cash, pending_in, realized_cum, bp, hdr in old_rows:
+                market_value = 0.0
+                cost_value = 0.0
+                unsettled_val = 0.0
+                for symbol, qty, cb, settle_date, open_date in lots:
+                    # [WHY]: lot mở SAU ngày định giá thì chưa tồn tại ở phiên đó.
+                    if open_date > date:
+                        continue
+                    if preview_adjust and symbol in preview_adjust:
+                        adj = preview_adjust[symbol]
+                        # [WHY]: chỉ mô phỏng trong bộ nhớ cho dry-run; ghi thật
+                        # bị chặn ở đầu hàm.
+                        qty = int(qty * float(adj.get("qty_factor", 1.0)))
+                        cb = cb + float(adj.get("cost_shift", 0.0))
+                    close = self._get_close_exact(symbol, date, conn=c)
+                    mv = qty * close
+                    market_value += mv
+                    cost_value += qty * cb
+                    if settle_date > date:
+                        unsettled_val += mv
+                exit_fee = market_value * (SELL_FEE_BPS + SELL_TAX_BPS) / 10000.0
+                unrealized_net = (market_value - cost_value) - exit_fee
+                settled_cash = settled_cash or 0.0
+                pending_in = pending_in or 0.0
+                new_rows.append(
+                    {
+                        "date": date,
+                        "settled_cash": round(settled_cash, 0),
+                        "pending_cash_in": round(pending_in, 0),
+                        "market_value": round(market_value, 0),
+                        "unrealized_pnl": round(unrealized_net, 0),
+                        "realized_pnl_cum": round(realized_cum or 0.0, 0),
+                        "total_equity": round(settled_cash + pending_in + market_value, 0),
+                        "unsettled_qty_val": round(unsettled_val, 0),
+                        "buying_power": round(bp or 0.0, 0),
+                        "hdr_limit": hdr,
+                    }
+                )
+
+            payload = json.dumps(new_rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            input_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+            if not dry_run:
+                for r in new_rows:
+                    c.execute(
+                        "UPDATE paper_equity_curve SET market_value=?, unrealized_pnl=?, "
+                        "total_equity=?, unsettled_qty_val=?, created_at=? "
+                        "WHERE portfolio_id=? AND date=?",
+                        (
+                            r["market_value"],
+                            r["unrealized_pnl"],
+                            r["total_equity"],
+                            r["unsettled_qty_val"],
+                            now_iso,
+                            self.portfolio_id,
+                            r["date"],
+                        ),
+                    )
+                from src.database.eod_write_audit import record_eod_write_audit
+
+                record_eod_write_audit(
+                    as_of_date=end_date,
+                    caller_module="paper_mtm.restate_equity_since",
+                    target_table="paper_equity_curve",
+                    parameters={
+                        "portfolio_id": self.portfolio_id,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "sessions": len(new_rows),
+                        "sha256": input_hash,
+                    },
+                    input_data=payload,
+                    output_score=float(new_rows[-1]["total_equity"]),
+                    status="RESTATED",
+                    notes=f"Tái lập {len(new_rows)} phiên [{start_date}..{end_date}] sau CA",
+                    conn=c,
+                    commit=False,
+                )
+
+        return {
+            "portfolio_id": self.portfolio_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "dry_run": bool(dry_run),
+            "rows": new_rows,
+            "input_hash": input_hash,
+        }
 
     # ==================================================== VALUATION (MtM)
     def mark_to_market(self, date: str, hdr_limit: float = 0.0, conn=None) -> dict:
