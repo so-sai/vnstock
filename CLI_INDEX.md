@@ -64,6 +64,7 @@ in "OK" và exit 0. Hệ quả bất biến: một lần chạy thành công lu�
 | `forensic-fpr` | Tỷ lệ báo động giả trên rổ VN30 | — |
 | `evidence-ledger` | Decision candidates + budget + opportunity cost | `{list,resolve,opportunity-cost,stats}`, `--year`, `--hold-days` |
 | `why-audit` | Linter `[WHY]` **report-only**: liệt kê hằng số/ngưỡng thiếu lý do (AGENTS luật E) | `--root` (mặc định `backend/src`), `--top`, `--category {constant,literal-threshold,parse-error}`, `--json`, `--strict` |
+| `msci-audit` | Kiểm toán dòng tiền cơ cấu MSCI (**NON-DECISIONAL**, fail-closed từ manifest JSON + DB thực) | `--manifest`, `--survey`, `--dry-run`, `--out`, `--json-out`, `--json` |
 
 **`why-audit` — report-only, KHÔNG chặn CI.** Mặc định luôn exit 0 kể cả khi có vi
 phạm; chỉ `--strict` mới trả 1 (dùng khi muốn tự kiểm một thư mục nhỏ). Lệnh này
@@ -198,6 +199,10 @@ Hiện có:
 - `symbol_audit_pipeline.py` — **thư viện dùng chung**, không phải CLI: 3 tầng
   fail-closed (band mode → certify → cross-vendor) + in báo cáo; runner Pha 4/5 và
   CLI `dividend-audit` (nhánh PAT/DSN) cùng dùng, nên không có đường nạp thứ hai.
+- `msci_flow_auditor.py` + `backend/src/tools/msci_flow_estimate.py` — Kiểm toán định lượng
+  dòng tiền MSCI Q4-2026 (**NON-DECISIONAL**, OOS 2025–2026 quarantine, cảnh báo thiếu dữ liệu
+  intraday ATC); gọi qua `ptck.py msci-audit [--survey|--dry-run]` hoặc
+  `python -m backend.src.tools.msci_flow_estimate`.
 - `backend/scripts/run_ablation.py`, `run_oos_2026.py` (ablation/OOS)
 - `backend/src/backtest/run_batch_validation.py`, `run_hsr.py` (backtest harness)
 

@@ -90,6 +90,7 @@ Khi áp dụng sang dự án khác, tùy thuộc vào phần mềm đích mà ch
 Một số giá trị `target_table` trong bảng `eod_write_audit_ledger` là **định danh sự kiện kiểm toán logic (Logical Audit Target)**, không bắt buộc ánh xạ 1-1 với tên bảng vật lý trong `sqlite_master`:
 - `'zalo_report_dispatch'`: Do `minh_chung.exe` ghi với `status = 'SENT_OK'` nhằm bảo đảm idempotency chống gửi đúp bản tin định kỳ (`summary` / `brief`) trong cùng ngày.
 - `'daily_ohlcv+paper_equity_curve'`: Do `restate_adjusted_segment.py` ghi với `status = 'RESTATED'` cho các bút toán đính chính đồng thời cả chuỗi nến và đường cong vốn.
+- `'msci_flow_estimate'`: Do `msci_flow_estimate` ghi với `status = 'COMPUTED'` khi hoàn tất kiểm toán dòng tiền MSCI với manifest đã xác thực (không ghi ở chế độ `--dry-run` / `--survey` hay khi bị từ chối).
 - Mọi truy vấn đối chiếu với `sqlite_master` hoặc kiểm tra restatement trên bảng vật lý **phải** lọc tường minh theo danh sách bảng đích (`RESTATEMENT_TARGETS`) và `status`.
 
 ---

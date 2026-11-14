@@ -3970,6 +3970,34 @@ def cmd_why_audit(args):
     raise SystemExit(why_main(argv))
 
 
+def cmd_msci_audit(args):
+    """Kiểm toán & khảo sát dòng tiền cơ cấu rổ MSCI (NQ-25 — NON-DECISIONAL, fail-closed)."""
+    if (
+        sys.platform == "win32"
+        and hasattr(sys.stdout, "reconfigure")
+        and (getattr(sys.stdout, "encoding", "") or "").lower() != "utf-8"
+    ):
+        sys.stdout.reconfigure(encoding="utf-8")
+    from src.tools.msci_flow_estimate import main as msci_main
+
+    # [WHY] Phải `raise SystemExit` chứ không `return`: dispatcher ở `main()` bỏ
+    # giá trị trả về, nên `return 2` (từ chối fail-closed) sẽ bị nuốt và caller thấy exit 0.
+    argv: list[str] = []
+    if args.manifest:
+        argv += ["--manifest", args.manifest]
+    if args.survey:
+        argv.append("--survey")
+    if args.dry_run:
+        argv.append("--dry-run")
+    if args.out:
+        argv += ["--out", args.out]
+    if args.json_out:
+        argv += ["--json-out", args.json_out]
+    if args.json:
+        argv.append("--json")
+    raise SystemExit(msci_main(argv))
+
+
 def cmd_archetype(args):
     """Giai đoạn 1: Business Archetype — DNA classification."""
     if sys.platform == "win32":
@@ -8240,6 +8268,33 @@ def build_parser():
     )
     p_qn.set_defaults(func=cmd_quarantine_nonsession)
 
+    # ── Kiểm toán dòng tiền cơ cấu MSCI (NQ-25 — NON-DECISIONAL, fail-closed) ──
+    p_msci = sub.add_parser(
+        "msci-audit",
+        parents=[lang_parent],
+        help="Kiểm toán & khảo sát dòng tiền cơ cấu rổ MSCI (NON-DECISIONAL, fail-closed)",
+    )
+    p_msci.add_argument(
+        "--manifest",
+        type=str,
+        default=None,
+        help="Đường dẫn file manifest JSON (mặc định backend/config/msci_manifest_2026_11.json)",
+    )
+    p_msci.add_argument(
+        "--survey",
+        action="store_true",
+        help="Khảo sát độ phủ OHLCV/ADV20/FX/Health từ DB thực (read-only)",
+    )
+    p_msci.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Tính kiểm toán fail-closed nhưng không ghi eod_write_audit_ledger",
+    )
+    p_msci.add_argument("--out", type=str, default=None, help="Xuất báo cáo Markdown ra file")
+    p_msci.add_argument("--json-out", type=str, default=None, help="Xuất báo cáo JSON ra file")
+    p_msci.add_argument("--json", action="store_true", help="In JSON ra stdout")
+    p_msci.set_defaults(func=cmd_msci_audit)
+
     # Freshness Sentinel: cho phép `--force-stale` ở CẢ HAI vị trí (trước và sau
     # subcommand). Gắn bằng vòng lặp thay vì sửa tay ~100 subparser.
     for _sub in sub.choices.values():
@@ -8340,7 +8395,7 @@ BYPASS_COMMANDS = {
     "serve", "telemetry", "gap-analyzer", "data-quality", "symbol-audit",
     "pit-audit", "evidence-ledger", "fetch-macro", "sbv-update",
     "fetch-financials", "import-financials", "cafef-crawl", "forensic-fpr", "dividend-audit",
-    "why-audit", "quarantine-nonsession",
+    "why-audit", "quarantine-nonsession", "msci-audit",
 }
 
 

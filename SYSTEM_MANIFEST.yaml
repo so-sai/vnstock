@@ -648,6 +648,11 @@ entrypoints:
     cli: "python -m backend.src.governor.emergency_exit_engine"
     category: risk
 
+  msci_audit:
+    description: "MSCI Q4-2026 Quantitative Flow Auditor (NON-DECISIONAL, fail-closed manifest + local DB OHLCV/ADV20/FX/Health)"
+    cli: "python ptck.py msci-audit [--manifest PATH] [--survey] [--dry-run] [--out PATH] [--json-out PATH]"
+    category: research
+
   # ── Sprint 4: ModelRegistry ─────────────────────────────
   model_registry_status:
     description: "Sprint 4 ModelRegistry — xem trạng thái 3 mô hình cạnh tranh + BMA weights"
@@ -802,3 +807,16 @@ research_modules:
       - "EXDATE_GAP_MATCHES_CASH_DIVIDEND"
       - "FAIL_CLOSED_ON_EMPTY_SERIES"
     verdict_ref: "backend/src/research/vea_phase2_price_integrity_verdict.md"
+
+  - id: "msci_flow_auditor"
+    name: "MSCI Q4-2026 Quantitative Flow Auditor (NON-DECISIONAL)"
+    version: "1.0.0"
+    path: "backend/src/research/msci_flow_auditor.py"
+    cli_path: "backend/src/tools/msci_flow_estimate.py"
+    test_path: "backend/tests/test_msci_flow_auditor.py"
+    status: "non_decisional_research"
+    invariants:
+      - "MISSING_OVER_FAKE_FAIL_CLOSED_ON_UNVERIFIED_MANIFEST"
+      - "OHLCV_VALID_ROW_SQL_AND_IS_STALE_0_20D_ADV"
+      - "OOS_2025_2026_NON_DECISIONAL_AND_NO_INTRADAY_ATC_BANNER"
+      - "IMMUTABLE_COMPUTED_AUDIT_LEDGER_SHA256"
