@@ -1203,12 +1203,22 @@ pub fn run_cli_sync() -> String {
         }
     };
 
+    println!("🧠 [CLI Pipeline] Đang kết xuất snapshot bản tin qua `ptck.py daily-brief`...");
+    let brief_ok = Command::new(&py_bin)
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["ptck.py", "daily-brief"])
+        .current_dir(&root)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
     format!(
-        "🔄 [Minh Chứng - Đồng bộ CLI `ptck.py` hoàn tất trong {:.2?}]\n• Lãi suất Liên NH (`sbv-update`): {}\n• Vĩ mô & Tỷ giá (`fetch-macro`): {}\n• Nến EOD & Vị thế (`daily-close` + `eod-run`): {}",
+        "🔄 [Minh Chứng - Đồng bộ CLI `ptck.py` hoàn tất trong {:.2?}]\n• Lãi suất Liên NH (`sbv-update`): {}\n• Vĩ mô & Tỷ giá (`fetch-macro`): {}\n• Nến EOD & Vị thế (`daily-close` + `eod-run`): {}\n• Snapshot phân tích (`daily-brief`): {}",
         t0.elapsed(),
         if sbv_ok { "✅ OK" } else { "⚠️ Dùng bản cache" },
         if macro_ok { "✅ OK" } else { "⚠️ Dùng bản cache" },
-        eod_status
+        eod_status,
+        if brief_ok { "✅ OK" } else { "⚠️ Thiếu/lỗi snapshot" }
     )
 }
 
@@ -1696,6 +1706,200 @@ fn get_ohlcv_snapshot(stmt: &mut rusqlite::Statement, sym: &str) -> (f64, f64, f
     (c0, c1, v0, v1)
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct GovernorProgressItem {
+    key: String,
+    label: String,
+    operator: String,
+    current: Option<f64>,
+    target: f64,
+    unit: String,
+    status: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct MomentumCleanItem {
+    symbol: String,
+    close: f64,
+    ret_1d_pct: Option<f64>,
+    rs: f64,
+    adv20_shares: f64,
+    adv20_vnd: f64,
+    health_archetype: String,
+    breakout_20d: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct DailyBriefSnapshot {
+    schema_version: i64,
+    as_of_date: String,
+    governor_progress: Vec<GovernorProgressItem>,
+    momentum_clean: Vec<MomentumCleanItem>,
+}
+
+fn friendly_archetype(arch: &str) -> &str {
+    match arch {
+        "HIGH_QUALITY_COMPOUNDER" => "Chất lượng cao",
+        "STEADY_EARNER" => "Lợi nhuận ổn định",
+        "CYCLICAL" => "Chu kỳ",
+        "LEVERAGED_GROWTH" => "Đòn bẩy cao",
+        "COMMODITY" => "Hàng hóa",
+        _ => arch,
+    }
+}
+
+// [WHY]: Đọc snapshot JSON bằng chính SQLite JSON1 của `rusqlite` (bundled) để tránh thêm crate ngoài
+// và bảo đảm fail-closed khi thiếu file, sai schema_version, hoặc lệch ngày phiên với VNINDEX.
+fn parse_daily_brief_snapshot(
+    raw_json: &str,
+    expected_as_of_date: &str,
+) -> Result<DailyBriefSnapshot, String> {
+    let mem = Connection::open_in_memory()
+        .map_err(|e| format!("Không thể khởi tạo bộ đọc snapshot JSON: {}", e))?;
+
+    let valid: i64 = mem
+        .query_row("SELECT json_valid(?1)", params![raw_json], |r| r.get(0))
+        .map_err(|e| format!("Lỗi kiểm tra JSON snapshot: {}", e))?;
+    if valid != 1 {
+        return Err("Snapshot JSON không hợp lệ".to_string());
+    }
+
+    let (schema_ver, as_of_opt, gov_type, mom_type): (
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = mem
+        .query_row(
+            "SELECT
+                CAST(json_extract(?1, '$.schema_version') AS INTEGER),
+                json_extract(?1, '$.as_of_date'),
+                json_type(?1, '$.governor_progress'),
+                json_type(?1, '$.momentum_clean')",
+            params![raw_json],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .map_err(|e| format!("Lỗi đọc cấu trúc snapshot: {}", e))?;
+
+    if schema_ver != Some(1) {
+        return Err(format!(
+            "Phiên bản snapshot không khớp (kỳ vọng 1, nhận {:?})",
+            schema_ver
+        ));
+    }
+    let as_of_date = as_of_opt.unwrap_or_default();
+    if as_of_date != expected_as_of_date {
+        return Err(format!(
+            "Snapshot lệch ngày phiên (snapshot='{}' != '{}')",
+            as_of_date, expected_as_of_date
+        ));
+    }
+    if gov_type.as_deref() != Some("array") || mom_type.as_deref() != Some("array") {
+        return Err("Snapshot thiếu mảng dữ liệu chuẩn hóa".to_string());
+    }
+
+    let mut gov_stmt = mem
+        .prepare(
+            "SELECT
+                COALESCE(json_extract(je.value, '$.key'), ''),
+                COALESCE(json_extract(je.value, '$.label'), ''),
+                COALESCE(json_extract(je.value, '$.operator'), '>='),
+                CASE
+                    WHEN json_extract(je.value, '$.current') IS NULL THEN NULL
+                    ELSE CAST(json_extract(je.value, '$.current') AS REAL)
+                END,
+                COALESCE(CAST(json_extract(je.value, '$.target') AS REAL), 0.0),
+                COALESCE(json_extract(je.value, '$.unit'), ''),
+                COALESCE(json_extract(je.value, '$.status'), 'MISSING')
+            FROM json_each(?1, '$.governor_progress') AS je
+            ORDER BY CAST(je.key AS INTEGER);",
+        )
+        .map_err(|e| format!("Lỗi chuẩn bị truy vấn tiến độ mở khóa: {}", e))?;
+
+    let mut governor_progress = Vec::new();
+    let gov_rows = gov_stmt
+        .query_map(params![raw_json], |r| {
+            Ok(GovernorProgressItem {
+                key: r.get(0)?,
+                label: r.get(1)?,
+                operator: r.get(2)?,
+                current: r.get(3)?,
+                target: r.get(4)?,
+                unit: r.get(5)?,
+                status: r.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Lỗi đọc tiến độ mở khóa: {}", e))?;
+    for row_res in gov_rows {
+        governor_progress.push(row_res.map_err(|e| format!("Lỗi giải mã mục tiến độ: {}", e))?);
+    }
+
+    let mut mom_stmt = mem
+        .prepare(
+            "SELECT
+                COALESCE(json_extract(je.value, '$.symbol'), ''),
+                COALESCE(CAST(json_extract(je.value, '$.close') AS REAL), 0.0),
+                CASE
+                    WHEN json_extract(je.value, '$.ret_1d_pct') IS NULL THEN NULL
+                    ELSE CAST(json_extract(je.value, '$.ret_1d_pct') AS REAL)
+                END,
+                COALESCE(CAST(json_extract(je.value, '$.rs') AS REAL), 0.0),
+                COALESCE(CAST(json_extract(je.value, '$.adv20_shares') AS REAL), 0.0),
+                COALESCE(CAST(json_extract(je.value, '$.adv20_vnd') AS REAL), 0.0),
+                COALESCE(json_extract(je.value, '$.health_archetype'), ''),
+                COALESCE(CAST(json_extract(je.value, '$.breakout_20d') AS INTEGER), 0)
+            FROM json_each(?1, '$.momentum_clean') AS je
+            ORDER BY CAST(je.key AS INTEGER);",
+        )
+        .map_err(|e| format!("Lỗi chuẩn bị truy vấn động lượng sạch: {}", e))?;
+
+    let mut momentum_clean = Vec::new();
+    let mom_rows = mom_stmt
+        .query_map(params![raw_json], |r| {
+            let breakout_int: i64 = r.get(7)?;
+            Ok(MomentumCleanItem {
+                symbol: r.get(0)?,
+                close: r.get(1)?,
+                ret_1d_pct: r.get(2)?,
+                rs: r.get(3)?,
+                adv20_shares: r.get(4)?,
+                adv20_vnd: r.get(5)?,
+                health_archetype: r.get(6)?,
+                breakout_20d: breakout_int != 0,
+            })
+        })
+        .map_err(|e| format!("Lỗi đọc danh sách động lượng sạch: {}", e))?;
+    for row_res in mom_rows {
+        let item = row_res.map_err(|e| format!("Lỗi giải mã cổ phiếu động lượng: {}", e))?;
+        // [WHY]: Chốt chặn phòng thủ thứ 2 tại consumer để ngăn penny/suy yếu lọt bản tin ngay cả khi snapshot bị sửa tay.
+        if !item.symbol.is_empty()
+            && item.close >= 10_000.0
+            && item.adv20_shares >= 500_000.0
+            && item.rs >= 85.0
+            && !item.health_archetype.is_empty()
+            && !item.health_archetype.eq_ignore_ascii_case("DISTRESSED")
+        {
+            momentum_clean.push(item);
+        }
+    }
+
+    Ok(DailyBriefSnapshot {
+        schema_version: 1,
+        as_of_date,
+        governor_progress,
+        momentum_clean,
+    })
+}
+
+fn load_daily_brief_snapshot(path: &str, expected_as_of_date: &str) -> Result<DailyBriefSnapshot, String> {
+    if expected_as_of_date.trim().is_empty() {
+        return Err("Chưa xác định ngày phiên VNINDEX".to_string());
+    }
+    let raw = std::fs::read_to_string(path)
+        .map_err(|_| "Chưa có file daily_brief_snapshot.json (cần chạy `ptck.py daily-brief`)".to_string())?;
+    parse_daily_brief_snapshot(&raw, expected_as_of_date)
+}
+
 pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     let t_start = std::time::Instant::now();
     let screener_path = resolve_db_path("screener_cache.db");
@@ -1723,6 +1927,9 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             }
         }
     }
+
+    let snapshot_path = resolve_db_path("daily_brief_snapshot.json");
+    let brief_snapshot = load_daily_brief_snapshot(&snapshot_path, &vni_date);
 
     let missing_days = if vni_prev_date.is_empty() {
         Vec::new()
@@ -1935,6 +2142,45 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             br_total, br_adv, br_ceil, br_dec, br_flr, br_unc
         ));
     }
+    match &brief_snapshot {
+        Ok(snap) => {
+            out.push_str("  🔓 Tiến độ 4 điều kiện mở khóa giải ngân:\n");
+            for item in &snap.governor_progress {
+                let badge = match item.status.as_str() {
+                    "PASS" => "✅",
+                    "LOCKED" => "🔒",
+                    _ => "⏳",
+                };
+                let cur_text = match item.current {
+                    Some(v) => {
+                        let s = if item.key == "breadth_pct" {
+                            format!("{:.1}", v)
+                        } else {
+                            format!("{:.2}", v)
+                        };
+                        format!("{}{}", s.replace('.', ","), if item.unit == "%" { "%" } else { "" })
+                    }
+                    None => "Chưa có dữ liệu".to_string(),
+                };
+                let tgt_text = if item.unit == "%" {
+                    format!("{:.0}%", item.target)
+                } else {
+                    format!("{:.2}", item.target).replace('.', ",")
+                };
+                let op_disp = if item.operator == ">" { ">" } else { "≥" };
+                out.push_str(&format!(
+                    "     • {} {}: {} (ngưỡng {} {})\n",
+                    badge, item.label, cur_text, op_disp, tgt_text
+                ));
+            }
+        }
+        Err(err) => {
+            out.push_str(&format!(
+                "  ⏳ Tiến độ 4 điều kiện mở khóa: Chưa sẵn sàng ({})\n",
+                err
+            ));
+        }
+    }
 
     // 3. HUYẾT MẠCH VĨ MÔ
     let mut fed_rate = None;
@@ -2022,15 +2268,14 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         let gold_str = format_number_vnd(gold);
         let silver_str = format_number_vnd(silver);
         let gsr_str = format!("{:.2}", gsr).replace('.', ",");
-        out.push_str(&format!("• Vàng thế giới (GOLD_XAU): {} USD/oz (Pha tích lũy phân phối đỉnh)\n", gold_str));
-        out.push_str(&format!("• Bạc thế giới (XAGUSD): {} USD/oz (H=0,57 bước đi ngẫu nhiên, chưa vào vùng gom)\n", silver_str));
+        out.push_str(&format!("• Vàng thế giới (GOLD_XAU): {} USD/oz\n", gold_str));
+        out.push_str(&format!("• Bạc thế giới (XAGUSD): {} USD/oz\n", silver_str));
         let gsr_note = if gsr >= 85.0 {
-            "GSR >= 85: Bạc bắt đầu vào vùng chiết khấu sâu"
+            "Tỷ lệ quy đổi >= 85"
         } else {
-            "GSR < 85: Bạc chưa vào vùng chiết khấu sâu / undervalued"
+            "Tỷ lệ quy đổi < 85"
         };
         out.push_str(&format!("• Tỷ lệ Vàng/Bạc (GSR): {} ({})\n", gsr_str, gsr_note));
-        out.push_str("• Bạc vật chất trong nước: Premium nới rộng (+20-25%) — Rủi ro kẹt thanh khoản cao\n");
     }
 
     // DÒNG TIỀN KHỐI NGOẠI
@@ -2107,33 +2352,6 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         .prepare("SELECT date, close, volume FROM daily_ohlcv WHERE symbol=?1 AND is_stale=0 ORDER BY date DESC LIMIT 2;")
         .map_err(|e| e.to_string())?;
 
-    // KHOANG 1: RADAR CỔ TỨC TIỀN MẶT (DIVIDEND RADAR)
-    out.push_str("\n🛡️ KHOANG 1: RADAR CỔ TỨC TIỀN MẶT (DIVIDEND RADAR)\n");
-    out.push_str("  💎 Cỗ máy tích lũy giá trị (Cash-Cow Compounders):\n");
-    let (smb_c0, _, _, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "SMB");
-    let (vea_c0, _, _, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "VEA");
-    out.push_str(&format!(
-        "     • [SMB] Giá {}đ (Cổ tức tiền mặt 35-40% ~8,5%/năm | Nợ vay = 0 | Dòng tiền FCF dồi dào)\n",
-        format_int_dots(smb_c0.round() as i64)
-    ));
-    out.push_str(&format!(
-        "     • [VEA] Giá {}đ (Cổ tức 4.000-4.500đ/cp ~11,5%/năm | Độc quyền liên doanh Honda/Toyota)\n",
-        format_int_dots(vea_c0.round() as i64)
-    ));
-    out.push_str("  ⚠️ Cảnh báo bẫy cổ tức cao (Yield Traps):\n");
-    let (foc_c0, _, _, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "FOC");
-    let (pat_c0, _, _, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "PAT");
-    out.push_str(&format!(
-        "     • [FOC] Giá {}đ (Thị giá bào mòn -42,6% | Alpha âm -4,98%/năm so với gửi tiết kiệm)\n",
-        format_int_dots(foc_c0.round() as i64)
-    ));
-    out.push_str(&format!(
-        "     • [PAT] Giá {}đ (Sụp đổ đỉnh chu kỳ hóa chất | Alpha âm -7,57%/năm | MDD -57,88%)\n",
-        format_int_dots(pat_c0.round() as i64)
-    ));
-
-    // KHOANG 2: CỔ PHIẾU ĐẦU NGÀNH & ĐỘNG LƯỢNG (PILLARS & MOMENTUM)
-    out.push_str("\n⚡ KHOANG 2: CỔ PHIẾU ĐẦU NGÀNH & ĐỘNG LƯỢNG (PILLARS & MOMENTUM)\n");
     let fmt_pillar_pct = |c0: f64, c1: f64| -> String {
         if c1 > 0.0 {
             let pct = ((c0 - c1) / c1) * 100.0;
@@ -2144,54 +2362,43 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         }
     };
 
-    let (hpg_c0, hpg_c1, hpg_v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "HPG");
-    let hpg_vol_mil = format!("{:.1}", hpg_v0 / 1_000_000.0).replace('.', ",");
-    out.push_str(&format!(
-        "  • [HPG] Giá {}đ ({} | {}M cp) — Cung cầu giằng co quanh hỗ trợ\n",
-        format_int_dots(hpg_c0.round() as i64),
-        fmt_pillar_pct(hpg_c0, hpg_c1),
-        hpg_vol_mil
-    ));
+    // KHOANG 1: NHÓM CỔ TỨC & PHÒNG THỦ (DỮ LIỆU PHIÊN THUẦN TÚY)
+    out.push_str("\n🛡️ NHÓM CỔ TỨC & PHÒNG THỦ (DỮ LIỆU PHIÊN)\n");
+    for sym in ["SMB", "VEA", "FOC", "PAT"] {
+        let (c0, c1, v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, sym);
+        if c0 > 0.0 {
+            let vol_mil = format!("{:.1}", v0 / 1_000_000.0).replace('.', ",");
+            out.push_str(&format!(
+                "  • [{}] Giá {}đ ({} | {}M cp)\n",
+                sym,
+                format_int_dots(c0.round() as i64),
+                fmt_pillar_pct(c0, c1),
+                vol_mil
+            ));
+        }
+    }
 
-    let (tcb_c0, tcb_c1, tcb_v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "TCB");
-    let tcb_vol_mil = format!("{:.1}", tcb_v0 / 1_000_000.0).replace('.', ",");
-    out.push_str(&format!(
-        "  • [TCB] Giá {}đ ({} | {}M cp) — P/B 1,2x | Cung tăng, áp lực kỹ thuật\n",
-        format_int_dots(tcb_c0.round() as i64),
-        fmt_pillar_pct(tcb_c0, tcb_c1),
-        tcb_vol_mil
-    ));
+    // KHOANG 2: NHÓM TRỤ CỘT & THEO DÕI (DỮ LIỆU PHIÊN THUẦN TÚY)
+    out.push_str("\n⚡ NHÓM TRỤ CỘT & THEO DÕI (DỮ LIỆU PHIÊN)\n");
+    for sym in ["HPG", "TCB", "FPT", "SHB", "PNJ"] {
+        let (c0, c1, v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, sym);
+        if c0 > 0.0 {
+            let vol_mil = format!("{:.1}", v0 / 1_000_000.0).replace('.', ",");
+            out.push_str(&format!(
+                "  • [{}] Giá {}đ ({} | {}M cp)\n",
+                sym,
+                format_int_dots(c0.round() as i64),
+                fmt_pillar_pct(c0, c1),
+                vol_mil
+            ));
+        }
+    }
 
-    let (fpt_c0, fpt_c1, fpt_v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "FPT");
-    let fpt_vol_mil = format!("{:.1}", fpt_v0 / 1_000_000.0).replace('.', ",");
-    out.push_str(&format!(
-        "  • [FPT] Giá {}đ ({} | {}M cp) — Tích lũy nền giá 52-53k\n",
-        format_int_dots(fpt_c0.round() as i64),
-        fmt_pillar_pct(fpt_c0, fpt_c1),
-        fpt_vol_mil
-    ));
-
-    let (shb_c0, shb_c1, shb_v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "SHB");
-    let shb_vol_mil = format!("{:.1}", shb_v0 / 1_000_000.0).replace('.', ",");
-    out.push_str(&format!(
-        "  • [SHB] Giá {}đ ({} | {}M cp) — Lực đỡ quanh nền 10.5 vững chắc\n",
-        format_int_dots(shb_c0.round() as i64),
-        fmt_pillar_pct(shb_c0, shb_c1),
-        shb_vol_mil
-    ));
-
-    let (pnj_c0, pnj_c1, _, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "PNJ");
-    out.push_str(&format!(
-        "  • [PNJ] Giá {}đ ({}) — KHỦNG HOẢNG NỘI TẠI, TUYỆT ĐỐI KHÔNG BẮT ĐÁY\n",
-        format_int_dots(pnj_c0.round() as i64),
-        fmt_pillar_pct(pnj_c0, pnj_c1)
-    ));
-
-    // 4. DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM (VN30 / LIQUIDITY)
+    // 4. DÒNG TIỀN & ĐỘNG LƯỢNG SẠCH (TỪ SNAPSHOT ĐÃ LỌC PENNY/SUY YẾU)
     if is_summary {
-        out.push_str("\n🔥 DÒNG TIỀN & BIẾN ĐỘNG\n");
+        out.push_str("\n🔥 RADAR ĐỘNG LƯỢNG SẠCH\n");
     } else {
-        out.push_str("\n🔥 DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM\n");
+        out.push_str("\n🔥 RADAR ĐỘNG LƯỢNG SẠCH TRỌNG ĐIỂM\n");
     }
 
     if has_session_gap {
@@ -2205,187 +2412,42 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             gap_msg
         ));
     } else {
-        struct SymDetail {
-            symbol: String,
-            price: f64,
-            pct: f64,
-            vol: f64,
-            note: String,
-        }
-
-        let mut candidate_symbols: Vec<String> = vec![
-            "SHB".to_string(),
-            "TCB".to_string(),
-            "MBB".to_string(),
-            "VCB".to_string(),
-            "ACB".to_string(),
-            "HPG".to_string(),
-            "FPT".to_string(),
-            "MSN".to_string(),
-            "SSI".to_string(),
-        ];
-
-        // Lấy thêm Top thanh khoản phiên từ daily_ohlcv
-        if let Ok(mut top_stmt) = db_scr.conn.prepare(
-            "SELECT symbol FROM daily_ohlcv WHERE date=?1 AND is_stale=0 AND symbol!='VNINDEX' AND volume>=1000000 ORDER BY volume DESC LIMIT 8;",
-        ) {
-            if let Ok(mut rows) = top_stmt.query(params![vni_date]) {
-                while let Ok(Some(row)) = rows.next() {
-                    let s: String = row.get(0).unwrap_or_default();
-                    if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
-                        candidate_symbols.push(s);
-                    }
-                }
-            }
-        }
-
-        // Lấy thêm Top tăng giá có thanh khoản (so sánh đúng với phiên liền kề `vni_prev_date`)
-        if let Ok(mut gain_stmt) = db_scr.conn.prepare(
-            "SELECT d0.symbol FROM daily_ohlcv d0 JOIN daily_ohlcv d1 ON d0.symbol=d1.symbol \
-             WHERE d0.date=?1 AND d1.date=?2 \
-             AND d0.is_stale=0 AND d1.is_stale=0 AND d0.symbol!='VNINDEX' AND d0.volume>=500000 \
-             ORDER BY ((d0.close-d1.close)/d1.close) DESC LIMIT 5;",
-        ) {
-            if let Ok(mut rows) = gain_stmt.query(params![vni_date, vni_prev_date]) {
-                while let Ok(Some(row)) = rows.next() {
-                    let s: String = row.get(0).unwrap_or_default();
-                    if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
-                        candidate_symbols.push(s);
-                    }
-                }
-            }
-        }
-
-        // Lấy thêm Top giảm giá có thanh khoản (so sánh đúng với phiên liền kề `vni_prev_date`)
-        if let Ok(mut drop_stmt) = db_scr.conn.prepare(
-            "SELECT d0.symbol FROM daily_ohlcv d0 JOIN daily_ohlcv d1 ON d0.symbol=d1.symbol \
-             WHERE d0.date=?1 AND d1.date=?2 \
-             AND d0.is_stale=0 AND d1.is_stale=0 AND d0.symbol!='VNINDEX' AND d0.volume>=500000 \
-             ORDER BY ((d0.close-d1.close)/d1.close) ASC LIMIT 5;",
-        ) {
-            if let Ok(mut rows) = drop_stmt.query(params![vni_date, vni_prev_date]) {
-                while let Ok(Some(row)) = rows.next() {
-                    let s: String = row.get(0).unwrap_or_default();
-                    if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
-                        candidate_symbols.push(s);
-                    }
-                }
-            }
-        }
-
-        let mut group_surge: Vec<SymDetail> = Vec::new();
-        let mut group_pressure: Vec<SymDetail> = Vec::new();
-        let mut group_narrow: Vec<String> = Vec::new();
-
-        for sym in candidate_symbols {
-            let (c0, c1, v0, v1) = get_ohlcv_snapshot(&mut ohlcv_stmt, &sym);
-            if c0 <= 0.0 || c1 <= 0.0 {
-                continue;
-            }
-
-            let pct: f64 = ((c0 - c1) / c1) * 100.0;
-            let vol_ratio: f64 = if v1 > 0.0 { v0 / v1 } else { 1.0 };
-
-            let is_surge = (pct > 0.0 && (vol_ratio >= 1.2 || pct >= 1.5)) || v0 >= 25_000_000.0;
-            let is_pressure = !is_surge && (pct <= -1.2 || (vol_ratio >= 1.3 && pct < 0.0));
-
-            if is_surge {
-                let note = if pct >= 3.0 {
-                    "Dòng tiền bứt phá ngược dòng".to_string()
-                } else if pct > 0.0 && vol_ratio >= 1.2 {
-                    format!("Cầu đỡ chủ động, +{:.0}% Vol", (vol_ratio - 1.0) * 100.0)
-                } else if v0 >= 25_000_000.0 {
-                    "Dẫn đầu thanh khoản toàn sàn".to_string()
-                } else if pct >= 2.0 {
-                    "Dòng tiền bứt phá mạnh mẽ".to_string()
-                } else if pct > 0.0 {
-                    "Dòng tiền giữ nhịp xanh".to_string()
-                } else {
-                    "Lực cầu hấp thụ tốt".to_string()
-                };
-
-                group_surge.push(SymDetail {
-                    symbol: sym,
-                    price: c0,
-                    pct,
-                    vol: v0,
-                    note,
-                });
-            } else if is_pressure {
-                let note = if pct <= -5.0 {
-                    "Áp lực bán tháo / giảm sâu".to_string()
-                } else if pct <= -3.0 {
-                    "Áp lực cung lớn, giảm mạnh".to_string()
-                } else if vol_ratio >= 1.3 && pct < 0.0 {
-                    "Vol tăng trong nhịp giảm".to_string()
-                } else if pct <= -1.8 {
-                    "Cung tăng, áp lực kỹ thuật".to_string()
-                } else {
-                    "Điều chỉnh theo nhịp chung".to_string()
-                };
-
-                group_pressure.push(SymDetail {
-                    symbol: sym,
-                    price: c0,
-                    pct,
-                    vol: v0,
-                    note,
-                });
-            } else {
-                let sign_s = if pct >= 0.0 { "+" } else { "" };
-                let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(pct));
-                group_narrow.push(format!(
-                    "[{}] Giá {} ({})",
-                    sym,
-                    format_int_dots(c0.round() as i64),
-                    pct_fmt
-                ));
-            }
-        }
-
-        group_surge.sort_by(|a, b| b.pct.partial_cmp(&a.pct).unwrap_or(std::cmp::Ordering::Equal));
-        group_pressure.sort_by(|a, b| a.pct.partial_cmp(&b.pct).unwrap_or(std::cmp::Ordering::Equal));
-
-        if !group_surge.is_empty() {
-            out.push_str("  ⚡ Đột phá / Ngược dòng / Hấp thụ mạnh:\n");
-            for item in group_surge.into_iter().take(3) {
-                let sign_s = if item.pct >= 0.0 { "+" } else { "" };
-                let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
-                let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
+        match &brief_snapshot {
+            Err(err) => {
                 out.push_str(&format!(
-                    "    • [{}] Giá {} ({} | {}) — {}\n",
-                    item.symbol,
-                    format_int_dots(item.price.round() as i64),
-                    pct_fmt,
-                    vol_fmt,
-                    item.note
+                    "  ⚠️ Chưa có snapshot radar sạch khớp phiên {} ({}). Không hiển thị danh sách chưa qua lọc.\n",
+                    vni_date, err
                 ));
             }
-        }
-
-        if !group_pressure.is_empty() {
-            out.push_str("  📉 Áp lực điều chỉnh / Bán tháo:\n");
-            for item in group_pressure.into_iter().take(3) {
-                let sign_s = if item.pct >= 0.0 { "+" } else { "" };
-                let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
-                let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
-                out.push_str(&format!(
-                    "    • [{}] Giá {} ({} | {}) — {}\n",
-                    item.symbol,
-                    format_int_dots(item.price.round() as i64),
-                    pct_fmt,
-                    vol_fmt,
-                    item.note
-                ));
+            Ok(snap) if snap.momentum_clean.is_empty() => {
+                out.push_str(
+                    "  • Không có cổ phiếu đạt chuẩn lọc (Giá >= 10.000đ, thanh khoản >= 500k cp/phiên, RS >= 85, tài chính lành mạnh).\n",
+                );
             }
-        }
-
-        if !group_narrow.is_empty() {
-            let display_narrow: Vec<String> = group_narrow.into_iter().take(5).collect();
-            out.push_str(&format!(
-                "  💤 Tích lũy hẹp: {}\n",
-                display_narrow.join(", ")
-            ));
+            Ok(snap) => {
+                for item in &snap.momentum_clean {
+                    let ret_str = match item.ret_1d_pct {
+                        Some(p) => {
+                            let sign = if p >= 0.0 { "+" } else { "" };
+                            format!("{}{}%", sign, format_number_vnd(p))
+                        }
+                        None => "Khuyết phiên liền trước".to_string(),
+                    };
+                    let rs_str = format!("{:.1}", item.rs).replace('.', ",");
+                    let adv_mil_str = format!("{:.1}M cp", item.adv20_shares / 1_000_000.0).replace('.', ",");
+                    let bo_tag = if item.breakout_20d { " | Vượt đỉnh 20P" } else { "" };
+                    out.push_str(&format!(
+                        "  • [{}] Giá {}đ ({} | RS {} | ADV20 {} | {}{})\n",
+                        item.symbol,
+                        format_int_dots(item.close.round() as i64),
+                        ret_str,
+                        rs_str,
+                        adv_mil_str,
+                        friendly_archetype(&item.health_archetype),
+                        bo_tag
+                    ));
+                }
+            }
         }
     }
 
@@ -2436,7 +2498,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         if entry_lock {
             out.push_str("🔒 TRẠNG THÁI: TẠM KHÓA MUA MỚI (100% TIỀN MẶT)\n");
             out.push_str("1️⃣ Tiếp tục khóa vị thế mua mới qua đêm, duy trì 100% tiền mặt.\n");
-            out.push_str("2️⃣ Không giải ngân bắt đáy Bạc vật chất hay cổ phiếu suy yếu nội tại (PNJ).\n");
+            out.push_str("2️⃣ Chỉ mở lại giải ngân khi cả 4 điều kiện sức khỏe & xu hướng thị trường cùng đạt ngưỡng.\n");
             let support_level: f64 = ((vni_c0 * 0.99 / 10.0) as f64).floor() * 10.0;
             out.push_str(&format!(
                 "3️⃣ Quan sát vùng phản ứng hỗ trợ kế tiếp quanh mốc {} điểm.\n",
@@ -2464,8 +2526,8 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         if entry_lock {
             out.push_str("🔒 TRẠNG THÁI: TẠM KHÓA MUA MỚI (100% TIỀN MẶT)\n");
             out.push_str("1️⃣ Tiếp tục giữ 100% TIỀN TƯƠI, kiên nhẫn đứng ngoài quan sát thị trường chung.\n");
-            out.push_str("2️⃣ Không bắt đáy Bạc vật chất khi GSR chưa vượt 85 và nến rơi chưa tạo nền.\n");
-            out.push_str("3️⃣ Chuẩn bị sẵn danh mục gom hàng: Khi thị trường bật Đèn Xanh, ưu tiên số 1 cho FPT (vùng 50-52k), TCB (vùng 20-21k) và SMB (tích sản ăn cổ tức).\n");
+            out.push_str("2️⃣ Không bắt đáy cổ phiếu thiếu thanh khoản hoặc có sức khỏe tài chính suy yếu.\n");
+            out.push_str("3️⃣ Theo dõi nhóm cổ phiếu đạt chuẩn lọc ở mục Radar Động Lượng Sạch để chuẩn bị khi cả 4 điều kiện giải ngân cùng đạt.\n");
         } else if reg_score.unwrap_or(0.0) < 0.60 || reg_status.as_deref() == Some("RANGING") {
             out.push_str("⚠️ TRẠNG THÁI: PHÂN HÓA / THĂM DÒ (TỶ TRỌNG 30-50%)\n");
             out.push_str("1️⃣ Mua mới: Thăm dò từng phần (10-20%) tại hỗ trợ cứng với mã có cầu đỡ; không mua đuổi giá xanh.\n");
@@ -3112,5 +3174,81 @@ mod tests {
         assert!(is_report_sent_today_in_conn(&conn, "summary", "2026-11-14"));
         assert!(!is_report_sent_today_in_conn(&conn, "brief", "2026-11-14"));
         assert!(!is_report_sent_today_in_conn(&conn, "summary", "2026-11-15"));
+    }
+
+    // [WHY]: Bảo vệ parser JSON1 fail-closed cho snapshot từ `ptck.py daily-brief`: từ chối JSON lỗi,
+    // sai schema_version, lệch ngày phiên, và chặn lớp thứ 2 nếu lọt penny/DISTRESSED vào momentum_clean.
+    #[test]
+    fn parse_daily_brief_snapshot_hop_le_va_chan_sai_phien_ban_hoac_lech_ngay() {
+        let valid_json = r#"{
+            "schema_version": 1,
+            "as_of_date": "2026-11-13",
+            "governor_progress": [
+                {"key": "regime_score", "label": "Điểm sức khỏe thị trường", "operator": ">=", "current": 0.3203, "target": 0.4, "unit": "điểm", "status": "LOCKED"},
+                {"key": "breadth_pct", "label": "Tỷ lệ mã trên MA20", "operator": ">=", "current": null, "target": 60.0, "unit": "%", "status": "MISSING"}
+            ],
+            "momentum_clean": [
+                {"symbol": "TTF", "close": 1070.0, "ret_1d_pct": 6.5, "rs": 95.0, "adv20_shares": 2000000.0, "adv20_vnd": 2140000000.0, "health_archetype": "STEADY_EARNER", "breakout_20d": true},
+                {"symbol": "NVB", "close": 15800.0, "ret_1d_pct": null, "rs": 96.58, "adv20_shares": 1199600.0, "adv20_vnd": 18953680000.0, "health_archetype": "COMMODITY", "breakout_20d": false},
+                {"symbol": "NAB", "close": 13200.0, "ret_1d_pct": 1.54, "rs": 91.25, "adv20_shares": 2653820.0, "adv20_vnd": 35030424000.0, "health_archetype": "STEADY_EARNER", "breakout_20d": true}
+            ]
+        }"#;
+
+        let parsed = parse_daily_brief_snapshot(valid_json, "2026-11-13").expect("parse hop le");
+        assert_eq!(parsed.schema_version, 1);
+        assert_eq!(parsed.governor_progress.len(), 2);
+        assert_eq!(parsed.governor_progress[1].current, None);
+        assert_eq!(parsed.governor_progress[1].status, "MISSING");
+        // TTF < 10.000đ bị chốt chặn consumer loại bỏ
+        assert_eq!(parsed.momentum_clean.len(), 2);
+        assert_eq!(parsed.momentum_clean[0].symbol, "NVB");
+        assert_eq!(parsed.momentum_clean[0].ret_1d_pct, None);
+        assert!(parsed.momentum_clean[1].breakout_20d);
+
+        // Lệch ngày phiên -> Err fail-closed
+        assert!(parse_daily_brief_snapshot(valid_json, "2026-11-14").is_err());
+
+        // Sai schema_version -> Err fail-closed
+        let bad_ver = valid_json.replace("\"schema_version\": 1", "\"schema_version\": 2");
+        assert!(parse_daily_brief_snapshot(&bad_ver, "2026-11-13").is_err());
+
+        // JSON hỏng -> Err fail-closed
+        assert!(parse_daily_brief_snapshot("{bad json", "2026-11-13").is_err());
+    }
+
+    // [WHY]: Đảm bảo không còn nhận xét gán cứng sai giá (FPT 52-53k, Premium bạc +20-25%, H=0,57)
+    // hay cổ phiếu rác penny (TTF, DST, IDJ) tái xuất hiện trong bản tin Zalo thực tế.
+    #[test]
+    fn bao_cao_khong_chua_nhan_xet_gan_cung_sai_lech() {
+        if !db_san_co() {
+            return;
+        }
+        let cam_hardcode = [
+            "52-53k",
+            "Premium nới rộng",
+            "+20-25%",
+            "vùng 50-52k",
+            "vùng 20-21k",
+            "Pha tích lũy phân phối đỉnh",
+            "H=0,57",
+            "Độc quyền liên doanh",
+            "TTF",
+            "IDJ",
+            "DST",
+        ];
+        for title in [
+            "TỔNG KẾT ĐÓNG CỬA PHIÊN ATC (MARKET SUMMARY 15:15)",
+            "ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA (PRE-MARKET BRIEF 08:45)",
+        ] {
+            let report = build_market_brief(title).expect("render");
+            for mau_cam in cam_hardcode {
+                assert!(
+                    !report.contains(mau_cam),
+                    "Bản tin '{}' vẫn chứa chuỗi gán cứng/rác '{}'",
+                    title,
+                    mau_cam
+                );
+            }
+        }
     }
 }
