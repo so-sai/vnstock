@@ -97,6 +97,15 @@ SESSION_PAIR_LIMIT = 2
 # [WHY]: Mã danh mục theo dõi chuẩn (SEL_PAPER_V1 đã restate chuẩn sau sự kiện quyền TCB/FPT) cho bản tin hằng ngày.
 DEFAULT_PAPER_PORTFOLIO_ID = "SEL_PAPER_V1"
 
+# [WHY]: Ngành ICB Level-2 phải có tối thiểu 3 cổ phiếu có bar hợp lệ mới tính bình quân — tránh 1 mã nhiễu đại diện cả ngành.
+SECTOR_MIN_SYMBOLS = 3
+
+# [WHY]: Giới hạn Top 3 ngành dẫn dắt và Top 3 ngành suy yếu giữ bản tin Zalo cô đọng trong 2 dòng.
+SECTOR_TOP_K = 3
+
+# [WHY]: Hệ số quy đổi giá trị giao dịch từ VND sang tỷ đồng (10^9) cho thống nhất định dạng bản tin tiếng Việt.
+VND_TO_BILLION = 1_000_000_000.0
+
 # [WHY]: Làm tròn 4 chữ số thập phân cho chỉ số Governor — tránh sai số biểu diễn float làm nhiễu JSON.
 DECIMALS_GOV = 4
 
@@ -451,6 +460,87 @@ def build_paper_portfolio_summary(
     }
 
 
+def _missing_flow_map() -> dict[str, Any]:
+    """Payload fail-closed khi thiếu phiên liền trước hoặc bảng `symbol_industry`."""
+    return {
+        "status": "MISSING",
+        "sector_count": 0,
+        "top_sectors": [],
+        "bottom_sectors": [],
+    }
+
+
+def build_sector_flow_summary(
+    conn: sqlite3.Connection,
+    vni_d0: str,
+    vni_d1: str | None,
+    top_k: int = SECTOR_TOP_K,
+) -> dict[str, Any]:
+    """Tổng hợp Top ngành dẫn dắt / suy yếu ICB Level-2 từ `daily_ohlcv` hợp lệ + `symbol_industry`."""
+    if vni_d1 is None or top_k <= 0 or not _table_exists(conn, "symbol_industry"):
+        return _missing_flow_map()
+
+    rows = conn.execute(
+        f"""
+        WITH d0_valid AS (
+            SELECT symbol, close, volume
+            FROM daily_ohlcv
+            WHERE date = ? AND COALESCE(is_stale, 0) = 0
+              AND {VALID_ROW_SQL} AND {STOCK_ONLY_SQL}
+        ),
+        d1_valid AS (
+            SELECT symbol, close
+            FROM daily_ohlcv
+            WHERE date = ? AND COALESCE(is_stale, 0) = 0
+              AND {VALID_ROW_SQL} AND {STOCK_ONLY_SQL}
+        )
+        SELECT
+            si.icb_name2 AS sector,
+            COUNT(*) AS symbol_count,
+            AVG(((d0.close - d1.close) / d1.close) * ?) AS avg_ret_pct,
+            SUM(d0.close * d0.volume) / ? AS traded_val_bn
+        FROM d0_valid d0
+        JOIN d1_valid d1 ON d0.symbol = d1.symbol
+        JOIN symbol_industry si ON d0.symbol = si.symbol
+        WHERE si.icb_name2 IS NOT NULL AND TRIM(si.icb_name2) != '' AND d1.close > 0
+        GROUP BY si.icb_name2
+        HAVING COUNT(*) >= ?
+        ORDER BY avg_ret_pct DESC, traded_val_bn DESC, sector ASC
+        """,
+        (vni_d0, vni_d1, PCT_SCALE, VND_TO_BILLION, SECTOR_MIN_SYMBOLS),
+    ).fetchall()
+
+    sectors: list[dict[str, Any]] = []
+    for sector, sym_cnt, avg_ret, val_bn in rows:
+        if not sector or not (_is_finite_number(avg_ret) and _is_finite_number(val_bn)):
+            continue
+        sectors.append(
+            {
+                "sector": str(sector).strip(),
+                "symbol_count": int(sym_cnt),
+                "avg_ret_pct": round(float(avg_ret), DECIMALS_DISPLAY),
+                "traded_val_bn": round(float(val_bn), DECIMALS_DISPLAY),
+            }
+        )
+
+    if len(sectors) < top_k:
+        return _missing_flow_map()
+
+    top_sectors = sectors[:top_k]
+    top_names = {s["sector"] for s in top_sectors}
+    if len(sectors) >= top_k * 2:
+        bottom_sectors = list(reversed(sectors[-top_k:]))
+    else:
+        bottom_sectors = [s for s in reversed(sectors) if s["sector"] not in top_names][:top_k]
+
+    return {
+        "status": "OK",
+        "sector_count": len(sectors),
+        "top_sectors": top_sectors,
+        "bottom_sectors": bottom_sectors,
+    }
+
+
 def build_daily_brief_snapshot(
     *,
     as_of_date: str | None = None,
@@ -477,6 +567,10 @@ def build_daily_brief_snapshot(
         paper_portfolio = build_paper_portfolio_summary(conn, vni_d0, vni_d1)
         if paper_portfolio["status"] != "OK":
             warnings.append("PAPER_PORTFOLIO_MISSING")
+
+        flow_map = build_sector_flow_summary(conn, vni_d0, vni_d1)
+        if flow_map["status"] != "OK":
+            warnings.append("FLOW_MAP_MISSING")
 
         fin_ready = _financial_db_ready(financial_db)
         if not fin_ready:
@@ -537,6 +631,7 @@ def build_daily_brief_snapshot(
         "universe_count": universe_count,
         "governor_progress": governor_progress,
         "paper_portfolio": paper_portfolio,
+        "flow_map": flow_map,
         "momentum_clean": momentum_clean,
         "warnings": warnings,
     }

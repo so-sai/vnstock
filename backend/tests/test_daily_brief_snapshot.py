@@ -18,6 +18,7 @@ from src.services.daily_brief_snapshot import (
     SCHEMA_VERSION,
     build_daily_brief_snapshot,
     build_paper_portfolio_summary,
+    build_sector_flow_summary,
     evaluate_governor_progress,
     filter_clean_momentum_candidates,
     write_daily_brief_snapshot,
@@ -268,6 +269,63 @@ def test_paper_portfolio_summary_ok_and_stale_fail_closed(tmp_path: Path) -> Non
         gapped = build_paper_portfolio_summary(conn, "2026-11-13", "2026-11-11")
         assert gapped["status"] == "OK"
         assert gapped["ret_1d_pct"] is None
+
+
+def test_sector_flow_summary_ranks_and_filters_small_sectors(tmp_path: Path) -> None:
+    """[WHY] Đảm bảo ICB flow_map lọc ngành < 3 mã, loại chỉ số/stale và Fail-Closed khi vni_d1 = None."""
+    db_path = tmp_path / "screener_flow.db"
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        # Thiếu bảng symbol_industry -> MISSING
+        assert build_sector_flow_summary(conn, "2026-11-13", "2026-11-12")["status"] == "MISSING"
+
+        conn.execute(
+            """
+            CREATE TABLE daily_ohlcv (
+                symbol TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, volume REAL, is_stale INTEGER
+            )
+            """
+        )
+        conn.execute("CREATE TABLE symbol_industry (symbol TEXT PRIMARY KEY, icb_name2 TEXT)")
+
+        sectors_pct = [
+            ("Ngân hàng", 2.0),
+            ("Công nghệ Thông tin", 1.5),
+            ("Bán lẻ", 1.0),
+            ("Bất động sản", 0.0),
+            ("Thép", -1.0),
+            ("Dầu khí", -2.0),
+        ]
+        idx = 1
+        for sec_name, pct in sectors_pct:
+            for _ in range(3):
+                sym = f"M{idx:02d}"
+                idx += 1
+                c0 = 10_000.0 * (1.0 + pct / 100.0)
+                conn.execute("INSERT INTO symbol_industry VALUES (?, ?)", (sym, sec_name))
+                conn.execute("INSERT INTO daily_ohlcv VALUES (?, '2026-11-12', 10000, 10000, 10000, 10000, 100000, 0)", (sym,))
+                conn.execute("INSERT INTO daily_ohlcv VALUES (?, '2026-11-13', ?, ?, ?, ?, 100000, 0)", (sym, c0, c0, c0, c0))
+
+        # Ngành siêu nhỏ 2 mã (+50%) phải bị lọc vì HAVING COUNT(*) >= 3
+        for sym in ("TIN1", "TIN2"):
+            conn.execute("INSERT INTO symbol_industry VALUES (?, 'Niche2')", (sym,))
+            conn.execute("INSERT INTO daily_ohlcv VALUES (?, '2026-11-12', 10000, 10000, 10000, 10000, 100000, 0)", (sym,))
+            conn.execute("INSERT INTO daily_ohlcv VALUES (?, '2026-11-13', 15000, 15000, 15000, 15000, 100000, 0)", (sym,))
+
+        # Chỉ số & dòng stale phải bị loại kể cả khi nằm trong symbol_industry
+        conn.execute("INSERT INTO symbol_industry VALUES ('VNINDEX', 'Dầu khí')")
+        conn.execute("INSERT INTO daily_ohlcv VALUES ('VNINDEX', '2026-11-12', 1000, 1000, 1000, 1000, 1000, 0)")
+        conn.execute("INSERT INTO daily_ohlcv VALUES ('VNINDEX', '2026-11-13', 2000, 2000, 2000, 2000, 1000, 0)")
+        conn.commit()
+
+        fm = build_sector_flow_summary(conn, "2026-11-13", "2026-11-12")
+        assert fm["status"] == "OK"
+        assert fm["sector_count"] == 6
+        assert [s["sector"] for s in fm["top_sectors"]] == ["Ngân hàng", "Công nghệ Thông tin", "Bán lẻ"]
+        assert [s["sector"] for s in fm["bottom_sectors"]] == ["Dầu khí", "Thép", "Bất động sản"]
+        assert "Niche2" not in [s["sector"] for s in fm["top_sectors"]]
+
+        # Fail-closed khi gap phiên (vni_d1=None)
+        assert build_sector_flow_summary(conn, "2026-11-13", None)["status"] == "MISSING"
 
 
 def test_cli_daily_brief_smoke_on_live_db(tmp_path: Path) -> None:

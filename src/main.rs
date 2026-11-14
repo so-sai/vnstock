@@ -1764,12 +1764,70 @@ struct PaperPortfolioItem {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct SectorFlowEntry {
+    sector: String,
+    symbol_count: i64,
+    avg_ret_pct: f64,
+    traded_val_bn: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SectorFlowMap {
+    status: String,
+    top_sectors: Vec<SectorFlowEntry>,
+    bottom_sectors: Vec<SectorFlowEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct DailyBriefSnapshot {
     schema_version: i64,
     as_of_date: String,
     governor_progress: Vec<GovernorProgressItem>,
     paper_portfolio: Option<PaperPortfolioItem>,
+    flow_map: Option<SectorFlowMap>,
     momentum_clean: Vec<MomentumCleanItem>,
+}
+
+fn parse_sector_flow_array(
+    mem: &Connection,
+    raw_json: &str,
+    json_path: &str,
+) -> Result<Vec<SectorFlowEntry>, String> {
+    let type_str: Option<String> = mem
+        .query_row("SELECT json_type(?1, ?2)", params![raw_json, json_path], |r| r.get(0))
+        .unwrap_or(None);
+    if type_str.as_deref() != Some("array") {
+        return Ok(Vec::new());
+    }
+    let mut stmt = mem
+        .prepare(
+            "SELECT
+                COALESCE(json_extract(je.value, '$.sector'), ''),
+                COALESCE(CAST(json_extract(je.value, '$.symbol_count') AS INTEGER), 0),
+                COALESCE(CAST(json_extract(je.value, '$.avg_ret_pct') AS REAL), 0.0),
+                COALESCE(CAST(json_extract(je.value, '$.traded_val_bn') AS REAL), 0.0)
+            FROM json_each(?1, ?2) AS je
+            ORDER BY CAST(je.key AS INTEGER);",
+        )
+        .map_err(|e| format!("Lỗi chuẩn bị truy vấn dòng tiền ngành: {}", e))?;
+    let rows = stmt
+        .query_map(params![raw_json, json_path], |r| {
+            Ok(SectorFlowEntry {
+                sector: r.get(0)?,
+                symbol_count: r.get(1)?,
+                avg_ret_pct: r.get(2)?,
+                traded_val_bn: r.get(3)?,
+            })
+        })
+        .map_err(|e| format!("Lỗi đọc danh sách ngành: {}", e))?;
+    let mut items = Vec::new();
+    for row_res in rows {
+        let entry = row_res.map_err(|e| format!("Lỗi giải mã mục ngành: {}", e))?;
+        if !entry.sector.trim().is_empty() && entry.symbol_count > 0 {
+            items.push(entry);
+        }
+    }
+    Ok(items)
 }
 
 fn friendly_archetype(arch: &str) -> &str {
@@ -1976,11 +2034,34 @@ fn parse_daily_brief_snapshot(
         None
     };
 
+    let flow_type: Option<String> = mem
+        .query_row("SELECT json_type(?1, '$.flow_map')", params![raw_json], |r| r.get(0))
+        .unwrap_or(None);
+    let flow_map = if flow_type.as_deref() == Some("object") {
+        let status: String = mem
+            .query_row(
+                "SELECT COALESCE(json_extract(?1, '$.flow_map.status'), 'MISSING')",
+                params![raw_json],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "MISSING".to_string());
+        let top_sectors = parse_sector_flow_array(&mem, raw_json, "$.flow_map.top_sectors")?;
+        let bottom_sectors = parse_sector_flow_array(&mem, raw_json, "$.flow_map.bottom_sectors")?;
+        Some(SectorFlowMap {
+            status,
+            top_sectors,
+            bottom_sectors,
+        })
+    } else {
+        None
+    };
+
     Ok(DailyBriefSnapshot {
         schema_version: 1,
         as_of_date,
         governor_progress,
         paper_portfolio,
+        flow_map,
         momentum_clean,
     })
 }
@@ -2491,6 +2572,43 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         }
         if !foreign_sells.is_empty() {
             out.push_str(&format!("• Top Bán ròng: {}\n", foreign_sells.join(", ")));
+        }
+    }
+
+    if let Ok(snap) = &brief_snapshot {
+        out.push_str("\n🌊 LUÂN CHUYỂN DÒNG TIỀN NGÀNH (ICB)\n");
+        let fmt_sectors = |items: &[SectorFlowEntry]| -> String {
+            items
+                .iter()
+                .map(|s| {
+                    let sign = if s.avg_ret_pct >= 0.0 { "+" } else { "" };
+                    let val_str = format!("{:.1}", s.traded_val_bn).replace('.', ",");
+                    format!(
+                        "{} ({}{}% | {} tỷ)",
+                        s.sector,
+                        sign,
+                        format_number_vnd(s.avg_ret_pct),
+                        val_str
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if has_session_gap {
+            out.push_str("  • [Tạm ẩn phân tầng dòng tiền ngành do khuyết phiên liền trước]\n");
+        } else if let Some(fm) = &snap.flow_map {
+            if fm.status == "OK" && (!fm.top_sectors.is_empty() || !fm.bottom_sectors.is_empty()) {
+                if !fm.top_sectors.is_empty() {
+                    out.push_str(&format!("• 🟢 Dẫn dắt: {}\n", fmt_sectors(&fm.top_sectors)));
+                }
+                if !fm.bottom_sectors.is_empty() {
+                    out.push_str(&format!("• 🔴 Suy yếu: {}\n", fmt_sectors(&fm.bottom_sectors)));
+                }
+            } else {
+                out.push_str("  • [Chưa đủ dữ liệu luân chuyển ngành phiên này]\n");
+            }
+        } else {
+            out.push_str("  • [Chưa có dữ liệu luân chuyển ngành trong snapshot]\n");
         }
     }
 
@@ -3391,6 +3509,29 @@ mod tests {
         assert_eq!(pp.status, "OK");
         assert_eq!(pp.open_symbols, vec!["FPT".to_string(), "VCB".to_string()]);
         assert_eq!(pp.ret_1d_pct, Some(0.20));
+
+        // Bổ sung block flow_map Phase 1b-2
+        let with_flow = r#"{
+            "schema_version": 1,
+            "as_of_date": "2026-11-13",
+            "governor_progress": [],
+            "flow_map": {
+                "status": "OK",
+                "sector_count": 19,
+                "top_sectors": [
+                    {"sector": "Truyền thông", "symbol_count": 14, "avg_ret_pct": 2.64, "traded_val_bn": 7.94}
+                ],
+                "bottom_sectors": [
+                    {"sector": "Du lịch và Giải trí", "symbol_count": 17, "avg_ret_pct": -0.85, "traded_val_bn": 322.24}
+                ]
+            },
+            "momentum_clean": []
+        }"#;
+        let parsed_fm = parse_daily_brief_snapshot(with_flow, "2026-11-13").expect("parse flow_map");
+        let fm = parsed_fm.flow_map.expect("has flow_map");
+        assert_eq!(fm.status, "OK");
+        assert_eq!(fm.top_sectors[0].sector, "Truyền thông");
+        assert_eq!(fm.bottom_sectors[0].sector, "Du lịch và Giải trí");
     }
 
     // [WHY]: Đảm bảo không còn nhận xét gán cứng sai giá (FPT 52-53k, Premium bạc +20-25%, H=0,57)
