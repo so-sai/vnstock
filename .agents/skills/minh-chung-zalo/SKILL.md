@@ -20,22 +20,14 @@ description: Kỹ năng thực thi siêu tốc (<30ms) cho Minh Chứng (PTCK_VN
 | **Đồng bộ CLI Vĩ mô & Lãi suất** | `.\minh_chung.exe sync` *(hoặc `--send`)* | Gọi `python ptck.py sbv-update` & `python ptck.py fetch-macro` |
 | **Đọc tin nhắn mới nhất trên Zalo** | `.\minh_chung.exe read` | **`~3.5ms`** (Tự động Self-Boot Zalo CDP nếu chưa bật) |
 | **Gửi tin nhắn/báo cáo vào Zalo** | `.\minh_chung.exe send "<Nội dung báo cáo>"` | **`~25ms`** |
-| **Tự động bật Zalo CDP & 2 Daemons** | `.\minh_chung.exe boot` | Tự dò `Zalo.exe` mới nhất + Bật `minh_chung.exe watch` & `minh_tam.exe watch` |
-| **Chạy Daemon Phản xạ `<1s` 24/7** | `.\minh_chung.exe watch` | Canh `"My Documents"` chu kỳ `100ms` (`~3.7MB RAM`) |
+| **Tự động bật Zalo CDP & Daemon** | `.\minh_chung.exe boot` | Tự dò `Zalo.exe` mới nhất + Bật `minh_chung.exe watch` |
+| **Chạy Daemon Phản xạ `<1s` 24/7** | `.\minh_chung.exe watch` | Canh `"Trạm Số Liệu - Minh Chứng"` chu kỳ `500ms` (`~3.7MB RAM`) |
 
 ## 3. Phân Định Tính Cách & Văn Phong Chuyên Môn (Agent Persona & Executive Tone)
 
-Hai Bot được thiết kế với văn phong sắc bén, ngắn gọn, giàu thông tin và tuyệt đối không rườm rà:
+Bot được thiết kế với văn phong sắc bén, ngắn gọn, giàu thông tin và tuyệt đối không rườm rà:
 
-### 🎯 Bot 1: Minh Tâm (`minh_tam.exe`) – Thư ký Trưởng Ban Dự Án Xây Dựng
-- **Văn phong:** Kỷ luật thép công trường, gãy gọn, quyết đoán, chuẩn mực tham mưu Lãnh đạo.
-- **Tiền tố:** `/mt <chỉ đạo>` hoặc `Minh Tâm <chỉ đạo>`
-- **Cấu trúc phản hồi 3 ý:**
-  1. `[Mã Sổ & Cấp độ]`: `[TSK-xxxx]` | Ưu tiên: P1 (Xử lý ngay).
-  2. `[Hiện trạng & PIC]`: Tình trạng hồ sơ, tiến độ nghiệm thu/quyết toán, người chịu trách nhiệm trực tiếp (PIC).
-  3. `[Tham mưu hành động]`: Gợi ý giải pháp chốt việc dứt khoát trong ngày.
-
-### 📊 Bot 2: Minh Chứng (`minh_chung.exe`) – Chuyên Gia Phân Tích Định Lượng & BCTC
+### 📊 Minh Chứng (`minh_chung.exe`) – Chuyên Gia Phân Tích Định Lượng & BCTC
 - **Văn phong:** Khách quan, trung lập theo số liệu (Data-driven), chuẩn mực CFA/Quant, không cảm tính.
 - **Tiền tố:** `/mc <MÃ_CP>` hoặc `Minh Chứng <MÃ_CP>`
 - **Cấu trúc phản hồi 3 tầng:**
@@ -43,10 +35,9 @@ Hai Bot được thiết kế với văn phong sắc bén, ngắn gọn, giàu t
   2. `[Cơ bản & Định giá]`: P/E, P/B vs Lịch sử ngành; ROE/ROA; NPL, LLR, NIM (Ngân hàng) hoặc Biên gộp/LNST (Doanh nghiệp).
   3. `[Góc nhìn Định lượng (Quant Verdict)]`: Kết luận xu hướng ngắn hạn + Cảnh báo rủi ro + Khuyến nghị hành động kỹ thuật.
 
-## 4. Phân Chia Tiền Tố & Đồng Bộ Cổng (Namespace + Named Mutex Isolation)
-Hội thoại **"My Documents" ("Cloud của tôi")** đóng vai trò là Bus Điều Khiển Trung Tâm cho 2 Agent độc lập bảo vệ bởi Windows Named Mutex (`Local\ZaloPC_Bridge_Mutex`):
-- **Bot 1 – `minh_tam.exe`** (Thư ký Xây dựng): Chỉ bắt lệnh có tiền tố `Minh Tâm ...` hoặc `/mt ...`.
-- **Bot 2 – `minh_chung.exe`** (Chứng khoán & Vĩ mô): Chỉ bắt lệnh có tiền tố `Minh Chứng ...`, `Minh Chung ...`, hoặc `/mc ...`:
+## 4. Cô Lập Độc Lập & Đồng Bộ Cổng (Standalone Channel + Named Mutex Isolation)
+`minh_chung.exe` hoạt động **độc lập 100%** trên kênh riêng **"Trạm Số Liệu - Minh Chứng"**, được bảo vệ bởi Windows Named Mutex (`Local\ZaloPC_Bridge_Mutex` và `Local\MinhChung_Daemon_Instance_Mutex`):
+- **Nhận diện lệnh:** `Minh Chứng ...`, `Minh Chung ...`, `/mc ...`, hoặc lệnh trực tiếp trong kênh riêng (`/hpg`, `/shb`, `/brief`, `/ngành thép`, `/tìm`, `/sync`, mã cổ phiếu 3–4 ký tự):
   - `Minh Chứng SHB` hoặc `/mc SHB` (hoặc `FPT`, `PNJ`, `MBB`, `TCB`, `VCB`, `ACB`, `HPG`, `VNINDEX`) $\rightarrow$ Trả lời tức thì Hồ sơ Định lượng & BCTC kèm Góc nhìn Định lượng (Quant Verdict).
   - `Minh Chứng báo cáo` hoặc `/mc brief` $\rightarrow$ Trả lời tức thì Điểm tin VN-Index, Market Regime, Vĩ mô (Fed, US10Y, DXY, Liên NH O/N, TPCP 10Y) & Khuyến nghị chiến lược phiên.
   - `Minh Chứng cập nhật` hoặc `/mc sync` $\rightarrow$ Kích hoạt đường ống CLI `ptck.py` cập nhật dữ liệu mới nhất rồi gửi bản tin tổng hợp.

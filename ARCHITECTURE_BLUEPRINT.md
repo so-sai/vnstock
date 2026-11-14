@@ -1,8 +1,7 @@
 # BẢN TỔNG HỢP KIẾN TRÚC MẪU (MASTER BLUEPRINT)
 **Kiến trúc Agent Phản Xạ Tức Thì (`< 30ms`) trên Windows 11: Native Rust + `winsqlite3.dll` + Zalo PC CDP Loopback**
 
-Tài liệu này là **Standard Operating Procedure (SOP)** đúc kết từ thực nghiệm bóc tách, thử sai và tối ưu hóa thành công, dùng để nhân bản cho mọi dự án Agent chuyên biệt trên Windows 11:
-- **Minh Tâm (`minh_tam.exe`)** – Thư ký Dự án Xây dựng (`G:\My Drive\05. AI - Data\GEM\04. THƯ KÝ DỰ ÁN XD`)
+Tài liệu này là **Standard Operating Procedure (SOP)** đúc kết từ thực nghiệm bóc tách, thử sai và tối ưu hóa thành công, dùng để vận hành **Minh Chứng** và nhân bản cho các dự án Agent chuyên biệt trên Windows 11:
 - **Minh Chứng (`minh_chung.exe`)** – Chuyên gia Phân tích Chứng khoán & Vĩ mô (`PTCK_VNSTOCK`)
 - **Trợ lý Nhập khẩu LCA (`minh_lca.exe`)** – Quản lý Hồ sơ & Chuỗi cung ứng
 - **Điều phối AutoCAD / BIM (`minh_cad.exe`)** – Tự động hóa Kỹ thuật qua COM Interop
@@ -27,9 +26,9 @@ Qua thực nghiệm, 5 nguyên lý dưới đây phân định rõ giữa một 
 
 4. **"Cloud của tôi" (`My Documents`) là Bus Điều Khiển Trung Tâm + Khóa Cứng Tiền Tố (Strict Prefix Isolation):**
    - Biến hội thoại **"My Documents"** ("Cloud của tôi") thành Command Line từ xa trên điện thoại.
-   - **Quy tắc cô lập tiền tố:** Tuyệt đối **CẤM** dùng ký tự đại diện chung chung (như `starts_with('/')`). Mỗi Bot phải có namespace riêng biệt:
-     - Bot 1 (Minh Tâm): `Minh Tâm ...`, `minh tam ...`, `/mt ...`, `/task ...` (Bỏ qua hoàn toàn `/mc` và các bot khác).
-     - Bot 2 (Minh Chứng): `Minh Chứng ...`, `minh chung ...`, `/mc ...` (Bỏ qua hoàn toàn `/mt` và các bot khác).
+   - **Quy tắc cô lập tiền tố:** Tuyệt đối **CẤM** dùng ký tự đại diện chung chung (như `starts_with('/')`) khi dùng chung bus điều khiển. Mỗi Bot phải có namespace riêng biệt:
+     - Bot Minh Chứng: `Minh Chứng ...`, `minh chung ...`, `/mc ...` (hoạt động độc lập trên kênh `"Trạm Số Liệu - Minh Chứng"`).
+     - Bot mở rộng (VD: Minh Kiểm): `Minh Kiểm ...`, `/mk ...` (Bỏ qua hoàn toàn `/mc` và các bot khác).
      - Mọi tin nhắn bắt đầu bằng dấu ngoặc vuông `[...]`, emoji báo cáo (`📊`, `📈`, `⚠️`, `🤖`) hoặc tên bot phản hồi phải được lọc bỏ ngay để tránh vòng lặp phản xạ vô tận (Infinite Echo Loop).
 
 5. **Đồng bộ Liên Tiến trình qua Windows Named Mutex (Inter-Process Safety):**
@@ -60,14 +59,15 @@ Khi áp dụng sang dự án khác, tùy thuộc vào phần mềm đích mà ch
 💻 Zalo PC (Zalo.exe --remote-debugging-port=58721)
        │
        ├──► 🔒 [Windows Named Mutex: Local\ZaloPC_Bridge_Mutex]
-       │         ▲                                  ▲
-       │         │ (Khóa giao dịch 10-50ms)        │ (Khóa giao dịch 10-50ms)
-       │         │                                  │
-       ├──► [BOT 1: MINH TÂM (XÂY DỰNG)]    [BOT 2: MINH CHỨNG (CHỨNG KHOÁN)]
-       │    Tiền tố: `/mt ...`, `Minh Tâm`       Tiền tố: `/mc ...`, `Minh Chứng`
-       │    Database: `minh_tam.db` (25 dự án)    Database: `screener_cache.db` + `financial_facts.db`
-       │    Binary: `minh_tam.exe watch`          Binary: `minh_chung.exe watch`
-       │    Source: `04. THƯ KÝ...\src\main.rs`   Source: `PTCK_VNSTOCK\src\main.rs`
+       │         ▲
+       │         │ (Khóa giao dịch 10-50ms)
+       │         │
+       ├──► [BOT MINH CHỨNG (CHỨNG KHOÁN & VĨ MÔ)]
+       │    Kênh: `"Trạm Số Liệu - Minh Chứng"`
+       │    Tiền tố: `/mc ...`, `Minh Chứng`
+       │    Database: `screener_cache.db` + `financial_facts.db`
+       │    Binary: `minh_chung.exe watch`
+       │    Source: `PTCK_VNSTOCK\src\main.rs`
        │
        └──► [TẦNG 2 & 3: SUY LUẬN SÂU & LỊCH TRÌNH ĐỊNH KỲ]
             AI Agent (Antigravity / Gemini)
@@ -104,15 +104,12 @@ Khi áp dụng sang dự án khác, tùy thuộc vào phần mềm đích mà ch
 
 ### 2. Quy Tắc Zero-Hardcode Paths (Di Động Tuyệt Đối)
 
-Mọi đường dẫn tuyệt đối (như `D:\04. Software\...` hay `G:\My Drive\...`) đều bị cấm trong logic cốt lõi. Cả 2 bot tuân thủ nghiêm ngặt 3 cấp độ tự định vị:
+Mọi đường dẫn tuyệt đối (như `D:\04. Software\...` hay `G:\My Drive\...`) đều bị cấm trong logic cốt lõi. Bot tuân thủ nghiêm ngặt 3 cấp độ tự định vị:
 
 1. **Cấp 1 (Ưu tiên số 1):** Tự định vị qua vị trí file nhị phân đang chạy (`std::env::current_exe()`).
    - `minh_chung.exe` tự tìm thư mục `backend/data/*.db` ngay tại thư mục cha hoặc ông của file `.exe`.
-   - `minh_tam.exe` tự tìm `minh_tam.db` nằm ngay cạnh file `minh_tam.exe`.
 2. **Cấp 2 (Tùy biến qua Môi trường):** Hỗ trợ override bằng biến môi trường khi cần đặt dữ liệu ở ổ đĩa khác:
    - `PTCK_ROOT`: Ghi đè thư mục gốc dự án Chứng khoán.
-   - `MINH_TAM_DB`: Ghi đè đường dẫn file cơ sở dữ liệu `minh_tam.db`.
-   - `MINH_TAM_DIR`: Ghi đè thư mục chứa binary `minh_tam.exe`.
 3. **Cấp 3 (Fallback An Toàn):** Kiểm tra Current Working Directory (`env::current_dir()`), tuyệt đối không bao giờ panic nếu không tìm thấy thư mục phụ.
 
 👉 **Kết luận:** Người dùng có thể copy nguyên thư mục dự án sang ổ `C:`, `D:`, hoặc máy tính của đồng nghiệp, gõ `.\minh_chung.exe boot` là toàn bộ hệ thống tự động khởi chạy trơn tru ngay lập tức!
@@ -132,9 +129,9 @@ Mọi đường dẫn tuyệt đối (như `D:\04. Software\...` hay `G:\My Driv
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │             TẦNG 2: BỘ ĐỊNH TUYẾN TIỀN TỐ (SINGLE MULTIPLEXER)          │
-│   1 Daemon Gác Cổng (3.8MB RAM, 100ms) bắt mọi tin nhắn từ My Documents │
-│     Đọc "/mt ..."  ──► Gọi: minh_tam.exe <lệnh>                         │
+│   1 Daemon Gác Cổng (3.8MB RAM, 500ms) bắt mọi tin nhắn từ kênh riêng   │
 │     Đọc "/mc ..."  ──► Gọi: minh_chung.exe <mã_cp>                      │
+│     Đọc "/ke ..."  ──► Gọi: minh_ke.exe <chứng_từ>                      │
 │     Đọc "/lca ..." ──► Gọi: minh_kiem.exe <chứng_từ>                    │
 │     Đọc "/cad ..." ──► Gọi: minh_cad.exe <lệnh_vẽ>                      │
 └───────────────────────────────────┬─────────────────────────────────────┘
@@ -142,14 +139,14 @@ Mọi đường dẫn tuyệt đối (như `D:\04. Software\...` hay `G:\My Driv
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │           TẦNG 3: CÁC MODULE NGHIỆP VỤ THUẦN KHIẾT (PURE ENGINES)       │
-│  [minh_tam.exe]        [minh_chung.exe]        [minh_kiem.exe]          │
-│  (Chỉ biết SQLite XD)  (Chỉ biết SQLite CK)    (Chỉ biết Luật LCA)      │
+│  [minh_chung.exe]        [minh_ke.exe]           [minh_kiem.exe]        │
+│  (Chỉ biết SQLite CK)    (Chỉ biết SQLite KT)    (Chỉ biết Luật LCA)    │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 1. Ba Quy Luật Tổng Quát Hóa Cốt Lõi
 1. **Tách Cổng Giao Tiếp Khỏi Não Nghiệp Vụ (Decouple Transport from Domain):**
-   - Các module nghiệp vụ (`minh_chung.exe`, `minh_tam.exe`, `minh_kiem.exe`) là **Pure CLI Engines** (`3ms`): Nhận lệnh qua `args/stdin` $\rightarrow$ Đọc SQLite $\rightarrow$ Xuất báo cáo ra `stdout`.
+   - Các module nghiệp vụ (`minh_chung.exe`, `minh_ke.exe`, `minh_kiem.exe`) là **Pure CLI Engines** (`3ms`): Nhận lệnh qua `args/stdin` $\rightarrow$ Đọc SQLite $\rightarrow$ Xuất báo cáo ra `stdout`.
    - Các engine này hoàn toàn không biết và không phụ thuộc vào Zalo PC hay giao diện người dùng. Có thể gọi chúng từ Zalo, Antigravity, PowerShell, hay bất kỳ phần mềm nào.
 2. **Ngoại Vi Hóa Selector Giao Diện (`zalo_selectors.json`):**
    - Không nhúng chết các class HTML (`#richInput`, `.card--text`) vào bên trong các file nhị phân nghiệp vụ.

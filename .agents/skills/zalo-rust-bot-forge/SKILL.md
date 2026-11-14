@@ -13,9 +13,8 @@ Mỗi khi người dùng yêu cầu tạo bot mới (VD: *"Hãy tạo Bot Minh K
 
 ### Bước 1: Tra Cứu Namespace Registry (Chống Xung Đột)
 Kiểm tra bảng tiền tố độc quyền để tránh va chạm với các bot đã chạy:
-- Bot 1: `Minh Tâm` $\rightarrow$ `/mt` (`Local\MinhTam_Daemon_Instance_Mutex`)
-- Bot 2: `Minh Chứng` $\rightarrow$ `/mc` (`Local\MinhChung_Daemon_Instance_Mutex`)
-- Bot 3: `Minh Kiểm` $\rightarrow$ `/mk`, `/lca` (`Local\MinhKiem_Daemon_Instance_Mutex`)
+- Bot 1: `Minh Chứng` $\rightarrow$ `/mc` (`Local\MinhChung_Daemon_Instance_Mutex`)
+- Bot 2: `Minh Kiểm` $\rightarrow$ `/mk`, `/lca` (`Local\MinhKiem_Daemon_Instance_Mutex`)
 - Bot mới: Phải chọn một tiền tố chưa từng xuất hiện (VD: `/kt`, `/cad`, `/kho`).
 
 ### Bước 2: Sinh Mã Nguồn Từ `src/template_main.rs`

@@ -38,11 +38,11 @@ Tài liệu này là **Khuôn Mẫu Thực Chiến (Standard Operating Procedure
   2. Kèm theo `.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())` để tránh panic `The handle is invalid` khi chạy ngầm không có console.
 
 ### 3. Bẫy 3: Nhiều Bot chạy chung 1 Zalo PC bị cướp lệnh và kẹt phím
-* **Bản chất kỹ thuật:** Khi chạy song song nhiều Bot (VD: Bot 1 `minh_tam` - Xây dựng, Bot 2 `minh_chung` - Chứng khoán) cùng trỏ vào 1 tiến trình Zalo PC:
-  - Nếu Bot 1 bắt tiền tố chung chung (như bắt tất cả tin nhắn có dấu `/`), nó sẽ nuốt luôn lệnh `/mc` của Bot 2 và ghi nhầm dữ liệu.
+* **Bản chất kỹ thuật:** Khi chạy song song nhiều Bot (VD: Bot 1 `minh_chung` - Chứng khoán, Bot 2 `minh_kiem` - Kiểm toán LCA) cùng trỏ vào 1 tiến trình Zalo PC:
+  - Nếu Bot 1 bắt tiền tố chung chung (như bắt tất cả tin nhắn có dấu `/`), nó sẽ nuốt luôn lệnh của Bot khác và ghi nhầm dữ liệu.
   - Nếu 2 Bot cùng gửi tin vào khung chat `#richInput` một lúc, bàn phím ảo sẽ bị trộn lẫn ký tự.
 * **Giải pháp chuẩn (Bộ Ba Khóa An Toàn):**
-  - **Khóa 1 (Strict Prefix Isolation):** Phân chia namespace tuyệt đối: `/mt` vs `/mc`. Lọc bỏ ngay các tin nhắn chứa ngoặc vuông `[...]` hoặc emoji để chống vòng lặp dội âm (Echo loop).
+  - **Khóa 1 (Strict Prefix Isolation):** Phân chia namespace tuyệt đối (VD: `/mc` cho `minh_chung.exe`, `/mk` cho `minh_kiem.exe`). Lọc bỏ ngay các tin nhắn chứa ngoặc vuông `[...]` hoặc emoji để chống vòng lặp dội âm (Echo loop).
   - **Khóa 2 (Inter-Process Bridge Mutex):** Dùng Named Mutex cấp Kernel `Local\ZaloPC_Bridge_Mutex` bọc toàn bộ giao dịch CDP. Mỗi thời điểm chỉ duy nhất 1 bot được thao tác với Zalo trong `< 15ms`.
   - **Khóa 3 (Per-Bot Singleton Mutex):** Mỗi bot giữ 1 Mutex đơn thể riêng (VD: `Local\MinhChung_Daemon_Instance_Mutex`). Nếu người dùng bấm bật nhầm lần 2, tiến trình mới tự thoát sau `0.001ms`.
 
@@ -176,8 +176,7 @@ Bot sẽ phản hồi ngay lập tức trong **`< 50ms`** theo chuẩn phong th�
 ### 1. Chốt Chặn "Không Chạy Ngầm Sau Giờ Làm" & Cú Đề Máy Tự Động Đầu Ngày (Morning Ignition)
 * **Triết lý:** Tuân thủ nguyên tắc tiết kiệm năng lượng và bảo mật máy tính cá nhân. Tuyệt đối **không cấu hình Windows Task Scheduler** với tùy chọn *"Wake the computer to run this task"* để tránh làm máy tự bật lúc nửa đêm sau khi đã tắt máy (16:30 - 17:00).
 * **Cơ chế Morning Ignition:**
-  - Khi bạn bật máy tính vào đầu giờ làm việc buổi sáng, các tác vụ Sidecar Automations (hoặc khi bạn chạy lệnh đầu tiên):
-    - `08:00`: Minh Tâm chạy `minh_tam.exe brief`
+  - Khi bạn bật máy tính vào đầu giờ làm việc buổi sáng, các tác vụ Automation (hoặc khi bạn chạy lệnh đầu tiên):
     - `08:45`: Minh Chứng chạy `minh_chung.exe brief --sync`
   - Các lệnh này gọi `ensure_zalo_cdp()` và `ensure_watch_daemons_running()`:
     1. Kiểm tra nếu `Zalo.exe` chưa mở cổng `58721` $\rightarrow$ Tự khởi động lại Zalo PC kèm cờ CDP.
@@ -198,11 +197,10 @@ Bot sẽ phản hồi ngay lập tức trong **`< 50ms`** theo chuẩn phong th�
 
 | Thứ tự | Tên Agent & Binary | Lĩnh vực chuyên trách | Tiền tố Độc quyền trên Zalo | Khóa Singleton Mutex | Trạng thái |
 |:---:|---|---|---|---|:---:|
-| **Bot 1** | **Minh Tâm Kiến Tính**<br>`minh_tam.exe` | Quản lý 25 dự án Xây dựng, tiến độ, hợp đồng, vật tư VEDA / LT1A | **`/mt`**<br>`Minh Tâm` | `Local\MinhTam_Daemon_Instance_Mutex` | ✅ Đang trực chiến |
-| **Bot 2** | **Minh Chứng**<br>`minh_chung.exe` | Phân tích Định lượng, BCTC, Vĩ mô, Watchlist (`PTCK_VNSTOCK`) | **`/mc`**<br>`Minh Chứng` | `Local\MinhChung_Daemon_Instance_Mutex` | ✅ Đang trực chiến |
-| **Bot 3** | **Minh Kiểm (LCA)**<br>`minh_kiem.exe` | Kiểm toán chứng từ Nhập khẩu (B/L, Invoice, C/O Form E/D/AK, Incoterms) | **`/mk`** hoặc **`/lca`**<br>`Minh Kiểm` | `Local\MinhKiem_Daemon_Instance_Mutex` | 🔄 Sẵn sàng đúc |
-| **Bot 4** | **Minh Kế (Kế Toán)**<br>`minh_ke.exe` | Thuế, hóa đơn điện tử, đối chiếu công nợ nhà thầu/nhà cung cấp | **`/kt`** hoặc **`/ke`**<br>`Minh Kế` | `Local\MinhKe_Daemon_Instance_Mutex` | 🔄 Sẵn sàng đúc |
-| **Bot 5** | **Minh Thiết (AutoCAD)**<br>`minh_cad.exe` | Tự động hóa bản vẽ CAD qua Windows COM Interop (`ole32.dll`) | **`/cad`**<br>`Minh Thiết` | `Local\MinhCad_Daemon_Instance_Mutex` | 🔄 Sẵn sàng đúc |
+| **Bot 1** | **Minh Chứng**<br>`minh_chung.exe` | Phân tích Định lượng, BCTC, Vĩ mô, Watchlist (`PTCK_VNSTOCK`) | **`/mc`**<br>`Minh Chứng` | `Local\MinhChung_Daemon_Instance_Mutex` | ✅ Đang trực chiến |
+| **Bot 2** | **Minh Kiểm (LCA)**<br>`minh_kiem.exe` | Kiểm toán chứng từ Nhập khẩu (B/L, Invoice, C/O Form E/D/AK, Incoterms) | **`/mk`** hoặc **`/lca`**<br>`Minh Kiểm` | `Local\MinhKiem_Daemon_Instance_Mutex` | 🔄 Sẵn sàng đúc |
+| **Bot 3** | **Minh Kế (Kế Toán)**<br>`minh_ke.exe` | Thuế, hóa đơn điện tử, đối chiếu công nợ nhà thầu/nhà cung cấp | **`/kt`** hoặc **`/ke`**<br>`Minh Kế` | `Local\MinhKe_Daemon_Instance_Mutex` | 🔄 Sẵn sàng đúc |
+| **Bot 4** | **Minh Thiết (AutoCAD)**<br>`minh_cad.exe` | Tự động hóa bản vẽ CAD qua Windows COM Interop (`ole32.dll`) | **`/cad`**<br>`Minh Thiết` | `Local\MinhCad_Daemon_Instance_Mutex` | 🔄 Sẵn sàng đúc |
 | **Khóa Chung** | **Zalo CDP Bridge** | Điều phối toàn bộ luồng đọc/gửi WebSocket `127.0.0.1:58721` | *(Dùng chung cho toàn hệ thống)* | **`Local\ZaloPC_Bridge_Mutex`** | 🔒 Bảo vệ liên tiến trình |
 
 ---

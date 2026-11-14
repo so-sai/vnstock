@@ -1,4 +1,7 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// [WHY]: Cấm đặt `#![windows_subsystem = "windows"]` vì sẽ biến binary thành Windows GUI subsystem,
+// khiến toàn bộ lệnh CLI (`query`, `summary`, `brief`, `sync`, `read`, `send`) bị nuốt mất output trong terminal/PowerShell.
+// Khi cần chạy ngầm (watch daemon), hệ thống đã dùng cờ `CREATE_NO_WINDOW` (0x08000000) bảo đảm 100% ẩn ngầm.
+
 
 use std::env;
 use std::ffi::CString;
@@ -49,6 +52,16 @@ extern "system" {
     fn ReleaseMutex(hMutex: *mut c_void) -> c_int;
     fn CloseHandle(hObject: *mut c_void) -> c_int;
     fn AttachConsole(dwProcessId: u32) -> c_int;
+    fn CreateFileA(
+        lpFileName: *const c_char,
+        dwDesiredAccess: u32,
+        dwShareMode: u32,
+        lpSecurityAttributes: *mut c_void,
+        dwCreationDisposition: u32,
+        dwFlagsAndAttributes: u32,
+        hTemplateFile: *mut c_void,
+    ) -> *mut c_void;
+    fn SetStdHandle(nStdHandle: u32, hHandle: *mut c_void) -> c_int;
     fn GetLocalTime(lpSystemTime: *mut SystemTimeWin32);
 }
 
@@ -60,11 +73,31 @@ pub fn get_win32_local_time() -> SystemTimeWin32 {
     st
 }
 
+// [WHY]: Ứng dụng dùng cờ windows_subsystem = "windows" để ẩn hoàn toàn cửa sổ đen khi chạy ngầm 24/7.
+// Tuy nhiên, khi được gọi từ CLI/PowerShell, AttachConsole gắn tiến trình vào console của parent nhưng
+// Windows không tự động gán STD_OUTPUT/STD_ERROR_HANDLE, khiến Rust println!/eprintln! bị nuốt mất output.
+// Gán lại SetStdHandle sang CONOUT$ để hiển thị toàn bộ log ra màn hình terminal khi gọi lệnh tương tác.
 #[cfg(windows)]
 fn attach_parent_console() {
     const ATTACH_PARENT_PROCESS: u32 = 0xFFFFFFFF;
     unsafe {
-        AttachConsole(ATTACH_PARENT_PROCESS);
+        if AttachConsole(ATTACH_PARENT_PROCESS) != 0 {
+            if let Ok(conout) = CString::new("CONOUT$") {
+                let h_out = CreateFileA(
+                    conout.as_ptr(),
+                    0x40000000 | 0x80000000, // GENERIC_READ | GENERIC_WRITE
+                    1 | 2,                   // FILE_SHARE_READ | FILE_SHARE_WRITE
+                    ptr::null_mut(),
+                    3,                       // OPEN_EXISTING
+                    0,
+                    ptr::null_mut(),
+                );
+                if h_out as isize != -1 {
+                    SetStdHandle(0xFFFFFFF5, h_out); // STD_OUTPUT_HANDLE
+                    SetStdHandle(0xFFFFFFF4, h_out); // STD_ERROR_HANDLE
+                }
+            }
+        }
     }
 }
 
@@ -192,6 +225,14 @@ impl CdpClient {
         } else {
             false
         }
+    }
+
+    /// [WHY]: Định vị kết quả tìm kiếm hội thoại trong popup search Zalo PC v26.10.20+.
+    /// [ROOT CAUSE]: Zalo PC hiển thị danh sách tìm kiếm bên trong `#searchResultList` dùng các class `.conv-item`
+    /// hoặc `.gridv2` (ReactVirtualized). Bộ selector thiếu `#searchResultList` sẽ không bắt được item và trả về `SEARCH_NO_MATCH`.
+    /// [INVARIANT]: Bắt buộc luôn bao gồm `#searchResultList .conv-item` và `#searchResultList [class*="conv-item"]`.
+    pub fn search_results_selector() -> &'static str {
+        "#searchResultList .conv-item, #searchResultList [class*=\"conv-item\"], #searchResultList .gridv2, .search-item, [class*=\"search-result\"], [class*=\"item-search\"], [id*=\"group-item\"], [data-id*=\"search\"]"
     }
 
     pub fn connect_zalo() -> Result<Self, String> {
@@ -624,27 +665,35 @@ impl CdpClient {
         let mut check = self.eval_js(&check_js).unwrap_or_default();
         if check == "SEARCHING" {
             thread::sleep(Duration::from_millis(800));
-            let pick_js = r#"
-            (() => {
-                const results = document.querySelectorAll('.search-item, [class*="search-result"], [class*="item-search"], [id*="group-item"], [data-id*="search"]');
+            // [WHY]: Trong Zalo PC v26.10.20+, khi gõ vào `#contact-search-input`, kết quả tìm kiếm được render bên trong
+            // container `#searchResultList` dưới các lớp ảo hóa `ReactVirtualized` với class `.conv-item` hoặc `.gridv2`.
+            // [ROOT CAUSE]: Selector cũ thiếu `#searchResultList` khiến không khớp các thẻ `.conv-item` của kết quả tìm kiếm,
+            // dẫn đến `foundTexts` rỗng và trả về `SEARCH_NO_MATCH` dù kết quả tìm kiếm 'Trạm Số Liệu' đã hiện diện trên màn hình.
+            // [INVARIANT]: Bộ selector kết quả tìm kiếm bắt buộc phải bao gồm `#searchResultList .conv-item` qua `CdpClient::search_results_selector()`.
+            let pick_js = format!(
+                r#"
+            (() => {{
+                const results = document.querySelectorAll('{}');
                 let foundTexts = [];
-                for (const item of results) {
+                for (const item of results) {{
                     const t = (item.innerText || '').replace(/\u00a0/g, ' ').toLowerCase();
                     foundTexts.push(t.split('\n')[0].trim());
-                    if (t.includes('số liệu') || t.includes('minh chứng')) {
-                        item.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}));
-                        item.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true}));
+                    if (t.includes('số liệu') || t.includes('minh chứng')) {{
+                        item.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true, cancelable: true}}));
+                        item.dispatchEvent(new MouseEvent('mouseup', {{bubbles: true, cancelable: true}}));
                         item.click();
                         return 'SWITCHED';
-                    }
-                }
+                    }}
+                }}
                 // Thoát ô tìm kiếm nếu không thấy
-                const escEv = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true });
+                const escEv = new KeyboardEvent('keydown', {{ key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }});
                 document.dispatchEvent(escEv);
                 return 'SEARCH_NO_MATCH: ' + foundTexts.filter(x => x.length > 0).slice(0, 8).join(' | ');
-            })()
-            "#;
-            check = self.eval_js(pick_js).unwrap_or_default();
+            }})()
+            "#,
+                Self::search_results_selector()
+            );
+            check = self.eval_js(&pick_js).unwrap_or_default();
         }
 
         if check != "IS_TARGET" && check != "SWITCHED" {
@@ -828,6 +877,130 @@ fn resolve_python_cmd(root: &std::path::Path) -> PathBuf {
 /// [WHY]: Kiểm tra xem bảng `daily_ohlcv` đã có nến EOD của phiên hiện tại hay chưa trước khi chạy `eod-run`.
 /// [ROOT CAUSE]: Lệnh `ptck.py eod-run` chỉ hạch toán trên `MAX(date)` có sẵn trong `daily_ohlcv` chứ không tự kéo nến mới từ sàn;
 /// nếu không chạy `ptck.py daily-close` trước khi `daily_ohlcv` bị trễ ngày, cả 4 bảng (`daily_ohlcv`, `regime_history`, `market_wide_breadth_daily`, `eod_run_ledger`) sẽ đứng yên ở ngày cũ.
+const VN_HOLIDAYS: &[&str] = &[
+    "2024-01-01", "2024-02-08", "2024-02-09", "2024-02-12", "2024-02-13",
+    "2024-02-14", "2024-02-15", "2024-02-16", "2024-04-18", "2024-04-30",
+    "2024-05-01", "2024-09-02", "2024-09-03",
+    "2025-01-01", "2025-01-27", "2025-01-28", "2025-01-29", "2025-01-30",
+    "2025-01-31", "2025-04-07", "2025-04-30", "2025-05-01", "2025-05-02",
+    "2025-09-01", "2025-09-02",
+    "2026-01-01", "2026-01-02", "2026-02-15", "2026-02-16", "2026-02-17",
+    "2026-02-18", "2026-02-19", "2026-02-20", "2026-04-27", "2026-04-30",
+    "2026-05-01", "2026-08-31", "2026-09-01", "2026-09-02",
+    "2027-01-01", "2027-02-05", "2027-02-08", "2027-02-09", "2027-02-10",
+    "2027-02-11", "2027-04-16", "2027-04-30", "2027-05-03", "2027-09-02",
+    "2027-09-03",
+];
+
+fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+    let y = y as i64 - if m <= 2 { 1 } else { 0 };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let m = m as u64;
+    let d = d as u64;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe as i64 - 719468
+}
+
+fn civil_from_days(z: i64) -> (i32, u32, u32) {
+    let z = z + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = y + if m <= 2 { 1 } else { 0 };
+    (y as i32, m as u32, d as u32)
+}
+
+fn parse_iso_days(iso: &str) -> Option<i64> {
+    if iso.len() < 10 {
+        return None;
+    }
+    let s = &iso[..10];
+    let mut parts = s.split('-');
+    let y: i32 = parts.next()?.parse().ok()?;
+    let m: u32 = parts.next()?.parse().ok()?;
+    let d: u32 = parts.next()?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some(days_from_civil(y, m, d))
+}
+
+fn format_iso_days(z: i64) -> String {
+    let (y, m, d) = civil_from_days(z);
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+pub fn is_vn_trading_day(iso: &str) -> bool {
+    let Some(z) = parse_iso_days(iso) else {
+        return false;
+    };
+    let weekday_mon0 = (z + 3).rem_euclid(7);
+    if weekday_mon0 >= 5 {
+        return false;
+    }
+    let day_str = &iso[..10];
+    !VN_HOLIDAYS.contains(&day_str)
+}
+
+/// [WHY]: Phát hiện các phiên giao dịch bị khuyết giữa 2 mốc ngày (`prev_iso < d < curr_iso`) để chặn Bẫy Gộp Nhiều Phiên (Multi-session Aggregation Trap).
+/// [ROOT CAUSE]: Truy vấn `ORDER BY date DESC LIMIT 2` lấy 2 dòng gần nhất bất kể khoảng cách ngày; nếu DB khuyết phiên `2026-11-04`,
+/// phép tính `(close_05 - close_03) / close_03` sẽ gộp biến động 2 phiên thành 1 phiên giả tạo.
+/// [INVARIANT]: Trả về danh sách rỗng `[]` khi và chỉ khi `prev_iso` và `curr_iso` là 2 phiên giao dịch liền kề nhau.
+pub fn missing_trading_days_between(prev_iso: &str, curr_iso: &str) -> Vec<String> {
+    let (Some(z0), Some(z1)) = (parse_iso_days(prev_iso), parse_iso_days(curr_iso)) else {
+        return Vec::new();
+    };
+    if z1 <= z0 + 1 {
+        return Vec::new();
+    }
+    let mut missing = Vec::new();
+    for z in (z0 + 1)..z1 {
+        let iso = format_iso_days(z);
+        if is_vn_trading_day(&iso) {
+            missing.push(iso);
+        }
+    }
+    missing
+}
+
+pub fn expected_prev_trading_day(curr_iso: &str) -> Option<String> {
+    let z1 = parse_iso_days(curr_iso)?;
+    for z in (z1 - 15..z1).rev() {
+        let iso = format_iso_days(z);
+        if is_vn_trading_day(&iso) {
+            return Some(iso);
+        }
+    }
+    None
+}
+
+/// [WHY]: Tìm tất cả các ngày giao dịch quá khứ (`lookback_start_iso <= d < today_iso`) đang bị thiếu trong `daily_ohlcv`.
+/// [INVARIANT]: Không bao giờ trả về ngày lễ, Thứ Bảy/Chủ Nhật, hoặc `>= today_iso` (vì ngày hiện tại dùng `daily-close`, ngày quá khứ bắt buộc dùng `backfill-history`).
+pub fn find_missing_past_trading_days(
+    present_dates: &[String],
+    lookback_start_iso: &str,
+    today_iso: &str,
+) -> Vec<String> {
+    let (Some(z_start), Some(z_today)) = (parse_iso_days(lookback_start_iso), parse_iso_days(today_iso)) else {
+        return Vec::new();
+    };
+    let mut missing = Vec::new();
+    for z in z_start..z_today {
+        let iso = format_iso_days(z);
+        if is_vn_trading_day(&iso) && !present_dates.iter().any(|d| d == &iso) {
+            missing.push(iso);
+        }
+    }
+    missing
+}
+
 /// [INVARIANT]: Trả về `true` khi `latest_ohlcv_date` là `None` hoặc nhỏ hơn `today_iso`; trả về `false` khi đã có dữ liệu `>= today_iso` (không crawl lại thừa).
 pub fn needs_daily_close_sync(latest_ohlcv_date: Option<&str>, today_iso: &str) -> bool {
     match latest_ohlcv_date {
@@ -846,6 +1019,67 @@ fn query_latest_ohlcv_date() -> Option<String> {
             |r| r.get::<_, String>(0),
         )
         .ok()
+}
+
+fn query_present_trading_dates_since(start_iso: &str) -> Vec<String> {
+    let db_path = resolve_db_path("screener_cache.db");
+    let Ok(db) = Db::open_readonly(&db_path) else {
+        return Vec::new();
+    };
+    let Ok(mut stmt) = db.conn.prepare(
+        "SELECT date FROM daily_ohlcv WHERE date >= ?1 AND COALESCE(is_stale, 0) = 0 AND close > 0 GROUP BY date HAVING COUNT(*) >= 100 ORDER BY date ASC;",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map(params![start_iso], |r| r.get::<_, String>(0)) else {
+        return Vec::new();
+    };
+    rows.filter_map(|r| r.ok()).collect()
+}
+
+/// [WHY]: Chốt chặn Idempotency cấp CSDL đảm bảo mỗi loại bản tin định kỳ (`summary` / `brief`) chỉ được gửi tối đa 1 lần mỗi ngày lên Zalo.
+/// [ROOT CAUSE]: Nếu lịch tự động (Automation / Cron) hoặc người vận hành kích hoạt `minh_chung.exe summary --sync` nhiều lần trong cùng một ngày,
+/// thiếu khóa trạng thái bền vững sẽ khiến cùng một báo cáo ATC bị bắn lặp vào nhóm Zalo.
+/// [INVARIANT]: Trả về `true` khi và chỉ khi trong `eod_write_audit_ledger` đã có bản ghi `caller_module = 'minh_chung.exe'`,
+/// `target_table = 'zalo_report_dispatch'`, `as_of_date = today_iso`, `parameters = cmd_kind` và `status = 'SENT_OK'`.
+pub fn is_report_sent_today_in_conn(conn: &Connection, cmd_kind: &str, today_iso: &str) -> bool {
+    conn.query_row(
+        "SELECT COUNT(*) FROM eod_write_audit_ledger WHERE caller_module = 'minh_chung.exe' AND target_table = 'zalo_report_dispatch' AND as_of_date = ?1 AND parameters = ?2 AND status = 'SENT_OK'",
+        params![today_iso, cmd_kind],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|c| c > 0)
+    .unwrap_or(false)
+}
+
+pub fn record_report_sent_today_in_conn(
+    conn: &Connection,
+    cmd_kind: &str,
+    today_iso: &str,
+    notes: &str,
+) -> Result<(), String> {
+    let now_iso = format!("{}T00:00:00", today_iso);
+    conn.execute(
+        "INSERT INTO eod_write_audit_ledger (run_timestamp, as_of_date, caller_module, target_table, parameters, status, notes) VALUES (?1, ?2, 'minh_chung.exe', 'zalo_report_dispatch', ?3, 'SENT_OK', ?4)",
+        params![now_iso, today_iso, cmd_kind, notes],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+pub fn is_report_sent_today(cmd_kind: &str, today_iso: &str) -> bool {
+    let db_path = resolve_db_path("screener_cache.db");
+    let Ok(db) = Db::open_readonly(&db_path) else {
+        return false;
+    };
+    is_report_sent_today_in_conn(&db.conn, cmd_kind, today_iso)
+}
+
+pub fn record_report_sent_today(cmd_kind: &str, today_iso: &str, notes: &str) {
+    let db_path = resolve_db_path("screener_cache.db");
+    if let Ok(db) = Db::open(&db_path) {
+        let _ = record_report_sent_today_in_conn(&db.conn, cmd_kind, today_iso, notes);
+    }
 }
 
 /// [WHY] Đồng bộ toàn diện dữ liệu đầu vào cho báo cáo đóng cửa ATC qua CLI `ptck.py` (Lãi suất, Vĩ mô, Nến OHLCV/Regime/Breadth và Hạch toán EOD).
@@ -901,6 +1135,46 @@ pub fn run_cli_sync() -> String {
         "⏸️ Bỏ qua (trong phiên GD)"
     } else {
         let today_iso = format!("{:04}-{:02}-{:02}", st.w_year, st.w_month, st.w_day);
+        if let Some(today_z) = parse_iso_days(&today_iso) {
+            let lookback_start = format_iso_days(today_z - 14);
+            let present_dates = query_present_trading_dates_since(&lookback_start);
+            let missing_past = find_missing_past_trading_days(&present_dates, &lookback_start, &today_iso);
+            if !missing_past.is_empty() {
+                let first_m = &missing_past[0];
+                let last_m = &missing_past[missing_past.len() - 1];
+                println!(
+                    "🩹 [CLI Pipeline] Phát hiện khuyết {} phiên quá khứ ({:?}), gọi `ptck.py backfill-history --start {} --end {}`...",
+                    missing_past.len(),
+                    missing_past,
+                    first_m,
+                    last_m
+                );
+                let _ = Command::new(&py_bin)
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .args([
+                        "ptck.py",
+                        "backfill-history",
+                        "--start",
+                        first_m,
+                        "--end",
+                        last_m,
+                        "--quiet",
+                    ])
+                    .current_dir(&root)
+                    .output();
+                let _ = Command::new(&py_bin)
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .args([
+                        "-m",
+                        "src.analysis.market_wide_breadth",
+                        "--start",
+                        first_m,
+                        "--backfill",
+                    ])
+                    .current_dir(root.join("backend"))
+                    .output();
+            }
+        }
         let latest_ohlcv = query_latest_ohlcv_date();
         if needs_daily_close_sync(latest_ohlcv.as_deref(), &today_iso) {
             println!(
@@ -992,6 +1266,14 @@ pub fn provenance_label(eod_finalized: bool) -> &'static str {
     }
 }
 
+pub fn provenance_label_with_gap(eod_finalized: bool, missing_days: &[String]) -> String {
+    if !missing_days.is_empty() {
+        format!("⏳ [Dữ liệu tạm — Khuyết phiên {}]", missing_days.join(", "))
+    } else {
+        provenance_label(eod_finalized).to_string()
+    }
+}
+
 pub fn friendly_regime(status: Option<&str>) -> (&'static str, &'static str) {
     match status {
         Some("TRENDING") => ("🟢", "Khỏe"),
@@ -1003,7 +1285,7 @@ pub fn friendly_regime(status: Option<&str>) -> (&'static str, &'static str) {
 
 struct PnjFacts {
     price: f64,
-    pct: f64,
+    pct: Option<f64>,
     net_income: Option<(String, f64)>,
     ma20_gap: Option<f64>,
     vol_ratio: Option<f64>,
@@ -1030,32 +1312,35 @@ fn pnj_facts(db: &Db, report_date: &str) -> Option<PnjFacts> {
     let mut stmt = db
         .conn
         .prepare(
-            "SELECT close, volume FROM daily_ohlcv WHERE symbol='PNJ' AND is_stale=0 AND date <= ?1 ORDER BY date DESC LIMIT 21;",
+            "SELECT date, close, volume FROM daily_ohlcv WHERE symbol='PNJ' AND is_stale=0 AND date <= ?1 ORDER BY date DESC LIMIT 21;",
         )
         .ok()?;
-    let rows: Vec<(f64, f64)> = stmt
-        .query_map(params![report_date], |row| Ok((row.get(0)?, row.get(1)?)))
+    let rows: Vec<(String, f64, f64)> = stmt
+        .query_map(params![report_date], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .ok()?
         .filter_map(|r| r.ok())
         .collect();
     if rows.len() < 2 {
         return None;
     }
-    let (price, volume) = rows[0];
-    let prev_close = rows[1].0;
-    let pct = if prev_close > 0.0 {
-        (price / prev_close - 1.0) * 100.0
+    let (ref d0, price, volume) = rows[0];
+    let (ref d1, prev_close, _) = rows[1];
+    let has_gap = !missing_trading_days_between(d1, d0).is_empty();
+    let pct = if !has_gap && prev_close > 0.0 {
+        Some((price / prev_close - 1.0) * 100.0)
     } else {
-        0.0
+        None
     };
-    let closes: Vec<f64> = rows.iter().take(20).map(|r| r.0).collect();
-    let ma20 = if closes.len() == 20 {
+    let closes: Vec<f64> = rows.iter().take(20).map(|r| r.1).collect();
+    let ma20 = if !has_gap && closes.len() == 20 {
         Some(closes.iter().sum::<f64>() / 20.0)
     } else {
         None
     };
-    let volumes: Vec<f64> = rows.iter().skip(1).take(20).map(|r| r.1).collect();
-    let adv20 = if volumes.len() == 20 {
+    let volumes: Vec<f64> = rows.iter().skip(1).take(20).map(|r| r.2).collect();
+    let adv20 = if !has_gap && volumes.len() == 20 {
         Some(volumes.iter().sum::<f64>() / 20.0)
     } else {
         None
@@ -1121,8 +1406,14 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
 
     let latest_date = &dates[0];
     let close = closes[0];
-    let prev_close = if closes.len() > 1 { closes[1] } else { close };
-    let diff = close - prev_close;
+    let gap_days = if dates.len() > 1 {
+        missing_trading_days_between(&dates[1], &dates[0])
+    } else {
+        Vec::new()
+    };
+    let has_gap = dates.len() < 2 || !gap_days.is_empty();
+    let prev_close = if !has_gap && closes.len() > 1 { closes[1] } else { 0.0 };
+    let diff = if prev_close > 0.0 { close - prev_close } else { 0.0 };
     let pct = if prev_close > 0.0 {
         (diff / prev_close) * 100.0
     } else {
@@ -1216,10 +1507,22 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
         "📊 [Minh Chứng] HỒ SƠ ĐỊNH LƯỢNG & BCTC: {} (Phiên {})\n",
         sym, latest_date
     ));
-    out.push_str(&format!(
-        "• Giá đóng cửa: {} ({}{:.2}% | {}{:.0}) | MA20: {}\n",
-        price_str, sign, pct, sign, diff, ma20_str
-    ));
+    if has_gap {
+        let gap_note = if !gap_days.is_empty() {
+            format!("⚠️ Khuyết phiên {} — tạm ẩn % biến động gộp", gap_days.join(", "))
+        } else {
+            "⚠️ Thiếu phiên liền trước — tạm ẩn % biến động".to_string()
+        };
+        out.push_str(&format!(
+            "• Giá đóng cửa: {} ({}) | MA20: {}\n",
+            price_str, gap_note, ma20_str
+        ));
+    } else {
+        out.push_str(&format!(
+            "• Giá đóng cửa: {} ({}{:.2}% | {}{:.0}) | MA20: {}\n",
+            price_str, sign, pct, sign, diff, ma20_str
+        ));
+    }
     out.push_str(&format!(
         "• Thanh khoản: {:.2}M cp ({:.2}x ADV20 = {:.2}M)\n",
         vol / 1_000_000.0,
@@ -1367,19 +1670,27 @@ pub fn build_stock_report(raw_symbol: &str) -> Result<String, String> {
 }
 
 fn get_ohlcv_snapshot(stmt: &mut rusqlite::Statement, sym: &str) -> (f64, f64, f64, f64) {
+    let mut d0 = String::new();
+    let mut d1 = String::new();
     let mut c0 = 0.0;
     let mut c1 = 0.0;
     let mut v0 = 0.0;
     let mut v1 = 0.0;
     if let Ok(mut rows) = stmt.query(params![sym]) {
         if let Ok(Some(row)) = rows.next() {
-            c0 = row.get(0).unwrap_or(0.0);
-            v0 = row.get(1).unwrap_or(0.0);
+            d0 = row.get(0).unwrap_or_default();
+            c0 = row.get(1).unwrap_or(0.0);
+            v0 = row.get(2).unwrap_or(0.0);
         }
         if let Ok(Some(row)) = rows.next() {
-            c1 = row.get(0).unwrap_or(0.0);
-            v1 = row.get(1).unwrap_or(0.0);
+            d1 = row.get(0).unwrap_or_default();
+            c1 = row.get(1).unwrap_or(0.0);
+            v1 = row.get(2).unwrap_or(0.0);
         }
+    }
+    if d1.is_empty() || !missing_trading_days_between(&d1, &d0).is_empty() {
+        c1 = 0.0;
+        v1 = 0.0;
     }
     (c0, c1, v0, v1)
 }
@@ -1391,6 +1702,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
 
     // 1. VN-INDEX
     let mut vni_date = String::new();
+    let mut vni_prev_date = String::new();
     let mut vni_c0 = 0.0;
     let mut vni_c1 = 0.0;
     let mut vni_vol = 0.0;
@@ -1405,12 +1717,23 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                 vni_vol = row.get(2).unwrap_or(0.0);
             }
             if let Ok(Some(row)) = rows.next() {
+                vni_prev_date = row.get(0).unwrap_or_default();
                 vni_c1 = row.get(1).unwrap_or(0.0);
             }
         }
     }
 
-    let vni_diff = vni_c0 - vni_c1;
+    let missing_days = if vni_prev_date.is_empty() {
+        Vec::new()
+    } else {
+        missing_trading_days_between(&vni_prev_date, &vni_date)
+    };
+    let has_session_gap = vni_prev_date.is_empty() || !missing_days.is_empty();
+    if has_session_gap {
+        vni_c1 = 0.0;
+    }
+
+    let vni_diff = if vni_c1 > 0.0 { vni_c0 - vni_c1 } else { 0.0 };
     let vni_pct = if vni_c1 > 0.0 {
         (vni_diff / vni_c1) * 100.0
     } else {
@@ -1488,10 +1811,13 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         }
     }
 
-    let quality_known = (reg_degraded == Some(0) || (reg_degraded.is_none() && breadth_degraded == Some(0))) && has_breadth_row;
+    let quality_known = !has_session_gap
+        && (reg_degraded == Some(0) || (reg_degraded.is_none() && breadth_degraded == Some(0)))
+        && has_breadth_row;
     let is_eod_final = quality_known;
 
     let mut entry_lock = !quality_known
+        || has_session_gap
         || reg_status
             .as_deref()
             .map(|s| s == "CRISIS" || s == "CRISIS_WARNING")
@@ -1523,21 +1849,10 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     let mut out = String::new();
     out.push_str(&format!("{}\n", header_line));
     out.push_str(&format!("📅 Ngày {}\n", display_date));
-    out.push_str(&format!("{}\n", provenance_label(is_eod_final)));
+    out.push_str(&format!("{}\n", provenance_label_with_gap(is_eod_final, &missing_days)));
     out.push_str("────────────────────────\n");
 
     // 2. TRẠNG THÁI THỊ TRƯỜNG / KẾT PHIÊN HÔM NAY
-    let arrow = if vni_diff >= 0.0 { "🔺" } else { "🔻" };
-    let diff_str = if vni_diff >= 0.0 {
-        format!("+{}", format_number_vnd(vni_diff))
-    } else {
-        format_number_vnd(vni_diff)
-    };
-    let pct_str = if vni_pct >= 0.0 {
-        format!("+{}", format_number_vnd(vni_pct))
-    } else {
-        format_number_vnd(vni_pct)
-    };
     let vol_mil_str = format!("{:.1}", vni_vol / 1_000_000.0).replace('.', ",");
 
     if is_summary {
@@ -1545,13 +1860,37 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     } else {
         out.push_str("🎯 TRẠNG THÁI THỊ TRƯỜNG\n");
     }
-    out.push_str(&format!(
-        "• VN-Index: {} điểm {} ({} | {}%)\n",
-        format_number_vnd(vni_c0),
-        arrow,
-        diff_str,
-        pct_str
-    ));
+    if has_session_gap {
+        let gap_label = if !missing_days.is_empty() {
+            format!("⚠️ Khuyết phiên {} — tạm ẩn % biến động gộp", missing_days.join(", "))
+        } else {
+            "⚠️ Thiếu phiên liền trước — tạm ẩn % biến động".to_string()
+        };
+        out.push_str(&format!(
+            "• VN-Index: {} điểm ({})\n",
+            format_number_vnd(vni_c0),
+            gap_label
+        ));
+    } else {
+        let arrow = if vni_diff >= 0.0 { "🔺" } else { "🔻" };
+        let diff_str = if vni_diff >= 0.0 {
+            format!("+{}", format_number_vnd(vni_diff))
+        } else {
+            format_number_vnd(vni_diff)
+        };
+        let pct_str = if vni_pct >= 0.0 {
+            format!("+{}", format_number_vnd(vni_pct))
+        } else {
+            format_number_vnd(vni_pct)
+        };
+        out.push_str(&format!(
+            "• VN-Index: {} điểm {} ({} | {}%)\n",
+            format_number_vnd(vni_c0),
+            arrow,
+            diff_str,
+            pct_str
+        ));
+    }
     if vni_adv20 > 0.0 {
         let ratio = vni_vol / vni_adv20;
         let compare = if ratio >= 1.3 {
@@ -1589,7 +1928,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
     } else {
         out.push_str("• Sức khỏe thị trường: ⏳ Chưa kiểm định chất lượng phiên — số liệu chỉ để tham khảo\n");
     }
-    if has_breadth_row && br_total > 0 {
+    if !has_session_gap && has_breadth_row && br_total > 0 {
         out.push_str(&format!(
             "• Độ rộng toàn sàn ({} mã): {} mã tăng ({} trần) | {} mã giảm ({} sàn) | {} đứng giá\n",
             br_total, br_adv, br_ceil, br_dec, br_flr, br_unc
@@ -1764,7 +2103,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
 
     let mut ohlcv_stmt = db_scr
         .conn
-        .prepare("SELECT close, volume FROM daily_ohlcv WHERE symbol=?1 ORDER BY date DESC LIMIT 2;")
+        .prepare("SELECT date, close, volume FROM daily_ohlcv WHERE symbol=?1 AND is_stale=0 ORDER BY date DESC LIMIT 2;")
         .map_err(|e| e.to_string())?;
 
     // KHOANG 1: RADAR CỔ TỨC TIỀN MẶT (DIVIDEND RADAR)
@@ -1794,62 +2133,57 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
 
     // KHOANG 2: CỔ PHIẾU ĐẦU NGÀNH & ĐỘNG LƯỢNG (PILLARS & MOMENTUM)
     out.push_str("\n⚡ KHOANG 2: CỔ PHIẾU ĐẦU NGÀNH & ĐỘNG LƯỢNG (PILLARS & MOMENTUM)\n");
+    let fmt_pillar_pct = |c0: f64, c1: f64| -> String {
+        if c1 > 0.0 {
+            let pct = ((c0 - c1) / c1) * 100.0;
+            let sign = if pct >= 0.0 { "+" } else { "" };
+            format!("{}{}%", sign, format_number_vnd(pct))
+        } else {
+            "⚠️ Khuyết phiên liền trước".to_string()
+        }
+    };
+
     let (hpg_c0, hpg_c1, hpg_v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "HPG");
-    let hpg_pct = if hpg_c1 > 0.0 { ((hpg_c0 - hpg_c1) / hpg_c1) * 100.0 } else { 0.0 };
-    let hpg_sign = if hpg_pct >= 0.0 { "+" } else { "" };
     let hpg_vol_mil = format!("{:.1}", hpg_v0 / 1_000_000.0).replace('.', ",");
     out.push_str(&format!(
-        "  • [HPG] Giá {}đ ({}{}% | {}M cp) — Cung cầu giằng co quanh hỗ trợ\n",
+        "  • [HPG] Giá {}đ ({} | {}M cp) — Cung cầu giằng co quanh hỗ trợ\n",
         format_int_dots(hpg_c0.round() as i64),
-        hpg_sign,
-        format_number_vnd(hpg_pct),
+        fmt_pillar_pct(hpg_c0, hpg_c1),
         hpg_vol_mil
     ));
 
     let (tcb_c0, tcb_c1, tcb_v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "TCB");
-    let tcb_pct = if tcb_c1 > 0.0 { ((tcb_c0 - tcb_c1) / tcb_c1) * 100.0 } else { 0.0 };
-    let tcb_sign = if tcb_pct >= 0.0 { "+" } else { "" };
     let tcb_vol_mil = format!("{:.1}", tcb_v0 / 1_000_000.0).replace('.', ",");
     out.push_str(&format!(
-        "  • [TCB] Giá {}đ ({}{}% | {}M cp) — P/B 1,2x | Cung tăng, áp lực kỹ thuật\n",
+        "  • [TCB] Giá {}đ ({} | {}M cp) — P/B 1,2x | Cung tăng, áp lực kỹ thuật\n",
         format_int_dots(tcb_c0.round() as i64),
-        tcb_sign,
-        format_number_vnd(tcb_pct),
+        fmt_pillar_pct(tcb_c0, tcb_c1),
         tcb_vol_mil
     ));
 
     let (fpt_c0, fpt_c1, fpt_v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "FPT");
-    let fpt_pct = if fpt_c1 > 0.0 { ((fpt_c0 - fpt_c1) / fpt_c1) * 100.0 } else { 0.0 };
-    let fpt_sign = if fpt_pct >= 0.0 { "+" } else { "" };
     let fpt_vol_mil = format!("{:.1}", fpt_v0 / 1_000_000.0).replace('.', ",");
     out.push_str(&format!(
-        "  • [FPT] Giá {}đ ({}{}% | {}M cp) — Tích lũy nền giá 52-53k\n",
+        "  • [FPT] Giá {}đ ({} | {}M cp) — Tích lũy nền giá 52-53k\n",
         format_int_dots(fpt_c0.round() as i64),
-        fpt_sign,
-        format_number_vnd(fpt_pct),
+        fmt_pillar_pct(fpt_c0, fpt_c1),
         fpt_vol_mil
     ));
 
     let (shb_c0, shb_c1, shb_v0, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "SHB");
-    let shb_pct = if shb_c1 > 0.0 { ((shb_c0 - shb_c1) / shb_c1) * 100.0 } else { 0.0 };
-    let shb_sign = if shb_pct >= 0.0 { "+" } else { "" };
     let shb_vol_mil = format!("{:.1}", shb_v0 / 1_000_000.0).replace('.', ",");
     out.push_str(&format!(
-        "  • [SHB] Giá {}đ ({}{}% | {}M cp) — Lực đỡ quanh nền 10.5 vững chắc\n",
+        "  • [SHB] Giá {}đ ({} | {}M cp) — Lực đỡ quanh nền 10.5 vững chắc\n",
         format_int_dots(shb_c0.round() as i64),
-        shb_sign,
-        format_number_vnd(shb_pct),
+        fmt_pillar_pct(shb_c0, shb_c1),
         shb_vol_mil
     ));
 
     let (pnj_c0, pnj_c1, _, _) = get_ohlcv_snapshot(&mut ohlcv_stmt, "PNJ");
-    let pnj_pct = if pnj_c1 > 0.0 { ((pnj_c0 - pnj_c1) / pnj_c1) * 100.0 } else { 0.0 };
-    let pnj_sign = if pnj_pct >= 0.0 { "+" } else { "" };
     out.push_str(&format!(
-        "  • [PNJ] Giá {}đ ({}{}%) — KHỦNG HOẢNG NỘI TẠI, TUYỆT ĐỐI KHÔNG BẮT ĐÁY\n",
+        "  • [PNJ] Giá {}đ ({}) — KHỦNG HOẢNG NỘI TẠI, TUYỆT ĐỐI KHÔNG BẮT ĐÁY\n",
         format_int_dots(pnj_c0.round() as i64),
-        pnj_sign,
-        format_number_vnd(pnj_pct)
+        fmt_pillar_pct(pnj_c0, pnj_c1)
     ));
 
     // 4. DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM (VN30 / LIQUIDITY)
@@ -1859,198 +2193,217 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
         out.push_str("\n🔥 DÒNG TIỀN & BIẾN ĐỘNG TRỌNG ĐIỂM\n");
     }
 
-    struct SymDetail {
-        symbol: String,
-        price: f64,
-        pct: f64,
-        vol: f64,
-        note: String,
-    }
-
-    let mut candidate_symbols: Vec<String> = vec![
-        "SHB".to_string(),
-        "TCB".to_string(),
-        "MBB".to_string(),
-        "VCB".to_string(),
-        "ACB".to_string(),
-        "HPG".to_string(),
-        "FPT".to_string(),
-        "MSN".to_string(),
-        "SSI".to_string(),
-    ];
-
-    // Lấy thêm Top thanh khoản phiên từ daily_ohlcv
-    if let Ok(mut top_stmt) = db_scr.conn.prepare(
-        "SELECT symbol FROM daily_ohlcv WHERE date=?1 AND is_stale=0 AND symbol!='VNINDEX' AND volume>=1000000 ORDER BY volume DESC LIMIT 8;",
-    ) {
-        if let Ok(mut rows) = top_stmt.query(params![vni_date]) {
-            while let Ok(Some(row)) = rows.next() {
-                let s: String = row.get(0).unwrap_or_default();
-                if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
-                    candidate_symbols.push(s);
-                }
-            }
-        }
-    }
-
-    // Lấy thêm Top tăng giá có thanh khoản (Breakout / Ngược dòng)
-    if let Ok(mut gain_stmt) = db_scr.conn.prepare(
-        "SELECT d0.symbol FROM daily_ohlcv d0 JOIN daily_ohlcv d1 ON d0.symbol=d1.symbol \
-         WHERE d0.date=?1 AND d1.date=(SELECT MAX(date) FROM daily_ohlcv WHERE symbol=d0.symbol AND date<?1 AND is_stale=0) \
-         AND d0.is_stale=0 AND d0.symbol!='VNINDEX' AND d0.volume>=500000 \
-         ORDER BY ((d0.close-d1.close)/d1.close) DESC LIMIT 5;",
-    ) {
-        if let Ok(mut rows) = gain_stmt.query(params![vni_date]) {
-            while let Ok(Some(row)) = rows.next() {
-                let s: String = row.get(0).unwrap_or_default();
-                if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
-                    candidate_symbols.push(s);
-                }
-            }
-        }
-    }
-
-    // Lấy thêm Top giảm giá có thanh khoản (Áp lực bán lớn)
-    if let Ok(mut drop_stmt) = db_scr.conn.prepare(
-        "SELECT d0.symbol FROM daily_ohlcv d0 JOIN daily_ohlcv d1 ON d0.symbol=d1.symbol \
-         WHERE d0.date=?1 AND d1.date=(SELECT MAX(date) FROM daily_ohlcv WHERE symbol=d0.symbol AND date<?1 AND is_stale=0) \
-         AND d0.is_stale=0 AND d0.symbol!='VNINDEX' AND d0.volume>=500000 \
-         ORDER BY ((d0.close-d1.close)/d1.close) ASC LIMIT 5;",
-    ) {
-        if let Ok(mut rows) = drop_stmt.query(params![vni_date]) {
-            while let Ok(Some(row)) = rows.next() {
-                let s: String = row.get(0).unwrap_or_default();
-                if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
-                    candidate_symbols.push(s);
-                }
-            }
-        }
-    }
-
-    let mut group_surge: Vec<SymDetail> = Vec::new();
-    let mut group_pressure: Vec<SymDetail> = Vec::new();
-    let mut group_narrow: Vec<String> = Vec::new();
-
-    for sym in candidate_symbols {
-        let (c0, c1, v0, v1) = get_ohlcv_snapshot(&mut ohlcv_stmt, &sym);
-        if c0 <= 0.0 {
-            continue;
-        }
-
-        let pct: f64 = if c1 > 0.0 { ((c0 - c1) / c1) * 100.0 } else { 0.0 };
-        let vol_ratio: f64 = if v1 > 0.0 { v0 / v1 } else { 1.0 };
-
-        let is_surge = (pct > 0.0 && (vol_ratio >= 1.2 || pct >= 1.5)) || v0 >= 25_000_000.0;
-        let is_pressure = !is_surge && (pct <= -1.2 || (vol_ratio >= 1.3 && pct < 0.0));
-
-        if is_surge {
-            let note = if pct >= 3.0 {
-                "Dòng tiền bứt phá ngược dòng".to_string()
-            } else if pct > 0.0 && vol_ratio >= 1.2 {
-                format!("Cầu đỡ chủ động, +{:.0}% Vol", (vol_ratio - 1.0) * 100.0)
-            } else if v0 >= 25_000_000.0 {
-                "Dẫn đầu thanh khoản toàn sàn".to_string()
-            } else if pct >= 2.0 {
-                "Dòng tiền bứt phá mạnh mẽ".to_string()
-            } else if pct > 0.0 {
-                "Dòng tiền giữ nhịp xanh".to_string()
-            } else {
-                "Lực cầu hấp thụ tốt".to_string()
-            };
-
-            group_surge.push(SymDetail {
-                symbol: sym,
-                price: c0,
-                pct,
-                vol: v0,
-                note,
-            });
-        } else if is_pressure {
-            let note = if pct <= -5.0 {
-                "Áp lực bán tháo / giảm sâu".to_string()
-            } else if pct <= -3.0 {
-                "Áp lực cung lớn, giảm mạnh".to_string()
-            } else if vol_ratio >= 1.3 && pct < 0.0 {
-                "Vol tăng trong nhịp giảm".to_string()
-            } else if pct <= -1.8 {
-                "Cung tăng, áp lực kỹ thuật".to_string()
-            } else {
-                "Điều chỉnh theo nhịp chung".to_string()
-            };
-
-            group_pressure.push(SymDetail {
-                symbol: sym,
-                price: c0,
-                pct,
-                vol: v0,
-                note,
-            });
+    if has_session_gap {
+        let gap_msg = if !missing_days.is_empty() {
+            missing_days.join(", ")
         } else {
-            let sign_s = if pct >= 0.0 { "+" } else { "" };
-            let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(pct));
-            group_narrow.push(format!(
-                "[{}] Giá {} ({})",
-                sym,
-                format_int_dots(c0.round() as i64),
-                pct_fmt
-            ));
-        }
-    }
-
-    group_surge.sort_by(|a, b| b.pct.partial_cmp(&a.pct).unwrap_or(std::cmp::Ordering::Equal));
-    group_pressure.sort_by(|a, b| a.pct.partial_cmp(&b.pct).unwrap_or(std::cmp::Ordering::Equal));
-
-    if !group_surge.is_empty() {
-        out.push_str("  ⚡ Đột phá / Ngược dòng / Hấp thụ mạnh:\n");
-        for item in group_surge.into_iter().take(5) {
-            let sign_s = if item.pct >= 0.0 { "+" } else { "" };
-            let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
-            let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
-            out.push_str(&format!(
-                "    • [{}] Giá {} ({} | {}) — {}\n",
-                item.symbol,
-                format_int_dots(item.price.round() as i64),
-                pct_fmt,
-                vol_fmt,
-                item.note
-            ));
-        }
-    }
-
-    if !group_pressure.is_empty() {
-        out.push_str("  📉 Áp lực điều chỉnh / Bán tháo:\n");
-        for item in group_pressure.into_iter().take(5) {
-            let sign_s = if item.pct >= 0.0 { "+" } else { "" };
-            let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
-            let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
-            out.push_str(&format!(
-                "    • [{}] Giá {} ({} | {}) — {}\n",
-                item.symbol,
-                format_int_dots(item.price.round() as i64),
-                pct_fmt,
-                vol_fmt,
-                item.note
-            ));
-        }
-    }
-
-    if !group_narrow.is_empty() {
-        let display_narrow: Vec<String> = group_narrow.into_iter().take(5).collect();
+            "liền trước".to_string()
+        };
         out.push_str(&format!(
-            "  💤 Tích lũy hẹp: {}\n",
-            display_narrow.join(", ")
+            "  ⚠️ Tạm ẩn xếp hạng biến động trong phiên do khuyết dữ liệu ngày {}.\n",
+            gap_msg
         ));
+    } else {
+        struct SymDetail {
+            symbol: String,
+            price: f64,
+            pct: f64,
+            vol: f64,
+            note: String,
+        }
+
+        let mut candidate_symbols: Vec<String> = vec![
+            "SHB".to_string(),
+            "TCB".to_string(),
+            "MBB".to_string(),
+            "VCB".to_string(),
+            "ACB".to_string(),
+            "HPG".to_string(),
+            "FPT".to_string(),
+            "MSN".to_string(),
+            "SSI".to_string(),
+        ];
+
+        // Lấy thêm Top thanh khoản phiên từ daily_ohlcv
+        if let Ok(mut top_stmt) = db_scr.conn.prepare(
+            "SELECT symbol FROM daily_ohlcv WHERE date=?1 AND is_stale=0 AND symbol!='VNINDEX' AND volume>=1000000 ORDER BY volume DESC LIMIT 8;",
+        ) {
+            if let Ok(mut rows) = top_stmt.query(params![vni_date]) {
+                while let Ok(Some(row)) = rows.next() {
+                    let s: String = row.get(0).unwrap_or_default();
+                    if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
+                        candidate_symbols.push(s);
+                    }
+                }
+            }
+        }
+
+        // Lấy thêm Top tăng giá có thanh khoản (so sánh đúng với phiên liền kề `vni_prev_date`)
+        if let Ok(mut gain_stmt) = db_scr.conn.prepare(
+            "SELECT d0.symbol FROM daily_ohlcv d0 JOIN daily_ohlcv d1 ON d0.symbol=d1.symbol \
+             WHERE d0.date=?1 AND d1.date=?2 \
+             AND d0.is_stale=0 AND d1.is_stale=0 AND d0.symbol!='VNINDEX' AND d0.volume>=500000 \
+             ORDER BY ((d0.close-d1.close)/d1.close) DESC LIMIT 5;",
+        ) {
+            if let Ok(mut rows) = gain_stmt.query(params![vni_date, vni_prev_date]) {
+                while let Ok(Some(row)) = rows.next() {
+                    let s: String = row.get(0).unwrap_or_default();
+                    if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
+                        candidate_symbols.push(s);
+                    }
+                }
+            }
+        }
+
+        // Lấy thêm Top giảm giá có thanh khoản (so sánh đúng với phiên liền kề `vni_prev_date`)
+        if let Ok(mut drop_stmt) = db_scr.conn.prepare(
+            "SELECT d0.symbol FROM daily_ohlcv d0 JOIN daily_ohlcv d1 ON d0.symbol=d1.symbol \
+             WHERE d0.date=?1 AND d1.date=?2 \
+             AND d0.is_stale=0 AND d1.is_stale=0 AND d0.symbol!='VNINDEX' AND d0.volume>=500000 \
+             ORDER BY ((d0.close-d1.close)/d1.close) ASC LIMIT 5;",
+        ) {
+            if let Ok(mut rows) = drop_stmt.query(params![vni_date, vni_prev_date]) {
+                while let Ok(Some(row)) = rows.next() {
+                    let s: String = row.get(0).unwrap_or_default();
+                    if !candidate_symbols.contains(&s) && s != "SMB" && s != "VEA" && s != "FOC" && s != "PAT" && s != "PNJ" {
+                        candidate_symbols.push(s);
+                    }
+                }
+            }
+        }
+
+        let mut group_surge: Vec<SymDetail> = Vec::new();
+        let mut group_pressure: Vec<SymDetail> = Vec::new();
+        let mut group_narrow: Vec<String> = Vec::new();
+
+        for sym in candidate_symbols {
+            let (c0, c1, v0, v1) = get_ohlcv_snapshot(&mut ohlcv_stmt, &sym);
+            if c0 <= 0.0 || c1 <= 0.0 {
+                continue;
+            }
+
+            let pct: f64 = ((c0 - c1) / c1) * 100.0;
+            let vol_ratio: f64 = if v1 > 0.0 { v0 / v1 } else { 1.0 };
+
+            let is_surge = (pct > 0.0 && (vol_ratio >= 1.2 || pct >= 1.5)) || v0 >= 25_000_000.0;
+            let is_pressure = !is_surge && (pct <= -1.2 || (vol_ratio >= 1.3 && pct < 0.0));
+
+            if is_surge {
+                let note = if pct >= 3.0 {
+                    "Dòng tiền bứt phá ngược dòng".to_string()
+                } else if pct > 0.0 && vol_ratio >= 1.2 {
+                    format!("Cầu đỡ chủ động, +{:.0}% Vol", (vol_ratio - 1.0) * 100.0)
+                } else if v0 >= 25_000_000.0 {
+                    "Dẫn đầu thanh khoản toàn sàn".to_string()
+                } else if pct >= 2.0 {
+                    "Dòng tiền bứt phá mạnh mẽ".to_string()
+                } else if pct > 0.0 {
+                    "Dòng tiền giữ nhịp xanh".to_string()
+                } else {
+                    "Lực cầu hấp thụ tốt".to_string()
+                };
+
+                group_surge.push(SymDetail {
+                    symbol: sym,
+                    price: c0,
+                    pct,
+                    vol: v0,
+                    note,
+                });
+            } else if is_pressure {
+                let note = if pct <= -5.0 {
+                    "Áp lực bán tháo / giảm sâu".to_string()
+                } else if pct <= -3.0 {
+                    "Áp lực cung lớn, giảm mạnh".to_string()
+                } else if vol_ratio >= 1.3 && pct < 0.0 {
+                    "Vol tăng trong nhịp giảm".to_string()
+                } else if pct <= -1.8 {
+                    "Cung tăng, áp lực kỹ thuật".to_string()
+                } else {
+                    "Điều chỉnh theo nhịp chung".to_string()
+                };
+
+                group_pressure.push(SymDetail {
+                    symbol: sym,
+                    price: c0,
+                    pct,
+                    vol: v0,
+                    note,
+                });
+            } else {
+                let sign_s = if pct >= 0.0 { "+" } else { "" };
+                let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(pct));
+                group_narrow.push(format!(
+                    "[{}] Giá {} ({})",
+                    sym,
+                    format_int_dots(c0.round() as i64),
+                    pct_fmt
+                ));
+            }
+        }
+
+        group_surge.sort_by(|a, b| b.pct.partial_cmp(&a.pct).unwrap_or(std::cmp::Ordering::Equal));
+        group_pressure.sort_by(|a, b| a.pct.partial_cmp(&b.pct).unwrap_or(std::cmp::Ordering::Equal));
+
+        if !group_surge.is_empty() {
+            out.push_str("  ⚡ Đột phá / Ngược dòng / Hấp thụ mạnh:\n");
+            for item in group_surge.into_iter().take(3) {
+                let sign_s = if item.pct >= 0.0 { "+" } else { "" };
+                let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
+                let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
+                out.push_str(&format!(
+                    "    • [{}] Giá {} ({} | {}) — {}\n",
+                    item.symbol,
+                    format_int_dots(item.price.round() as i64),
+                    pct_fmt,
+                    vol_fmt,
+                    item.note
+                ));
+            }
+        }
+
+        if !group_pressure.is_empty() {
+            out.push_str("  📉 Áp lực điều chỉnh / Bán tháo:\n");
+            for item in group_pressure.into_iter().take(3) {
+                let sign_s = if item.pct >= 0.0 { "+" } else { "" };
+                let pct_fmt = format!("{}{}%", sign_s, format_number_vnd(item.pct));
+                let vol_fmt = format!("{:.1}M cp", item.vol / 1_000_000.0).replace('.', ",");
+                out.push_str(&format!(
+                    "    • [{}] Giá {} ({} | {}) — {}\n",
+                    item.symbol,
+                    format_int_dots(item.price.round() as i64),
+                    pct_fmt,
+                    vol_fmt,
+                    item.note
+                ));
+            }
+        }
+
+        if !group_narrow.is_empty() {
+            let display_narrow: Vec<String> = group_narrow.into_iter().take(5).collect();
+            out.push_str(&format!(
+                "  💤 Tích lũy hẹp: {}\n",
+                display_narrow.join(", ")
+            ));
+        }
     }
 
     if let Some(p) = pnj_facts(&db_scr, &vni_date) {
         let mut parts: Vec<String> = Vec::new();
-        let sign = if p.pct >= 0.0 { "+" } else { "" };
-        parts.push(format!(
-            "{}đ ({}{}%)",
-            format_int_dots(p.price.round() as i64),
-            sign,
-            format_number_vnd(p.pct)
-        ));
+        if let Some(pct_val) = p.pct {
+            let sign = if pct_val >= 0.0 { "+" } else { "" };
+            parts.push(format!(
+                "{}đ ({}{}%)",
+                format_int_dots(p.price.round() as i64),
+                sign,
+                format_number_vnd(pct_val)
+            ));
+        } else {
+            parts.push(format!(
+                "{}đ (⚠️ Khuyết phiên liền trước)",
+                format_int_dots(p.price.round() as i64)
+            ));
+        }
         match &p.net_income {
             Some((period, value)) => parts.push(format!(
                 "LNST {} = {} tỷ",
@@ -2213,9 +2566,6 @@ fn parse_wake_command(msg: &str) -> Option<String> {
     }
 
     let lower = trimmed.to_lowercase();
-    if lower.starts_with("minh tâm") || lower.starts_with("minh tam") || lower.starts_with("/mt") {
-        return None;
-    }
 
     // 1. Tiền tố chuẩn ở đầu
     if lower.starts_with("minh chứng") {
@@ -2390,26 +2740,39 @@ fn main() {
                 "TỔNG KẾT ĐÓNG CỬA PHIÊN ATC (MARKET SUMMARY 15:15)"
             };
             let no_send = args.iter().any(|a| a == "--no-send");
+            let force_send = args.iter().any(|a| a == "--force");
             match build_market_brief(title) {
                 Ok(report) => {
                     println!("{}", report);
                     if !no_send {
-                        let t_send = Instant::now();
-                        {
-                            let _guard = ZaloMutexGuard::acquire(2500);
-                            match CdpClient::connect_zalo() {
-                                Ok(mut cdp) => {
-                                    match cdp.send_message_to_my_documents(&report) {
-                                        Ok(res) => println!(
-                                            "📨 Đã đồng bộ Zalo '{}' ({}) trong {:.2?}",
-                                            TARGET_CONV_NAME,
-                                            res,
-                                            t_send.elapsed()
-                                        ),
-                                        Err(e) => eprintln!("⚠️ Lỗi gửi Zalo: {}", e),
+                        let st = get_win32_local_time();
+                        let today_iso = format!("{:04}-{:02}-{:02}", st.w_year, st.w_month, st.w_day);
+                        if !force_send && is_report_sent_today(cmd, &today_iso) {
+                            println!(
+                                "⏭️ [Chống đúp tin] Bản tin '{}' ngày {} đã được gửi lên Zalo trước đó. Bỏ qua gửi trùng (dùng --force nếu muốn gửi lại).",
+                                cmd, today_iso
+                            );
+                        } else {
+                            let t_send = Instant::now();
+                            {
+                                let _guard = ZaloMutexGuard::acquire(2500);
+                                match CdpClient::connect_zalo() {
+                                    Ok(mut cdp) => {
+                                        match cdp.send_message_to_my_documents(&report) {
+                                            Ok(res) => {
+                                                record_report_sent_today(cmd, &today_iso, &res);
+                                                println!(
+                                                    "📨 Đã đồng bộ Zalo '{}' ({}) trong {:.2?}",
+                                                    TARGET_CONV_NAME,
+                                                    res,
+                                                    t_send.elapsed()
+                                                );
+                                            }
+                                            Err(e) => eprintln!("⚠️ Lỗi gửi Zalo: {}", e),
+                                        }
                                     }
+                                    Err(e) => eprintln!("⚠️ Lỗi kết nối CDP Zalo: {}", e),
                                 }
-                                Err(e) => eprintln!("⚠️ Lỗi kết nối CDP Zalo: {}", e),
                             }
                         }
                     }
@@ -2647,5 +3010,96 @@ mod tests {
         assert!(needs_daily_close_sync(None, "2026-11-05"));
         assert!(!needs_daily_close_sync(Some("2026-11-05"), "2026-11-05"));
         assert!(!needs_daily_close_sync(Some("2026-11-06"), "2026-11-05"));
+    }
+
+    // [WHY]: Chốt chặn Fail-Closed chống "Bẫy gộp nhiều phiên" (Multi-session Aggregation Trap):
+    // phát hiện đúng phiên giao dịch bị khuyết giữa 2 nến (bỏ qua cuối tuần Thứ Bảy/Chủ Nhật và ngày lễ VN).
+    #[test]
+    fn phat_hien_khuyet_phien_giua_hai_nen_va_bo_qua_cuoi_tuan_ngay_le() {
+        // Giữa Thứ Ba 2026-11-03 và Thứ Năm 2026-11-05 bị khuyết Thứ Tư 2026-11-04
+        assert_eq!(
+            missing_trading_days_between("2026-11-03", "2026-11-05"),
+            vec!["2026-11-04".to_string()]
+        );
+        // Hai phiên liền kề (Thứ Tư -> Thứ Năm)
+        assert!(missing_trading_days_between("2026-11-04", "2026-11-05").is_empty());
+        // Qua cuối tuần (Thứ Sáu 2026-10-30 -> Thứ Hai 2026-11-02) không có phiên khuyết
+        assert!(missing_trading_days_between("2026-10-30", "2026-11-02").is_empty());
+        // Qua kỳ nghỉ lễ Quốc khánh (2026-08-28 Thứ Sáu -> 2026-09-03 Thứ Năm, lễ 01/09-02/09 nhưng còn Thứ Hai 31/08 là ngày GD)
+        assert_eq!(
+            missing_trading_days_between("2026-08-31", "2026-09-03"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn tim_dung_danh_sach_phien_qua_khu_bi_khuyet_de_backfill() {
+        let present = vec![
+            "2026-10-30".to_string(),
+            "2026-11-02".to_string(),
+            "2026-11-03".to_string(),
+            "2026-11-05".to_string(),
+        ];
+        let missing = find_missing_past_trading_days(&present, "2026-10-30", "2026-11-05");
+        assert_eq!(missing, vec!["2026-11-04".to_string()]);
+    }
+
+    #[test]
+    fn nhan_nguon_goc_hien_thi_ro_phien_bi_khuyet() {
+        let missing = vec!["2026-11-04".to_string()];
+        assert_eq!(
+            provenance_label_with_gap(true, &missing),
+            "⏳ [Dữ liệu tạm — Khuyết phiên 2026-11-04]"
+        );
+        assert_eq!(
+            provenance_label_with_gap(true, &[]),
+            "✅ [Đã chốt sổ EOD]"
+        );
+    }
+
+    // [WHY]: Bảo đảm selector định vị kết quả tìm kiếm trên Zalo PC luôn chứa container `#searchResultList .conv-item`
+    // chống thoái lui lỗi SEARCH_NO_MATCH trên Zalo v26.10.20+.
+    #[test]
+    fn selector_tim_kiem_zalo_bao_gom_search_result_list() {
+        let sel = CdpClient::search_results_selector();
+        assert!(
+            sel.contains("#searchResultList .conv-item"),
+            "Thiếu selector #searchResultList .conv-item: {}",
+            sel
+        );
+        assert!(
+            sel.contains("#searchResultList [class*=\"conv-item\"]"),
+            "Thiếu selector #searchResultList [class*=\"conv-item\"]: {}",
+            sel
+        );
+    }
+
+    // [WHY]: Chốt chặn idempotency chống gửi đúp bản tin ATC lên Zalo trong cùng ngày,
+    // đồng thời không chặn nhầm sang lệnh khác (`brief`) hoặc ngày giao dịch kế tiếp.
+    #[test]
+    fn chot_chan_is_report_sent_today_chong_gui_dup_va_khong_chan_nham() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE eod_write_audit_ledger (
+                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_timestamp TEXT NOT NULL,
+                as_of_date TEXT NOT NULL,
+                caller_module TEXT NOT NULL,
+                target_table TEXT NOT NULL,
+                parameters TEXT,
+                input_hash TEXT,
+                output_score REAL,
+                status TEXT DEFAULT 'SUCCESS',
+                notes TEXT
+            );",
+        )
+        .unwrap();
+
+        assert!(!is_report_sent_today_in_conn(&conn, "summary", "2026-11-14"));
+        record_report_sent_today_in_conn(&conn, "summary", "2026-11-14", "SENT_OK").unwrap();
+
+        assert!(is_report_sent_today_in_conn(&conn, "summary", "2026-11-14"));
+        assert!(!is_report_sent_today_in_conn(&conn, "brief", "2026-11-14"));
+        assert!(!is_report_sent_today_in_conn(&conn, "summary", "2026-11-15"));
     }
 }
