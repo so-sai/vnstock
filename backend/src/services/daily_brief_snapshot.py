@@ -53,6 +53,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from src.backtest.trend_features import FeatureStore
 from src.database.data_validity import STOCK_ONLY_SQL, VALID_ROW_SQL, is_stock
+from src.engine.pit_quarter import get_pit_quarter
 from src.financial.company_health_v2 import CompanyHealthV2
 
 # [WHY]: Phiên bản schema snapshot cho Rust kiểm tra fail-closed — đổi cấu trúc phải tăng version để tránh đọc sai.
@@ -105,6 +106,60 @@ SECTOR_TOP_K = 3
 
 # [WHY]: Hệ số quy đổi giá trị giao dịch từ VND sang tỷ đồng (10^9) cho thống nhất định dạng bản tin tiếng Việt.
 VND_TO_BILLION = 1_000_000_000.0
+
+# [WHY]: Giới hạn Top 5 cổ phiếu VN30 + Ngân hàng định giá hấp dẫn nhất để bản tin Zalo ngắn gọn, dễ đọc.
+VALUATION_TOP_K = 5
+
+# [WHY]: Cộng gộp đủ 4 quý PIT liên tiếp để tính ROE TTM thực, cấm suy diễn từ < 4 quý.
+TTM_QUARTERS = 4
+
+# [WHY]: Trọng số bằng nhau (0,5) giữa P/E z-score và P/B z-score khi xếp hạng hấp dẫn lịch sử tổng hợp.
+COMPOSITE_Z_WEIGHT = 0.5
+
+# [WHY]: Làm tròn z-score 3 chữ số thập phân giữ độ phân biệt thứ hạng khi xuất JSON.
+DECIMALS_Z = 3
+
+VN30_AND_BANK_SYMBOLS: tuple[str, ...] = (
+    "ACB",
+    "BCM",
+    "BID",
+    "BVH",
+    "CTG",
+    "EIB",
+    "FPT",
+    "GAS",
+    "GVR",
+    "HDB",
+    "HPG",
+    "KDH",
+    "LPB",
+    "MBB",
+    "MSB",
+    "MSN",
+    "MWG",
+    "NAB",
+    "NVL",
+    "OCB",
+    "PLX",
+    "PNJ",
+    "POW",
+    "SAB",
+    "SHB",
+    "SSB",
+    "SSI",
+    "STB",
+    "TCB",
+    "TPB",
+    "VCB",
+    "VHM",
+    "VIB",
+    "VIC",
+    "VJC",
+    "VNM",
+    "VPB",
+    "VRE",
+)
+HEALTHY_VALUATION_ARCHETYPES: tuple[str, ...] = ("HIGH_QUALITY_COMPOUNDER", "STEADY_EARNER")
 
 # [WHY]: Làm tròn 4 chữ số thập phân cho chỉ số Governor — tránh sai số biểu diễn float làm nhiễu JSON.
 DECIMALS_GOV = 4
@@ -541,6 +596,139 @@ def build_sector_flow_summary(
     }
 
 
+def _missing_valuation_leaders(pit_quarter: str | None) -> dict[str, Any]:
+    """Payload fail-closed khi thiếu bảng `valuation_scores` / `health_ratios` hoặc không xác định được quý PIT."""
+    return {
+        "status": "MISSING",
+        "pit_quarter": pit_quarter or None,
+        "leaders": [],
+    }
+
+
+def build_valuation_leaders(
+    screener_conn: sqlite3.Connection,
+    financial_db: Path,
+    health_engine: CompanyHealthV2,
+    vni_d0: str,
+    vni_d1: str | None,
+    *,
+    top_k: int = VALUATION_TOP_K,
+    candidate_symbols: Iterable[str] = VN30_AND_BANK_SYMBOLS,
+) -> dict[str, Any]:
+    """Xếp hạng Top cổ phiếu VN30 & Ngân hàng khỏe tài chính có định giá PIT P/E + P/B rẻ nhất so với lịch sử."""
+    pit_quarter = get_pit_quarter(vni_d0)
+    if not pit_quarter or top_k <= 0 or not financial_db.exists():
+        return _missing_valuation_leaders(pit_quarter)
+
+    fin_uri = f"file:{financial_db.resolve().as_posix()}?mode=ro"
+    candidates: list[dict[str, Any]] = []
+    with contextlib.closing(sqlite3.connect(fin_uri, uri=True)) as fin_conn:
+        if not (_table_exists(fin_conn, "valuation_scores") and _table_exists(fin_conn, "health_ratios")):
+            return _missing_valuation_leaders(pit_quarter)
+
+        symbols = sorted({str(s).strip().upper() for s in candidate_symbols if str(s).strip()})
+        for sym in symbols:
+            if not is_stock(sym):
+                continue
+            price_row = screener_conn.execute(
+                f"""
+                SELECT close FROM daily_ohlcv
+                WHERE symbol = ? AND date = ?
+                  AND COALESCE(is_stale, 0) = 0
+                  AND {STOCK_ONLY_SQL} AND {VALID_ROW_SQL}
+                LIMIT 1
+                """,
+                (sym, vni_d0),
+            ).fetchone()
+            if price_row is None or not _is_finite_number(price_row[0]):
+                continue
+            close_val = float(price_row[0])
+
+            state = health_engine.analyze(sym, vni_d0)
+            archetype = state.archetype if state is not None else None
+            if archetype not in HEALTHY_VALUATION_ARCHETYPES:
+                continue
+
+            val_rows = fin_conn.execute(
+                """
+                SELECT period, ratio_name, ratio_value, z_score, zone
+                FROM valuation_scores
+                WHERE symbol = ?
+                  AND period <= ?
+                  AND COALESCE(is_clean_metric, 1) = 1
+                  AND ratio_name IN ('PE', 'PB')
+                  AND ratio_value > 0
+                  AND z_score IS NOT NULL
+                ORDER BY period DESC
+                """,
+                (sym, pit_quarter),
+            ).fetchall()
+            by_period: dict[str, dict[str, tuple[float, float, str]]] = {}
+            for period, ratio_name, ratio_val, z_score, zone in val_rows:
+                if not (_is_finite_number(ratio_val) and _is_finite_number(z_score)):
+                    continue
+                by_period.setdefault(str(period), {})[str(ratio_name)] = (
+                    float(ratio_val),
+                    float(z_score),
+                    str(zone or ""),
+                )
+
+            matched_period = next(
+                (p for p in sorted(by_period.keys(), reverse=True) if "PE" in by_period[p] and "PB" in by_period[p]),
+                None,
+            )
+            if matched_period is None:
+                continue
+
+            pe_val, pe_z, pe_zone = by_period[matched_period]["PE"]
+            pb_val, pb_z, pb_zone = by_period[matched_period]["PB"]
+
+            roe_rows = fin_conn.execute(
+                """
+                SELECT ratio_value
+                FROM health_ratios
+                WHERE symbol = ?
+                  AND ratio_name = 'ROE'
+                  AND period <= ?
+                  AND period LIKE '%Q%'
+                ORDER BY period DESC
+                LIMIT ?
+                """,
+                (sym, matched_period, TTM_QUARTERS),
+            ).fetchall()
+            roe_ttm_pct: float | None = None
+            if len(roe_rows) == TTM_QUARTERS and all(_is_finite_number(r[0]) for r in roe_rows):
+                roe_ttm_pct = round(sum(float(r[0]) for r in roe_rows) * PCT_SCALE, DECIMALS_DISPLAY)
+
+            composite_z = round(COMPOSITE_Z_WEIGHT * (pe_z + pb_z), DECIMALS_Z)
+            ret_1d_pct = _compute_ret_1d_pct(screener_conn, sym, vni_d0, vni_d0, vni_d1)
+            candidates.append(
+                {
+                    "symbol": sym,
+                    "close": round(close_val, DECIMALS_DISPLAY),
+                    "ret_1d_pct": ret_1d_pct,
+                    "period": matched_period,
+                    "pe": round(pe_val, DECIMALS_DISPLAY),
+                    "pb": round(pb_val, DECIMALS_DISPLAY),
+                    "pe_z": round(pe_z, DECIMALS_DISPLAY),
+                    "pb_z": round(pb_z, DECIMALS_DISPLAY),
+                    "composite_z": composite_z,
+                    "pe_zone": pe_zone,
+                    "pb_zone": pb_zone,
+                    "roe_ttm_pct": roe_ttm_pct,
+                    "health_archetype": archetype,
+                }
+            )
+
+    candidates.sort(key=lambda row: (row["composite_z"], row["pe"], row["symbol"]))
+    leaders = candidates[:top_k]
+    return {
+        "status": "OK" if leaders else "MISSING",
+        "pit_quarter": pit_quarter,
+        "leaders": leaders,
+    }
+
+
 def build_daily_brief_snapshot(
     *,
     as_of_date: str | None = None,
@@ -575,11 +763,16 @@ def build_daily_brief_snapshot(
         fin_ready = _financial_db_ready(financial_db)
         if not fin_ready:
             warnings.append("FINANCIAL_DB_UNAVAILABLE")
+            warnings.append("VALUATION_LEADERS_MISSING")
             raw_candidates: list[dict[str, Any]] = []
             universe_count = 0
+            valuation_leaders = _missing_valuation_leaders(get_pit_quarter(vni_d0))
         else:
             health_engine = CompanyHealthV2()
             health_engine._db = str(financial_db.resolve())
+            valuation_leaders = build_valuation_leaders(conn, financial_db, health_engine, vni_d0, vni_d1)
+            if valuation_leaders["status"] != "OK":
+                warnings.append("VALUATION_LEADERS_MISSING")
             fs = FeatureStore(vni_d0, vni_d0, warmup=warmup, db=screener_db)
             universe = fs.rs_universe(vni_d0)
             universe_count = len(universe)
@@ -632,6 +825,7 @@ def build_daily_brief_snapshot(
         "governor_progress": governor_progress,
         "paper_portfolio": paper_portfolio,
         "flow_map": flow_map,
+        "valuation_leaders": valuation_leaders,
         "momentum_clean": momentum_clean,
         "warnings": warnings,
     }

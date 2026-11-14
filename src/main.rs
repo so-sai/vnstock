@@ -1779,12 +1779,34 @@ struct SectorFlowMap {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct ValuationLeaderItem {
+    symbol: String,
+    close: f64,
+    ret_1d_pct: Option<f64>,
+    period: String,
+    pe: f64,
+    pb: f64,
+    pe_zone: String,
+    pb_zone: String,
+    roe_ttm_pct: Option<f64>,
+    health_archetype: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ValuationLeadersSection {
+    status: String,
+    pit_quarter: Option<String>,
+    leaders: Vec<ValuationLeaderItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct DailyBriefSnapshot {
     schema_version: i64,
     as_of_date: String,
     governor_progress: Vec<GovernorProgressItem>,
     paper_portfolio: Option<PaperPortfolioItem>,
     flow_map: Option<SectorFlowMap>,
+    valuation_leaders: Option<ValuationLeadersSection>,
     momentum_clean: Vec<MomentumCleanItem>,
 }
 
@@ -1838,6 +1860,16 @@ fn friendly_archetype(arch: &str) -> &str {
         "LEVERAGED_GROWTH" => "Đòn bẩy cao",
         "COMMODITY" => "Hàng hóa",
         _ => arch,
+    }
+}
+
+fn friendly_valuation_zone(zone: &str) -> &str {
+    match zone {
+        "CHEAP" => "Rẻ LS",
+        "FAIR" => "Hợp lý",
+        "EXPENSIVE" => "Cao",
+        "EXTREME" => "Rất cao",
+        _ => "N/A",
     }
 }
 
@@ -2056,12 +2088,78 @@ fn parse_daily_brief_snapshot(
         None
     };
 
+    let val_type: Option<String> = mem
+        .query_row("SELECT json_type(?1, '$.valuation_leaders')", params![raw_json], |r| r.get(0))
+        .unwrap_or(None);
+    let valuation_leaders = if val_type.as_deref() == Some("object") {
+        let (status, pit_quarter, leaders_type): (String, Option<String>, Option<String>) = mem
+            .query_row(
+                "SELECT
+                    COALESCE(json_extract(?1, '$.valuation_leaders.status'), 'MISSING'),
+                    json_extract(?1, '$.valuation_leaders.pit_quarter'),
+                    json_type(?1, '$.valuation_leaders.leaders')",
+                params![raw_json],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(|e| format!("Lỗi đọc khối định giá hấp dẫn: {}", e))?;
+        let mut leaders = Vec::new();
+        if leaders_type.as_deref() == Some("array") {
+            let mut val_stmt = mem
+                .prepare(
+                    "SELECT
+                        COALESCE(json_extract(je.value, '$.symbol'), ''),
+                        COALESCE(CAST(json_extract(je.value, '$.close') AS REAL), 0.0),
+                        CASE WHEN json_extract(je.value, '$.ret_1d_pct') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.ret_1d_pct') AS REAL) END,
+                        COALESCE(json_extract(je.value, '$.period'), ''),
+                        COALESCE(CAST(json_extract(je.value, '$.pe') AS REAL), 0.0),
+                        COALESCE(CAST(json_extract(je.value, '$.pb') AS REAL), 0.0),
+                        COALESCE(json_extract(je.value, '$.pe_zone'), ''),
+                        COALESCE(json_extract(je.value, '$.pb_zone'), ''),
+                        CASE WHEN json_extract(je.value, '$.roe_ttm_pct') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.roe_ttm_pct') AS REAL) END,
+                        COALESCE(json_extract(je.value, '$.health_archetype'), '')
+                    FROM json_each(?1, '$.valuation_leaders.leaders') AS je
+                    ORDER BY CAST(je.key AS INTEGER);",
+                )
+                .map_err(|e| format!("Lỗi chuẩn bị truy vấn định giá hấp dẫn: {}", e))?;
+            let val_rows = val_stmt
+                .query_map(params![raw_json], |r| {
+                    Ok(ValuationLeaderItem {
+                        symbol: r.get(0)?,
+                        close: r.get(1)?,
+                        ret_1d_pct: r.get(2)?,
+                        period: r.get(3)?,
+                        pe: r.get(4)?,
+                        pb: r.get(5)?,
+                        pe_zone: r.get(6)?,
+                        pb_zone: r.get(7)?,
+                        roe_ttm_pct: r.get(8)?,
+                        health_archetype: r.get(9)?,
+                    })
+                })
+                .map_err(|e| format!("Lỗi đọc danh sách định giá hấp dẫn: {}", e))?;
+            for row_res in val_rows {
+                let item = row_res.map_err(|e| format!("Lỗi giải mã mục định giá: {}", e))?;
+                if !item.symbol.trim().is_empty() && item.pe > 0.0 && item.pb > 0.0 {
+                    leaders.push(item);
+                }
+            }
+        }
+        Some(ValuationLeadersSection {
+            status,
+            pit_quarter,
+            leaders,
+        })
+    } else {
+        None
+    };
+
     Ok(DailyBriefSnapshot {
         schema_version: 1,
         as_of_date,
         governor_progress,
         paper_portfolio,
         flow_map,
+        valuation_leaders,
         momentum_clean,
     })
 }
@@ -2656,6 +2754,46 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                 fmt_pillar_pct(c0, c1),
                 vol_mil
             ));
+        }
+    }
+
+    if let Ok(snap) = &brief_snapshot {
+        out.push_str("\n💎 ĐỊNH GIÁ HẤP DẪN & TÀI CHÍNH KHỎE (VN30 & BANK)\n");
+        if let Some(vl) = &snap.valuation_leaders {
+            if vl.status == "OK" && !vl.leaders.is_empty() {
+                for item in &vl.leaders {
+                    let ret_part = match item.ret_1d_pct {
+                        Some(p) if !has_session_gap => {
+                            let sign = if p >= 0.0 { "+" } else { "" };
+                            format!(" ({}{}%)", sign, format_number_vnd(p))
+                        }
+                        _ => String::new(),
+                    };
+                    let pe_str = format!("{:.1}x", item.pe).replace('.', ",");
+                    let pb_str = format!("{:.2}x", item.pb).replace('.', ",");
+                    let roe_part = item
+                        .roe_ttm_pct
+                        .map(|r| format!(" | ROE {}%", format!("{:.1}", r).replace('.', ",")))
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "  • [{}] Giá {}đ{} | P/E {} ({}) · P/B {} ({}){} | {} ({})\n",
+                        item.symbol,
+                        format_int_dots(item.close.round() as i64),
+                        ret_part,
+                        pe_str,
+                        friendly_valuation_zone(&item.pe_zone),
+                        pb_str,
+                        friendly_valuation_zone(&item.pb_zone),
+                        roe_part,
+                        friendly_archetype(&item.health_archetype),
+                        item.period
+                    ));
+                }
+            } else {
+                out.push_str("  • [Chưa có dữ liệu định giá PIT đạt chuẩn phiên này]\n");
+            }
+        } else {
+            out.push_str("  • [Chưa có dữ liệu định giá PIT trong snapshot]\n");
         }
     }
 
@@ -3532,6 +3670,42 @@ mod tests {
         assert_eq!(fm.status, "OK");
         assert_eq!(fm.top_sectors[0].sector, "Truyền thông");
         assert_eq!(fm.bottom_sectors[0].sector, "Du lịch và Giải trí");
+
+        // Bổ sung block valuation_leaders Phase 1b-3
+        let with_val = r#"{
+            "schema_version": 1,
+            "as_of_date": "2026-11-13",
+            "governor_progress": [],
+            "valuation_leaders": {
+                "status": "OK",
+                "pit_quarter": "2026Q2",
+                "leaders": [
+                    {
+                        "symbol": "FPT",
+                        "close": 50100.0,
+                        "ret_1d_pct": 1.11,
+                        "period": "2026Q2",
+                        "pe": 13.24,
+                        "pb": 3.32,
+                        "pe_z": -1.57,
+                        "pb_z": -1.21,
+                        "composite_z": -1.389,
+                        "pe_zone": "CHEAP",
+                        "pb_zone": "CHEAP",
+                        "roe_ttm_pct": 23.89,
+                        "health_archetype": "STEADY_EARNER"
+                    }
+                ]
+            },
+            "momentum_clean": []
+        }"#;
+        let parsed_vl = parse_daily_brief_snapshot(with_val, "2026-11-13").expect("parse valuation_leaders");
+        let vl = parsed_vl.valuation_leaders.expect("has valuation_leaders");
+        assert_eq!(vl.status, "OK");
+        assert_eq!(vl.pit_quarter.as_deref(), Some("2026Q2"));
+        assert_eq!(vl.leaders[0].symbol, "FPT");
+        assert_eq!(vl.leaders[0].roe_ttm_pct, Some(23.89));
+        assert_eq!(friendly_valuation_zone(&vl.leaders[0].pe_zone), "Rẻ LS");
     }
 
     // [WHY]: Đảm bảo không còn nhận xét gán cứng sai giá (FPT 52-53k, Premium bạc +20-25%, H=0,57)

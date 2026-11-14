@@ -19,6 +19,7 @@ from src.services.daily_brief_snapshot import (
     build_daily_brief_snapshot,
     build_paper_portfolio_summary,
     build_sector_flow_summary,
+    build_valuation_leaders,
     evaluate_governor_progress,
     filter_clean_momentum_candidates,
     write_daily_brief_snapshot,
@@ -328,6 +329,90 @@ def test_sector_flow_summary_ranks_and_filters_small_sectors(tmp_path: Path) -> 
         assert build_sector_flow_summary(conn, "2026-11-13", None)["status"] == "MISSING"
 
 
+def test_valuation_leaders_filters_healthy_pit_and_sorts_by_composite_z(tmp_path: Path) -> None:
+    """[WHY] Lọc đúng archetype khỏe, PIT period <= 2026Q2, clean metric và chặn look-ahead 2026Q3."""
+    from types import SimpleNamespace
+
+    class _FakeHealthEngine:
+        def __init__(self, arch_map: dict[str, str | None]) -> None:
+            self._arch_map = arch_map
+
+        def analyze(self, sym: str, _as_of_date: str):
+            arch = self._arch_map.get(sym)
+            return None if arch is None else SimpleNamespace(archetype=arch)
+
+    screener_db = tmp_path / "screener_val.db"
+    fin_db = tmp_path / "fin_val.db"
+    with contextlib.closing(sqlite3.connect(screener_db)) as sconn:
+        sconn.execute(
+            """
+            CREATE TABLE daily_ohlcv (
+                symbol TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, volume REAL, is_stale INTEGER
+            )
+            """
+        )
+        for sym, c1, c0 in (
+            ("FPT", 49500.0, 50100.0),
+            ("VCB", 57000.0, 57500.0),
+            ("BAD1", 20000.0, 21000.0),
+            ("DIRT", 25000.0, 25500.0),
+        ):
+            sconn.execute("INSERT INTO daily_ohlcv VALUES (?, '2026-11-12', ?, ?, ?, ?, 500000, 0)", (sym, c1, c1, c1, c1))
+            sconn.execute("INSERT INTO daily_ohlcv VALUES (?, '2026-11-13', ?, ?, ?, ?, 600000, 0)", (sym, c0, c0, c0, c0))
+        sconn.commit()
+
+        with contextlib.closing(sqlite3.connect(fin_db)) as fconn:
+            fconn.execute(
+                """
+                CREATE TABLE valuation_scores (
+                    symbol TEXT, period TEXT, ratio_name TEXT, ratio_value REAL,
+                    z_score REAL, zone TEXT, is_clean_metric INTEGER
+                )
+                """
+            )
+            fconn.execute(
+                "CREATE TABLE health_ratios (symbol TEXT, period TEXT, ratio_name TEXT, ratio_value REAL)"
+            )
+            # FPT: STEADY_EARNER, 2026Q2 hợp lệ (-1.40) + 2026Q3 future (phải bị chặn bởi PIT)
+            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q2', 'PE', 13.24, -1.60, 'CHEAP', 1)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q2', 'PB', 3.32, -1.20, 'CHEAP', 1)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q3', 'PE', 5.0, -3.00, 'CHEAP', 1)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q3', 'PB', 1.0, -3.00, 'CHEAP', 1)")
+            for q in ("2026Q2", "2026Q1", "2025Q4", "2025Q3"):
+                fconn.execute("INSERT INTO health_ratios VALUES ('FPT', ?, 'ROE', 0.06)", (q,))
+            # VCB: HIGH_QUALITY_COMPOUNDER, chỉ 3 quý ROE -> roe_ttm_pct phải None (không đoán/annualize)
+            fconn.execute("INSERT INTO valuation_scores VALUES ('VCB', '2026Q2', 'PE', 12.48, -1.00, 'FAIR', 1)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('VCB', '2026Q2', 'PB', 2.09, -1.00, 'CHEAP', 1)")
+            for q in ("2026Q2", "2026Q1", "2025Q4"):
+                fconn.execute("INSERT INTO health_ratios VALUES ('VCB', ?, 'ROE', 0.05)", (q,))
+            # BAD1: CYCLICAL -> bị loại bởi archetype
+            fconn.execute("INSERT INTO valuation_scores VALUES ('BAD1', '2026Q2', 'PE', 5.0, -3.0, 'CHEAP', 1)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('BAD1', '2026Q2', 'PB', 0.8, -3.0, 'CHEAP', 1)")
+            # DIRT: is_clean_metric = 0 -> bị loại bởi clean metric guard
+            fconn.execute("INSERT INTO valuation_scores VALUES ('DIRT', '2026Q2', 'PE', 6.0, -2.5, 'CHEAP', 0)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('DIRT', '2026Q2', 'PB', 0.9, -2.5, 'CHEAP', 0)")
+            fconn.commit()
+
+        engine = _FakeHealthEngine(
+            {"FPT": "STEADY_EARNER", "VCB": "HIGH_QUALITY_COMPOUNDER", "BAD1": "CYCLICAL", "DIRT": "STEADY_EARNER"}
+        )
+        res = build_valuation_leaders(
+            sconn,
+            fin_db,
+            engine,  # type: ignore[arg-type]
+            "2026-11-13",
+            "2026-11-12",
+            candidate_symbols=("FPT", "VCB", "BAD1", "DIRT"),
+        )
+        assert res["status"] == "OK"
+        assert res["pit_quarter"] == "2026Q2"
+        assert [x["symbol"] for x in res["leaders"]] == ["FPT", "VCB"]
+        assert res["leaders"][0]["period"] == "2026Q2"
+        assert res["leaders"][0]["composite_z"] == -1.4
+        assert res["leaders"][0]["roe_ttm_pct"] == 24.0
+        assert res["leaders"][1]["roe_ttm_pct"] is None
+
+
 def test_cli_daily_brief_smoke_on_live_db(tmp_path: Path) -> None:
     """[WHY] Chạy `ptck.py daily-brief` thật trên DB hiện tại (nếu có) kiểm chứng hợp đồng đầu cuối."""
     live_screener = REPO_ROOT / "backend" / "data" / "screener_cache.db"
@@ -346,6 +431,10 @@ def test_cli_daily_brief_smoke_on_live_db(tmp_path: Path) -> None:
     snap = json.loads(out_file.read_text(encoding="utf-8"))
     assert snap["schema_version"] == 1
     assert len(snap["governor_progress"]) == 4
+    assert snap["paper_portfolio"]["status"] == "OK"
+    assert snap["flow_map"]["status"] == "OK"
+    assert snap["valuation_leaders"]["status"] == "OK"
+    assert len(snap["valuation_leaders"]["leaders"]) == 5
     # [WHY]: Chốt chặn chống penny quay lại radar động lượng sạch
     for row in snap["momentum_clean"]:
         assert row["close"] >= 10_000.0
