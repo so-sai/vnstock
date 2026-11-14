@@ -298,9 +298,25 @@ def _upsert_rows(
 
     from src.database.restatement_guard import is_backwrite, record_restatement
 
+    if not series:
+        return 0
+
     # [WHY] Đọc TRƯỚC khi ghi: sau `INSERT OR REPLACE` thì giá trị cũ biến mất vĩnh viễn,
     # không còn cách nào dựng lại "old" cho audit.
     existing = _read_existing()
+
+    # [WHY] `processing_date` = phiên MỚI NHẤT trong lô, đúng định nghĩa "current_processing_date"
+    # của NQ-17 §III. Mọi dòng có `date < processing_date` là phiên đã đóng trong lần chạy này.
+    processing_date = max(r["date"] for r in series)
+
+    # [WHY]: Khi dòng cũ đã tồn tại và 9 trường nghiệp vụ không đổi (`prev == _signature(r)`),
+    # bắt buộc NO-OP (bỏ qua, không chạy INSERT OR REPLACE) — nếu ghi lại với `now`, cột
+    # `created_at` của các phiên lịch sử sẽ bị ghi đè hàng loạt mỗi khi `backfill()` được gọi,
+    # làm mất provenance và kích hoạt báo động giả trên `find_unaudited_restatements`.
+    changed_series = [r for r in series if existing.get(r["date"]) is None or existing.get(r["date"]) != _signature(r)]
+    if not changed_series:
+        return 0
+
     con = sqlite3.connect(str(DB))
     con.execute(TABLE_DDL)
     now = datetime.datetime.now().isoformat(timespec="seconds")
@@ -319,13 +335,10 @@ def _upsert_rows(
             r["degraded"],
             now,
         )
-        for r in series
+        for r in changed_series
     ]
-    # [WHY] `processing_date` = phiên MỚI NHẤT trong lô, đúng định nghĩa "current_processing_date"
-    # của NQ-17 §III. Mọi dòng có `date < processing_date` là phiên đã đóng trong lần chạy này.
-    processing_date = max(r["date"] for r in series)
     restated = []
-    for r in series:
+    for r in changed_series:
         prev = existing.get(r["date"])
         if (
             prev is not None
@@ -359,7 +372,7 @@ def _upsert_rows(
     try:
         from src.database.eod_write_audit import record_eod_write_audit
 
-        for r in series:
+        for r in changed_series:
             record_eod_write_audit(
                 as_of_date=r["date"],
                 caller_module=caller_module,

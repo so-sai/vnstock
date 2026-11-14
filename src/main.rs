@@ -1058,7 +1058,11 @@ pub fn record_report_sent_today_in_conn(
     today_iso: &str,
     notes: &str,
 ) -> Result<(), String> {
-    let now_iso = format!("{}T00:00:00", today_iso);
+    let now = get_win32_local_time();
+    let now_iso = format!(
+        "{}T{:02}:{:02}:{:02}",
+        today_iso, now.w_hour, now.w_minute, now.w_second
+    );
     conn.execute(
         "INSERT INTO eod_write_audit_ledger (run_timestamp, as_of_date, caller_module, target_table, parameters, status, notes) VALUES (?1, ?2, 'minh_chung.exe', 'zalo_report_dispatch', ?3, 'SENT_OK', ?4)",
         params![now_iso, today_iso, cmd_kind, notes],
@@ -1165,11 +1169,8 @@ pub fn run_cli_sync() -> String {
                 let _ = Command::new(&py_bin)
                     .creation_flags(CREATE_NO_WINDOW)
                     .args([
-                        "-m",
-                        "src.analysis.market_wide_breadth",
-                        "--start",
-                        first_m,
-                        "--backfill",
+                        "-c",
+                        "from src.analysis.market_wide_breadth import sync_missing; sync_missing()",
                     ])
                     .current_dir(root.join("backend"))
                     .output();
@@ -3097,6 +3098,16 @@ mod tests {
 
         assert!(!is_report_sent_today_in_conn(&conn, "summary", "2026-11-14"));
         record_report_sent_today_in_conn(&conn, "summary", "2026-11-14", "SENT_OK").unwrap();
+
+        let ts: String = conn
+            .query_row(
+                "SELECT run_timestamp FROM eod_write_audit_ledger WHERE target_table = 'zalo_report_dispatch' AND as_of_date = '2026-11-14'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(ts.starts_with("2026-11-14T"), "run_timestamp phải bắt đầu bằng ngày: {}", ts);
+        assert_eq!(ts.len(), 19, "run_timestamp phải có định dạng YYYY-MM-DDTHH:MM:SS: {}", ts);
 
         assert!(is_report_sent_today_in_conn(&conn, "summary", "2026-11-14"));
         assert!(!is_report_sent_today_in_conn(&conn, "brief", "2026-11-14"));

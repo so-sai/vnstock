@@ -263,3 +263,38 @@ def test_pre_epoch_backfill_rewrites_are_not_flagged():
         con.close()
     assert report["candidates"] == []
     assert report["since"] == RESTATEMENT_GUARD_EPOCH == "2026-11-06"
+
+
+def test_backfill_twice_with_identical_rows_preserves_created_at(tmp_path, monkeypatch):
+    """[WHY] Chống hồi quy ghi đè provenance: khi gọi `backfill()` 2 lần liên tiếp với dữ
+    liệu 9 trường nghiệp vụ giống hệt nhau, `_upsert_rows()` phải NO-OP và giữ nguyên
+    `created_at` gốc của từng phiên thay vì `INSERT OR REPLACE` toàn chuỗi.
+    """
+    import src.analysis.market_wide_breadth as mwb
+
+    path = _temp_db(tmp_path, monkeypatch)
+    rows = [_row("2026-11-02"), _row("2026-11-03")]
+    mwb.backfill(rows)
+
+    con = sqlite3.connect(str(path))
+    try:
+        con.execute(
+            "UPDATE market_wide_breadth_daily SET created_at='2026-11-02T15:18:00' WHERE date='2026-11-02'"
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    changed = mwb.backfill(rows)
+    assert changed == 0
+
+    con = sqlite3.connect(str(path))
+    try:
+        created = con.execute(
+            "SELECT created_at FROM market_wide_breadth_daily WHERE date='2026-11-02'"
+        ).fetchone()[0]
+    finally:
+        con.close()
+
+    assert created == "2026-11-02T15:18:00"
+    assert _audit_rows(path) == []

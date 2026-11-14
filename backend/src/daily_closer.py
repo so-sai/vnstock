@@ -244,17 +244,16 @@ def run_daily_closer(skip_sync: bool = False):
         print(f"⚠️  Paper watch freeze skipped: {e}")
 
     # Step 4.3: Market-wide breadth refresh (E4b, non-blocking, ~3.4s)
-    # WHY: bảng market_wide_breadth_daily đóng băng tại 11/09 vì không có caller
-    # và --end mặc định hardcode. Breadth là REGIME INPUT, không phải alpha.
+    # [WHY]: Dùng `sync_missing()` thay vì `backfill()` để chỉ ghi các phiên thiếu + phiên
+    # hiện tại nếu có thay đổi, bảo toàn tuyệt đối provenance `created_at` của lịch sử.
     try:
-        from src.analysis.market_wide_breadth import backfill, latest_db_date, load_bars, run_series
+        from src.analysis.market_wide_breadth import sync_missing
 
-        _end = latest_db_date()
-        if _end:
-            _n = backfill(run_series(load_bars("2020-01-01", _end)))
-            print(f"  Market-wide breadth: refreshed → {_end} ({_n} rows)")
-        else:
-            print("⚠️  Market-wide breadth skipped: daily_ohlcv rỗng")
+        _bw = sync_missing()
+        print(
+            f"  Market-wide breadth: synced → {_bw['end']} "
+            f"(inserted={_bw['inserted']}, refreshed={_bw['refreshed']}, drift={_bw['drift_count']})"
+        )
     except Exception as e:  # noqa: BLE001 - batch isolation
         print(f"⚠️  Market-wide breadth skipped: {e}")
 
