@@ -76,8 +76,8 @@ MOMENTUM_MIN_CLOSE_VND = 10_000.0
 # [WHY]: Thanh khoản tối thiểu 500.000 cp/phiên (ADV_20D) — thấp hơn không đủ quy mô giải ngân thực tế.
 MOMENTUM_MIN_ADV20_SHARES = 500_000.0
 
-# [WHY]: Giá trị giao dịch trung bình 20 phiên tối thiểu — chặn lọt mã thiếu quy mô thanh khoản VND thực tế.
-MOMENTUM_MIN_ADV20_VND = 500_000.0
+# [WHY]: Giá trị giao dịch TB 20 phiên tối thiểu 10 tỷ đồng/phiên (NQ-26 II.2) — chặn mã thanh khoản VND mỏng.
+MOMENTUM_MIN_ADV20_VND = 10_000_000_000.0
 
 # [WHY]: Sức mạnh giá RS >= 85.0 lọc nhóm dẫn dắt sớm trước ngưỡng TrendEngine (90) — hạ thấp gây nhiễu radar.
 MOMENTUM_MIN_RS = 85.0
@@ -403,6 +403,7 @@ def build_daily_brief_snapshot(
                     float(rs_val) < MOMENTUM_MIN_RS
                     or float(close_val) < MOMENTUM_MIN_CLOSE_VND
                     or float(adv20_shares) < MOMENTUM_MIN_ADV20_SHARES
+                    or float(adv20_shares) * float(close_val) < MOMENTUM_MIN_ADV20_VND
                 ):
                     continue
                 state = health_engine.analyze(sym, vni_d0)

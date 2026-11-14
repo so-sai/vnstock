@@ -1302,15 +1302,38 @@ struct PnjFacts {
     vol_ratio: Option<f64>,
 }
 
-fn pnj_net_income() -> Option<(String, f64)> {
+fn pit_quarter_at(report_date: &str) -> Option<String> {
+    let mut it = report_date.split('-');
+    let y: i32 = it.next()?.parse().ok()?;
+    let m: u32 = it.next()?.parse().ok()?;
+    let d: u32 = it.next()?.parse().ok()?;
+    if it.next().is_some() {
+        return None;
+    }
+    let q = if (m, d) >= (11, 30) {
+        format!("{}Q3", y)
+    } else if (m, d) >= (8, 30) {
+        format!("{}Q2", y)
+    } else if (m, d) >= (5, 31) {
+        format!("{}Q1", y)
+    } else if (m, d) >= (5, 1) {
+        format!("{}Q4", y - 1)
+    } else {
+        format!("{}Q3", y - 1)
+    };
+    Some(q)
+}
+
+fn pnj_net_income(report_date: &str) -> Option<(String, f64)> {
+    let pit_q = pit_quarter_at(report_date)?;
     let db = Db::open_readonly(&resolve_db_path("financial_facts.db")).ok()?;
     let mut stmt = db
         .conn
         .prepare(
-            "SELECT period, value FROM financial_facts WHERE symbol='PNJ' AND metric='NET_INCOME' AND unit='VND' AND is_synthetic=0 ORDER BY period DESC LIMIT 1;",
+            "SELECT period, value FROM financial_facts WHERE symbol='PNJ' AND metric='NET_INCOME' AND unit='VND' AND is_synthetic=0 AND period <= ?1 ORDER BY period DESC LIMIT 1;",
         )
         .ok()?;
-    let mut rows = stmt.query([]).ok()?;
+    let mut rows = stmt.query(params![pit_q]).ok()?;
     if let Ok(Some(row)) = rows.next() {
         let period: String = row.get(0).ok()?;
         let value: f64 = row.get(1).ok()?;
@@ -1361,7 +1384,7 @@ fn pnj_facts(db: &Db, report_date: &str) -> Option<PnjFacts> {
     Some(PnjFacts {
         price,
         pct,
-        net_income: pnj_net_income(),
+        net_income: pnj_net_income(report_date),
         ma20_gap,
         vol_ratio,
     })
@@ -1875,6 +1898,7 @@ fn parse_daily_brief_snapshot(
         if !item.symbol.is_empty()
             && item.close >= 10_000.0
             && item.adv20_shares >= 500_000.0
+            && item.adv20_vnd >= 10_000_000_000.0
             && item.rs >= 85.0
             && !item.health_archetype.is_empty()
             && !item.health_archetype.eq_ignore_ascii_case("DISTRESSED")
@@ -2167,10 +2191,15 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                 } else {
                     format!("{:.2}", item.target).replace('.', ",")
                 };
+                let status_tag = match item.status.as_str() {
+                    "PASS" => "Đã đạt",
+                    "LOCKED" => "Chưa đạt",
+                    _ => "Thiếu dữ liệu",
+                };
                 let op_disp = if item.operator == ">" { ">" } else { "≥" };
                 out.push_str(&format!(
-                    "     • {} {}: {} (ngưỡng {} {})\n",
-                    badge, item.label, cur_text, op_disp, tgt_text
+                    "     • {} {}: {} / mục tiêu {} {} ({})\n",
+                    badge, item.label, cur_text, op_disp, tgt_text, status_tag
                 ));
             }
         }
@@ -2421,7 +2450,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             }
             Ok(snap) if snap.momentum_clean.is_empty() => {
                 out.push_str(
-                    "  • Không có cổ phiếu đạt chuẩn lọc (Giá >= 10.000đ, thanh khoản >= 500k cp/phiên, RS >= 85, tài chính lành mạnh).\n",
+                    "  • Không có cổ phiếu đạt chuẩn lọc (Giá >= 10.000đ, thanh khoản >= 500k cp & >= 10 tỷ đồng/phiên, RS >= 85, tài chính lành mạnh).\n",
                 );
             }
             Ok(snap) => {
@@ -2795,7 +2824,12 @@ fn main() {
         "brief" | "summary" => {
             let do_sync = args.iter().any(|a| a == "--sync");
             if do_sync {
-                println!("{}", run_cli_sync());
+                let sync_msg = run_cli_sync();
+                println!("{}", sync_msg);
+                if !sync_msg.contains("Snapshot phân tích (`daily-brief`): ✅ OK") {
+                    eprintln!("❌ [Fail-Closed] Bước tạo snapshot 'ptck.py daily-brief' thất bại trong luồng --sync. Dừng trước khi gửi Zalo.");
+                    std::process::exit(2);
+                }
             }
             let title = if cmd == "brief" {
                 "ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA (PRE-MARKET BRIEF 08:45)"
@@ -3189,6 +3223,7 @@ mod tests {
             ],
             "momentum_clean": [
                 {"symbol": "TTF", "close": 1070.0, "ret_1d_pct": 6.5, "rs": 95.0, "adv20_shares": 2000000.0, "adv20_vnd": 2140000000.0, "health_archetype": "STEADY_EARNER", "breakout_20d": true},
+                {"symbol": "LVND", "close": 19000.0, "ret_1d_pct": 1.0, "rs": 95.0, "adv20_shares": 500000.0, "adv20_vnd": 9999999999.0, "health_archetype": "STEADY_EARNER", "breakout_20d": false},
                 {"symbol": "NVB", "close": 15800.0, "ret_1d_pct": null, "rs": 96.58, "adv20_shares": 1199600.0, "adv20_vnd": 18953680000.0, "health_archetype": "COMMODITY", "breakout_20d": false},
                 {"symbol": "NAB", "close": 13200.0, "ret_1d_pct": 1.54, "rs": 91.25, "adv20_shares": 2653820.0, "adv20_vnd": 35030424000.0, "health_archetype": "STEADY_EARNER", "breakout_20d": true}
             ]
@@ -3199,7 +3234,7 @@ mod tests {
         assert_eq!(parsed.governor_progress.len(), 2);
         assert_eq!(parsed.governor_progress[1].current, None);
         assert_eq!(parsed.governor_progress[1].status, "MISSING");
-        // TTF < 10.000đ bị chốt chặn consumer loại bỏ
+        // TTF < 10.000đ và LVND < 10 tỷ VND đều bị chốt chặn consumer loại bỏ
         assert_eq!(parsed.momentum_clean.len(), 2);
         assert_eq!(parsed.momentum_clean[0].symbol, "NVB");
         assert_eq!(parsed.momentum_clean[0].ret_1d_pct, None);
@@ -3217,7 +3252,7 @@ mod tests {
     }
 
     // [WHY]: Đảm bảo không còn nhận xét gán cứng sai giá (FPT 52-53k, Premium bạc +20-25%, H=0,57)
-    // hay cổ phiếu rác penny (TTF, DST, IDJ) tái xuất hiện trong bản tin Zalo thực tế.
+    // hay cổ phiếu rác penny (TTF, DST, IDJ) và dấu so sánh sai (0,32 ≥ 0,40) tái xuất hiện trong bản tin Zalo thực tế.
     #[test]
     fn bao_cao_khong_chua_nhan_xet_gan_cung_sai_lech() {
         if !db_san_co() {
@@ -3232,6 +3267,7 @@ mod tests {
             "Pha tích lũy phân phối đỉnh",
             "H=0,57",
             "Độc quyền liên doanh",
+            "0,32 ≥ 0,40",
             "TTF",
             "IDJ",
             "DST",
@@ -3241,6 +3277,11 @@ mod tests {
             "ĐIỂM TIN TRƯỚC GIỜ MỞ CỬA (PRE-MARKET BRIEF 08:45)",
         ] {
             let report = build_market_brief(title).expect("render");
+            assert!(
+                report.contains("/ mục tiêu ≥ 0,40 (Chưa đạt)"),
+                "Bản tin '{}' thiếu định dạng tiến độ ngưỡng rõ nghĩa",
+                title
+            );
             for mau_cam in cam_hardcode {
                 assert!(
                     !report.contains(mau_cam),

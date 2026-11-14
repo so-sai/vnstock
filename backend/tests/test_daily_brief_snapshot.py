@@ -98,12 +98,12 @@ def test_filter_clean_momentum_blocks_penny_distressed_weak_illiquid() -> None:
         {"symbol": "VNINDEX", "close": 12500.0, "adv20_shares": 5_000_000.0, "rs": 99.0, "health_archetype": "STEADY_EARNER"},
         # Thanh khoản CP < 500k
         {"symbol": "ILLQ", "close": 20000.0, "adv20_shares": 499_999.0, "rs": 95.0, "health_archetype": "STEADY_EARNER"},
-        # Thanh khoản VND < 500k
+        # Thanh khoản VND < 10 tỷ đồng/phiên (dù ADV20 CP đạt 500k) phải bị chặn
         {
             "symbol": "LVND",
-            "close": 20000.0,
+            "close": 19_000.0,
             "adv20_shares": 500_000.0,
-            "adv20_vnd": 400_000.0,
+            "adv20_vnd": 9_999_999_999.0,
             "rs": 95.0,
             "health_archetype": "STEADY_EARNER",
         },
@@ -236,5 +236,6 @@ def test_cli_daily_brief_smoke_on_live_db(tmp_path: Path) -> None:
     for row in snap["momentum_clean"]:
         assert row["close"] >= 10_000.0
         assert row["adv20_shares"] >= 500_000.0
+        assert row["adv20_vnd"] >= 10_000_000_000.0
         assert row["rs"] >= 85.0
         assert row["health_archetype"] != "DISTRESSED"
