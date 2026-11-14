@@ -37,6 +37,15 @@
       "verified": false
     },
     {
+      "symbol": "NLG",
+      "bucket": "ADD_STD",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
       "symbol": "DIG",
       "bucket": "DOWNGRADE_STD_TO_SC",
       "delta_weight_std_pct": null,
@@ -95,15 +104,6 @@
     },
     {
       "symbol": "MZG",
-      "bucket": "ADD_SC",
-      "delta_weight_pct": null,
-      "fol": null,
-      "foreign_room_pct": null,
-      "available_room_shares": null,
-      "verified": false
-    },
-    {
-      "symbol": "NLG",
       "bucket": "ADD_SC",
       "delta_weight_pct": null,
       "fol": null,

@@ -22,6 +22,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+
 from src.research.msci_flow_auditor import (
     DEFAULT_MANIFEST_PATH,
     audit_msci_manifest,
@@ -42,6 +43,7 @@ from src.tools.msci_flow import (
     classify_dtl,
     compute_symbol_flow,
 )
+from src.tools.msci_flow.manifest import load_manifest
 from src.tools.msci_flow.report import render_markdown_report, serialize_run_json
 from src.tools.msci_flow_estimate import main as cli_main
 
@@ -755,3 +757,15 @@ def test_mandatory_banners_ledger_dry_run_vs_apply_and_survey(tmp_path: Path):
         ]
     )
     assert empty_code == EXIT_REFUSED
+
+
+def test_default_manifest_basket_classification_matches_nq26():
+    """[WHY] Đối soát phân loại 15 mã rổ MSCI Q4-2026 theo NQ-26 (NLG thuộc ADD_STD, không phải ADD_SC)."""
+    spec = load_manifest(DEFAULT_MANIFEST_PATH)
+    by_bucket: dict[str, set[str]] = {}
+    for s in spec.symbols:
+        by_bucket.setdefault(s.bucket, set()).add(s.symbol)
+    assert by_bucket["ADD_STD"] == {"PNJ", "NLG"}
+    assert by_bucket["DOWNGRADE_STD_TO_SC"] == {"DIG", "FTS", "PC1"}
+    assert by_bucket["ADD_SC"] == {"HII", "HPA", "HVH", "MZG"}
+    assert by_bucket["REMOVE_SC"] == {"DBD", "GHC", "JVC", "RAL", "STK", "VFG"}
