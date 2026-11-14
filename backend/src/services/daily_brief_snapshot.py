@@ -94,6 +94,9 @@ DEFAULT_TOP_N = 10
 # [WHY]: Truy vấn 2 phiên liền kề để tính biến động 1 phiên chỉ khi khớp lịch VNINDEX (chặn gộp gap nhiều phiên).
 SESSION_PAIR_LIMIT = 2
 
+# [WHY]: Mã danh mục theo dõi chuẩn (SEL_PAPER_V1 đã restate chuẩn sau sự kiện quyền TCB/FPT) cho bản tin hằng ngày.
+DEFAULT_PAPER_PORTFOLIO_ID = "SEL_PAPER_V1"
+
 # [WHY]: Làm tròn 4 chữ số thập phân cho chỉ số Governor — tránh sai số biểu diễn float làm nhiễu JSON.
 DECIMALS_GOV = 4
 
@@ -356,6 +359,98 @@ def _compute_ret_1d_pct(
     return ((float(c0) - float(c1)) / float(c1)) * PCT_SCALE
 
 
+def _missing_paper_portfolio(portfolio_id: str) -> dict[str, Any]:
+    """Payload fail-closed khi danh mục theo dõi chưa đồng bộ hoặc thiếu phiên hiện tại."""
+    return {
+        "portfolio_id": portfolio_id,
+        "status": "MISSING",
+        "as_of_date": None,
+        "total_equity": None,
+        "settled_cash": None,
+        "market_value": None,
+        "ret_1d_pct": None,
+        "cum_ret_pct": None,
+        "open_symbols": [],
+    }
+
+
+def build_paper_portfolio_summary(
+    conn: sqlite3.Connection,
+    vni_d0: str,
+    vni_d1: str | None,
+    portfolio_id: str = DEFAULT_PAPER_PORTFOLIO_ID,
+) -> dict[str, Any]:
+    """Đọc NAV thực tế từ `paper_equity_curve` & `paper_portfolio_state`, fail-closed nếu lệch ngày phiên."""
+    if not (_table_exists(conn, "paper_portfolio_state") and _table_exists(conn, "paper_equity_curve")):
+        return _missing_paper_portfolio(portfolio_id)
+
+    state_row = conn.execute(
+        "SELECT initial_capital FROM paper_portfolio_state WHERE portfolio_id = ? LIMIT 1",
+        (portfolio_id,),
+    ).fetchone()
+    rows = conn.execute(
+        f"""
+        SELECT date, total_equity, settled_cash, market_value
+        FROM paper_equity_curve
+        WHERE portfolio_id = ? AND date <= ?
+        ORDER BY date DESC
+        LIMIT {SESSION_PAIR_LIMIT}
+        """,
+        (portfolio_id, vni_d0),
+    ).fetchall()
+    if not rows or str(rows[0][0]) != vni_d0 or not _is_finite_number(rows[0][1]):
+        return _missing_paper_portfolio(portfolio_id)
+
+    eq0 = float(rows[0][1])
+    settled_cash = round(float(rows[0][2]), DECIMALS_DISPLAY) if _is_finite_number(rows[0][2]) else None
+    market_value = round(float(rows[0][3]), DECIMALS_DISPLAY) if _is_finite_number(rows[0][3]) else None
+
+    ret_1d_pct: float | None = None
+    if (
+        len(rows) >= SESSION_PAIR_LIMIT
+        and vni_d1 is not None
+        and str(rows[1][0]) == vni_d1
+        and _is_finite_number(rows[1][1])
+        and float(rows[1][1]) > 0.0
+    ):
+        eq1 = float(rows[1][1])
+        ret_1d_pct = round(((eq0 - eq1) / eq1) * PCT_SCALE, DECIMALS_DISPLAY)
+
+    cum_ret_pct: float | None = None
+    if state_row is not None and _is_finite_number(state_row[0]) and float(state_row[0]) > 0.0:
+        init_cap = float(state_row[0])
+        cum_ret_pct = round(((eq0 - init_cap) / init_cap) * PCT_SCALE, DECIMALS_DISPLAY)
+
+    open_symbols: list[str] = []
+    if _table_exists(conn, "paper_lots"):
+        lot_rows = conn.execute(
+            """
+            SELECT symbol
+            FROM paper_lots
+            WHERE portfolio_id = ?
+              AND COALESCE(is_closed, 0) = 0
+              AND quantity > 0
+              AND open_date <= ?
+            GROUP BY symbol
+            ORDER BY symbol ASC
+            """,
+            (portfolio_id, vni_d0),
+        ).fetchall()
+        open_symbols = [str(r[0]).strip().upper() for r in lot_rows if r[0]]
+
+    return {
+        "portfolio_id": portfolio_id,
+        "status": "OK",
+        "as_of_date": vni_d0,
+        "total_equity": round(eq0, DECIMALS_DISPLAY),
+        "settled_cash": settled_cash,
+        "market_value": market_value,
+        "ret_1d_pct": ret_1d_pct,
+        "cum_ret_pct": cum_ret_pct,
+        "open_symbols": open_symbols,
+    }
+
+
 def build_daily_brief_snapshot(
     *,
     as_of_date: str | None = None,
@@ -378,6 +473,10 @@ def build_daily_brief_snapshot(
             warnings.append("REGIME_ROW_MISSING")
         elif int(regime_row["is_degraded"]) != 0:
             warnings.append("REGIME_DEGRADED")
+
+        paper_portfolio = build_paper_portfolio_summary(conn, vni_d0, vni_d1)
+        if paper_portfolio["status"] != "OK":
+            warnings.append("PAPER_PORTFOLIO_MISSING")
 
         fin_ready = _financial_db_ready(financial_db)
         if not fin_ready:
@@ -437,6 +536,7 @@ def build_daily_brief_snapshot(
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "universe_count": universe_count,
         "governor_progress": governor_progress,
+        "paper_portfolio": paper_portfolio,
         "momentum_clean": momentum_clean,
         "warnings": warnings,
     }

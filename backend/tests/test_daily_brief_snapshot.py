@@ -17,6 +17,7 @@ from pathlib import Path
 from src.services.daily_brief_snapshot import (
     SCHEMA_VERSION,
     build_daily_brief_snapshot,
+    build_paper_portfolio_summary,
     evaluate_governor_progress,
     filter_clean_momentum_candidates,
     write_daily_brief_snapshot,
@@ -212,6 +213,61 @@ def test_build_snapshot_fail_closed_when_financial_db_missing(tmp_path: Path) ->
     assert "FINANCIAL_DB_UNAVAILABLE" in snap["warnings"]
     assert snap["governor_progress"][0]["status"] == "LOCKED"
     assert snap["governor_progress"][2]["status"] == "PASS"
+
+
+def test_paper_portfolio_summary_ok_and_stale_fail_closed(tmp_path: Path) -> None:
+    """[WHY] Xác nhận tính đúng NAV/1D/lũy kế của danh mục theo dõi và fail-closed nếu thiếu phiên d0."""
+    db_path = tmp_path / "screener_paper.db"
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        # Thiếu bảng -> fail-closed MISSING
+        missing_tbl = build_paper_portfolio_summary(conn, "2026-11-13", "2026-11-12")
+        assert missing_tbl["status"] == "MISSING"
+        assert missing_tbl["total_equity"] is None
+
+        conn.execute("CREATE TABLE paper_portfolio_state (portfolio_id TEXT PRIMARY KEY, initial_capital REAL)")
+        conn.execute(
+            """
+            CREATE TABLE paper_equity_curve (
+                portfolio_id TEXT, date TEXT, settled_cash REAL, market_value REAL, total_equity REAL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE paper_lots (
+                portfolio_id TEXT, symbol TEXT, open_date TEXT, quantity INTEGER, is_closed INTEGER
+            )
+            """
+        )
+        conn.execute("INSERT INTO paper_portfolio_state VALUES ('SEL_PAPER_V1', 1000000000.0)")
+        conn.execute(
+            "INSERT INTO paper_equity_curve VALUES ('SEL_PAPER_V1', '2026-11-12', 10000000.0, 885000000.0, 895000000.0)"
+        )
+        conn.execute(
+            "INSERT INTO paper_equity_curve VALUES ('SEL_PAPER_V1', '2026-11-13', 8500000.0, 888390000.0, 896890000.0)"
+        )
+        conn.execute("INSERT INTO paper_lots VALUES ('SEL_PAPER_V1', 'VCB', '2026-07-06', 3200, 0)")
+        conn.execute("INSERT INTO paper_lots VALUES ('SEL_PAPER_V1', 'FPT', '2026-07-06', 2970, 0)")
+        conn.execute("INSERT INTO paper_lots VALUES ('SEL_PAPER_V1', 'OLD', '2026-06-20', 1000, 1)")
+        conn.commit()
+
+        ok = build_paper_portfolio_summary(conn, "2026-11-13", "2026-11-12")
+        assert ok["status"] == "OK"
+        assert ok["total_equity"] == 896_890_000.0
+        assert ok["settled_cash"] == 8_500_000.0
+        assert ok["ret_1d_pct"] == 0.21
+        assert ok["cum_ret_pct"] == -10.31
+        assert ok["open_symbols"] == ["FPT", "VCB"]
+
+        # Nếu phiên mới nhất chưa cập nhật vào paper_equity_curve -> phải trả MISSING, cấm mượn NAV cũ
+        stale = build_paper_portfolio_summary(conn, "2026-11-14", "2026-11-13")
+        assert stale["status"] == "MISSING"
+        assert stale["total_equity"] is None
+
+        # Nếu có gap phiên d1 (2026-11-12 != vni_d1='2026-11-11') -> ret_1d_pct phải None
+        gapped = build_paper_portfolio_summary(conn, "2026-11-13", "2026-11-11")
+        assert gapped["status"] == "OK"
+        assert gapped["ret_1d_pct"] is None
 
 
 def test_cli_daily_brief_smoke_on_live_db(tmp_path: Path) -> None:

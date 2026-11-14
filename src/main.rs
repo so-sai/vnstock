@@ -1753,10 +1753,22 @@ struct MomentumCleanItem {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct PaperPortfolioItem {
+    portfolio_id: String,
+    status: String,
+    total_equity: Option<f64>,
+    settled_cash: Option<f64>,
+    ret_1d_pct: Option<f64>,
+    cum_ret_pct: Option<f64>,
+    open_symbols: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct DailyBriefSnapshot {
     schema_version: i64,
     as_of_date: String,
     governor_progress: Vec<GovernorProgressItem>,
+    paper_portfolio: Option<PaperPortfolioItem>,
     momentum_clean: Vec<MomentumCleanItem>,
 }
 
@@ -1907,10 +1919,68 @@ fn parse_daily_brief_snapshot(
         }
     }
 
+    let paper_type: Option<String> = mem
+        .query_row("SELECT json_type(?1, '$.paper_portfolio')", params![raw_json], |r| r.get(0))
+        .unwrap_or(None);
+    let paper_portfolio = if paper_type.as_deref() == Some("object") {
+        let (portfolio_id, status, total_equity, settled_cash, ret_1d_pct, cum_ret_pct, open_type): (
+            String,
+            String,
+            Option<f64>,
+            Option<f64>,
+            Option<f64>,
+            Option<f64>,
+            Option<String>,
+        ) = mem
+            .query_row(
+                "SELECT
+                    COALESCE(json_extract(?1, '$.paper_portfolio.portfolio_id'), ''),
+                    COALESCE(json_extract(?1, '$.paper_portfolio.status'), 'MISSING'),
+                    CASE WHEN json_extract(?1, '$.paper_portfolio.total_equity') IS NULL THEN NULL ELSE CAST(json_extract(?1, '$.paper_portfolio.total_equity') AS REAL) END,
+                    CASE WHEN json_extract(?1, '$.paper_portfolio.settled_cash') IS NULL THEN NULL ELSE CAST(json_extract(?1, '$.paper_portfolio.settled_cash') AS REAL) END,
+                    CASE WHEN json_extract(?1, '$.paper_portfolio.ret_1d_pct') IS NULL THEN NULL ELSE CAST(json_extract(?1, '$.paper_portfolio.ret_1d_pct') AS REAL) END,
+                    CASE WHEN json_extract(?1, '$.paper_portfolio.cum_ret_pct') IS NULL THEN NULL ELSE CAST(json_extract(?1, '$.paper_portfolio.cum_ret_pct') AS REAL) END,
+                    json_type(?1, '$.paper_portfolio.open_symbols')",
+                params![raw_json],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
+            )
+            .map_err(|e| format!("Lỗi đọc danh mục theo dõi trong snapshot: {}", e))?;
+
+        let mut open_symbols = Vec::new();
+        if open_type.as_deref() == Some("array") {
+            let mut sym_stmt = mem
+                .prepare(
+                    "SELECT COALESCE(je.value, '') FROM json_each(?1, '$.paper_portfolio.open_symbols') AS je ORDER BY CAST(je.key AS INTEGER);",
+                )
+                .map_err(|e| format!("Lỗi chuẩn bị truy vấn mã nắm giữ: {}", e))?;
+            let sym_rows = sym_stmt
+                .query_map(params![raw_json], |r| r.get::<_, String>(0))
+                .map_err(|e| format!("Lỗi đọc mã nắm giữ: {}", e))?;
+            for sym_res in sym_rows {
+                let s = sym_res.map_err(|e| format!("Lỗi giải mã ký hiệu nắm giữ: {}", e))?;
+                if !s.trim().is_empty() {
+                    open_symbols.push(s.trim().to_string());
+                }
+            }
+        }
+        Some(PaperPortfolioItem {
+            portfolio_id,
+            status,
+            total_equity,
+            settled_cash,
+            ret_1d_pct,
+            cum_ret_pct,
+            open_symbols,
+        })
+    } else {
+        None
+    };
+
     Ok(DailyBriefSnapshot {
         schema_version: 1,
         as_of_date,
         governor_progress,
+        paper_portfolio,
         momentum_clean,
     })
 }
@@ -2208,6 +2278,54 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                 "  ⏳ Tiến độ 4 điều kiện mở khóa: Chưa sẵn sàng ({})\n",
                 err
             ));
+        }
+    }
+
+    if let Ok(snap) = &brief_snapshot {
+        out.push_str("\n💼 DANH MỤC THEO DÕI (PAPER NAV)\n");
+        if let Some(pp) = &snap.paper_portfolio {
+            if pp.status == "OK" {
+                if let Some(eq) = pp.total_equity {
+                    let nav_tr = format!("{:.1}", eq / 1_000_000.0).replace('.', ",");
+                    let cash_tr = pp
+                        .settled_cash
+                        .map(|c| format!("{:.1} triệu đ", c / 1_000_000.0).replace('.', ","))
+                        .unwrap_or_else(|| "N/A".to_string());
+                    let r1d = pp
+                        .ret_1d_pct
+                        .map(|v| {
+                            let s = if v >= 0.0 { "+" } else { "" };
+                            format!("{}{}%", s, format_number_vnd(v))
+                        })
+                        .unwrap_or_else(|| "Chưa đủ 2 phiên".to_string());
+                    let rcum = pp
+                        .cum_ret_pct
+                        .map(|v| {
+                            let s = if v >= 0.0 { "+" } else { "" };
+                            format!("{}{}%", s, format_number_vnd(v))
+                        })
+                        .unwrap_or_else(|| "N/A".to_string());
+                    let holdings = if pp.open_symbols.is_empty() {
+                        "100% Tiền mặt".to_string()
+                    } else {
+                        pp.open_symbols.join(", ")
+                    };
+                    out.push_str(&format!(
+                        "• Tài sản ròng: {} triệu đ (1 phiên: {} | Lũy kế: {})\n",
+                        nav_tr, r1d, rcum
+                    ));
+                    out.push_str(&format!(
+                        "• Tiền mặt sẵn có: {} | Nắm giữ: {}\n",
+                        cash_tr, holdings
+                    ));
+                } else {
+                    out.push_str("  • [Dữ liệu danh mục theo dõi phiên này đang chờ đồng bộ]\n");
+                }
+            } else {
+                out.push_str("  • [Dữ liệu danh mục theo dõi phiên này đang chờ đồng bộ]\n");
+            }
+        } else {
+            out.push_str("  • [Dữ liệu danh mục theo dõi phiên này đang chờ đồng bộ]\n");
         }
     }
 
@@ -3249,6 +3367,30 @@ mod tests {
 
         // JSON hỏng -> Err fail-closed
         assert!(parse_daily_brief_snapshot("{bad json", "2026-11-13").is_err());
+
+        // Bổ sung block paper_portfolio Phase 1b-1
+        let with_paper = r#"{
+            "schema_version": 1,
+            "as_of_date": "2026-11-13",
+            "governor_progress": [],
+            "paper_portfolio": {
+                "portfolio_id": "SEL_PAPER_V1",
+                "status": "OK",
+                "as_of_date": "2026-11-13",
+                "total_equity": 896888348.35,
+                "settled_cash": 8568848.35,
+                "market_value": 888319500.0,
+                "ret_1d_pct": 0.20,
+                "cum_ret_pct": -10.31,
+                "open_symbols": ["FPT", "VCB"]
+            },
+            "momentum_clean": []
+        }"#;
+        let parsed_pp = parse_daily_brief_snapshot(with_paper, "2026-11-13").expect("parse paper");
+        let pp = parsed_pp.paper_portfolio.expect("has paper_portfolio");
+        assert_eq!(pp.status, "OK");
+        assert_eq!(pp.open_symbols, vec!["FPT".to_string(), "VCB".to_string()]);
+        assert_eq!(pp.ret_1d_pct, Some(0.20));
     }
 
     // [WHY]: Đảm bảo không còn nhận xét gán cứng sai giá (FPT 52-53k, Premium bạc +20-25%, H=0,57)
