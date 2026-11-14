@@ -1,0 +1,240 @@
+"""Tests for Daily Brief Snapshot Producer (`src.services.daily_brief_snapshot`).
+
+[WHY] Bảo vệ hợp đồng dữ liệu JSON giữa Python producer (`ptck.py daily-brief`)
+và Rust Zalo consumer (`minh_chung.exe`): ngăn hồi quy lọc penny, chấm sai 4 ngưỡng
+mở khóa Governor, hoặc bịa số khi thiếu dữ liệu (`Missing > Fake`).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+from src.services.daily_brief_snapshot import (
+    SCHEMA_VERSION,
+    build_daily_brief_snapshot,
+    evaluate_governor_progress,
+    filter_clean_momentum_candidates,
+    write_daily_brief_snapshot,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_governor_progress_all_four_thresholds() -> None:
+    """[WHY] Xác nhận đúng toán tử biên (>= cho score/breadth, > chặt cho vol/trend)."""
+    progress = evaluate_governor_progress(
+        {
+            "regime_score": 0.40,
+            "breadth_pct": 59.9,
+            "vol_score": 0.20,
+            "trend_score": 0.01,
+            "is_degraded": 0,
+        }
+    )
+    by_key = {item["key"]: item for item in progress}
+    assert len(progress) == 4
+    assert by_key["regime_score"]["status"] == "PASS"
+    assert by_key["breadth_pct"]["status"] == "LOCKED"
+    # [WHY]: vol_score dùng dấu `>` nên đúng bằng 0.20 vẫn bị khóa (LOCKED).
+    assert by_key["vol_score"]["status"] == "LOCKED"
+    assert by_key["trend_score"]["status"] == "PASS"
+
+
+def test_governor_progress_fail_closed_on_missing_or_degraded() -> None:
+    """[WHY] Thiếu dòng regime, is_degraded != 0, hoặc giá trị NaN/None phải trả MISSING (không default 0)."""
+    for bad_row in (
+        None,
+        {
+            "regime_score": 0.80,
+            "breadth_pct": 80.0,
+            "vol_score": 0.70,
+            "trend_score": 0.50,
+            "is_degraded": 1,
+        },
+        {
+            "regime_score": 0.80,
+            "breadth_pct": 80.0,
+            "vol_score": 0.70,
+            "trend_score": 0.50,
+            "is_degraded": None,
+        },
+    ):
+        res = evaluate_governor_progress(bad_row)
+        assert all(x["status"] == "MISSING" and x["current"] is None for x in res)
+
+    partial = evaluate_governor_progress(
+        {
+            "regime_score": 0.32,
+            "breadth_pct": None,
+            "vol_score": float("nan"),
+            "trend_score": 0.0,
+            "is_degraded": 0,
+        }
+    )
+    by_key = {item["key"]: item for item in partial}
+    assert by_key["regime_score"]["status"] == "LOCKED"
+    assert by_key["breadth_pct"] == {
+        **by_key["breadth_pct"],
+        "current": None,
+        "status": "MISSING",
+    }
+    assert by_key["vol_score"]["status"] == "MISSING"
+    assert by_key["trend_score"]["status"] == "LOCKED"
+
+
+def test_filter_clean_momentum_blocks_penny_distressed_weak_illiquid() -> None:
+    """[WHY] Chống lọt penny (<10k), thanh khoản yếu (<500k), RS < 85, chỉ số, mã DISTRESSED hoặc thiếu BCTC."""
+    raw = [
+        # Penny bị chặn dù RS cao
+        {"symbol": "TTF", "close": 1070.0, "adv20_shares": 2_000_000.0, "rs": 95.0, "health_archetype": "STEADY_EARNER"},
+        {"symbol": "DST", "close": 4100.0, "adv20_shares": 1_500_000.0, "rs": 92.0, "health_archetype": "CYCLICAL"},
+        {"symbol": "IDJ", "close": 2400.0, "adv20_shares": 1_200_000.0, "rs": 91.0, "health_archetype": "CYCLICAL"},
+        # Chỉ số không phải cổ phiếu
+        {"symbol": "VNINDEX", "close": 12500.0, "adv20_shares": 5_000_000.0, "rs": 99.0, "health_archetype": "STEADY_EARNER"},
+        # Thanh khoản CP < 500k
+        {"symbol": "ILLQ", "close": 20000.0, "adv20_shares": 499_999.0, "rs": 95.0, "health_archetype": "STEADY_EARNER"},
+        # Thanh khoản VND < 500k
+        {
+            "symbol": "LVND",
+            "close": 20000.0,
+            "adv20_shares": 500_000.0,
+            "adv20_vnd": 400_000.0,
+            "rs": 95.0,
+            "health_archetype": "STEADY_EARNER",
+        },
+        # RS < 85
+        {"symbol": "WKRS", "close": 25000.0, "adv20_shares": 1_000_000.0, "rs": 84.9, "health_archetype": "STEADY_EARNER"},
+        # DISTRESSED bị loại
+        {"symbol": "BADA", "close": 30000.0, "adv20_shares": 1_000_000.0, "rs": 99.0, "health_archetype": "DISTRESSED"},
+        # Thiếu BCTC (None) bị loại theo Missing > Fake
+        {"symbol": "NOFN", "close": 30000.0, "adv20_shares": 1_000_000.0, "rs": 99.0, "health_archetype": None},
+        # Các mã hợp lệ (PVT bị gap nên ret_1d_pct = None vẫn phải giữ nguyên None)
+        {
+            "symbol": "NAB",
+            "close": 13200.0,
+            "adv20_shares": 800_000.0,
+            "rs": 91.3,
+            "health_archetype": "STEADY_EARNER",
+            "ret_1d_pct": 1.15,
+            "breakout_20d": False,
+        },
+        {
+            "symbol": "NVB",
+            "close": 15800.0,
+            "adv20_shares": 700_000.0,
+            "rs": 96.6,
+            "health_archetype": "COMMODITY",
+            "ret_1d_pct": 2.60,
+            "breakout_20d": True,
+        },
+        {
+            "symbol": "PVT",
+            "close": 21100.0,
+            "adv20_shares": 900_000.0,
+            "rs": 89.6,
+            "health_archetype": "LEVERAGED_GROWTH",
+            "ret_1d_pct": None,
+            "breakout_20d": False,
+        },
+    ]
+
+    result = filter_clean_momentum_candidates(raw, top_n=10)
+    assert [row["symbol"] for row in result] == ["NVB", "NAB", "PVT"]
+    assert result[0]["breakout_20d"] is True
+    assert result[2]["ret_1d_pct"] is None
+
+
+def test_write_daily_brief_snapshot_atomic_roundtrip(tmp_path: Path) -> None:
+    """[WHY] Ghi JSON nguyên tử đảm bảo UTF-8 đầy đủ và không sót file tạm `.tmp_daily_brief_*`."""
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "as_of_date": "2026-11-13",
+        "governor_progress": evaluate_governor_progress(
+            {
+                "regime_score": 0.3203,
+                "breadth_pct": 29.3,
+                "vol_score": 0.6141,
+                "trend_score": 0.0,
+                "is_degraded": 0,
+            }
+        ),
+        "momentum_clean": [],
+    }
+    target = tmp_path / "daily_brief_snapshot.json"
+    written = write_daily_brief_snapshot(payload, out_path=target)
+    assert written == target
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    assert loaded["schema_version"] == SCHEMA_VERSION
+    assert loaded["governor_progress"][0]["label"] == "Điểm sức khỏe thị trường"
+    leftover_tmps = list(tmp_path.glob(".tmp_daily_brief_*"))
+    assert leftover_tmps == []
+
+
+def test_build_snapshot_fail_closed_when_financial_db_missing(tmp_path: Path) -> None:
+    """[WHY] DB tài chính không tồn tại -> Không thể kiểm định DISTRESSED -> momentum_clean rỗng + cảnh báo."""
+    screener_db = tmp_path / "screener.db"
+    with contextlib.closing(sqlite3.connect(screener_db)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE daily_ohlcv (
+                symbol TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL,
+                volume REAL, is_stale INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE regime_history (
+                date TEXT PRIMARY KEY, regime_score REAL, breadth_pct REAL,
+                vol_score REAL, trend_score REAL, is_degraded INTEGER
+            )
+            """
+        )
+        conn.execute("INSERT INTO daily_ohlcv VALUES ('VNINDEX','2026-11-12',1200,1205,1195,1202,1000000,0)")
+        conn.execute("INSERT INTO daily_ohlcv VALUES ('VNINDEX','2026-11-13',1202,1210,1200,1208,1100000,0)")
+        conn.execute("INSERT INTO regime_history VALUES ('2026-11-13', 0.3203, 29.3, 0.6141, 0.0, 0)")
+        conn.commit()
+
+    snap = build_daily_brief_snapshot(
+        as_of_date="2026-11-13",
+        screener_db=screener_db,
+        financial_db=tmp_path / "missing_financial.db",
+        warmup=5,
+    )
+    assert snap["schema_version"] == SCHEMA_VERSION
+    assert snap["as_of_date"] == "2026-11-13"
+    assert snap["momentum_clean"] == []
+    assert "FINANCIAL_DB_UNAVAILABLE" in snap["warnings"]
+    assert snap["governor_progress"][0]["status"] == "LOCKED"
+    assert snap["governor_progress"][2]["status"] == "PASS"
+
+
+def test_cli_daily_brief_smoke_on_live_db(tmp_path: Path) -> None:
+    """[WHY] Chạy `ptck.py daily-brief` thật trên DB hiện tại (nếu có) kiểm chứng hợp đồng đầu cuối."""
+    live_screener = REPO_ROOT / "backend" / "data" / "screener_cache.db"
+    if not live_screener.exists():
+        return
+    out_file = tmp_path / "live_snap.json"
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "ptck.py"), "daily-brief", "--out", str(out_file)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert proc.returncode == 0, f"stderr={proc.stderr}\nstdout={proc.stdout}"
+    snap = json.loads(out_file.read_text(encoding="utf-8"))
+    assert snap["schema_version"] == 1
+    assert len(snap["governor_progress"]) == 4
+    # [WHY]: Chốt chặn chống penny quay lại radar động lượng sạch
+    for row in snap["momentum_clean"]:
+        assert row["close"] >= 10_000.0
+        assert row["adv20_shares"] >= 500_000.0
+        assert row["rs"] >= 85.0
+        assert row["health_archetype"] != "DISTRESSED"

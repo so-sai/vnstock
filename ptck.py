@@ -3998,6 +3998,35 @@ def cmd_msci_audit(args):
     raise SystemExit(msci_main(argv))
 
 
+def cmd_daily_brief(args):
+    """Xuất snapshot JSON chuẩn hóa (ngưỡng mở khóa + động lượng sạch) cho bản tin Zalo Rust."""
+    if (
+        sys.platform == "win32"
+        and hasattr(sys.stdout, "reconfigure")
+        and (getattr(sys.stdout, "encoding", "") or "").lower() != "utf-8"
+    ):
+        sys.stdout.reconfigure(encoding="utf-8")
+    from src.services.daily_brief_snapshot import main as brief_main
+
+    # [WHY] Phải `raise SystemExit` thay vì `return` để mã thoát fail-closed (exit 2) không bị main() nuốt mất.
+    argv: list[str] = []
+    if args.date:
+        argv += ["--date", args.date]
+    if args.out:
+        argv += ["--out", args.out]
+    if args.top is not None:
+        argv += ["--top", str(args.top)]
+    if args.warmup is not None:
+        argv += ["--warmup", str(args.warmup)]
+    if args.screener_db:
+        argv += ["--screener-db", args.screener_db]
+    if args.financial_db:
+        argv += ["--financial-db", args.financial_db]
+    if args.json:
+        argv.append("--json")
+    raise SystemExit(brief_main(argv))
+
+
 def cmd_archetype(args):
     """Giai đoạn 1: Business Archetype — DNA classification."""
     if sys.platform == "win32":
@@ -8295,6 +8324,21 @@ def build_parser():
     p_msci.add_argument("--json", action="store_true", help="In JSON ra stdout")
     p_msci.set_defaults(func=cmd_msci_audit)
 
+    # ── Xuất snapshot JSON chuẩn hóa cho bản tin Zalo Rust (Phase 1a) ──
+    p_brief = sub.add_parser(
+        "daily-brief",
+        parents=[lang_parent],
+        help="Xuất snapshot JSON (ngưỡng mở khóa + động lượng sạch) cho bản tin Zalo",
+    )
+    p_brief.add_argument("--date", type=str, default=None, help="Ngày phiên YYYY-MM-DD (mặc định mới nhất)")
+    p_brief.add_argument("--out", type=str, default=None, help="Đường dẫn file JSON đầu ra")
+    p_brief.add_argument("--top", type=int, default=None, help="Số mã momentum_clean tối đa")
+    p_brief.add_argument("--warmup", type=int, default=None, help="Số phiên lịch sử nhìn lại (mặc định 252)")
+    p_brief.add_argument("--screener-db", type=str, default=None, help="Đường dẫn screener_cache.db")
+    p_brief.add_argument("--financial-db", type=str, default=None, help="Đường dẫn financial_facts.db")
+    p_brief.add_argument("--json", action="store_true", help="In JSON snapshot ra stdout")
+    p_brief.set_defaults(func=cmd_daily_brief)
+
     # Freshness Sentinel: cho phép `--force-stale` ở CẢ HAI vị trí (trước và sau
     # subcommand). Gắn bằng vòng lặp thay vì sửa tay ~100 subparser.
     for _sub in sub.choices.values():
@@ -8395,7 +8439,7 @@ BYPASS_COMMANDS = {
     "serve", "telemetry", "gap-analyzer", "data-quality", "symbol-audit",
     "pit-audit", "evidence-ledger", "fetch-macro", "sbv-update",
     "fetch-financials", "import-financials", "cafef-crawl", "forensic-fpr", "dividend-audit",
-    "why-audit", "quarantine-nonsession", "msci-audit",
+    "why-audit", "quarantine-nonsession", "msci-audit", "daily-brief",
 }
 
 

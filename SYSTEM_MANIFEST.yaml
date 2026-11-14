@@ -653,6 +653,11 @@ entrypoints:
     cli: "python ptck.py msci-audit [--manifest PATH] [--survey] [--dry-run] [--out PATH] [--json-out PATH]"
     category: research
 
+  daily_brief:
+    description: "Daily Brief Snapshot Producer (governor_progress + clean momentum radar JSON for Rust Zalo brief)"
+    cli: "python ptck.py daily-brief [--date YYYY-MM-DD] [--out PATH] [--top N] [--json]"
+    category: reporting
+
   # ── Sprint 4: ModelRegistry ─────────────────────────────
   model_registry_status:
     description: "Sprint 4 ModelRegistry — xem trạng thái 3 mô hình cạnh tranh + BMA weights"

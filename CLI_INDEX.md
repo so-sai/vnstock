@@ -145,6 +145,7 @@ trong venv). Kết quả 30/10/2026 và cách đọc: `backend/src/research/silv
 | `close` | EOD → Breadth → Sector → Governor → System Audit |
 | `earnings` | Crawl → Health v2 → Valuation → Governor → System Audit |
 | `daily-close` | Daily closer pipeline |
+| `daily-brief` | Xuất snapshot JSON chuẩn hóa (tiến độ mở khóa giải ngân + động lượng sạch) cho bản tin Zalo |
 | `serve` | Khởi động server |
 
 ---
