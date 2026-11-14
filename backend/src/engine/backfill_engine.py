@@ -180,8 +180,50 @@ FALLBACK_SOURCES = ["vci", "tcbs", "dnse", "kbs"]
 MAX_CONSECUTIVE_TIMEOUTS = 3
 
 
-def _lay_danh_sach_can_backfill() -> list:
-    """Trả về danh sách symbol có số phiên < ngưỡng, cần backfill."""
+def _lay_danh_sach_can_backfill(start: str | None = None, end: str | None = None) -> list:
+    """Trả về danh sách symbol cần backfill.
+
+    [WHY]: Khi gọi `ptck.py backfill-history --start YYYY-MM-DD --end YYYY-MM-DD` (không truyền `--symbols`),
+    ý định là vá lỗ hổng các phiên bị khuyết trong khoảng `[start, end]` cho toàn bộ các mã đang hoạt động
+    (bao gồm cả VNINDEX và các mã trụ có ≥200 phiên), chứ không chỉ các mã có tổng số phiên < 200.
+    """
+    if start is not None and start != MOC_THOI_GIAN_MAC_DINH:
+        eff_end = end or datetime.now().strftime("%Y-%m-%d")
+        with get_connection() as conn:
+            active_rows = conn.execute(
+                """
+                SELECT DISTINCT symbol FROM daily_ohlcv
+                WHERE date >= date(?, '-14 days')
+                  AND COALESCE(is_stale, 0) = 0
+                  AND close > 0
+                """,
+                (start,),
+            ).fetchall()
+            active_syms = {r[0] for r in active_rows if r and r[0]}
+            active_syms.add("VNINDEX")
+            present_rows = conn.execute(
+                """
+                SELECT symbol FROM daily_ohlcv
+                WHERE date >= ? AND date <= ?
+                  AND COALESCE(is_stale, 0) = 0
+                  AND close > 0
+                GROUP BY symbol
+                """,
+                (start, eff_end),
+            ).fetchall()
+            if start == eff_end:
+                present_syms = {r[0] for r in present_rows if r and r[0]}
+                missing_syms = sorted(active_syms - present_syms)
+            else:
+                missing_syms = sorted(active_syms)
+        logger.info(
+            "Tìm thấy %d mã hoạt động cần bù dữ liệu trong khoảng %s → %s.",
+            len(missing_syms),
+            start,
+            eff_end,
+        )
+        return missing_syms
+
     dg = danh_gia_chat_luong_du_lieu()
     if dg.empty:
         return []
@@ -346,7 +388,7 @@ def backfill(
     # 1. Xác định danh sách cần backfill
     tu_dong = False
     if symbols is None:
-        symbols = _lay_danh_sach_can_backfill()
+        symbols = _lay_danh_sach_can_backfill(start=start, end=end)
         tu_dong = True
         if not symbols:
             print("  ✅ Không có mã nào cần backfill.")
@@ -380,6 +422,86 @@ def backfill(
         print(f"\n  ⏱  Thời gian ước tính: ~{len(symbols) * 3} giây (chưa tính cooldown)")
         print("=" * 70)
         return {"total": len(symbols), "success": 0, "failed": 0, "dry_run": True}
+
+    # Fast-path cho bù khuyết ngắn hạn (<= 14 ngày) trên diện rộng (> 20 mã):
+    # Dùng KBS primary + ThreadPoolExecutor để hoàn tất ~880 mã trong ~20-30s thay vì 37 phút.
+    try:
+        span_days = (pd.to_datetime(end) - pd.to_datetime(start)).days
+    except Exception:  # noqa: BLE001
+        span_days = 999
+    if span_days <= 14 and len(symbols) > 20:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        from src.providers.vnstock_provider import VnstockProvider
+
+        print(f"  ⚡ Chế độ bù phiên khuyết nhanh (KBS/VCI song song, 12 luồng) cho {len(symbols)} mã...")
+        bat_dau = time.time()
+        frames = []
+        thanh_cong = 0
+        that_bai = 0
+
+        def _fetch_short_gap(sym: str):
+            for src in ("kbs", "vci"):
+                try:
+                    prov = VnstockProvider(source=src)
+                    df_sym = prov.history(sym, start=start, end=end)
+                    if df_sym is not None and not df_sym.empty:
+                        df_sym = df_sym.copy()
+                        if "time" in df_sym.columns:
+                            df_sym = df_sym.rename(columns={"time": "date"})
+                        if "adj_close" not in df_sym.columns and "close" in df_sym.columns:
+                            df_sym["adj_close"] = df_sym["close"]
+                        for c in ("open", "high", "low", "close", "adj_close"):
+                            if c not in df_sym.columns:
+                                df_sym[c] = 0.0
+                        if "volume" not in df_sym.columns:
+                            df_sym["volume"] = 0
+                        df_sym = df_sym[df_sym["close"].astype(float) > 0]
+                        if df_sym.empty:
+                            continue
+                        df_sym["symbol"] = sym
+                        df_sym["source"] = src
+                        df_sym["date"] = pd.to_datetime(df_sym["date"], format="mixed").dt.strftime("%Y-%m-%d")
+                        df_sym = df_sym[(df_sym["date"] >= start) & (df_sym["date"] <= end)]
+                        if not df_sym.empty:
+                            cols = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
+                            return df_sym[[c for c in cols if c in df_sym.columns]]
+                except Exception:  # noqa: BLE001
+                    continue
+            return None
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            futs = {pool.submit(_fetch_short_gap, s): s for s in symbols}
+            for idx_done, fut in enumerate(as_completed(futs), 1):
+                res_df = fut.result()
+                if res_df is not None and not res_df.empty:
+                    frames.append(res_df)
+                    thanh_cong += 1
+                else:
+                    that_bai += 1
+                if verbose and (idx_done % 50 == 0 or idx_done == len(symbols)):
+                    msg = f"\r  ⚡ Tiến độ: {idx_done}/{len(symbols)} mã (có nến: {thanh_cong}, nghỉ GD/trống: {that_bai})"
+                    print(msg, end="", flush=True)
+
+        print()
+        tong_dong_moi = 0
+        if frames:
+            big_df = pd.concat(frames, ignore_index=True)
+            with get_connection() as conn:
+                save_data_upsert("daily_ohlcv", big_df, conn)
+            tong_dong_moi = len(big_df)
+        thoi_gian = time.time() - bat_dau
+        print(f"  ✅ Hoàn tất bù khuyết nhanh: +{tong_dong_moi} dòng từ {thanh_cong}/{len(symbols)} mã trong {thoi_gian:.1f}s")
+        print("=" * 70)
+        return {
+            "total": len(symbols),
+            "success": thanh_cong,
+            "failed": that_bai,
+            "skipped": 0,
+            "new_rows": tong_dong_moi,
+            "execution_time": thoi_gian,
+            "dry_run": False,
+        }
 
     # 2. THỰC THI BACKFILL
     print()
