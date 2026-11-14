@@ -1,0 +1,169 @@
+{
+  "review_name": "MSCI Q4-2026 Semi-Annual Index Review (Frontier Markets)",
+  "announcement_date": "2026-11-12",
+  "effective_date": "2026-11-30",
+  "fx_source": "screener_cache.db:macro_history_v2:USD_VND",
+  "fx_vnd_per_usd_override": null,
+  "funds": [
+    {
+      "fund_id": "MSCI_FM_STD",
+      "tier": "STANDARD",
+      "aum_usd": null,
+      "aum_source": null,
+      "aum_as_of": null,
+      "verified": false,
+      "no_tracking_fund": false,
+      "notes": "Điền AUM ETF bám MSCI Frontier Markets Standard đã kiểm chứng và đặt verified=true trước khi chạy."
+    },
+    {
+      "fund_id": "MSCI_FM_SC",
+      "tier": "SMALLCAP",
+      "aum_usd": null,
+      "aum_source": null,
+      "aum_as_of": null,
+      "verified": false,
+      "no_tracking_fund": false,
+      "notes": "Nếu xác nhận không có ETF thụ động bám rổ Frontier Small Cap, đặt no_tracking_fund=true và verified=true."
+    }
+  ],
+  "symbols": [
+    {
+      "symbol": "PNJ",
+      "bucket": "ADD_STD",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "DIG",
+      "bucket": "DOWNGRADE_STD_TO_SC",
+      "delta_weight_std_pct": null,
+      "delta_weight_sc_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "FTS",
+      "bucket": "DOWNGRADE_STD_TO_SC",
+      "delta_weight_std_pct": null,
+      "delta_weight_sc_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "PC1",
+      "bucket": "DOWNGRADE_STD_TO_SC",
+      "delta_weight_std_pct": null,
+      "delta_weight_sc_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "HII",
+      "bucket": "ADD_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "HPA",
+      "bucket": "ADD_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "HVH",
+      "bucket": "ADD_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "MZG",
+      "bucket": "ADD_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "NLG",
+      "bucket": "ADD_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "DBD",
+      "bucket": "REMOVE_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "GHC",
+      "bucket": "REMOVE_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "JVC",
+      "bucket": "REMOVE_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "RAL",
+      "bucket": "REMOVE_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "STK",
+      "bucket": "REMOVE_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    },
+    {
+      "symbol": "VFG",
+      "bucket": "REMOVE_SC",
+      "delta_weight_pct": null,
+      "fol": null,
+      "foreign_room_pct": null,
+      "available_room_shares": null,
+      "verified": false
+    }
+  ]
+}
