@@ -1790,6 +1790,8 @@ struct ValuationLeaderItem {
     pb_zone: String,
     roe_ttm_pct: Option<f64>,
     health_archetype: String,
+    foreign_room_shares: Option<f64>,
+    foreign_room_pct: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1807,6 +1809,8 @@ struct MsciSymbolItem {
     estimated_shares: Option<f64>,
     dtl: Option<f64>,
     fol_constrained: bool,
+    foreign_room_shares: Option<f64>,
+    foreign_room_pct: Option<f64>,
     trap_warning: bool,
 }
 
@@ -1814,6 +1818,7 @@ struct MsciSymbolItem {
 struct MsciSection {
     mode: String,
     sessions_remaining: Option<i64>,
+    has_foreign_room: bool,
     add_std: Vec<MsciSymbolItem>,
     down_sc: Vec<MsciSymbolItem>,
 }
@@ -1850,6 +1855,8 @@ fn parse_msci_symbol_array(
                 CASE WHEN json_extract(je.value, '$.estimated_shares') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.estimated_shares') AS REAL) END,
                 CASE WHEN json_extract(je.value, '$.dtl') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.dtl') AS REAL) END,
                 COALESCE(CAST(json_extract(je.value, '$.fol_constrained') AS INTEGER), 0),
+                CASE WHEN json_extract(je.value, '$.foreign_room_shares') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.foreign_room_shares') AS REAL) END,
+                CASE WHEN json_extract(je.value, '$.foreign_room_pct') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.foreign_room_pct') AS REAL) END,
                 COALESCE(CAST(json_extract(je.value, '$.trap_warning') AS INTEGER), 0)
             FROM json_each(?1, ?2) AS je
             ORDER BY CAST(je.key AS INTEGER);",
@@ -1858,7 +1865,7 @@ fn parse_msci_symbol_array(
     let rows = stmt
         .query_map(params![raw_json, json_path], |r| {
             let fol_int: i64 = r.get(5)?;
-            let trap_int: i64 = r.get(6)?;
+            let trap_int: i64 = r.get(8)?;
             Ok(MsciSymbolItem {
                 symbol: r.get(0)?,
                 close_vnd: r.get(1)?,
@@ -1866,6 +1873,8 @@ fn parse_msci_symbol_array(
                 estimated_shares: r.get(3)?,
                 dtl: r.get(4)?,
                 fol_constrained: fol_int != 0,
+                foreign_room_shares: r.get(6)?,
+                foreign_room_pct: r.get(7)?,
                 trap_warning: trap_int != 0,
             })
         })
@@ -1940,6 +1949,33 @@ fn friendly_valuation_zone(zone: &str) -> &str {
         "EXPENSIVE" => "Cao",
         "EXTREME" => "Rất cao",
         _ => "N/A",
+    }
+}
+
+// [WHY]: Phân biệt rõ `0` (`🔒 Kín room`) với `None` (ẩn hoàn toàn — Missing > Fake).
+fn format_foreign_room_badge(shares: Option<f64>, pct: Option<f64>) -> Option<String> {
+    let s = shares?;
+    if !s.is_finite() || s < 0.0 {
+        return None;
+    }
+    if s < 1_000.0 {
+        return Some("🔒 Kín room".to_string());
+    }
+    if let Some(p) = pct {
+        if p.is_finite() && p < 2.0 {
+            return Some("⚠️ Room sát trần (<2%)".to_string());
+        }
+    }
+    let vol_text = if s >= 100_000.0 {
+        format!("{:.1}M cp", s / 1_000_000.0).replace('.', ",")
+    } else {
+        format!("{} cp", format_int_dots(s.round() as i64))
+    };
+    match pct {
+        Some(p) if p.is_finite() => {
+            Some(format!("Room ngoại: {} ({}%)", vol_text, format!("{:.1}", p).replace('.', ",")))
+        }
+        _ => Some(format!("Room ngoại: {}", vol_text)),
     }
 }
 
@@ -2186,7 +2222,9 @@ fn parse_daily_brief_snapshot(
                         COALESCE(json_extract(je.value, '$.pe_zone'), ''),
                         COALESCE(json_extract(je.value, '$.pb_zone'), ''),
                         CASE WHEN json_extract(je.value, '$.roe_ttm_pct') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.roe_ttm_pct') AS REAL) END,
-                        COALESCE(json_extract(je.value, '$.health_archetype'), '')
+                        COALESCE(json_extract(je.value, '$.health_archetype'), ''),
+                        CASE WHEN json_extract(je.value, '$.foreign_room_shares') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.foreign_room_shares') AS REAL) END,
+                        CASE WHEN json_extract(je.value, '$.foreign_room_pct') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.foreign_room_pct') AS REAL) END
                     FROM json_each(?1, '$.valuation_leaders.leaders') AS je
                     ORDER BY CAST(je.key AS INTEGER);",
                 )
@@ -2204,6 +2242,8 @@ fn parse_daily_brief_snapshot(
                         pb_zone: r.get(7)?,
                         roe_ttm_pct: r.get(8)?,
                         health_archetype: r.get(9)?,
+                        foreign_room_shares: r.get(10)?,
+                        foreign_room_pct: r.get(11)?,
                     })
                 })
                 .map_err(|e| format!("Lỗi đọc danh sách định giá hấp dẫn: {}", e))?;
@@ -2227,20 +2267,24 @@ fn parse_daily_brief_snapshot(
         .query_row("SELECT json_type(?1, '$.msci_section')", params![raw_json], |r| r.get(0))
         .unwrap_or(None);
     let msci_section = if msci_type.as_deref() == Some("object") {
-        let (mode, sessions_remaining): (String, Option<i64>) = mem
+        let (mode, sessions_remaining, has_room_int): (String, Option<i64>, i64) = mem
             .query_row(
                 "SELECT
                     COALESCE(json_extract(?1, '$.msci_section.mode'), 'AWAITING_VERIFIED_MANIFEST'),
-                    CASE WHEN json_extract(?1, '$.msci_section.sessions_remaining') IS NULL THEN NULL ELSE CAST(json_extract(?1, '$.msci_section.sessions_remaining') AS INTEGER) END",
+                    CASE WHEN json_extract(?1, '$.msci_section.sessions_remaining') IS NULL THEN NULL ELSE CAST(json_extract(?1, '$.msci_section.sessions_remaining') AS INTEGER) END,
+                    COALESCE(CAST(json_extract(?1, '$.msci_section.has_foreign_room') AS INTEGER), 0)",
                 params![raw_json],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .map_err(|e| format!("Lỗi đọc khối MSCI: {}", e))?;
         let add_std = parse_msci_symbol_array(&mem, raw_json, "$.msci_section.add_std")?;
         let down_sc = parse_msci_symbol_array(&mem, raw_json, "$.msci_section.down_sc")?;
+        let has_foreign_room = has_room_int != 0
+            || add_std.iter().chain(down_sc.iter()).any(|x| x.foreign_room_shares.is_some());
         Some(MsciSection {
             mode,
             sessions_remaining,
+            has_foreign_room,
             add_std,
             down_sc,
         })
@@ -2871,8 +2915,11 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                         .roe_ttm_pct
                         .map(|r| format!(" | ROE {}%", format!("{:.1}", r).replace('.', ",")))
                         .unwrap_or_default();
+                    let room_part = format_foreign_room_badge(item.foreign_room_shares, item.foreign_room_pct)
+                        .map(|b| format!(" | {}", b))
+                        .unwrap_or_default();
                     out.push_str(&format!(
-                        "  • [{}] Giá {}đ{} | P/E {} ({}) · P/B {} ({}){} | {} ({})\n",
+                        "  • [{}] Giá {}đ{} | P/E {} ({}) · P/B {} ({}){}{} | {} ({})\n",
                         item.symbol,
                         format_int_dots(item.close.round() as i64),
                         ret_part,
@@ -2881,6 +2928,7 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                         pb_str,
                         friendly_valuation_zone(&item.pb_zone),
                         roe_part,
+                        room_part,
                         friendly_archetype(&item.health_archetype),
                         item.period
                     ));
@@ -2925,6 +2973,9 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                                 tags.push("⚠️ Nghẽn room ngoại".to_string());
                             }
                         }
+                        if let Some(badge) = format_foreign_room_badge(it.foreign_room_shares, it.foreign_room_pct) {
+                            tags.push(badge);
+                        }
                         if it.trap_warning {
                             tags.push("⚠️ Tài chính yếu/LNST âm".to_string());
                         }
@@ -2945,7 +2996,11 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
                 out.push_str(&format!("• Chuyển xuống Small Cap: {}\n", fmt_msci_group(&msci.down_sc)));
             }
             if !is_est {
-                out.push_str("• Lưu ý: Chưa đủ dữ liệu AUM/Room ngoại để ước lượng khối lượng mua/bán ETF.\n");
+                if msci.has_foreign_room {
+                    out.push_str("• Lưu ý: Đã đo Room ngoại thực tế; chưa ước lượng khối lượng ETF do thiếu AUM xác thực.\n");
+                } else {
+                    out.push_str("• Lưu ý: Chưa đủ dữ liệu AUM/Room ngoại để ước lượng khối lượng mua/bán ETF.\n");
+                }
             }
         }
     }
@@ -3884,6 +3939,19 @@ mod tests {
         assert_eq!(msci.sessions_remaining, Some(11));
         assert_eq!(msci.add_std[0].symbol, "PNJ");
         assert!(msci.add_std[0].trap_warning);
+
+        // Kiểm định hiển thị room ngoại: 0 -> Kín room, None -> ẩn, <2% -> sát trần, >=2% -> số thực tế
+        assert_eq!(format_foreign_room_badge(None, None), None);
+        assert_eq!(format_foreign_room_badge(Some(0.0), Some(0.0)), Some("🔒 Kín room".to_string()));
+        assert_eq!(format_foreign_room_badge(Some(500.0), Some(0.1)), Some("🔒 Kín room".to_string()));
+        assert_eq!(
+            format_foreign_room_badge(Some(250_000.0), Some(1.5)),
+            Some("⚠️ Room sát trần (<2%)".to_string())
+        );
+        assert_eq!(
+            format_foreign_room_badge(Some(129_065_729.0), Some(25.19)),
+            Some("Room ngoại: 129,1M cp (25,2%)".to_string())
+        );
     }
 
     // [WHY]: Đảm bảo không còn nhận xét gán cứng sai giá (FPT 52-53k, Premium bạc +20-25%, H=0,57)

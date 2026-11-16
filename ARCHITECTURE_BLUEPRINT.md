@@ -179,3 +179,11 @@ Khi chuyển đổi từ binary đơn lẻ sang dự án quản lý bằng `Carg
 3. **Tiên đề Đơn thể Không phụ thuộc (Zero-Dependency Static Binary):** Trên Windows 11, một file thực thi bền vững nhất là file liên kết trực tiếp với System DLLs hoặc tự đóng gói (`bundled`), loại bỏ hoàn toàn rủi ro lệch phiên bản runtime (Python venv, Node modules) khi mang sang máy khác.
 4. **Tiên đề Độc lập Giao diện (UI-Agnostic Domain Core):** Logic nghiệp vụ (Xây dựng, Chứng khoán, Kiểm toán LCA) phải tồn tại dưới dạng **Pure Input/Output CLI**. Zalo PC chỉ là một "màn hình hiển thị từ xa" (`My Documents` Bus), không được trộn lẫn code giao diện Zalo vào trong lõi tính toán nghiệp vụ.
 5. **Tiên đề Khởi động Theo Nhịp Sinh Học (Bio-Rhythm Lifecycle):** Hệ thống tự động hóa cá nhân phải tôn trọng trạng thái vật lý của máy: Tự ngủ/tắt sạch sau giờ làm (`16:30`), và tự động đề máy/hồi phục (`Morning Ignition + Self-Healing`) vào ca sáng đầu tiên (`08:00`) mà không cần can thiệp tay.
+
+---
+
+## VIII. HỢP ĐỒNG SNAPSHOT ĐỊNH LƯỢNG (`daily_brief_snapshot.json` — PHASE 1A–1D)
+
+- **Producer (`ptck.py daily-brief` → `backend/src/services/daily_brief_snapshot.py`):** Tính toán toàn bộ các khối PIT/fail-closed (`governor_progress`, `paper_portfolio`, `flow_map`, `valuation_leaders`, `msci_section`, `momentum_clean`) và ghi nguyên tử ra `backend/data/daily_brief_snapshot.json`.
+- **Consumer (`minh_chung.exe` → `src/main.rs`):** Đọc snapshot bằng SQLite JSON1 (`rusqlite` bundled), kiểm tra khớp `schema_version = 1` và `as_of_date == vni_date`, chuyển ngữ đời thường và gửi Zalo (bảo vệ chống đúp tin qua `eod_write_audit_ledger:zalo_report_dispatch`).
+- **Room Ngoại Hàng ngày (`foreign_room_daily` — Phase 1d):** Tách bảng riêng trong `screener_cache.db` (nạp từ cột `foreign_room` sẵn có của `price_board` trong `daily-close` sau 15:00, chặn `BACKFILL_BLOCKED` cho ngày cũ), phân biệt rõ `0` (`🔒 Kín room`) với `None` (ẩn — *Missing > Fake*).
