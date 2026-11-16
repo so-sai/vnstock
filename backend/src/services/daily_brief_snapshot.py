@@ -53,6 +53,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from src.backtest.trend_features import FeatureStore
 from src.database.data_validity import STOCK_ONLY_SQL, VALID_ROW_SQL, is_stock
+from src.database.foreign_room_store import fetch_foreign_room_map
 from src.engine.pit_quarter import get_pit_quarter
 from src.financial.company_health_v2 import CompanyHealthV2
 from src.research.msci_flow_auditor import audit_msci_manifest, run_msci_survey
@@ -737,6 +738,18 @@ def build_valuation_leaders(
 
     candidates.sort(key=lambda row: (row["composite_z"], row["pe"], row["symbol"]))
     leaders = candidates[:top_k]
+    if leaders:
+        with contextlib.closing(sqlite3.connect(fin_uri, uri=True)) as fin_conn:
+            room_map = fetch_foreign_room_map(
+                screener_conn,
+                [row["symbol"] for row in leaders],
+                vni_d0,
+                fin_conn,
+            )
+        for row in leaders:
+            room_shares, room_pct = room_map.get(row["symbol"], (None, None))
+            row["foreign_room_shares"] = round(room_shares, DECIMALS_DISPLAY) if room_shares is not None else None
+            row["foreign_room_pct"] = room_pct
     return {
         "status": "OK" if leaders else "MISSING",
         "pit_quarter": pit_quarter,
@@ -773,6 +786,8 @@ def _serialize_msci_row(row: Any) -> dict[str, Any]:
     )
     est_shares = _get("estimated_shares")
     dtl_val = _get("dtl")
+    avail_room = _get("available_room_shares")
+    room_pct = _get("foreign_room_pct")
     return {
         "symbol": str(_get("symbol", "")),
         "bucket": str(_get("bucket", "")),
@@ -785,7 +800,9 @@ def _serialize_msci_row(row: Any) -> dict[str, Any]:
         "estimated_shares": round(float(est_shares), DECIMALS_DISPLAY) if _is_finite_number(est_shares) else None,
         "dtl": round(float(dtl_val), DECIMALS_DISPLAY) if _is_finite_number(dtl_val) else None,
         "dtl_bucket": _get("dtl_bucket"),
-        "fol_constrained": bool("FOL_CONSTRAINED" in flags or _get("available_room_shares") == 0),
+        "fol_constrained": bool("FOL_CONSTRAINED" in flags or avail_room == 0),
+        "foreign_room_shares": round(float(avail_room), DECIMALS_DISPLAY) if _is_finite_number(avail_room) else None,
+        "foreign_room_pct": round(float(room_pct), DECIMALS_DISPLAY) if _is_finite_number(room_pct) else None,
         "trap_warning": trap_warning,
     }
 
@@ -822,12 +839,36 @@ def build_msci_section(
         raw_results = survey_res.results or []
 
     serialized = [_serialize_msci_row(r) for r in raw_results]
+    if screener_db.exists():
+        scr_uri = f"file:{screener_db.resolve().as_posix()}?mode=ro"
+        fin_conn = (
+            sqlite3.connect(f"file:{financial_db.resolve().as_posix()}?mode=ro", uri=True) if financial_db.exists() else None
+        )
+        try:
+            with contextlib.closing(sqlite3.connect(scr_uri, uri=True)) as scr_conn:
+                room_map = fetch_foreign_room_map(
+                    scr_conn,
+                    [r["symbol"] for r in serialized],
+                    vni_d0,
+                    fin_conn,
+                )
+        finally:
+            if fin_conn is not None:
+                fin_conn.close()
+        for row in serialized:
+            db_room, db_pct = room_map.get(row["symbol"], (None, None))
+            # [WHY]: Chỉ giữ số liệu room ngoại khớp đúng ngày vni_d0; thiếu ngày đó phải là None (cấm fallback ngày cũ).
+            row["foreign_room_shares"] = round(db_room, DECIMALS_DISPLAY) if db_room is not None else None
+            row["foreign_room_pct"] = db_pct
+
     add_std = [r for r in serialized if r["bucket"] == "ADD_STD"]
     down_sc = [r for r in serialized if r["bucket"] == "DOWNGRADE_STD_TO_SC"]
+    has_foreign_room = any(r.get("foreign_room_shares") is not None for r in add_std + down_sc)
     return {
         "mode": mode,
         "effective_date": MSCI_EFFECTIVE_DATE,
         "sessions_remaining": _count_trading_days_until(vni_d0, MSCI_EFFECTIVE_DATE),
+        "has_foreign_room": has_foreign_room,
         "add_std": add_std,
         "down_sc": down_sc,
     }

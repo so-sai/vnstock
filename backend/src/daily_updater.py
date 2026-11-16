@@ -438,6 +438,18 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                     )
                     df_foreign_clean = None
 
+                df_room_clean = None
+                try:
+                    from src.database.foreign_room_store import (
+                        extract_foreign_room_frame,
+                        upsert_foreign_room_rows,
+                    )
+
+                    df_room_clean = extract_foreign_room_frame(df_pb, target_date, source="kbs_price_board")
+                except ValueError as _room_err:
+                    logger.info("FOREIGN_ROOM_SKIP target=%s: %s", target_date, _room_err)
+                    df_room_clean = None
+
                 cols_ohlcv = ["symbol", "date", "open", "high", "low", "close", "adj_close", "volume", "source"]
                 cols_foreign = ["symbol", "date", "foreign_vol", "net_vol", "net_value", "flow_kind"]
 
@@ -445,6 +457,8 @@ def update_market_batch(symbols: list, target_date: str, armor: EliteArmor, batc
                     save_data_upsert("daily_ohlcv", df_save[cols_ohlcv], conn)
                     if df_foreign_clean is not None and not df_foreign_clean.empty:
                         save_data_upsert("market_foreign_history", df_foreign_clean[cols_foreign], conn)
+                    if df_room_clean is not None and not df_room_clean.empty:
+                        upsert_foreign_room_rows(conn, df_room_clean, target_date)
 
                 # Cache freshness: đánh dấu dữ liệu mới cho mỗi symbol
                 ensure_freshness_table()

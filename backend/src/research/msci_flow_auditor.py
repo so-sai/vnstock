@@ -21,6 +21,7 @@ INVARIANT:
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 from src.tools.msci_flow.calculator import compute_symbol_flow
@@ -142,63 +143,92 @@ def run_msci_survey(
     assert spec is not None
     fx_rate, fx_as_of, fx_source = _resolve_fx(spec, screener_db_path)
 
+    from src.database.foreign_room_store import fetch_foreign_room_map
+
+    scr_path = Path(screener_db_path)
+    fin_path = Path(financial_db_path)
+    scr_conn = sqlite3.connect(f"file:{scr_path.resolve().as_posix()}?mode=ro", uri=True) if scr_path.exists() else None
+    fin_conn = sqlite3.connect(f"file:{fin_path.resolve().as_posix()}?mode=ro", uri=True) if fin_path.exists() else None
+
     survey_rows: list[SymbolFlowResult] = []
-    for sym_spec in spec.symbols:
-        snap = load_symbol_market_snapshot(
-            sym_spec.symbol,
-            screener_db_path=screener_db_path,
-            financial_db_path=financial_db_path,
-        )
-        flags: list[str] = []
-        row_status = STATUS_SURVEY_OK
-        detail = snap.market_error_detail
-
-        if snap.market_error_code is not None:
-            row_status = snap.market_error_code
-            flags.append(snap.market_error_code)
-        else:
-            if snap.valid_session_count < MIN_ADV20_SESSIONS:
-                flags.append(STATUS_REFUSED_INSUFFICIENT_HISTORY)
-            if snap.adv20_shares is None or snap.adv20_shares <= 0:
-                flags.append(STATUS_REFUSED_ZERO_LIQUIDITY)
-            if not sym_spec.verified:
-                flags.append("MISSING_EXOGENOUS_INPUTS")
-            if sym_spec.available_room_shares is None and sym_spec.foreign_room_pct is None:
-                flags.append("MISSING_FOREIGN_ROOM")
-            if snap.health_archetype is None and snap.net_income_vnd is None:
-                flags.append("MISSING_FUNDAMENTAL_HEALTH")
-            is_weak = snap.health_archetype == "DISTRESSED" or (snap.net_income_vnd is not None and snap.net_income_vnd < 0)
-            if is_weak and sym_spec.bucket in {"ADD_STD", "ADD_SC", "DOWNGRADE_STD_TO_SC"}:
-                flags.append("POTENTIAL_EXIT_LIQUIDITY_TRAP")
-
-        survey_rows.append(
-            SymbolFlowResult(
-                symbol=sym_spec.symbol,
-                bucket=sym_spec.bucket,
-                status=row_status,
-                last_trade_date=snap.last_trade_date,
-                close_vnd=snap.close_vnd,
-                adv20_shares=snap.adv20_shares,
-                valid_session_count=snap.valid_session_count,
-                fx_vnd_per_usd=fx_rate,
-                flow_std_vnd=None,
-                flow_sc_vnd=None,
-                net_flow_vnd=None,
-                estimated_shares=None,
-                dtl=None,
-                dtl_bucket=None,
-                fol=sym_spec.fol,
-                available_room_shares=sym_spec.available_room_shares,
-                foreign_room_pct=sym_spec.foreign_room_pct,
-                on_exchange_buyable_shares=None,
-                health_archetype=snap.health_archetype,
-                latest_health_period=snap.latest_health_period,
-                net_income_vnd=snap.net_income_vnd,
-                net_income_period=snap.net_income_period,
-                flags=tuple(flags),
-                error_detail=detail,
+    try:
+        for sym_spec in spec.symbols:
+            snap = load_symbol_market_snapshot(
+                sym_spec.symbol,
+                screener_db_path=screener_db_path,
+                financial_db_path=financial_db_path,
             )
-        )
+            flags: list[str] = []
+            row_status = STATUS_SURVEY_OK
+            detail = snap.market_error_detail
+
+            avail_room = sym_spec.available_room_shares
+            room_pct = sym_spec.foreign_room_pct
+            if avail_room is None and scr_conn is not None and snap.last_trade_date:
+                db_room, db_pct = fetch_foreign_room_map(
+                    scr_conn,
+                    [sym_spec.symbol],
+                    snap.last_trade_date,
+                    fin_conn,
+                ).get(sym_spec.symbol, (None, None))
+                if db_room is not None:
+                    avail_room = db_room
+                if room_pct is None and db_pct is not None:
+                    room_pct = db_pct
+
+            if snap.market_error_code is not None:
+                row_status = snap.market_error_code
+                flags.append(snap.market_error_code)
+            else:
+                if snap.valid_session_count < MIN_ADV20_SESSIONS:
+                    flags.append(STATUS_REFUSED_INSUFFICIENT_HISTORY)
+                if snap.adv20_shares is None or snap.adv20_shares <= 0:
+                    flags.append(STATUS_REFUSED_ZERO_LIQUIDITY)
+                if not sym_spec.verified:
+                    flags.append("MISSING_EXOGENOUS_INPUTS")
+                if avail_room is None and room_pct is None:
+                    flags.append("MISSING_FOREIGN_ROOM")
+                if snap.health_archetype is None and snap.net_income_vnd is None:
+                    flags.append("MISSING_FUNDAMENTAL_HEALTH")
+                is_weak = snap.health_archetype == "DISTRESSED" or (
+                    snap.net_income_vnd is not None and snap.net_income_vnd < 0
+                )
+                if is_weak and sym_spec.bucket in {"ADD_STD", "ADD_SC", "DOWNGRADE_STD_TO_SC"}:
+                    flags.append("POTENTIAL_EXIT_LIQUIDITY_TRAP")
+
+            survey_rows.append(
+                SymbolFlowResult(
+                    symbol=sym_spec.symbol,
+                    bucket=sym_spec.bucket,
+                    status=row_status,
+                    last_trade_date=snap.last_trade_date,
+                    close_vnd=snap.close_vnd,
+                    adv20_shares=snap.adv20_shares,
+                    valid_session_count=snap.valid_session_count,
+                    fx_vnd_per_usd=fx_rate,
+                    flow_std_vnd=None,
+                    flow_sc_vnd=None,
+                    net_flow_vnd=None,
+                    estimated_shares=None,
+                    dtl=None,
+                    dtl_bucket=None,
+                    fol=sym_spec.fol,
+                    available_room_shares=avail_room,
+                    foreign_room_pct=room_pct,
+                    on_exchange_buyable_shares=None,
+                    health_archetype=snap.health_archetype,
+                    latest_health_period=snap.latest_health_period,
+                    net_income_vnd=snap.net_income_vnd,
+                    net_income_period=snap.net_income_period,
+                    flags=tuple(flags),
+                    error_detail=detail,
+                )
+            )
+    finally:
+        if scr_conn is not None:
+            scr_conn.close()
+        if fin_conn is not None:
+            fin_conn.close()
 
     run = AuditRunResult(
         mode="survey",
