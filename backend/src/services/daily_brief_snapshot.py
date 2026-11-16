@@ -29,7 +29,7 @@ import sqlite3
 import sys
 import tempfile
 from collections.abc import Iterable, Mapping
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +55,7 @@ from src.backtest.trend_features import FeatureStore
 from src.database.data_validity import STOCK_ONLY_SQL, VALID_ROW_SQL, is_stock
 from src.engine.pit_quarter import get_pit_quarter
 from src.financial.company_health_v2 import CompanyHealthV2
+from src.research.msci_flow_auditor import audit_msci_manifest, run_msci_survey
 
 # [WHY]: Phiên bản schema snapshot cho Rust kiểm tra fail-closed — đổi cấu trúc phải tăng version để tránh đọc sai.
 SCHEMA_VERSION = 1
@@ -169,6 +170,20 @@ DECIMALS_DISPLAY = 2
 
 # [WHY]: Hệ số nhân đổi tỷ lệ biến động giá sang phần trăm (= 100.0) để hiển thị nhất quán trên bản tin.
 PCT_SCALE = 100.0
+
+# [WHY]: Ngày bắt đầu cửa sổ sự kiện MSCI Q4-2026 (ngày công bố 12/11/2026) — ngoài cửa sổ sẽ tự ẩn.
+MSCI_EVENT_START_DATE = "2026-11-12"
+
+# [WHY]: Ngày kết thúc cửa sổ sự kiện MSCI Q4-2026 (05/12/2026, sau hiệu lực 01/12) — tránh rác bản tin cuối năm.
+MSCI_EVENT_END_DATE = "2026-12-05"
+
+# [WHY]: Phiên ATC cơ cấu chính thức của kỳ MSCI Q4-2026 để đếm ngược số phiên giao dịch còn lại.
+MSCI_EFFECTIVE_DATE = "2026-11-30"
+
+# [WHY]: Thứ Sáu (weekday = 4) là ngày giao dịch cuối tuần trên HOSE/HNX khi đếm phiên tới ATC cơ cấu.
+FRIDAY_WEEKDAY = 4
+
+DEFAULT_MSCI_MANIFEST_PATH = BACKEND_DIR / "config" / "msci_manifest_2026_11.json"
 
 DEFAULT_SCREENER_DB = BACKEND_DIR / "data" / "screener_cache.db"
 DEFAULT_FINANCIAL_DB = BACKEND_DIR / "data" / "financial_facts.db"
@@ -729,6 +744,95 @@ def build_valuation_leaders(
     }
 
 
+def _count_trading_days_until(as_of_date: str, effective_date: str) -> int | None:
+    """Đếm số phiên giao dịch (T2-T6) từ sau `as_of_date` đến hết `effective_date`."""
+    try:
+        cur = date.fromisoformat(as_of_date)
+        end = date.fromisoformat(effective_date)
+    except ValueError:
+        return None
+    if cur > end:
+        return None
+    count = 0
+    while cur < end:
+        cur += timedelta(days=1)
+        if cur.weekday() <= FRIDAY_WEEKDAY:
+            count += 1
+    return count
+
+
+def _serialize_msci_row(row: Any) -> dict[str, Any]:
+    def _get(key: str, default: Any = None) -> Any:
+        return row.get(key, default) if isinstance(row, Mapping) else getattr(row, key, default)
+
+    flags = _get("flags") or []
+    arch = _get("health_archetype")
+    net_inc = _get("net_income_vnd")
+    trap_warning = bool(
+        (isinstance(arch, str) and arch.upper() == "DISTRESSED") or (_is_finite_number(net_inc) and float(net_inc) < 0.0)
+    )
+    est_shares = _get("estimated_shares")
+    dtl_val = _get("dtl")
+    return {
+        "symbol": str(_get("symbol", "")),
+        "bucket": str(_get("bucket", "")),
+        "close_vnd": round(float(_get("close_vnd")), DECIMALS_DISPLAY) if _is_finite_number(_get("close_vnd")) else None,
+        "adv20_shares": round(float(_get("adv20_shares")), DECIMALS_DISPLAY)
+        if _is_finite_number(_get("adv20_shares"))
+        else None,
+        "health_archetype": arch,
+        "net_income_vnd": float(net_inc) if _is_finite_number(net_inc) else None,
+        "estimated_shares": round(float(est_shares), DECIMALS_DISPLAY) if _is_finite_number(est_shares) else None,
+        "dtl": round(float(dtl_val), DECIMALS_DISPLAY) if _is_finite_number(dtl_val) else None,
+        "dtl_bucket": _get("dtl_bucket"),
+        "fol_constrained": bool("FOL_CONSTRAINED" in flags or _get("available_room_shares") == 0),
+        "trap_warning": trap_warning,
+    }
+
+
+def build_msci_section(
+    vni_d0: str,
+    *,
+    screener_db: Path = DEFAULT_SCREENER_DB,
+    financial_db: Path = DEFAULT_FINANCIAL_DB,
+    manifest_path: Path = DEFAULT_MSCI_MANIFEST_PATH,
+) -> dict[str, Any] | None:
+    """Tạo khối `msci_section` chỉ trong cửa sổ [2026-11-12, 2026-12-05]; ngoài cửa sổ trả None."""
+    if not (MSCI_EVENT_START_DATE <= vni_d0 <= MSCI_EVENT_END_DATE):
+        return None
+    if not manifest_path.exists():
+        return None
+
+    audit_res = audit_msci_manifest(
+        manifest_path=manifest_path,
+        screener_db_path=screener_db,
+        financial_db_path=financial_db,
+        dry_run=True,
+    )
+    if audit_res.status in ("OK", "PARTIAL"):
+        mode = "ESTIMATED_WITH_PROVENANCE"
+        raw_results = audit_res.results or []
+    else:
+        mode = "AWAITING_VERIFIED_MANIFEST"
+        survey_res = run_msci_survey(
+            manifest_path=manifest_path,
+            screener_db_path=screener_db,
+            financial_db_path=financial_db,
+        )
+        raw_results = survey_res.results or []
+
+    serialized = [_serialize_msci_row(r) for r in raw_results]
+    add_std = [r for r in serialized if r["bucket"] == "ADD_STD"]
+    down_sc = [r for r in serialized if r["bucket"] == "DOWNGRADE_STD_TO_SC"]
+    return {
+        "mode": mode,
+        "effective_date": MSCI_EFFECTIVE_DATE,
+        "sessions_remaining": _count_trading_days_until(vni_d0, MSCI_EFFECTIVE_DATE),
+        "add_std": add_std,
+        "down_sc": down_sc,
+    }
+
+
 def build_daily_brief_snapshot(
     *,
     as_of_date: str | None = None,
@@ -817,6 +921,7 @@ def build_daily_brief_snapshot(
                 )
 
     momentum_clean = filter_clean_momentum_candidates(raw_candidates, top_n=top_n)
+    msci_section = build_msci_section(vni_d0, screener_db=screener_db, financial_db=financial_db)
     return {
         "schema_version": SCHEMA_VERSION,
         "as_of_date": vni_d0,
@@ -826,6 +931,7 @@ def build_daily_brief_snapshot(
         "paper_portfolio": paper_portfolio,
         "flow_map": flow_map,
         "valuation_leaders": valuation_leaders,
+        "msci_section": msci_section,
         "momentum_clean": momentum_clean,
         "warnings": warnings,
     }

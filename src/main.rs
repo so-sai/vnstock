@@ -1800,6 +1800,25 @@ struct ValuationLeadersSection {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct MsciSymbolItem {
+    symbol: String,
+    close_vnd: Option<f64>,
+    adv20_shares: Option<f64>,
+    estimated_shares: Option<f64>,
+    dtl: Option<f64>,
+    fol_constrained: bool,
+    trap_warning: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct MsciSection {
+    mode: String,
+    sessions_remaining: Option<i64>,
+    add_std: Vec<MsciSymbolItem>,
+    down_sc: Vec<MsciSymbolItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct DailyBriefSnapshot {
     schema_version: i64,
     as_of_date: String,
@@ -1807,7 +1826,58 @@ struct DailyBriefSnapshot {
     paper_portfolio: Option<PaperPortfolioItem>,
     flow_map: Option<SectorFlowMap>,
     valuation_leaders: Option<ValuationLeadersSection>,
+    msci_section: Option<MsciSection>,
     momentum_clean: Vec<MomentumCleanItem>,
+}
+
+fn parse_msci_symbol_array(
+    mem: &Connection,
+    raw_json: &str,
+    json_path: &str,
+) -> Result<Vec<MsciSymbolItem>, String> {
+    let type_str: Option<String> = mem
+        .query_row("SELECT json_type(?1, ?2)", params![raw_json, json_path], |r| r.get(0))
+        .unwrap_or(None);
+    if type_str.as_deref() != Some("array") {
+        return Ok(Vec::new());
+    }
+    let mut stmt = mem
+        .prepare(
+            "SELECT
+                COALESCE(json_extract(je.value, '$.symbol'), ''),
+                CASE WHEN json_extract(je.value, '$.close_vnd') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.close_vnd') AS REAL) END,
+                CASE WHEN json_extract(je.value, '$.adv20_shares') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.adv20_shares') AS REAL) END,
+                CASE WHEN json_extract(je.value, '$.estimated_shares') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.estimated_shares') AS REAL) END,
+                CASE WHEN json_extract(je.value, '$.dtl') IS NULL THEN NULL ELSE CAST(json_extract(je.value, '$.dtl') AS REAL) END,
+                COALESCE(CAST(json_extract(je.value, '$.fol_constrained') AS INTEGER), 0),
+                COALESCE(CAST(json_extract(je.value, '$.trap_warning') AS INTEGER), 0)
+            FROM json_each(?1, ?2) AS je
+            ORDER BY CAST(je.key AS INTEGER);",
+        )
+        .map_err(|e| format!("Lỗi chuẩn bị truy vấn MSCI: {}", e))?;
+    let rows = stmt
+        .query_map(params![raw_json, json_path], |r| {
+            let fol_int: i64 = r.get(5)?;
+            let trap_int: i64 = r.get(6)?;
+            Ok(MsciSymbolItem {
+                symbol: r.get(0)?,
+                close_vnd: r.get(1)?,
+                adv20_shares: r.get(2)?,
+                estimated_shares: r.get(3)?,
+                dtl: r.get(4)?,
+                fol_constrained: fol_int != 0,
+                trap_warning: trap_int != 0,
+            })
+        })
+        .map_err(|e| format!("Lỗi đọc danh sách MSCI: {}", e))?;
+    let mut items = Vec::new();
+    for row_res in rows {
+        let entry = row_res.map_err(|e| format!("Lỗi giải mã mục MSCI: {}", e))?;
+        if !entry.symbol.trim().is_empty() {
+            items.push(entry);
+        }
+    }
+    Ok(items)
 }
 
 fn parse_sector_flow_array(
@@ -2153,6 +2223,31 @@ fn parse_daily_brief_snapshot(
         None
     };
 
+    let msci_type: Option<String> = mem
+        .query_row("SELECT json_type(?1, '$.msci_section')", params![raw_json], |r| r.get(0))
+        .unwrap_or(None);
+    let msci_section = if msci_type.as_deref() == Some("object") {
+        let (mode, sessions_remaining): (String, Option<i64>) = mem
+            .query_row(
+                "SELECT
+                    COALESCE(json_extract(?1, '$.msci_section.mode'), 'AWAITING_VERIFIED_MANIFEST'),
+                    CASE WHEN json_extract(?1, '$.msci_section.sessions_remaining') IS NULL THEN NULL ELSE CAST(json_extract(?1, '$.msci_section.sessions_remaining') AS INTEGER) END",
+                params![raw_json],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| format!("Lỗi đọc khối MSCI: {}", e))?;
+        let add_std = parse_msci_symbol_array(&mem, raw_json, "$.msci_section.add_std")?;
+        let down_sc = parse_msci_symbol_array(&mem, raw_json, "$.msci_section.down_sc")?;
+        Some(MsciSection {
+            mode,
+            sessions_remaining,
+            add_std,
+            down_sc,
+        })
+    } else {
+        None
+    };
+
     Ok(DailyBriefSnapshot {
         schema_version: 1,
         as_of_date,
@@ -2160,6 +2255,7 @@ fn parse_daily_brief_snapshot(
         paper_portfolio,
         flow_map,
         valuation_leaders,
+        msci_section,
         momentum_clean,
     })
 }
@@ -2794,6 +2890,63 @@ pub fn build_market_brief(mode_title: &str) -> Result<String, String> {
             }
         } else {
             out.push_str("  • [Chưa có dữ liệu định giá PIT trong snapshot]\n");
+        }
+
+        if let Some(msci) = &snap.msci_section {
+            let countdown = match msci.sessions_remaining {
+                Some(0) => "Phiên ATC cơ cấu hôm nay (30/11)".to_string(),
+                Some(n) => format!("Còn {} phiên giao dịch tới ATC 30/11", n),
+                None => "Đã qua phiên cơ cấu 30/11".to_string(),
+            };
+            out.push_str(&format!("\n🏛️ CƠ CẤU MSCI FRONTIER ({})\n", countdown));
+            let is_est = msci.mode == "ESTIMATED_WITH_PROVENANCE";
+            let fmt_msci_group = |items: &[MsciSymbolItem]| -> String {
+                items
+                    .iter()
+                    .map(|it| {
+                        let price_s = it
+                            .close_vnd
+                            .map(|c| format!("{}đ", format_int_dots(c.round() as i64)))
+                            .unwrap_or_else(|| "N/A".to_string());
+                        let adv_s = it
+                            .adv20_shares
+                            .map(|a| format!("ADV20 {}", format!("{:.1}M cp", a / 1_000_000.0).replace('.', ",")))
+                            .unwrap_or_else(|| "ADV20 N/A".to_string());
+                        let mut tags = Vec::new();
+                        if is_est {
+                            if let Some(sh) = it.estimated_shares {
+                                let sign = if sh >= 0.0 { "+" } else { "" };
+                                tags.push(format!("{}{} cp", sign, format_int_dots(sh.round() as i64)));
+                            }
+                            if let Some(d) = it.dtl {
+                                tags.push(format!("{} phiên hấp thụ", format!("{:.1}", d).replace('.', ",")));
+                            }
+                            if it.fol_constrained {
+                                tags.push("⚠️ Nghẽn room ngoại".to_string());
+                            }
+                        }
+                        if it.trap_warning {
+                            tags.push("⚠️ Tài chính yếu/LNST âm".to_string());
+                        }
+                        let extra = if tags.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" | {}", tags.join(" · "))
+                        };
+                        format!("[{}] {} ({}{})", it.symbol, price_s, adv_s, extra)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            if !msci.add_std.is_empty() {
+                out.push_str(&format!("• Vào Rổ chính: {}\n", fmt_msci_group(&msci.add_std)));
+            }
+            if !msci.down_sc.is_empty() {
+                out.push_str(&format!("• Chuyển xuống Small Cap: {}\n", fmt_msci_group(&msci.down_sc)));
+            }
+            if !is_est {
+                out.push_str("• Lưu ý: Chưa đủ dữ liệu AUM/Room ngoại để ước lượng khối lượng mua/bán ETF.\n");
+            }
         }
     }
 
@@ -3706,6 +3859,31 @@ mod tests {
         assert_eq!(vl.leaders[0].symbol, "FPT");
         assert_eq!(vl.leaders[0].roe_ttm_pct, Some(23.89));
         assert_eq!(friendly_valuation_zone(&vl.leaders[0].pe_zone), "Rẻ LS");
+
+        // Bổ sung block msci_section Phase 1c
+        let with_msci = r#"{
+            "schema_version": 1,
+            "as_of_date": "2026-11-13",
+            "governor_progress": [],
+            "msci_section": {
+                "mode": "AWAITING_VERIFIED_MANIFEST",
+                "effective_date": "2026-11-30",
+                "sessions_remaining": 11,
+                "add_std": [
+                    {"symbol": "PNJ", "close_vnd": 14950.0, "adv20_shares": 9961955.0, "estimated_shares": null, "dtl": null, "fol_constrained": false, "trap_warning": true}
+                ],
+                "down_sc": [
+                    {"symbol": "DIG", "close_vnd": 19500.0, "adv20_shares": 5000000.0, "estimated_shares": null, "dtl": null, "fol_constrained": false, "trap_warning": true}
+                ]
+            },
+            "momentum_clean": []
+        }"#;
+        let parsed_msci = parse_daily_brief_snapshot(with_msci, "2026-11-13").expect("parse msci");
+        let msci = parsed_msci.msci_section.expect("has msci_section");
+        assert_eq!(msci.mode, "AWAITING_VERIFIED_MANIFEST");
+        assert_eq!(msci.sessions_remaining, Some(11));
+        assert_eq!(msci.add_std[0].symbol, "PNJ");
+        assert!(msci.add_std[0].trap_warning);
     }
 
     // [WHY]: Đảm bảo không còn nhận xét gán cứng sai giá (FPT 52-53k, Premium bạc +20-25%, H=0,57)

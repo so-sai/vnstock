@@ -17,6 +17,7 @@ from pathlib import Path
 from src.services.daily_brief_snapshot import (
     SCHEMA_VERSION,
     build_daily_brief_snapshot,
+    build_msci_section,
     build_paper_portfolio_summary,
     build_sector_flow_summary,
     build_valuation_leaders,
@@ -411,6 +412,23 @@ def test_valuation_leaders_filters_healthy_pit_and_sorts_by_composite_z(tmp_path
         assert res["leaders"][0]["composite_z"] == -1.4
         assert res["leaders"][0]["roe_ttm_pct"] == 24.0
         assert res["leaders"][1]["roe_ttm_pct"] is None
+
+
+def test_msci_section_time_window_and_survey_mode() -> None:
+    """[WHY] Khối msci_section chỉ bật trong [2026-11-12, 2026-12-05] và tự ẩn (=None) ngoài cửa sổ."""
+    assert build_msci_section("2026-11-11") is None
+    assert build_msci_section("2026-12-06") is None
+
+    live_screener = REPO_ROOT / "backend" / "data" / "screener_cache.db"
+    if not live_screener.exists():
+        return
+    sec = build_msci_section("2026-11-13")
+    assert sec is not None
+    assert sec["mode"] == "AWAITING_VERIFIED_MANIFEST"
+    assert sec["sessions_remaining"] == 11
+    assert [x["symbol"] for x in sec["add_std"]] == ["PNJ", "NLG"]
+    assert sec["add_std"][0]["trap_warning"] is True
+    assert [x["symbol"] for x in sec["down_sc"]] == ["DIG", "FTS", "PC1"]
 
 
 def test_cli_daily_brief_smoke_on_live_db(tmp_path: Path) -> None:
