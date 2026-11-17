@@ -618,6 +618,9 @@ def _missing_valuation_leaders(pit_quarter: str | None) -> dict[str, Any]:
         "status": "MISSING",
         "pit_quarter": pit_quarter or None,
         "leaders": [],
+        # [WHY]: payload phải giữ ĐỦ khóa ở mọi nhánh (kể cả fail-closed) để consumer
+        # không phải `.get()` với default "lành" — luật A: "không biết" ≠ 0.
+        "skipped_no_price_basis": 0,
     }
 
 
@@ -638,6 +641,9 @@ def build_valuation_leaders(
 
     fin_uri = f"file:{financial_db.resolve().as_posix()}?mode=ro"
     candidates: list[dict[str, Any]] = []
+    # [WHY]: đếm số mã bị loại vì thiếu cơ sở giá của kỳ — bắt buộc khai báo mẫu số
+    # (luật B: phân loại lý do suy giảm), không được âm thầm trả danh sách ngắn hơn.
+    skipped_no_price_basis = 0
     with contextlib.closing(sqlite3.connect(fin_uri, uri=True)) as fin_conn:
         if not (_table_exists(fin_conn, "valuation_scores") and _table_exists(fin_conn, "health_ratios")):
             return _missing_valuation_leaders(pit_quarter)
@@ -667,7 +673,7 @@ def build_valuation_leaders(
 
             val_rows = fin_conn.execute(
                 """
-                SELECT period, ratio_name, ratio_value, z_score, zone
+                SELECT period, ratio_name, ratio_value, z_score, zone, price
                 FROM valuation_scores
                 WHERE symbol = ?
                   AND period <= ?
@@ -679,14 +685,15 @@ def build_valuation_leaders(
                 """,
                 (sym, pit_quarter),
             ).fetchall()
-            by_period: dict[str, dict[str, tuple[float, float, str]]] = {}
-            for period, ratio_name, ratio_val, z_score, zone in val_rows:
+            by_period: dict[str, dict[str, tuple[float, float, str, float | None]]] = {}
+            for period, ratio_name, ratio_val, z_score, zone, price_basis in val_rows:
                 if not (_is_finite_number(ratio_val) and _is_finite_number(z_score)):
                     continue
                 by_period.setdefault(str(period), {})[str(ratio_name)] = (
                     float(ratio_val),
                     float(z_score),
                     str(zone or ""),
+                    float(price_basis) if _is_finite_number(price_basis) else None,
                 )
 
             matched_period = next(
@@ -696,8 +703,24 @@ def build_valuation_leaders(
             if matched_period is None:
                 continue
 
-            pe_val, pe_z, pe_zone = by_period[matched_period]["PE"]
-            pb_val, pb_z, pb_zone = by_period[matched_period]["PB"]
+            pe_val, pe_z, pe_zone, pe_price_basis = by_period[matched_period]["PE"]
+            pb_val, pb_z, pb_zone, pb_price_basis = by_period[matched_period]["PB"]
+
+            # [WHY]: `ratio_value` của kỳ được tính trên giá đóng cửa CỦA KỲ đó, còn
+            # `close_val` là giá phiên báo cáo. Ghép thẳng hai thứ này (bản tin 17/11:
+            # P/E 13,2x của 2026Q2 với giá 48.500đ) làm nhà đầu tư đọc sai ~1,45 lần.
+            # Quy về cùng một cơ sở giá: P/E_live = P/E_kỳ × close / price_kỳ.
+            # Thiếu `price` của kỳ ⇒ KHÔNG suy đoán (Missing > Fake): loại mã, đếm lại.
+            if not (_is_finite_number(pe_price_basis) and pe_price_basis > 0) or not (
+                _is_finite_number(pb_price_basis) and pb_price_basis > 0
+            ):
+                skipped_no_price_basis += 1
+                continue
+            pe_live = pe_val * close_val / pe_price_basis
+            pb_live = pb_val * close_val / pb_price_basis
+            if not (_is_finite_number(pe_live) and _is_finite_number(pb_live)):
+                skipped_no_price_basis += 1
+                continue
 
             roe_rows = fin_conn.execute(
                 """
@@ -724,8 +747,13 @@ def build_valuation_leaders(
                     "close": round(close_val, DECIMALS_DISPLAY),
                     "ret_1d_pct": ret_1d_pct,
                     "period": matched_period,
-                    "pe": round(pe_val, DECIMALS_DISPLAY),
-                    "pb": round(pb_val, DECIMALS_DISPLAY),
+                    "pe": round(pe_live, DECIMALS_DISPLAY),
+                    "pb": round(pb_live, DECIMALS_DISPLAY),
+                    "pe_quarter": round(pe_val, DECIMALS_DISPLAY),
+                    "pb_quarter": round(pb_val, DECIMALS_DISPLAY),
+                    "pe_price_basis": round(pe_price_basis, DECIMALS_DISPLAY),
+                    "pb_price_basis": round(pb_price_basis, DECIMALS_DISPLAY),
+                    "valuation_basis": "LIVE_CLOSE",
                     "pe_z": round(pe_z, DECIMALS_DISPLAY),
                     "pb_z": round(pb_z, DECIMALS_DISPLAY),
                     "composite_z": composite_z,
@@ -754,6 +782,7 @@ def build_valuation_leaders(
         "status": "OK" if leaders else "MISSING",
         "pit_quarter": pit_quarter,
         "leaders": leaders,
+        "skipped_no_price_basis": skipped_no_price_basis,
     }
 
 

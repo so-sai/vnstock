@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from src.services.daily_brief_snapshot import (
     SCHEMA_VERSION,
     build_daily_brief_snapshot,
@@ -367,7 +369,7 @@ def test_valuation_leaders_filters_healthy_pit_and_sorts_by_composite_z(tmp_path
                 """
                 CREATE TABLE valuation_scores (
                     symbol TEXT, period TEXT, ratio_name TEXT, ratio_value REAL,
-                    z_score REAL, zone TEXT, is_clean_metric INTEGER
+                    z_score REAL, zone TEXT, is_clean_metric INTEGER, price REAL
                 )
                 """
             )
@@ -375,23 +377,24 @@ def test_valuation_leaders_filters_healthy_pit_and_sorts_by_composite_z(tmp_path
                 "CREATE TABLE health_ratios (symbol TEXT, period TEXT, ratio_name TEXT, ratio_value REAL)"
             )
             # FPT: STEADY_EARNER, 2026Q2 hợp lệ (-1.40) + 2026Q3 future (phải bị chặn bởi PIT)
-            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q2', 'PE', 13.24, -1.60, 'CHEAP', 1)")
-            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q2', 'PB', 3.32, -1.20, 'CHEAP', 1)")
-            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q3', 'PE', 5.0, -3.00, 'CHEAP', 1)")
-            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q3', 'PB', 1.0, -3.00, 'CHEAP', 1)")
+            # price = cơ sở giá của kỳ (70.200) — KHÁC close hôm nay (48.500) ⇒ P/E live phải khác 13,24.
+            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q2', 'PE', 13.24, -1.60, 'CHEAP', 1, 70200.0)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q2', 'PB', 3.32, -1.20, 'CHEAP', 1, 70200.0)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q3', 'PE', 5.0, -3.00, 'CHEAP', 1, 70200.0)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('FPT', '2026Q3', 'PB', 1.0, -3.00, 'CHEAP', 1, 70200.0)")
             for q in ("2026Q2", "2026Q1", "2025Q4", "2025Q3"):
                 fconn.execute("INSERT INTO health_ratios VALUES ('FPT', ?, 'ROE', 0.06)", (q,))
             # VCB: HIGH_QUALITY_COMPOUNDER, chỉ 3 quý ROE -> roe_ttm_pct phải None (không đoán/annualize)
-            fconn.execute("INSERT INTO valuation_scores VALUES ('VCB', '2026Q2', 'PE', 12.48, -1.00, 'FAIR', 1)")
-            fconn.execute("INSERT INTO valuation_scores VALUES ('VCB', '2026Q2', 'PB', 2.09, -1.00, 'CHEAP', 1)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('VCB', '2026Q2', 'PE', 12.48, -1.00, 'FAIR', 1, 62200.0)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('VCB', '2026Q2', 'PB', 2.09, -1.00, 'CHEAP', 1, 62200.0)")
             for q in ("2026Q2", "2026Q1", "2025Q4"):
                 fconn.execute("INSERT INTO health_ratios VALUES ('VCB', ?, 'ROE', 0.05)", (q,))
             # BAD1: CYCLICAL -> bị loại bởi archetype
-            fconn.execute("INSERT INTO valuation_scores VALUES ('BAD1', '2026Q2', 'PE', 5.0, -3.0, 'CHEAP', 1)")
-            fconn.execute("INSERT INTO valuation_scores VALUES ('BAD1', '2026Q2', 'PB', 0.8, -3.0, 'CHEAP', 1)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('BAD1', '2026Q2', 'PE', 5.0, -3.0, 'CHEAP', 1, 20000.0)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('BAD1', '2026Q2', 'PB', 0.8, -3.0, 'CHEAP', 1, 20000.0)")
             # DIRT: is_clean_metric = 0 -> bị loại bởi clean metric guard
-            fconn.execute("INSERT INTO valuation_scores VALUES ('DIRT', '2026Q2', 'PE', 6.0, -2.5, 'CHEAP', 0)")
-            fconn.execute("INSERT INTO valuation_scores VALUES ('DIRT', '2026Q2', 'PB', 0.9, -2.5, 'CHEAP', 0)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('DIRT', '2026Q2', 'PE', 6.0, -2.5, 'CHEAP', 0, 25000.0)")
+            fconn.execute("INSERT INTO valuation_scores VALUES ('DIRT', '2026Q2', 'PB', 0.9, -2.5, 'CHEAP', 0, 25000.0)")
             fconn.commit()
 
         engine = _FakeHealthEngine(
@@ -412,6 +415,93 @@ def test_valuation_leaders_filters_healthy_pit_and_sorts_by_composite_z(tmp_path
         assert res["leaders"][0]["composite_z"] == -1.4
         assert res["leaders"][0]["roe_ttm_pct"] == 24.0
         assert res["leaders"][1]["roe_ttm_pct"] is None
+
+
+def _seed_valuation_case(tmp_path: Path, price_basis: float | None):
+    """Dựng DB nhỏ: 1 mã FPT STEADY_EARNER, close hôm nay 48.500, cơ sở giá kỳ 70.200."""
+    from types import SimpleNamespace
+
+    class _Engine:
+        def analyze(self, sym: str, _as_of: str):
+            return SimpleNamespace(archetype="STEADY_EARNER")
+
+    screener_db = tmp_path / "screener_pe.db"
+    fin_db = tmp_path / "fin_pe.db"
+    sconn = sqlite3.connect(screener_db)
+    sconn.execute(
+        "CREATE TABLE daily_ohlcv (symbol TEXT, date TEXT, open REAL, high REAL, low REAL, "
+        "close REAL, volume REAL, is_stale INTEGER)"
+    )
+    for d, c in (("2026-11-16", 50200.0), ("2026-11-17", 48500.0)):
+        sconn.execute(
+            "INSERT INTO daily_ohlcv VALUES ('FPT', ?, ?, ?, ?, ?, 600000, 0)", (d, c, c, c, c)
+        )
+    sconn.commit()
+
+    fconn = sqlite3.connect(fin_db)
+    fconn.execute(
+        "CREATE TABLE valuation_scores (symbol TEXT, period TEXT, ratio_name TEXT, "
+        "ratio_value REAL, z_score REAL, zone TEXT, is_clean_metric INTEGER, price REAL)"
+    )
+    fconn.execute(
+        "CREATE TABLE health_ratios (symbol TEXT, period TEXT, ratio_name TEXT, ratio_value REAL)"
+    )
+    fconn.execute(
+        "INSERT INTO valuation_scores VALUES ('FPT', '2026Q2', 'PE', 13.24, -1.60, 'CHEAP', 1, ?)",
+        (price_basis,),
+    )
+    fconn.execute(
+        "INSERT INTO valuation_scores VALUES ('FPT', '2026Q2', 'PB', 3.32, -1.20, 'CHEAP', 1, ?)",
+        (price_basis,),
+    )
+    for q in ("2026Q2", "2026Q1", "2025Q4", "2025Q3"):
+        fconn.execute("INSERT INTO health_ratios VALUES ('FPT', ?, 'ROE', 0.06)", (q,))
+    fconn.commit()
+    fconn.close()
+    return sconn, fin_db, _Engine()
+
+
+def test_valuation_leaders_dung_PE_PB_theo_gia_hom_nay(tmp_path: Path) -> None:
+    """[WHY] Bản tin 17/11 in `P/E 13,2x` của kỳ 2026Q2 (cơ sở giá 70.200đ) ngay cạnh
+    giá 48.500đ ⇒ nhà đầu tư đọc ra P/E sai gần 1,45 lần. P/E, P/B phải quy về ĐÚNG
+    giá đóng cửa của phiên báo cáo; giá trị quý được giữ lại để kiểm toán."""
+    sconn, fin_db, engine = _seed_valuation_case(tmp_path, price_basis=70200.0)
+    res = build_valuation_leaders(
+        sconn,
+        fin_db,
+        engine,  # type: ignore[arg-type]
+        "2026-11-17",
+        "2026-11-16",
+        candidate_symbols=("FPT",),
+    )
+    sconn.close()
+
+    row = res["leaders"][0]
+    assert row["pe"] == pytest.approx(round(13.24 * 48500.0 / 70200.0, 2), abs=1e-9)  # 9,15
+    assert row["pb"] == pytest.approx(round(3.32 * 48500.0 / 70200.0, 2), abs=1e-9)  # 2,29
+    assert row["pe"] < row["pe_quarter"]  # không còn in số của tháng 6
+    assert row["pe_quarter"] == pytest.approx(13.24)
+    assert row["pb_quarter"] == pytest.approx(3.32)
+    assert row["valuation_basis"] == "LIVE_CLOSE"
+
+
+def test_valuation_leaders_tu_choi_khi_thieu_co_so_gia(tmp_path: Path) -> None:
+    """[WHY] Không có cơ sở giá của kỳ ⇒ KHÔNG được ghép P/E quý với giá hôm nay
+    (Missing > Fake). Phải loại mã và khai báo số mã bị loại, không im lặng bịa số."""
+    sconn, fin_db, engine = _seed_valuation_case(tmp_path, price_basis=None)
+    res = build_valuation_leaders(
+        sconn,
+        fin_db,
+        engine,  # type: ignore[arg-type]
+        "2026-11-17",
+        "2026-11-16",
+        candidate_symbols=("FPT",),
+    )
+    sconn.close()
+
+    assert res["leaders"] == []
+    assert res["status"] == "MISSING"
+    assert res["skipped_no_price_basis"] == 1
 
 
 def test_msci_section_time_window_and_survey_mode() -> None:
