@@ -1365,3 +1365,50 @@ cập nhật ca NVB. RED 5 failed → GREEN 28/28 (3 file test liên quan). Ba c
 3. **BCTC NVB dừng ở `2025Q2`** (chậm 5 quý so với SHB/VCB `2026Q2`); `SCB` dừng `2021Q1`.
    Cần đo độ phủ nguồn cho nhóm ngân hàng nhỏ trước khi mở lại nhãn cho họ.
 
+## 34. ✅ DONE 17/11/2026 — Bản tin trộn P/E, P/B của quý với giá của phiên (e27b336)
+
+**Triệu chứng:** dòng đầu mục `💎 ĐỊNH GIÁ HẤP DẪN` ngày `17/11/2026`:
+`[FPT] Giá 48.500đ (-1,82%) | P/E 13,2x (Rẻ LS) · P/B 3,32x (Rẻ LS) | ROE 23,9%`.
+Tính đúng tại giá 48.500đ: `P/E = 48.500/5.302 = 9,15x`, `P/B = 48.500/21.133 = 2,29x`.
+
+**Nguyên nhân gốc:** `build_valuation_leaders()` in thẳng `ratio_value` của kỳ PIT
+(`2026Q2`) — vốn tính trên giá đóng cửa CỦA KỲ (`valuation_scores.price` = 70.200đ với
+FPT, 62.200đ với VCB) — rồi ghép cạnh giá phiên báo cáo. Hai cơ sở giá khác nhau trong
+cùng một dòng ⇒ P/E, P/B sai ~1,45 lần. `price_basis` là token `'ADJUSTED_TODAY'`
+(không phải số) nên **không** dùng được để quy đổi; phải dùng cột `price`.
+
+**Đã sửa:** `pe_live = pe_quarter × close_hôm_nay / price_kỳ` (tương tự P/B). Payload giữ
+`pe_quarter`, `pb_quarter`, `pe_price_basis`, `pb_price_basis`, `valuation_basis="LIVE_CLOSE"`
+để kiểm toán lại. Thiếu `price` kỳ ⇒ loại mã + `skipped_no_price_basis` (khóa này có ở
+**mọi** nhánh return, kể cả `_missing_valuation_leaders`). Không sửa Rust: consumer đọc
+`pe`/`pb` qua `json_extract`, khóa bổ sung là additive.
+
+**Bằng chứng (DB thật, phiên 17/11/2026):**
+
+| Mã | Giá | Cơ sở giá kỳ | P/E quý → live | P/B quý → live |
+|---|---|---|---|---|
+| FPT | 48.500 | 70.200 | 13,24 → **9,15** | 3,32 → **2,29** |
+| VCB | 52.100 | 62.200 | 12,48 → **10,45** | 2,09 → **1,75** |
+| BID | 31.000 | 42.400 | 10,23 → **7,48** | 1,66 → **1,21** |
+
+`skipped_no_price_basis = 0` trên toàn bộ VN30 + BANK.
+
+**Đối chiếu chênh lệch P/B VCB 1,57x (tính tay nguồn ngoài) vs 1,75x (hệ thống):** không
+phải lỗi công thức mà là **mẫu số cổ phiếu**:
+`TOTAL_EQUITY 2026Q2 = 248.491 tỷ` ÷ `7.475.000.000 cp` = `33.243đ` ⇒ P/B 1,57x;
+÷ `8.355.728.168 cp` (`shares_history` `TCBS_REPORTED`, hiệu lực 2026-08-14) = `29.739đ`
+⇒ P/B 1,75x. Con số 7,475 tỷ là số cp **trước đợt phát hành 2026** ⇒ P/B 1,57x dùng mẫu số
+cũ. FPT kiểm chứng ngược: `40.996 tỷ ÷ 1.939.904.415 = 21.133đ` — khớp đúng
+`valuation_scores` (3,3218 × 70.200) ⇒ chuỗi quy đổi dùng `TCBS_REPORTED` nhất quán.
+
+**Còn mở:**
+1. **`valuation_scores` chậm 1 quý so với `health_ratios`:** `health_ratios` đã có `2026Q3`
+   nhưng `valuation_scores` dừng ở `2026Q2` và `financial_facts.TOTAL_EQUITY` cũng chưa có
+   `2026Q3` ⇒ bản tin vẫn niêm yết P/E, P/B trên BCTC Q2. Khi nạp Q3 phải kiểm lại
+   `skipped_no_price_basis` và đối chiếu P/B với BVPS công bố.
+2. **SHB `10.800` (hệ thống) vs `10.700` (FireAnt) phiên 17/11:** DB chỉ có **một** nguồn
+   (`kbs`) cho mọi mã từ `2026-11-01`, bar tự nhất quán (`O 10.750 · H 10.800 = C · L 10.650
+   · V 24.149.100`), nên **không có bằng chứng nội bộ để phán nguồn nào đúng**. Không sửa
+   giá bằng tay (luật B): cần bổ sung nguồn đối chứng thứ hai cho bar trong ngày.
+
+
