@@ -119,6 +119,17 @@ def test_filter_clean_momentum_blocks_penny_distressed_weak_illiquid() -> None:
         {"symbol": "BADA", "close": 30000.0, "adv20_shares": 1_000_000.0, "rs": 99.0, "health_archetype": "DISTRESSED"},
         # Thiếu BCTC (None) bị loại theo Missing > Fake
         {"symbol": "NOFN", "close": 30000.0, "adv20_shares": 1_000_000.0, "rs": 99.0, "health_archetype": None},
+        # [WHY] NVB (Ngân hàng TMCP Quốc Dân) từng bị gán COMMODITY ⇒ lọt radar và hiển thị
+        # "Hàng hóa" trên bản tin 17/11. Nay archetype không đo được ⇒ chặn, không đoán.
+        {
+            "symbol": "NVB",
+            "close": 15800.0,
+            "adv20_shares": 700_000.0,
+            "rs": 96.6,
+            "health_archetype": "INSUFFICIENT_DATA",
+            "ret_1d_pct": 2.60,
+            "breakout_20d": True,
+        },
         # Các mã hợp lệ (PVT bị gap nên ret_1d_pct = None vẫn phải giữ nguyên None)
         {
             "symbol": "NAB",
@@ -130,12 +141,12 @@ def test_filter_clean_momentum_blocks_penny_distressed_weak_illiquid() -> None:
             "breakout_20d": False,
         },
         {
-            "symbol": "NVB",
-            "close": 15800.0,
-            "adv20_shares": 700_000.0,
-            "rs": 96.6,
+            "symbol": "HPG",
+            "close": 26000.0,
+            "adv20_shares": 2_000_000.0,
+            "rs": 87.2,
             "health_archetype": "COMMODITY",
-            "ret_1d_pct": 2.60,
+            "ret_1d_pct": 0.80,
             "breakout_20d": True,
         },
         {
@@ -150,9 +161,10 @@ def test_filter_clean_momentum_blocks_penny_distressed_weak_illiquid() -> None:
     ]
 
     result = filter_clean_momentum_candidates(raw, top_n=10)
-    assert [row["symbol"] for row in result] == ["NVB", "NAB", "PVT"]
-    assert result[0]["breakout_20d"] is True
-    assert result[2]["ret_1d_pct"] is None
+    assert [row["symbol"] for row in result] == ["NAB", "PVT", "HPG"]
+    assert all(row["symbol"] != "NVB" for row in result)
+    assert result[2]["breakout_20d"] is True
+    assert result[1]["ret_1d_pct"] is None
 
 
 def test_write_daily_brief_snapshot_atomic_roundtrip(tmp_path: Path) -> None:

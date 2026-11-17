@@ -110,6 +110,13 @@ ARCHETYPES = {
         "moat_max": 0.25,
         "profitability_min": 0.20,
     },
+    # [WHY]: nhãn cho ca KHÔNG archetype nào đo được. Phải có nhãn riêng thay vì mượn
+    # STEADY_EARNER: bản tin 17/11 gọi NVB (ngân hàng) là "Hàng hóa" vì fallback/khớp sai;
+    # nhãn này cũng là tín hiệu để mọi consumer chặn mã đó (Missing > Fake).
+    "INSUFFICIENT_DATA": {
+        "label": "Chưa phân loại (thiếu cơ sở)",
+        "desc": "Không archetype nào trong bộ luật áp dụng được cho loại hình doanh nghiệp này",
+    },
 }
 
 
@@ -233,7 +240,9 @@ class CompanyHealthV2:
         )
 
         # 5. Classify archetype
-        archetype, confidence = self._classify_archetype(organs, no_data_organs)
+        # [WHY]: phải truyền `entity_type` — COMMODITY/CYCLICAL là archetype ngành,
+        # áp cho BANK sẽ dán nhãn "Hàng hóa" cho ngân hàng (lỗi bản tin 17/11, NVB).
+        archetype, confidence = self._classify_archetype(organs, no_data_organs, entity=entity_type)
 
         # 6. Get metadata
         if target_date:
@@ -608,17 +617,32 @@ class CompanyHealthV2:
     # ── Archetype Classification ─────────────────────────────────
 
     @staticmethod
-    def _classify_archetype(organs: OrganScores, no_data: list[str] | None = None) -> tuple[str, float]:
+    def _classify_archetype(
+        organs: OrganScores,
+        no_data: list[str] | None = None,
+        *,
+        entity: str = "STANDARD",
+    ) -> tuple[str, float]:
         """Map 5-organ vector to latent archetype.
 
         no_data: danh sách organ THIẾU dữ liệu (score 0.0 giả tạo). Các organ
         này bị LOẠI khỏi điều kiện DISTRESSED — không được dùng số 0 giả để
         kết luận "suy yếu" khi thực tế chỉ là không có dữ liệu.
+
+        entity: loại hình DN (BANK/SECURITIES/...). CYCLICAL và COMMODITY là
+        archetype NGÀNH — chúng suy từ moat/gross-margin persistence, khái niệm
+        không tồn tại với ngân hàng (moat của BANK chỉ còn ROE-stability). Vì vậy
+        hai nhãn này bị CHẶN với BANK; nếu chúng là thứ duy nhất khớp thì trả
+        INSUFFICIENT_DATA thay vì dán nhãn sai (bản tin 17/11 gọi NVB là "Hàng hóa").
         """
         no_data = no_data or []
         p, c, b, e, m = organs.profitability, organs.cash, organs.balance_sheet, organs.efficiency, organs.moat
+        is_bank = str(entity).strip().upper() == "BANK"
 
         candidates = []
+        #: [WHY]: đánh dấu "chỉ khớp archetype ngành bị chặn" để phân biệt với
+        #: "không khớp gì" — hai ca này phải xử lý khác nhau (xem cuối hàm).
+        blocked_sector_match = False
 
         # HIGH_QUALITY_COMPOUNDER: all organs strong
         if (
@@ -650,9 +674,14 @@ class CompanyHealthV2:
             candidates.append(("LEVERAGED_GROWTH", confidence))
 
         # CYCLICAL: moderate profitability, weak moat
+        # [WHY]: archetype ngành — BANK không có khái niệm "moat theo biên gộp" nên bị chặn;
+        # xóa điều kiện này sẽ tái sinh lỗi gán "Chu kỳ" cho ngân hàng (PCB/SCB/ABB).
         if p >= ARCHETYPES["CYCLICAL"]["profitability_min"] and m <= ARCHETYPES["CYCLICAL"]["moat_max"]:
-            confidence = np.mean([p, 1 - m]) * 0.6
-            candidates.append(("CYCLICAL", confidence))
+            if is_bank:
+                blocked_sector_match = True
+            else:
+                confidence = np.mean([p, 1 - m]) * 0.6
+                candidates.append(("CYCLICAL", confidence))
 
         # DISTRESSED: all weak (bỏ qua organ NO_DATA)
         distressed_weak = []
@@ -671,14 +700,26 @@ class CompanyHealthV2:
             candidates.append(("DISTRESSED", confidence))
 
         # COMMODITY: no moat, profitability tied to cycle
+        # [WHY]: cùng lý do CYCLICAL — NVB (ngân hàng) có moat=0.00 do ROE biến động mạnh
+        # nên khớp COMMODITY và bị in là "Hàng hóa" trên bản tin 17/11. Chặn với BANK.
         if m <= ARCHETYPES["COMMODITY"]["moat_max"] and p >= ARCHETYPES["COMMODITY"]["profitability_min"]:
-            confidence = (1.0 - m) * 0.5
-            candidates.append(("COMMODITY", confidence))
+            if is_bank:
+                blocked_sector_match = True
+            else:
+                confidence = (1.0 - m) * 0.5
+                candidates.append(("COMMODITY", confidence))
 
         # WHY: hệ số nhân confidence (0.7/0.6/0.5) hạ điểm các archetype chỉ
         # khớp 1-2 điều kiện; nếu không khớp archetype nào → mặc định
         # STEADY_EARNER với confidence thấp 0.35 thay vì trả lỗi.
         if not candidates:
+            # [WHY]: BANK chỉ khớp archetype ngành (đã bị chặn) ⇒ KHÔNG có nhãn đúng.
+            # Trả INSUFFICIENT_DATA (luật A: "không biết" ≠ nhãn lành). Giữ fallback
+            # STEADY_EARNER cho phần còn lại để không đá 20 ngân hàng lớn khỏi bản tin
+            # (SHB/TCB/BID/CTG rơi vào fallback vì cash < 0.5) — nợ mô hình organ
+            # ngân hàng ghi ở `research/tech_debt_backlog.md` Mục 33.
+            if blocked_sector_match:
+                return "INSUFFICIENT_DATA", 0.0
             return "STEADY_EARNER", 0.35
 
         # Pick highest confidence

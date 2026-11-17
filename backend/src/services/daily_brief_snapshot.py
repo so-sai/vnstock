@@ -163,6 +163,11 @@ VN30_AND_BANK_SYMBOLS: tuple[str, ...] = (
 )
 HEALTHY_VALUATION_ARCHETYPES: tuple[str, ...] = ("HIGH_QUALITY_COMPOUNDER", "STEADY_EARNER")
 
+# [WHY]: Radar động lượng là danh sách "sạch" ⇒ chỉ nhận archetype ĐO ĐƯỢC. Trước đây chỉ
+# chặn DISTRESSED nên mọi nhãn khác đều lọt (fail-open); NVB 17/11 bị gán COMMODITY vì
+# moat=0.00 rồi hiện "(Hàng hóa)" trên bản tin. INSUFFICIENT_DATA = không có cơ sở phân loại.
+BLOCKED_MOMENTUM_ARCHETYPES: frozenset[str] = frozenset({"DISTRESSED", "INSUFFICIENT_DATA"})
+
 # [WHY]: Làm tròn 4 chữ số thập phân cho chỉ số Governor — tránh sai số biểu diễn float làm nhiễu JSON.
 DECIMALS_GOV = 4
 
@@ -312,7 +317,10 @@ def filter_clean_momentum_candidates(
         if not isinstance(arch_raw, str):
             continue
         arch = arch_raw.strip()
-        if not arch or arch.upper() == "DISTRESSED":
+        # [WHY]: INSUFFICIENT_DATA = không đo được archetype (NVB 17/11 bị gán COMMODITY nên
+        # lọt radar). Radar là "động lượng SẠCH" nên không được nhận mã chưa phân loại —
+        # nếu chỉ chặn DISTRESSED thì mọi nhãn rác đều lọt (fail-open).
+        if not arch or arch.upper() in BLOCKED_MOMENTUM_ARCHETYPES:
             continue
 
         ret_raw = item.get("ret_1d_pct")

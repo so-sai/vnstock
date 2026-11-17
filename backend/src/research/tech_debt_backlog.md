@@ -1297,3 +1297,71 @@ kèm cost ÷1,5 — nếu chỉ nhân qty thì preview báo thiếu đúng 5.007
 **Còn mở (không thuộc Mục này):** `mark_to_market()` vẫn fallback `close = cost_basis`
 khi thiếu bar (dòng 680) — cùng họ "Missing > Fake" nhưng nằm trên đường ghi hàng ngày,
 cần xử lý riêng để không đổi hành vi EOD hiện hữu trong cùng commit này.
+
+## 33. ✅ DONE 17/11/2026 — Ngân hàng bị dán nhãn "Hàng hóa" trên bản tin ATC (NVB)
+
+**Triệu chứng:** bản tin `17/11/2026` in
+`[NVB] Giá 15.000đ (-3,85% | RS 96,3 | ADV20 1,1M cp | Hàng hóa)`.
+`NVB` = Ngân hàng TMCP Quốc Dân (NCB); `entity_registry` **đã đúng** `entity_type='BANK'`.
+
+**Nguyên nhân gốc (không phải "thiếu nhãn ngành"):** `_classify_archetype()` là luật
+min/max trên 5 organ score, **không nhận `entity_type`**. Với BANK, `_score_moat()` chỉ
+còn fallback `_stability(ROE)` (ROIC/gross margin không tồn tại ở ngân hàng); NVB có
+ROE biến động mạnh nên `moat = 0.0000` ⇒ khớp `COMMODITY` (`moat ≤ 0.25`, `profitability
+≥ 0.20`). Hai archetype `COMMODITY`/`CYCLICAL` là archetype **NGÀNH** (price-taker, biên
+gắn giá đầu vào/đầu ra) — khái niệm này không áp dụng được cho ngân hàng, nhưng luật
+cũ không có cổng nào chặn.
+
+**Đã sửa:**
+1. `CompanyHealthV2._classify_archetype(..., entity=...)` — `analyze()` truyền
+   `entity_type`; `COMMODITY`/`CYCLICAL` bị **chặn với BANK**.
+2. Nếu BANK chỉ khớp được archetype ngành (đã bị chặn) ⇒ trả **`INSUFFICIENT_DATA`**
+   (`label = "Chưa phân loại (thiếu cơ sở)"`), confidence `0.0` — luật A: "không biết"
+   ≠ nhãn lành, không được mượn fallback `STEADY_EARNER` cho ca này.
+3. `filter_clean_momentum_candidates()` chặn `BLOCKED_MOMENTUM_ARCHETYPES` =
+   `{DISTRESSED, INSUFFICIENT_DATA}` (trước đây chỉ chặn `DISTRESSED` ⇒ nhãn rác nào
+   cũng lọt radar, fail-open).
+
+**Bằng chứng (DB thật, `financial_facts.db`, `analyze(sym, "2026-11-17")`, 795 mã có dữ liệu):**
+
+| Archetype | Trước | Sau |
+|---|---|---|
+| STEADY_EARNER | 279 | 279 |
+| DISTRESSED | 235 | 235 |
+| COMMODITY | 121 | 118 |
+| LEVERAGED_GROWTH | 109 | 110 |
+| CYCLICAL | 46 | 43 |
+| HIGH_QUALITY_COMPOUNDER | 5 | 5 |
+| INSUFFICIENT_DATA | 0 | **5** |
+
+5 mã đổi nhãn: `BVB`, `NVB`, `PCB`, `SCB`, `SGB` → `INSUFFICIENT_DATA`; `ABB`
+`CYCLICAL → LEVERAGED_GROWTH` (vẫn khớp archetype khác nên không bị đá ra).
+**0 ngân hàng còn mang archetype ngành** (kiểm bằng truy vấn toàn bộ `entity_type='BANK'`).
+
+Bản tin dựng lại end-to-end (`ptck.py daily-brief --date 2026-11-17 --out <temp>`):
+`momentum_clean = [NAB (STEADY_EARNER), PVT (LEVERAGED_GROWTH)]` — NVB rời radar,
+không còn dòng "Hàng hóa" nào; `valuation_leaders` vẫn giữ `BID` (không bị vạ lây).
+
+**Kỷ luật kiểm định:** `backend/tests/test_health_v2_no_data.py` +4 ca
+(`test_bank_khong_bao_gio_mang_nhan_hang_hoa`, `test_bank_khong_bi_da_ra_khi_con_archetype_khac`,
+`test_bank_khong_khop_gi_van_giu_nguyen_fallback`, `test_doanh_nghiep_thuong_van_giu_commodity`)
+và `test_daily_brief_snapshot.py::test_filter_clean_momentum_blocks_penny_distressed_weak_illiquid`
+cập nhật ca NVB. RED 5 failed → GREEN 28/28 (3 file test liên quan). Ba ca chống vá quá tay:
+- ngân hàng còn khớp archetype khác (`LEVERAGED_GROWTH`) **không** bị đá ra;
+- ngân hàng rơi fallback (SHB/TCB/BID/CTG) **giữ nguyên** hành vi;
+- doanh nghiệp phi ngân hàng moat yếu **vẫn** là `COMMODITY`.
+
+**Còn mở (KHÔNG sửa trong Mục này — cần quyết định nghiên cứu):**
+1. **Fallback `STEADY_EARNER` 0.35 là nhãn "lành" giả tạo.** 20 ngân hàng không khớp
+   archetype nào (vì `cash < 0.5`) đang nhận nhãn này, gồm `SHB`, `TCB`, `BID`, `CTG`,
+   `MBB`, `HDB`, `TPB`, `VPB`, `OCB`, `BAB`, `NAB`, `PGB`, `VAB`, `VBB`… Nếu đổi fallback
+   thành `INSUFFICIENT_DATA`, **20 ngân hàng lớn biến mất** khỏi bản tin ⇒ phải làm cùng
+   lúc với việc bổ sung archetype ngân hàng (NIM/LLR/NPL/CASA), không vá lẻ.
+2. **`cash` NO_DATA của ngân hàng là báo động giả:** `_detect_no_data()` cho BANK chỉ xét
+   `CFO_TO_NET_PROFIT` (bảng không có dòng nào) trong khi `_score_cash()` fallback sang
+   `CFO_TO_NET_INCOME` (có 30–70 kỳ). Sửa cho khớp sẽ khiến hàng loạt ngân hàng rơi vào
+   `DISTRESSED` theo luật `cash ≤ 0.30` ⇒ đây là **thay đổi học thuật**, phải chạy lại
+   kiểm định XUÔI chứ không được lặng lẽ đổi trong một commit dọn lỗi hiển thị.
+3. **BCTC NVB dừng ở `2025Q2`** (chậm 5 quý so với SHB/VCB `2026Q2`); `SCB` dừng `2021Q1`.
+   Cần đo độ phủ nguồn cho nhóm ngân hàng nhỏ trước khi mở lại nhãn cho họ.
+
